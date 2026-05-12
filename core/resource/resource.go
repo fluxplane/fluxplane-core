@@ -2,11 +2,13 @@ package resource
 
 import (
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
 )
 
@@ -60,10 +62,12 @@ type PluginRef struct {
 type ContributionBundle struct {
 	Source SourceRef `json:"source,omitempty"`
 
+	Apps             []coreapp.Spec             `json:"apps,omitempty"`
 	Agents           []agent.Spec               `json:"agents,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
 	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
+	Skills           []skill.Spec               `json:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
 	Workflows        []workflow.Spec            `json:"workflows,omitempty"`
 	Plugins          []PluginRef                `json:"plugins,omitempty"`
@@ -75,10 +79,12 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	if b == nil {
 		return
 	}
+	b.Apps = append(b.Apps, other.Apps...)
 	b.Agents = append(b.Agents, other.Agents...)
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)
 	b.Sessions = append(b.Sessions, other.Sessions...)
+	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)
 	b.Workflows = append(b.Workflows, other.Workflows...)
 	b.Plugins = append(b.Plugins, other.Plugins...)

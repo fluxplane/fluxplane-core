@@ -495,10 +495,18 @@ core operation/command/channel/session/thread/event model
 Implemented and green:
 
 - `core/operation`: operation specs, semantics, results, events, and registry.
+- `core/app`: pure app manifest specs for default refs, sources, discovery
+  policy, model policy, and plugin refs.
+- `core/agent`: inert agent specs now carry engineer-style system prompts,
+  tool refs, command refs, skill refs, inference hints, max-step policy, and
+  stop-condition declarations.
+- `core/skill`: pure skill metadata specs and source refs.
 - `core/event`: event records, stream store port, registry, append conflict and
   batch append contracts.
 - `core/session`: configured session specs, session lifecycle event payloads,
   and reserved delegation policy shape for future sub-agents.
+- `core/workflow`: operation and agent-dispatched workflow DAG specs with
+  dependency validation and raw definition preservation.
 - `runtime/eventstore`: in-memory append-only event store.
 - `adapters/sqleventstore`: SQLite-backed event store adapter.
 - `core/thread` + `runtime/thread`: event-backed thread store, branch model,
@@ -585,6 +593,9 @@ Still intentionally incomplete:
   and live session listing only.
 - The resource loader supports only the first JSON manifest shape; `.agents`,
   `agentdir`, and appconfig compatibility are not migrated yet.
+- The engineer app parity plan has Phase 1A pure model support, but no
+  `adapters/appconfig`, `adapters/agentdir`, or composition indexing for those
+  new resource types yet.
 - There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
   spec shape.
 - There is no terminal/slash parser, Slack adapter, model provider adapter, or
@@ -693,6 +704,84 @@ Recommended order:
 Do not start with LLM provider integration or Slack. They are important, but
 they depend on the app/plugin/channel boundaries being stable enough that they
 do not drag old architecture back into the rewrite.
+
+## Engineer App Parity Plan
+
+The old `agentsdk dev` surface is the first meaningful parity target. Its
+resource surface is:
+
+```text
+apps/engineer/resources/agentsdk.app.json
+apps/engineer/resources/.agents/agents/main.md
+apps/engineer/resources/.agents/agents/analyst.md
+apps/engineer/resources/.agents/agents/implementer.md
+apps/engineer/resources/.agents/commands/review.md
+apps/engineer/resources/.agents/commands/design.md
+apps/engineer/resources/.agents/commands/deploy.md
+apps/engineer/resources/.agents/commands/feat.yaml
+apps/engineer/resources/.agents/workflows/feature.yaml
+apps/engineer/resources/.agents/skills/*/SKILL.md
+```
+
+Parity should be reached in small slices:
+
+1. **Phase 1A: Pure Resource Model**
+   Add only inert model shape: `core/app`, `core/skill`, stronger
+   `core/agent`, stronger `core/workflow`, invocation targets for workflow and
+   prompt commands, and matching `core/resource.ContributionBundle` fields. No
+   filesystem parsing or execution.
+
+2. **Phase 1B: Engineer Resource Adapters**
+   Add narrow `adapters/appconfig` and `adapters/agentdir` support for the
+   engineer subset. These adapters parse files into core contribution bundles;
+   they do not instantiate plugins or execute workflows.
+
+3. **Phase 1C: Composition Parity**
+   Teach `orchestration/app` to index and validate app manifests, agents,
+   skills, workflows, prompt commands, workflow commands, sessions, and plugin
+   refs. Composition should create the default configured session for the
+   default agent.
+
+4. **Phase 2: LLM Agent Runtime Skeleton**
+   Add `runtime/agent/llmagent` with a fake/test model path before migrating
+   real provider transport.
+
+5. **Phase 3: Tool Projection and Safety**
+   Project operations/commands into model tools only behind the operation
+   safety envelope.
+
+6. **Phase 4: Local CLI Capability Plugin**
+   Migrate shell/filesystem/git/search tools through adapters and plugins with
+   sandboxing, ACL, command-risk classification, approval, audit, and secret
+   handling from the start.
+
+7. **Phase 5: Commands and Skills Runtime**
+   Execute prompt commands, support skill discovery/activation, and preserve
+   command visibility policies.
+
+8. **Phase 6: Workflow and Sub-Agent Supervisor**
+   Execute the `feature` workflow through child sessions using a generic
+   supervisor with capacity, cancellation, progress, parent/child causation,
+   and event linkage.
+
+9. **Phase 7: Engineer App Assembly**
+   Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`
+   CLI over the same channel client/session/run handles.
+
+Phase 1A definition of done:
+
+- Pure app manifest specs can represent default agent/session, sources,
+  discovery policy, model policy, plugin refs, and annotations.
+- Agent specs can represent the engineer frontmatter fields without becoming
+  executable: system prompt, tool refs, command refs, skill refs, inference
+  hints, max steps, and stop condition.
+- Skill specs can represent `SKILL.md` metadata and source refs without reading
+  files.
+- Workflow specs can represent `feature.yaml` as typed DAG steps with agent
+  refs, dependency refs, and raw definition metadata.
+- Invocation targets can represent operation, workflow, agent/session/message,
+  and prompt targets.
+- Resource bundles can carry app specs and skill specs.
 
 ## Package Audit Template
 

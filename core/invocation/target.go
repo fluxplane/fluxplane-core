@@ -15,6 +15,7 @@ const (
 	TargetAgent     TargetKind = "agent"
 	TargetSession   TargetKind = "session"
 	TargetMessage   TargetKind = "message"
+	TargetPrompt    TargetKind = "prompt"
 )
 
 // Target is an inert reference to something orchestration can dispatch.
@@ -25,4 +26,6 @@ type Target struct {
 	Agent     agent.Ref     `json:"agent,omitempty"`
 	Session   string        `json:"session,omitempty"`
 	Message   string        `json:"message,omitempty"`
+	Prompt    string        `json:"prompt,omitempty"`
+	Input     any           `json:"input,omitempty"`
 }

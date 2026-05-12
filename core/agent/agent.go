@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/skill"
 )
 
 // Name identifies an agent spec.
@@ -64,17 +67,81 @@ type Policy struct {
 	AllowedDecisions []DecisionKind `json:"allowed_decisions,omitempty"`
 }
 
+// ToolRef identifies a driver-facing tool projection by name. Tool projection
+// and execution are not core concerns.
+type ToolRef struct {
+	Name string `json:"name"`
+}
+
+// CommandRef identifies a command exposed to an agent by resource name or path.
+type CommandRef struct {
+	Name string `json:"name"`
+}
+
+// InferenceSpec contains inert model-call hints. Provider routing and model
+// transport belong outside core.
+type InferenceSpec struct {
+	Model           string            `json:"model,omitempty"`
+	MaxOutputTokens int               `json:"max_output_tokens,omitempty"`
+	Temperature     float64           `json:"temperature,omitempty"`
+	Thinking        string            `json:"thinking,omitempty"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	Annotations     map[string]string `json:"annotations,omitempty"`
+}
+
+// StopConditionSpec describes when an agent runtime should stop. The shape is
+// intentionally declarative so adapters can preserve richer legacy conditions.
+type StopConditionSpec struct {
+	Type        string              `json:"type,omitempty"`
+	Max         int                 `json:"max,omitempty"`
+	Prompt      string              `json:"prompt,omitempty"`
+	Conditions  []StopConditionSpec `json:"conditions,omitempty"`
+	Annotations map[string]string   `json:"annotations,omitempty"`
+}
+
 // Spec is an inert agent definition. It is intentionally not LLM-specific.
 type Spec struct {
 	Name        Name                      `json:"name"`
 	Description string                    `json:"description,omitempty"`
+	System      string                    `json:"system,omitempty"`
 	Objective   Objective                 `json:"objective,omitempty"`
 	Driver      DriverSpec                `json:"driver,omitempty"`
+	Inference   InferenceSpec             `json:"inference,omitempty"`
+	Stop        StopConditionSpec         `json:"stop,omitempty"`
 	Agency      AgencyProfile             `json:"agency,omitempty"`
 	Policy      Policy                    `json:"policy,omitempty"`
 	Operations  []operation.Ref           `json:"operations,omitempty"`
+	Tools       []ToolRef                 `json:"tools,omitempty"`
+	Commands    []CommandRef              `json:"commands,omitempty"`
+	Skills      []skill.Ref               `json:"skills,omitempty"`
 	Context     []corecontext.ProviderRef `json:"context,omitempty"`
 	Annotations map[string]string         `json:"annotations,omitempty"`
+}
+
+// Validate checks the agent spec is structurally useful without resolving refs.
+func (s Spec) Validate() error {
+	if strings.TrimSpace(string(s.Name)) == "" {
+		return fmt.Errorf("agent: spec name is empty")
+	}
+	if s.Policy.MaxSteps < 0 {
+		return fmt.Errorf("agent: max_steps must be >= 0")
+	}
+	for i, tool := range s.Tools {
+		if strings.TrimSpace(tool.Name) == "" {
+			return fmt.Errorf("agent: tools[%d] name is empty", i)
+		}
+	}
+	for i, command := range s.Commands {
+		if strings.TrimSpace(command.Name) == "" {
+			return fmt.Errorf("agent: commands[%d] name is empty", i)
+		}
+	}
+	for i, ref := range s.Skills {
+		if strings.TrimSpace(string(ref.Name)) == "" {
+			return fmt.Errorf("agent: skills[%d] name is empty", i)
+		}
+	}
+	return nil
 }
 
 // Context is the execution context passed to an agent step.

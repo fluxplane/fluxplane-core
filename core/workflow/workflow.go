@@ -1,8 +1,11 @@
 package workflow
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 )
@@ -20,10 +23,20 @@ type StepID string
 // actions. New code should prefer operation references.
 type ActionRef = operation.Ref
 
-// Step describes one operation node in a workflow graph.
+// StepKind classifies how a workflow step is dispatched.
+type StepKind string
+
+const (
+	StepOperation StepKind = "operation"
+	StepAgent     StepKind = "agent"
+)
+
+// Step describes one node in a workflow graph.
 type Step struct {
 	ID             StepID            `json:"id"`
-	Operation      operation.Ref     `json:"operation"`
+	Kind           StepKind          `json:"kind,omitempty"`
+	Operation      operation.Ref     `json:"operation,omitempty"`
+	Agent          agent.Ref         `json:"agent,omitempty"`
 	Input          operation.Value   `json:"input,omitempty"`
 	InputMap       map[string]string `json:"input_map,omitempty"`
 	DependsOn      []StepID          `json:"depends_on,omitempty"`
@@ -32,6 +45,7 @@ type Step struct {
 	Timeout        time.Duration     `json:"timeout,omitempty"`
 	ErrorPolicy    StepErrorPolicy   `json:"error_policy,omitempty"`
 	IdempotencyKey string            `json:"idempotency_key,omitempty"`
+	Raw            map[string]any    `json:"raw,omitempty"`
 }
 
 // Condition controls whether a step should run after dependencies complete.
@@ -64,7 +78,55 @@ type Spec struct {
 	Inputs      operation.Type    `json:"inputs,omitempty"`
 	Outputs     operation.Type    `json:"outputs,omitempty"`
 	Steps       []Step            `json:"steps,omitempty"`
+	Raw         map[string]any    `json:"raw,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Validate checks the workflow graph has stable step identities and supported
+// dispatch refs. It does not resolve refs or prove DAG acyclicity.
+func (s Spec) Validate() error {
+	if strings.TrimSpace(string(s.Name)) == "" {
+		return fmt.Errorf("workflow: spec name is empty")
+	}
+	seen := map[StepID]struct{}{}
+	for i, step := range s.Steps {
+		if strings.TrimSpace(string(step.ID)) == "" {
+			return fmt.Errorf("workflow: steps[%d] id is empty", i)
+		}
+		if _, exists := seen[step.ID]; exists {
+			return fmt.Errorf("workflow: duplicate step id %q", step.ID)
+		}
+		seen[step.ID] = struct{}{}
+		kind := step.Kind
+		if kind == "" {
+			switch {
+			case step.Agent.Name != "":
+				kind = StepAgent
+			default:
+				kind = StepOperation
+			}
+		}
+		switch kind {
+		case StepOperation:
+			if step.Operation.Name == "" {
+				return fmt.Errorf("workflow: step %q operation is empty", step.ID)
+			}
+		case StepAgent:
+			if step.Agent.Name == "" {
+				return fmt.Errorf("workflow: step %q agent is empty", step.ID)
+			}
+		default:
+			return fmt.Errorf("workflow: step %q kind %q is invalid", step.ID, kind)
+		}
+	}
+	for _, step := range s.Steps {
+		for _, dep := range step.DependsOn {
+			if _, exists := seen[dep]; !exists {
+				return fmt.Errorf("workflow: step %q depends on unknown step %q", step.ID, dep)
+			}
+		}
+	}
+	return nil
 }
 
 // Status describes the projected state of a workflow run.
