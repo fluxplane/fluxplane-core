@@ -1,91 +1,107 @@
 # Fluxplane Agent Runtime
 
-Fluxplane Agent Runtime is a rewrite of the current `agentsdk` ideas as a
-layered agent runtime plus SDK.
+Fluxplane Agent Runtime is a Go runtime and SDK for building agent systems
+around durable session state, resource-declared capabilities, plugin
+contributions, and transport-neutral channel clients.
 
-The repository is organized around a strict dependency direction:
+This repository is the rewrite target for the current `agentsdk` ideas. It is
+pre-1.0 and intentionally not source-compatible with the old SDK.
 
-```text
-core -> runtime -> orchestration -> adapters/plugins -> apps
-```
+## Current Status
 
-The rewrite includes an architecture import report that turns this rule into a
-repeatable fitness check:
+The current executable slice supports:
 
-```bash
-go run ./apps/archreport
-go run ./apps/archreport -format dot
-```
+- in-process library use through `agentruntime.Service`;
+- session handles with command and input submissions;
+- configured session profiles from resource manifests;
+- run handles with results and semantic events;
+- event-backed thread state;
+- direct in-process channels;
+- HTTP/SSE channel transport;
+- local `agentruntime.json` resource manifests;
+- first-party `echo` and `text` plugins;
+- an architecture import report for maintainers.
 
-The report emits a score, layer summaries, fan-in/fan-out hot spots, violations,
-and renderable graph formats.
+LLM-agent runtime, terminal UX, Slack, model provider adapters, trigger
+execution, and side-effecting operation plugins are still under active design.
 
-Current seed packages:
-
-- root `agentruntime` — public in-process service facade for library
-  consumers.
-- `core/event` — typed domain event payloads, sinks, records, and decode
-  registry.
-- `core/operation` — executable operation specs, semantics, results, and the
-  minimal operation contract.
-- `orchestration/client` — user-facing channel client, session handle, run
-  handle, submission, and event contracts.
-- `orchestration/app` — resource/app composition into executable runtime
-  configuration.
-- `orchestration/pluginhost` — plugin refs resolved into resource
-  contributions.
-- `orchestration/harness` — channel-to-session use-case facade.
-- `adapters/directchannel` — in-process proof channel used by `apps/devclient`.
-- `adapters/httpssechannel` — remote channel adapter using JSON endpoints and
-  SSE events while preserving the same client/session/run API.
-- `adapters/resourcefs` — first local filesystem manifest loader.
-- `adapters/httpcontrol` — separate daemon/control-plane HTTP surface.
-
-The current executable path supports command submissions and conversational
-input submissions through the same session/run handle API:
+## Library Use
 
 ```go
 svc, err := agentruntime.New(agentruntime.Config{Agent: agent})
+if err != nil {
+    return err
+}
+
 session, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: conversation})
+if err != nil {
+    return err
+}
+
 run, err := session.SendInput(ctx, agentruntime.Input{Text: "hello"})
+if err != nil {
+    return err
+}
+
 result, err := run.Wait(ctx)
+if err != nil {
+    return err
+}
 ```
 
-Direct and HTTP/SSE clients are expected to expose the same logical contract:
-session handles are authoritative for thread identity, submissions return run
-handles, run handles expose semantic events, and terminal results preserve
-session/submission identity even on failure.
+Configured profiles can be opened through the same API:
 
-Event and signal submissions are modeled for future daemon triggers,
-schedulers, and file watchers, but are not executed yet.
+```go
+session, err := svc.Open(ctx, agentruntime.OpenRequest{
+    Session: agentruntime.SessionRef{Name: "coder"},
+})
+```
 
-Session event subscriptions use `client.Event` for both live delivery and
-replay. Replayed events carry an `EventCursor` backed by thread event sequence
-numbers, so future HTTP/SSE clients can resume from the last seen cursor.
+The same logical client contract is used for direct in-process execution and
+remote HTTP/SSE execution:
 
-`apps/devclient` can run either in-process or against HTTP/SSE:
+```text
+ChannelClient.Open/Resume/ListSessions
+  -> SessionHandle
+  -> Submit/SendInput/SendCommand
+  -> RunHandle
+  -> Events/Done/Wait/Result
+```
+
+## Dev Client
+
+`apps/devclient` is a small diagnostic client for exercising the current
+runtime:
 
 ```bash
 go run ./apps/devclient input hello
-go run ./apps/devclient -app ./path/to/app echo hello
+go run ./apps/devclient -app ./path/to/app -session coder echo hello
 go run ./apps/devclient -app ./path/to/app text/upper hello
 go run ./apps/devclient serve -addr 127.0.0.1:8080
 go run ./apps/devclient -url http://127.0.0.1:8080 input hello
 ```
 
-Local resource apps currently use an `agentruntime.json` manifest. The first
-supported shape is command declarations over operation implementations supplied
-by the host application, plus plugin refs that contribute commands and
-operations.
-Composition gives each contribution a canonical resource identity. Duplicate
-short names can coexist across origins/namespaces, for example
-`embedded:plugins/foo:run` and `embedded:plugins/bar:run`. Identical canonical
-IDs fail; ambiguous unqualified refs are handled by the resource resolver.
-Operation specs are declarations; commands execute only when their target
-resolves to a bound operation implementation.
+Use `-debug` to print submissions, events, and results.
+
+## Resource Apps
+
+Local resource apps currently use an `agentruntime.json` manifest. The current
+shape declares commands over operation implementations supplied by the host
+application or plugins, and named session profiles that clients can open.
 
 ```json
 {
+  "sessions": [
+    {
+      "name": "coder",
+      "channel": {"name": "local"},
+      "conversation": {"id": "devclient"},
+      "delegation": {
+        "allowed_profiles": [{"name": "worker"}],
+        "max_parallel": 2
+      }
+    }
+  ],
   "commands": [
     {
       "path": ["echo"],
@@ -99,23 +115,12 @@ resolves to a bound operation implementation.
 }
 ```
 
-The first migrated plugin is `plugins/echoplugin`, so a plugin-backed manifest
-can be as small as:
+Plugin-backed manifests can be small:
 
 ```json
 {
   "plugins": [
-    {"name": "echo"}
-  ]
-}
-```
-
-`plugins/textplugin` is the second migrated low-risk plugin. It proves plugin
-configuration and multiple contribution ordering without introducing IO:
-
-```json
-{
-  "plugins": [
+    {"name": "echo"},
     {
       "name": "text",
       "config": {
@@ -126,10 +131,30 @@ configuration and multiple contribution ordering without introducing IO:
 }
 ```
 
-Next migration work is tracked in `docs/migration-from-agent-sdk.md`. Resource
-composition and the first control-plane boundary now exist; the next step is to
-expand plugin contributions, signal/trigger execution, and context-provider
-runtime without bypassing the channel client path.
+Resource contributions receive canonical resource identities, so duplicate
+short names can coexist across origins and namespaces. Commands execute only
+when their target resolves to a bound operation implementation.
 
-The rewrite is intentionally not source-compatible with `agentsdk`. Concepts
-are being reintroduced package by package with clear ownership boundaries.
+## Verification
+
+The rewrite uses a local Taskfile:
+
+```bash
+task verify
+```
+
+This runs formatting checks, module consistency checks, `go vet`,
+`golangci-lint`, tests, and the architecture import-direction check.
+
+The architecture report can be inspected directly:
+
+```bash
+go run ./apps/archreport
+go run ./apps/archreport -format dot
+go run ./apps/archreport -format mermaid
+```
+
+## More
+
+- [Migration plan](docs/migration-from-agent-sdk.md)
+- [Changelog](CHANGELOG.md)

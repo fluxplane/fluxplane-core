@@ -59,6 +59,289 @@ github.com/fluxplane/agentruntime
 
 Fluxplane is the umbrella brand. Agent Runtime is the first product/repository.
 
+## Decision Log
+
+### Architecture Fitness Function
+
+`internal/architecture` and `apps/archreport` make package dependency direction
+observable. The architecture test is the hard check for boundary violations;
+the report is a recurring review artifact for coupling, fan-in/fan-out, and
+refactoring decisions.
+
+The score is intentionally directional, not absolute truth. Boundary
+violations carry the largest penalty. Runtime sibling imports and high fan-out
+inside `core`, `runtime`, and `orchestration` reduce the score because they
+usually indicate concepts that want splitting or a clearer composition point.
+High fan-in to core and app/facade fan-out are reported but not treated as
+problems by themselves.
+
+### Channel, Session, and Harness Boundary
+
+The user-facing client contract is handle-oriented:
+
+```text
+ChannelClient.Open/Resume/ListSessions
+  -> SessionHandle
+  -> Submit/SendInput/SendCommand
+  -> RunHandle
+  -> Events/Done/Wait/Result
+```
+
+Once a channel client has opened or resumed a session, execution uses the
+resolved session/thread identity instead of re-resolving from channel and
+conversation. Channel/conversation metadata may still be supplied by inbound
+envelopes for routing and outbound production, but the thread selected by the
+session handle is authoritative.
+
+Direct in-process channels and remote HTTP/SSE channels must expose the same
+logical handles, normalized caller/trust, semantic events, results, and failure
+identity.
+
+`orchestration/harness` is the channel-to-session use-case boundary. Adapters
+call harness; they should not reach into sessions directly except in tests for
+session behavior itself.
+
+### Sub-Agents, Workers, and Plan Execution
+
+The old implementation has two useful concepts that should remain separate in
+the rewrite:
+
+- a generic child-session supervisor for spawning, limiting, tracking,
+  cancelling, and reporting progress from sub-agent sessions;
+- a plan executor that uses that supervisor to dispatch DAG steps to workers.
+
+Do not bake plan execution into the session manifest or daemon host. The
+manifest should instead model reusable session profiles and delegation policy
+so plan execution, ad-hoc delegation, and future supervisors can all open child
+sessions through the same channel/session/harness path.
+
+Future placement:
+
+```text
+core/agent or core/session
+  sub-agent role/profile refs, delegation policy specs, worker limits.
+
+orchestration/session or orchestration/worker
+  child session supervisor, lifecycle, capacity, cancellation, progress events.
+
+core/workflow or core/plan
+  plan/DAG specs and step state events if they become driver-independent.
+
+runtime/workflow or orchestration/workflow
+  plan execution state machine and step scheduler.
+
+plugins/planexec
+  first-party contribution that exposes plan/delegate capabilities to agents.
+```
+
+Current design constraint: a configured session must be able to declare
+delegation policy without naming a concrete plan executor. For example, a
+future session manifest should be able to say "this parent agent may spawn
+workers from these profiles, up to this concurrency, with these tool/context
+limits" independently of whether the trigger is `/agent spawn`, an LLM tool
+projection, or a plan DAG.
+
+This means `sessions` in manifests are not just chat presets; they are named
+entry points that can also be used as parent profiles for supervised child
+sessions. Child sessions should have their own durable thread/session identity,
+causation link to the parent run/step, policy boundary, context scope, and event
+stream linkage.
+
+### Configured Sessions
+
+Configured sessions are named app entry points, not live sessions. They live in
+`core/session.Spec`, are contributed through `core/resource.ContributionBundle`,
+loaded by resource adapters, indexed by `orchestration/app`, and applied by
+`orchestration/harness` when a channel client opens a session by profile ref.
+
+Opening a configured session resolves the profile through the resource resolver
+and canonicalizes the returned session ref to the profile's `ResourceID`
+address. This prevents aliases such as `coder` and `demo:coder` from creating
+separate bindings for the same configured profile.
+
+The current session spec supports default channel/conversation/metadata plus a
+reserved `DelegationPolicy`. Delegation is intentionally inert for now: it
+declares future child-session limits and narrowing boundaries without creating
+workers, plan execution, or implicit agent spawning.
+
+### HTTP Surface Split
+
+There are two HTTP surfaces:
+
+- channel HTTP/SSE exposes the session channel contract remotely. It is a
+  transport for `ChannelClient`, `SessionHandle`, `RunHandle`, submissions, and
+  semantic event streams.
+- daemon/control HTTP manages a running process: status, configured sessions,
+  trigger state, logs, health, and administrative lifecycle.
+
+The channel surface must not grow daemon control semantics, and the daemon
+control surface must not become a side door into sessions that bypasses channel
+trust, submission, and harness rules.
+
+### Resource Boundary and Identity
+
+The old `resource`, `agentdir`, `appconfig`, and resource loader code mixes
+three concerns that are split in the rewrite:
+
+```text
+core/resource
+  ContributionBundle, ResourceID, diagnostics, source refs, resource specs.
+
+adapters/resourcefs, adapters/agentdir, adapters/appconfig
+  Filesystem and external-format loading/parsing.
+
+orchestration/app
+  Converts loaded resource contributions into an executable app/session
+  composition.
+```
+
+`core/resource` is pure metadata. It must not read files, inspect directories,
+resolve global roots, execute commands, or instantiate plugins.
+
+Composition builds a `core/resource` index and resolver. Local contribution
+names are allowed to collide when their canonical `ResourceID`s differ; only
+duplicate canonical IDs fail. Command targets are resolved in the source scope
+of the command first, then through the app resolver. Ambiguous unqualified refs
+are resolver/policy concerns, not flat-registry errors.
+
+Operation specs in resources are declarations. Command execution must resolve
+to an executable operation binding in the operation catalog; declaration-only
+operation specs are discoverable but do not satisfy executable command targets.
+
+### Plugin Boundary
+
+The plugin model should have one contribution contract instead of many ad hoc
+systems:
+
+```go
+type Plugin interface {
+    Manifest() Manifest
+    Contributions(context.Context, PluginContext) (Contribution, error)
+}
+```
+
+The exact Go API can change, but the architectural rule is stable:
+
+- plugin contracts are inner-layer concepts;
+- plugin implementations live under `plugins/`;
+- plugin selection and contribution assembly live in orchestration or apps;
+- protocol/channel behavior lives in adapters.
+
+Plugin ref `config` is plugin-owned data. Resource adapters may preserve it,
+and pluginhost may pass it through, but only the selected plugin implementation
+should interpret it. A plugin should reject unsupported or unsafe config early
+instead of silently broadening its contribution set.
+
+### Semantics, Policy, and Trust
+
+Keep these concepts separate:
+
+```text
+operation.Semantics
+  Intrinsic claims about what a capability can do: effects, risk,
+  idempotency, determinism.
+
+policy.InvocationPolicy
+  Projection exposure rules: allowed caller kinds, required trust,
+  required scopes, approval requirement.
+
+policy.Caller / policy.Trust
+  Who initiated an invocation and what authority/confidence the channel or
+  session assigned to that invocation, source, or target boundary. Trust.Kind
+  distinguishes invocation, source, and target trust.
+
+environment.Boundary
+  The scoped world in which an effect is meaningful or allowed.
+```
+
+Do not put caller/trust/exposure rules on `operation.Spec`. The same operation
+may be exposed through different tools, commands, channels, or agent
+projections with different policies.
+
+### Operation Safety
+
+When operation implementations move beyond pure/in-memory examples, implement
+them safety-first. Do not add shell, filesystem, network, browser, code
+execution, or connector operations as plain function calls and retrofit safety
+later. The first real operation runtime batch must include the enforcement
+shape for sandboxing, ACL/scope checks, command-risk classification
+(`codewandler/cmdrisk` or successor), secret handling/redaction, approval
+requirements, audit events, and environment boundaries.
+
+### Projections and Tools
+
+`operation` is the executable primitive. A projection describes how a caller or
+driver sees an invocation target.
+
+Commands are core because they are channel-facing invocation specs that can be
+declared by resources and consumed by terminal, HTTP, Slack, or other channel
+adapters.
+
+Do not add a generic `core/tool` package unless "tool" becomes a
+driver-independent core concept. In this rewrite, LLM/model tools are expected
+to be driver-facing projections of operations and should live near the LLM
+agent driver or model adapter layer when that need is concrete.
+
+Shared target vocabulary belongs in `core/invocation`.
+
+### Event State and Thread Store
+
+Durable state should be reconstructable from events plus configuration.
+
+Preferred pattern:
+
+```text
+events -> projector -> snapshot/read model
+events -> session replay -> runtime state
+```
+
+`core/event.Store` is the generic append-only event stream port. It knows about
+stream IDs, stream-local sequences, typed event records, schema versions,
+causation, correlation, sensitivity, and runtime scope. It must not know about
+thread branches, node ancestry, app sessions, SQLite tables, JSONL files, or
+subscription servers.
+
+Event append implementations must support optimistic concurrency through
+`event.AppendOptions`. When `CheckExpectedSequence` is set, append must only
+succeed if the stream currently ends at `ExpectedSequence`; sequence `0` means
+the stream must be empty. Failed checks must return an error that matches
+`event.ErrAppendConflict`. `event.Store.AppendBatch` must apply all requested
+stream appends atomically or none of them.
+
+`core/thread.Store` is the thread-domain port. It knows about thread IDs,
+branches, fork points, node IDs, metadata, archive state, and visible branch
+history. A thread store implemented by replaying `event.Store` streams belongs
+in `runtime/thread`, because it encodes storage/projection semantics even if it
+only depends on core interfaces.
+
+The runtime thread store uses one index stream plus per-thread history streams:
+
+```text
+thread.index
+thread:<thread-id>
+```
+
+Memory event stores belong in `runtime/eventstore`, not in `core/event`.
+Although they are IO-free, they are mutable runtime implementations: they
+assign IDs, timestamps, schema defaults, and stream-local sequence numbers, and
+they own concurrency behavior. Filesystem, SQL, and protocol-backed event
+stores belong in adapters such as `adapters/sqleventstore` or
+`adapters/eventjsonl`.
+
+Shared event record normalization and typed JSON payload encoding belong in
+`runtime/eventcodec`. Core owns the event model and registry contract, but
+runtime owns defaults and serialization behavior.
+
+Projection freshness policy belongs in orchestration. `orchestration/projections`
+coordinates runtime projection runners for use cases, such as ensuring a thread
+index has caught up before serving an index-backed list.
+
+Event payloads are not access-controlled by themselves. Event records carry
+classification metadata such as `policy.Sensitivity`; missing sensitivity must
+be treated as restricted. Event streams, subscriptions, and channel adapters
+must enforce observation access using caller trust/scopes, record sensitivity,
+and stream-specific policy once those surfaces exist.
+
 ## Concept Mapping
 
 This table captures the intended destination for major current concepts before
@@ -87,6 +370,7 @@ we audit every package in detail.
 | Usage | `core/usage` + `runtime/usage` + orchestration events | Records/types in core; aggregation/persistence outward. |
 | App composition | `orchestration/app` | Current `app.App` should be split from resource loading and plugin implementations. |
 | Harness/session/client | `orchestration/client` + `orchestration/harness` + `orchestration/session` | Client defines ChannelClient/SessionHandle/RunHandle and Submission; harness binds channels/conversations; session owns execution for one bound thread. |
+| Sub-agents/workers | `core/session`/`core/agent` specs + `orchestration/worker` or `orchestration/session` supervisor | Preserve the old generic worker manager concept: child sessions with capacity, cancellation, progress, and parent causation. Plan execution should consume this rather than own it. |
 | Daemon/triggers | `orchestration/trigger` + `adapters/httpapi`/apps | Scheduling use case in orchestration; process hosting outward. |
 | Terminal CLI | `adapters/terminal` + `apps/cli` | CLI UX/rendering is adapter/app, not core/runtime. |
 | HTTP/SSE API | `adapters/httpapi` | Protocol translation over session APIs. |
@@ -132,7 +416,7 @@ ported.
 | `eventstore` | `core/event` + `runtime/eventstore` + `adapters/sqleventstore` | `core/event.Store` keeps the append/load stream contract. In-memory store proves runtime; SQLite proves adapter boundary. |
 | `expand` | audit | Likely resource/appconfig helper; place by actual IO/purity. |
 | `harness` | `orchestration/harness` + `orchestration/session` | Split adapter-facing session binding from per-thread execution. |
-| `harness/worker` | `orchestration/session/worker` or `plugins/planexec` | Depends whether generic delegation or planexec-specific. |
+| `harness/worker` | `orchestration/worker` or `orchestration/session/worker` | Generic child-session supervisor. Preserve capacity limits, cancellation, progress, parent/child causation, and prepare-then-start semantics so callers can persist dispatch state before work begins. |
 | `markdown` | `adapters/markdown` or `core/markup` | Frontmatter parsing likely adapter/helper. |
 | `plugins/*` | `plugins/*` | Keep first-party contribution bundles; update contracts. |
 | `project` | `runtime/project` + adapters/filesystem | Entity model core-ish; detection scans filesystem. |
@@ -191,6 +475,7 @@ them visible until they are resolved in code or deliberately rejected.
 | Harness/channel executable path | Initial `orchestration/harness` and `adapters/directchannel` exist. Next HTTP/SSE work should implement the old `cmd/agentclient` shape against harness without bypassing channel semantics. |
 | Submission/run handle API | Initial `orchestration/client` exists with `Submission`, `ChannelClient`, `SessionHandle`, and `RunHandle`. `adapters/directchannel` implements command and input submissions; event/signal submissions are modeled but not executed yet. |
 | Session event replay | `orchestration/harness.Subscribe` can replay semantic `client.Event` values from the thread store using `client.EventCursor` sequence positions. HTTP/SSE should expose this cursor instead of inventing transport-specific offsets. |
+| Configured sessions | Initial `core/session.Spec`, resource manifest loading, app catalog indexing, harness profile application, daemon listing, and devclient `-session` support exist. Delegation policy is declared but not executed. |
 | Command path display vs parsing | `command.Path.String()` is display-only. Actual slash parsing belongs in adapters, not `core/command`. |
 | Trust level semantics | `policy.TrustSystem` must not become unlimited authority by default; scopes should still matter for system callers. |
 
@@ -212,6 +497,8 @@ Implemented and green:
 - `core/operation`: operation specs, semantics, results, events, and registry.
 - `core/event`: event records, stream store port, registry, append conflict and
   batch append contracts.
+- `core/session`: configured session specs, session lifecycle event payloads,
+  and reserved delegation policy shape for future sub-agents.
 - `runtime/eventstore`: in-memory append-only event store.
 - `adapters/sqleventstore`: SQLite-backed event store adapter.
 - `core/thread` + `runtime/thread`: event-backed thread store, branch model,
@@ -232,8 +519,8 @@ Implemented and green:
   same client/session/run API.
 - `orchestration/app`: resource/app composition over supplied runtime
   implementations, backed by `core/resource` identities, indexes, resolver,
-  command catalog, and operation catalog. Duplicate short names may coexist
-  when canonical resource IDs differ.
+  command catalog, operation catalog, and session catalog. Duplicate short
+  names may coexist when canonical resource IDs differ.
 - `orchestration/pluginhost`: minimal plugin contribution contract and plugin
   ref resolution into resource bundles plus optional executable operation
   implementations. Plugin bundles now receive plugin source refs when the
@@ -243,14 +530,17 @@ Implemented and green:
 - `plugins/textplugin`: second migrated low-IO plugin, contributing
   configurable pure text transformation operations and commands.
 - `adapters/resourcefs`: first local filesystem manifest loader
-  (`agentruntime.json`) into pure resource contribution bundles.
+  (`agentruntime.json`) into pure resource contribution bundles, including
+  configured session profiles.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
   ACL, command-risk, secrets, and approval enforcement.
 - `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
-  status and session-listing surface over an existing channel client.
+  status, configured-session listing, and session-listing surface over an
+  existing channel client.
 - root `agentruntime.Service`: public in-process facade for library consumers.
 - `apps/devclient`: small dogfood client for local and HTTP/SSE execution,
-  including debug event/result output and `-app` resource manifest loading.
+  including debug event/result output, `-app` resource manifest loading, and
+  `-session` configured profile selection.
 
 Important contract decisions from this slice:
 
@@ -275,6 +565,11 @@ Important contract decisions from this slice:
 - Resource operation specs are discoverable declarations. Executable command
   targets must resolve to an operation catalog binding, not merely to a
   declaration-only spec.
+- Sub-agent support is intentionally not implemented yet, but configured
+  sessions must leave room for delegation policy, parent/child causation, and
+  child session identity.
+- Configured session refs are resolved through resource identity and then
+  canonicalized to the resolved `ResourceID` address before harness binding.
 - Real side-effecting operations must enter through the operation safety
   envelope from their first migration batch.
 
@@ -286,13 +581,17 @@ Still intentionally incomplete:
   safety adapters.
 - The plugin contract is intentionally minimal and only contributes resource
   bundles plus operation implementations during app composition.
-- The daemon/control surface is minimal: status and session listing only.
+- The daemon/control surface is minimal: status, configured-session listing,
+  and live session listing only.
 - The resource loader supports only the first JSON manifest shape; `.agents`,
   `agentdir`, and appconfig compatibility are not migrated yet.
 - There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
   spec shape.
 - There is no terminal/slash parser, Slack adapter, model provider adapter, or
   approval UX yet.
+- There is no child-session supervisor or plan executor yet. The old
+  `harness/worker` and `capabilities/planexec` concepts are scheduled; the
+  current session profile model only reserves the delegation shape.
 - Event subscription authorization is noted but not implemented beyond the
   current policy/trust/sensitivity model foundations.
 
@@ -322,6 +621,9 @@ Definition of done for that batch:
 - A resource/app consumer can load an app directory, compose commands,
   operations, agents, context providers, and plugins, then open a session
   through the same `ChannelClient` API.
+- Configured sessions can express future delegation boundaries without
+  enabling them yet: allowed sub-agent profiles, concurrency limit, timeout,
+  context/command narrowing, and parent/child causation policy.
 - A daemon can start configured sessions from app resources, attach event
   triggers, expose a control API for process/admin state, and expose a channel
   API for user/client submissions without mixing those two HTTP surfaces.
@@ -352,28 +654,37 @@ Recommended order:
    core concepts.
 
 3. **Configured Session Host**
-   Extend `orchestration/daemon` from status/listing to configured session
-   startup from composed app resources. Keep user/client traffic on
-   `ChannelClient`.
+   Initial configured session loading, cataloging, harness defaults,
+   daemon listing, and devclient selection exist. Next, decide whether daemon
+   startup should eagerly open configured sessions from app resources or only
+   open them on trigger/client demand. Keep user/client traffic on
+   `ChannelClient` either way.
 
-4. **Operation Safety Runtime**
+4. **Sub-Agent Supervisor Shape**
+   Add pure delegation policy/spec types only if needed by configured sessions.
+   Do not implement worker execution in this batch. The future runtime should
+   preserve the old worker manager's useful properties: capacity limits,
+   cancellation, progress callbacks/events, prepare-then-start dispatch, and
+   parent/child causation.
+
+5. **Operation Safety Runtime**
    Harden the initial safety envelope with concrete adapters before migrating
    shell/filesystem/git/browser/web operations: sandbox execution boundary,
    ACL/scope evaluation, `codewandler/cmdrisk` integration or successor,
    secret handling/redaction, approval hooks, audit events, and environment
    boundary checks.
 
-5. **CLI Client Migration**
+6. **CLI Client Migration**
    Rebuild the old `cmd/agentclient` shape as an app over channel clients:
    direct for in-process dev mode, HTTP/SSE for daemon mode. Keep `devclient`
    as the small diagnostic client until the real CLI is good enough.
 
-6. **Trigger and Signal Execution**
+7. **Trigger and Signal Execution**
    Implement `SubmissionSignal` as the entry point for timers, file watchers,
    and daemon-triggered sessions. File watcher/timer IO belongs in adapters or
    apps; signal dispatch semantics belong in orchestration.
 
-7. **Context Provider Runtime**
+8. **Context Provider Runtime**
    Add the first narrow `core/context` provider contracts and
    `runtime/context` materializer, then migrate only providers needed by the
    first app. File/git/shell-backed providers should remain adapter/plugin

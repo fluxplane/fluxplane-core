@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 )
@@ -45,6 +46,7 @@ type RunHandle interface {
 
 // OpenRequest opens or creates a session for a channel conversation.
 type OpenRequest struct {
+	Session      coresession.Ref         `json:"session,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	ThreadID     corethread.ID           `json:"thread_id,omitempty"`
 	Metadata     map[string]string       `json:"metadata,omitempty"`
@@ -63,6 +65,7 @@ type ListSessionsRequest struct {
 
 // SessionInfo is stable session identity exposed to clients.
 type SessionInfo struct {
+	Session      coresession.Ref         `json:"session,omitempty"`
 	Thread       corethread.Ref          `json:"thread"`
 	Channel      channel.Ref             `json:"channel,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`

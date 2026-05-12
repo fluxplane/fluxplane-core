@@ -9,15 +9,29 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/daemon"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 func TestServerStatusAndSessions(t *testing.T) {
 	host, err := daemon.New(daemon.Config{
 		Client:    fakeClient{},
 		StartedAt: time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC),
+		SessionCatalog: session.SessionCatalog{
+			"embedded:apps/demo:coder": {
+				ID: resource.ResourceID{
+					Kind:      "session",
+					Origin:    "embedded",
+					Namespace: resource.NewNamespace("apps/demo"),
+					Name:      "coder",
+				},
+				Spec: coresession.Spec{Name: "coder"},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("daemon.New: %v", err)
@@ -44,6 +58,19 @@ func TestServerStatusAndSessions(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].Info.Thread.ID != "thread-1" {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+
+	configuredResp := httptest.NewRecorder()
+	server.ServeHTTP(configuredResp, httptest.NewRequest(http.MethodGet, "/configured-sessions", nil))
+	if configuredResp.Code != http.StatusOK {
+		t.Fatalf("configured sessions code = %d", configuredResp.Code)
+	}
+	var configured []daemon.ConfiguredSession
+	if err := json.Unmarshal(configuredResp.Body.Bytes(), &configured); err != nil {
+		t.Fatalf("Unmarshal configured sessions: %v", err)
+	}
+	if len(configured) != 1 || configured[0].Spec.Name != "coder" {
+		t.Fatalf("configured sessions = %#v", configured)
 	}
 }
 

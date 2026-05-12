@@ -103,6 +103,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, err := s.client.Open(r.Context(), clientapi.OpenRequest{
+		Session:      req.Session.Session,
 		ThreadID:     req.Session.Thread.ID,
 		Conversation: req.Session.Conversation,
 		Metadata:     req.Session.Metadata,

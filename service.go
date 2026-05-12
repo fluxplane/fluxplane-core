@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -45,6 +46,10 @@ type (
 	Result              = clientapi.Result
 	Composition         = appcomposition.Composition
 	ResourceBundle      = resource.ContributionBundle
+	SessionName         = coresession.Name
+	SessionRef          = coresession.Ref
+	SessionSpec         = coresession.Spec
+	DelegationPolicy    = coresession.DelegationPolicy
 )
 
 const (
@@ -74,6 +79,7 @@ type Config struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
+	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
@@ -117,6 +123,7 @@ func New(cfg Config) (*Service, error) {
 		Resolver:          cfg.Resolver,
 		CommandCatalog:    cfg.CommandCatalog,
 		OperationCatalog:  cfg.OperationCatalog,
+		SessionCatalog:    cfg.SessionCatalog,
 		OperationExecutor: executor,
 		Events:            cfg.Events,
 		ThreadStore:       threadStore,
@@ -153,6 +160,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.OperationCatalog == nil {
 		cfg.OperationCatalog = composition.OperationCatalog
+	}
+	if cfg.SessionCatalog == nil {
+		cfg.SessionCatalog = composition.SessionCatalog
 	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor

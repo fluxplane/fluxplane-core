@@ -47,6 +47,57 @@ func TestLoadDirLoadsManifestCommands(t *testing.T) {
 	}
 }
 
+func TestLoadDirLoadsSessionProfiles(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte(`{
+  "sessions": [
+    {
+      "name": "coder",
+      "agent": {"name": "dev-echo-agent"},
+      "channel": {"name": "local"},
+      "conversation": {"id": "devclient"},
+      "delegation": {
+        "allowed_profiles": [{"name": "worker"}],
+        "max_parallel": 2
+      },
+      "metadata": {
+        "profile": "coder"
+      }
+    }
+  ]
+}`)
+	if err := os.WriteFile(filepath.Join(dir, DefaultManifestName), data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	bundle, err := LoadDir(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if len(bundle.Sessions) != 1 {
+		t.Fatalf("sessions len = %d, want 1", len(bundle.Sessions))
+	}
+	spec := bundle.Sessions[0]
+	if spec.Name != "coder" {
+		t.Fatalf("session name = %q, want coder", spec.Name)
+	}
+	if spec.Channel.Name != "local" {
+		t.Fatalf("channel = %q, want local", spec.Channel.Name)
+	}
+	if spec.Conversation.ID != "devclient" {
+		t.Fatalf("conversation = %q, want devclient", spec.Conversation.ID)
+	}
+	if got := spec.Delegation.AllowedProfiles[0].Name; got != "worker" {
+		t.Fatalf("delegation profile = %q, want worker", got)
+	}
+	if spec.Delegation.MaxParallel != 2 {
+		t.Fatalf("max parallel = %d, want 2", spec.Delegation.MaxParallel)
+	}
+	if spec.Metadata["profile"] != "coder" {
+		t.Fatalf("metadata = %#v, want profile coder", spec.Metadata)
+	}
+}
+
 func TestCommandSpecRejectsEmptyOperation(t *testing.T) {
 	_, err := Command{Path: []string{"echo"}}.Spec()
 	if err == nil {

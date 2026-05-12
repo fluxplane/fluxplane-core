@@ -35,6 +35,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /status", s.handleStatus)
 	s.mux.HandleFunc("GET /sessions", s.handleSessions)
+	s.mux.HandleFunc("GET /configured-sessions", s.handleConfiguredSessions)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +56,15 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		IncludeArchived: parseBool(r.URL.Query().Get("include_archived")),
 		Limit:           parseInt(r.URL.Query().Get("limit")),
 	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sessions)
+}
+
+func (s *Server) handleConfiguredSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.host.ListConfiguredSessions(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

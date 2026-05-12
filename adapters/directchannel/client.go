@@ -64,6 +64,7 @@ func (c *Client) Open(ctx context.Context, req clientapi.OpenRequest) (clientapi
 		return nil, fmt.Errorf("directchannel: client is nil")
 	}
 	info, err := c.service.OpenSession(ctx, harness.OpenSessionRequest{
+		Session:      req.Session,
 		Channel:      c.channel,
 		Conversation: req.Conversation,
 		ThreadID:     req.ThreadID,
@@ -384,6 +385,7 @@ func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {
 
 func toHarnessSessionInfo(info clientapi.SessionInfo) harness.SessionInfo {
 	return harness.SessionInfo{
+		Session:      info.Session,
 		Thread:       info.Thread,
 		Channel:      info.Channel,
 		Conversation: info.Conversation,
@@ -394,6 +396,7 @@ func toHarnessSessionInfo(info clientapi.SessionInfo) harness.SessionInfo {
 
 func toClientSessionInfo(info harness.SessionInfo) clientapi.SessionInfo {
 	return clientapi.SessionInfo{
+		Session:      info.Session,
 		Thread:       info.Thread,
 		Channel:      info.Channel,
 		Conversation: info.Conversation,

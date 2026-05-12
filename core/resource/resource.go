@@ -6,6 +6,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/workflow"
 )
 
@@ -62,6 +63,7 @@ type ContributionBundle struct {
 	Agents           []agent.Spec               `json:"agents,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
+	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
 	Workflows        []workflow.Spec            `json:"workflows,omitempty"`
 	Plugins          []PluginRef                `json:"plugins,omitempty"`
@@ -76,6 +78,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Agents = append(b.Agents, other.Agents...)
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)
+	b.Sessions = append(b.Sessions, other.Sessions...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)
 	b.Workflows = append(b.Workflows, other.Workflows...)
 	b.Plugins = append(b.Plugins, other.Plugins...)

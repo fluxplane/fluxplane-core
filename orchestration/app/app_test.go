@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
@@ -261,6 +262,67 @@ func TestComposeRejectsDuplicateOperationSpecsWithSourceDiagnostic(t *testing.T)
 	})
 	if err == nil {
 		t.Fatal("Compose error is nil, want duplicate operation spec error")
+	}
+	if len(composition.Diagnostics) != 1 {
+		t.Fatalf("diagnostics len = %d, want 1", len(composition.Diagnostics))
+	}
+	if composition.Diagnostics[0].Source.Location != sourceB.Location {
+		t.Fatalf("diagnostic source location = %q, want %s", composition.Diagnostics[0].Source.Location, sourceB.Location)
+	}
+}
+
+func TestComposeIndexesSessionProfiles(t *testing.T) {
+	source := resource.SourceRef{Scope: resource.ScopeEmbedded, Location: "apps/demo"}
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Source: source,
+			Sessions: []coresession.Spec{{
+				Name: "coder",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composition.SessionCatalog) != 1 {
+		t.Fatalf("session catalog len = %d, want 1", len(composition.SessionCatalog))
+	}
+	if len(composition.SessionSpecs) != 1 || composition.SessionSpecs[0].Name != "coder" {
+		t.Fatalf("session specs = %#v, want coder", composition.SessionSpecs)
+	}
+	id, err := composition.Resolver.Resolve("session", "demo:coder")
+	if err != nil {
+		t.Fatalf("Resolve demo:coder: %v", err)
+	}
+	if got, want := id.Address(), "embedded:apps/demo:coder"; got != want {
+		t.Fatalf("resolved session = %q, want %q", got, want)
+	}
+	binding, err := composition.SessionCatalog.Resolve("demo:coder")
+	if err != nil {
+		t.Fatalf("SessionCatalog.Resolve: %v", err)
+	}
+	if !binding.ID.Equal(id) {
+		t.Fatalf("binding id = %s, want %s", binding.ID.Address(), id.Address())
+	}
+}
+
+func TestComposeRejectsDuplicateSessionProfilesWithSourceDiagnostic(t *testing.T) {
+	sourceA := resource.SourceRef{Scope: resource.ScopeEmbedded, Location: "apps/demo"}
+	sourceB := resource.SourceRef{Scope: resource.ScopeEmbedded, Location: "apps/demo"}
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{
+			{
+				Source:   sourceA,
+				Sessions: []coresession.Spec{{Name: "coder"}},
+			},
+			{
+				Source:   sourceB,
+				Sessions: []coresession.Spec{{Name: "coder"}},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("Compose error is nil, want duplicate session error")
 	}
 	if len(composition.Diagnostics) != 1 {
 		t.Fatalf("diagnostics len = %d, want 1", len(composition.Diagnostics))

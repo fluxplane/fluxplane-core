@@ -6,8 +6,11 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 func TestHostStatusAndListSessions(t *testing.T) {
@@ -29,6 +32,36 @@ func TestHostStatusAndListSessions(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].Info.Thread.ID != "thread-1" {
 		t.Fatalf("sessions = %#v", sessions)
+	}
+}
+
+func TestHostListConfiguredSessions(t *testing.T) {
+	host, err := New(Config{
+		Client: fakeClient{},
+		SessionCatalog: session.SessionCatalog{
+			"embedded:apps/demo:coder": {
+				ID: resource.ResourceID{
+					Kind:      "session",
+					Origin:    "embedded",
+					Namespace: resource.NewNamespace("apps/demo"),
+					Name:      "coder",
+				},
+				Spec: coresession.Spec{Name: "coder"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	sessions, err := host.ListConfiguredSessions(context.Background())
+	if err != nil {
+		t.Fatalf("ListConfiguredSessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("configured sessions len = %d, want 1", len(sessions))
+	}
+	if sessions[0].ID != "embedded:apps/demo:coder" || sessions[0].Spec.Name != "coder" {
+		t.Fatalf("configured sessions = %#v", sessions)
 	}
 }
 

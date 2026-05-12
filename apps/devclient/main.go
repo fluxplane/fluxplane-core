@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -45,6 +46,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	sessionHandle, err := client.Open(ctx, agentruntime.OpenRequest{
+		Session:      coresession.Ref{Name: coresession.Name(cfg.sessionName)},
 		Conversation: channel.ConversationRef{ID: "devclient"},
 	})
 	if err != nil {
@@ -97,6 +99,7 @@ type config struct {
 	debug       bool
 	remoteURL   string
 	appDir      string
+	sessionName string
 	addr        string
 	mode        string
 	commandPath command.Path
@@ -129,6 +132,12 @@ func parseArgs(args []string) (config, error) {
 				return config{}, fmt.Errorf("%s", usage())
 			}
 			cfg.appDir = args[i]
+		case "-session", "--session":
+			i++
+			if i >= len(args) {
+				return config{}, fmt.Errorf("%s", usage())
+			}
+			cfg.sessionName = args[i]
 		default:
 			positionals = append(positionals, arg)
 		}
@@ -156,7 +165,7 @@ func parseArgs(args []string) (config, error) {
 }
 
 func usage() string {
-	return "usage: devclient [-debug] [-app <dir>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-app <dir>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-app <dir>]"
+	return "usage: devclient [-debug] [-app <dir>] [-session <name>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-app <dir>] [-session <name>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-app <dir>]"
 }
 
 func parseCommandPath(raw string) command.Path {

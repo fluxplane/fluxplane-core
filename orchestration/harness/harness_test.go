@@ -11,6 +11,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -251,6 +253,107 @@ func TestSubscribeCancelDoesNotRacePublish(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestOpenSessionAppliesConfiguredSessionDefaults(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	service.sessionCatalog = session.SessionCatalog{
+		"embedded:apps/demo:coder": {
+			ID: resource.ResourceID{
+				Kind:      "session",
+				Origin:    "embedded",
+				Namespace: resource.NewNamespace("apps/demo"),
+				Name:      "coder",
+			},
+			Spec: coresession.Spec{
+				Name:         "coder",
+				Channel:      channel.Ref{Name: "local"},
+				Conversation: channel.ConversationRef{ID: "devclient"},
+				Metadata:     map[string]string{"profile": "coder", "default": "yes"},
+			},
+		},
+	}
+
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session:  coresession.Ref{Name: "demo:coder"},
+		Metadata: map[string]string{"default": "override"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if info.Session.Name != "embedded:apps/demo:coder" {
+		t.Fatalf("session ref = %q, want embedded:apps/demo:coder", info.Session.Name)
+	}
+	if info.Channel.Name != "local" {
+		t.Fatalf("channel = %q, want local", info.Channel.Name)
+	}
+	if info.Conversation.ID != "devclient" {
+		t.Fatalf("conversation = %q, want devclient", info.Conversation.ID)
+	}
+	if info.Metadata["profile"] != "coder" || info.Metadata["default"] != "override" {
+		t.Fatalf("metadata = %#v", info.Metadata)
+	}
+}
+
+func TestOpenSessionProfilesSeparateSameConversation(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	service.sessionCatalog = session.SessionCatalog{
+		"embedded:apps/demo:coder": {
+			ID: resource.ResourceID{
+				Kind:      "session",
+				Origin:    "embedded",
+				Namespace: resource.NewNamespace("apps/demo"),
+				Name:      "coder",
+			},
+			Spec: coresession.Spec{
+				Name:         "coder",
+				Channel:      channel.Ref{Name: "local"},
+				Conversation: channel.ConversationRef{ID: "devclient"},
+			},
+		},
+		"embedded:apps/demo:reviewer": {
+			ID: resource.ResourceID{
+				Kind:      "session",
+				Origin:    "embedded",
+				Namespace: resource.NewNamespace("apps/demo"),
+				Name:      "reviewer",
+			},
+			Spec: coresession.Spec{
+				Name:         "reviewer",
+				Channel:      channel.Ref{Name: "local"},
+				Conversation: channel.ConversationRef{ID: "devclient"},
+			},
+		},
+	}
+
+	coder, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "coder"}})
+	if err != nil {
+		t.Fatalf("OpenSession coder: %v", err)
+	}
+	reviewer, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "reviewer"}})
+	if err != nil {
+		t.Fatalf("OpenSession reviewer: %v", err)
+	}
+	coderAgain, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "coder"}})
+	if err != nil {
+		t.Fatalf("OpenSession coder again: %v", err)
+	}
+	coderQualified, err := service.OpenSession(ctx, OpenSessionRequest{Session: coresession.Ref{Name: "demo:coder"}})
+	if err != nil {
+		t.Fatalf("OpenSession coder qualified: %v", err)
+	}
+
+	if coder.Thread.ID == reviewer.Thread.ID {
+		t.Fatalf("coder and reviewer share thread %q", coder.Thread.ID)
+	}
+	if coder.Thread.ID != coderAgain.Thread.ID {
+		t.Fatalf("coder thread = %q, want resumed %q", coderAgain.Thread.ID, coder.Thread.ID)
+	}
+	if coder.Thread.ID != coderQualified.Thread.ID {
+		t.Fatalf("qualified coder thread = %q, want resumed %q", coderQualified.Thread.ID, coder.Thread.ID)
+	}
 }
 
 func testService(t *testing.T) (*Service, corethread.Store) {

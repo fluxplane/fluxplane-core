@@ -29,6 +29,7 @@ type Config struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
+	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
@@ -42,6 +43,7 @@ type Service struct {
 	resolver          *resource.Resolver
 	commandCatalog    session.CommandCatalog
 	operationCatalog  session.OperationCatalog
+	sessionCatalog    session.SessionCatalog
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
 	threadStore       corethread.Store
@@ -62,6 +64,7 @@ func New(cfg Config) *Service {
 		resolver:          cfg.Resolver,
 		commandCatalog:    cfg.CommandCatalog,
 		operationCatalog:  cfg.OperationCatalog,
+		sessionCatalog:    cfg.SessionCatalog,
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
@@ -72,6 +75,7 @@ func New(cfg Config) *Service {
 
 // OpenSessionRequest describes an explicit channel/session binding request.
 type OpenSessionRequest struct {
+	Session      coresession.Ref
 	Channel      channel.Ref
 	Conversation channel.ConversationRef
 	ThreadID     corethread.ID
@@ -88,6 +92,7 @@ type ListSessionsRequest struct {
 // SessionInfo is the stable identity returned after opening or resolving a
 // channel-bound session.
 type SessionInfo struct {
+	Session      coresession.Ref         `json:"session,omitempty"`
 	Thread       corethread.Ref          `json:"thread"`
 	Channel      channel.Ref             `json:"channel,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
@@ -101,11 +106,16 @@ func (s *Service) OpenSession(ctx context.Context, req OpenSessionRequest) (Sess
 	if s == nil {
 		return SessionInfo{}, fmt.Errorf("harness: service is nil")
 	}
+	req, err := s.applySessionSpec(req)
+	if err != nil {
+		return SessionInfo{}, err
+	}
 	ref, resumed, err := s.resolveThread(ctx, req)
 	if err != nil {
 		return SessionInfo{}, err
 	}
 	return SessionInfo{
+		Session:      req.Session,
 		Thread:       ref,
 		Channel:      req.Channel,
 		Conversation: req.Conversation,
@@ -127,6 +137,7 @@ func (s *Service) ListSessions(_ context.Context, req ListSessionsRequest) ([]Se
 			continue
 		}
 		out = append(out, SessionInfo{
+			Session:      coresession.Ref{Name: coresession.Name(key.session)},
 			Thread:       ref,
 			Channel:      channel.Ref{Name: key.channel},
 			Conversation: channel.ConversationRef{ID: key.conversation},
@@ -415,20 +426,46 @@ func normalizeSessionInfo(info SessionInfo, inbound channel.Inbound) SessionInfo
 	return info
 }
 
+func (s *Service) applySessionSpec(req OpenSessionRequest) (OpenSessionRequest, error) {
+	if req.Session.Name == "" {
+		return req, nil
+	}
+	binding, err := s.sessionCatalog.Resolve(string(req.Session.Name))
+	if err != nil {
+		return OpenSessionRequest{}, fmt.Errorf("harness: configured session %q: %w", req.Session.Name, err)
+	}
+	spec := binding.Spec
+	req.Session = coresession.Ref{Name: coresession.Name(binding.ID.Address())}
+	if req.Channel.Name == "" {
+		req.Channel = spec.Channel
+	}
+	if req.Conversation.ID == "" {
+		req.Conversation = spec.Conversation
+	}
+	if len(spec.Metadata) > 0 {
+		merged := cloneStringMap(spec.Metadata)
+		for k, v := range req.Metadata {
+			merged[k] = v
+		}
+		req.Metadata = merged
+	}
+	return req, nil
+}
+
 func (s *Service) resolveThread(ctx context.Context, req OpenSessionRequest) (corethread.Ref, bool, error) {
 	s.bindMu.Lock()
 	defer s.bindMu.Unlock()
 
 	ref := corethread.Ref{ID: req.ThreadID, BranchID: corethread.MainBranch}
 	if ref.ID == "" {
-		ref.ID = s.boundThread(req.Channel, req.Conversation)
+		ref.ID = s.boundThread(req.Session, req.Channel, req.Conversation)
 	}
 	if ref.ID == "" {
 		ref.ID = corethread.ID(newID("thread_"))
 	}
 
-	key := makeBindingKey(req.Channel, req.Conversation)
-	if existing := s.boundThread(req.Channel, req.Conversation); existing != "" && existing == ref.ID {
+	key := makeBindingKey(req.Session, req.Channel, req.Conversation)
+	if existing := s.boundThread(req.Session, req.Channel, req.Conversation); existing != "" && existing == ref.ID {
 		return corethread.Ref{ID: existing, BranchID: corethread.MainBranch}, true, nil
 	}
 
@@ -445,8 +482,8 @@ func (s *Service) resolveThread(ctx context.Context, req OpenSessionRequest) (co
 	return ref, resumed, nil
 }
 
-func (s *Service) boundThread(ch channel.Ref, conv channel.ConversationRef) corethread.ID {
-	key := makeBindingKey(ch, conv)
+func (s *Service) boundThread(sess coresession.Ref, ch channel.Ref, conv channel.ConversationRef) corethread.ID {
+	key := makeBindingKey(sess, ch, conv)
 	if !key.valid() || s == nil {
 		return ""
 	}
@@ -558,6 +595,7 @@ func (s *Service) sessionInfoForThread(threadID corethread.ID) clientapi.Session
 	for key, ref := range s.bindings {
 		if ref.ID == threadID {
 			return clientapi.SessionInfo{
+				Session:      coresession.Ref{Name: coresession.Name(key.session)},
 				Thread:       ref,
 				Channel:      channel.Ref{Name: key.channel},
 				Conversation: channel.ConversationRef{ID: key.conversation},
@@ -636,6 +674,7 @@ func withSubmission(base clientapi.Event, submission clientapi.Submission) clien
 
 func toClientSessionInfo(info SessionInfo) clientapi.SessionInfo {
 	return clientapi.SessionInfo{
+		Session:      info.Session,
 		Thread:       info.Thread,
 		Channel:      info.Channel,
 		Conversation: info.Conversation,
@@ -645,12 +684,13 @@ func toClientSessionInfo(info SessionInfo) clientapi.SessionInfo {
 }
 
 type bindingKey struct {
+	session      coresession.Name
 	channel      channel.Name
 	conversation string
 }
 
-func makeBindingKey(ch channel.Ref, conv channel.ConversationRef) bindingKey {
-	return bindingKey{channel: ch.Name, conversation: conv.ID}
+func makeBindingKey(sess coresession.Ref, ch channel.Ref, conv channel.ConversationRef) bindingKey {
+	return bindingKey{session: sess.Name, channel: ch.Name, conversation: conv.ID}
 }
 
 func (k bindingKey) valid() bool {

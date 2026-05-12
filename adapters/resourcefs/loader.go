@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 )
 
 const DefaultManifestName = "agentruntime.json"
@@ -51,6 +52,7 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 	bundle := resource.ContributionBundle{
 		Source:     source,
 		Operations: append([]operation.Spec(nil), manifest.Operations...),
+		Sessions:   append([]coresession.Spec(nil), manifest.Sessions...),
 		Plugins:    append([]resource.PluginRef(nil), manifest.Plugins...),
 	}
 	for _, raw := range manifest.Commands {
@@ -68,6 +70,7 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 type Manifest struct {
 	Operations []operation.Spec     `json:"operations,omitempty"`
 	Commands   []Command            `json:"commands,omitempty"`
+	Sessions   []coresession.Spec   `json:"sessions,omitempty"`
 	Plugins    []resource.PluginRef `json:"plugins,omitempty"`
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -39,7 +40,9 @@ type Composition struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
+	SessionCatalog    session.SessionCatalog
 	OperationSpecs    []operation.Spec
+	SessionSpecs      []coresession.Spec
 	OperationExecutor operationruntime.Executor
 	Events            event.Sink
 	ThreadStore       corethread.Store
@@ -133,6 +136,12 @@ func Compose(cfg Config) (Composition, error) {
 		}
 	}
 
+	sessionCatalog, sessionSpecs, sessionDiagnostic, err := collectSessions(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, sessionDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+
 	return Composition{
 		Agent:             cfg.Agent,
 		Commands:          commands,
@@ -141,13 +150,41 @@ func Compose(cfg Config) (Composition, error) {
 		Resolver:          resolver,
 		CommandCatalog:    commandCatalog,
 		OperationCatalog:  operationCatalog,
+		SessionCatalog:    sessionCatalog,
 		OperationSpecs:    operationSpecs,
+		SessionSpecs:      sessionSpecs,
 		OperationExecutor: cfg.OperationExecutor,
 		Events:            cfg.Events,
 		ThreadStore:       cfg.ThreadStore,
 		Bundles:           bundles,
 		Diagnostics:       diagnostics,
 	}, nil
+}
+
+func collectSessions(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (session.SessionCatalog, []coresession.Spec, resource.Diagnostic, error) {
+	catalog := session.SessionCatalog{}
+	var specs []coresession.Spec
+	for _, bundle := range bundles {
+		for _, spec := range bundle.Sessions {
+			if err := spec.Validate(); err != nil {
+				err := fmt.Errorf("app: session spec: %w", err)
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			id := resource.DeriveResourceID(bundle.Source, "session", string(spec.Name))
+			if id.Name == "" {
+				err := fmt.Errorf("app: session resource id name is empty")
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			if _, exists := catalog[id.Address()]; exists {
+				err := fmt.Errorf("app: duplicate session resource %q", id.Address())
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			catalog[id.Address()] = session.SessionBinding{ID: id, Spec: spec}
+			index.Add(id)
+			specs = append(specs, spec)
+		}
+	}
+	return catalog, specs, resource.Diagnostic{}, nil
 }
 
 func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []resource.Diagnostic, error) {
