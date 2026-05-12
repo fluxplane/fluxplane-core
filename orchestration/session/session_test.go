@@ -203,15 +203,13 @@ func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 
 type fixedAgent struct {
 	result agent.StepResult
-	input  agent.StepInput
 }
 
 func (a fixedAgent) Spec() agent.Spec {
 	return agent.Spec{Name: "fixed"}
 }
 
-func (a fixedAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
-	a.input = input
+func (a fixedAgent) Step(_ agent.Context, _ agent.StepInput) agent.StepResult {
 	return a.result
 }
 

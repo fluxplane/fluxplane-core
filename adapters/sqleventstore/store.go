@@ -37,7 +37,7 @@ func Open(path string, registry *event.Registry) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	store, err := OpenDB(db, registry)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	store.ownedDB = true
@@ -99,13 +99,13 @@ func (s *Store) AppendBatch(ctx context.Context, requests ...event.AppendRequest
 	if err != nil {
 		return nil, fmt.Errorf("sqleventstore: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	stmt, err := tx.PrepareContext(ctx, insertSQL)
 	if err != nil {
 		return nil, fmt.Errorf("sqleventstore: prepare insert: %w", err)
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().UTC()
 	results := make([]event.AppendResult, 0, len(requests))
@@ -225,7 +225,7 @@ func (s *Store) Load(ctx context.Context, stream event.StreamID, opts event.Load
 	if err != nil {
 		return nil, fmt.Errorf("sqleventstore: load: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []event.StoredRecord
 	for rows.Next() {

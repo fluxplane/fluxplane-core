@@ -26,7 +26,7 @@ func TestStoreAppendLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
 	if _, err := store.Append(ctx, "test", event.ExpectSequence(0), event.Record{
@@ -64,7 +64,7 @@ func TestStoreAppendConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
 	if _, err := store.Append(ctx, "test", event.ExpectSequence(0), event.Record{Payload: messageAdded{Text: "one"}}); err != nil {
@@ -88,7 +88,7 @@ func TestStoreAppendBatchIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer store.Close()
+	t.Cleanup(func() { _ = store.Close() })
 
 	ctx := context.Background()
 	_, err = store.AppendBatch(ctx,
@@ -130,7 +130,7 @@ func TestRuntimeThreadStoreOnSQLStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
-	defer sqlStore.Close()
+	t.Cleanup(func() { _ = sqlStore.Close() })
 	threadStore, err := runtimethread.NewStore(sqlStore)
 	if err != nil {
 		t.Fatalf("NewStore returned error: %v", err)

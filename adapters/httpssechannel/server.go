@@ -189,7 +189,7 @@ func writeSSE(w http.ResponseWriter, event clientapi.Event) error {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(out); err != nil {
 		writeError(w, http.StatusBadRequest, err)

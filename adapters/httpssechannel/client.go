@@ -391,7 +391,7 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 		return nil, nil, nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		cancelCtx()
 		return nil, nil, nil, responseError(resp)
 	}
@@ -403,7 +403,7 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 		defer close(done)
 		defer close(out)
 		defer close(errs)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		var data strings.Builder
@@ -480,7 +480,7 @@ func (c *Client) doJSON(req *http.Request, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return responseError(resp)
 	}

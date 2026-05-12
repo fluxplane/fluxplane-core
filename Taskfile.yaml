@@ -1,0 +1,74 @@
+version: "3"
+
+env:
+  GOCACHE: /tmp/go-cache
+  GOLANGCI_LINT_CACHE: /tmp/golangci-lint-cache
+
+tasks:
+  default:
+    desc: List available tasks.
+    cmds:
+      - task --list
+
+  verify:
+    desc: Run the rewrite quality gate.
+    cmds:
+      - task: fmt:check
+      - task: mod:check
+      - task: whitespace:check
+      - task: vet
+      - task: lint
+      - task: test
+      - task: arch:check
+
+  fmt:check:
+    desc: Fail when Go files are not gofmt formatted.
+    cmds:
+      - |
+        files="$(gofmt -l .)"
+        if [ -n "$files" ]; then
+          printf 'gofmt needed:\n%s\n' "$files"
+          exit 1
+        fi
+
+  mod:check:
+    desc: Fail when go.mod or go.sum need tidying.
+    cmds:
+      - go mod tidy -diff
+
+  whitespace:check:
+    desc: Fail on whitespace errors in the git diff.
+    cmds:
+      - git diff --check
+
+  vet:
+    desc: Run go vet.
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint.
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Run rewrite tests.
+    cmds:
+      - go test -timeout=30s ./...
+
+  arch:check:
+    desc: Fail on architecture import-direction violations.
+    cmds:
+      - go run ./apps/archreport -fail
+
+  arch:report:
+    desc: Print the architecture report.
+    cmds:
+      - go run ./apps/archreport
+
+  arch:render:
+    desc: Render architecture graph sources into .agents/architecture.
+    cmds:
+      - mkdir -p .agents/architecture
+      - go run ./apps/archreport -format mermaid -out .agents/architecture/import-graph.mmd
+      - go run ./apps/archreport -format dot -out .agents/architecture/import-graph.dot
