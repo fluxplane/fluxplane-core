@@ -36,6 +36,8 @@ type Session struct {
 	Thread            corethread.Ref
 }
 
+const defaultLLMContinuations = 4
+
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
 type OperationBinding struct {
@@ -237,31 +239,59 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	}
 
 	agentCtx := agentContext{Context: ensureContext(ctx), events: s.eventSink()}
-	agentResult := s.Agent.Step(agentCtx, agent.StepInput{
-		Observations: []environment.Observation{{
-			Source:  "channel",
-			Kind:    "channel.message",
-			Content: inbound.Message.Content,
-			Metadata: map[string]any{
-				"channel":      inbound.Channel.Name,
-				"conversation": inbound.Conversation.ID,
-			},
-		}},
-	})
-	if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: inbound.ID, Result: agentResult}); err != nil {
-		return inputFailed("thread_append_failed", err.Error(), nil)
+	observations := []environment.Observation{{
+		Source:  "channel",
+		Kind:    "channel.message",
+		Content: inbound.Message.Content,
+		Metadata: map[string]any{
+			"channel":      inbound.Channel.Name,
+			"conversation": inbound.Conversation.ID,
+		},
+	}}
+	continuations := 0
+	maxContinuations := s.maxContinuations()
+	var (
+		state   agent.StateRef
+		effects []environment.EffectResult
+	)
+	for {
+		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
+			Observations: observations,
+			State:        state,
+		})
+		if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: inbound.ID, Result: agentResult}); err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		if agentResult.Status != agent.StatusOK {
+			return InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}
+		}
+		if !stateRefIsZero(agentResult.State.Ref) {
+			state = agentResult.State.Ref
+		}
+		if agentResult.Decision.Kind != agent.DecisionOperation {
+			return s.applyTerminalAgentDecision(ctx, inbound, agentResult, effects)
+		}
+		if len(agentResult.Decision.Operations) == 0 {
+			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
+		}
+		batch, err := s.applyAgentOperations(ctx, agentCtx, inbound, agentResult.Decision.Operations)
+		if err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		effects = append(effects, batch...)
+		if continuations >= maxContinuations {
+			return s.operationLimitResult(ctx, inbound, agentResult, effects)
+		}
+		continuations++
+		observations = observationsForEffects(batch)
 	}
-	if agentResult.Status != agent.StatusOK {
-		return InputResult{Status: InputStatusFailed, Agent: agentResult, Error: agentError(agentResult.Error)}
-	}
-	return s.applyAgentDecision(ctx, agentCtx, inbound, agentResult)
 }
 
-func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, agentResult agent.StepResult) InputResult {
+func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
 	switch agentResult.Decision.Kind {
 	case agent.DecisionMessage:
 		if agentResult.Decision.Message == nil {
-			return InputResult{Status: InputStatusOK, Agent: agentResult}
+			return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects}
 		}
 		outbound := channel.Outbound{
 			Channel:      inbound.Channel,
@@ -275,10 +305,10 @@ func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Cont
 		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
-		return InputResult{Status: InputStatusOK, Agent: agentResult, Outbound: &outbound}
+		return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Outbound: &outbound}
 	case agent.DecisionComplete:
 		if agentResult.Decision.Complete == nil {
-			return InputResult{Status: InputStatusOK, Agent: agentResult}
+			return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects}
 		}
 		outbound := channel.Outbound{
 			Channel:      inbound.Channel,
@@ -289,54 +319,119 @@ func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Cont
 		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
-		return InputResult{Status: InputStatusOK, Agent: agentResult, Outbound: &outbound}
-	case agent.DecisionOperation:
-		if len(agentResult.Decision.Operations) == 0 {
-			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
-		}
-		var effects []environment.EffectResult
-		for _, opReq := range agentResult.Decision.Operations {
-			if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
-				RunID:     inbound.ID,
-				Operation: opReq.Operation,
-				Input:     opReq.Input,
-			}); err != nil {
-				return inputFailed("thread_append_failed", err.Error(), nil)
-			}
-			effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
-			effects = append(effects, effect)
-			if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
-				RunID:     inbound.ID,
-				Operation: opReq.Operation,
-				Result:    effect.Result,
-			}); err != nil {
-				return inputFailed("thread_append_failed", err.Error(), nil)
-			}
-		}
-		effect := effects[len(effects)-1]
-		message := outboundMessageForOperationResult(effect.Result)
-		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
-			return inputFailed("thread_append_failed", err.Error(), nil)
-		}
-		status := InputStatusOK
-		for _, current := range effects {
-			if current.Result.IsError() {
-				status = InputStatusFailed
-				break
-			}
-		}
-		outbound := channel.Outbound{
-			Channel:      inbound.Channel,
-			Conversation: inbound.Conversation,
-			Kind:         channel.OutboundMessage,
-			Message:      &message,
-		}
-		return InputResult{Status: status, Agent: agentResult, Effect: &effect, Effects: effects, Outbound: &outbound}
+		return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Outbound: &outbound}
 	case agent.DecisionNone, agent.DecisionWait:
-		return InputResult{Status: InputStatusOK, Agent: agentResult}
+		return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects}
 	default:
-		return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "unsupported_agent_decision", Message: "agent decision is not supported by session input dispatch yet", Details: map[string]any{"decision": agentResult.Decision.Kind}}}
+		return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "unsupported_agent_decision", Message: "agent decision is not supported by session input dispatch yet", Details: map[string]any{"decision": agentResult.Decision.Kind}}}
 	}
+}
+
+func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, requests []agent.OperationRequest) ([]environment.EffectResult, error) {
+	effects := make([]environment.EffectResult, 0, len(requests))
+	for _, opReq := range requests {
+		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+			RunID:     inbound.ID,
+			Operation: opReq.Operation,
+			Input:     opReq.Input,
+		}); err != nil {
+			return nil, err
+		}
+		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
+		if effect.Observation.Metadata == nil {
+			effect.Observation.Metadata = map[string]any{}
+		}
+		effect.Observation.Metadata["operation"] = opReq.Operation.String()
+		effects = append(effects, effect)
+		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+			RunID:     inbound.ID,
+			Operation: opReq.Operation,
+			Result:    effect.Result,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return effects, nil
+}
+
+func (s Session) operationLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
+	effect := lastEffect(effects)
+	if effect == nil {
+		return InputResult{Status: InputStatusFailed, Agent: agentResult, Error: &CommandError{Code: "continuation_limit_exceeded", Message: "agent reached operation continuation limit"}}
+	}
+	message := outboundMessageForOperationResult(effect.Result)
+	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
+		return inputFailed("thread_append_failed", err.Error(), nil)
+	}
+	status := InputStatusFailed
+	if s.maxContinuations() == 0 && !effect.Result.IsError() {
+		status = InputStatusOK
+	}
+	outbound := channel.Outbound{
+		Channel:      inbound.Channel,
+		Conversation: inbound.Conversation,
+		Kind:         channel.OutboundMessage,
+		Message:      &message,
+	}
+	return InputResult{
+		Status:   status,
+		Agent:    agentResult,
+		Effect:   effect,
+		Effects:  effects,
+		Outbound: &outbound,
+		Error:    continuationLimitError(status),
+	}
+}
+
+func (s Session) maxContinuations() int {
+	if s.Agent == nil {
+		return 0
+	}
+	spec := s.Agent.Spec()
+	if spec.Policy.MaxContinuations > 0 {
+		return spec.Policy.MaxContinuations
+	}
+	if spec.Policy.MaxSteps > 1 {
+		return spec.Policy.MaxSteps - 1
+	}
+	if spec.Driver.Kind == "llmagent" {
+		return defaultLLMContinuations
+	}
+	return 0
+}
+
+func observationsForEffects(effects []environment.EffectResult) []environment.Observation {
+	observations := make([]environment.Observation, 0, len(effects))
+	for _, effect := range effects {
+		obs := effect.Observation
+		if obs.ID == "" && obs.Kind == "" {
+			obs = environment.Observation{
+				Source:  "operation",
+				Kind:    "operation.result",
+				Content: effect.Result,
+			}
+		}
+		observations = append(observations, obs)
+	}
+	return observations
+}
+
+func lastEffect(effects []environment.EffectResult) *environment.EffectResult {
+	if len(effects) == 0 {
+		return nil
+	}
+	return &effects[len(effects)-1]
+}
+
+func continuationLimitError(status InputStatus) *CommandError {
+	if status == InputStatusOK {
+		return nil
+	}
+	return &CommandError{Code: "continuation_limit_exceeded", Message: "agent reached operation continuation limit"}
+}
+
+func stateRefIsZero(r agent.StateRef) bool {
+	return r.Kind == "" && r.URI == "" && r.Digest == ""
 }
 
 // ExecuteInboundCommand dispatches a channel command envelope.

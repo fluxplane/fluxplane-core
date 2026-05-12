@@ -264,7 +264,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 	defer close(r.events)
 	defer close(r.done)
 
-	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 16})
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 256})
 	if err != nil {
 		r.fail(info, err)
 		return

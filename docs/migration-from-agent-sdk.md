@@ -638,6 +638,19 @@ Important contract decisions from this slice:
 - The final normalized LLM response is authoritative. Streaming is UX,
   debugging, and progress; it may help assemble tool calls, but runtime
   decisions consume the final `llmagent.Response`.
+- Usage accounting is a cross-cutting runtime concern. Later runtime/adapters
+  should emit normalized usage events for consumed resources: LLM input,
+  cached-input, output, and reasoning tokens; network up/down bytes and
+  requests; file read/write bytes; process/runtime resources; and other
+  operation-specific usage. Cost evaluation should consume these events through
+  pricing/catalog data rather than being hard-coded inside operation or model
+  execution.
+- Model providers should ship model catalog specs describing model IDs,
+  pricing units, capabilities, and constraints: tool calling, caching,
+  thinking/reasoning, streaming, context windows, output limits, modalities,
+  safety features, and provider-specific knobs. OpenAI is first; Anthropic via
+  `github.com/anthropics/anthropic-sdk-go` is scheduled as a later provider
+  adapter/catalog batch.
 
 Still intentionally incomplete:
 
@@ -653,9 +666,9 @@ Still intentionally incomplete:
   narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
   agent instantiation through configured sessions. It does not execute prompt
   commands, execute workflow commands, or activate skills yet.
-- The first live provider adapter is OpenAI Responses. It is intentionally
-  narrow: no provider streaming, retry policy, conversation compaction, or
-  tool-result continuation loop yet.
+- The first live provider adapter is OpenAI Responses. It is still narrow: no
+  retry policy, conversation compaction, provider model catalog, normalized
+  usage/cost events, or Anthropic/local provider adapter yet.
 - Configured sessions can instantiate manifest-declared LLM agents when the
   host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
   path. Model routing policy beyond that first adapter is still open.
@@ -836,30 +849,41 @@ Parity should be reached in small slices:
    redacts thinking and sensitive tool args, assembles streamed tool calls into
    operation requests, and includes scripted fake provider models for tests.
    Done: `adapters/openai` calls the OpenAI Responses API through
-   `openai-go/v3`, maps projected tools to function tools, converts multiple
+   `openai-go/v3`, maps projected tools to function tools, streams
+   content/thinking/tool-call deltas into runtime events, converts multiple
    function calls into operation requests, and is reachable from
    `apps/devclient -openai`.
 
 8. **Phase 6: Model Turn Continuation**
    Feed operation results back into LLM turns until the agent emits a message,
    completion, wait, or policy stop. Keep the continuation loop in runtime or
-   orchestration, not in provider adapters.
+   orchestration, not in provider adapters. Done initially for session input:
+   LLM agents receive operation results as follow-up observations through a
+   bounded continuation loop.
 
-9. **Phase 7: Local CLI Capability Plugin**
+9. **Phase 7: Usage and Model Catalogs**
+   Add normalized runtime usage events and provider model catalog specs. Usage
+   events should cover LLM tokens, cache hits, reasoning tokens, network
+   bandwidth, file bytes, and operation-specific resource consumption. Catalogs
+   should describe model capabilities and pricing so cost evaluation is data
+   driven. Schedule Anthropic via `github.com/anthropics/anthropic-sdk-go` in
+   this provider expansion path.
+
+10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with
    sandboxing, ACL, command-risk classification, approval, audit, and secret
    handling from the start.
 
-10. **Phase 8: Commands and Skills Runtime**
+11. **Phase 9: Commands and Skills Runtime**
    Execute prompt commands, support skill discovery/activation, and preserve
    command visibility policies.
 
-11. **Phase 9: Workflow and Sub-Agent Supervisor**
+12. **Phase 10: Workflow and Sub-Agent Supervisor**
    Execute the `feature` workflow through child sessions using a generic
    supervisor with capacity, cancellation, progress, parent/child causation,
    and event linkage.
 
-12. **Phase 10: Engineer App Assembly**
+13. **Phase 11: Engineer App Assembly**
    Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`
    CLI over the same channel client/session/run handles.
 

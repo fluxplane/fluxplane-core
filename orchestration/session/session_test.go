@@ -201,6 +201,64 @@ func TestExecuteInboundInputDispatchesMultipleAgentOperations(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "llm",
+			Driver: agent.DriverSpec{Kind: "llmagent"},
+		},
+		results: []agent.StepResult{
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:       agent.DecisionOperation,
+					Operations: []agent.OperationRequest{{Operation: opRef, Input: "thing"}},
+				},
+			},
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:    agent.DecisionMessage,
+					Message: &agent.Message{Content: "found thing"},
+				},
+			},
+		},
+	}
+	s := Session{
+		Agent:             agentRuntime,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+	}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "run"},
+	})
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(result.Effects) != 1 {
+		t.Fatalf("effects len = %d, want 1", len(result.Effects))
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "found thing" {
+		t.Fatalf("outbound = %#v, want final agent message", result.Outbound)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent steps = %d, want 2", len(agentRuntime.inputs))
+	}
+	if got := agentRuntime.inputs[1].Observations[0].Kind; got != "operation.result" {
+		t.Fatalf("second observation kind = %q, want operation.result", got)
+	}
+}
+
 func TestExecuteInboundInputRequiresAgent(t *testing.T) {
 	result := (Session{}).ExecuteInboundInput(context.Background(), channel.Inbound{
 		Kind:    channel.InboundMessage,
@@ -258,6 +316,24 @@ func (a fixedAgent) Spec() agent.Spec {
 
 func (a fixedAgent) Step(_ agent.Context, _ agent.StepInput) agent.StepResult {
 	return a.result
+}
+
+type sequenceAgent struct {
+	spec    agent.Spec
+	results []agent.StepResult
+	inputs  []agent.StepInput
+}
+
+func (a *sequenceAgent) Spec() agent.Spec {
+	return a.spec
+}
+
+func (a *sequenceAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
+	a.inputs = append(a.inputs, input)
+	if len(a.inputs) <= len(a.results) {
+		return a.results[len(a.inputs)-1]
+	}
+	return agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}}
 }
 
 func TestExecuteInboundCommandPersistsThreadEvents(t *testing.T) {

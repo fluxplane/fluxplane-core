@@ -291,7 +291,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
-		Events:            s.events,
+		Events:            s.runtimeEventSink(info, runID),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
 	}
@@ -334,7 +334,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
-		Events:            s.events,
+		Events:            s.runtimeEventSink(info, runID),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
 	}
@@ -546,6 +546,26 @@ func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
 	for _, sub := range subs {
 		sub.send(event)
 	}
+}
+
+func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) coreevent.Sink {
+	return coreevent.SinkFunc(func(payload coreevent.Event) {
+		if payload == nil {
+			return
+		}
+		s.publish(info.Thread.ID, clientapi.Event{
+			Kind:    clientapi.EventRuntimeEmitted,
+			RunID:   runID,
+			Session: toClientSessionInfo(info),
+			Runtime: &clientapi.RuntimeEvent{
+				Name:    payload.EventName(),
+				Payload: payload,
+			},
+		})
+		if s.events != nil {
+			s.events.Emit(payload)
+		}
+	})
 }
 
 type subscriber struct {

@@ -44,6 +44,10 @@ type Config struct {
 	// ParallelToolCalls enables provider-level parallel function calls. The
 	// runtime already accepts multiple operation requests in one agent response.
 	ParallelToolCalls bool
+
+	// Redactor controls which provider stream details may be exposed through
+	// runtime stream events.
+	Redactor adapterllm.Redactor
 }
 
 // Model implements runtime/agent/llmagent.Model using OpenAI Responses.
@@ -52,6 +56,7 @@ type Model struct {
 	model             string
 	store             bool
 	parallelToolCalls bool
+	redactor          adapterllm.Redactor
 }
 
 // New returns an OpenAI Responses API model adapter.
@@ -68,6 +73,7 @@ func New(cfg Config) (*Model, error) {
 		model:             strings.TrimSpace(cfg.Model),
 		store:             cfg.Store,
 		parallelToolCalls: cfg.ParallelToolCalls,
+		redactor:          cfg.Redactor,
 	}, nil
 }
 
@@ -89,6 +95,41 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 		return llmagent.Response{}, errors.New("openai: nil response")
 	}
 	return responseFromOpenAI(*resp, tools)
+}
+
+// Stream calls the OpenAI Responses streaming API and emits provider-neutral
+// deltas while still returning the final normalized response.
+func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc) (llmagent.Response, error) {
+	if m == nil {
+		return llmagent.Response{}, errors.New("openai: model is nil")
+	}
+	params, tools, err := m.responseParams(req)
+	if err != nil {
+		return llmagent.Response{}, err
+	}
+	stream := m.client.Responses.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+
+	toolNames := map[int]tool.Name{}
+	var final responses.Response
+	for stream.Next() {
+		evt := stream.Current()
+		if evt.Type == "response.completed" {
+			final = evt.AsResponseCompleted().Response
+		}
+		for _, normalized := range m.streamEvents(evt, toolNames) {
+			if runtimeEvent, ok := m.redactor.ToRuntimeStream(normalized); ok && emit != nil {
+				emit(runtimeEvent)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return llmagent.Response{}, err
+	}
+	if final.ID == "" {
+		return llmagent.Response{}, errors.New("openai: stream completed without final response")
+	}
+	return responseFromOpenAI(final, tools)
 }
 
 func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParams, []adapterllm.ToolSpec, error) {
@@ -203,6 +244,69 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec) (l
 	return llmagent.Response{}, nil
 }
 
+func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, toolNames map[int]tool.Name) []adapterllm.StreamEvent {
+	switch evt.Type {
+	case "response.output_text.delta":
+		return []adapterllm.StreamEvent{{
+			Kind:  adapterllm.StreamContentDelta,
+			Text:  evt.AsResponseOutputTextDelta().Delta,
+			Index: int(evt.OutputIndex),
+		}}
+	case "response.reasoning_text.delta":
+		return []adapterllm.StreamEvent{{
+			Kind:        adapterllm.StreamThinkingDelta,
+			Text:        evt.AsResponseReasoningTextDelta().Delta,
+			Index:       int(evt.OutputIndex),
+			Sensitivity: "restricted",
+		}}
+	case "response.reasoning_summary_text.delta":
+		return []adapterllm.StreamEvent{{
+			Kind:        adapterllm.StreamThinkingDelta,
+			Text:        evt.AsResponseReasoningSummaryTextDelta().Delta,
+			Index:       int(evt.OutputIndex),
+			Sensitivity: "internal",
+		}}
+	case "response.output_item.added":
+		added := evt.AsResponseOutputItemAdded()
+		if added.Item.Type != "function_call" {
+			return nil
+		}
+		name := tool.Name(added.Item.Name)
+		toolNames[int(added.OutputIndex)] = name
+		return []adapterllm.StreamEvent{{
+			Kind:       adapterllm.StreamToolCallStart,
+			Tool:       name,
+			ToolCallID: firstNonEmpty(added.Item.CallID, added.Item.ID),
+			Index:      int(added.OutputIndex),
+		}}
+	case "response.function_call_arguments.delta":
+		delta := evt.AsResponseFunctionCallArgumentsDelta()
+		return []adapterllm.StreamEvent{{
+			Kind:       adapterllm.StreamToolCallDelta,
+			Tool:       toolNames[int(delta.OutputIndex)],
+			ToolCallID: delta.ItemID,
+			Index:      int(delta.OutputIndex),
+			Arguments:  delta.Delta,
+		}}
+	case "response.function_call_arguments.done":
+		done := evt.AsResponseFunctionCallArgumentsDone()
+		name := tool.Name(done.Name)
+		if name == "" {
+			name = toolNames[int(done.OutputIndex)]
+		}
+		return []adapterllm.StreamEvent{{
+			Kind:       adapterllm.StreamToolCallDone,
+			Tool:       name,
+			ToolCallID: done.ItemID,
+			Index:      int(done.OutputIndex),
+			Arguments:  done.Arguments,
+			Final:      true,
+		}}
+	default:
+		return nil
+	}
+}
+
 func callID(call responses.ResponseFunctionToolCall, index int) string {
 	if call.CallID != "" {
 		return call.CallID
@@ -211,6 +315,15 @@ func callID(call responses.ResponseFunctionToolCall, index int) string {
 		return call.ID
 	}
 	return fmt.Sprintf("index:%d", index)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func promptFromRequest(req llmagent.Request) string {

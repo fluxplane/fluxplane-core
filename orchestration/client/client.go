@@ -191,6 +191,7 @@ const (
 	EventAgentStepCompleted EventKind = "agent_step.completed"
 	EventOperationCompleted EventKind = "operation.completed"
 	EventOutboundProduced   EventKind = "outbound.produced"
+	EventRuntimeEmitted     EventKind = "runtime.emitted"
 	EventRunCompleted       EventKind = "run.completed"
 	EventRunFailed          EventKind = "run.failed"
 )
@@ -206,6 +207,13 @@ type OperationEvent struct {
 	Result    operation.Result `json:"result"`
 }
 
+// RuntimeEvent exposes a typed runtime/domain event to channel clients.
+// Transports may decode Payload as a generic JSON object.
+type RuntimeEvent struct {
+	Name    event.Name `json:"name"`
+	Payload any        `json:"payload,omitempty"`
+}
+
 // Event is a semantic event delivered to channel clients and run handles.
 type Event struct {
 	Kind       EventKind              `json:"kind"`
@@ -219,6 +227,7 @@ type Event struct {
 	Agent      *agent.StepResult      `json:"agent,omitempty"`
 	Operation  *OperationEvent        `json:"operation,omitempty"`
 	Outbound   *channel.Outbound      `json:"outbound,omitempty"`
+	Runtime    *RuntimeEvent          `json:"runtime,omitempty"`
 	Error      error                  `json:"-"`
 }
 

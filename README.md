@@ -24,9 +24,12 @@ The current executable slice supports:
 - safe-by-default tool projection for LLM-visible commands and operations;
 - configured-session instantiation of manifest-declared LLM agents when a host
   provides a model implementation;
+- bounded LLM-agent operation continuation, so tool/operation results can feed
+  the next model turn;
 - provider-neutral LLM adapter helpers for messages, tools, streaming,
   redaction, and fake provider tests;
-- OpenAI Responses API adapter using `openai-go/v3`;
+- OpenAI Responses API adapter using `openai-go/v3`, including streaming
+  content/thinking/tool-call events for debug subscribers;
 - an architecture import report for maintainers.
 
 Terminal UX, Slack, additional model providers, trigger execution, and
@@ -90,9 +93,9 @@ go run ./apps/devclient serve -addr 127.0.0.1:8080
 go run ./apps/devclient -url http://127.0.0.1:8080 input hello
 ```
 
-Use `-debug` to print submissions, events, and results. `-openai` uses
-`OPENAI_API_KEY` through the OpenAI SDK and defaults the model to
-`OPENAI_MODEL`, falling back to `gpt-4.1-mini` when unset.
+Use `-debug` to print submissions, model stream events, runtime events, and
+results. `-openai` uses `OPENAI_API_KEY` through the OpenAI SDK and defaults
+the model to `OPENAI_MODEL`, falling back to `gpt-4.1-mini` when unset.
 
 ## Resource Apps
 

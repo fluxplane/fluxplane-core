@@ -111,6 +111,29 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 	}
 }
 
+func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
+	model := &Model{}
+	toolNames := map[int]tool.Name{}
+
+	added := mustStreamEvent(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"inspect","arguments":""}}`)
+	events := model.streamEvents(added, toolNames)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallStart || events[0].Tool != "inspect" {
+		t.Fatalf("added events = %#v, want inspect start", events)
+	}
+
+	delta := mustStreamEvent(t, `{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"call_1","delta":"{\"path\""}`)
+	events = model.streamEvents(delta, toolNames)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDelta || events[0].Tool != "inspect" {
+		t.Fatalf("delta events = %#v, want inspect delta", events)
+	}
+
+	thinking := mustStreamEvent(t, `{"type":"response.reasoning_summary_text.delta","output_index":1,"item_id":"rs_1","delta":"checking"}`)
+	events = model.streamEvents(thinking, toolNames)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "checking" {
+		t.Fatalf("thinking events = %#v, want thinking delta", events)
+	}
+}
+
 func mustResponse(t *testing.T, raw string) responses.Response {
 	t.Helper()
 	var resp responses.Response
@@ -118,4 +141,13 @@ func mustResponse(t *testing.T, raw string) responses.Response {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 	return resp
+}
+
+func mustStreamEvent(t *testing.T, raw string) responses.ResponseStreamEventUnion {
+	t.Helper()
+	var event responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		t.Fatalf("unmarshal stream event: %v", err)
+	}
+	return event
 }

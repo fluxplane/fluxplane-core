@@ -10,6 +10,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -303,6 +304,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		openAIModel, err := openaiadapter.New(openaiadapter.Config{
 			Model:             dev.openAIModel,
 			ParallelToolCalls: true,
+			Redactor:          debugRedactor(dev.debug),
 		})
 		if err != nil {
 			return nil, err
@@ -317,7 +319,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 			Inference: agent.InferenceSpec{
 				Model: dev.openAIModel,
 			},
-		}, model)
+		}, model, llmagent.WithStreamPolicy(debugStreamPolicy(dev.debug)))
 		if err != nil {
 			return nil, err
 		}
@@ -343,6 +345,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	}
 	if dev.useOpenAI {
 		cfg.LLMModel = model
+		cfg.LLMStreamPolicy = debugStreamPolicy(dev.debug)
 	}
 	if dev.appDir == "" {
 		return agentruntime.New(cfg)
@@ -370,6 +373,20 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		cfg.Agent = nil
 	}
 	return agentruntime.NewFromComposition(composition, cfg)
+}
+
+func debugStreamPolicy(debug bool) llmagent.StreamPolicy {
+	if !debug {
+		return llmagent.StreamPolicy{}
+	}
+	return llmagent.StreamPolicy{EmitContent: true, EmitThinking: true, EmitToolCall: true}
+}
+
+func debugRedactor(debug bool) adapterllm.Redactor {
+	if !debug {
+		return adapterllm.Redactor{}
+	}
+	return adapterllm.Redactor{ExposeThinking: true, ExposeToolArgs: true}
 }
 
 func appOperations(bundle agentruntime.ResourceBundle, echo operation.Operation) []operation.Operation {
