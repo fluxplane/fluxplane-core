@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -129,6 +130,43 @@ func TestExecuteInboundCommandPersistsFailedOperationOutboundMessage(t *testing.
 	}
 }
 
+func TestExecuteInboundInputDispatchesAgentMessage(t *testing.T) {
+	s := Session{
+		Agent: fixedAgent{
+			result: agent.StepResult{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:    agent.DecisionMessage,
+					Message: &agent.Message{Content: "pong"},
+				},
+			},
+		},
+	}
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "ping"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "pong" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+}
+
+func TestExecuteInboundInputRequiresAgent(t *testing.T) {
+	result := (Session{}).ExecuteInboundInput(context.Background(), channel.Inbound{
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "ping"},
+	})
+	if result.Status != InputStatusFailed {
+		t.Fatalf("status = %q, want failed: %#v", result.Status, result)
+	}
+	if result.Error == nil || result.Error.Code != "agent_missing" {
+		t.Fatalf("error = %#v, want agent_missing", result.Error)
+	}
+}
+
 func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 	commands := command.NewRegistry()
 	if err := commands.Register(command.Spec{
@@ -161,6 +199,20 @@ func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 	if result.Policy.Reason != "insufficient_trust" {
 		t.Fatalf("policy reason = %q, want insufficient_trust", result.Policy.Reason)
 	}
+}
+
+type fixedAgent struct {
+	result agent.StepResult
+	input  agent.StepInput
+}
+
+func (a fixedAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "fixed"}
+}
+
+func (a fixedAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
+	a.input = input
+	return a.result
 }
 
 func TestExecuteInboundCommandPersistsThreadEvents(t *testing.T) {

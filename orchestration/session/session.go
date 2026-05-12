@@ -161,6 +161,139 @@ type CommandResult struct {
 	Error  *CommandError             `json:"error,omitempty"`
 }
 
+// InputStatus classifies the outcome of conversational input dispatch.
+type InputStatus string
+
+const (
+	InputStatusOK          InputStatus = "ok"
+	InputStatusFailed      InputStatus = "failed"
+	InputStatusUnsupported InputStatus = "unsupported"
+)
+
+// InputResult is the structured outcome of session input dispatch.
+type InputResult struct {
+	Status   InputStatus               `json:"status"`
+	Agent    agent.StepResult          `json:"agent,omitempty"`
+	Effect   *environment.EffectResult `json:"effect,omitempty"`
+	Outbound *channel.Outbound         `json:"outbound,omitempty"`
+	Error    *CommandError             `json:"error,omitempty"`
+}
+
+// ExecuteInboundInput dispatches a channel message envelope as conversational
+// input to the configured agent.
+func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inbound) InputResult {
+	if err := inbound.Validate(); err != nil {
+		return inputFailed("invalid_input_inbound", err.Error(), nil)
+	}
+	if inbound.Kind != channel.InboundMessage || inbound.Message == nil {
+		return inputFailed("invalid_input_inbound", "inbound envelope does not contain a message", nil)
+	}
+	if err := s.appendThreadEvents(ctx, coresession.InputReceived{
+		RunID:        inbound.ID,
+		Message:      *inbound.Message,
+		Channel:      inbound.Channel,
+		Conversation: inbound.Conversation,
+		Caller:       inbound.Caller,
+	}); err != nil {
+		return inputFailed("thread_append_failed", err.Error(), nil)
+	}
+	if s.Agent == nil {
+		return inputFailed("agent_missing", "agent is nil", nil)
+	}
+
+	agentCtx := agentContext{Context: ensureContext(ctx), events: s.eventSink()}
+	agentResult := s.Agent.Step(agentCtx, agent.StepInput{
+		Observations: []environment.Observation{{
+			Source:  "channel",
+			Kind:    "channel.message",
+			Content: inbound.Message.Content,
+			Metadata: map[string]any{
+				"channel":      inbound.Channel.Name,
+				"conversation": inbound.Conversation.ID,
+			},
+		}},
+	})
+	if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: inbound.ID, Result: agentResult}); err != nil {
+		return inputFailed("thread_append_failed", err.Error(), nil)
+	}
+	if agentResult.Status != agent.StatusOK {
+		return InputResult{Status: InputStatusFailed, Agent: agentResult, Error: agentError(agentResult.Error)}
+	}
+	return s.applyAgentDecision(ctx, agentCtx, inbound, agentResult)
+}
+
+func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, agentResult agent.StepResult) InputResult {
+	switch agentResult.Decision.Kind {
+	case agent.DecisionMessage:
+		if agentResult.Decision.Message == nil {
+			return InputResult{Status: InputStatusOK, Agent: agentResult}
+		}
+		outbound := channel.Outbound{
+			Channel:      inbound.Channel,
+			Conversation: inbound.Conversation,
+			Kind:         channel.OutboundMessage,
+			Message: &channel.Message{
+				Content:  agentResult.Decision.Message.Content,
+				Metadata: agentResult.Decision.Message.Metadata,
+			},
+		}
+		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		return InputResult{Status: InputStatusOK, Agent: agentResult, Outbound: &outbound}
+	case agent.DecisionComplete:
+		if agentResult.Decision.Complete == nil {
+			return InputResult{Status: InputStatusOK, Agent: agentResult}
+		}
+		outbound := channel.Outbound{
+			Channel:      inbound.Channel,
+			Conversation: inbound.Conversation,
+			Kind:         channel.OutboundMessage,
+			Message:      &channel.Message{Content: agentResult.Decision.Complete.Output},
+		}
+		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		return InputResult{Status: InputStatusOK, Agent: agentResult, Outbound: &outbound}
+	case agent.DecisionOperation:
+		if agentResult.Decision.Operation == nil {
+			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is nil"}}
+		}
+		opReq := agentResult.Decision.Operation
+		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+			RunID:     inbound.ID,
+			Operation: opReq.Operation,
+			Input:     opReq.Input,
+		}); err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
+		message := outboundMessageForOperationResult(effect.Result)
+		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+			RunID:     inbound.ID,
+			Operation: opReq.Operation,
+			Result:    effect.Result,
+		}, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
+			return inputFailed("thread_append_failed", err.Error(), nil)
+		}
+		status := InputStatusOK
+		if effect.Result.IsError() {
+			status = InputStatusFailed
+		}
+		outbound := channel.Outbound{
+			Channel:      inbound.Channel,
+			Conversation: inbound.Conversation,
+			Kind:         channel.OutboundMessage,
+			Message:      &message,
+		}
+		return InputResult{Status: status, Agent: agentResult, Effect: &effect, Outbound: &outbound}
+	case agent.DecisionNone, agent.DecisionWait:
+		return InputResult{Status: InputStatusOK, Agent: agentResult}
+	default:
+		return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "unsupported_agent_decision", Message: "agent decision is not supported by session input dispatch yet", Details: map[string]any{"decision": agentResult.Decision.Kind}}}
+	}
+}
+
 // ExecuteInboundCommand dispatches a channel command envelope.
 func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
 	if err := inbound.Validate(); err != nil {
@@ -170,6 +303,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
 	}
 	if err := s.appendThreadEvents(ctx, coresession.CommandReceived{
+		RunID:        inbound.ID,
 		Command:      *inbound.Command,
 		Channel:      inbound.Channel,
 		Conversation: inbound.Conversation,
@@ -189,10 +323,10 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
 	switch evaluation.Decision {
 	case policy.DecisionDeny:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{Command: *inbound.Command, Reason: evaluation.Reason})
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
 	case policy.DecisionApprovalRequired:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{Command: *inbound.Command, Reason: evaluation.Reason})
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
 	}
 
@@ -200,6 +334,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	switch spec.Target.Kind {
 	case invocation.TargetOperation:
 		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+			RunID:     inbound.ID,
 			Operation: spec.Target.Operation,
 			Input:     inbound.Command.Input,
 		}); err != nil {
@@ -207,9 +342,11 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		}
 		effect := s.applyOperation(opCtx, spec.Target.Operation, inbound.Command.Input)
 		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+			RunID:     inbound.ID,
 			Operation: spec.Target.Operation,
 			Result:    effect.Result,
 		}, coresession.OutboundProduced{
+			RunID:   inbound.ID,
 			Message: outboundMessageForOperationResult(effect.Result),
 		}); err != nil {
 			return commandFailed("thread_append_failed", err.Error(), nil)
@@ -241,6 +378,20 @@ func outboundMessageForOperationResult(result operation.Result) channel.Message 
 		content = result.Error.Message
 	}
 	return channel.Message{Content: content}
+}
+
+func inputFailed(code, message string, details map[string]any) InputResult {
+	return InputResult{
+		Status: InputStatusFailed,
+		Error:  &CommandError{Code: code, Message: message, Details: details},
+	}
+}
+
+func agentError(err *agent.Error) *CommandError {
+	if err == nil {
+		return nil
+	}
+	return &CommandError{Code: err.Code, Message: err.Message, Details: err.Details}
 }
 
 func commandFailed(code, message string, details map[string]any) CommandResult {

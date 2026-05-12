@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -11,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -29,7 +31,10 @@ func TestHandleInboundCommandBindsChannelConversationAndPublishesOutbound(t *tes
 		t.Fatalf("OpenSession: %v", err)
 	}
 
-	events, cancel := service.Subscribe(info.Thread.ID, 1)
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 8})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
 	defer cancel()
 
 	result, err := service.HandleInbound(ctx, channel.Inbound{
@@ -52,14 +57,22 @@ func TestHandleInboundCommandBindsChannelConversationAndPublishesOutbound(t *tes
 	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
-	select {
-	case outbound := <-events:
-		if outbound.Message == nil || outbound.Message.Content != "hello" {
-			t.Fatalf("published outbound = %#v", outbound)
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Outbound == nil {
+				continue
+			}
+			if event.Outbound.Message == nil || event.Outbound.Message.Content != "hello" {
+				t.Fatalf("published event = %#v", event)
+			}
+			goto sawOutbound
+		case <-deadline:
+			t.Fatal("expected published outbound")
 		}
-	default:
-		t.Fatal("expected published outbound")
 	}
+sawOutbound:
 
 	snapshot, err := threadStore.Read(ctx, corethread.ReadParams{ID: info.Thread.ID})
 	if err != nil {

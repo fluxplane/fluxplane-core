@@ -8,17 +8,21 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // Config contains the reusable runtime pieces a harness composes.
 type Config struct {
+	Agent             agent.Agent
 	Commands          *command.Registry
 	Operations        *operation.Registry
 	OperationExecutor operationruntime.Executor
@@ -28,6 +32,7 @@ type Config struct {
 
 // Service is the channel-facing use-case facade over sessions.
 type Service struct {
+	agent             agent.Agent
 	commands          *command.Registry
 	operations        *operation.Registry
 	operationExecutor operationruntime.Executor
@@ -37,20 +42,21 @@ type Service struct {
 	bindMu      sync.Mutex
 	mu          sync.Mutex
 	bindings    map[bindingKey]corethread.Ref
-	subscribers map[corethread.ID]map[int]chan channel.Outbound
+	subscribers map[corethread.ID]map[int]chan clientapi.Event
 	nextSub     int
 }
 
 // New returns a harness service.
 func New(cfg Config) *Service {
 	return &Service{
+		agent:             cfg.Agent,
 		commands:          cfg.Commands,
 		operations:        cfg.Operations,
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
 		bindings:          map[bindingKey]corethread.Ref{},
-		subscribers:       map[corethread.ID]map[int]chan channel.Outbound{},
+		subscribers:       map[corethread.ID]map[int]chan clientapi.Event{},
 	}
 }
 
@@ -125,6 +131,7 @@ func (s *Service) ListSessions(_ context.Context, req ListSessionsRequest) ([]Se
 // InboundResult is the result of handling one normalized channel input.
 type InboundResult struct {
 	Session  SessionInfo
+	Input    session.InputResult
 	Command  session.CommandResult
 	Outbound *channel.Outbound
 }
@@ -147,6 +154,8 @@ func (s *Service) HandleInbound(ctx context.Context, inbound channel.Inbound) (I
 	}
 
 	switch inbound.Kind {
+	case channel.InboundMessage:
+		return s.handleInput(ctx, info, inbound)
 	case channel.InboundCommand:
 		return s.handleCommand(ctx, info, inbound)
 	default:
@@ -154,23 +163,31 @@ func (s *Service) HandleInbound(ctx context.Context, inbound channel.Inbound) (I
 	}
 }
 
-// Subscribe returns outbound events produced by a session thread. Slow
+// Subscribe returns semantic events produced by a session thread. Slow
 // subscribers may drop events; durable replay belongs to event/thread stores.
-func (s *Service) Subscribe(threadID corethread.ID, buffer int) (<-chan channel.Outbound, func()) {
-	if buffer < 0 {
-		buffer = 0
+func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	if opts.Buffer < 0 {
+		opts.Buffer = 0
 	}
-	ch := make(chan channel.Outbound, buffer)
 	if s == nil || threadID == "" {
+		ch := make(chan clientapi.Event)
 		close(ch)
-		return ch, func() {}
+		return ch, func() {}, nil
+	}
+	replayed, err := s.replayEvents(ctx, threadID, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	ch := make(chan clientapi.Event, opts.Buffer+len(replayed))
+	for _, event := range replayed {
+		ch <- event
 	}
 	s.mu.Lock()
 	if s.subscribers == nil {
-		s.subscribers = map[corethread.ID]map[int]chan channel.Outbound{}
+		s.subscribers = map[corethread.ID]map[int]chan clientapi.Event{}
 	}
 	if s.subscribers[threadID] == nil {
-		s.subscribers[threadID] = map[int]chan channel.Outbound{}
+		s.subscribers[threadID] = map[int]chan clientapi.Event{}
 	}
 	id := s.nextSub
 	s.nextSub++
@@ -190,11 +207,57 @@ func (s *Service) Subscribe(threadID corethread.ID, buffer int) (<-chan channel.
 		}
 		s.mu.Unlock()
 	}
-	return ch, cancel
+	return ch, cancel, nil
+}
+
+func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {
+	runID := clientapi.RunID(inbound.ID)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventSubmissionReceived,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
+	exec := session.Session{
+		Agent:             s.agent,
+		Commands:          s.commands,
+		Operations:        s.operations,
+		OperationExecutor: s.operationExecutor,
+		Events:            s.events,
+		ThreadStore:       s.threadStore,
+		Thread:            info.Thread,
+	}
+	result := exec.ExecuteInboundInput(ctx, inbound)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventInputCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+		Input:   &result,
+	})
+	if result.Outbound != nil {
+		s.publish(info.Thread.ID, clientapi.Event{
+			Kind:     clientapi.EventOutboundProduced,
+			RunID:    runID,
+			Session:  toClientSessionInfo(info),
+			Outbound: result.Outbound,
+		})
+	}
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventRunCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
+	return InboundResult{Session: info, Input: result, Outbound: result.Outbound}, nil
 }
 
 func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {
+	runID := clientapi.RunID(inbound.ID)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventSubmissionReceived,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
 	exec := session.Session{
+		Agent:             s.agent,
 		Commands:          s.commands,
 		Operations:        s.operations,
 		OperationExecutor: s.operationExecutor,
@@ -203,10 +266,26 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Thread:            info.Thread,
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventCommandCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+		Command: &result,
+	})
 	outbound := commandOutbound(inbound, result)
 	if outbound != nil {
-		s.publish(info.Thread.ID, *outbound)
+		s.publish(info.Thread.ID, clientapi.Event{
+			Kind:     clientapi.EventOutboundProduced,
+			RunID:    runID,
+			Session:  toClientSessionInfo(info),
+			Outbound: outbound,
+		})
 	}
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventRunCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
 	return InboundResult{Session: info, Command: result, Outbound: outbound}, nil
 }
 
@@ -291,21 +370,141 @@ func (s *Service) ensureThread(ctx context.Context, id corethread.ID, metadata m
 	return false, nil
 }
 
-func (s *Service) publish(threadID corethread.ID, outbound channel.Outbound) {
+func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
 	if s == nil || threadID == "" {
 		return
 	}
 	s.mu.Lock()
-	subs := make([]chan channel.Outbound, 0, len(s.subscribers[threadID]))
+	subs := make([]chan clientapi.Event, 0, len(s.subscribers[threadID]))
 	for _, ch := range s.subscribers[threadID] {
 		subs = append(subs, ch)
 	}
 	s.mu.Unlock()
 	for _, ch := range subs {
 		select {
-		case ch <- outbound:
+		case ch <- event:
 		default:
 		}
+	}
+}
+
+func (s *Service) replayEvents(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) ([]clientapi.Event, error) {
+	if !opts.Replay && opts.After.Sequence == 0 {
+		return nil, nil
+	}
+	if s.threadStore == nil {
+		return nil, nil
+	}
+	snapshot, err := s.threadStore.Read(ctx, corethread.ReadParams{ID: threadID})
+	if err != nil {
+		return nil, err
+	}
+	records, err := snapshot.EventsForBranch(snapshot.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	info := s.sessionInfoForThread(threadID)
+	if info.Thread.ID == "" {
+		info.Thread = corethread.Ref{ID: threadID, BranchID: snapshot.BranchID}
+	}
+	var out []clientapi.Event
+	for _, record := range records {
+		if record.Sequence <= opts.After.Sequence {
+			continue
+		}
+		events := recordToClientEvents(info, record)
+		out = append(out, events...)
+	}
+	return out, nil
+}
+
+func (s *Service) sessionInfoForThread(threadID corethread.ID) clientapi.SessionInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, ref := range s.bindings {
+		if ref.ID == threadID {
+			return clientapi.SessionInfo{
+				Thread:       ref,
+				Channel:      channel.Ref{Name: key.channel},
+				Conversation: channel.ConversationRef{ID: key.conversation},
+			}
+		}
+	}
+	return clientapi.SessionInfo{}
+}
+
+func recordToClientEvents(info clientapi.SessionInfo, record corethread.Record) []clientapi.Event {
+	base := clientapi.Event{
+		Cursor:   clientapi.EventCursor{Sequence: record.Sequence},
+		Replayed: true,
+		Session:  info,
+	}
+	switch payload := record.Event.Payload.(type) {
+	case coresession.InputReceived:
+		return []clientapi.Event{withSubmission(base, clientapi.Submission{
+			ID:     clientapi.RunID(payload.RunID),
+			Kind:   clientapi.SubmissionInput,
+			Input:  &clientapi.Input{Content: payload.Message.Content, Metadata: payload.Message.Metadata},
+			Caller: payload.Caller,
+		})}
+	case coresession.CommandReceived:
+		return []clientapi.Event{withSubmission(base, clientapi.Submission{
+			ID:      clientapi.RunID(payload.RunID),
+			Kind:    clientapi.SubmissionCommand,
+			Command: &payload.Command,
+			Caller:  payload.Caller,
+		})}
+	case coresession.CommandRejected:
+		event := base
+		event.Kind = clientapi.EventCommandCompleted
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Command = &session.CommandResult{
+			Status: session.CommandStatusRejected,
+			Error:  &session.CommandError{Code: "command_rejected", Message: payload.Reason},
+		}
+		return []clientapi.Event{event}
+	case coresession.AgentStepCompleted:
+		event := base
+		event.Kind = clientapi.EventAgentStepCompleted
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Agent = &payload.Result
+		return []clientapi.Event{event}
+	case coresession.OperationCompleted:
+		event := base
+		event.Kind = clientapi.EventOperationCompleted
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Operation = &clientapi.OperationEvent{Operation: payload.Operation, Result: payload.Result}
+		return []clientapi.Event{event}
+	case coresession.OutboundProduced:
+		event := base
+		event.Kind = clientapi.EventOutboundProduced
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Outbound = &channel.Outbound{
+			Channel:      info.Channel,
+			Conversation: info.Conversation,
+			Kind:         channel.OutboundMessage,
+			Message:      &payload.Message,
+		}
+		return []clientapi.Event{event}
+	default:
+		return nil
+	}
+}
+
+func withSubmission(base clientapi.Event, submission clientapi.Submission) clientapi.Event {
+	base.Kind = clientapi.EventSubmissionReceived
+	base.RunID = submission.ID
+	base.Submission = &submission
+	return base
+}
+
+func toClientSessionInfo(info SessionInfo) clientapi.SessionInfo {
+	return clientapi.SessionInfo{
+		Thread:       info.Thread,
+		Channel:      info.Channel,
+		Conversation: info.Conversation,
+		Metadata:     cloneStringMap(info.Metadata),
+		Resumed:      info.Resumed,
 	}
 }
 

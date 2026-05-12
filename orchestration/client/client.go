@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -89,15 +91,15 @@ const (
 
 // Submission is the neutral shape for anything sent to a session.
 type Submission struct {
-	ID       RunID          `json:"id,omitempty"`
-	Kind     SubmissionKind `json:"kind"`
-	Input    *Input         `json:"input,omitempty"`
-	Command  *command.Invocation
-	Event    event.Event    `json:"event,omitempty"`
-	Signal   *Signal        `json:"signal,omitempty"`
-	Caller   policy.Caller  `json:"caller,omitempty"`
-	Trust    policy.Trust   `json:"trust,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	ID       RunID               `json:"id,omitempty"`
+	Kind     SubmissionKind      `json:"kind"`
+	Input    *Input              `json:"input,omitempty"`
+	Command  *command.Invocation `json:"command,omitempty"`
+	Event    event.Event         `json:"event,omitempty"`
+	Signal   *Signal             `json:"signal,omitempty"`
+	Caller   policy.Caller       `json:"caller,omitempty"`
+	Trust    policy.Trust        `json:"trust,omitempty"`
+	Metadata map[string]any      `json:"metadata,omitempty"`
 }
 
 // Input is a conversational/user input payload.
@@ -105,6 +107,14 @@ type Input struct {
 	Text     string         `json:"text,omitempty"`
 	Content  any            `json:"content,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+// ContentOrText returns structured content when set, otherwise the text field.
+func (i Input) ContentOrText() any {
+	if i.Content != nil {
+		return i.Content
+	}
+	return i.Text
 }
 
 // Signal is a structured non-message trigger, such as a scheduler or file
@@ -173,33 +183,55 @@ type EventKind string
 
 const (
 	EventSubmissionReceived EventKind = "submission.received"
+	EventInputCompleted     EventKind = "input.completed"
 	EventCommandCompleted   EventKind = "command.completed"
+	EventAgentStepCompleted EventKind = "agent_step.completed"
+	EventOperationCompleted EventKind = "operation.completed"
 	EventOutboundProduced   EventKind = "outbound.produced"
 	EventRunCompleted       EventKind = "run.completed"
 	EventRunFailed          EventKind = "run.failed"
 )
 
+// EventCursor identifies a durable position in a session event stream.
+type EventCursor struct {
+	Sequence event.Sequence `json:"sequence,omitempty"`
+}
+
+// OperationEvent describes one operation completion visible to clients.
+type OperationEvent struct {
+	Operation operation.Ref    `json:"operation"`
+	Result    operation.Result `json:"result"`
+}
+
 // Event is a semantic event delivered to channel clients and run handles.
 type Event struct {
-	Kind       EventKind   `json:"kind"`
-	RunID      RunID       `json:"run_id,omitempty"`
-	Session    SessionInfo `json:"session,omitempty"`
-	Submission *Submission `json:"submission,omitempty"`
-	Command    *session.CommandResult
-	Outbound   *channel.Outbound
-	Error      error `json:"-"`
+	Kind       EventKind              `json:"kind"`
+	Cursor     EventCursor            `json:"cursor,omitempty"`
+	Replayed   bool                   `json:"replayed,omitempty"`
+	RunID      RunID                  `json:"run_id,omitempty"`
+	Session    SessionInfo            `json:"session,omitempty"`
+	Submission *Submission            `json:"submission,omitempty"`
+	Input      *session.InputResult   `json:"input,omitempty"`
+	Command    *session.CommandResult `json:"command,omitempty"`
+	Agent      *agent.StepResult      `json:"agent,omitempty"`
+	Operation  *OperationEvent        `json:"operation,omitempty"`
+	Outbound   *channel.Outbound      `json:"outbound,omitempty"`
+	Error      error                  `json:"-"`
 }
 
 // EventOptions configures session event subscriptions.
 type EventOptions struct {
-	Buffer int `json:"buffer,omitempty"`
+	Buffer int         `json:"buffer,omitempty"`
+	Replay bool        `json:"replay,omitempty"`
+	After  EventCursor `json:"after,omitempty"`
 }
 
 // Result is the terminal result of one run.
 type Result struct {
-	RunID      RunID       `json:"run_id,omitempty"`
-	Session    SessionInfo `json:"session"`
-	Submission Submission  `json:"submission"`
-	Command    *session.CommandResult
-	Outbound   *channel.Outbound
+	RunID      RunID                  `json:"run_id,omitempty"`
+	Session    SessionInfo            `json:"session"`
+	Submission Submission             `json:"submission"`
+	Input      *session.InputResult   `json:"input,omitempty"`
+	Command    *session.CommandResult `json:"command,omitempty"`
+	Outbound   *channel.Outbound      `json:"outbound,omitempty"`
 }

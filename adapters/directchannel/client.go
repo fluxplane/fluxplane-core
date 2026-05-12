@@ -161,25 +161,14 @@ func (s *Session) SendInput(ctx context.Context, input clientapi.Input) (clienta
 }
 
 // Events subscribes to session-level outbound events.
-func (s *Session) Events(_ context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+func (s *Session) Events(ctx context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
 	if s == nil || s.client == nil || s.client.service == nil {
 		ch := make(chan clientapi.Event)
 		close(ch)
 		return ch, func() {}, fmt.Errorf("directchannel: session is nil")
 	}
-	raw, cancel := s.client.service.Subscribe(s.info.Thread.ID, opts.Buffer)
-	events := make(chan clientapi.Event, opts.Buffer)
-	go func() {
-		defer close(events)
-		for outbound := range raw {
-			events <- clientapi.Event{
-				Kind:     clientapi.EventOutboundProduced,
-				Session:  s.info,
-				Outbound: &outbound,
-			}
-		}
-	}()
-	return events, cancel, nil
+	events, cancel, err := s.client.service.Subscribe(ctx, s.info.Thread.ID, opts)
+	return events, cancel, err
 }
 
 // OnEvent registers a callback for session-level events.
@@ -274,16 +263,42 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 	defer close(r.events)
 	defer close(r.done)
 
-	r.emit(clientapi.Event{
-		Kind:       clientapi.EventSubmissionReceived,
-		RunID:      r.id,
-		Session:    info,
-		Submission: &r.submission,
-	})
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 16})
+	if err != nil {
+		r.fail(info, err)
+		return
+	}
+	defer cancel()
 
 	switch r.submission.Kind {
+	case clientapi.SubmissionInput:
+		result, err := service.HandleInbound(ctx, channel.Inbound{
+			ID:           string(r.id),
+			Channel:      info.Channel,
+			Conversation: info.Conversation,
+			Caller:       r.submission.Caller,
+			Trust:        r.submission.Trust,
+			Kind:         channel.InboundMessage,
+			Message: &channel.Message{
+				Content:  r.submission.Input.ContentOrText(),
+				Metadata: r.submission.Input.Metadata,
+			},
+		})
+		if err != nil {
+			r.fail(info, err)
+			return
+		}
+		r.setResult(clientapi.Result{
+			RunID:      r.id,
+			Session:    info,
+			Submission: r.submission,
+			Input:      &result.Input,
+			Outbound:   result.Outbound,
+		}, nil)
+		r.forwardRunEvents(events)
 	case clientapi.SubmissionCommand:
 		result, err := service.HandleInbound(ctx, channel.Inbound{
+			ID:           string(r.id),
 			Channel:      info.Channel,
 			Conversation: info.Conversation,
 			Caller:       r.submission.Caller,
@@ -295,40 +310,30 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			r.fail(info, err)
 			return
 		}
-		clientResult := clientapi.Result{
+		r.setResult(clientapi.Result{
 			RunID:      r.id,
 			Session:    info,
 			Submission: r.submission,
 			Command:    &result.Command,
 			Outbound:   result.Outbound,
-		}
-		r.emit(clientapi.Event{
-			Kind:    clientapi.EventCommandCompleted,
-			RunID:   r.id,
-			Session: info,
-			Command: &result.Command,
-		})
-		if result.Outbound != nil {
-			r.emit(clientapi.Event{
-				Kind:     clientapi.EventOutboundProduced,
-				RunID:    r.id,
-				Session:  info,
-				Outbound: result.Outbound,
-			})
-		}
-		r.complete(clientResult, nil)
-	case clientapi.SubmissionInput, clientapi.SubmissionEvent, clientapi.SubmissionSignal:
+		}, nil)
+		r.forwardRunEvents(events)
+	case clientapi.SubmissionEvent, clientapi.SubmissionSignal:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is invalid", r.submission.Kind))
 	}
 }
 
-func (r *runHandle) complete(result clientapi.Result, err error) {
+func (r *runHandle) setResult(result clientapi.Result, err error) {
 	r.mu.Lock()
 	r.result = result
 	r.err = err
 	r.mu.Unlock()
+}
+
+func (r *runHandle) complete(result clientapi.Result, err error) {
+	r.setResult(result, err)
 	kind := clientapi.EventRunCompleted
 	if err != nil {
 		kind = clientapi.EventRunFailed
@@ -353,6 +358,27 @@ func (r *runHandle) emit(event clientapi.Event) {
 	select {
 	case r.events <- event:
 	case <-time.After(time.Second):
+	}
+}
+
+func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {
+	timeout := time.After(time.Second)
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			if event.RunID != r.id {
+				continue
+			}
+			r.emit(event)
+			if event.Kind == clientapi.EventRunCompleted || event.Kind == clientapi.EventRunFailed {
+				return
+			}
+		case <-timeout:
+			return
+		}
 	}
 }
 

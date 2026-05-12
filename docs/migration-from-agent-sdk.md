@@ -178,7 +178,8 @@ them visible until they are resolved in code or deliberately rejected.
 | Runtime thread event-store backend | Initial implementation exists in `runtime/thread` using `thread.index` plus `thread:<id>` streams; continue hardening compaction and large-store read models. |
 | Projection runner | Initial `core/projection`, `runtime/projection`, and `orchestration/projections` exist. `runtime/thread.Store` can use `ThreadIndex` for `List` with replay fallback; orchestration can ensure freshness before use. |
 | Harness/channel executable path | Initial `orchestration/harness` and `adapters/directchannel` exist. Next HTTP/SSE work should implement the old `cmd/agentclient` shape against harness without bypassing channel semantics. |
-| Submission/run handle API | Initial `orchestration/client` exists with `Submission`, `ChannelClient`, `SessionHandle`, and `RunHandle`. `adapters/directchannel` implements it for command submissions; input/event/signal submissions are modeled but not executed yet. |
+| Submission/run handle API | Initial `orchestration/client` exists with `Submission`, `ChannelClient`, `SessionHandle`, and `RunHandle`. `adapters/directchannel` implements command and input submissions; event/signal submissions are modeled but not executed yet. |
+| Session event replay | `orchestration/harness.Subscribe` can replay semantic `client.Event` values from the thread store using `client.EventCursor` sequence positions. HTTP/SSE should expose this cursor instead of inventing transport-specific offsets. |
 | Command path display vs parsing | `command.Path.String()` is display-only. Actual slash parsing belongs in adapters, not `core/command`. |
 | Trust level semantics | `policy.TrustSystem` must not become unlimited authority by default; scopes should still matter for system callers. |
 

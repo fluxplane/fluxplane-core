@@ -159,6 +159,8 @@ orchestration/pluginhost
 `orchestration/client` defines the user-facing channel client, session handle,
 run handle, `Submission`, and semantic event contracts. A direct in-process
 channel and a remote HTTP/SSE channel should implement the same interfaces.
+Client events are the shared live/replay shape; replay cursors are thread event
+sequence positions, not transport-specific offsets.
 
 `orchestration/harness` is the channel-to-session use-case boundary. It should
 receive normalized `core/channel.Inbound`, bind channel conversations to

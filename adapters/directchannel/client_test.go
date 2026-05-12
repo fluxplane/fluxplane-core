@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -27,7 +28,7 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	sessionEvents, cancel, err := sessionHandle.Events(ctx, clientapi.EventOptions{Buffer: 1})
+	sessionEvents, cancel, err := sessionHandle.Events(ctx, clientapi.EventOptions{Buffer: 8})
 	if err != nil {
 		t.Fatalf("Events: %v", err)
 	}
@@ -59,13 +60,102 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 	if !seenRunOutbound {
 		t.Fatal("expected run outbound event")
 	}
-	select {
-	case published := <-sessionEvents:
-		if published.Outbound == nil || published.Outbound.Message == nil || published.Outbound.Message.Content != "hello" {
-			t.Fatalf("published = %#v", published)
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case published := <-sessionEvents:
+			if published.Outbound == nil {
+				continue
+			}
+			if published.Outbound.Message == nil || published.Outbound.Message.Content != "hello" {
+				t.Fatalf("published = %#v", published)
+			}
+			goto sawSessionOutbound
+		case <-deadline:
+			t.Fatal("expected published outbound")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("expected published outbound")
+	}
+sawSessionOutbound:
+}
+
+func TestSessionSendInputReturnsRunHandle(t *testing.T) {
+	ctx := context.Background()
+	client := testClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "ping"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Input == nil || result.Input.Status != session.InputStatusOK {
+		t.Fatalf("input result = %#v", result.Input)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "pong" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+	seenInputCompleted := false
+	for event := range run.Events() {
+		if event.Kind == clientapi.EventInputCompleted {
+			seenInputCompleted = true
+		}
+	}
+	if !seenInputCompleted {
+		t.Fatal("expected input completed event")
+	}
+}
+
+func TestSessionEventsCanReplayFromThreadStore(t *testing.T) {
+	ctx := context.Background()
+	client := testClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	events, cancel, err := sessionHandle.Events(ctx, clientapi.EventOptions{Buffer: 8, Replay: true})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	defer cancel()
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Kind != clientapi.EventOutboundProduced {
+				continue
+			}
+			if !event.Replayed {
+				t.Fatalf("event = %#v, want replayed", event)
+			}
+			if event.Cursor.Sequence == 0 {
+				t.Fatalf("event cursor = %#v, want sequence", event.Cursor)
+			}
+			if event.Outbound == nil || event.Outbound.Message == nil || event.Outbound.Message.Content != "hello" {
+				t.Fatalf("event outbound = %#v", event.Outbound)
+			}
+			return
+		case <-deadline:
+			t.Fatal("expected replayed outbound event")
+		}
 	}
 }
 
@@ -98,6 +188,13 @@ func testClient(t *testing.T) *Client {
 		t.Fatalf("NewStore: %v", err)
 	}
 	service := harness.New(harness.Config{
+		Agent: fixedAgent{result: agent.StepResult{
+			Status: agent.StatusOK,
+			Decision: agent.Decision{
+				Kind:    agent.DecisionMessage,
+				Message: &agent.Message{Content: "pong"},
+			},
+		}},
 		Commands:          commands,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
@@ -112,4 +209,16 @@ func testClient(t *testing.T) *Client {
 		t.Fatalf("New: %v", err)
 	}
 	return client
+}
+
+type fixedAgent struct {
+	result agent.StepResult
+}
+
+func (a fixedAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "fixed"}
+}
+
+func (a fixedAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
+	return a.result
 }

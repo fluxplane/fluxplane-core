@@ -1,0 +1,153 @@
+// Package agentruntime provides the public in-process runtime facade.
+package agentruntime
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/fluxplane/agentruntime/adapters/directchannel"
+	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/command"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/harness"
+	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+)
+
+type (
+	ChannelClient       = clientapi.ChannelClient
+	Session             = clientapi.SessionHandle
+	Run                 = clientapi.RunHandle
+	OpenRequest         = clientapi.OpenRequest
+	ResumeRequest       = clientapi.ResumeRequest
+	ListSessionsRequest = clientapi.ListSessionsRequest
+	SessionInfo         = clientapi.SessionInfo
+	SessionSummary      = clientapi.SessionSummary
+	RunID               = clientapi.RunID
+	SubmissionKind      = clientapi.SubmissionKind
+	Submission          = clientapi.Submission
+	Input               = clientapi.Input
+	Signal              = clientapi.Signal
+	EventKind           = clientapi.EventKind
+	EventCursor         = clientapi.EventCursor
+	OperationEvent      = clientapi.OperationEvent
+	Event               = clientapi.Event
+	EventOptions        = clientapi.EventOptions
+	Result              = clientapi.Result
+)
+
+const (
+	SubmissionInput   = clientapi.SubmissionInput
+	SubmissionCommand = clientapi.SubmissionCommand
+	SubmissionEvent   = clientapi.SubmissionEvent
+	SubmissionSignal  = clientapi.SubmissionSignal
+
+	EventSubmissionReceived = clientapi.EventSubmissionReceived
+	EventInputCompleted     = clientapi.EventInputCompleted
+	EventCommandCompleted   = clientapi.EventCommandCompleted
+	EventAgentStepCompleted = clientapi.EventAgentStepCompleted
+	EventOperationCompleted = clientapi.EventOperationCompleted
+	EventOutboundProduced   = clientapi.EventOutboundProduced
+	EventRunCompleted       = clientapi.EventRunCompleted
+	EventRunFailed          = clientapi.EventRunFailed
+)
+
+// Config assembles the default in-process runtime. Nil registries and stores
+// are replaced with empty in-memory defaults; nil Agent is preserved so command
+// only runtimes do not need to provide one. OperationExecutor is safe to leave
+// as its zero value.
+type Config struct {
+	Agent             agent.Agent
+	Commands          *command.Registry
+	Operations        *operation.Registry
+	OperationExecutor operationruntime.Executor
+	Events            coreevent.Sink
+	ThreadStore       corethread.Store
+	Channel           channel.Ref
+	Caller            policy.Caller
+	Trust             policy.Trust
+}
+
+// Service is the public library facade over the default in-process runtime.
+type Service struct {
+	harness *harness.Service
+	client  ChannelClient
+}
+
+// New assembles an in-process runtime service with a direct channel client.
+func New(cfg Config) (*Service, error) {
+	commands := cfg.Commands
+	if commands == nil {
+		commands = command.NewRegistry()
+	}
+	operations := cfg.Operations
+	if operations == nil {
+		operations = operation.NewRegistry()
+	}
+	threadStore := cfg.ThreadStore
+	if threadStore == nil {
+		store, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+		if err != nil {
+			return nil, fmt.Errorf("agentruntime: create thread store: %w", err)
+		}
+		threadStore = store
+	}
+	executor := cfg.OperationExecutor
+
+	service := harness.New(harness.Config{
+		Agent:             cfg.Agent,
+		Commands:          commands,
+		Operations:        operations,
+		OperationExecutor: executor,
+		Events:            cfg.Events,
+		ThreadStore:       threadStore,
+	})
+	client, err := directchannel.New(directchannel.Config{
+		Service: service,
+		Channel: cfg.Channel,
+		Caller:  cfg.Caller,
+		Trust:   cfg.Trust,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Service{harness: service, client: client}, nil
+}
+
+// Client returns the default in-process channel client.
+func (s *Service) Client() ChannelClient {
+	if s == nil {
+		return nil
+	}
+	return s.client
+}
+
+// Open opens or creates a session through the default in-process channel.
+func (s *Service) Open(ctx context.Context, req OpenRequest) (Session, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("agentruntime: service is nil")
+	}
+	return s.client.Open(ctx, req)
+}
+
+// Resume resumes a known session/thread through the default in-process channel.
+func (s *Service) Resume(ctx context.Context, req ResumeRequest) (Session, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("agentruntime: service is nil")
+	}
+	return s.client.Resume(ctx, req)
+}
+
+// ListSessions lists sessions visible to the default in-process channel.
+func (s *Service) ListSessions(ctx context.Context, req ListSessionsRequest) ([]SessionSummary, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("agentruntime: service is nil")
+	}
+	return s.client.ListSessions(ctx, req)
+}
