@@ -6,13 +6,17 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -38,9 +42,19 @@ type Composition struct {
 	Operations        *operation.Registry
 	ResourceIndex     *resource.ResourceIndex
 	Resolver          *resource.Resolver
+	AppCatalog        AppCatalog
+	AgentCatalog      AgentCatalog
+	SkillCatalog      SkillCatalog
+	ContextProviders  ContextProviderCatalog
+	WorkflowCatalog   WorkflowCatalog
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
 	SessionCatalog    session.SessionCatalog
+	AppSpecs          []coreapp.Spec
+	AgentSpecs        []agent.Spec
+	SkillSpecs        []skill.Spec
+	ContextSpecs      []corecontext.ProviderSpec
+	WorkflowSpecs     []workflow.Spec
 	OperationSpecs    []operation.Spec
 	SessionSpecs      []coresession.Spec
 	OperationExecutor operationruntime.Executor
@@ -59,9 +73,38 @@ func Compose(cfg Config) (Composition, error) {
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
+	for _, bundle := range bundles {
+		diagnostics = append(diagnostics, bundle.Diagnostics...)
+	}
 
 	index := resource.NewResourceIndex()
 	resolver := resource.NewResolver(resource.ResolverConfig{Index: index})
+
+	appCatalog, appSpecs, appDiagnostic, err := collectApps(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, appDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	agentCatalog, agentSpecs, agentDiagnostic, err := collectAgents(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, agentDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	skillCatalog, skillSpecs, skillDiagnostic, err := collectSkills(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, skillDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	contextCatalog, contextSpecs, contextDiagnostic, err := collectContextProviders(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, contextDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	workflowCatalog, workflowSpecs, workflowDiagnostic, err := collectWorkflows(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, workflowDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
 
 	operationSpecContributions, opSpecDiagnostic, err := collectOperationSpecs(bundles)
 	if err != nil {
@@ -105,20 +148,30 @@ func Compose(cfg Config) (Composition, error) {
 		}
 	}
 
+	sessionCatalog, sessionSpecs, sessionDiagnostic, err := collectSessions(bundles, appCatalog, resolver, index)
+	if err != nil {
+		diagnostics = append(diagnostics, sessionDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+
 	commands := command.NewRegistry()
 	commandCatalog := session.CommandCatalog{}
 	pathCounts := map[string]int{}
 	for _, bundle := range bundles {
-		diagnostics = append(diagnostics, bundle.Diagnostics...)
 		for _, spec := range bundle.Commands {
 			id := resource.DeriveResourceID(bundle.Source, "command", commandName(spec))
 			index.Add(id)
-			operationID, err := resolveCommandOperation(operationCatalog, id, spec)
+			targetID, operationID, err := resolveCommandTarget(resolver, operationCatalog, id, spec)
 			if err != nil {
 				diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
 				return Composition{Diagnostics: diagnostics}, err
 			}
-			if err := addCommand(commandCatalog, id, session.CommandBinding{ID: id, Spec: spec, OperationID: operationID}); err != nil {
+			if err := addCommand(commandCatalog, id, session.CommandBinding{
+				ID:          id,
+				Spec:        spec,
+				TargetID:    targetID,
+				OperationID: operationID,
+			}); err != nil {
 				diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
 				return Composition{Diagnostics: diagnostics}, err
 			}
@@ -136,21 +189,25 @@ func Compose(cfg Config) (Composition, error) {
 		}
 	}
 
-	sessionCatalog, sessionSpecs, sessionDiagnostic, err := collectSessions(bundles, index)
-	if err != nil {
-		diagnostics = append(diagnostics, sessionDiagnostic)
-		return Composition{Diagnostics: diagnostics}, err
-	}
-
 	return Composition{
 		Agent:             cfg.Agent,
 		Commands:          commands,
 		Operations:        operations,
 		ResourceIndex:     index,
 		Resolver:          resolver,
+		AppCatalog:        appCatalog,
+		AgentCatalog:      agentCatalog,
+		SkillCatalog:      skillCatalog,
+		ContextProviders:  contextCatalog,
+		WorkflowCatalog:   workflowCatalog,
 		CommandCatalog:    commandCatalog,
 		OperationCatalog:  operationCatalog,
 		SessionCatalog:    sessionCatalog,
+		AppSpecs:          appSpecs,
+		AgentSpecs:        agentSpecs,
+		SkillSpecs:        skillSpecs,
+		ContextSpecs:      contextSpecs,
+		WorkflowSpecs:     workflowSpecs,
 		OperationSpecs:    operationSpecs,
 		SessionSpecs:      sessionSpecs,
 		OperationExecutor: cfg.OperationExecutor,
@@ -161,30 +218,211 @@ func Compose(cfg Config) (Composition, error) {
 	}, nil
 }
 
-func collectSessions(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (session.SessionCatalog, []coresession.Spec, resource.Diagnostic, error) {
-	catalog := session.SessionCatalog{}
-	var specs []coresession.Spec
+type resourceSelector[T any] func(resource.ContributionBundle) []T
+type resourceNameFunc[T any] func(T, resource.SourceRef) string
+type resourceValidateFunc[T any] func(T) error
+
+func collectResourceSpecs[T any](
+	bundles []resource.ContributionBundle,
+	index *resource.ResourceIndex,
+	kind string,
+	selectSpecs resourceSelector[T],
+	nameOf resourceNameFunc[T],
+	validate resourceValidateFunc[T],
+) (map[string]ResourceBinding[T], []T, resource.Diagnostic, error) {
+	catalog := map[string]ResourceBinding[T]{}
+	var specs []T
 	for _, bundle := range bundles {
-		for _, spec := range bundle.Sessions {
-			if err := spec.Validate(); err != nil {
-				err := fmt.Errorf("app: session spec: %w", err)
-				return nil, nil, diagnostic(bundle.Source, err), err
+		for _, spec := range selectSpecs(bundle) {
+			if validate != nil {
+				if err := validate(spec); err != nil {
+					err := fmt.Errorf("app: %s spec: %w", kind, err)
+					return nil, nil, diagnostic(bundle.Source, err), err
+				}
 			}
-			id := resource.DeriveResourceID(bundle.Source, "session", string(spec.Name))
+			id := resource.DeriveResourceID(bundle.Source, kind, nameOf(spec, bundle.Source))
 			if id.Name == "" {
-				err := fmt.Errorf("app: session resource id name is empty")
+				err := fmt.Errorf("app: %s resource id name is empty", kind)
 				return nil, nil, diagnostic(bundle.Source, err), err
 			}
-			if _, exists := catalog[id.Address()]; exists {
-				err := fmt.Errorf("app: duplicate session resource %q", id.Address())
+			if previous, exists := catalog[id.Address()]; exists {
+				err := fmt.Errorf("app: duplicate %s resource %q from %s and %s", kind, id.Address(), sourceLabel(previous.Source), sourceLabel(bundle.Source))
 				return nil, nil, diagnostic(bundle.Source, err), err
 			}
-			catalog[id.Address()] = session.SessionBinding{ID: id, Spec: spec}
+			catalog[id.Address()] = ResourceBinding[T]{ID: id, Source: bundle.Source, Spec: spec}
 			index.Add(id)
 			specs = append(specs, spec)
 		}
 	}
 	return catalog, specs, resource.Diagnostic{}, nil
+}
+
+func collectApps(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (AppCatalog, []coreapp.Spec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"app",
+		func(bundle resource.ContributionBundle) []coreapp.Spec { return bundle.Apps },
+		func(spec coreapp.Spec, source resource.SourceRef) string { return appResourceName(spec, source) },
+		func(spec coreapp.Spec) error { return spec.Validate() },
+	)
+	return AppCatalog(catalog), specs, diag, err
+}
+
+func collectAgents(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (AgentCatalog, []agent.Spec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"agent",
+		func(bundle resource.ContributionBundle) []agent.Spec { return bundle.Agents },
+		func(spec agent.Spec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec agent.Spec) error { return spec.Validate() },
+	)
+	return AgentCatalog(catalog), specs, diag, err
+}
+
+func collectSkills(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (SkillCatalog, []skill.Spec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"skill",
+		func(bundle resource.ContributionBundle) []skill.Spec { return bundle.Skills },
+		func(spec skill.Spec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec skill.Spec) error { return spec.Validate() },
+	)
+	return SkillCatalog(catalog), specs, diag, err
+}
+
+func collectContextProviders(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (ContextProviderCatalog, []corecontext.ProviderSpec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"context_provider",
+		func(bundle resource.ContributionBundle) []corecontext.ProviderSpec { return bundle.ContextProviders },
+		func(spec corecontext.ProviderSpec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec corecontext.ProviderSpec) error { return spec.Validate() },
+	)
+	return ContextProviderCatalog(catalog), specs, diag, err
+}
+
+func collectWorkflows(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (WorkflowCatalog, []workflow.Spec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"workflow",
+		func(bundle resource.ContributionBundle) []workflow.Spec { return bundle.Workflows },
+		func(spec workflow.Spec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec workflow.Spec) error { return spec.Validate() },
+	)
+	return WorkflowCatalog(catalog), specs, diag, err
+}
+
+func collectSessions(
+	bundles []resource.ContributionBundle,
+	apps AppCatalog,
+	resolver *resource.Resolver,
+	index *resource.ResourceIndex,
+) (session.SessionCatalog, []coresession.Spec, resource.Diagnostic, error) {
+	catalog := session.SessionCatalog{}
+	var specs []coresession.Spec
+	for _, bundle := range bundles {
+		for _, spec := range bundle.Sessions {
+			id := resource.DeriveResourceID(bundle.Source, "session", string(spec.Name))
+			if err := addSession(catalog, index, id, spec); err != nil {
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			specs = append(specs, spec)
+		}
+	}
+	for _, appBinding := range apps {
+		spec, ok, err := defaultSessionSpec(appBinding, resolver)
+		if err != nil {
+			return nil, nil, diagnostic(appBinding.Source, err), err
+		}
+		if !ok {
+			continue
+		}
+		id := resource.ResourceID{
+			Kind:      "session",
+			Origin:    appBinding.ID.Origin,
+			Namespace: appBinding.ID.Namespace,
+			Name:      string(spec.Name),
+		}
+		if _, exists := catalog[id.Address()]; exists {
+			continue
+		}
+		if err := addSession(catalog, index, id, spec); err != nil {
+			return nil, nil, diagnostic(appBinding.Source, err), err
+		}
+		specs = append(specs, spec)
+	}
+	for _, appBinding := range apps {
+		if appBinding.Spec.DefaultSession.Name == "" {
+			continue
+		}
+		if _, err := resolver.ResolveInScope("session", string(appBinding.Spec.DefaultSession.Name), appBinding.ID); err != nil {
+			err := fmt.Errorf("app: default session %q for app %s: %w", appBinding.Spec.DefaultSession.Name, appBinding.ID.Address(), err)
+			return nil, nil, diagnostic(appBinding.Source, err), err
+		}
+	}
+	return catalog, specs, resource.Diagnostic{}, nil
+}
+
+func addSession(catalog session.SessionCatalog, index *resource.ResourceIndex, id resource.ResourceID, spec coresession.Spec) error {
+	if err := spec.Validate(); err != nil {
+		return fmt.Errorf("app: session spec: %w", err)
+	}
+	if id.Name == "" {
+		return fmt.Errorf("app: session resource id name is empty")
+	}
+	if _, exists := catalog[id.Address()]; exists {
+		return fmt.Errorf("app: duplicate session resource %q", id.Address())
+	}
+	catalog[id.Address()] = session.SessionBinding{ID: id, Spec: spec}
+	index.Add(id)
+	return nil
+}
+
+func appResourceName(spec coreapp.Spec, source resource.SourceRef) string {
+	if name := strings.TrimSpace(string(spec.Name)); name != "" {
+		return name
+	}
+	if namespace := resource.DeriveNamespace(source); namespace.Last() != "" {
+		return namespace.Last()
+	}
+	if source.ID != "" {
+		return source.ID
+	}
+	if source.Ref != "" {
+		return source.Ref
+	}
+	return "app"
+}
+
+func defaultSessionSpec(appBinding ResourceBinding[coreapp.Spec], resolver *resource.Resolver) (coresession.Spec, bool, error) {
+	appSpec := appBinding.Spec
+	if appSpec.DefaultAgent.Name == "" {
+		return coresession.Spec{}, false, nil
+	}
+	if _, err := resolver.ResolveInScope("agent", string(appSpec.DefaultAgent.Name), appBinding.ID); err != nil {
+		return coresession.Spec{}, false, fmt.Errorf("app: default agent %q for app %s: %w", appSpec.DefaultAgent.Name, appBinding.ID.Address(), err)
+	}
+	name := strings.TrimSpace(string(appSpec.DefaultSession.Name))
+	if name == "" {
+		name = "default"
+	}
+	description := "Default session for " + string(appSpec.DefaultAgent.Name)
+	if appSpec.Description != "" {
+		description = appSpec.Description
+	}
+	return coresession.Spec{
+		Name:        coresession.Name(name),
+		Description: description,
+		Agent:       appSpec.DefaultAgent,
+		Metadata: map[string]string{
+			"app": appBinding.ID.Address(),
+		},
+	}, true, nil
 }
 
 func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []resource.Diagnostic, error) {
@@ -264,21 +502,63 @@ func addCommand(catalog session.CommandCatalog, id resource.ResourceID, binding 
 	return nil
 }
 
-func resolveCommandOperation(operations session.OperationCatalog, commandID resource.ResourceID, spec command.Spec) (resource.ResourceID, error) {
+func resolveCommandTarget(
+	resolver *resource.Resolver,
+	operations session.OperationCatalog,
+	commandID resource.ResourceID,
+	spec command.Spec,
+) (resource.ResourceID, resource.ResourceID, error) {
 	switch spec.Target.Kind {
 	case invocation.TargetOperation:
 		if spec.Target.Operation.Name == "" {
-			return resource.ResourceID{}, fmt.Errorf("app: command %s targets an empty operation", spec.Path.String())
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s targets an empty operation", spec.Path.String())
 		}
 		binding, err := operations.Resolve(spec.Target.Operation.String(), commandID)
 		if err != nil {
-			return resource.ResourceID{}, fmt.Errorf("app: command %s target operation: %w", spec.Path.String(), err)
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target operation: %w", spec.Path.String(), err)
 		}
-		return binding.ID, nil
+		return binding.ID, binding.ID, nil
+	case invocation.TargetWorkflow:
+		if strings.TrimSpace(string(spec.Target.Workflow)) == "" {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s targets an empty workflow", spec.Path.String())
+		}
+		id, err := resolver.ResolveInScope("workflow", string(spec.Target.Workflow), commandID)
+		if err != nil {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target workflow: %w", spec.Path.String(), err)
+		}
+		return id, resource.ResourceID{}, nil
+	case invocation.TargetAgent:
+		if strings.TrimSpace(string(spec.Target.Agent.Name)) == "" {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s targets an empty agent", spec.Path.String())
+		}
+		id, err := resolver.ResolveInScope("agent", string(spec.Target.Agent.Name), commandID)
+		if err != nil {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target agent: %w", spec.Path.String(), err)
+		}
+		return id, resource.ResourceID{}, nil
+	case invocation.TargetSession:
+		if strings.TrimSpace(spec.Target.Session) == "" {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s targets an empty session", spec.Path.String())
+		}
+		id, err := resolver.ResolveInScope("session", spec.Target.Session, commandID)
+		if err != nil {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target session: %w", spec.Path.String(), err)
+		}
+		return id, resource.ResourceID{}, nil
+	case invocation.TargetPrompt:
+		if strings.TrimSpace(spec.Target.Prompt) == "" {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target prompt is empty", spec.Path.String())
+		}
+		return resource.ResourceID{}, resource.ResourceID{}, nil
+	case invocation.TargetMessage:
+		if strings.TrimSpace(spec.Target.Message) == "" {
+			return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target message is empty", spec.Path.String())
+		}
+		return resource.ResourceID{}, resource.ResourceID{}, nil
 	case "":
-		return resource.ResourceID{}, fmt.Errorf("app: command %s target kind is empty", spec.Path.String())
+		return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target kind is empty", spec.Path.String())
 	default:
-		return resource.ResourceID{}, nil
+		return resource.ResourceID{}, resource.ResourceID{}, fmt.Errorf("app: command %s target kind %q is unsupported", spec.Path.String(), spec.Target.Kind)
 	}
 }
 

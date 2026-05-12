@@ -51,6 +51,7 @@ type OperationCatalog map[string]OperationBinding
 type CommandBinding struct {
 	ID          resource.ResourceID `json:"id"`
 	Spec        command.Spec        `json:"spec"`
+	TargetID    resource.ResourceID `json:"target_id,omitempty"`
 	OperationID resource.ResourceID `json:"operation_id,omitempty"`
 }
 

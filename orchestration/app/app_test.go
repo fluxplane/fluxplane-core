@@ -4,11 +4,16 @@ import (
 	"context"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
@@ -73,6 +78,153 @@ func TestComposeRejectsCommandTargetingDeclarationOnlyOperation(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Compose error is nil, want declaration-only operation error")
+	}
+}
+
+func TestComposeIndexesAppResourceSpecsAndDefaultSession(t *testing.T) {
+	source := resource.SourceRef{Scope: resource.ScopeEmbedded, Location: "apps/engineer/resources/.agents"}
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Source: source,
+			Apps: []coreapp.Spec{{
+				Name:         "engineer",
+				DefaultAgent: agent.Ref{Name: "main"},
+			}},
+			Agents: []agent.Spec{{
+				Name:   "main",
+				System: "You maintain this repository.",
+				Skills: []skill.Ref{{
+					Name: "golang-pro",
+				}},
+				Context: []corecontext.ProviderRef{{
+					Name: "repo",
+				}},
+			}},
+			Skills: []skill.Spec{{
+				Name:        "golang-pro",
+				Description: "Go engineering guidance",
+			}},
+			ContextProviders: []corecontext.ProviderSpec{{
+				Name:  "repo",
+				Kinds: []corecontext.BlockKind{corecontext.BlockText},
+			}},
+			Workflows: []workflow.Spec{{
+				Name: "feature",
+				Steps: []workflow.Step{{
+					ID:    "design",
+					Kind:  workflow.StepAgent,
+					Agent: agent.Ref{Name: "main"},
+				}},
+			}},
+			Commands: []command.Spec{
+				{
+					Path: command.Path{"review"},
+					Target: invocation.Target{
+						Kind:   invocation.TargetPrompt,
+						Prompt: "Review the current change.",
+					},
+				},
+				{
+					Path: command.Path{"feat"},
+					Target: invocation.Target{
+						Kind:     invocation.TargetWorkflow,
+						Workflow: "feature",
+					},
+				},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composition.AppCatalog) != 1 {
+		t.Fatalf("app catalog len = %d, want 1", len(composition.AppCatalog))
+	}
+	if len(composition.AgentCatalog) != 1 {
+		t.Fatalf("agent catalog len = %d, want 1", len(composition.AgentCatalog))
+	}
+	if len(composition.SkillCatalog) != 1 {
+		t.Fatalf("skill catalog len = %d, want 1", len(composition.SkillCatalog))
+	}
+	if len(composition.ContextProviders) != 1 {
+		t.Fatalf("context provider catalog len = %d, want 1", len(composition.ContextProviders))
+	}
+	if len(composition.WorkflowCatalog) != 1 {
+		t.Fatalf("workflow catalog len = %d, want 1", len(composition.WorkflowCatalog))
+	}
+	if _, ok := composition.Commands.Resolve(command.Path{"review"}); !ok {
+		t.Fatal("prompt command was not registered")
+	}
+	if _, ok := composition.Commands.Resolve(command.Path{"feat"}); !ok {
+		t.Fatal("workflow command was not registered")
+	}
+	workflowID, err := composition.Resolver.Resolve("workflow", "feature")
+	if err != nil {
+		t.Fatalf("Resolve feature: %v", err)
+	}
+	commandID, err := composition.Resolver.Resolve("command", "feat")
+	if err != nil {
+		t.Fatalf("Resolve feat: %v", err)
+	}
+	binding := composition.CommandCatalog[commandID.Address()]
+	if !binding.TargetID.Equal(workflowID) {
+		t.Fatalf("workflow command target = %s, want %s", binding.TargetID.Address(), workflowID.Address())
+	}
+	sessionID, err := composition.Resolver.Resolve("session", "default")
+	if err != nil {
+		t.Fatalf("Resolve default: %v", err)
+	}
+	sessionBinding := composition.SessionCatalog[sessionID.Address()]
+	if sessionBinding.Spec.Name != "default" {
+		t.Fatalf("default session name = %q, want default", sessionBinding.Spec.Name)
+	}
+	if sessionBinding.Spec.Agent.Name != "main" {
+		t.Fatalf("default session agent = %q, want main", sessionBinding.Spec.Agent.Name)
+	}
+}
+
+func TestComposeRejectsCommandTargetingUnknownWorkflow(t *testing.T) {
+	_, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Commands: []command.Spec{{
+				Path: command.Path{"feat"},
+				Target: invocation.Target{
+					Kind:     invocation.TargetWorkflow,
+					Workflow: "missing",
+				},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Compose error is nil, want unknown workflow error")
+	}
+}
+
+func TestComposeRejectsAppDefaultAgentWhenUnbound(t *testing.T) {
+	_, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Apps: []coreapp.Spec{{
+				Name:         "demo",
+				DefaultAgent: agent.Ref{Name: "missing"},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Compose error is nil, want default agent resolution error")
+	}
+}
+
+func TestComposeRejectsAppDefaultSessionWhenUnbound(t *testing.T) {
+	_, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Apps: []coreapp.Spec{{
+				Name:           "demo",
+				DefaultSession: coresession.Ref{Name: "missing"},
+			}},
+		}},
+	})
+	if err == nil {
+		t.Fatal("Compose error is nil, want default session resolution error")
 	}
 }
 

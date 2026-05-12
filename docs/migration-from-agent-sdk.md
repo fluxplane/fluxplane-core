@@ -527,8 +527,9 @@ Implemented and green:
   same client/session/run API.
 - `orchestration/app`: resource/app composition over supplied runtime
   implementations, backed by `core/resource` identities, indexes, resolver,
-  command catalog, operation catalog, and session catalog. Duplicate short
-  names may coexist when canonical resource IDs differ.
+  app/agent/skill/context-provider/workflow catalogs, command catalog,
+  operation catalog, and session catalog. Duplicate short names may coexist
+  when canonical resource IDs differ.
 - `orchestration/pluginhost`: minimal plugin contribution contract and plugin
   ref resolution into resource bundles plus optional executable operation
   implementations. Plugin bundles now receive plugin source refs when the
@@ -597,9 +598,9 @@ Still intentionally incomplete:
   bundles plus operation implementations during app composition.
 - The daemon/control surface is minimal: status, configured-session listing,
   and live session listing only.
-- The engineer app parity plan has Phase 1A pure model support and Phase 1B
-  narrow adapters, but orchestration/app does not yet index or validate those
-  new app, agent, skill, and workflow contribution types.
+- The engineer app parity plan has Phase 1A pure model support, Phase 1B
+  narrow adapters, and Phase 1C composition catalogs. It does not execute LLM
+  agents, prompt commands, workflow commands, or skills yet.
 - There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
   spec shape.
 - There is no terminal/slash parser, Slack adapter, model provider adapter, or
@@ -744,7 +745,11 @@ Parity should be reached in small slices:
    Teach `orchestration/app` to index and validate app manifests, agents,
    skills, workflows, prompt commands, workflow commands, sessions, and plugin
    refs. Composition should create the default configured session for the
-   default agent.
+   default agent. Done: catalogs exist for app/agent/skill/context-provider/
+   workflow specs; prompt commands are accepted as prompt targets; workflow,
+   agent, and session command targets resolve to resource IDs; operation
+   command targets still require executable operation bindings; app default
+   agents create a default configured session.
 
 4. **Phase 2: LLM Agent Runtime Skeleton**
    Add `runtime/agent/llmagent` with a fake/test model path before migrating

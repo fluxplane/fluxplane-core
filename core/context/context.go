@@ -2,6 +2,8 @@ package context
 
 import (
 	stdcontext "context"
+	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/policy"
 )
@@ -38,6 +40,14 @@ type ProviderSpec struct {
 	Description string            `json:"description,omitempty"`
 	Kinds       []BlockKind       `json:"kinds,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Validate checks that the context provider spec has a stable identity.
+func (s ProviderSpec) Validate() error {
+	if strings.TrimSpace(string(s.Name)) == "" {
+		return fmt.Errorf("context: provider spec name is empty")
+	}
+	return nil
 }
 
 // Request describes one context-building request.
