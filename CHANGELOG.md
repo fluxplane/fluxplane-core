@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `core/usage` session tracker for accumulating usage by stable subject and
+  measurement keys.
+- Grouped `agentsdk coder --usage` totals with human-readable token, network,
+  and estimated cost lines after each prompt.
+- Shared usage cost enrichment from model pricing for OpenAI-compatible
+  providers.
+
 ## 0.3.0
 
 ### Added

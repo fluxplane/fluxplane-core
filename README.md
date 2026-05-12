@@ -147,8 +147,9 @@ go run ./cmd/agentsdk coder repl
 The command defaults to `openai/gpt-5.5`. OpenAI uses `OPENAI_API_KEY` through
 the OpenAI SDK. Codex uses the local Codex OAuth file at `~/.codex/auth.json`
 or `CODEX_AUTH_PATH`. Normal output streams assistant markdown and reasoning
-summaries in the terminal. `--debug` renders runtime events as highlighted JSON
-markdown fences.
+summaries in the terminal. `--usage` prints grouped session totals with
+human-readable token, network, and estimated cost lines after each prompt.
+`--debug` renders runtime events as highlighted JSON markdown fences.
 
 OpenAI-compatible providers use automatic best-effort Responses settings:
 WebSocket-preferred transport intent, max prompt caching, reasoning encrypted

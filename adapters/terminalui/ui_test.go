@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
@@ -102,5 +103,52 @@ func TestRendererRendersDebugAsMarkdownFence(t *testing.T) {
 	renderer.RenderDebug(clientapi.Event{Kind: clientapi.EventRunCompleted})
 	if got := err.String(); !strings.Contains(got, "run.completed") {
 		t.Fatalf("debug output = %q, want event JSON", got)
+	}
+}
+
+func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
+	var out bytes.Buffer
+	tracker := usage.NewTracker()
+	tracker.Add(usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test", ID: "resp_1"},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricLLMInputTokens, Quantity: 2109, Unit: usage.UnitToken, Direction: usage.DirectionInput},
+			{Metric: usage.MetricLLMCachedTokens, Quantity: 1536, Unit: usage.UnitToken, Direction: usage.DirectionCached},
+			{Metric: usage.MetricLLMOutputTokens, Quantity: 11, Unit: usage.UnitToken, Direction: usage.DirectionOutput},
+			{Metric: usage.MetricCost, Quantity: 0.0031, Unit: usage.UnitCurrency, Dimensions: map[string]string{"currency": "USD", "estimated": "true"}},
+		},
+	})
+	tracker.Add(usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectNetwork, Provider: "codex", Name: "gpt-test"},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricNetworkBytes, Quantity: 18628, Unit: usage.UnitByte, Direction: usage.DirectionUpload},
+			{Metric: usage.MetricNetworkBytes, Quantity: 61881, Unit: usage.UnitByte, Direction: usage.DirectionDownload},
+		},
+	})
+
+	RenderUsageSnapshot(&out, tracker.Snapshot())
+	got := out.String()
+	for _, want := range []string{
+		"Total usage",
+		"openai/gpt-test",
+		"input tokens 2,109",
+		"cached input tokens 1,536",
+		"output tokens 11",
+		"estimated cost $0.0031",
+		"codex/gpt-test",
+		"uploaded 18.2 KB",
+		"downloaded 60.4 KB",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("usage output = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestRenderUsageSnapshotEmpty(t *testing.T) {
+	var out bytes.Buffer
+	RenderUsageSnapshot(&out, usage.Snapshot{})
+	if out.Len() != 0 {
+		t.Fatalf("usage output = %q, want empty", out.String())
 	}
 }

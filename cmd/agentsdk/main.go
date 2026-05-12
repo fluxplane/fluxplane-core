@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	coreusage "github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
@@ -94,7 +96,7 @@ func runCoder(ctx context.Context, opts coderOptions, prompt string) error {
 	if err != nil {
 		return err
 	}
-	return sendCoderPrompt(ctx, session, opts, prompt)
+	return sendCoderPrompt(ctx, session, opts, prompt, coreusage.NewTracker())
 }
 
 func runCoderREPL(ctx context.Context, opts coderOptions) error {
@@ -102,6 +104,7 @@ func runCoderREPL(ctx context.Context, opts coderOptions) error {
 	if err != nil {
 		return err
 	}
+	tracker := coreusage.NewTracker()
 	_, _ = fmt.Fprintln(os.Stderr, "agentsdk coder repl. Type /exit or /quit to stop.")
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -116,7 +119,7 @@ func runCoderREPL(ctx context.Context, opts coderOptions) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := sendCoderPrompt(ctx, session, opts, prompt); err != nil {
+		if err := sendCoderPrompt(ctx, session, opts, prompt, tracker); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	}
@@ -217,24 +220,29 @@ func coderBundle(provider, model string) agentruntime.ResourceBundle {
 	return bundle
 }
 
-func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts coderOptions, prompt string) error {
+func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts coderOptions, prompt string, tracker *coreusage.Tracker) error {
 	run, err := session.SendInput(ctx, agentruntime.Input{Text: prompt})
 	if err != nil {
 		return err
 	}
-	var eventsDone <-chan bool
+	var eventsDone <-chan renderResult
 	if opts.debug {
-		eventsDone = printEvents(run.Events())
+		eventsDone = printEvents(run.Events(), tracker)
 	} else {
-		eventsDone = renderEvents(run.Events(), opts.usage)
+		eventsDone = renderEvents(run.Events(), tracker)
 	}
 	result, err := run.Wait(ctx)
+	eventResult := renderResult{}
 	streamed := false
 	if eventsDone != nil {
-		streamed = <-eventsDone
+		eventResult = <-eventsDone
+		streamed = eventResult.Streamed
 	}
 	if !streamed && result.Outbound != nil && result.Outbound.Message != nil {
 		_, _ = fmt.Fprintln(os.Stdout, result.Outbound.Message.Content)
+	}
+	if opts.usage && tracker != nil {
+		terminalui.RenderUsageSnapshot(os.Stderr, tracker.Snapshot())
 	}
 	if err != nil {
 		return err
@@ -258,33 +266,73 @@ func resultError(result agentruntime.Result) error {
 	return nil
 }
 
-func printEvents(events <-chan agentruntime.Event) <-chan bool {
-	done := make(chan bool, 1)
+type renderResult struct {
+	Streamed bool
+}
+
+func printEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker) <-chan renderResult {
+	done := make(chan renderResult, 1)
 	go func() {
-		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, true)
+		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
 		for event := range events {
+			trackUsageEvent(tracker, event)
 			renderer.RenderDebug(event)
 			renderer.Render(event)
 		}
 		renderer.Finish()
-		done <- renderer.HasStreamedContent()
+		done <- renderResult{Streamed: renderer.HasStreamedContent()}
 		close(done)
 	}()
 	return done
 }
 
-func renderEvents(events <-chan agentruntime.Event, showUsage bool) <-chan bool {
-	done := make(chan bool, 1)
+func renderEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker) <-chan renderResult {
+	done := make(chan renderResult, 1)
 	go func() {
-		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, showUsage)
+		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
 		for event := range events {
+			trackUsageEvent(tracker, event)
 			renderer.Render(event)
 		}
 		renderer.Finish()
-		done <- renderer.HasStreamedContent()
+		done <- renderResult{Streamed: renderer.HasStreamedContent()}
 		close(done)
 	}()
 	return done
+}
+
+func trackUsageEvent(tracker *coreusage.Tracker, event agentruntime.Event) {
+	if tracker == nil {
+		return
+	}
+	if recorded, ok := usageFromEvent(event); ok {
+		tracker.Add(recorded)
+	}
+}
+
+func usageFromEvent(event agentruntime.Event) (coreusage.Recorded, bool) {
+	if event.Runtime == nil || event.Runtime.Name != coreusage.EventRecordedName {
+		return coreusage.Recorded{}, false
+	}
+	switch payload := event.Runtime.Payload.(type) {
+	case coreusage.Recorded:
+		if payload.Empty() {
+			return coreusage.Recorded{}, false
+		}
+		return payload, true
+	case map[string]any:
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return coreusage.Recorded{}, false
+		}
+		var recorded coreusage.Recorded
+		if err := json.Unmarshal(data, &recorded); err != nil || recorded.Empty() {
+			return coreusage.Recorded{}, false
+		}
+		return recorded, true
+	default:
+		return coreusage.Recorded{}, false
+	}
 }
 
 func workspaceRoot() (string, error) {
@@ -328,13 +376,15 @@ func resolveModelSelection(opts coderOptions) modelSelection {
 }
 
 func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model, error) {
-	_, _, _ = modelcatalog.Find(selection.Provider, selection.Model)
+	_, modelSpec, _ := modelcatalog.Find(selection.Provider, selection.Model)
+	pricing := modelSpec.Pricing
 	runtime := openaiadapter.DefaultResponsesRuntimeConfig()
 	switch selection.Provider {
 	case "openai":
 		return openaiadapter.New(openaiadapter.Config{
 			Model:             selection.Model,
 			Runtime:           runtime,
+			Pricing:           pricing,
 			ParallelToolCalls: true,
 			Redactor:          debugRedactor(opts.debug),
 		})
@@ -342,6 +392,7 @@ func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model,
 		return codexadapter.New(codexadapter.Config{
 			Model:             selection.Model,
 			Runtime:           runtime,
+			Pricing:           pricing,
 			ParallelToolCalls: true,
 			Redactor:          debugRedactor(opts.debug),
 		})

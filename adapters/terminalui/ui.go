@@ -164,9 +164,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case usage.Recorded:
 		r.flushContent()
 		if r.ShowUsage {
-			if line := UsageLine(payload); line != "" {
-				_, _ = fmt.Fprintln(out, line)
-			}
+			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
 		}
 	case map[string]any:
 		if string(event.Runtime.Name) == string(llmagent.EventModelStreamedName) {
@@ -181,8 +179,8 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			return
 		}
 		if r.ShowUsage && event.Runtime.Name == usage.EventRecordedName {
-			if line := usageLineFromMap(payload); line != "" {
-				_, _ = fmt.Fprintln(out, line)
+			if recorded, ok := usageRecordedFromMap(payload); ok {
+				RenderUsageSnapshot(out, usage.NewSnapshot(recorded))
 			}
 		}
 	default:
@@ -379,67 +377,175 @@ func compact(value any, limit int) string {
 	return text
 }
 
-// UsageLine renders one usage event.
-func UsageLine(recorded usage.Recorded) string {
-	if recorded.Empty() {
-		return ""
+// RenderUsageSnapshot renders grouped usage totals.
+func RenderUsageSnapshot(w io.Writer, snapshot usage.Snapshot) {
+	if w == nil || snapshot.Empty() {
+		return
 	}
-	parts := []string{"usage:"}
-	if recorded.Source != "" {
-		parts = append(parts, "source="+recorded.Source)
-	}
-	if recorded.Subject.Provider != "" {
-		parts = append(parts, "provider="+recorded.Subject.Provider)
-	}
-	if recorded.Subject.Name != "" {
-		parts = append(parts, "subject="+recorded.Subject.Name)
-	}
-	for _, measurement := range recorded.Measurements {
-		parts = append(parts, fmt.Sprintf("%s=%s", measurement.Metric, formatQuantity(measurement.Quantity)))
-	}
-	return strings.Join(parts, " ")
-}
-
-func usageLineFromMap(payload map[string]any) string {
-	parts := []string{"usage:"}
-	if source, ok := payload["source"].(string); ok && source != "" {
-		parts = append(parts, "source="+source)
-	}
-	if subject, ok := payload["subject"].(map[string]any); ok {
-		if provider, ok := subject["provider"].(string); ok && provider != "" {
-			parts = append(parts, "provider="+provider)
-		}
-		if name, ok := subject["name"].(string); ok && name != "" {
-			parts = append(parts, "subject="+name)
-		}
-	}
-	measurements, ok := payload["measurements"].([]any)
-	if !ok || len(measurements) == 0 {
-		return ""
-	}
-	for _, raw := range measurements {
-		measurement, ok := raw.(map[string]any)
-		if !ok {
+	_, _ = fmt.Fprintf(w, "%sTotal usage%s\n", ansiCyan, ansiReset)
+	for _, subject := range snapshot.Subjects {
+		if len(subject.Totals) == 0 {
 			continue
 		}
-		metric, _ := measurement["metric"].(string)
-		quantity, _ := measurement["quantity"].(float64)
-		if metric == "" {
-			continue
+		_, _ = fmt.Fprintf(w, "%s %s%s%s\n", subjectIcon(subject.Subject.Kind), ansiCyan, subjectLabel(subject.Subject), ansiReset)
+		for _, measurement := range subject.Totals {
+			if line := measurementLine(measurement); line != "" {
+				_, _ = fmt.Fprintf(w, "  %s\n", line)
+			}
 		}
-		parts = append(parts, fmt.Sprintf("%s=%s", metric, formatQuantity(quantity)))
 	}
-	if len(parts) == 1 {
-		return ""
-	}
-	return strings.Join(parts, " ")
 }
 
-func formatQuantity(quantity float64) string {
-	if quantity == float64(int64(quantity)) {
-		return fmt.Sprintf("%d", int64(quantity))
+func usageRecordedFromMap(payload map[string]any) (usage.Recorded, bool) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return usage.Recorded{}, false
 	}
-	return fmt.Sprintf("%.2f", quantity)
+	var recorded usage.Recorded
+	if err := json.Unmarshal(data, &recorded); err != nil || recorded.Empty() {
+		return usage.Recorded{}, false
+	}
+	return recorded, true
+}
+
+func subjectIcon(kind usage.SubjectKind) string {
+	switch kind {
+	case usage.SubjectLLM:
+		return "🧠"
+	case usage.SubjectNetwork:
+		return "🌐"
+	case usage.SubjectFile:
+		return "📄"
+	case usage.SubjectProcess:
+		return "⚙"
+	case usage.SubjectMoney:
+		return "💵"
+	default:
+		return "•"
+	}
+}
+
+func subjectLabel(subject usage.Subject) string {
+	if subject.Provider != "" && subject.Name != "" {
+		return subject.Provider + "/" + subject.Name
+	}
+	if subject.Name != "" {
+		return subject.Name
+	}
+	if subject.Provider != "" {
+		return subject.Provider
+	}
+	if subject.Kind != "" {
+		return string(subject.Kind)
+	}
+	return "usage"
+}
+
+func measurementLine(measurement usage.Measurement) string {
+	switch measurement.Metric {
+	case usage.MetricLLMInputTokens:
+		return "↑ input tokens " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricLLMCachedTokens:
+		return "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricLLMOutputTokens:
+		return "↓ output tokens " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricLLMReasoningTokens:
+		return "✦ reasoning tokens " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricLLMTotalTokens:
+		return "∑ total tokens " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricNetworkBytes:
+		return networkBytesLine(measurement)
+	case usage.MetricFileBytes:
+		return "↔ file bytes " + formatBytes(measurement.Quantity)
+	case usage.MetricRequests:
+		return "• requests " + formatHumanNumber(measurement.Quantity)
+	case usage.MetricWallTime:
+		return "◷ wall time " + formatDurationQuantity(measurement.Quantity, measurement.Unit)
+	case usage.MetricCost:
+		return "💵 estimated cost " + formatCost(measurement)
+	default:
+		return string(measurement.Metric) + " " + formatHumanQuantity(measurement)
+	}
+}
+
+func networkBytesLine(measurement usage.Measurement) string {
+	switch measurement.Direction {
+	case usage.DirectionUpload, usage.DirectionInput, usage.DirectionWrite:
+		return "↑ uploaded " + formatBytes(measurement.Quantity)
+	case usage.DirectionDownload, usage.DirectionOutput, usage.DirectionRead:
+		return "↓ downloaded " + formatBytes(measurement.Quantity)
+	default:
+		return "↔ transferred " + formatBytes(measurement.Quantity)
+	}
+}
+
+func formatHumanQuantity(measurement usage.Measurement) string {
+	switch measurement.Unit {
+	case usage.UnitByte:
+		return formatBytes(measurement.Quantity)
+	case usage.UnitCurrency:
+		return formatCost(measurement)
+	default:
+		return formatHumanNumber(measurement.Quantity)
+	}
+}
+
+func formatHumanNumber(quantity float64) string {
+	if quantity != float64(int64(quantity)) {
+		return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", quantity), "0"), ".")
+	}
+	value := int64(quantity)
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	text := fmt.Sprintf("%d", value)
+	for i := len(text) - 3; i > 0; i -= 3 {
+		text = text[:i] + "," + text[i:]
+	}
+	return sign + text
+}
+
+func formatBytes(quantity float64) string {
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	value := quantity
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return formatHumanNumber(value) + " " + units[unit]
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1f", value), "0"), ".") + " " + units[unit]
+}
+
+func formatCost(measurement usage.Measurement) string {
+	currency := "USD"
+	if measurement.Dimensions != nil && measurement.Dimensions["currency"] != "" {
+		currency = measurement.Dimensions["currency"]
+	}
+	prefix := currency + " "
+	if currency == "USD" {
+		prefix = "$"
+	}
+	quantity := measurement.Quantity
+	switch {
+	case quantity >= 1:
+		return prefix + fmt.Sprintf("%.2f", quantity)
+	case quantity >= 0.01:
+		return prefix + strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", quantity), "0"), ".")
+	default:
+		return prefix + strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", quantity), "0"), ".")
+	}
+}
+
+func formatDurationQuantity(quantity float64, unit usage.Unit) string {
+	if unit == usage.UnitMillisecond {
+		return time.Duration(quantity * float64(time.Millisecond)).Round(time.Millisecond).String()
+	}
+	return formatHumanNumber(quantity)
 }
 
 // Prompter collects clarify answers from a terminal.

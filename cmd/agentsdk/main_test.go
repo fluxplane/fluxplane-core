@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/apps/coder"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/usage"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
@@ -66,22 +67,33 @@ func TestCoderDefaultModel(t *testing.T) {
 	}
 }
 
-func TestUsageLineFromRecorded(t *testing.T) {
-	line := terminalui.UsageLine(usage.Recorded{
-		Source: "adapters/openai",
-		Subject: usage.Subject{
-			Kind:     usage.SubjectLLM,
-			Provider: "openai",
-			Name:     "gpt-test",
-		},
+func TestUsageFromEventParsesTypedAndMapPayloads(t *testing.T) {
+	typed := usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
 		Measurements: []usage.Measurement{{
 			Metric:   usage.MetricLLMInputTokens,
 			Quantity: 12,
 			Unit:     usage.UnitToken,
 		}},
-	})
-	if !strings.Contains(line, "usage:") || !strings.Contains(line, "subject=gpt-test") || !strings.Contains(line, "llm.input_tokens=12") {
-		t.Fatalf("line = %q", line)
+	}
+	for _, evt := range []agentruntime.Event{
+		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}},
+		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{
+			"subject": map[string]any{"kind": "llm", "provider": "openai", "name": "gpt-test"},
+			"measurements": []any{map[string]any{
+				"metric":   "llm.input_tokens",
+				"quantity": float64(12),
+				"unit":     "token",
+			}},
+		}}},
+	} {
+		got, ok := usageFromEvent(evt)
+		if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
+			t.Fatalf("usageFromEvent = %#v, %v", got, ok)
+		}
+	}
+	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: event.Name("other")}}); ok {
+		t.Fatalf("usageFromEvent accepted non-usage event")
 	}
 }
 

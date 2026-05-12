@@ -11,6 +11,7 @@ import (
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/openai/openai-go/v3/option"
 )
 
@@ -23,6 +24,7 @@ type Config struct {
 	Redactor          adapterllm.Redactor
 	HTTPClient        *http.Client
 	Runtime           openaiadapter.ResponsesRuntimeConfig
+	Pricing           []corellm.PricingSpec
 }
 
 // New returns a Codex-backed Responses model.
@@ -52,6 +54,7 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 		BaseURL:           baseURL,
 		APIKey:            "codex-auth-via-middleware",
 		Runtime:           runtime,
+		Pricing:           cfg.Pricing,
 		ParallelToolCalls: cfg.ParallelToolCalls,
 		Redactor:          cfg.Redactor,
 		RequestOptions: []option.RequestOption{

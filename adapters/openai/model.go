@@ -21,6 +21,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	runtimeusage "github.com/fluxplane/agentruntime/runtime/usage"
 )
 
 var (
@@ -52,6 +53,9 @@ type Config struct {
 	// Runtime controls shared OpenAI Responses-compatible behavior.
 	Runtime ResponsesRuntimeConfig
 
+	// Pricing enriches emitted LLM usage records with estimated cost.
+	Pricing []corellm.PricingSpec
+
 	// Store controls OpenAI response storage. The adapter sends this explicitly
 	// and defaults to false.
 	Store bool
@@ -76,6 +80,7 @@ type Model struct {
 	provider          string
 	api               string
 	runtime           ResponsesRuntimeConfig
+	pricing           []corellm.PricingSpec
 	store             bool
 	parallelToolCalls bool
 	redactor          adapterllm.Redactor
@@ -103,6 +108,7 @@ func New(cfg Config) (*Model, error) {
 		provider:          normalizeProvider(cfg.ProviderName),
 		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
 		runtime:           runtime,
+		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
 		store:             store,
 		parallelToolCalls: cfg.ParallelToolCalls,
 		redactor:          cfg.Redactor,
@@ -128,7 +134,7 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if resp == nil {
 		return llmagent.Response{}, errors.New("openai: nil response")
 	}
-	out, err := responseFromOpenAI(*resp, tools, m.providerIdentity(m.modelName(req)), m.store)
+	out, err := responseFromOpenAI(*resp, tools, m.providerIdentity(m.modelName(req)), m.store, m.pricing)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -175,7 +181,7 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
 	provider := m.providerIdentity(m.modelName(req))
-	out, err := responseFromOpenAI(final, tools, provider, m.store)
+	out, err := responseFromOpenAI(final, tools, provider, m.store, m.pricing)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -388,8 +394,8 @@ func transcriptContentString(content any) string {
 	}
 }
 
-func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool) (llmagent.Response, error) {
-	recordedUsage := usageFromOpenAI(resp, provider)
+func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool, prices []corellm.PricingSpec) (llmagent.Response, error) {
+	recordedUsage := usageFromOpenAI(resp, provider, prices)
 	transcript := responseTranscript(resp, provider, store)
 	assembler := adapterllm.NewToolCallAssembler(tools)
 	var operations []agent.OperationRequest
@@ -764,7 +770,7 @@ func ProviderSpec() corellm.ProviderSpec {
 	}
 }
 
-func usageFromOpenAI(resp responses.Response, provider coreconversation.ProviderIdentity) []usage.Recorded {
+func usageFromOpenAI(resp responses.Response, provider coreconversation.ProviderIdentity, prices []corellm.PricingSpec) []usage.Recorded {
 	if resp.Usage.InputTokens == 0 &&
 		resp.Usage.InputTokensDetails.CachedTokens == 0 &&
 		resp.Usage.OutputTokens == 0 &&
@@ -800,7 +806,7 @@ func usageFromOpenAI(resp responses.Response, provider coreconversation.Provider
 	if recorded.Empty() {
 		return nil
 	}
-	return []usage.Recorded{recorded}
+	return runtimeusage.EnrichCosts([]usage.Recorded{recorded}, prices)
 }
 
 func promptCacheKey(provider, model string, req llmagent.Request) string {

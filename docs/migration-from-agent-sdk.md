@@ -991,10 +991,11 @@ Parity should be reached in small slices:
    should describe model capabilities and pricing so cost evaluation is data
    driven. Done initially: `core/usage` defines generic usage records,
    `core/llm` defines LLM provider/model/pricing/capability specs,
-   `runtime/usage` evaluates costs from pricing specs, `adapters/modelcatalog`
-   hydrates specs from `github.com/codewandler/modeldb`, and
-   `adapters/openai` emits LLM token usage from Responses usage. Schedule
-   Anthropic API and Claude Code in this provider expansion path.
+  `runtime/usage` evaluates and enriches estimated costs from pricing specs,
+  `adapters/modelcatalog` hydrates specs from `github.com/codewandler/modeldb`,
+  `core/usage` includes session accumulation, and `adapters/openai` emits LLM
+  token usage from Responses usage. Schedule Anthropic API and Claude Code in
+  this provider expansion path.
 
 10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with
@@ -1007,8 +1008,8 @@ Parity should be reached in small slices:
    input/output JSON Schemas from typed Go structs; standard operations emit
    usage events for IO boundaries; HTML responses use the same
    html-to-markdown library as the old implementation. The terminal coder app
-   now renders operation begin/end, process output, usage lines, and clarify
-   prompts through `adapters/terminalui`.
+  now renders operation begin/end, process output, grouped usage totals, and
+  clarify prompts through `adapters/terminalui`.
    Still planned: overlay workspace commit/rollback, stronger approval UX,
    richer web search, durable process ownership, and real sandbox backends such
    as Docker profiles, bubblewrap, or Firecracker.

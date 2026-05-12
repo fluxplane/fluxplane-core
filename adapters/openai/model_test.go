@@ -10,8 +10,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/openai/openai-go/v3/responses"
 
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -163,7 +165,7 @@ func TestResponseFromOpenAIConvertsText(t *testing.T) {
 			"content": [{"type": "output_text", "text": "hello"}]
 		}]
 	}`)
-	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -193,7 +195,7 @@ func TestResponseFromOpenAIConvertsUsage(t *testing.T) {
 			"content": [{"type": "output_text", "text": "hello"}]
 		}]
 	}`)
-	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -205,6 +207,39 @@ func TestResponseFromOpenAIConvertsUsage(t *testing.T) {
 	}
 	if len(got.Usage[0].Measurements) != 5 {
 		t.Fatalf("usage measurements = %#v, want 5", got.Usage[0].Measurements)
+	}
+}
+
+func TestResponseFromOpenAIEnrichesUsageCost(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"model": "gpt-test",
+		"status": "completed",
+		"usage": {"input_tokens": 1000},
+		"output": [{
+			"id": "msg_1",
+			"type": "message",
+			"status": "completed",
+			"role": "assistant",
+			"content": [{"type": "output_text", "text": "hello"}]
+		}]
+	}`)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, []corellm.PricingSpec{{
+		Metric:    usage.MetricLLMInputTokens,
+		Unit:      usage.UnitToken,
+		Direction: usage.DirectionInput,
+		Currency:  "USD",
+		Price:     2,
+		Per:       1000000,
+	}})
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	measurements := got.Usage[0].Measurements
+	cost := measurements[len(measurements)-1]
+	if cost.Metric != usage.MetricCost || cost.Quantity != 0.002 || cost.Dimensions["estimated"] != "true" {
+		t.Fatalf("cost measurement = %#v, want estimated cost", cost)
 	}
 }
 
@@ -233,7 +268,7 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 				Operation: operation.Ref{Name: "test"},
 			},
 		},
-	}, openAIProviderIdentity("gpt-test"), true)
+	}, openAIProviderIdentity("gpt-test"), true, nil)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -321,7 +356,7 @@ func TestResponseFinalTextExcludesCommentaryPhase(t *testing.T) {
 	if got := responseFinalText(resp); got != "done" {
 		t.Fatalf("responseFinalText = %q, want done", got)
 	}
-	out, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
+	out, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
