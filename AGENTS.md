@@ -57,6 +57,7 @@ The top-level layers are:
 
 ```text
 core -> runtime -> orchestration -> adapters/plugins -> apps
+core -> sdk -> apps/user code
 ```
 
 Dependencies must point inward. Outer layers may depend on inner layers; inner
@@ -64,6 +65,11 @@ layers must not depend on outer layers.
 
 `apps` and the root facade may assemble outward-facing products. Inner packages
 must not import apps.
+
+`sdk` is an IO-free authoring convenience layer. It may depend on `core` only
+and emits specs/contribution bundles. It must not execute operations, open
+sessions, instantiate model providers, inspect files, or import runtime,
+orchestration, adapters, plugins, or apps.
 
 ## `core/`
 

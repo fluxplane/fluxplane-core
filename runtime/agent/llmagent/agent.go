@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/tool"
 )
@@ -116,7 +117,7 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 		return failed("context_canceled", err.Error(), nil)
 	}
 
-	req := a.request(input)
+	req := a.request(ctx, input)
 	emit(ctx, ModelRequested{Agent: a.spec.Name, Model: modelName(req)})
 	resp, err := a.complete(base, ctx, req)
 	if err != nil {
@@ -126,6 +127,17 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 	for _, recorded := range resp.Usage {
 		if !recorded.Empty() {
 			emit(ctx, recorded)
+		}
+	}
+	if !resp.Transcript.Empty() {
+		if len(resp.Transcript.Items) > 0 {
+			emit(ctx, coreconversation.ItemsAppended{
+				Provider: resp.Transcript.Provider,
+				Items:    resp.Transcript.Items,
+			})
+		}
+		if resp.Transcript.Continuation != nil {
+			emit(ctx, coreconversation.ContinuationStored{Handle: *resp.Transcript.Continuation})
 		}
 	}
 	result := resultFromResponse(resp)
@@ -162,7 +174,7 @@ func (a *Agent) emitStream(ctx agent.Context, req Request, evt StreamEvent) {
 	emit(ctx, ModelStreamed{Agent: a.spec.Name, Model: modelName(req), Event: evt})
 }
 
-func (a *Agent) request(input agent.StepInput) Request {
+func (a *Agent) request(ctx agent.Context, input agent.StepInput) Request {
 	return Request{
 		Agent:        a.spec,
 		Driver:       a.driver,
@@ -171,6 +183,7 @@ func (a *Agent) request(input agent.StepInput) Request {
 		Objective:    chooseObjective(input.Objective, a.spec.Objective),
 		Observations: append([]environment.Observation(nil), input.Observations...),
 		Context:      append([]corecontext.Block(nil), input.Context...),
+		Transcript:   transcriptFromContext(ctx),
 		State:        input.State,
 	}
 }

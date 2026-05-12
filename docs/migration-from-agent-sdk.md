@@ -164,6 +164,32 @@ reserved `DelegationPolicy`. Delegation is intentionally inert for now: it
 declares future child-session limits and narrowing boundaries without creating
 workers, plan execution, or implicit agent spawning.
 
+Session memory has two tracks:
+
+- semantic projections from `session.*` events, used for UI/debug/context
+  summaries and generic agent observations;
+- provider transcript events in `core/conversation`, used to preserve exactly
+  what a model provider saw and returned.
+
+On each conversational input, `orchestration/session` currently reads prior
+`session.*` events from `core/thread.Store` and projects a compact
+conversation-history context block into the next agent step. The current
+inbound message remains an observation, so history does not duplicate the
+active turn. This projection is useful but must not become the default
+provider-visible LLM history.
+
+Provider-visible history must be reconstructed from `core/conversation`
+transcript items and continuation handles. The safe default projection is full
+replay of exact provider items. Native continuation, such as OpenAI Responses
+`previous_response_id`, is an optimization only when the branch head has a
+matching provider/API/model continuation handle and the adapter can send only
+the pending delta without changing the provider-visible prefix.
+
+The old `conversation` package should continue migrating into this split:
+message/conversation IDs and transcript events in `core/conversation`; exact
+replay, native-continuation selection, compaction, summarization, and token
+budget handling in runtime/orchestration.
+
 ### HTTP Surface Split
 
 There are two HTTP surfaces:
@@ -207,6 +233,21 @@ are resolver/policy concerns, not flat-registry errors.
 Operation specs in resources are declarations. Command execution must resolve
 to an executable operation binding in the operation catalog; declaration-only
 operation specs are discoverable but do not satisfy executable command targets.
+
+### SDK Builder Layer
+
+The public builder layer lives in `sdk`. It is an IO-free authoring convenience
+over core specs, not a runtime or orchestration shortcut.
+
+`sdk.NewApp`, `sdk.BuildAgent`, `sdk.BuildOperation`, and
+`sdk.CommandForOperation` produce normal `core/resource.ContributionBundle`
+and core specs. They may reduce boilerplate for embedded apps and library
+consumers, but they must not instantiate providers, execute operations, inspect
+files, open sessions, or bypass the resource/composition/session path.
+
+This keeps hand-authored specs, manifest-loaded specs, and fluent Go-authored
+specs equivalent after normalization. Runtime implementations remain supplied
+through composition config, plugins, adapters, or host code.
 
 ### Plugin Boundary
 
@@ -303,6 +344,11 @@ Provider adapter helpers live in `adapters/llm`. They translate provider-style
 messages, tool descriptors, stream chunks, redaction policy, and streamed tool
 calls into the `runtime/agent/llmagent.Model`/`StreamingModel` ports. They do
 not own agent loop semantics and do not call live provider APIs by themselves.
+
+`runtime/conversation` owns provider transcript projection. It can return full
+replay items or a native continuation handle plus pending delta items. Provider
+adapters consume the projection; they should not derive model history from
+generic session summaries.
 
 Shared target vocabulary belongs in `core/invocation`.
 
@@ -676,8 +722,9 @@ Still intentionally incomplete:
   agent instantiation through configured sessions. It does not execute prompt
   commands, execute workflow commands, or activate skills yet.
 - The first live provider adapter is OpenAI Responses. It is still narrow: no
-  retry policy, conversation compaction, durable usage aggregation, budget
-  enforcement, or Anthropic/local provider adapter yet.
+  exact provider-transcript persistence in the live path, retry policy,
+  conversation compaction, durable usage aggregation, budget enforcement, or
+  Anthropic/local provider adapter yet.
 - Configured sessions can instantiate manifest-declared LLM agents when the
   host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
   path. Model routing policy beyond that first adapter is still open.

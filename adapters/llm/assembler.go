@@ -126,7 +126,7 @@ func (a *ToolCallAssembler) operationRequest(call pendingToolCall) (agent.Operat
 	if err != nil {
 		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q arguments: %w", call.name, err)
 	}
-	return agent.OperationRequest{Operation: spec.Target.Operation, Input: input}, nil
+	return agent.OperationRequest{Operation: spec.Target.Operation, Input: input, ProviderCallID: call.id}, nil
 }
 
 func decodeArguments(raw string) (operation.Value, error) {

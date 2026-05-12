@@ -12,6 +12,7 @@ type Layer string
 
 const (
 	LayerCore          Layer = "core"
+	LayerSDK           Layer = "sdk"
 	LayerRuntime       Layer = "runtime"
 	LayerOrchestration Layer = "orchestration"
 	LayerAdapters      Layer = "adapters"
@@ -232,7 +233,7 @@ func layerOf(modulePath, importPath string) Layer {
 	rest := strings.TrimPrefix(importPath, prefix)
 	layer, _, _ := strings.Cut(rest, "/")
 	switch Layer(layer) {
-	case LayerCore, LayerRuntime, LayerOrchestration, LayerAdapters, LayerPlugins, LayerApps:
+	case LayerCore, LayerSDK, LayerRuntime, LayerOrchestration, LayerAdapters, LayerPlugins, LayerApps:
 		return Layer(layer)
 	default:
 		return ""
@@ -243,6 +244,10 @@ func allowedImport(from, to Layer) (bool, string) {
 	allowed := map[Layer]map[Layer]bool{
 		LayerCore: {
 			LayerCore: true,
+		},
+		LayerSDK: {
+			LayerCore: true,
+			LayerSDK:  true,
 		},
 		LayerRuntime: {
 			LayerCore:    true,
@@ -261,6 +266,7 @@ func allowedImport(from, to Layer) (bool, string) {
 		},
 		LayerPlugins: {
 			LayerCore:          true,
+			LayerSDK:           true,
 			LayerRuntime:       true,
 			LayerOrchestration: true,
 			LayerAdapters:      true,
@@ -268,6 +274,7 @@ func allowedImport(from, to Layer) (bool, string) {
 		},
 		LayerApps: {
 			LayerCore:          true,
+			LayerSDK:           true,
 			LayerRuntime:       true,
 			LayerOrchestration: true,
 			LayerAdapters:      true,
@@ -277,6 +284,7 @@ func allowedImport(from, to Layer) (bool, string) {
 		},
 		LayerFacade: {
 			LayerCore:          true,
+			LayerSDK:           true,
 			LayerRuntime:       true,
 			LayerOrchestration: true,
 			LayerAdapters:      true,
@@ -339,6 +347,7 @@ func ensureLayer(stats map[Layer]*LayerSummary, layer Layer) *LayerSummary {
 func layerOrder() []Layer {
 	return []Layer{
 		LayerCore,
+		LayerSDK,
 		LayerRuntime,
 		LayerOrchestration,
 		LayerAdapters,

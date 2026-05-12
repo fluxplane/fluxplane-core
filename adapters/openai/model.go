@@ -9,12 +9,14 @@ import (
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/usage"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 
@@ -85,7 +87,7 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
-	params, tools, err := m.responseParams(req)
+	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -96,7 +98,12 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if resp == nil {
 		return llmagent.Response{}, errors.New("openai: nil response")
 	}
-	return responseFromOpenAI(*resp, tools)
+	out, err := responseFromOpenAI(*resp, tools, openAIProviderIdentity(m.modelName(req)), m.store)
+	if err != nil {
+		return llmagent.Response{}, err
+	}
+	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
+	return out, nil
 }
 
 // Stream calls the OpenAI Responses streaming API and emits provider-neutral
@@ -105,7 +112,7 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
-	params, tools, err := m.responseParams(req)
+	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -131,25 +138,41 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if final.ID == "" {
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
-	return responseFromOpenAI(final, tools)
+	out, err := responseFromOpenAI(final, tools, openAIProviderIdentity(m.modelName(req)), m.store)
+	if err != nil {
+		return llmagent.Response{}, err
+	}
+	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
+	return out, nil
 }
 
-func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParams, []adapterllm.ToolSpec, error) {
+func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParams, []adapterllm.ToolSpec, []coreconversation.Item, error) {
 	model := m.modelName(req)
 	if model == "" {
-		return responses.ResponseNewParams{}, nil, ErrModelMissing
-	}
-	prompt := promptFromRequest(req)
-	if strings.TrimSpace(prompt) == "" {
-		prompt = "Continue."
+		return responses.ResponseNewParams{}, nil, nil, ErrModelMissing
 	}
 	params := responses.ResponseNewParams{
-		Model: shared.ResponsesModel(model),
-		Input: responses.ResponseNewParamsInputUnion{
-			OfString: openai.String(prompt),
-		},
+		Model:             shared.ResponsesModel(model),
 		Store:             openai.Bool(m.store),
 		ParallelToolCalls: openai.Bool(m.parallelToolCalls),
+	}
+	var sentItems []coreconversation.Item
+	if req.Transcript != nil && !req.Transcript.Empty() {
+		inputItems, items, err := inputItemsFromTranscript(*req.Transcript)
+		if err != nil {
+			return responses.ResponseNewParams{}, nil, nil, err
+		}
+		params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: responses.ResponseInputParam(inputItems)}
+		sentItems = items
+		if req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID() {
+			params.PreviousResponseID = openai.String(req.Transcript.Continuation.ResponseID)
+		}
+	} else {
+		prompt := promptFromRequest(req)
+		if strings.TrimSpace(prompt) == "" {
+			prompt = "Continue."
+		}
+		params.Input = responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)}
 	}
 	if req.Driver.Instructions != "" {
 		params.Instructions = openai.String(req.Driver.Instructions)
@@ -162,13 +185,13 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 	}
 	tools, err := adapterllm.ToolsFromCore(req.Tools)
 	if err != nil {
-		return responses.ResponseNewParams{}, nil, err
+		return responses.ResponseNewParams{}, nil, nil, err
 	}
 	params.Tools, err = toolParams(tools)
 	if err != nil {
-		return responses.ResponseNewParams{}, nil, err
+		return responses.ResponseNewParams{}, nil, nil, err
 	}
-	return params, tools, nil
+	return params, tools, sentItems, nil
 }
 
 func (m *Model) modelName(req llmagent.Request) string {
@@ -214,8 +237,82 @@ func schemaParams(schema operation.Schema) (map[string]any, error) {
 	return params, nil
 }
 
-func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec) (llmagent.Response, error) {
+func inputItemsFromTranscript(transcript coreconversation.Transcript) ([]responses.ResponseInputItemUnionParam, []coreconversation.Item, error) {
+	out := make([]responses.ResponseInputItemUnionParam, 0, len(transcript.Items))
+	recorded := make([]coreconversation.Item, 0, len(transcript.Items))
+	for i, item := range transcript.Items {
+		paramItem, recordedItem, err := inputItemFromTranscriptItem(transcript.Provider, item)
+		if err != nil {
+			return nil, nil, fmt.Errorf("openai: transcript item %d: %w", i, err)
+		}
+		out = append(out, paramItem)
+		recorded = append(recorded, recordedItem)
+	}
+	return out, recorded, nil
+}
+
+func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, item coreconversation.Item) (responses.ResponseInputItemUnionParam, coreconversation.Item, error) {
+	if len(item.Native) > 0 {
+		return param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(item.Native)), item, nil
+	}
+	if item.Provider.Provider == "" {
+		item.Provider = provider
+	}
+	switch item.Kind {
+	case coreconversation.ItemInput:
+		role := strings.TrimSpace(item.Role)
+		if role == "" {
+			role = "user"
+		}
+		if role != "user" && role != "system" && role != "developer" {
+			return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("unsupported input role %q without native payload", role)
+		}
+		paramItem := responses.ResponseInputItemParamOfInputMessage(
+			responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText(transcriptContentString(item.Content))},
+			role,
+		)
+		return paramItem, itemWithNative(item, paramItem), nil
+	case coreconversation.ItemToolResult:
+		if strings.TrimSpace(item.CallID) == "" {
+			return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, errors.New("tool result call_id is empty")
+		}
+		paramItem := responses.ResponseInputItemParamOfFunctionCallOutput(item.CallID, transcriptContentString(item.Content))
+		return paramItem, itemWithNative(item, paramItem), nil
+	default:
+		return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("unsupported transcript item kind %q without native payload", item.Kind)
+	}
+}
+
+func itemWithNative(item coreconversation.Item, paramItem responses.ResponseInputItemUnionParam) coreconversation.Item {
+	if len(item.Native) > 0 {
+		return item
+	}
+	if raw, err := json.Marshal(paramItem); err == nil {
+		item.Native = raw
+	}
+	return item
+}
+
+func transcriptContentString(content any) string {
+	switch typed := content.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(data)
+	}
+}
+
+func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool) (llmagent.Response, error) {
 	recordedUsage := usageFromOpenAI(resp)
+	transcript := responseTranscript(resp, provider, store)
 	assembler := adapterllm.NewToolCallAssembler(tools)
 	var operations []agent.OperationRequest
 	for i, item := range resp.Output {
@@ -238,17 +335,78 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec) (l
 	if len(operations) > 0 {
 		out := llmagent.OperationResponse(operations...)
 		out.Usage = recordedUsage
+		out.Transcript = transcript
 		return out, nil
 	}
 	if text := strings.TrimSpace(resp.OutputText()); text != "" {
 		out := llmagent.MessageResponse(text)
 		out.Usage = recordedUsage
+		out.Transcript = transcript
 		return out, nil
 	}
 	if resp.Error.Message != "" {
 		return llmagent.Response{}, fmt.Errorf("openai: %s: %s", resp.Error.Code, resp.Error.Message)
 	}
-	return llmagent.Response{Usage: recordedUsage}, nil
+	return llmagent.Response{Usage: recordedUsage, Transcript: transcript}, nil
+}
+
+func responseTranscript(resp responses.Response, provider coreconversation.ProviderIdentity, store bool) coreconversation.Transcript {
+	items := make([]coreconversation.Item, 0, len(resp.Output))
+	for _, output := range resp.Output {
+		item := coreconversation.Item{
+			Provider: provider,
+			Kind:     transcriptKindFromOutputType(output.Type),
+			Role:     outputRole(output),
+			ID:       output.ID,
+			CallID:   output.CallID,
+			Name:     output.Name,
+			Native:   json.RawMessage(output.RawJSON()),
+		}
+		if output.Type == "message" {
+			item.Content = resp.OutputText()
+		}
+		items = append(items, item)
+	}
+	out := coreconversation.Transcript{
+		Provider: provider,
+		Items:    items,
+		Mode:     coreconversation.ProjectionFullReplay,
+	}
+	if store && resp.ID != "" {
+		out.Continuation = &coreconversation.ContinuationHandle{
+			Provider:   provider,
+			Mode:       coreconversation.ContinuationPreviousResponseID,
+			Transport:  coreconversation.TransportHTTPSSE,
+			ResponseID: resp.ID,
+		}
+		out.Mode = coreconversation.ProjectionNativeContinuation
+	}
+	return out
+}
+
+func transcriptKindFromOutputType(outputType string) coreconversation.ItemKind {
+	switch outputType {
+	case "reasoning":
+		return coreconversation.ItemReasoning
+	default:
+		return coreconversation.ItemOutput
+	}
+}
+
+func outputRole(output responses.ResponseOutputItemUnion) string {
+	if output.Type == "message" {
+		return "assistant"
+	}
+	return ""
+}
+
+func openAIProviderIdentity(model string) coreconversation.ProviderIdentity {
+	return coreconversation.ProviderIdentity{
+		Provider: "openai",
+		API:      "openai.responses",
+		Family:   "responses",
+		Model:    model,
+	}
 }
 
 func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, toolNames map[int]tool.Name) []adapterllm.StreamEvent {

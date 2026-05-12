@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -18,6 +21,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -232,6 +237,10 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	if inbound.Kind != channel.InboundMessage || inbound.Message == nil {
 		return inputFailed("invalid_input_inbound", "inbound envelope does not contain a message", nil)
 	}
+	history, err := s.historyContext(ctx)
+	if err != nil {
+		return inputFailed("thread_history_failed", err.Error(), nil)
+	}
 	if err := s.appendThreadEvents(ctx, coresession.InputReceived{
 		RunID:        inbound.ID,
 		Message:      *inbound.Message,
@@ -246,7 +255,11 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		return inputFailed("agent_missing", "agent is nil", nil)
 	}
 
-	agentCtx := agentContext{Context: ensureContext(ctx), events: s.eventSink()}
+	baseCtx := ensureContext(ctx)
+	var conversationErr error
+	var localTranscript []coreconversation.Item
+	var localContinuation *coreconversation.ContinuationHandle
+	events := s.conversationEventSink(ctx, inbound.ID, &conversationErr, &localTranscript, &localContinuation)
 	observations := []environment.Observation{{
 		Source:  "channel",
 		Kind:    "channel.message",
@@ -261,12 +274,22 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	var (
 		state   agent.StateRef
 		effects []environment.EffectResult
+		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
 	)
 	for {
+		transcript, err := s.transcriptForPending(ctx, pending, localTranscript, localContinuation)
+		if err != nil {
+			return inputFailed("conversation_projection_failed", err.Error(), nil)
+		}
+		agentCtx := agentContext{Context: llmagent.ContextWithTranscript(baseCtx, &transcript), events: events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
 			Observations: observations,
+			Context:      history,
 			State:        state,
 		})
+		if conversationErr != nil {
+			return inputFailed("conversation_append_failed", conversationErr.Error(), nil)
+		}
 		if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: inbound.ID, Result: agentResult}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
@@ -282,7 +305,8 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		if len(agentResult.Decision.Operations) == 0 {
 			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
 		}
-		batch, err := s.applyAgentOperations(ctx, agentCtx, inbound, len(effects), agentResult.Decision.Operations)
+		var toolResults []coreconversation.Item
+		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, inbound, len(effects), agentResult.Decision.Operations)
 		if err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
@@ -292,7 +316,281 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		continuations++
 		observations = append(observations, observationsForEffects(batch)...)
+		pending = toolResults
 	}
+}
+
+func (s Session) transcriptForPending(ctx context.Context, pending, localItems []coreconversation.Item, localHandle *coreconversation.ContinuationHandle) (coreconversation.Transcript, error) {
+	provider := s.providerIdentity()
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		if localHandle != nil && localHandle.SupportsPreviousResponseID() {
+			copied := *localHandle
+			return coreconversation.Transcript{
+				Provider:     provider,
+				Items:        pending,
+				Continuation: &copied,
+				Mode:         coreconversation.ProjectionNativeContinuation,
+			}, nil
+		}
+		return coreconversation.Transcript{
+			Provider: provider,
+			Items:    append(append([]coreconversation.Item(nil), localItems...), pending...),
+			Mode:     coreconversation.ProjectionFullReplay,
+		}, nil
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return coreconversation.Transcript{
+				Provider: provider,
+				Items:    pending,
+				Mode:     coreconversation.ProjectionFullReplay,
+			}, nil
+		}
+		return coreconversation.Transcript{}, err
+	}
+	projected, err := conversationruntime.Project(conversationruntime.ProjectionInput{
+		Thread:   snapshot,
+		BranchID: s.Thread.BranchID,
+		Provider: provider,
+		Pending:  pending,
+		Mode:     coreconversation.ProjectionNativeContinuation,
+	})
+	if err != nil {
+		return coreconversation.Transcript{}, err
+	}
+	return projected.Transcript(provider), nil
+}
+
+func (s Session) providerIdentity() coreconversation.ProviderIdentity {
+	var identity coreconversation.ProviderIdentity
+	if s.Agent != nil {
+		spec := s.Agent.Spec()
+		identity.Model = spec.Inference.Model
+		identity.Provider = firstNonEmptyString(
+			spec.Inference.Annotations["provider"],
+			spec.Inference.Annotations["llm.provider"],
+			spec.Driver.Annotations["provider"],
+			stringFromAny(spec.Driver.Config["provider"]),
+		)
+		identity.API = firstNonEmptyString(
+			spec.Inference.Annotations["api"],
+			spec.Inference.Annotations["llm.api"],
+			spec.Driver.Annotations["api"],
+			stringFromAny(spec.Driver.Config["api"]),
+		)
+		identity.Family = firstNonEmptyString(
+			spec.Inference.Annotations["family"],
+			spec.Inference.Annotations["llm.family"],
+			spec.Driver.Annotations["family"],
+			stringFromAny(spec.Driver.Config["family"]),
+		)
+	}
+	return identity
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return text
+}
+
+func inputTranscriptItem(provider coreconversation.ProviderIdentity, content any) coreconversation.Item {
+	return coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemInput,
+		Role:     "user",
+		Content:  content,
+	}
+}
+
+func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, opReq agent.OperationRequest, callID operation.CallID, result operation.Result) coreconversation.Item {
+	providerCallID := opReq.ProviderCallID
+	if providerCallID == "" {
+		providerCallID = string(callID)
+	}
+	content := result.Output
+	if result.IsError() && result.Error != nil {
+		content = map[string]any{
+			"code":    result.Error.Code,
+			"message": result.Error.Message,
+			"details": result.Error.Details,
+		}
+	}
+	return coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   providerCallID,
+		Name:     opReq.Operation.String(),
+		Content:  content,
+	}
+}
+
+func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) event.Sink {
+	live := s.eventSink()
+	return event.SinkFunc(func(payload event.Event) {
+		if payload == nil {
+			return
+		}
+		live.Emit(payload)
+		if errp != nil && *errp != nil {
+			return
+		}
+		switch typed := payload.(type) {
+		case coreconversation.ItemsAppended:
+			if typed.TurnID == "" {
+				typed.TurnID = turnID
+			}
+			if typed.Provider.Provider == "" {
+				typed.Provider = s.providerIdentity()
+			}
+			if localItems != nil {
+				*localItems = append(*localItems, typed.Items...)
+			}
+			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
+				*errp = err
+			}
+		case *coreconversation.ItemsAppended:
+			if typed == nil {
+				return
+			}
+			copied := *typed
+			if copied.TurnID == "" {
+				copied.TurnID = turnID
+			}
+			if copied.Provider.Provider == "" {
+				copied.Provider = s.providerIdentity()
+			}
+			if localItems != nil {
+				*localItems = append(*localItems, copied.Items...)
+			}
+			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
+				*errp = err
+			}
+		case coreconversation.ContinuationStored:
+			if typed.TurnID == "" {
+				typed.TurnID = turnID
+			}
+			if typed.Handle.BranchID == "" {
+				typed.Handle.BranchID = s.Thread.BranchID
+			}
+			if localHandle != nil {
+				copied := typed.Handle
+				*localHandle = &copied
+			}
+			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
+				*errp = err
+			}
+		case *coreconversation.ContinuationStored:
+			if typed == nil {
+				return
+			}
+			copied := *typed
+			if copied.TurnID == "" {
+				copied.TurnID = turnID
+			}
+			if copied.Handle.BranchID == "" {
+				copied.Handle.BranchID = s.Thread.BranchID
+			}
+			if localHandle != nil {
+				handle := copied.Handle
+				*localHandle = &handle
+			}
+			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
+				*errp = err
+			}
+		}
+	})
+}
+
+func (s Session) historyContext(ctx context.Context) ([]corecontext.Block, error) {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return nil, nil
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	text := conversationHistoryText(records)
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	return []corecontext.Block{{
+		ID:        "session.history",
+		Provider:  corecontext.ProviderName("session.history"),
+		Kind:      corecontext.BlockText,
+		Title:     "Conversation history",
+		Content:   text,
+		Freshness: corecontext.FreshnessDynamic,
+	}}, nil
+}
+
+func conversationHistoryText(records []corethread.Record) string {
+	const maxLines = 24
+	lines := make([]string, 0, len(records))
+	for _, record := range records {
+		switch payload := record.Event.Payload.(type) {
+		case coresession.InputReceived:
+			if text := valueText(payload.Message.Content); text != "" {
+				lines = append(lines, "User: "+text)
+			}
+		case coresession.OutboundProduced:
+			if text := valueText(payload.Message.Content); text != "" {
+				lines = append(lines, "Agent: "+text)
+			}
+		case coresession.CommandReceived:
+			if text := valueText(payload.Command.Input); text != "" {
+				lines = append(lines, "Command "+payload.Command.Path.String()+": "+text)
+			}
+		}
+	}
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func valueText(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return truncateText(strings.TrimSpace(typed), 4000)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return truncateText(strings.TrimSpace(fmt.Sprint(typed)), 4000)
+		}
+		return truncateText(string(data), 4000)
+	}
+}
+
+func truncateText(text string, max int) string {
+	if max <= 0 || len(text) <= max {
+		return text
+	}
+	return text[:max]
 }
 
 func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
@@ -335,8 +633,10 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 	}
 }
 
-func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest) ([]environment.EffectResult, error) {
+func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest) ([]environment.EffectResult, []coreconversation.Item, error) {
 	effects := make([]environment.EffectResult, 0, len(requests))
+	toolResults := make([]coreconversation.Item, 0, len(requests))
+	provider := s.providerIdentity()
 	for i, opReq := range requests {
 		callID := operationCallID(inbound.ID, startIndex+i+1)
 		requested := coresession.OperationRequested{
@@ -346,7 +646,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			Input:     opReq.Input,
 		}
 		if err := s.appendThreadEvents(ctx, requested); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		s.emitLive(requested)
 		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input, callID)
@@ -354,7 +654,12 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			effect.Observation.Metadata = map[string]any{}
 		}
 		effect.Observation.Metadata["operation"] = opReq.Operation.String()
+		effect.Observation.Metadata["call_id"] = string(callID)
+		if opReq.ProviderCallID != "" {
+			effect.Observation.Metadata["provider_call_id"] = opReq.ProviderCallID
+		}
 		effects = append(effects, effect)
+		toolResults = append(toolResults, operationResultTranscriptItem(provider, opReq, callID, effect.Result))
 		completed := coresession.OperationCompleted{
 			RunID:     inbound.ID,
 			CallID:    callID,
@@ -362,11 +667,11 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			Result:    effect.Result,
 		}
 		if err := s.appendThreadEvents(ctx, completed); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		s.emitLive(completed)
 	}
-	return effects, nil
+	return effects, toolResults, nil
 }
 
 func (s Session) operationLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {

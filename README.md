@@ -13,6 +13,8 @@ The current executable slice supports:
 
 - in-process library use through `agentruntime.Service`;
 - session handles with command and input submissions;
+- IO-free spec builders in `sdk` for app, agent, operation, command, and
+  session contributions;
 - configured session profiles from resource manifests;
 - run handles with results and semantic events;
 - event-backed thread state;
@@ -69,6 +71,29 @@ Configured profiles can be opened through the same API:
 session, err := svc.Open(ctx, agentruntime.OpenRequest{
     Session: agentruntime.SessionRef{Name: "coder"},
 })
+```
+
+Apps can be declared with the IO-free builder package and then composed with
+runtime implementations supplied by the host:
+
+```go
+lookupSpec := sdk.BuildOperation("lookup").
+    WithDescription("Look up one value.").
+    WithRisk(operation.RiskLow).
+    Build()
+
+bundle := sdk.NewApp("demo").
+    WithModel("openai", "gpt-4.1-mini", "coding").
+    WithDefaultAgent(
+        sdk.BuildAgent("main").
+            AsLLMAgent("gpt-4.1-mini").
+            WithSystem("Help with coding tasks.").
+            WithOperation("lookup").
+            Build(),
+    ).
+    WithOperation(lookupSpec).
+    WithCommandForOperation("lookup", lookupSpec).
+    Build()
 ```
 
 The same logical client contract is used for direct in-process execution and

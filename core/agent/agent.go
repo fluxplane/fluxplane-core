@@ -193,8 +193,9 @@ const (
 
 // OperationRequest asks orchestration/runtime to execute an operation.
 type OperationRequest struct {
-	Operation operation.Ref   `json:"operation"`
-	Input     operation.Value `json:"input,omitempty"`
+	Operation      operation.Ref   `json:"operation"`
+	Input          operation.Value `json:"input,omitempty"`
+	ProviderCallID string          `json:"provider_call_id,omitempty"`
 }
 
 // Message is a communication emitted by an agent.

@@ -3,10 +3,12 @@ package openaiadapter
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
@@ -20,7 +22,7 @@ func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, tools, err := model.responseParams(llmagent.Request{
+	_, tools, _, err := model.responseParams(llmagent.Request{
 		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
 		Goal:  "Say hello.",
 		Tools: []tool.Spec{{
@@ -46,9 +48,47 @@ func TestResponseParamsRejectsMissingModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	_, _, err = model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}})
+	_, _, _, err = model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}})
 	if !errors.Is(err, ErrModelMissing) {
 		t.Fatalf("error = %v, want ErrModelMissing", err)
+	}
+}
+
+func TestResponseParamsUsesTranscriptItemsAndPreviousResponseID(t *testing.T) {
+	model, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionNativeContinuation,
+			Continuation: &coreconversation.ContinuationHandle{
+				Provider:   coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"},
+				Mode:       coreconversation.ContinuationPreviousResponseID,
+				Transport:  coreconversation.TransportHTTPSSE,
+				ResponseID: "resp_prev",
+			},
+			Items: []coreconversation.Item{{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Content: map[string]any{"ok": true},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(raw), `"previous_response_id":"resp_prev"`) || !strings.Contains(string(raw), `"type":"function_call_output"`) {
+		t.Fatalf("params json = %s, want previous_response_id and function_call_output", raw)
+	}
+	if len(sent) != 1 || sent[0].CallID != "call_1" || len(sent[0].Native) == 0 {
+		t.Fatalf("sent = %#v, want native tool output", sent)
 	}
 }
 
@@ -65,7 +105,7 @@ func TestResponseFromOpenAIConvertsText(t *testing.T) {
 			"content": [{"type": "output_text", "text": "hello"}]
 		}]
 	}`)
-	got, err := responseFromOpenAI(resp, nil)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -95,7 +135,7 @@ func TestResponseFromOpenAIConvertsUsage(t *testing.T) {
 			"content": [{"type": "output_text", "text": "hello"}]
 		}]
 	}`)
-	got, err := responseFromOpenAI(resp, nil)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -135,7 +175,7 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 				Operation: operation.Ref{Name: "test"},
 			},
 		},
-	})
+	}, openAIProviderIdentity("gpt-test"), true)
 	if err != nil {
 		t.Fatalf("responseFromOpenAI: %v", err)
 	}
@@ -144,6 +184,12 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 	}
 	if got.Operations[0].Operation.Name != "inspect" || got.Operations[1].Operation.Name != "test" {
 		t.Fatalf("operations = %#v, want inspect then test", got.Operations)
+	}
+	if got.Operations[0].ProviderCallID != "call_1" || got.Operations[1].ProviderCallID != "call_2" {
+		t.Fatalf("provider call IDs = %#v, want OpenAI call IDs", got.Operations)
+	}
+	if got.Transcript.Continuation == nil || got.Transcript.Continuation.ResponseID != "resp_1" {
+		t.Fatalf("continuation = %#v, want resp_1", got.Transcript.Continuation)
 	}
 }
 
