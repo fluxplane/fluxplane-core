@@ -455,6 +455,115 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 }
 
+func TestExecuteInboundInputUsesStoredProviderContinuation(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-native-continuation"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{
+		Provider: "openai",
+		API:      "openai.responses",
+		Family:   "responses",
+		Model:    "gpt-test",
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		if len(transcripts) == 1 {
+			return llmagent.Response{
+				Message: &agent.Message{Content: "noted"},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: []coreconversation.Item{
+						{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "remember alpha"},
+						{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", ID: "msg_1", Content: "noted", Native: json.RawMessage(`{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"noted"}]}`)},
+					},
+					Continuation: &coreconversation.ContinuationHandle{
+						Provider:   provider,
+						Mode:       coreconversation.ContinuationPreviousResponseID,
+						Transport:  coreconversation.TransportHTTPSSE,
+						ResponseID: "resp_1",
+					},
+					Mode: coreconversation.ProjectionNativeContinuation,
+				},
+			}, nil
+		}
+		return llmagent.Response{
+			Message: &agent.Message{Content: "alpha"},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: []coreconversation.Item{
+					{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "what did I say?"},
+					{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", ID: "msg_2", Content: "alpha", Native: json.RawMessage(`{"type":"message","id":"msg_2","role":"assistant","content":[{"type":"output_text","text":"alpha"}]}`)},
+				},
+				Continuation: &coreconversation.ContinuationHandle{
+					Provider:   provider,
+					Mode:       coreconversation.ContinuationPreviousResponseID,
+					Transport:  coreconversation.TransportHTTPSSE,
+					ResponseID: "resp_2",
+				},
+				Mode: coreconversation.ProjectionNativeContinuation,
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{
+		Agent:       runtimeAgent,
+		ThreadStore: threadStore,
+		Thread:      corethread.Ref{ID: "thread-native-continuation"},
+	}
+
+	first := s.ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "remember alpha"},
+	})
+	if first.Status != InputStatusOK {
+		t.Fatalf("first status = %q, want ok: %#v", first.Status, first)
+	}
+	second := s.ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-2",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "what did I say?"},
+	})
+	if second.Status != InputStatusOK {
+		t.Fatalf("second status = %q, want ok: %#v", second.Status, second)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if transcripts[1].Mode != coreconversation.ProjectionNativeContinuation {
+		t.Fatalf("second mode = %q, want native continuation", transcripts[1].Mode)
+	}
+	if transcripts[1].Continuation == nil || transcripts[1].Continuation.ResponseID != "resp_1" {
+		t.Fatalf("second continuation = %#v, want resp_1", transcripts[1].Continuation)
+	}
+	if len(transcripts[1].Items) != 1 || transcripts[1].Items[0].Content != "what did I say?" {
+		t.Fatalf("second items = %#v, want only pending input", transcripts[1].Items)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-native-continuation"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coreconversation.EventContinuationStored) != 2 {
+		t.Fatalf("stored events = %#v, want two continuation handles", stored.Events)
+	}
+}
+
 func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 	commands := command.NewRegistry()
 	if err := commands.Register(command.Spec{

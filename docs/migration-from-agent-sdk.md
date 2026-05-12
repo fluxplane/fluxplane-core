@@ -185,6 +185,13 @@ replay of exact provider items. Native continuation, such as OpenAI Responses
 matching provider/API/model continuation handle and the adapter can send only
 the pending delta without changing the provider-visible prefix.
 
+OpenAI stored-response continuation is explicit opt-in. The default runtime
+mode does not ask OpenAI to store responses and therefore replays exact local
+provider transcript items. Hosts that enable OpenAI storage record
+`conversation.continuation.stored` handles; subsequent turns project
+`ProjectionNativeContinuation`, send `previous_response_id`, and persist only
+new turn items so thread history does not duplicate prior provider payloads.
+
 The old `conversation` package should continue migrating into this split:
 message/conversation IDs and transcript events in `core/conversation`; exact
 replay, native-continuation selection, compaction, summarization, and token

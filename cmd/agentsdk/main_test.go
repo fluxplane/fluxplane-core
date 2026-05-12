@@ -32,6 +32,9 @@ func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
 	if !strings.Contains(help, "--usage") {
 		t.Fatalf("help = %q, want inherited usage flag", help)
 	}
+	if !strings.Contains(help, "--openai-store") {
+		t.Fatalf("help = %q, want inherited openai-store flag", help)
+	}
 }
 
 func TestCoderBundleAppliesModelOverride(t *testing.T) {

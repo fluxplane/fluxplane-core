@@ -48,9 +48,10 @@ func newRootCommand() *cobra.Command {
 }
 
 type coderOptions struct {
-	model string
-	debug bool
-	usage bool
+	model       string
+	debug       bool
+	usage       bool
+	openAIStore bool
 }
 
 func newCoderCommand() *cobra.Command {
@@ -70,6 +71,7 @@ func newCoderCommand() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.model, "model", coder.DefaultModel, "OpenAI model")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as JSON")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	cmd.PersistentFlags().BoolVar(&opts.openAIStore, "openai-store", false, "store OpenAI responses and continue with previous_response_id")
 	cmd.AddCommand(newCoderReplCommand(&opts))
 	return cmd
 }
@@ -125,6 +127,7 @@ func runCoderREPL(ctx context.Context, opts coderOptions) error {
 func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Session, error) {
 	model, err := openaiadapter.New(openaiadapter.Config{
 		Model:             opts.model,
+		Store:             opts.openAIStore,
 		ParallelToolCalls: true,
 		Redactor:          debugRedactor(opts.debug),
 	})
