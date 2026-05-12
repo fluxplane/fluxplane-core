@@ -122,7 +122,16 @@ func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool
 		Output:      spec.Output,
 		Semantics:   semantics,
 		Policy:      spec.Policy,
-		Annotations: map[string]string{"projection": "command"},
+		Annotations: map[string]string{
+			"projection": "command",
+			"command_id": binding.ID.Address(),
+		},
+	}
+	if !projected.TargetID.IsZero() {
+		projected.Annotations["target_id"] = projected.TargetID.Address()
+	}
+	if !binding.OperationID.IsZero() {
+		projected.Annotations["operation_id"] = binding.OperationID.Address()
 	}
 	if projected.TargetID.IsZero() {
 		projected.TargetID = binding.ID
@@ -142,11 +151,14 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 			Kind:      invocation.TargetOperation,
 			Operation: spec.Ref,
 		},
-		TargetID:    binding.ID,
-		Input:       spec.Input,
-		Output:      spec.Output,
-		Semantics:   spec.Semantics,
-		Annotations: map[string]string{"projection": "operation"},
+		TargetID:  binding.ID,
+		Input:     spec.Input,
+		Output:    spec.Output,
+		Semantics: spec.Semantics,
+		Annotations: map[string]string{
+			"projection":   "operation",
+			"operation_id": binding.ID.Address(),
+		},
 	}, true, ""
 }
 

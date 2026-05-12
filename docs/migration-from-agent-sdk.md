@@ -299,6 +299,11 @@ thinking deltas are provider-neutral transient events emitted by
 `runtime/agent/llmagent`. Raw thinking is opt-in and should not be persisted by
 default; provider-hidden reasoning should be summarized or omitted.
 
+Provider adapter helpers live in `adapters/llm`. They translate provider-style
+messages, tool descriptors, stream chunks, redaction policy, and streamed tool
+calls into the `runtime/agent/llmagent.Model`/`StreamingModel` ports. They do
+not own agent loop semantics and do not call live provider APIs by themselves.
+
 Shared target vocabulary belongs in `core/invocation`.
 
 ### Event State and Thread Store
@@ -565,16 +570,26 @@ Implemented and green:
 - `adapters/agentdir`: narrow `.agents` parser for the engineer subset:
   agent markdown, prompt command markdown, workflow command YAML, workflow YAML,
   and skill metadata.
+- `adapters/llm`: provider-neutral adapter toolkit for message parts, tool
+  descriptors, stream normalization, redaction, streamed tool-call assembly,
+  and scripted fake provider models.
+- `adapters/openai`: first live model provider adapter. It uses
+  `openai-go/v3` and the Responses API, maps projected runtime tools to
+  function tools, converts multiple function calls into batched operation
+  requests, and keeps OpenAI response storage disabled by default.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
   ACL, command-risk, secrets, and approval enforcement.
 - `runtime/agent/llmagent`: first provider-neutral LLM-backed agent runtime
   skeleton with a model port, structured request/response shape, fake/test
   model path, projected tool descriptors, opt-in streaming deltas, redacted
-  lifecycle events, and decision mapping. Provider clients and wire formats are
-  still adapter work.
+  lifecycle events, and decision mapping.
 - `orchestration/toolprojection`: projects command and operation resources into
   model-facing tool descriptors after applying command policy, caller/trust,
   executable binding checks, and safe-by-default operation semantics.
+- `orchestration/agentfactory`: resolves composed `core/agent.Spec` entries
+  from configured sessions, instantiates provider-neutral LLM agents with an
+  injected model implementation, and narrows projected tools by agent-declared
+  commands, operations, or tool names.
 - `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
   status, configured-session listing, and session-listing surface over an
   existing channel client.
@@ -620,6 +635,9 @@ Important contract decisions from this slice:
   policy or operation runtime safety.
 - LLM streaming emits transient opt-in runtime events. Raw thinking is not
   exposed by default.
+- The final normalized LLM response is authoritative. Streaming is UX,
+  debugging, and progress; it may help assemble tool calls, but runtime
+  decisions consume the final `llmagent.Response`.
 
 Still intentionally incomplete:
 
@@ -632,13 +650,19 @@ Still intentionally incomplete:
 - The daemon/control surface is minimal: status, configured-session listing,
   and live session listing only.
 - The engineer app parity plan has Phase 1A pure model support, Phase 1B
-  narrow adapters, and Phase 1C composition catalogs. It does not instantiate
-  manifest-declared LLM agents, execute prompt commands, execute workflow
-  commands, or activate skills yet.
-- The LLM-agent runtime has no real provider adapter yet. It only has a
-  provider-neutral model port and fake/test model path.
-- There is no terminal/slash parser, Slack adapter, model provider adapter, or
-  approval UX yet.
+  narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
+  agent instantiation through configured sessions. It does not execute prompt
+  commands, execute workflow commands, or activate skills yet.
+- The first live provider adapter is OpenAI Responses. It is intentionally
+  narrow: no provider streaming, retry policy, conversation compaction, or
+  tool-result continuation loop yet.
+- Configured sessions can instantiate manifest-declared LLM agents when the
+  host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
+  path. Model routing policy beyond that first adapter is still open.
+- `adapters/llm` is not a live provider adapter. It is the shared translation
+  toolkit live adapters should use.
+- There is no terminal/slash parser, Slack adapter, Anthropic/local model
+  provider adapter, or approval UX yet.
 - There is no child-session supervisor or plan executor yet. The old
   `harness/worker` and `capabilities/planexec` concepts are scheduled; the
   current session profile model only reserves the delegation shape.
@@ -799,21 +823,43 @@ Parity should be reached in small slices:
    semantics; `runtime/agent/llmagent` includes projected tools in model
    requests.
 
-6. **Phase 4: Local CLI Capability Plugin**
+6. **Phase 4: Configured Agent Instantiation**
+   Turn composed `core/agent.Spec` entries into runnable agents for configured
+   sessions. Done: `orchestration/agentfactory` resolves configured session
+   agent refs, constructs provider-neutral LLM agents with an injected model or
+   model resolver, projects tools from the composition, and lets app/default
+   sessions execute through the normal harness/session path.
+
+7. **Phase 5: Provider Adapter Boundary**
+   Add the provider-neutral adapter toolkit and first live provider smoke path.
+   Done: `adapters/llm` models provider-style messages/tools/stream chunks,
+   redacts thinking and sensitive tool args, assembles streamed tool calls into
+   operation requests, and includes scripted fake provider models for tests.
+   Done: `adapters/openai` calls the OpenAI Responses API through
+   `openai-go/v3`, maps projected tools to function tools, converts multiple
+   function calls into operation requests, and is reachable from
+   `apps/devclient -openai`.
+
+8. **Phase 6: Model Turn Continuation**
+   Feed operation results back into LLM turns until the agent emits a message,
+   completion, wait, or policy stop. Keep the continuation loop in runtime or
+   orchestration, not in provider adapters.
+
+9. **Phase 7: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with
    sandboxing, ACL, command-risk classification, approval, audit, and secret
    handling from the start.
 
-7. **Phase 5: Commands and Skills Runtime**
+10. **Phase 8: Commands and Skills Runtime**
    Execute prompt commands, support skill discovery/activation, and preserve
    command visibility policies.
 
-8. **Phase 6: Workflow and Sub-Agent Supervisor**
+11. **Phase 9: Workflow and Sub-Agent Supervisor**
    Execute the `feature` workflow through child sessions using a generic
    supervisor with capacity, cancellation, progress, parent/child causation,
    and event linkage.
 
-9. **Phase 7: Engineer App Assembly**
+12. **Phase 10: Engineer App Assembly**
    Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`
    CLI over the same channel client/session/run handles.
 

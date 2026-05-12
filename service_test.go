@@ -10,6 +10,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -20,6 +21,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/echoplugin"
+	llmagentruntime "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
 func TestServiceSendInputThroughTopLevelAPI(t *testing.T) {
@@ -281,6 +283,129 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 	}
 	if result.Command.Error == nil || result.Command.Error.Code != "command_resolution_failed" {
 		t.Fatalf("unqualified command error = %#v, want command_resolution_failed", result.Command.Error)
+	}
+}
+
+func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
+	ctx := context.Background()
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Bundles: []agentruntime.ResourceBundle{{
+			Source: coreresource.SourceRef{Scope: coreresource.ScopeEmbedded, Location: "apps/demo"},
+			Apps: []coreapp.Spec{{
+				Name:         "demo",
+				DefaultAgent: agent.Ref{Name: "main"},
+			}},
+			Agents: []agent.Spec{{
+				Name:   "main",
+				Driver: agent.DriverSpec{Kind: "llmagent"},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel:  channel.Ref{Name: "local"},
+		Caller:   policy.Caller{Kind: policy.CallerUser},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		LLMModel: llmagentruntime.StaticModel{Response: llmagentruntime.MessageResponse("configured agent")},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+		Session: agentruntime.SessionRef{Name: "default"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendInput(ctx, agentruntime.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "configured agent" {
+		t.Fatalf("outbound = %#v, want configured agent", result.Outbound)
+	}
+}
+
+func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
+	ctx := context.Background()
+	echo := operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "echo"},
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNone},
+			Risk:        operation.RiskLow,
+		},
+	}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Operations: []operation.Operation{echo},
+		Bundles: []agentruntime.ResourceBundle{{
+			Source: coreresource.SourceRef{Scope: coreresource.ScopeEmbedded, Location: "apps/demo"},
+			Apps: []coreapp.Spec{{
+				Name:         "demo",
+				DefaultAgent: agent.Ref{Name: "main"},
+			}},
+			Agents: []agent.Spec{{Name: "main"}},
+			Commands: []command.Spec{{
+				Path: command.Path{"echo"},
+				Target: invocation.Target{
+					Kind:      invocation.TargetOperation,
+					Operation: operation.Ref{Name: "echo"},
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerAgent},
+					RequiredTrust:  policy.TrustVerified,
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	var modelRequest llmagentruntime.Request
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		LLMModel: llmagentruntime.ModelFunc(func(_ context.Context, req llmagentruntime.Request) (llmagentruntime.Response, error) {
+			modelRequest = req
+			return llmagentruntime.OperationResponse(agent.OperationRequest{
+				Operation: operation.Ref{Name: "echo"},
+				Input:     "from-agent",
+			}), nil
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+		Session: agentruntime.SessionRef{Name: "default"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendInput(ctx, agentruntime.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if len(modelRequest.Tools) != 1 {
+		t.Fatalf("projected tools len = %d, want 1: %#v", len(modelRequest.Tools), modelRequest.Tools)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "from-agent" {
+		t.Fatalf("outbound = %#v, want operation result", result.Outbound)
 	}
 }
 

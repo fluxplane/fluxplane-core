@@ -10,6 +10,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -23,6 +24,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/echoplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
 func main() {
@@ -38,10 +40,10 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	if cfg.mode == "serve" {
-		return serve(ctx, cfg.addr, cfg.appDir)
+		return serve(ctx, cfg)
 	}
 
-	client, err := newClient(ctx, cfg.remoteURL, cfg.appDir)
+	client, err := newClient(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -101,6 +103,8 @@ type config struct {
 	appDir      string
 	sessionName string
 	addr        string
+	useOpenAI   bool
+	openAIModel string
 	mode        string
 	commandPath command.Path
 	text        string
@@ -132,6 +136,14 @@ func parseArgs(args []string) (config, error) {
 				return config{}, fmt.Errorf("%s", usage())
 			}
 			cfg.appDir = args[i]
+		case "-openai", "--openai":
+			cfg.useOpenAI = true
+		case "-openai-model", "--openai-model":
+			i++
+			if i >= len(args) {
+				return config{}, fmt.Errorf("%s", usage())
+			}
+			cfg.openAIModel = args[i]
 		case "-session", "--session":
 			i++
 			if i >= len(args) {
@@ -161,11 +173,17 @@ func parseArgs(args []string) (config, error) {
 		cfg.commandPath = path
 		cfg.text = strings.Join(positionals[1:], " ")
 	}
+	if cfg.openAIModel == "" {
+		cfg.openAIModel = os.Getenv("OPENAI_MODEL")
+	}
+	if cfg.useOpenAI && cfg.openAIModel == "" {
+		cfg.openAIModel = "gpt-4.1-mini"
+	}
 	return cfg, nil
 }
 
 func usage() string {
-	return "usage: devclient [-debug] [-app <dir>] [-session <name>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-app <dir>] [-session <name>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-app <dir>]"
+	return "usage: devclient [-debug] [-openai] [-openai-model <model>] [-app <dir>] [-session <name>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-openai] [-openai-model <model>] [-app <dir>] [-session <name>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-openai] [-openai-model <model>] [-app <dir>]"
 }
 
 func parseCommandPath(raw string) command.Path {
@@ -230,15 +248,15 @@ func checkResult(result agentruntime.Result) error {
 	return fmt.Errorf("run produced no command or input result")
 }
 
-func newClient(ctx context.Context, remoteURL, appDir string) (agentruntime.ChannelClient, error) {
-	if remoteURL != "" {
-		return httpssechannel.NewClient(httpssechannel.ClientConfig{BaseURL: remoteURL})
+func newClient(ctx context.Context, cfg config) (agentruntime.ChannelClient, error) {
+	if cfg.remoteURL != "" {
+		return httpssechannel.NewClient(httpssechannel.ClientConfig{BaseURL: cfg.remoteURL})
 	}
-	return newRuntime(ctx, appDir)
+	return newRuntime(ctx, cfg)
 }
 
-func serve(ctx context.Context, addr, appDir string) error {
-	service, err := newRuntime(ctx, appDir)
+func serve(ctx context.Context, cfg config) error {
+	service, err := newRuntime(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -246,11 +264,11 @@ func serve(ctx context.Context, addr, appDir string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "devclient listening on http://%s\n", addr)
-	return http.ListenAndServe(addr, server)
+	fmt.Fprintf(os.Stderr, "devclient listening on http://%s\n", cfg.addr)
+	return http.ListenAndServe(cfg.addr, server)
 }
 
-func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, error) {
+func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) {
 	ops := operation.NewRegistry()
 	echo := operation.New(operation.Spec{
 		Ref:         operation.Ref{Name: "echo"},
@@ -263,7 +281,7 @@ func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, erro
 	}
 
 	commands := command.NewRegistry()
-	if appDir == "" {
+	if dev.appDir == "" {
 		if err := commands.Register(command.Spec{
 			Path: command.Path{"echo"},
 			Target: invocation.Target{
@@ -279,8 +297,34 @@ func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, erro
 		}
 	}
 
+	runtimeAgent := agent.Agent(echoAgent{})
+	var model llmagent.Model
+	if dev.useOpenAI {
+		openAIModel, err := openaiadapter.New(openaiadapter.Config{
+			Model:             dev.openAIModel,
+			ParallelToolCalls: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		model = openAIModel
+		runtimeAgent, err = llmagent.New(agent.Spec{
+			Name:   "dev-openai-agent",
+			System: "You are a concise development assistant running inside Fluxplane Agent Runtime.",
+			Driver: agent.DriverSpec{
+				Kind: llmagent.DriverKind,
+			},
+			Inference: agent.InferenceSpec{
+				Model: dev.openAIModel,
+			},
+		}, model)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	cfg := agentruntime.Config{
-		Agent:      echoAgent{},
+		Agent:      runtimeAgent,
 		Commands:   commands,
 		Operations: ops,
 		Channel:    channel.Ref{Name: "local"},
@@ -297,15 +341,22 @@ func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, erro
 			Level: policy.TrustVerified,
 		},
 	}
-	if appDir == "" {
+	if dev.useOpenAI {
+		cfg.LLMModel = model
+	}
+	if dev.appDir == "" {
 		return agentruntime.New(cfg)
 	}
-	bundle, err := resourcefs.LoadDir(ctx, appDir)
+	bundle, err := resourcefs.LoadDir(ctx, dev.appDir)
 	if err != nil {
 		return nil, err
 	}
+	composeAgent := cfg.Agent
+	if dev.useOpenAI {
+		composeAgent = nil
+	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
-		Agent:      cfg.Agent,
+		Agent:      composeAgent,
 		Operations: appOperations(bundle, echo),
 		Plugins:    []pluginhost.Plugin{echoplugin.New(), textplugin.New()},
 		Bundles:    []agentruntime.ResourceBundle{bundle},
@@ -315,6 +366,9 @@ func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, erro
 	}
 	cfg.Commands = nil
 	cfg.Operations = nil
+	if dev.useOpenAI {
+		cfg.Agent = nil
+	}
 	return agentruntime.NewFromComposition(composition, cfg)
 }
 

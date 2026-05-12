@@ -24,6 +24,7 @@ import (
 // Config contains the reusable runtime pieces a harness composes.
 type Config struct {
 	Agent             agent.Agent
+	AgentProvider     AgentProvider
 	Commands          *command.Registry
 	Operations        *operation.Registry
 	Resolver          *resource.Resolver
@@ -35,9 +36,15 @@ type Config struct {
 	ThreadStore       corethread.Store
 }
 
+// AgentProvider resolves configured session profiles to runnable agents.
+type AgentProvider interface {
+	AgentForSession(context.Context, coresession.Spec) (agent.Agent, error)
+}
+
 // Service is the channel-facing use-case facade over sessions.
 type Service struct {
 	agent             agent.Agent
+	agentProvider     AgentProvider
 	commands          *command.Registry
 	operations        *operation.Registry
 	resolver          *resource.Resolver
@@ -59,6 +66,7 @@ type Service struct {
 func New(cfg Config) *Service {
 	return &Service{
 		agent:             cfg.Agent,
+		agentProvider:     cfg.AgentProvider,
 		commands:          cfg.Commands,
 		operations:        cfg.Operations,
 		resolver:          cfg.Resolver,
@@ -271,8 +279,12 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Session:    toClientSessionInfo(info),
 		Submission: submissionForInbound(normalizedSubmissionInput, runID, inbound),
 	})
+	agentRuntime, err := s.agentForSession(ctx, info)
+	if err != nil {
+		return InboundResult{Session: info}, err
+	}
 	exec := session.Session{
-		Agent:             s.agent,
+		Agent:             agentRuntime,
 		Commands:          s.commands,
 		Operations:        s.operations,
 		Resolver:          s.resolver,
@@ -348,6 +360,17 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Session: toClientSessionInfo(info),
 	})
 	return InboundResult{Session: info, Command: result, Outbound: outbound}, nil
+}
+
+func (s *Service) agentForSession(ctx context.Context, info SessionInfo) (agent.Agent, error) {
+	if s == nil || s.agentProvider == nil || info.Session.Name == "" {
+		return s.agent, nil
+	}
+	binding, err := s.sessionCatalog.Resolve(string(info.Session.Name))
+	if err != nil {
+		return nil, fmt.Errorf("harness: resolve session agent for %q: %w", info.Session.Name, err)
+	}
+	return s.agentProvider.AgentForSession(ctx, binding.Spec)
 }
 
 func commandOutbound(inbound channel.Inbound, result session.CommandResult) *channel.Outbound {

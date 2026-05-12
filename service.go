@@ -15,41 +15,49 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
 
 type (
-	ChannelClient       = clientapi.ChannelClient
-	Session             = clientapi.SessionHandle
-	Run                 = clientapi.RunHandle
-	OpenRequest         = clientapi.OpenRequest
-	ResumeRequest       = clientapi.ResumeRequest
-	ListSessionsRequest = clientapi.ListSessionsRequest
-	SessionInfo         = clientapi.SessionInfo
-	SessionSummary      = clientapi.SessionSummary
-	RunID               = clientapi.RunID
-	SubmissionKind      = clientapi.SubmissionKind
-	Submission          = clientapi.Submission
-	Input               = clientapi.Input
-	Signal              = clientapi.Signal
-	EventKind           = clientapi.EventKind
-	EventCursor         = clientapi.EventCursor
-	OperationEvent      = clientapi.OperationEvent
-	Event               = clientapi.Event
-	EventOptions        = clientapi.EventOptions
-	Result              = clientapi.Result
-	Composition         = appcomposition.Composition
-	ResourceBundle      = resource.ContributionBundle
-	SessionName         = coresession.Name
-	SessionRef          = coresession.Ref
-	SessionSpec         = coresession.Spec
-	DelegationPolicy    = coresession.DelegationPolicy
+	ChannelClient        = clientapi.ChannelClient
+	Session              = clientapi.SessionHandle
+	Run                  = clientapi.RunHandle
+	OpenRequest          = clientapi.OpenRequest
+	ResumeRequest        = clientapi.ResumeRequest
+	ListSessionsRequest  = clientapi.ListSessionsRequest
+	SessionInfo          = clientapi.SessionInfo
+	SessionSummary       = clientapi.SessionSummary
+	RunID                = clientapi.RunID
+	SubmissionKind       = clientapi.SubmissionKind
+	Submission           = clientapi.Submission
+	Input                = clientapi.Input
+	Signal               = clientapi.Signal
+	EventKind            = clientapi.EventKind
+	EventCursor          = clientapi.EventCursor
+	OperationEvent       = clientapi.OperationEvent
+	Event                = clientapi.Event
+	EventOptions         = clientapi.EventOptions
+	Result               = clientapi.Result
+	Composition          = appcomposition.Composition
+	ResourceBundle       = resource.ContributionBundle
+	AgentProvider        = harness.AgentProvider
+	LLMModel             = llmagent.Model
+	LLMModelResolver     = agentfactory.ModelResolver
+	LLMStreamPolicy      = llmagent.StreamPolicy
+	ToolProjectionConfig = toolprojection.Config
+	SessionName          = coresession.Name
+	SessionRef           = coresession.Ref
+	SessionSpec          = coresession.Spec
+	DelegationPolicy     = coresession.DelegationPolicy
 )
 
 const (
@@ -74,6 +82,7 @@ const (
 // as its zero value.
 type Config struct {
 	Agent             agent.Agent
+	AgentProvider     AgentProvider
 	Commands          *command.Registry
 	Operations        *operation.Registry
 	Resolver          *resource.Resolver
@@ -86,6 +95,10 @@ type Config struct {
 	Channel           channel.Ref
 	Caller            policy.Caller
 	Trust             policy.Trust
+	LLMModel          LLMModel
+	LLMModelResolver  LLMModelResolver
+	LLMStreamPolicy   LLMStreamPolicy
+	ToolProjection    ToolProjectionConfig
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -118,6 +131,7 @@ func New(cfg Config) (*Service, error) {
 
 	service := harness.New(harness.Config{
 		Agent:             cfg.Agent,
+		AgentProvider:     cfg.AgentProvider,
 		Commands:          commands,
 		Operations:        operations,
 		Resolver:          cfg.Resolver,
@@ -145,6 +159,18 @@ func New(cfg Config) (*Service, error) {
 func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Service, error) {
 	if cfg.Agent == nil {
 		cfg.Agent = composition.Agent
+	}
+	if cfg.AgentProvider == nil && cfg.Agent == nil && (cfg.LLMModel != nil || cfg.LLMModelResolver != nil) {
+		cfg.AgentProvider = agentfactory.New(agentfactory.Config{
+			Agents:           composition.AgentCatalog,
+			Resolver:         composition.Resolver,
+			CommandCatalog:   composition.CommandCatalog,
+			OperationCatalog: composition.OperationCatalog,
+			Model:            cfg.LLMModel,
+			ModelResolver:    cfg.LLMModelResolver,
+			StreamPolicy:     cfg.LLMStreamPolicy,
+			Projection:       cfg.ToolProjection,
+		})
 	}
 	if cfg.Commands == nil {
 		cfg.Commands = composition.Commands

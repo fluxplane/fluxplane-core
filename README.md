@@ -22,9 +22,14 @@ The current executable slice supports:
 - first-party `echo` and `text` plugins;
 - provider-neutral LLM-agent runtime skeleton with a fake/test model path;
 - safe-by-default tool projection for LLM-visible commands and operations;
+- configured-session instantiation of manifest-declared LLM agents when a host
+  provides a model implementation;
+- provider-neutral LLM adapter helpers for messages, tools, streaming,
+  redaction, and fake provider tests;
+- OpenAI Responses API adapter using `openai-go/v3`;
 - an architecture import report for maintainers.
 
-Terminal UX, Slack, model provider adapters, trigger execution, and
+Terminal UX, Slack, additional model providers, trigger execution, and
 side-effecting operation plugins are still under active design.
 
 ## Library Use
@@ -77,13 +82,17 @@ runtime:
 
 ```bash
 go run ./apps/devclient input hello
+go run ./apps/devclient -openai input "Reply with one sentence."
 go run ./apps/devclient -app ./path/to/app -session coder echo hello
+go run ./apps/devclient -openai -app ./path/to/app -session coder input "Inspect the app."
 go run ./apps/devclient -app ./path/to/app text/upper hello
 go run ./apps/devclient serve -addr 127.0.0.1:8080
 go run ./apps/devclient -url http://127.0.0.1:8080 input hello
 ```
 
-Use `-debug` to print submissions, events, and results.
+Use `-debug` to print submissions, events, and results. `-openai` uses
+`OPENAI_API_KEY` through the OpenAI SDK and defaults the model to
+`OPENAI_MODEL`, falling back to `gpt-4.1-mini` when unset.
 
 ## Resource Apps
 
