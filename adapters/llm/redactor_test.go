@@ -45,3 +45,18 @@ func TestRedactorRedactsConfidentialToolArguments(t *testing.T) {
 		t.Fatalf("event = %#v, want redacted args", evt)
 	}
 }
+
+func TestRedactorPreservesZeroStreamIndex(t *testing.T) {
+	evt, ok := (Redactor{ExposeToolArgs: true}).ToRuntimeStream(StreamEvent{
+		Kind:      StreamToolCallDelta,
+		Tool:      "lookup",
+		Index:     0,
+		Arguments: `{}`,
+	})
+	if !ok {
+		t.Fatal("tool stream not emitted")
+	}
+	if evt.Index == nil || *evt.Index != 0 {
+		t.Fatalf("index = %#v, want explicit zero", evt.Index)
+	}
+}

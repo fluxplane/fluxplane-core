@@ -63,9 +63,10 @@ func (AgentStepCompleted) EventName() event.Name { return EventAgentStepComplete
 
 // OperationRequested records a session request to execute an operation.
 type OperationRequested struct {
-	RunID     string          `json:"run_id,omitempty"`
-	Operation operation.Ref   `json:"operation"`
-	Input     operation.Value `json:"input,omitempty"`
+	RunID     string           `json:"run_id,omitempty"`
+	CallID    operation.CallID `json:"call_id,omitempty"`
+	Operation operation.Ref    `json:"operation"`
+	Input     operation.Value  `json:"input,omitempty"`
 }
 
 func (OperationRequested) EventName() event.Name { return EventOperationRequested }
@@ -73,6 +74,7 @@ func (OperationRequested) EventName() event.Name { return EventOperationRequeste
 // OperationCompleted records an operation result observed by a session.
 type OperationCompleted struct {
 	RunID     string           `json:"run_id,omitempty"`
+	CallID    operation.CallID `json:"call_id,omitempty"`
 	Operation operation.Ref    `json:"operation"`
 	Result    operation.Result `json:"result"`
 }

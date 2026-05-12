@@ -8,6 +8,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/core/usage"
 )
 
 // Model is the provider-neutral inference port used by the LLM agent runtime.
@@ -55,6 +56,7 @@ type Response struct {
 	Operations []agent.OperationRequest `json:"operations,omitempty"`
 	Completion *agent.Completion        `json:"completion,omitempty"`
 	State      agent.StateUpdate        `json:"state,omitempty"`
+	Usage      []usage.Recorded         `json:"usage,omitempty"`
 }
 
 // StreamKind classifies one provider-neutral streaming delta.
@@ -71,7 +73,7 @@ type StreamEvent struct {
 	Kind      StreamKind `json:"kind"`
 	Text      string     `json:"text,omitempty"`
 	Tool      tool.Name  `json:"tool,omitempty"`
-	Index     int        `json:"index,omitempty"`
+	Index     *int       `json:"index,omitempty"`
 	Final     bool       `json:"final,omitempty"`
 	Redaction string     `json:"redaction,omitempty"`
 }

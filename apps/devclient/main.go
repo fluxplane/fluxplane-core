@@ -20,6 +20,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/tool"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -99,16 +100,17 @@ func run(ctx context.Context, args []string) error {
 }
 
 type config struct {
-	debug       bool
-	remoteURL   string
-	appDir      string
-	sessionName string
-	addr        string
-	useOpenAI   bool
-	openAIModel string
-	mode        string
-	commandPath command.Path
-	text        string
+	debug         bool
+	remoteURL     string
+	appDir        string
+	sessionName   string
+	addr          string
+	useOpenAI     bool
+	openAIModel   string
+	syntheticTool bool
+	mode          string
+	commandPath   command.Path
+	text          string
 }
 
 func parseArgs(args []string) (config, error) {
@@ -145,6 +147,8 @@ func parseArgs(args []string) (config, error) {
 				return config{}, fmt.Errorf("%s", usage())
 			}
 			cfg.openAIModel = args[i]
+		case "-synthetic-tool", "--synthetic-tool":
+			cfg.syntheticTool = true
 		case "-session", "--session":
 			i++
 			if i >= len(args) {
@@ -184,7 +188,7 @@ func parseArgs(args []string) (config, error) {
 }
 
 func usage() string {
-	return "usage: devclient [-debug] [-openai] [-openai-model <model>] [-app <dir>] [-session <name>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-openai] [-openai-model <model>] [-app <dir>] [-session <name>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-openai] [-openai-model <model>] [-app <dir>]"
+	return "usage: devclient [-debug] [-openai] [-openai-model <model>] [-synthetic-tool] [-app <dir>] [-session <name>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-openai] [-openai-model <model>] [-synthetic-tool] [-app <dir>] [-session <name>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-openai] [-openai-model <model>] [-synthetic-tool] [-app <dir>]"
 }
 
 func parseCommandPath(raw string) command.Path {
@@ -280,6 +284,12 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	if err := ops.Register(echo); err != nil {
 		return nil, err
 	}
+	synthetic := syntheticLookupOperation()
+	if dev.syntheticTool {
+		if err := ops.Register(synthetic); err != nil {
+			return nil, err
+		}
+	}
 
 	commands := command.NewRegistry()
 	if dev.appDir == "" {
@@ -301,6 +311,12 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	runtimeAgent := agent.Agent(echoAgent{})
 	var model llmagent.Model
 	if dev.useOpenAI {
+		system := "You are a concise development assistant running inside Fluxplane Agent Runtime."
+		var tools []tool.Spec
+		if dev.syntheticTool {
+			system += " When a user asks for synthetic runtime data, call the synthetic_lookup tool first. After the tool result arrives, answer from that result and do not call the tool again."
+			tools = append(tools, syntheticLookupTool(synthetic.Spec()))
+		}
 		openAIModel, err := openaiadapter.New(openaiadapter.Config{
 			Model:             dev.openAIModel,
 			ParallelToolCalls: true,
@@ -312,14 +328,15 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		model = openAIModel
 		runtimeAgent, err = llmagent.New(agent.Spec{
 			Name:   "dev-openai-agent",
-			System: "You are a concise development assistant running inside Fluxplane Agent Runtime.",
+			System: system,
 			Driver: agent.DriverSpec{
 				Kind: llmagent.DriverKind,
 			},
 			Inference: agent.InferenceSpec{
 				Model: dev.openAIModel,
 			},
-		}, model, llmagent.WithStreamPolicy(debugStreamPolicy(dev.debug)))
+			Policy: agent.Policy{MaxContinuations: 3},
+		}, model, llmagent.WithTools(tools...), llmagent.WithStreamPolicy(debugStreamPolicy(dev.debug)))
 		if err != nil {
 			return nil, err
 		}
@@ -373,6 +390,71 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		cfg.Agent = nil
 	}
 	return agentruntime.NewFromComposition(composition, cfg)
+}
+
+func syntheticLookupOperation() operation.Operation {
+	spec := operation.Spec{
+		Ref:         operation.Ref{Name: "synthetic_lookup"},
+		Description: "Return deterministic synthetic runtime facts for a requested key.",
+		Input: operation.Type{
+			Name:        "SyntheticLookupInput",
+			Description: "Lookup request. Provide a key such as alpha, beta, or gamma.",
+			Schema: operation.Schema{
+				Format: "json-schema",
+				Data:   json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","description":"Synthetic key to lookup."}},"required":["key"],"additionalProperties":false}`),
+			},
+		},
+		Output: operation.Type{
+			Name:        "SyntheticLookupOutput",
+			Description: "Synthetic fact returned by the app-injected tool.",
+		},
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNone},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	}
+	return operation.New(spec, func(_ operation.Context, input operation.Value) operation.Result {
+		key := syntheticLookupKey(input)
+		if key == "" {
+			key = "alpha"
+		}
+		return operation.OK(map[string]any{
+			"key":     key,
+			"value":   strings.ToUpper(key) + "-42",
+			"source":  "apps/devclient synthetic_lookup",
+			"message": "synthetic runtime data resolved successfully",
+		})
+	})
+}
+
+func syntheticLookupTool(spec operation.Spec) tool.Spec {
+	return tool.Spec{
+		Name:        "synthetic_lookup",
+		Description: spec.Description,
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: spec.Ref,
+		},
+		Input:     spec.Input,
+		Output:    spec.Output,
+		Semantics: spec.Semantics,
+	}
+}
+
+func syntheticLookupKey(input any) string {
+	switch value := input.(type) {
+	case map[string]any:
+		if key, ok := value["key"].(string); ok {
+			return strings.TrimSpace(key)
+		}
+	case map[string]string:
+		return strings.TrimSpace(value["key"])
+	case string:
+		return strings.TrimSpace(value)
+	}
+	return ""
 }
 
 func debugStreamPolicy(debug bool) llmagent.StreamPolicy {

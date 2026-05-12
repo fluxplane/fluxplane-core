@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -155,6 +156,7 @@ func TestExecuteInboundInputDispatchesAgentMessage(t *testing.T) {
 }
 
 func TestExecuteInboundInputDispatchesMultipleAgentOperations(t *testing.T) {
+	var emitted []event.Event
 	first := operation.Ref{Name: "first"}
 	second := operation.Ref{Name: "second"}
 	ops := operation.NewRegistry()
@@ -183,6 +185,9 @@ func TestExecuteInboundInputDispatchesMultipleAgentOperations(t *testing.T) {
 		},
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
+		Events: event.SinkFunc(func(evt event.Event) {
+			emitted = append(emitted, evt)
+		}),
 	}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{
@@ -198,6 +203,17 @@ func TestExecuteInboundInputDispatchesMultipleAgentOperations(t *testing.T) {
 	}
 	if result.Effect == nil || result.Effect.Result.Output.(map[string]any)["second"] != "b" {
 		t.Fatalf("last effect = %#v, want second operation", result.Effect)
+	}
+	requested := requestedCallIDs(emitted)
+	completed := completedCallIDs(emitted)
+	if len(requested) != 2 || len(completed) != 2 {
+		t.Fatalf("operation call ids requested=%v completed=%v", requested, completed)
+	}
+	if requested[0] == "" || requested[1] == "" || requested[0] == requested[1] {
+		t.Fatalf("requested call ids = %v, want two distinct non-empty ids", requested)
+	}
+	if requested[0] != completed[0] || requested[1] != completed[1] {
+		t.Fatalf("requested call ids = %v, completed call ids = %v", requested, completed)
 	}
 }
 
@@ -254,7 +270,10 @@ func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
 	if len(agentRuntime.inputs) != 2 {
 		t.Fatalf("agent steps = %d, want 2", len(agentRuntime.inputs))
 	}
-	if got := agentRuntime.inputs[1].Observations[0].Kind; got != "operation.result" {
+	if len(agentRuntime.inputs[1].Observations) != 2 {
+		t.Fatalf("second observations len = %d, want user input and operation result", len(agentRuntime.inputs[1].Observations))
+	}
+	if got := agentRuntime.inputs[1].Observations[1].Kind; got != "operation.result" {
 		t.Fatalf("second observation kind = %q, want operation.result", got)
 	}
 }
@@ -334,6 +353,26 @@ func (a *sequenceAgent) Step(_ agent.Context, input agent.StepInput) agent.StepR
 		return a.results[len(a.inputs)-1]
 	}
 	return agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}}
+}
+
+func requestedCallIDs(events []event.Event) []operation.CallID {
+	var out []operation.CallID
+	for _, emitted := range events {
+		if payload, ok := emitted.(coresession.OperationRequested); ok {
+			out = append(out, payload.CallID)
+		}
+	}
+	return out
+}
+
+func completedCallIDs(events []event.Event) []operation.CallID {
+	var out []operation.CallID
+	for _, emitted := range events {
+		if payload, ok := emitted.(coresession.OperationCompleted); ok {
+			out = append(out, payload.CallID)
+		}
+	}
+	return out
 }
 
 func TestExecuteInboundCommandPersistsThreadEvents(t *testing.T) {

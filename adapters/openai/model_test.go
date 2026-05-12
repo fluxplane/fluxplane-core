@@ -74,6 +74,42 @@ func TestResponseFromOpenAIConvertsText(t *testing.T) {
 	}
 }
 
+func TestResponseFromOpenAIConvertsUsage(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"model": "gpt-test",
+		"status": "completed",
+		"usage": {
+			"input_tokens": 10,
+			"input_tokens_details": {"cached_tokens": 3},
+			"output_tokens": 5,
+			"output_tokens_details": {"reasoning_tokens": 2},
+			"total_tokens": 15
+		},
+		"output": [{
+			"id": "msg_1",
+			"type": "message",
+			"status": "completed",
+			"role": "assistant",
+			"content": [{"type": "output_text", "text": "hello"}]
+		}]
+	}`)
+	got, err := responseFromOpenAI(resp, nil)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if len(got.Usage) != 1 {
+		t.Fatalf("usage len = %d, want 1", len(got.Usage))
+	}
+	if got.Usage[0].Subject.Provider != "openai" || got.Usage[0].Subject.Name != "gpt-test" {
+		t.Fatalf("usage subject = %#v, want openai/gpt-test", got.Usage[0].Subject)
+	}
+	if len(got.Usage[0].Measurements) != 5 {
+		t.Fatalf("usage measurements = %#v, want 5", got.Usage[0].Measurements)
+	}
+}
+
 func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 	resp := mustResponse(t, `{
 		"id": "resp_1",
@@ -131,6 +167,12 @@ func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
 	events = model.streamEvents(thinking, toolNames)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "checking" {
 		t.Fatalf("thinking events = %#v, want thinking delta", events)
+	}
+}
+
+func TestProviderSpecValidates(t *testing.T) {
+	if err := ProviderSpec().Validate(); err != nil {
+		t.Fatalf("ProviderSpec Validate: %v", err)
 	}
 }
 

@@ -70,8 +70,10 @@ const (
 	EventInputCompleted     = clientapi.EventInputCompleted
 	EventCommandCompleted   = clientapi.EventCommandCompleted
 	EventAgentStepCompleted = clientapi.EventAgentStepCompleted
+	EventOperationRequested = clientapi.EventOperationRequested
 	EventOperationCompleted = clientapi.EventOperationCompleted
 	EventOutboundProduced   = clientapi.EventOutboundProduced
+	EventRuntimeEmitted     = clientapi.EventRuntimeEmitted
 	EventRunCompleted       = clientapi.EventRunCompleted
 	EventRunFailed          = clientapi.EventRunFailed
 )

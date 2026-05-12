@@ -19,7 +19,10 @@ The current executable slice supports:
 - direct in-process channels;
 - HTTP/SSE channel transport;
 - local `agentruntime.json` resource manifests;
+- `cmd/agentsdk coder` as the first product-style CLI over an embedded coder
+  app declaration;
 - first-party `echo` and `text` plugins;
+- generic usage events and LLM provider/model catalog specs;
 - provider-neutral LLM-agent runtime skeleton with a fake/test model path;
 - safe-by-default tool projection for LLM-visible commands and operations;
 - configured-session instantiation of manifest-declared LLM agents when a host
@@ -29,7 +32,8 @@ The current executable slice supports:
 - provider-neutral LLM adapter helpers for messages, tools, streaming,
   redaction, and fake provider tests;
 - OpenAI Responses API adapter using `openai-go/v3`, including streaming
-  content/thinking/tool-call events for debug subscribers;
+  content/thinking/tool-call events and token usage events for debug
+  subscribers;
 - an architecture import report for maintainers.
 
 Terminal UX, Slack, additional model providers, trigger execution, and
@@ -86,6 +90,7 @@ runtime:
 ```bash
 go run ./apps/devclient input hello
 go run ./apps/devclient -openai input "Reply with one sentence."
+go run ./apps/devclient -debug -openai -synthetic-tool input "Use synthetic_lookup with key alpha, then answer with the value."
 go run ./apps/devclient -app ./path/to/app -session coder echo hello
 go run ./apps/devclient -openai -app ./path/to/app -session coder input "Inspect the app."
 go run ./apps/devclient -app ./path/to/app text/upper hello
@@ -96,6 +101,21 @@ go run ./apps/devclient -url http://127.0.0.1:8080 input hello
 Use `-debug` to print submissions, model stream events, runtime events, and
 results. `-openai` uses `OPENAI_API_KEY` through the OpenAI SDK and defaults
 the model to `OPENAI_MODEL`, falling back to `gpt-4.1-mini` when unset.
+
+## Coder CLI
+
+`cmd/agentsdk` is the first product-style command. It runs the embedded
+`apps/coder` declaration and wires the host-provided shell and HTTP operations:
+
+```bash
+go run ./cmd/agentsdk coder "Inspect this repository and suggest the next step."
+go run ./cmd/agentsdk coder --debug "Run go test for the focused package."
+go run ./cmd/agentsdk coder --usage "Reply with one sentence."
+go run ./cmd/agentsdk coder repl
+```
+
+The command uses `OPENAI_API_KEY` through the OpenAI SDK. Shell execution is
+implemented without a shell interpreter and uses bounded output and timeouts.
 
 ## Resource Apps
 

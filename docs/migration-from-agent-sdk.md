@@ -631,22 +631,31 @@ Important contract decisions from this slice:
 - Agent operation decisions are batches. An agent may request multiple
   operations from one step; orchestration may execute them sequentially now and
   later schedule them through policy-aware planning or workflow machinery.
+- Every concrete operation invocation gets a stable `call_id` assigned by
+  session orchestration. The same ID must appear on `operation.requested`,
+  runtime `operation.started`/`operation.completed`, and typed
+  `operation.completed` client events so repeated calls to the same operation
+  can be correlated.
 - Model-facing tools are projected views. They do not bypass command/session
   policy or operation runtime safety.
+- HTTP/SSE channel transport must preserve the same semantic event contract as
+  directchannel. `operation.requested`, typed `operation.completed`,
+  `runtime.emitted` usage/model stream events, and `call_id` fields are part of
+  that contract.
 - LLM streaming emits transient opt-in runtime events. Raw thinking is not
   exposed by default.
 - The final normalized LLM response is authoritative. Streaming is UX,
   debugging, and progress; it may help assemble tool calls, but runtime
   decisions consume the final `llmagent.Response`.
-- Usage accounting is a cross-cutting runtime concern. Later runtime/adapters
-  should emit normalized usage events for consumed resources: LLM input,
+- Usage accounting is a cross-cutting runtime concern. `core/usage` owns the
+  generic metering event shape for consumed resources: LLM input,
   cached-input, output, and reasoning tokens; network up/down bytes and
   requests; file read/write bytes; process/runtime resources; and other
-  operation-specific usage. Cost evaluation should consume these events through
-  pricing/catalog data rather than being hard-coded inside operation or model
-  execution.
-- Model providers should ship model catalog specs describing model IDs,
-  pricing units, capabilities, and constraints: tool calling, caching,
+  operation-specific usage. `runtime/usage` evaluates costs from usage events
+  and catalog pricing. Enforcement and budgets remain future runtime policy.
+- LLM model/provider catalogs live in `core/llm`, not in a generic
+  `core/model` or `core/provider` namespace. Provider specs describe model
+  IDs, pricing units, capabilities, and constraints: tool calling, caching,
   thinking/reasoning, streaming, context windows, output limits, modalities,
   safety features, and provider-specific knobs. OpenAI is first; Anthropic via
   `github.com/anthropics/anthropic-sdk-go` is scheduled as a later provider
@@ -667,8 +676,8 @@ Still intentionally incomplete:
   agent instantiation through configured sessions. It does not execute prompt
   commands, execute workflow commands, or activate skills yet.
 - The first live provider adapter is OpenAI Responses. It is still narrow: no
-  retry policy, conversation compaction, provider model catalog, normalized
-  usage/cost events, or Anthropic/local provider adapter yet.
+  retry policy, conversation compaction, durable usage aggregation, budget
+  enforcement, or Anthropic/local provider adapter yet.
 - Configured sessions can instantiate manifest-declared LLM agents when the
   host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
   path. Model routing policy beyond that first adapter is still open.
@@ -852,7 +861,9 @@ Parity should be reached in small slices:
    `openai-go/v3`, maps projected tools to function tools, streams
    content/thinking/tool-call deltas into runtime events, converts multiple
    function calls into operation requests, and is reachable from
-   `apps/devclient -openai`.
+   `apps/devclient -openai`. The existing devclient also has an app-injected
+   `-synthetic-tool` operation for proving OpenAI tool-call continuation
+   without adding a separate example app.
 
 8. **Phase 6: Model Turn Continuation**
    Feed operation results back into LLM turns until the agent emits a message,
@@ -861,13 +872,23 @@ Parity should be reached in small slices:
    LLM agents receive operation results as follow-up observations through a
    bounded continuation loop.
 
-9. **Phase 7: Usage and Model Catalogs**
+9. **Phase 7: Product CLI and Coder App**
+   Add a thin `cmd/agentsdk` Cobra entrypoint over first-party app
+   declarations. The embedded `apps/coder` package stays pure declaration:
+   app, agent, session, operation specs, and command specs only. Runtime
+   operation implementations such as bounded shell execution and HTTP GET are
+   supplied by the command host or later plugins/adapters.
+
+10. **Phase 8: Usage and Model Catalogs**
    Add normalized runtime usage events and provider model catalog specs. Usage
    events should cover LLM tokens, cache hits, reasoning tokens, network
    bandwidth, file bytes, and operation-specific resource consumption. Catalogs
    should describe model capabilities and pricing so cost evaluation is data
-   driven. Schedule Anthropic via `github.com/anthropics/anthropic-sdk-go` in
-   this provider expansion path.
+   driven. Done initially: `core/usage` defines generic usage records,
+   `core/llm` defines LLM provider/model/pricing/capability specs,
+   `runtime/usage` evaluates costs from pricing specs, and `adapters/openai`
+   emits LLM token usage from Responses usage. Schedule Anthropic via
+   `github.com/anthropics/anthropic-sdk-go` in this provider expansion path.
 
 10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with

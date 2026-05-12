@@ -21,7 +21,7 @@ func (r Redactor) ToRuntimeStream(evt StreamEvent) (llmagent.StreamEvent, bool) 
 		return llmagent.StreamEvent{
 			Kind:  llmagent.StreamContentDelta,
 			Text:  evt.Text,
-			Index: evt.Index,
+			Index: streamIndex(evt.Index),
 			Final: evt.Final,
 		}, true
 	case StreamThinkingDelta:
@@ -37,7 +37,7 @@ func (r Redactor) ToRuntimeStream(evt StreamEvent) (llmagent.StreamEvent, bool) 
 		return llmagent.StreamEvent{
 			Kind:      llmagent.StreamThinkingDelta,
 			Text:      text,
-			Index:     evt.Index,
+			Index:     streamIndex(evt.Index),
 			Final:     evt.Final,
 			Redaction: redaction,
 		}, true
@@ -54,13 +54,17 @@ func (r Redactor) ToRuntimeStream(evt StreamEvent) (llmagent.StreamEvent, bool) 
 			Kind:      llmagent.StreamToolCallDelta,
 			Text:      text,
 			Tool:      evt.Tool,
-			Index:     evt.Index,
+			Index:     streamIndex(evt.Index),
 			Final:     evt.Kind == StreamToolCallDone || evt.Final,
 			Redaction: redaction,
 		}, true
 	default:
 		return llmagent.StreamEvent{}, false
 	}
+}
+
+func streamIndex(index int) *int {
+	return &index
 }
 
 func sensitivityRank(sensitivity policy.Sensitivity) int {

@@ -12,8 +12,9 @@ const (
 
 // OperationStarted is emitted when operation execution starts.
 type OperationStarted struct {
-	Operation Ref      `json:"operation"`
-	Input     ValueRef `json:"input,omitempty"`
+	CallID    CallID    `json:"call_id,omitempty"`
+	Operation Ref       `json:"operation"`
+	Input     *ValueRef `json:"input,omitempty"`
 }
 
 // EventName returns the event name.
@@ -21,8 +22,9 @@ func (OperationStarted) EventName() event.Name { return EventStartedName }
 
 // OperationCompleted is emitted when operation execution succeeds.
 type OperationCompleted struct {
-	Operation Ref      `json:"operation"`
-	Output    ValueRef `json:"output,omitempty"`
+	CallID    CallID    `json:"call_id,omitempty"`
+	Operation Ref       `json:"operation"`
+	Output    *ValueRef `json:"output,omitempty"`
 }
 
 // EventName returns the event name.
@@ -30,6 +32,7 @@ func (OperationCompleted) EventName() event.Name { return EventCompletedName }
 
 // OperationFailed is emitted when operation execution fails.
 type OperationFailed struct {
+	CallID    CallID `json:"call_id,omitempty"`
 	Operation Ref    `json:"operation"`
 	Error     *Error `json:"error,omitempty"`
 }
@@ -39,6 +42,7 @@ func (OperationFailed) EventName() event.Name { return EventFailedName }
 
 // OperationRejected is emitted when operation execution is rejected by policy.
 type OperationRejected struct {
+	CallID    CallID `json:"call_id,omitempty"`
 	Operation Ref    `json:"operation"`
 	Error     *Error `json:"error,omitempty"`
 }
@@ -48,6 +52,7 @@ func (OperationRejected) EventName() event.Name { return EventRejectedName }
 
 // OperationCanceled is emitted when operation execution is canceled.
 type OperationCanceled struct {
+	CallID    CallID `json:"call_id,omitempty"`
 	Operation Ref    `json:"operation"`
 	Error     *Error `json:"error,omitempty"`
 }

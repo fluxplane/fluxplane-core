@@ -88,6 +88,64 @@ sawOutbound:
 	}
 }
 
+func TestHandleInboundCommandPublishesOperationLifecycle(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 16})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+
+	_, err = service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-1",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"echo"}, Input: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+
+	var requested, completed bool
+	var callID operation.CallID
+	deadline := time.After(time.Second)
+	for !requested || !completed {
+		select {
+		case event := <-events:
+			if event.RunID != "run-1" || event.Operation == nil {
+				continue
+			}
+			switch event.Kind {
+			case clientapi.EventOperationRequested:
+				requested = true
+				callID = event.Operation.CallID
+				if callID == "" || event.Operation.Operation.Name != "echo" || event.Operation.Input != "hello" {
+					t.Fatalf("operation requested = %#v", event.Operation)
+				}
+			case clientapi.EventOperationCompleted:
+				completed = true
+				if event.Operation.CallID == "" || event.Operation.CallID != callID || event.Operation.Operation.Name != "echo" || event.Operation.Result == nil || event.Operation.Result.Output != "hello" {
+					t.Fatalf("operation completed = %#v", event.Operation)
+				}
+			}
+		case <-deadline:
+			t.Fatalf("operation lifecycle requested=%v completed=%v", requested, completed)
+		}
+	}
+}
+
 func TestOpenSessionConcurrentSameConversationUsesOneThread(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)

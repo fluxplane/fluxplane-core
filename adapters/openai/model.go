@@ -9,8 +9,10 @@ import (
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	"github.com/fluxplane/agentruntime/core/agent"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/core/usage"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -213,6 +215,7 @@ func schemaParams(schema operation.Schema) (map[string]any, error) {
 }
 
 func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec) (llmagent.Response, error) {
+	recordedUsage := usageFromOpenAI(resp)
 	assembler := adapterllm.NewToolCallAssembler(tools)
 	var operations []agent.OperationRequest
 	for i, item := range resp.Output {
@@ -233,15 +236,19 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec) (l
 		operations = append(operations, reqs...)
 	}
 	if len(operations) > 0 {
-		return llmagent.OperationResponse(operations...), nil
+		out := llmagent.OperationResponse(operations...)
+		out.Usage = recordedUsage
+		return out, nil
 	}
 	if text := strings.TrimSpace(resp.OutputText()); text != "" {
-		return llmagent.MessageResponse(text), nil
+		out := llmagent.MessageResponse(text)
+		out.Usage = recordedUsage
+		return out, nil
 	}
 	if resp.Error.Message != "" {
 		return llmagent.Response{}, fmt.Errorf("openai: %s: %s", resp.Error.Code, resp.Error.Message)
 	}
-	return llmagent.Response{}, nil
+	return llmagent.Response{Usage: recordedUsage}, nil
 }
 
 func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, toolNames map[int]tool.Name) []adapterllm.StreamEvent {
@@ -324,6 +331,71 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// ProviderSpec returns the static OpenAI provider capabilities known to this
+// adapter. Pricing is intentionally supplied through catalogs/config so it can
+// be updated without changing provider transport code.
+func ProviderSpec() corellm.ProviderSpec {
+	return corellm.ProviderSpec{
+		Name:        "openai",
+		DisplayName: "OpenAI",
+		Models: []corellm.ModelSpec{{
+			Ref: corellm.ModelRef{
+				Provider: "openai",
+				Name:     "gpt-4.1-mini",
+			},
+			InputModalities:  []corellm.Modality{corellm.ModalityText, corellm.ModalityImage},
+			OutputModalities: []corellm.Modality{corellm.ModalityText},
+			Capabilities: corellm.CapabilitySet{
+				corellm.CapabilityToolCalling,
+				corellm.CapabilityParallelTools,
+				corellm.CapabilityStreaming,
+				corellm.CapabilityPromptCaching,
+				corellm.CapabilityStructuredJSON,
+				corellm.CapabilityVision,
+			},
+		}},
+	}
+}
+
+func usageFromOpenAI(resp responses.Response) []usage.Recorded {
+	if resp.Usage.InputTokens == 0 &&
+		resp.Usage.InputTokensDetails.CachedTokens == 0 &&
+		resp.Usage.OutputTokens == 0 &&
+		resp.Usage.OutputTokensDetails.ReasoningTokens == 0 &&
+		resp.Usage.TotalTokens == 0 {
+		return nil
+	}
+	recorded := usage.Recorded{
+		Source: "adapters/openai",
+		Subject: usage.Subject{
+			Kind:     usage.SubjectLLM,
+			Provider: "openai",
+			Name:     string(resp.Model),
+			ID:       resp.ID,
+		},
+	}
+	addMeasurement := func(metric usage.MetricName, quantity int64, direction usage.Direction) {
+		if quantity <= 0 {
+			return
+		}
+		recorded.Measurements = append(recorded.Measurements, usage.Measurement{
+			Metric:    metric,
+			Quantity:  float64(quantity),
+			Unit:      usage.UnitToken,
+			Direction: direction,
+		})
+	}
+	addMeasurement(usage.MetricLLMInputTokens, resp.Usage.InputTokens, usage.DirectionInput)
+	addMeasurement(usage.MetricLLMCachedTokens, resp.Usage.InputTokensDetails.CachedTokens, usage.DirectionCached)
+	addMeasurement(usage.MetricLLMOutputTokens, resp.Usage.OutputTokens, usage.DirectionOutput)
+	addMeasurement(usage.MetricLLMReasoningTokens, resp.Usage.OutputTokensDetails.ReasoningTokens, usage.DirectionOutput)
+	addMeasurement(usage.MetricLLMTotalTokens, resp.Usage.TotalTokens, "")
+	if recorded.Empty() {
+		return nil
+	}
+	return []usage.Recorded{recorded}
 }
 
 func promptFromRequest(req llmagent.Request) string {

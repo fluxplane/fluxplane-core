@@ -27,3 +27,30 @@ func TestParseArgsKeepsInputMode(t *testing.T) {
 		t.Fatalf("mode = %q, want input", cfg.mode)
 	}
 }
+
+func TestParseArgsEnablesSyntheticTool(t *testing.T) {
+	cfg, err := parseArgs([]string{"-openai", "-synthetic-tool", "input", "lookup alpha"})
+	if err != nil {
+		t.Fatalf("parseArgs: %v", err)
+	}
+	if !cfg.useOpenAI {
+		t.Fatal("useOpenAI = false, want true")
+	}
+	if !cfg.syntheticTool {
+		t.Fatal("syntheticTool = false, want true")
+	}
+}
+
+func TestSyntheticLookupOperationReturnsDeterministicValue(t *testing.T) {
+	result := syntheticLookupOperation().Run(nil, map[string]any{"key": "alpha"})
+	if result.IsError() {
+		t.Fatalf("result = %#v, want ok", result)
+	}
+	output, ok := result.Output.(map[string]any)
+	if !ok {
+		t.Fatalf("output = %T, want map", result.Output)
+	}
+	if output["value"] != "ALPHA-42" {
+		t.Fatalf("value = %#v, want ALPHA-42", output["value"])
+	}
+}

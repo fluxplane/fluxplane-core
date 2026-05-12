@@ -18,8 +18,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
 func TestClientSendsInputThroughHTTPAndSSE(t *testing.T) {
@@ -77,6 +79,115 @@ func TestClientSendsCommandThroughHTTPAndSSE(t *testing.T) {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 	assertRemoteRunEvent(t, run, clientapi.EventCommandCompleted)
+}
+
+func TestClientRoundTripsOperationLifecycleWithCallIDs(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-operation-events"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{
+		Path:  command.Path{"echo"},
+		Input: "hello",
+	})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	events := drainRunEvents(run)
+
+	var requestedID, runtimeStartedID, runtimeCompletedID, completedID operation.CallID
+	for _, event := range events {
+		switch event.Kind {
+		case clientapi.EventOperationRequested:
+			if event.Operation == nil {
+				t.Fatalf("operation requested event missing operation: %#v", event)
+			}
+			requestedID = event.Operation.CallID
+			if requestedID == "" || event.Operation.Input != "hello" {
+				t.Fatalf("requested operation = %#v", event.Operation)
+			}
+		case clientapi.EventOperationCompleted:
+			if event.Operation == nil || event.Operation.Result == nil {
+				t.Fatalf("operation completed event missing result: %#v", event)
+			}
+			completedID = event.Operation.CallID
+			if completedID == "" || event.Operation.Result.Output != "hello" {
+				t.Fatalf("completed operation = %#v", event.Operation)
+			}
+		case clientapi.EventRuntimeEmitted:
+			if event.Runtime == nil {
+				continue
+			}
+			switch event.Runtime.Name {
+			case operation.EventStartedName:
+				runtimeStartedID = runtimeCallID(t, event)
+			case operation.EventCompletedName:
+				runtimeCompletedID = runtimeCallID(t, event)
+			}
+		}
+	}
+	if requestedID == "" || requestedID != runtimeStartedID || requestedID != runtimeCompletedID || requestedID != completedID {
+		t.Fatalf("call ids requested=%q runtime_started=%q runtime_completed=%q completed=%q", requestedID, runtimeStartedID, runtimeCompletedID, completedID)
+	}
+}
+
+func TestClientRoundTripsRuntimeUsageAndStreamingEvents(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-runtime-events"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	events := drainRunEvents(run)
+
+	var sawUsage, sawStream bool
+	for _, event := range events {
+		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil {
+			continue
+		}
+		switch event.Runtime.Name {
+		case usage.EventRecordedName:
+			payload, ok := event.Runtime.Payload.(map[string]any)
+			if !ok {
+				t.Fatalf("usage payload = %T, want map", event.Runtime.Payload)
+			}
+			if payload["source"] != "test-runtime" {
+				t.Fatalf("usage payload = %#v", payload)
+			}
+			sawUsage = true
+		case llmagent.EventModelStreamedName:
+			payload, ok := event.Runtime.Payload.(map[string]any)
+			if !ok {
+				t.Fatalf("stream payload = %T, want map", event.Runtime.Payload)
+			}
+			stream, ok := payload["event"].(map[string]any)
+			if !ok || stream["kind"] != string(llmagent.StreamContentDelta) || stream["text"] != "agent:" {
+				t.Fatalf("stream payload = %#v", payload)
+			}
+			sawStream = true
+		}
+	}
+	if !sawUsage || !sawStream {
+		t.Fatalf("saw usage=%v stream=%v in events %#v", sawUsage, sawStream, events)
+	}
 }
 
 func TestClientListsResumesAndReplaysSessionEvents(t *testing.T) {
@@ -383,6 +494,27 @@ func assertRemoteRunEvent(t *testing.T, run clientapi.RunHandle, kind clientapi.
 	}
 }
 
+func drainRunEvents(run clientapi.RunHandle) []clientapi.Event {
+	var events []clientapi.Event
+	for event := range run.Events() {
+		events = append(events, event)
+	}
+	return events
+}
+
+func runtimeCallID(t *testing.T, event clientapi.Event) operation.CallID {
+	t.Helper()
+	payload, ok := event.Runtime.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("runtime payload = %T, want map", event.Runtime.Payload)
+	}
+	callID, ok := payload["call_id"].(string)
+	if !ok || callID == "" {
+		t.Fatalf("runtime payload call_id = %#v", payload["call_id"])
+	}
+	return operation.CallID(callID)
+}
+
 type stubEvent struct{}
 
 func (stubEvent) EventName() coreevent.Name { return "stub.event" }
@@ -460,11 +592,31 @@ func (remoteEchoAgent) Spec() agent.Spec {
 	return agent.Spec{Name: "remote-echo"}
 }
 
-func (remoteEchoAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
+func (remoteEchoAgent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
 	var content any
 	if len(input.Observations) > 0 {
 		content = "agent: " + input.Observations[0].Content.(string)
 	}
+	ctx.Events().Emit(usage.Recorded{
+		Source: "test-runtime",
+		Subject: usage.Subject{
+			Kind: usage.SubjectLLM,
+			Name: "fake-model",
+		},
+		Measurements: []usage.Measurement{{
+			Metric:   usage.MetricLLMInputTokens,
+			Quantity: 1,
+			Unit:     usage.UnitToken,
+		}},
+	})
+	ctx.Events().Emit(llmagent.ModelStreamed{
+		Agent: "remote-echo",
+		Model: "fake-model",
+		Event: llmagent.StreamEvent{
+			Kind: llmagent.StreamContentDelta,
+			Text: "agent:",
+		},
+	})
 	return agent.StepResult{
 		Status: agent.StatusOK,
 		Decision: agent.Decision{

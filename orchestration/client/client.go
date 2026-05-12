@@ -189,6 +189,7 @@ const (
 	EventInputCompleted     EventKind = "input.completed"
 	EventCommandCompleted   EventKind = "command.completed"
 	EventAgentStepCompleted EventKind = "agent_step.completed"
+	EventOperationRequested EventKind = "operation.requested"
 	EventOperationCompleted EventKind = "operation.completed"
 	EventOutboundProduced   EventKind = "outbound.produced"
 	EventRuntimeEmitted     EventKind = "runtime.emitted"
@@ -201,10 +202,12 @@ type EventCursor struct {
 	Sequence event.Sequence `json:"sequence,omitempty"`
 }
 
-// OperationEvent describes one operation completion visible to clients.
+// OperationEvent describes one operation lifecycle event visible to clients.
 type OperationEvent struct {
-	Operation operation.Ref    `json:"operation"`
-	Result    operation.Result `json:"result"`
+	CallID    operation.CallID  `json:"call_id,omitempty"`
+	Operation operation.Ref     `json:"operation"`
+	Input     operation.Value   `json:"input,omitempty"`
+	Result    *operation.Result `json:"result,omitempty"`
 }
 
 // RuntimeEvent exposes a typed runtime/domain event to channel clients.

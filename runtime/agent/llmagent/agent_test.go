@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/core/usage"
 )
 
 func TestAgentStepSendsStructuredRequestAndReturnsMessageDecision(t *testing.T) {
@@ -225,6 +226,50 @@ func TestAgentStepEmitsRedactedModelEvents(t *testing.T) {
 	}
 	if completed.Decision != agent.DecisionMessage {
 		t.Fatalf("completed decision = %q, want message", completed.Decision)
+	}
+}
+
+func TestAgentStepEmitsUsageEventsFromModelResponse(t *testing.T) {
+	var events []event.Event
+	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	})}
+	runtime, err := New(agent.Spec{Name: "main", Inference: agent.InferenceSpec{Model: "test-model"}}, StaticModel{
+		Response: Response{
+			Message: &agent.Message{Content: "ok"},
+			Usage: []usage.Recorded{{
+				Source: "test",
+				Subject: usage.Subject{
+					Kind:     usage.SubjectLLM,
+					Provider: "test",
+					Name:     "test-model",
+				},
+				Measurements: []usage.Measurement{{
+					Metric:   usage.MetricLLMInputTokens,
+					Quantity: 12,
+					Unit:     usage.UnitToken,
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(ctx, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	var got usage.Recorded
+	for _, evt := range events {
+		if recorded, ok := evt.(usage.Recorded); ok {
+			got = recorded
+			break
+		}
+	}
+	if got.Subject.Name != "test-model" || len(got.Measurements) != 1 {
+		t.Fatalf("usage event = %#v, want test-model measurement", got)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -103,8 +104,8 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 		return out
 	}
 
-	for _, request := range agentResult.Decision.Operations {
-		effect := s.applyOperation(agentCtx, request.Operation, request.Input)
+	for i, request := range agentResult.Decision.Operations {
+		effect := s.applyOperation(agentCtx, request.Operation, request.Input, operationCallID("", i+1))
 		out.Effects = append(out.Effects, effect)
 		out.Effect = &out.Effects[len(out.Effects)-1]
 		if effect.Observation.ID != "" || effect.Observation.Kind != "" {
@@ -114,7 +115,7 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 	return out
 }
 
-func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input operation.Value) environment.EffectResult {
+func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
 	if len(s.OperationCatalog) > 0 {
 		binding, err := s.OperationCatalog.Resolve(ref.String(), resource.ResourceID{})
 		if err != nil {
@@ -122,7 +123,7 @@ func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input 
 				"operation": ref.String(),
 			}))
 		}
-		return s.executeOperation(ctx, binding.Operation, input)
+		return s.executeOperation(ctx, binding.Operation, input, callID)
 	}
 	if s.Operations == nil {
 		return environment.EffectResult{Result: operation.Failed("operation_registry_missing", "operation registry is nil", nil)}
@@ -133,7 +134,7 @@ func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input 
 			"operation": ref.String(),
 		})}
 	}
-	return s.executeOperation(ctx, op, input)
+	return s.executeOperation(ctx, op, input, callID)
 }
 
 func (s Session) eventSink() event.Sink {
@@ -141,6 +142,13 @@ func (s Session) eventSink() event.Sink {
 		return event.Discard()
 	}
 	return s.Events
+}
+
+func (s Session) emitLive(payload event.Event) {
+	if payload == nil {
+		return
+	}
+	s.eventSink().Emit(payload)
 }
 
 func chooseObjective(requested, fallback agent.Objective) agent.Objective {
@@ -274,7 +282,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		if len(agentResult.Decision.Operations) == 0 {
 			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
 		}
-		batch, err := s.applyAgentOperations(ctx, agentCtx, inbound, agentResult.Decision.Operations)
+		batch, err := s.applyAgentOperations(ctx, agentCtx, inbound, len(effects), agentResult.Decision.Operations)
 		if err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
@@ -283,7 +291,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 			return s.operationLimitResult(ctx, inbound, agentResult, effects)
 		}
 		continuations++
-		observations = observationsForEffects(batch)
+		observations = append(observations, observationsForEffects(batch)...)
 	}
 }
 
@@ -327,29 +335,36 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 	}
 }
 
-func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, requests []agent.OperationRequest) ([]environment.EffectResult, error) {
+func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest) ([]environment.EffectResult, error) {
 	effects := make([]environment.EffectResult, 0, len(requests))
-	for _, opReq := range requests {
-		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+	for i, opReq := range requests {
+		callID := operationCallID(inbound.ID, startIndex+i+1)
+		requested := coresession.OperationRequested{
 			RunID:     inbound.ID,
+			CallID:    callID,
 			Operation: opReq.Operation,
 			Input:     opReq.Input,
-		}); err != nil {
+		}
+		if err := s.appendThreadEvents(ctx, requested); err != nil {
 			return nil, err
 		}
-		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
+		s.emitLive(requested)
+		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input, callID)
 		if effect.Observation.Metadata == nil {
 			effect.Observation.Metadata = map[string]any{}
 		}
 		effect.Observation.Metadata["operation"] = opReq.Operation.String()
 		effects = append(effects, effect)
-		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+		completed := coresession.OperationCompleted{
 			RunID:     inbound.ID,
+			CallID:    callID,
 			Operation: opReq.Operation,
 			Result:    effect.Result,
-		}); err != nil {
+		}
+		if err := s.appendThreadEvents(ctx, completed); err != nil {
 			return nil, err
 		}
+		s.emitLive(completed)
 	}
 	return effects, nil
 }
@@ -486,24 +501,31 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	opCtx := operation.NewContext(ensureContext(ctx), s.eventSink())
 	switch spec.Target.Kind {
 	case invocation.TargetOperation:
-		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+		callID := operationCallID(inbound.ID, 1)
+		requested := coresession.OperationRequested{
 			RunID:     inbound.ID,
+			CallID:    callID,
 			Operation: spec.Target.Operation,
 			Input:     inbound.Command.Input,
-		}); err != nil {
+		}
+		if err := s.appendThreadEvents(ctx, requested); err != nil {
 			return commandFailed("thread_append_failed", err.Error(), nil)
 		}
-		effect := s.applyBoundOperation(opCtx, binding, spec.Target.Operation, inbound.Command.Input)
-		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+		s.emitLive(requested)
+		effect := s.applyBoundOperation(opCtx, binding, spec.Target.Operation, inbound.Command.Input, callID)
+		completed := coresession.OperationCompleted{
 			RunID:     inbound.ID,
+			CallID:    callID,
 			Operation: spec.Target.Operation,
 			Result:    effect.Result,
-		}, coresession.OutboundProduced{
+		}
+		if err := s.appendThreadEvents(ctx, completed, coresession.OutboundProduced{
 			RunID:   inbound.ID,
 			Message: outboundMessageForOperationResult(effect.Result),
 		}); err != nil {
 			return commandFailed("thread_append_failed", err.Error(), nil)
 		}
+		s.emitLive(completed)
 		status := CommandStatusOK
 		if effect.Result.IsError() {
 			status = CommandStatusFailed
@@ -557,21 +579,32 @@ func commandPathRef(path command.Path) string {
 	return strings.Join(parts[:len(parts)-1], ":") + ":" + parts[len(parts)-1]
 }
 
-func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBinding, fallback operation.Ref, input operation.Value) environment.EffectResult {
+func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBinding, fallback operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
 	if !binding.OperationID.IsZero() && len(s.OperationCatalog) > 0 {
 		if operationBinding, ok := s.OperationCatalog[binding.OperationID.Address()]; ok {
-			return s.executeOperation(ctx, operationBinding.Operation, input)
+			return s.executeOperation(ctx, operationBinding.Operation, input, callID)
 		}
 		return operationEffect(operation.Failed("operation_not_bound", "command target operation is not bound to an implementation", map[string]any{
 			"operation":   fallback.String(),
 			"resource_id": binding.OperationID.Address(),
 		}))
 	}
-	return s.applyOperation(ctx, fallback, input)
+	return s.applyOperation(ctx, fallback, input, callID)
 }
 
-func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value) environment.EffectResult {
+func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
+	ctx = operation.WithCallID(ctx, callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
+}
+
+func operationCallID(runID string, ordinal int) operation.CallID {
+	if ordinal < 1 {
+		ordinal = 1
+	}
+	if runID == "" {
+		return operation.CallID(fmt.Sprintf("operation:%d", ordinal))
+	}
+	return operation.CallID(fmt.Sprintf("%s:operation:%d", runID, ordinal))
 }
 
 func operationEffect(result operation.Result) environment.EffectResult {
@@ -581,6 +614,7 @@ func operationEffect(result operation.Result) environment.EffectResult {
 			Source:  "operation",
 			Kind:    "operation.result",
 			Content: result,
+			At:      time.Now().UTC(),
 		},
 	}
 }

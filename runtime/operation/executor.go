@@ -58,7 +58,8 @@ func (e Executor) Execute(ctx operation.Context, op operation.Operation, input o
 	}
 	ctx = e.ensureContext(ctx)
 	spec := op.Spec()
-	ctx.Events().Emit(operation.OperationStarted{Operation: spec.Ref})
+	callID := operation.CallIDFromContext(ctx)
+	ctx.Events().Emit(operation.OperationStarted{CallID: callID, Operation: spec.Ref})
 
 	base := func(ctx operation.Context, input operation.Value) operation.Result {
 		if e.Safety != nil {
@@ -81,7 +82,7 @@ func (e Executor) Execute(ctx operation.Context, op operation.Operation, input o
 	}
 
 	result := normalize(applyMiddleware(base, e.Middleware)(ctx, input))
-	e.emitTerminalEvent(ctx, spec.Ref, result)
+	e.emitTerminalEvent(ctx, callID, spec.Ref, result)
 	return result
 }
 
@@ -92,16 +93,16 @@ func (e Executor) ensureContext(ctx operation.Context) operation.Context {
 	return operation.NewContext(context.Background(), e.EventSink)
 }
 
-func (Executor) emitTerminalEvent(ctx operation.Context, ref operation.Ref, result operation.Result) {
+func (Executor) emitTerminalEvent(ctx operation.Context, callID operation.CallID, ref operation.Ref, result operation.Result) {
 	switch result.Status {
 	case operation.StatusOK:
-		ctx.Events().Emit(operation.OperationCompleted{Operation: ref})
+		ctx.Events().Emit(operation.OperationCompleted{CallID: callID, Operation: ref})
 	case operation.StatusRejected:
-		ctx.Events().Emit(operation.OperationRejected{Operation: ref, Error: result.Error})
+		ctx.Events().Emit(operation.OperationRejected{CallID: callID, Operation: ref, Error: result.Error})
 	case operation.StatusCanceled:
-		ctx.Events().Emit(operation.OperationCanceled{Operation: ref, Error: result.Error})
+		ctx.Events().Emit(operation.OperationCanceled{CallID: callID, Operation: ref, Error: result.Error})
 	default:
-		ctx.Events().Emit(operation.OperationFailed{Operation: ref, Error: result.Error})
+		ctx.Events().Emit(operation.OperationFailed{CallID: callID, Operation: ref, Error: result.Error})
 	}
 }
 

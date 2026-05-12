@@ -123,6 +123,11 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 		emit(ctx, ModelFailed{Agent: a.spec.Name, Model: modelName(req), Error: err.Error()})
 		return failed("model_failed", err.Error(), nil)
 	}
+	for _, recorded := range resp.Usage {
+		if !recorded.Empty() {
+			emit(ctx, recorded)
+		}
+	}
 	result := resultFromResponse(resp)
 	emit(ctx, ModelCompleted{Agent: a.spec.Name, Model: modelName(req), Decision: result.Decision.Kind})
 	return result

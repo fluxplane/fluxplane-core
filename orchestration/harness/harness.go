@@ -553,6 +553,13 @@ func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) core
 		if payload == nil {
 			return
 		}
+		if event, ok := liveSessionEvent(toClientSessionInfo(info), runID, payload); ok {
+			s.publish(info.Thread.ID, event)
+			if s.events != nil {
+				s.events.Emit(payload)
+			}
+			return
+		}
 		s.publish(info.Thread.ID, clientapi.Event{
 			Kind:    clientapi.EventRuntimeEmitted,
 			RunID:   runID,
@@ -566,6 +573,42 @@ func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) core
 			s.events.Emit(payload)
 		}
 	})
+}
+
+func liveSessionEvent(info clientapi.SessionInfo, runID clientapi.RunID, payload coreevent.Event) (clientapi.Event, bool) {
+	switch event := payload.(type) {
+	case coresession.OperationRequested:
+		if event.RunID != "" {
+			runID = clientapi.RunID(event.RunID)
+		}
+		return clientapi.Event{
+			Kind:    clientapi.EventOperationRequested,
+			RunID:   runID,
+			Session: info,
+			Operation: &clientapi.OperationEvent{
+				CallID:    event.CallID,
+				Operation: event.Operation,
+				Input:     event.Input,
+			},
+		}, true
+	case coresession.OperationCompleted:
+		if event.RunID != "" {
+			runID = clientapi.RunID(event.RunID)
+		}
+		result := event.Result
+		return clientapi.Event{
+			Kind:    clientapi.EventOperationCompleted,
+			RunID:   runID,
+			Session: info,
+			Operation: &clientapi.OperationEvent{
+				CallID:    event.CallID,
+				Operation: event.Operation,
+				Result:    &result,
+			},
+		}, true
+	default:
+		return clientapi.Event{}, false
+	}
 }
 
 type subscriber struct {
@@ -686,11 +729,18 @@ func recordToClientEvents(info clientapi.SessionInfo, record corethread.Record) 
 		event.RunID = clientapi.RunID(payload.RunID)
 		event.Agent = &payload.Result
 		return []clientapi.Event{event}
+	case coresession.OperationRequested:
+		event := base
+		event.Kind = clientapi.EventOperationRequested
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Operation = &clientapi.OperationEvent{CallID: payload.CallID, Operation: payload.Operation, Input: payload.Input}
+		return []clientapi.Event{event}
 	case coresession.OperationCompleted:
 		event := base
 		event.Kind = clientapi.EventOperationCompleted
 		event.RunID = clientapi.RunID(payload.RunID)
-		event.Operation = &clientapi.OperationEvent{Operation: payload.Operation, Result: payload.Result}
+		result := payload.Result
+		event.Operation = &clientapi.OperationEvent{CallID: payload.CallID, Operation: payload.Operation, Result: &result}
 		return []clientapi.Event{event}
 	case coresession.OutboundProduced:
 		event := base
