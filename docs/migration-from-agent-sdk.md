@@ -540,6 +540,12 @@ Implemented and green:
 - `adapters/resourcefs`: first local filesystem manifest loader
   (`agentruntime.json`) into pure resource contribution bundles, including
   configured session profiles.
+- `adapters/appconfig`: narrow `agentsdk.app.json`/YAML manifest parser for
+  app specs, source declarations, discovery policy, model policy, and plugin
+  refs.
+- `adapters/agentdir`: narrow `.agents` parser for the engineer subset:
+  agent markdown, prompt command markdown, workflow command YAML, workflow YAML,
+  and skill metadata.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
   ACL, command-risk, secrets, and approval enforcement.
 - `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
@@ -591,11 +597,9 @@ Still intentionally incomplete:
   bundles plus operation implementations during app composition.
 - The daemon/control surface is minimal: status, configured-session listing,
   and live session listing only.
-- The resource loader supports only the first JSON manifest shape; `.agents`,
-  `agentdir`, and appconfig compatibility are not migrated yet.
-- The engineer app parity plan has Phase 1A pure model support, but no
-  `adapters/appconfig`, `adapters/agentdir`, or composition indexing for those
-  new resource types yet.
+- The engineer app parity plan has Phase 1A pure model support and Phase 1B
+  narrow adapters, but orchestration/app does not yet index or validate those
+  new app, agent, skill, and workflow contribution types.
 - There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
   spec shape.
 - There is no terminal/slash parser, Slack adapter, model provider adapter, or

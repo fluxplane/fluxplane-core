@@ -1,0 +1,256 @@
+package agentdir
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/invocation"
+	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/workflow"
+)
+
+func TestLoadDirParsesEngineerSubset(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, ".agents")
+	writeFile(t, agentsDir, "agents/main.md", `---
+name: main
+description: Main coding agent.
+model: claude-sonnet-4-20250514
+max-tokens: 16000
+max-steps: 100
+temperature: 0.2
+thinking: enabled
+effort: high
+tools: [bash, file_read]
+skills: [architecture]
+commands: [review, design]
+stop-condition:
+  type: max-continuations
+  max: 3
+---
+You are the main agent.
+`)
+	writeFile(t, agentsDir, "agents/analyst.md", `---
+description: Analyst agent.
+tools: [file_read]
+---
+Analyze the request.
+`)
+	writeFile(t, agentsDir, "agents/implementer.md", `---
+name: implementer
+description: Implementation agent.
+max-steps: 250
+tools:
+  - bash
+stop-condition:
+  type: or
+  conditions:
+    - type: prompt
+      prompt: |
+        Check acceptance criteria.
+    - type: tool-sentinel
+    - type: max-continuations
+      max: 25
+---
+Implement the feature.
+`)
+	writeFile(t, agentsDir, "commands/review.md", `---
+description: Review code changes.
+argument-hint: "<file or diff>"
+---
+Review the following code:
+
+{{.Query}}
+`)
+	writeFile(t, agentsDir, "commands/design.md", `---
+description: Design a change.
+---
+Design the requested change.
+`)
+	writeFile(t, agentsDir, "commands/feat.yaml", `name: feat
+description: Analyze and implement a feature
+policy:
+  agent_callable: true
+input_schema:
+  type: object
+  properties:
+    description:
+      type: string
+target:
+  workflow: feature
+  input: "{{ .description }}"
+`)
+	writeFile(t, agentsDir, "workflows/feature.yaml", `name: feature
+description: End-to-end feature implementation
+steps:
+  - id: analyze
+    agent: analyst
+  - id: implement
+    agent: implementer
+    depends-on: [analyze]
+`)
+	writeFile(t, agentsDir, "skills/architecture/SKILL.md", `---
+name: architecture
+description: Evaluate architecture.
+---
+# Architecture
+`)
+
+	bundle, err := LoadDir(context.Background(), root)
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	if bundle.Source.Scope != "project" {
+		t.Fatalf("source scope = %q", bundle.Source.Scope)
+	}
+	if bundle.Source.Trust.Kind != policy.TrustSource || bundle.Source.Trust.Level != policy.TrustVerified {
+		t.Fatalf("source trust = %#v", bundle.Source.Trust)
+	}
+	if got, want := len(bundle.Agents), 3; got != want {
+		t.Fatalf("agents len = %d, want %d", got, want)
+	}
+	if got, want := len(bundle.Commands), 3; got != want {
+		t.Fatalf("commands len = %d, want %d", got, want)
+	}
+	if got, want := len(bundle.Workflows), 1; got != want {
+		t.Fatalf("workflows len = %d, want %d", got, want)
+	}
+	if got, want := len(bundle.Skills), 1; got != want {
+		t.Fatalf("skills len = %d, want %d", got, want)
+	}
+
+	main := findAgent(t, bundle.Agents, "main")
+	if main.System != "You are the main agent." {
+		t.Fatalf("main system = %q", main.System)
+	}
+	if main.Inference.Model != "claude-sonnet-4-20250514" {
+		t.Fatalf("main model = %q", main.Inference.Model)
+	}
+	if main.Inference.MaxOutputTokens != 16000 || main.Inference.Temperature != 0.2 {
+		t.Fatalf("main inference = %#v", main.Inference)
+	}
+	if main.Policy.MaxSteps != 100 {
+		t.Fatalf("main max steps = %d", main.Policy.MaxSteps)
+	}
+	if got, want := main.Tools[0].Name, "bash"; got != want {
+		t.Fatalf("main first tool = %q, want %q", got, want)
+	}
+	if got, want := string(main.Skills[0].Name), "architecture"; got != want {
+		t.Fatalf("main first skill = %q, want %q", got, want)
+	}
+	if got, want := main.Commands[1].Name, "design"; got != want {
+		t.Fatalf("main second command = %q, want %q", got, want)
+	}
+
+	analyst := findAgent(t, bundle.Agents, "analyst")
+	if analyst.Description != "Analyst agent." {
+		t.Fatalf("analyst description = %q", analyst.Description)
+	}
+
+	implementer := findAgent(t, bundle.Agents, "implementer")
+	if implementer.Stop.Type != "or" || len(implementer.Stop.Conditions) != 3 {
+		t.Fatalf("implementer stop = %#v", implementer.Stop)
+	}
+	if implementer.Stop.Conditions[0].Type != "prompt" || implementer.Stop.Conditions[2].Max != 25 {
+		t.Fatalf("implementer nested stop = %#v", implementer.Stop.Conditions)
+	}
+
+	review := findCommand(t, bundle.Commands, "review")
+	if review.Target.Kind != invocation.TargetPrompt {
+		t.Fatalf("review target kind = %q", review.Target.Kind)
+	}
+	if review.Annotations["argument_hint"] != "<file or diff>" {
+		t.Fatalf("review annotations = %#v", review.Annotations)
+	}
+
+	feat := findCommand(t, bundle.Commands, "feat")
+	if feat.Target.Kind != invocation.TargetWorkflow || feat.Target.Workflow != "feature" {
+		t.Fatalf("feat target = %#v", feat.Target)
+	}
+	if feat.Target.Input != "{{ .description }}" {
+		t.Fatalf("feat target input = %#v", feat.Target.Input)
+	}
+	if len(feat.Input.Schema.Data) == 0 {
+		t.Fatalf("feat input schema is empty")
+	}
+	if got, want := feat.Policy.AllowedCallers, []policy.CallerKind{policy.CallerUser, policy.CallerAgent}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("feat callers = %#v, want %#v", got, want)
+	}
+
+	flow := bundle.Workflows[0]
+	if flow.Name != "feature" || flow.Raw["name"] != "feature" {
+		t.Fatalf("workflow = %#v", flow)
+	}
+	if got, want := flow.Steps[0].Agent.Name, "analyst"; string(got) != want {
+		t.Fatalf("analyze agent = %q, want %q", got, want)
+	}
+	if got, want := flow.Steps[1].DependsOn, []workflow.StepID{"analyze"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("implement deps = %#v, want %#v", got, want)
+	}
+
+	if got, want := string(bundle.Skills[0].Name), "architecture"; got != want {
+		t.Fatalf("skill name = %q, want %q", got, want)
+	}
+	if bundle.Skills[0].Source.URI == "" {
+		t.Fatalf("skill source URI is empty")
+	}
+}
+
+func TestDecodeWorkflowRejectsUnknownDependency(t *testing.T) {
+	_, err := DecodeWorkflow("feature.yaml", []byte(`name: feature
+steps:
+  - id: implement
+    agent: implementer
+    depends-on: [analyze]
+`))
+	if err == nil {
+		t.Fatal("DecodeWorkflow() error = nil, want unknown dependency error")
+	}
+}
+
+func TestDecodePromptCommandRejectsEmptyPrompt(t *testing.T) {
+	_, err := DecodePromptCommand("review.md", []byte(`---
+description: Review code.
+---
+`))
+	if err == nil {
+		t.Fatal("DecodePromptCommand() error = nil, want empty prompt error")
+	}
+}
+
+func writeFile(t *testing.T, root, name, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func findAgent(t *testing.T, specs []agent.Spec, name string) agent.Spec {
+	t.Helper()
+	for _, spec := range specs {
+		if string(spec.Name) == name {
+			return spec
+		}
+	}
+	t.Fatalf("agent %q not found", name)
+	return agent.Spec{}
+}
+
+func findCommand(t *testing.T, specs []command.Spec, name string) command.Spec {
+	t.Helper()
+	for _, spec := range specs {
+		if len(spec.Path) == 1 && spec.Path[0] == name {
+			return spec
+		}
+	}
+	t.Fatalf("command %q not found", name)
+	return command.Spec{}
+}

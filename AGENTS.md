@@ -12,10 +12,17 @@ Do not put migration decision logs in this file.
 - Never commit unless explicitly asked.
 - Never run destructive git commands such as `git reset`, `git clean`,
   `git checkout --`, or force pushes.
+- When committing, use semantic/conventional commit messages with a body:
+  `feat: short summary`, blank line, then a short body explaining what changed
+  and why. Use the appropriate type (`feat`, `fix`, `docs`, `test`, `chore`,
+  `refactor`, and so on).
 - The generated architecture render directory `.agents/architecture/` is
   ignored. Regenerate it when needed.
 - This is a pre-1.0 rewrite. Do not add backward-compatibility shims,
   deprecated wrappers, or compatibility paths unless explicitly requested.
+- We do not care about backward compatibility. Prefer the clean current design
+  and delete or replace stale shapes instead of preserving old behavior by
+  default.
 
 ## Verification
 
