@@ -92,6 +92,43 @@ func TestResponseParamsUsesTranscriptItemsAndPreviousResponseID(t *testing.T) {
 	}
 }
 
+func TestResponseParamsRecordsOnlyTranscriptNewItems(t *testing.T) {
+	model, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "old"},
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "current"},
+			},
+			NewItems: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "current"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(raw), `"text":"old"`) || !strings.Contains(string(raw), `"text":"current"`) {
+		t.Fatalf("params json = %s, want full replay input", raw)
+	}
+	if len(sent) != 1 || sent[0].Content != "current" {
+		t.Fatalf("sent = %#v, want only current new item", sent)
+	}
+	if sent[0].Provider.Provider != "openai" || sent[0].Provider.API != "openai.responses" {
+		t.Fatalf("sent provider = %#v, want openai responses", sent[0].Provider)
+	}
+}
+
 func TestResponseFromOpenAIConvertsText(t *testing.T) {
 	resp := mustResponse(t, `{
 		"id": "resp_1",

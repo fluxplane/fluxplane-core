@@ -96,6 +96,7 @@ const (
 type Transcript struct {
 	Provider     ProviderIdentity    `json:"provider,omitempty"`
 	Items        []Item              `json:"items,omitempty"`
+	NewItems     []Item              `json:"new_items,omitempty"`
 	Continuation *ContinuationHandle `json:"continuation,omitempty"`
 	Mode         ProjectionMode      `json:"mode,omitempty"`
 }

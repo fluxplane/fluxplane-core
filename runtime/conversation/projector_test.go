@@ -45,6 +45,9 @@ func TestProjectFullReplayReturnsExactProviderItems(t *testing.T) {
 	if len(result.Items) != 3 {
 		t.Fatalf("items len = %d, want 3", len(result.Items))
 	}
+	if len(result.NewItems) != 1 {
+		t.Fatalf("new items len = %d, want pending only", len(result.NewItems))
+	}
 	if string(result.Items[0].Native) != string(items[0].Native) {
 		t.Fatalf("first native = %s, want %s", result.Items[0].Native, items[0].Native)
 	}
@@ -91,6 +94,9 @@ func TestProjectNativeContinuationReturnsOnlyPendingItems(t *testing.T) {
 	if len(result.Items) != 1 || string(result.Items[0].Native) != string(pending[0].Native) {
 		t.Fatalf("items = %#v, want pending only", result.Items)
 	}
+	if len(result.NewItems) != 1 || string(result.NewItems[0].Native) != string(pending[0].Native) {
+		t.Fatalf("new items = %#v, want pending only", result.NewItems)
+	}
 }
 
 func TestProjectNativeContinuationFallsBackToFullReplay(t *testing.T) {
@@ -125,6 +131,9 @@ func TestProjectNativeContinuationFallsBackToFullReplay(t *testing.T) {
 	}
 	if len(result.Items) != 2 {
 		t.Fatalf("items len = %d, want 2", len(result.Items))
+	}
+	if len(result.NewItems) != 1 || string(result.NewItems[0].Native) != string(pending.Native) {
+		t.Fatalf("new items = %#v, want pending only", result.NewItems)
 	}
 }
 

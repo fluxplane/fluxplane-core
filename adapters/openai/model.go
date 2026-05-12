@@ -158,12 +158,22 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 	}
 	var sentItems []coreconversation.Item
 	if req.Transcript != nil && !req.Transcript.Empty() {
-		inputItems, items, err := inputItemsFromTranscript(*req.Transcript)
+		provider := openAIProviderIdentity(model)
+		transcript := *req.Transcript
+		transcript.Provider = provider
+		inputItems, _, err := inputItemsFromTranscript(transcript.Provider, transcript.Items)
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
 		}
 		params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: responses.ResponseInputParam(inputItems)}
-		sentItems = items
+		recordItems := transcript.NewItems
+		if len(recordItems) == 0 {
+			recordItems = transcript.Items
+		}
+		_, sentItems, err = inputItemsFromTranscript(transcript.Provider, recordItems)
+		if err != nil {
+			return responses.ResponseNewParams{}, nil, nil, err
+		}
 		if req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID() {
 			params.PreviousResponseID = openai.String(req.Transcript.Continuation.ResponseID)
 		}
@@ -237,11 +247,11 @@ func schemaParams(schema operation.Schema) (map[string]any, error) {
 	return params, nil
 }
 
-func inputItemsFromTranscript(transcript coreconversation.Transcript) ([]responses.ResponseInputItemUnionParam, []coreconversation.Item, error) {
-	out := make([]responses.ResponseInputItemUnionParam, 0, len(transcript.Items))
-	recorded := make([]coreconversation.Item, 0, len(transcript.Items))
-	for i, item := range transcript.Items {
-		paramItem, recordedItem, err := inputItemFromTranscriptItem(transcript.Provider, item)
+func inputItemsFromTranscript(provider coreconversation.ProviderIdentity, items []coreconversation.Item) ([]responses.ResponseInputItemUnionParam, []coreconversation.Item, error) {
+	out := make([]responses.ResponseInputItemUnionParam, 0, len(items))
+	recorded := make([]coreconversation.Item, 0, len(items))
+	for i, item := range items {
+		paramItem, recordedItem, err := inputItemFromTranscriptItem(provider, item)
 		if err != nil {
 			return nil, nil, fmt.Errorf("openai: transcript item %d: %w", i, err)
 		}

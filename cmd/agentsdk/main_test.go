@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/usage"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
@@ -61,6 +63,18 @@ func TestUsageLineFromRecorded(t *testing.T) {
 	})
 	if !strings.Contains(line, "usage:") || !strings.Contains(line, "model=gpt-test") || !strings.Contains(line, "llm.input_tokens=12") {
 		t.Fatalf("line = %q", line)
+	}
+}
+
+func TestResultErrorReportsFailedInput(t *testing.T) {
+	err := resultError(agentruntime.Result{
+		Input: &session.InputResult{
+			Status: session.InputStatusFailed,
+			Error:  &session.CommandError{Code: "model_failed", Message: "boom"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "model_failed: boom") {
+		t.Fatalf("err = %v, want model_failed", err)
 	}
 }
 

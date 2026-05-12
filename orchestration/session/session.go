@@ -328,6 +328,7 @@ func (s Session) transcriptForPending(ctx context.Context, pending, localItems [
 			return coreconversation.Transcript{
 				Provider:     provider,
 				Items:        pending,
+				NewItems:     append([]coreconversation.Item(nil), pending...),
 				Continuation: &copied,
 				Mode:         coreconversation.ProjectionNativeContinuation,
 			}, nil
@@ -335,6 +336,7 @@ func (s Session) transcriptForPending(ctx context.Context, pending, localItems [
 		return coreconversation.Transcript{
 			Provider: provider,
 			Items:    append(append([]coreconversation.Item(nil), localItems...), pending...),
+			NewItems: append([]coreconversation.Item(nil), pending...),
 			Mode:     coreconversation.ProjectionFullReplay,
 		}, nil
 	}
@@ -344,6 +346,7 @@ func (s Session) transcriptForPending(ctx context.Context, pending, localItems [
 			return coreconversation.Transcript{
 				Provider: provider,
 				Items:    pending,
+				NewItems: append([]coreconversation.Item(nil), pending...),
 				Mode:     coreconversation.ProjectionFullReplay,
 			}, nil
 		}

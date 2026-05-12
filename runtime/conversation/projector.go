@@ -22,6 +22,7 @@ type ProjectionInput struct {
 // ProjectionResult is the provider transcript slice an adapter should send.
 type ProjectionResult struct {
 	Items        []coreconversation.Item              `json:"items,omitempty"`
+	NewItems     []coreconversation.Item              `json:"new_items,omitempty"`
 	Continuation *coreconversation.ContinuationHandle `json:"continuation,omitempty"`
 	Mode         coreconversation.ProjectionMode      `json:"mode"`
 }
@@ -31,6 +32,7 @@ func (r ProjectionResult) Transcript(provider coreconversation.ProviderIdentity)
 	return coreconversation.Transcript{
 		Provider:     provider,
 		Items:        append([]coreconversation.Item(nil), r.Items...),
+		NewItems:     append([]coreconversation.Item(nil), r.NewItems...),
 		Continuation: r.Continuation,
 		Mode:         r.Mode,
 	}
@@ -50,14 +52,16 @@ func Project(input ProjectionInput) (ProjectionResult, error) {
 		}
 		return ProjectionResult{
 			Items:        out,
+			NewItems:     append([]coreconversation.Item(nil), pending...),
 			Continuation: head,
 			Mode:         coreconversation.ProjectionNativeContinuation,
 		}, nil
 	}
 	out := append(items, pending...)
 	return ProjectionResult{
-		Items: out,
-		Mode:  coreconversation.ProjectionFullReplay,
+		Items:    out,
+		NewItems: append([]coreconversation.Item(nil), pending...),
+		Mode:     coreconversation.ProjectionFullReplay,
 	}, nil
 }
 

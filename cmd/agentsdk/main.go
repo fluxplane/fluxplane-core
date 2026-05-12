@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/app"
+	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/spf13/cobra"
@@ -203,12 +204,16 @@ func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts cod
 		return err
 	}
 	var usageDone <-chan []string
+	var debugDone <-chan struct{}
 	if opts.debug {
-		go printEvents(run.Events())
+		debugDone = printEvents(run.Events())
 	} else if opts.usage {
 		usageDone = collectUsageLines(run.Events())
 	}
 	result, err := run.Wait(ctx)
+	if debugDone != nil {
+		<-debugDone
+	}
 	if result.Outbound != nil && result.Outbound.Message != nil {
 		_, _ = fmt.Fprintln(os.Stdout, result.Outbound.Message.Content)
 	}
@@ -220,16 +225,37 @@ func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts cod
 	if err != nil {
 		return err
 	}
+	return resultError(result)
+}
+
+func resultError(result agentruntime.Result) error {
+	if result.Input != nil && result.Input.Status != sessionruntime.InputStatusOK {
+		if result.Input.Error != nil {
+			return fmt.Errorf("%s: %s", result.Input.Error.Code, result.Input.Error.Message)
+		}
+		return fmt.Errorf("input failed: %s", result.Input.Status)
+	}
+	if result.Command != nil && result.Command.Status != sessionruntime.CommandStatusOK {
+		if result.Command.Error != nil {
+			return fmt.Errorf("%s: %s", result.Command.Error.Code, result.Command.Error.Message)
+		}
+		return fmt.Errorf("command failed: %s", result.Command.Status)
+	}
 	return nil
 }
 
-func printEvents(events <-chan agentruntime.Event) {
-	encoder := json.NewEncoder(os.Stderr)
-	encoder.SetIndent("", "  ")
-	for event := range events {
-		fmt.Fprintln(os.Stderr, "\n[event]")
-		_ = encoder.Encode(event)
-	}
+func printEvents(events <-chan agentruntime.Event) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		encoder := json.NewEncoder(os.Stderr)
+		encoder.SetIndent("", "  ")
+		for event := range events {
+			fmt.Fprintln(os.Stderr, "\n[event]")
+			_ = encoder.Encode(event)
+		}
+	}()
+	return done
 }
 
 func collectUsageLines(events <-chan agentruntime.Event) <-chan []string {
