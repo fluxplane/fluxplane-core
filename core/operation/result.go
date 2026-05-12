@@ -25,6 +25,23 @@ type Result struct {
 	Error  *Error `json:"error,omitempty"`
 }
 
+// ModelRenderable is implemented by operation outputs that carry a stable,
+// model-facing text representation in addition to structured data.
+type ModelRenderable interface {
+	ModelText() string
+}
+
+// Rendered is the standard rich result envelope for first-party operations.
+// Text is intended for LLM transcripts and compact terminal summaries; Data is
+// the structured machine-readable payload for clients and renderers.
+type Rendered struct {
+	Text string `json:"text,omitempty"`
+	Data Value  `json:"data,omitempty"`
+}
+
+// ModelText returns the LLM-facing rendering.
+func (r Rendered) ModelText() string { return r.Text }
+
 // OK returns a successful result.
 func OK(output Value) Result {
 	return Result{Status: StatusOK, Output: output}

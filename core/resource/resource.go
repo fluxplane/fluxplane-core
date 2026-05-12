@@ -64,6 +64,7 @@ type ContributionBundle struct {
 
 	Apps             []coreapp.Spec             `json:"apps,omitempty"`
 	Agents           []agent.Spec               `json:"agents,omitempty"`
+	OperationSets    []operation.Set            `json:"operation_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
 	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
@@ -81,6 +82,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	}
 	b.Apps = append(b.Apps, other.Apps...)
 	b.Agents = append(b.Agents, other.Agents...)
+	b.OperationSets = append(b.OperationSets, other.OperationSets...)
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)
 	b.Sessions = append(b.Sessions, other.Sessions...)

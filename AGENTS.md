@@ -5,6 +5,7 @@ This file is for AI agents and developers working in
 
 For migration rationale, package disposition, historical decisions, and current
 rewrite milestones, use [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md).
+For the current security model and roadmap, use [docs/security.md](docs/security.md).
 Do not put migration decision logs in this file.
 
 ## Worktree Rules
@@ -219,6 +220,27 @@ The first real operation runtime batch must include the enforcement shape for
 sandboxing, ACL/scope checks, command-risk classification
 (`codewandler/cmdrisk` or successor), secret handling/redaction, approval
 requirements, audit events, and environment boundaries.
+
+Current concrete side-effecting operations must enter through
+`runtime/operation.SafetyEnvelope`. The first-party coder host wires
+`adapters/cmdrisk` for shell and structured network intent assessment and keeps
+operation-local checks as defense in depth. Do not add a new shell, filesystem,
+network, browser, code execution, or connector path that bypasses the safety
+envelope.
+
+Standard operation implementations must also use `runtime/system.System` for
+filesystem, network, process, browser, and human-clarification access. Do not
+import or call `os`, `os/exec`, `syscall`, `net`, `net/http`, or `net/url`
+directly from a reusable standard plugin unless the package is itself
+implementing a `System` adapter. Process operations must preserve the managed
+process boundary so stdout/stderr streaming, background process handles, and
+per-session cleanup can be enforced centrally.
+
+Prefer `runtime/operation.NewTyped` or `NewTypedResult` for new operation
+implementations. Define input/output structs with `json` and `jsonschema` tags
+and let the typed helper generate `operation.Type` JSON Schemas. Avoid
+hand-written schema strings unless a type needs a custom union or discriminator
+shape that reflection cannot express cleanly.
 
 ## Naming Rule
 

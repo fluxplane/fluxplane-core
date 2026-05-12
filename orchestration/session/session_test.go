@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -455,6 +456,124 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 }
 
+func TestExecuteInboundInputPersistsToolResultBeforeContinuationLimit(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-limit-repair"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		calls++
+		callID := "call_1"
+		input := "A100"
+		if calls == 2 {
+			callID = "call_2"
+			input = "A200"
+		}
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{{Operation: opRef, Input: input, ProviderCallID: callID}},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: []coreconversation.Item{
+					{Provider: provider, Kind: coreconversation.ItemOutput, CallID: callID, Name: "lookup", Native: json.RawMessage(`{"type":"function_call","name":"lookup","arguments":"{}"}`)},
+				},
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+		Policy:    agent.Policy{MaxContinuations: 1},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-limit-repair"}}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed {
+		t.Fatalf("status = %q, want failed after continuation limit: %#v", result.Status, result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-limit-repair"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if !threadHasToolResultCallID(stored.Events, "call_2") {
+		t.Fatalf("stored events = %#v, want repaired tool result for call_2", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-failure-repair"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		calls++
+		if calls == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: []coreconversation.Item{
+						{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "lookup A100"},
+						{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup", Native: json.RawMessage(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`)},
+					},
+				},
+			}, nil
+		}
+		return llmagent.Response{}, errors.New("continuation transport failed")
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+		Policy:    agent.Policy{MaxContinuations: 2},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-failure-repair"}}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed {
+		t.Fatalf("status = %q, want failed: %#v", result.Status, result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-failure-repair"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if !threadHasToolResultCallID(stored.Events, "call_1") {
+		t.Fatalf("stored events = %#v, want repaired tool result for call_1", stored.Events)
+	}
+}
+
 func TestExecuteInboundInputUsesStoredProviderContinuation(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -651,6 +770,19 @@ func completedCallIDs(events []event.Event) []operation.CallID {
 func hasToolResultCallID(items []coreconversation.Item, callID string) bool {
 	for _, item := range items {
 		if item.Kind == coreconversation.ItemToolResult && item.CallID == callID {
+			return true
+		}
+	}
+	return false
+}
+
+func threadHasToolResultCallID(records []corethread.Record, callID string) bool {
+	for _, record := range records {
+		payload, ok := record.Event.Payload.(coreconversation.ItemsAppended)
+		if !ok {
+			continue
+		}
+		if hasToolResultCallID(payload.Items, callID) {
 			return true
 		}
 	}

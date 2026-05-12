@@ -294,6 +294,9 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
 		if agentResult.Status != agent.StatusOK {
+			if err := s.persistRepairTranscriptItems(ctx, inbound.ID, s.providerIdentity(), pending, &localTranscript); err != nil {
+				return inputFailed("conversation_repair_failed", err.Error(), nil)
+			}
 			return InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}
 		}
 		if !stateRefIsZero(agentResult.State.Ref) {
@@ -312,12 +315,35 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		effects = append(effects, batch...)
 		if continuations >= maxContinuations {
+			if err := s.persistRepairTranscriptItems(ctx, inbound.ID, s.providerIdentity(), toolResults, &localTranscript); err != nil {
+				return inputFailed("conversation_repair_failed", err.Error(), nil)
+			}
 			return s.operationLimitResult(ctx, inbound, agentResult, effects)
 		}
 		continuations++
 		observations = append(observations, observationsForEffects(batch)...)
 		pending = toolResults
 	}
+}
+
+func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
+	if !hasToolResultTranscriptItems(items) {
+		return nil
+	}
+	copied := append([]coreconversation.Item(nil), items...)
+	if localItems != nil {
+		*localItems = append(*localItems, copied...)
+	}
+	return conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, turnID, provider, copied)
+}
+
+func hasToolResultTranscriptItems(items []coreconversation.Item) bool {
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemToolResult {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Session) transcriptForPending(ctx context.Context, pending, localItems []coreconversation.Item, localHandle *coreconversation.ContinuationHandle) (coreconversation.Transcript, error) {
@@ -427,6 +453,9 @@ func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, o
 		providerCallID = string(callID)
 	}
 	content := result.Output
+	if rendered, ok := result.Output.(operation.ModelRenderable); ok {
+		content = rendered.ModelText()
+	}
 	if result.IsError() && result.Error != nil {
 		content = map[string]any{
 			"code":    result.Error.Code,
@@ -464,7 +493,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 			if localItems != nil {
 				*localItems = append(*localItems, typed.Items...)
 			}
-			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
+			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
 				*errp = err
 			}
 		case *coreconversation.ItemsAppended:
@@ -481,7 +510,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 			if localItems != nil {
 				*localItems = append(*localItems, copied.Items...)
 			}
-			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
+			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
 				*errp = err
 			}
 		case coreconversation.ContinuationStored:
@@ -495,7 +524,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 				copied := typed.Handle
 				*localHandle = &copied
 			}
-			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
+			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
 				*errp = err
 			}
 		case *coreconversation.ContinuationStored:
@@ -513,7 +542,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 				handle := copied.Handle
 				*localHandle = &handle
 			}
-			if err := conversationruntime.Append(ctx, s.ThreadStore, s.Thread, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
+			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
 				*errp = err
 			}
 		}
@@ -958,6 +987,9 @@ func (c OperationCatalog) Resolve(ref string, scope resource.ResourceID) (Operat
 
 func outboundMessageForOperationResult(result operation.Result) channel.Message {
 	content := result.Output
+	if rendered, ok := result.Output.(operation.ModelRenderable); ok {
+		content = rendered.ModelText()
+	}
 	if result.IsError() && result.Error != nil {
 		content = result.Error.Message
 	}
@@ -1007,6 +1039,13 @@ func (s Session) appendThreadEvents(ctx context.Context, events ...event.Event) 
 	if len(records) == 0 {
 		return nil
 	}
-	_, err := s.ThreadStore.Append(ensureContext(ctx), s.Thread, records...)
+	_, err := s.ThreadStore.Append(persistenceContext(ctx), s.Thread, records...)
 	return err
+}
+
+func persistenceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }

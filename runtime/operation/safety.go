@@ -86,6 +86,9 @@ func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input 
 			return fmt.Errorf("cmdrisk_failed: %w", err)
 		}
 		if e.MaxCommandRisk != "" && !riskAllowed(risk.Level, e.MaxCommandRisk) {
+			if risk.Reason != "" {
+				return fmt.Errorf("cmdrisk_denied: %s: %s", risk.Level, risk.Reason)
+			}
 			return fmt.Errorf("cmdrisk_denied: %s", risk.Level)
 		}
 	} else if spec.Semantics.Effects.Has(operation.EffectProcess) {

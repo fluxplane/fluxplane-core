@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+## 0.2.0
+
+### Added
+
+- Standard coding plugins for browser automation, managed background
+  processes, terminal `clarify`, and terminal operation lifecycle rendering.
+- `runtime/system` boundaries for neutral HTTP requests, managed processes,
+  browser sessions, scratch directories, and human clarification.
+- Architecture guard preventing standard plugins from importing direct host IO
+  packages.
+
+### Changed
+
+- `cmd/agentsdk coder` now uses plugin-contributed operations instead of local
+  shell/http implementations.
+- `apps/coder` exposes the full coding operation set, including browser and
+  process operations, with a continuation budget of 150.
+
+### Fixed
+
+- `cmdrisk` now falls back to declared operation risk for process and browser
+  lifecycle operations that do not carry command or URL intent.
+- `file_copy` and `file_move` now copy complete files instead of using bounded
+  reads, and `file_patch` rejects oversized files before writing.
+
 ## 0.1.0
 
 ### Added

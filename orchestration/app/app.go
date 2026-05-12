@@ -37,31 +37,33 @@ type Config struct {
 // Composition is executable runtime configuration assembled from resources and
 // provided implementations.
 type Composition struct {
-	Agent             agent.Agent
-	Commands          *command.Registry
-	Operations        *operation.Registry
-	ResourceIndex     *resource.ResourceIndex
-	Resolver          *resource.Resolver
-	AppCatalog        AppCatalog
-	AgentCatalog      AgentCatalog
-	SkillCatalog      SkillCatalog
-	ContextProviders  ContextProviderCatalog
-	WorkflowCatalog   WorkflowCatalog
-	CommandCatalog    session.CommandCatalog
-	OperationCatalog  session.OperationCatalog
-	SessionCatalog    session.SessionCatalog
-	AppSpecs          []coreapp.Spec
-	AgentSpecs        []agent.Spec
-	SkillSpecs        []skill.Spec
-	ContextSpecs      []corecontext.ProviderSpec
-	WorkflowSpecs     []workflow.Spec
-	OperationSpecs    []operation.Spec
-	SessionSpecs      []coresession.Spec
-	OperationExecutor operationruntime.Executor
-	Events            event.Sink
-	ThreadStore       corethread.Store
-	Bundles           []resource.ContributionBundle
-	Diagnostics       []resource.Diagnostic
+	Agent               agent.Agent
+	Commands            *command.Registry
+	Operations          *operation.Registry
+	ResourceIndex       *resource.ResourceIndex
+	Resolver            *resource.Resolver
+	AppCatalog          AppCatalog
+	AgentCatalog        AgentCatalog
+	SkillCatalog        SkillCatalog
+	ContextProviders    ContextProviderCatalog
+	WorkflowCatalog     WorkflowCatalog
+	OperationSetCatalog OperationSetCatalog
+	CommandCatalog      session.CommandCatalog
+	OperationCatalog    session.OperationCatalog
+	SessionCatalog      session.SessionCatalog
+	AppSpecs            []coreapp.Spec
+	AgentSpecs          []agent.Spec
+	SkillSpecs          []skill.Spec
+	ContextSpecs        []corecontext.ProviderSpec
+	WorkflowSpecs       []workflow.Spec
+	OperationSets       []operation.Set
+	OperationSpecs      []operation.Spec
+	SessionSpecs        []coresession.Spec
+	OperationExecutor   operationruntime.Executor
+	Events              event.Sink
+	ThreadStore         corethread.Store
+	Bundles             []resource.ContributionBundle
+	Diagnostics         []resource.Diagnostic
 }
 
 // Compose validates and registers resource contributions with supplied and
@@ -103,6 +105,11 @@ func Compose(cfg Config) (Composition, error) {
 	workflowCatalog, workflowSpecs, workflowDiagnostic, err := collectWorkflows(bundles, index)
 	if err != nil {
 		diagnostics = append(diagnostics, workflowDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	operationSetCatalog, operationSets, operationSetDiagnostic, err := collectOperationSets(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, operationSetDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
 
@@ -190,31 +197,33 @@ func Compose(cfg Config) (Composition, error) {
 	}
 
 	return Composition{
-		Agent:             cfg.Agent,
-		Commands:          commands,
-		Operations:        operations,
-		ResourceIndex:     index,
-		Resolver:          resolver,
-		AppCatalog:        appCatalog,
-		AgentCatalog:      agentCatalog,
-		SkillCatalog:      skillCatalog,
-		ContextProviders:  contextCatalog,
-		WorkflowCatalog:   workflowCatalog,
-		CommandCatalog:    commandCatalog,
-		OperationCatalog:  operationCatalog,
-		SessionCatalog:    sessionCatalog,
-		AppSpecs:          appSpecs,
-		AgentSpecs:        agentSpecs,
-		SkillSpecs:        skillSpecs,
-		ContextSpecs:      contextSpecs,
-		WorkflowSpecs:     workflowSpecs,
-		OperationSpecs:    operationSpecs,
-		SessionSpecs:      sessionSpecs,
-		OperationExecutor: cfg.OperationExecutor,
-		Events:            cfg.Events,
-		ThreadStore:       cfg.ThreadStore,
-		Bundles:           bundles,
-		Diagnostics:       diagnostics,
+		Agent:               cfg.Agent,
+		Commands:            commands,
+		Operations:          operations,
+		ResourceIndex:       index,
+		Resolver:            resolver,
+		AppCatalog:          appCatalog,
+		AgentCatalog:        agentCatalog,
+		SkillCatalog:        skillCatalog,
+		ContextProviders:    contextCatalog,
+		WorkflowCatalog:     workflowCatalog,
+		OperationSetCatalog: operationSetCatalog,
+		CommandCatalog:      commandCatalog,
+		OperationCatalog:    operationCatalog,
+		SessionCatalog:      sessionCatalog,
+		AppSpecs:            appSpecs,
+		AgentSpecs:          agentSpecs,
+		SkillSpecs:          skillSpecs,
+		ContextSpecs:        contextSpecs,
+		WorkflowSpecs:       workflowSpecs,
+		OperationSets:       operationSets,
+		OperationSpecs:      operationSpecs,
+		SessionSpecs:        sessionSpecs,
+		OperationExecutor:   cfg.OperationExecutor,
+		Events:              cfg.Events,
+		ThreadStore:         cfg.ThreadStore,
+		Bundles:             bundles,
+		Diagnostics:         diagnostics,
 	}, nil
 }
 
@@ -315,6 +324,18 @@ func collectWorkflows(bundles []resource.ContributionBundle, index *resource.Res
 		func(spec workflow.Spec) error { return spec.Validate() },
 	)
 	return WorkflowCatalog(catalog), specs, diag, err
+}
+
+func collectOperationSets(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (OperationSetCatalog, []operation.Set, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"operation_set",
+		func(bundle resource.ContributionBundle) []operation.Set { return bundle.OperationSets },
+		func(spec operation.Set, _ resource.SourceRef) string { return spec.Name },
+		func(spec operation.Set) error { return spec.Validate() },
+	)
+	return OperationSetCatalog(catalog), specs, diag, err
 }
 
 func collectSessions(

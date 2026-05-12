@@ -316,6 +316,30 @@ shape for sandboxing, ACL/scope checks, command-risk classification
 (`codewandler/cmdrisk` or successor), secret handling/redaction, approval
 requirements, audit events, and environment boundaries.
 
+Current security model:
+
+- `runtime/operation.SafetyEnvelope` is the mandatory pre-execution boundary
+  for side-effecting operations. It composes ACL/scope checks, secret guards,
+  command-risk classification, approval policy, and sandbox checks without
+  importing concrete safety engines.
+- `adapters/cmdrisk` is the first concrete command-risk adapter. It wraps
+  `github.com/codewandler/cmdrisk`, evaluates shell commands via command
+  parsing, evaluates structured network operations via intent assessment, and
+  emits `cmdrisk.assessed` events for debug/audit streams.
+- Shell execution in `cmd/agentsdk coder` runs an executable directly, never
+  through a shell interpreter. It rejects shell syntax, rejects a small set of
+  explicitly dangerous executables as defense in depth, binds workdir to the
+  workspace root, uses a minimal environment, separates stdout/stderr, caps
+  output, and reports timeout/truncation explicitly.
+- HTTP fetch in `cmd/agentsdk coder` is GET-only, bounded by timeout and body
+  size, blocks loopback/private/link-local/multicast/metadata targets, resolves
+  DNS inside a custom dialer to reduce DNS rebinding risk, and revalidates
+  redirects.
+- This is not a full sandbox yet. The next security phase should add real
+  process isolation profiles, filesystem read/write scopes, network egress
+  policy, approval UX, secret scanning/redaction, and resource usage accounting
+  as reusable runtime/adapters rather than app-local helpers.
+
 ### Projections and Tools
 
 `operation` is the executable primitive. A projection describes how a caller or
@@ -818,11 +842,11 @@ Recommended order:
    parent/child causation.
 
 5. **Operation Safety Runtime**
-   Harden the initial safety envelope with concrete adapters before migrating
-   shell/filesystem/git/browser/web operations: sandbox execution boundary,
-   ACL/scope evaluation, `codewandler/cmdrisk` integration or successor,
-   secret handling/redaction, approval hooks, audit events, and environment
-   boundary checks.
+   Initial `codewandler/cmdrisk` integration, shell hardening, and HTTP target
+   checks exist for the coder host. Next, extract reusable sandbox/ACL/secret
+   policy from app-local helpers before migrating filesystem/git/browser/web
+   operations. Real process isolation, filesystem scopes, network egress
+   scopes, approval hooks, and resource usage events remain open.
 
 6. **CLI Client Migration**
    Rebuild the old `cmd/agentclient` shape as an app over channel clients:
@@ -947,7 +971,19 @@ Parity should be reached in small slices:
 10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with
    sandboxing, ACL, command-risk classification, approval, audit, and secret
-   handling from the start.
+   handling from the start. Done initially: `runtime/system` defines the
+   host-guarded workspace/network/process/browser/clarifier boundary;
+   `plugins/codingplugin` aggregates filesystem, web, browser, git, shell,
+   background process management, scratch `code_execute`, and `clarify`;
+   `runtime/operation.NewTyped` and `NewTypedResult` generate operation
+   input/output JSON Schemas from typed Go structs; standard operations emit
+   usage events for IO boundaries; HTML responses use the same
+   html-to-markdown library as the old implementation. The terminal coder app
+   now renders operation begin/end, process output, usage lines, and clarify
+   prompts through `adapters/terminalui`.
+   Still planned: overlay workspace commit/rollback, stronger approval UX,
+   richer web search, durable process ownership, and real sandbox backends such
+   as Docker profiles, bubblewrap, or Firecracker.
 
 11. **Phase 9: Commands and Skills Runtime**
    Execute prompt commands, support skill discovery/activation, and preserve

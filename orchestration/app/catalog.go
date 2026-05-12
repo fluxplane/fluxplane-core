@@ -4,6 +4,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
@@ -32,3 +33,6 @@ type ContextProviderCatalog map[string]ResourceBinding[corecontext.ProviderSpec]
 
 // WorkflowCatalog indexes workflow specs by canonical resource ID address.
 type WorkflowCatalog map[string]ResourceBinding[workflow.Spec]
+
+// OperationSetCatalog indexes named operation capability sets.
+type OperationSetCatalog map[string]ResourceBinding[operation.Set]

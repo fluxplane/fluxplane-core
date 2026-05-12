@@ -34,9 +34,11 @@ type AppBuilder struct {
 	source     resource.SourceRef
 	app        coreapp.Spec
 	agents     []agent.Spec
+	opSets     []operation.Set
 	operations []operation.Spec
 	commands   []command.Spec
 	sessions   []coresession.Spec
+	plugins    []resource.PluginRef
 }
 
 // WithSource sets the contribution source used for resource IDs.
@@ -89,12 +91,30 @@ func (b *AppBuilder) WithAgent(spec agent.Spec) *AppBuilder {
 	return b
 }
 
+// WithOperationSet adds an operation capability set.
+func (b *AppBuilder) WithOperationSet(set operation.Set) *AppBuilder {
+	if b == nil {
+		return b
+	}
+	b.opSets = append(b.opSets, set)
+	return b
+}
+
 // WithOperation adds an operation spec.
 func (b *AppBuilder) WithOperation(spec operation.Spec) *AppBuilder {
 	if b == nil {
 		return b
 	}
 	b.operations = append(b.operations, spec)
+	return b
+}
+
+// WithPlugin adds a plugin dependency to the app bundle.
+func (b *AppBuilder) WithPlugin(ref resource.PluginRef) *AppBuilder {
+	if b == nil {
+		return b
+	}
+	b.plugins = append(b.plugins, ref)
 	return b
 }
 
@@ -141,12 +161,14 @@ func (b *AppBuilder) Build() resource.ContributionBundle {
 		return resource.ContributionBundle{}
 	}
 	return resource.ContributionBundle{
-		Source:     b.source,
-		Apps:       []coreapp.Spec{b.app},
-		Agents:     append([]agent.Spec(nil), b.agents...),
-		Operations: append([]operation.Spec(nil), b.operations...),
-		Commands:   append([]command.Spec(nil), b.commands...),
-		Sessions:   append([]coresession.Spec(nil), b.sessions...),
+		Source:        b.source,
+		Apps:          []coreapp.Spec{b.app},
+		Agents:        append([]agent.Spec(nil), b.agents...),
+		OperationSets: append([]operation.Set(nil), b.opSets...),
+		Operations:    append([]operation.Spec(nil), b.operations...),
+		Commands:      append([]command.Spec(nil), b.commands...),
+		Sessions:      append([]coresession.Spec(nil), b.sessions...),
+		Plugins:       append([]resource.PluginRef(nil), b.plugins...),
 	}
 }
 
