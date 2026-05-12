@@ -150,7 +150,7 @@ func decodeConfig(raw map[string]any) (Config, error) {
 }
 
 func (op textOperation) ref() operation.Ref {
-	return operation.Ref{Name: operation.Name(Name + "." + op.key)}
+	return operation.Ref{Name: operation.Name(op.key)}
 }
 
 func (op textOperation) spec() operation.Spec {

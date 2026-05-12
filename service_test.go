@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	coreresource "github.com/fluxplane/agentruntime/core/resource"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -221,6 +222,68 @@ func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	}
 }
 
+func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testing.T) {
+	ctx := context.Background()
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Agent: echoAgent{},
+		Plugins: []pluginhost.Plugin{
+			resourceTestPlugin{name: "foo"},
+			resourceTestPlugin{name: "bar"},
+		},
+		Bundles: []agentruntime.ResourceBundle{{
+			Plugins: []coreresource.PluginRef{{Name: "foo"}, {Name: "bar"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "duplicate-plugin-ops"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"foo", "run"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand foo/run: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait foo/run: %v", err)
+	}
+	content, ok := result.Outbound.Message.Content.(map[string]any)
+	if !ok {
+		t.Fatalf("content = %#v, want map", result.Outbound.Message.Content)
+	}
+	if content["plugin"] != "foo" {
+		t.Fatalf("plugin = %q, want foo", content["plugin"])
+	}
+
+	run, err = sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"run"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand run: %v", err)
+	}
+	result, err = run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait run: %v", err)
+	}
+	if result.Command == nil || result.Command.Status != session.CommandStatusFailed {
+		t.Fatalf("unqualified command result = %#v, want failed ambiguity", result.Command)
+	}
+	if result.Command.Error == nil || result.Command.Error.Code != "command_resolution_failed" {
+		t.Fatalf("unqualified command error = %#v, want command_resolution_failed", result.Command.Error)
+	}
+}
+
 func assertRunEvent(t *testing.T, run agentruntime.Run, kind agentruntime.EventKind) {
 	t.Helper()
 	deadline := time.After(time.Second)
@@ -304,4 +367,37 @@ func (echoAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
 			Message: &agent.Message{Content: content},
 		},
 	}
+}
+
+type resourceTestPlugin struct {
+	name string
+}
+
+func (p resourceTestPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: p.name}
+}
+
+func (p resourceTestPlugin) Contributions(context.Context, pluginhost.Context) (agentruntime.ResourceBundle, error) {
+	return agentruntime.ResourceBundle{
+		Operations: []operation.Spec{{Ref: operation.Ref{Name: "run"}}},
+		Commands: []command.Spec{{
+			Path: command.Path{p.name, "run"},
+			Target: invocation.Target{
+				Kind:      invocation.TargetOperation,
+				Operation: operation.Ref{Name: "run"},
+			},
+			Policy: policy.InvocationPolicy{
+				AllowedCallers: []policy.CallerKind{policy.CallerUser},
+				RequiredTrust:  policy.TrustVerified,
+			},
+		}},
+	}, nil
+}
+
+func (p resourceTestPlugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+	return []operation.Operation{
+		operation.New(operation.Spec{Ref: operation.Ref{Name: "run"}}, func(_ operation.Context, input operation.Value) operation.Result {
+			return operation.OK(map[string]any{"plugin": p.name, "input": input})
+		}),
+	}, nil
 }

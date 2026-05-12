@@ -14,6 +14,27 @@ core -> runtime -> orchestration -> plugins/adapters -> apps
 Dependencies must point inward. Outer layers may depend on inner layers; inner
 layers must not depend on outer layers.
 
+Architecture import rules are executable. `internal/architecture` builds the
+package import graph from `go list`, validates layer direction, computes a
+coupling score, and renders reports. The fail-fast test remains the authority
+for violations; the report is the recurring review artifact for refactoring
+decisions.
+
+```bash
+go test ./internal/architecture
+go run ./apps/archreport
+go run ./apps/archreport -format json
+go run ./apps/archreport -format dot
+go run ./apps/archreport -format mermaid
+```
+
+The score is intentionally directional, not absolute truth. Boundary
+violations carry the largest penalty. Runtime sibling imports and high fan-out
+inside `core`, `runtime`, and `orchestration` reduce the score because they
+usually indicate concepts that want splitting or a clearer composition point.
+High fan-in to core and app/facade fan-out are reported but not treated as
+problems by themselves.
+
 ## Layer Layout
 
 ### `core/`
@@ -196,11 +217,14 @@ runtime implementations. Resource operation specs are declarations; executable
 operation implementations still come from runtime/plugin/app code. Composition
 may validate that resource commands point at available operation
 implementations, but it must not read files or choose protocol adapters.
-Composition preserves bundle and plugin-ref order for deterministic assembly,
-but it does not support implicit overrides. Duplicate operation declarations,
-duplicate executable operation names, and duplicate command paths are errors
-with source-aware diagnostics. Add an explicit override concept later only if a
-real app use case needs it.
+Composition builds a `core/resource` index and resolver. Local contribution
+names are allowed to collide when their canonical `ResourceID`s differ; only
+duplicate canonical IDs fail. Command targets are resolved in the source scope
+of the command first, then through the app resolver. Ambiguous unqualified refs
+are resolver/policy concerns, not flat-registry errors.
+Operation specs in resources are declarations. Command execution must resolve
+to an executable operation binding in the operation catalog; declaration-only
+operation specs are discoverable but do not satisfy executable command targets.
 
 `orchestration/daemon` models process/control-plane state over an already
 assembled channel client. It can list sessions and report host status, but it

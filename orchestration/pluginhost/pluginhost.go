@@ -131,8 +131,9 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 func pluginSource(ref resource.PluginRef) resource.SourceRef {
 	return resource.SourceRef{
 		ID:        "plugin:" + ref.Name,
-		Ecosystem: "plugin",
+		Ecosystem: "embedded",
 		Scope:     resource.ScopeEmbedded,
+		Location:  "plugins/" + ref.Name,
 		Ref:       ref.Name,
 		Trust: policy.Trust{
 			Kind:  policy.TrustSource,

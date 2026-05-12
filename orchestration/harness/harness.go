@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -25,6 +26,9 @@ type Config struct {
 	Agent             agent.Agent
 	Commands          *command.Registry
 	Operations        *operation.Registry
+	Resolver          *resource.Resolver
+	CommandCatalog    session.CommandCatalog
+	OperationCatalog  session.OperationCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
@@ -35,6 +39,9 @@ type Service struct {
 	agent             agent.Agent
 	commands          *command.Registry
 	operations        *operation.Registry
+	resolver          *resource.Resolver
+	commandCatalog    session.CommandCatalog
+	operationCatalog  session.OperationCatalog
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
 	threadStore       corethread.Store
@@ -52,6 +59,9 @@ func New(cfg Config) *Service {
 		agent:             cfg.Agent,
 		commands:          cfg.Commands,
 		operations:        cfg.Operations,
+		resolver:          cfg.Resolver,
+		commandCatalog:    cfg.CommandCatalog,
+		operationCatalog:  cfg.OperationCatalog,
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
@@ -254,6 +264,9 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Agent:             s.agent,
 		Commands:          s.commands,
 		Operations:        s.operations,
+		Resolver:          s.resolver,
+		CommandCatalog:    s.commandCatalog,
+		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
 		Events:            s.events,
 		ThreadStore:       s.threadStore,
@@ -294,6 +307,9 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Agent:             s.agent,
 		Commands:          s.commands,
 		Operations:        s.operations,
+		Resolver:          s.resolver,
+		CommandCatalog:    s.commandCatalog,
+		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
 		Events:            s.events,
 		ThreadStore:       s.threadStore,

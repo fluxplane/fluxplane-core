@@ -38,6 +38,17 @@ apps -> plugins/adapters -> orchestration -> runtime -> core
 `adapters` only when the plugin's purpose requires it. Plugin contracts should
 not live in plugin implementation packages.
 
+`internal/architecture` and `apps/archreport` make this dependency direction
+observable. Use the test for hard violations and the report for recurring
+refactoring review:
+
+```bash
+go test ./internal/architecture
+go run ./apps/archreport
+go run ./apps/archreport -format json
+go run ./apps/archreport -format dot
+```
+
 ## Naming
 
 The selected module path is:
@@ -220,8 +231,9 @@ Implemented and green:
 - `adapters/httpssechannel`: remote JSON + SSE channel adapter preserving the
   same client/session/run API.
 - `orchestration/app`: resource/app composition over supplied runtime
-  implementations, with fail-closed duplicate handling and source-aware
-  diagnostics for operation specs, executable operations, and command paths.
+  implementations, backed by `core/resource` identities, indexes, resolver,
+  command catalog, and operation catalog. Duplicate short names may coexist
+  when canonical resource IDs differ.
 - `orchestration/pluginhost`: minimal plugin contribution contract and plugin
   ref resolution into resource bundles plus optional executable operation
   implementations. Plugin bundles now receive plugin source refs when the
@@ -256,9 +268,13 @@ Important contract decisions from this slice:
 - Resource operation specs are declarations. Executable operation
   implementations come from runtime/plugin/app code and are matched during app
   composition.
-- App composition preserves contribution order, but ambiguous overrides are not
-  supported yet. Duplicate operation specs, executable operations, and command
-  paths fail closed with diagnostics instead of being silently shadowed.
+- App composition treats local names as local and `ResourceID`s as global.
+  Duplicate short names may coexist across origins/namespaces; duplicate
+  canonical IDs fail. Command targets resolve in the command source scope first
+  and then through the app resolver.
+- Resource operation specs are discoverable declarations. Executable command
+  targets must resolve to an operation catalog binding, not merely to a
+  declaration-only spec.
 - Real side-effecting operations must enter through the operation safety
   envelope from their first migration batch.
 
@@ -324,10 +340,10 @@ Recommended order:
 
 1. **Plugin Contribution Hardening**
    The second low-risk plugin now proves plugin-owned config and multiple
-   contribution ordering. Diagnostics, duplicate handling, and fail-closed
-   precedence now exist for app composition. Next, add richer diagnostic
-   aggregation and explicit override semantics only if a concrete app needs
-   them.
+   contribution ordering. Resource identity, indexing, scoped resolution, and
+   catalogs now exist for app composition. Next, add richer diagnostic
+   aggregation and explicit alias/precedence configuration when a concrete app
+   needs them.
 
 2. **Resource Format Expansion**
    Extend `adapters/resourcefs` only where app composition needs it next:

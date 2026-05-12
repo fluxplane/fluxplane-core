@@ -20,6 +20,7 @@ const (
 	ScopeUser     Scope = "user"
 	ScopeEmbedded Scope = "embedded"
 	ScopeRemote   Scope = "remote"
+	ScopeExplicit Scope = "explicit"
 )
 
 // SourceRef describes a resource source without implying how it was loaded.

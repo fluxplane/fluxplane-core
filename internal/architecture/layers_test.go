@@ -1,82 +1,65 @@
 package architecture_test
 
 import (
-	"encoding/json"
-	"os/exec"
-	"strings"
+	"context"
 	"testing"
+	"time"
+
+	"github.com/fluxplane/agentruntime/internal/architecture"
 )
 
-const modulePath = "github.com/fluxplane/agentruntime"
-
-type listedPackage struct {
-	ImportPath string
-	Imports    []string
-}
-
 func TestLayerImportsPointInward(t *testing.T) {
-	packages := listPackages(t)
-	for _, pkg := range packages {
-		layer := layerOf(pkg.ImportPath)
-		if layer == "" {
-			continue
-		}
-		for _, imported := range pkg.Imports {
-			importedLayer := layerOf(imported)
-			if importedLayer == "" {
-				continue
-			}
-			if !allowedImport(layer, importedLayer) {
-				t.Fatalf("%s package %s imports outer %s package %s", layer, pkg.ImportPath, importedLayer, imported)
-			}
-		}
-	}
-}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 
-func listPackages(t *testing.T) []listedPackage {
-	t.Helper()
-	cmd := exec.Command("go", "list", "-json", "./...")
-	raw, err := cmd.Output()
+	packages, err := architecture.LoadGoList(ctx, "../..")
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			t.Fatalf("go list failed: %v\n%s", err, string(exitErr.Stderr))
+		t.Fatal(err)
+	}
+	report := architecture.Analyze(packages, architecture.Config{
+		ModulePath: architecture.DefaultModulePath,
+	})
+	if len(report.Violations) > 0 {
+		for _, violation := range report.Violations {
+			t.Errorf("%s imports %s: %s", violation.From, violation.To, violation.Reason)
 		}
-		t.Fatalf("go list failed: %v", err)
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	var packages []listedPackage
-	for decoder.More() {
-		var pkg listedPackage
-		if err := decoder.Decode(&pkg); err != nil {
-			t.Fatalf("decode go list output: %v", err)
-		}
-		packages = append(packages, pkg)
-	}
-	return packages
-}
-
-func layerOf(importPath string) string {
-	if !strings.HasPrefix(importPath, modulePath+"/") {
-		return ""
-	}
-	rest := strings.TrimPrefix(importPath, modulePath+"/")
-	layer, _, _ := strings.Cut(rest, "/")
-	switch layer {
-	case "core", "runtime", "orchestration", "adapters", "plugins", "apps":
-		return layer
-	default:
-		return ""
 	}
 }
 
-func allowedImport(from, to string) bool {
-	rank := map[string]int{
-		"core":          0,
-		"runtime":       1,
-		"orchestration": 2,
-		"adapters":      3,
-		"plugins":       3,
-		"apps":          4,
+func TestAnalyzeReportsViolationsAndScore(t *testing.T) {
+	packages := []architecture.ListedPackage{
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/core/operation",
+			Imports:    []string{"github.com/fluxplane/agentruntime/runtime/operation"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/runtime/operation",
+			Imports:    []string{"github.com/fluxplane/agentruntime/core/operation"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/adapters/slack",
+			Imports:    []string{"github.com/fluxplane/agentruntime/plugins/slackplugin"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/plugins/slackplugin",
+			Imports:    []string{"github.com/fluxplane/agentruntime/adapters/slack"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/apps/devclient",
+			Imports:    []string{"github.com/fluxplane/agentruntime"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime",
+			Imports:    []string{"github.com/fluxplane/agentruntime/apps/devclient"},
+		},
 	}
-	return rank[to] <= rank[from]
+	report := architecture.Analyze(packages, architecture.Config{
+		ModulePath: architecture.DefaultModulePath,
+	})
+	if len(report.Violations) != 3 {
+		t.Fatalf("violations = %d, want 3", len(report.Violations))
+	}
+	if report.Summary.Score >= 100 {
+		t.Fatalf("score = %d, want penalty", report.Summary.Score)
+	}
 }

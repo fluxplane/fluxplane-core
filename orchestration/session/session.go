@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -12,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -24,11 +27,35 @@ type Session struct {
 	Agent             agent.Agent
 	Commands          *command.Registry
 	Operations        *operation.Registry
+	Resolver          *resource.Resolver
+	CommandCatalog    CommandCatalog
+	OperationCatalog  OperationCatalog
 	OperationExecutor operationruntime.Executor
 	Events            event.Sink
 	ThreadStore       corethread.Store
 	Thread            corethread.Ref
 }
+
+// OperationBinding binds a canonical operation resource to an executable
+// implementation.
+type OperationBinding struct {
+	ID        resource.ResourceID `json:"id"`
+	Operation operation.Operation `json:"-"`
+}
+
+// OperationCatalog binds canonical operation resource IDs to executable
+// implementations.
+type OperationCatalog map[string]OperationBinding
+
+// CommandBinding binds a command contribution to its resolved target.
+type CommandBinding struct {
+	ID          resource.ResourceID `json:"id"`
+	Spec        command.Spec        `json:"spec"`
+	OperationID resource.ResourceID `json:"operation_id,omitempty"`
+}
+
+// CommandCatalog binds canonical command resource IDs to command specs.
+type CommandCatalog map[string]CommandBinding
 
 // StepRequest describes one agent step request.
 type StepRequest struct {
@@ -81,6 +108,15 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 }
 
 func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input operation.Value) environment.EffectResult {
+	if len(s.OperationCatalog) > 0 {
+		binding, err := s.OperationCatalog.Resolve(ref.String(), resource.ResourceID{})
+		if err != nil {
+			return operationEffect(operation.Failed("operation_resolution_failed", err.Error(), map[string]any{
+				"operation": ref.String(),
+			}))
+		}
+		return s.executeOperation(ctx, binding.Operation, input)
+	}
 	if s.Operations == nil {
 		return environment.EffectResult{Result: operation.Failed("operation_registry_missing", "operation registry is nil", nil)}
 	}
@@ -90,15 +126,7 @@ func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input 
 			"operation": ref.String(),
 		})}
 	}
-	result := s.OperationExecutor.Execute(ctx, op, input)
-	return environment.EffectResult{
-		Result: result,
-		Observation: environment.Observation{
-			Source:  "operation",
-			Kind:    "operation.result",
-			Content: result,
-		},
-	}
+	return s.executeOperation(ctx, op, input)
 }
 
 func (s Session) eventSink() event.Sink {
@@ -313,14 +341,26 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	}); err != nil {
 		return commandFailed("thread_append_failed", err.Error(), nil)
 	}
-	if s.Commands == nil {
+	if s.Commands == nil && len(s.CommandCatalog) == 0 {
 		return commandFailed("command_registry_missing", "command registry is nil", nil)
 	}
-	spec, ok := s.Commands.Resolve(inbound.Command.Path)
-	if !ok {
-		return commandFailed("command_not_found", "command not found", map[string]any{
+	binding, ok, err := s.resolveCommandBinding(inbound.Command.Path)
+	if err != nil {
+		return commandFailed("command_resolution_failed", err.Error(), map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
+	}
+	spec := binding.Spec
+	if !ok {
+		var found bool
+		if s.Commands != nil {
+			spec, found = s.Commands.Resolve(inbound.Command.Path)
+		}
+		if !found {
+			return commandFailed("command_not_found", "command not found", map[string]any{
+				"path": inbound.Command.Path.String(),
+			})
+		}
 	}
 	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
 	switch evaluation.Decision {
@@ -342,7 +382,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		}); err != nil {
 			return commandFailed("thread_append_failed", err.Error(), nil)
 		}
-		effect := s.applyOperation(opCtx, spec.Target.Operation, inbound.Command.Input)
+		effect := s.applyBoundOperation(opCtx, binding, spec.Target.Operation, inbound.Command.Input)
 		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
 			RunID:     inbound.ID,
 			Operation: spec.Target.Operation,
@@ -372,6 +412,95 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 			},
 		}
 	}
+}
+
+func (s Session) resolveCommandBinding(path command.Path) (CommandBinding, bool, error) {
+	if s.Resolver == nil || len(s.CommandCatalog) == 0 {
+		return CommandBinding{}, false, nil
+	}
+	ref := commandPathRef(path)
+	id, err := s.Resolver.Resolve("command", ref)
+	if err != nil {
+		return CommandBinding{}, false, err
+	}
+	binding, ok := s.CommandCatalog[id.Address()]
+	return binding, ok, nil
+}
+
+func commandPathRef(path command.Path) string {
+	if len(path) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(path))
+	for _, part := range path {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ":") + ":" + parts[len(parts)-1]
+}
+
+func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBinding, fallback operation.Ref, input operation.Value) environment.EffectResult {
+	if !binding.OperationID.IsZero() && len(s.OperationCatalog) > 0 {
+		if operationBinding, ok := s.OperationCatalog[binding.OperationID.Address()]; ok {
+			return s.executeOperation(ctx, operationBinding.Operation, input)
+		}
+		return operationEffect(operation.Failed("operation_not_bound", "command target operation is not bound to an implementation", map[string]any{
+			"operation":   fallback.String(),
+			"resource_id": binding.OperationID.Address(),
+		}))
+	}
+	return s.applyOperation(ctx, fallback, input)
+}
+
+func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value) environment.EffectResult {
+	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
+}
+
+func operationEffect(result operation.Result) environment.EffectResult {
+	return environment.EffectResult{
+		Result: result,
+		Observation: environment.Observation{
+			Source:  "operation",
+			Kind:    "operation.result",
+			Content: result,
+		},
+	}
+}
+
+// Resolve resolves an executable operation binding from catalog.
+func (c OperationCatalog) Resolve(ref string, scope resource.ResourceID) (OperationBinding, error) {
+	if len(c) == 0 {
+		return OperationBinding{}, fmt.Errorf("operation catalog is empty")
+	}
+	index := resource.NewResourceIndex()
+	for _, binding := range c {
+		index.Add(binding.ID)
+	}
+	resolver := resource.NewResolver(resource.ResolverConfig{Index: index})
+	var (
+		id  resource.ResourceID
+		err error
+	)
+	if scope.IsZero() {
+		id, err = resolver.Resolve("operation", ref)
+	} else {
+		id, err = resolver.ResolveInScope("operation", ref, scope)
+	}
+	if err != nil {
+		return OperationBinding{}, err
+	}
+	binding, ok := c[id.Address()]
+	if !ok {
+		return OperationBinding{}, fmt.Errorf("resolved operation %q is not bound to an implementation", id.Address())
+	}
+	return binding, nil
 }
 
 func outboundMessageForOperationResult(result operation.Result) channel.Message {

@@ -17,6 +17,7 @@ import (
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -70,6 +71,9 @@ type Config struct {
 	Agent             agent.Agent
 	Commands          *command.Registry
 	Operations        *operation.Registry
+	Resolver          *resource.Resolver
+	CommandCatalog    session.CommandCatalog
+	OperationCatalog  session.OperationCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
@@ -110,6 +114,9 @@ func New(cfg Config) (*Service, error) {
 		Agent:             cfg.Agent,
 		Commands:          commands,
 		Operations:        operations,
+		Resolver:          cfg.Resolver,
+		CommandCatalog:    cfg.CommandCatalog,
+		OperationCatalog:  cfg.OperationCatalog,
 		OperationExecutor: executor,
 		Events:            cfg.Events,
 		ThreadStore:       threadStore,
@@ -137,6 +144,15 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.Operations == nil {
 		cfg.Operations = composition.Operations
+	}
+	if cfg.Resolver == nil {
+		cfg.Resolver = composition.Resolver
+	}
+	if cfg.CommandCatalog == nil {
+		cfg.CommandCatalog = composition.CommandCatalog
+	}
+	if cfg.OperationCatalog == nil {
+		cfg.OperationCatalog = composition.OperationCatalog
 	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor

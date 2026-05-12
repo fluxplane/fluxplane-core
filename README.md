@@ -9,6 +9,17 @@ The repository is organized around a strict dependency direction:
 core -> runtime -> orchestration -> adapters/plugins -> apps
 ```
 
+The rewrite includes an architecture import report that turns this rule into a
+repeatable fitness check:
+
+```bash
+go run ./apps/archreport
+go run ./apps/archreport -format dot
+```
+
+The report emits a score, layer summaries, fan-in/fan-out hot spots, violations,
+and renderable graph formats.
+
 Current seed packages:
 
 - root `agentruntime` — public in-process service facade for library
@@ -66,9 +77,12 @@ Local resource apps currently use an `agentruntime.json` manifest. The first
 supported shape is command declarations over operation implementations supplied
 by the host application, plus plugin refs that contribute commands and
 operations.
-Composition preserves manifest and plugin-ref order, but ambiguous overrides
-are rejected: duplicate command paths, operation declarations, and executable
-operation names fail with diagnostics instead of silently shadowing each other.
+Composition gives each contribution a canonical resource identity. Duplicate
+short names can coexist across origins/namespaces, for example
+`embedded:plugins/foo:run` and `embedded:plugins/bar:run`. Identical canonical
+IDs fail; ambiguous unqualified refs are handled by the resource resolver.
+Operation specs are declarations; commands execute only when their target
+resolves to a bound operation implementation.
 
 ```json
 {
