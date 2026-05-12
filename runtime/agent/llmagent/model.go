@@ -25,6 +25,13 @@ type StreamingModel interface {
 	Stream(context.Context, Request, StreamFunc) (Response, error)
 }
 
+// ProviderIdentityModel exposes the provider identity a model will use for a
+// request. Adapters implement this when lifecycle events should identify the
+// concrete provider before the response is available.
+type ProviderIdentityModel interface {
+	ProviderIdentity(Request) coreconversation.ProviderIdentity
+}
+
 // ModelFunc adapts a function into a model implementation.
 type ModelFunc func(context.Context, Request) (Response, error)
 

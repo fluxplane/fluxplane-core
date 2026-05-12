@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+### Added
+
+- Markdown-backed terminal streaming for `agentsdk coder` assistant text,
+  reasoning summaries, and debug JSON event fences.
+- Generic coder provider/model selection with `--provider` and
+  `--model provider/model`.
+- Codex Responses provider wiring using local Codex OAuth credentials from
+  `~/.codex/auth.json` or `CODEX_AUTH_PATH`.
+- `codewandler/modeldb` catalog bridge for provider/model capability and
+  pricing metadata.
+- Network byte usage records for OpenAI-compatible LLM provider HTTP uploads
+  and downloads.
+
+### Changed
+
+- `apps/coder` now defaults to `gpt-5.5`.
+- OpenAI-compatible provider config now defaults to automatic best-effort
+  stored-response continuation and max prompt caching.
+- LLM lifecycle events now include the concrete provider name.
+- Removed the OpenAI-specific `--openai-store` CLI flag.
+
+### Fixed
+
+- Direct-channel run events are now forwarded while a run is executing instead
+  of being drained only after completion, so terminal streaming is live.
+- Codex/OpenAI reasoning and commentary-phase deltas now stream through the
+  markdown terminal renderer, and final-answer detection ignores commentary
+  phase message output.
+- Assistant content streaming now writes each markdown delta once instead of
+  replaying accumulated content while rendering.
 
 ## 0.2.0
 

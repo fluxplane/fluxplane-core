@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +12,9 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
 	cmdriskadapter "github.com/fluxplane/agentruntime/adapters/cmdrisk"
+	codexadapter "github.com/fluxplane/agentruntime/adapters/codex"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
+	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/apps/coder"
@@ -49,10 +50,10 @@ func newRootCommand() *cobra.Command {
 }
 
 type coderOptions struct {
-	model       string
-	debug       bool
-	usage       bool
-	openAIStore bool
+	provider string
+	model    string
+	debug    bool
+	usage    bool
 }
 
 func newCoderCommand() *cobra.Command {
@@ -69,10 +70,10 @@ func newCoderCommand() *cobra.Command {
 			return runCoder(cmd.Context(), opts, prompt)
 		},
 	}
-	cmd.PersistentFlags().StringVar(&opts.model, "model", coder.DefaultModel, "OpenAI model")
-	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as JSON")
+	cmd.PersistentFlags().StringVar(&opts.provider, "provider", "openai", "model provider")
+	cmd.PersistentFlags().StringVar(&opts.model, "model", coder.DefaultModel, "model name or provider/model")
+	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
-	cmd.PersistentFlags().BoolVar(&opts.openAIStore, "openai-store", false, "store OpenAI responses and continue with previous_response_id")
 	cmd.AddCommand(newCoderReplCommand(&opts))
 	return cmd
 }
@@ -130,12 +131,8 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 	if err != nil {
 		return nil, err
 	}
-	model, err := openaiadapter.New(openaiadapter.Config{
-		Model:             opts.model,
-		Store:             opts.openAIStore,
-		ParallelToolCalls: true,
-		Redactor:          debugRedactor(opts.debug),
-	})
+	selection := resolveModelSelection(opts)
+	model, err := newCoderModel(selection, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +147,7 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 	} else if opts.debug {
 		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
 	}
-	bundle := coderBundle(opts.model)
+	bundle := coderBundle(selection.Provider, selection.Model)
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{bundle},
 		Plugins: []pluginhost.Plugin{
@@ -201,7 +198,7 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 	return session, nil
 }
 
-func coderBundle(model string) agentruntime.ResourceBundle {
+func coderBundle(provider, model string) agentruntime.ResourceBundle {
 	bundle := coder.Bundle()
 	if model == "" {
 		return bundle
@@ -213,6 +210,7 @@ func coderBundle(model string) agentruntime.ResourceBundle {
 	}
 	for i := range bundle.Apps {
 		if bundle.Apps[i].Name == coder.AppName {
+			bundle.Apps[i].Model.Provider = provider
 			bundle.Apps[i].Model.Model = model
 		}
 	}
@@ -224,17 +222,18 @@ func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts cod
 	if err != nil {
 		return err
 	}
-	var eventsDone <-chan struct{}
+	var eventsDone <-chan bool
 	if opts.debug {
 		eventsDone = printEvents(run.Events())
 	} else {
 		eventsDone = renderEvents(run.Events(), opts.usage)
 	}
 	result, err := run.Wait(ctx)
+	streamed := false
 	if eventsDone != nil {
-		<-eventsDone
+		streamed = <-eventsDone
 	}
-	if result.Outbound != nil && result.Outbound.Message != nil {
+	if !streamed && result.Outbound != nil && result.Outbound.Message != nil {
 		_, _ = fmt.Fprintln(os.Stdout, result.Outbound.Message.Content)
 	}
 	if err != nil {
@@ -259,28 +258,31 @@ func resultError(result agentruntime.Result) error {
 	return nil
 }
 
-func printEvents(events <-chan agentruntime.Event) <-chan struct{} {
-	done := make(chan struct{})
+func printEvents(events <-chan agentruntime.Event) <-chan bool {
+	done := make(chan bool, 1)
 	go func() {
-		defer close(done)
-		encoder := json.NewEncoder(os.Stderr)
-		encoder.SetIndent("", "  ")
+		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, true)
 		for event := range events {
-			fmt.Fprintln(os.Stderr, "\n[event]")
-			_ = encoder.Encode(event)
+			renderer.RenderDebug(event)
+			renderer.Render(event)
 		}
+		renderer.Finish()
+		done <- renderer.HasStreamedContent()
+		close(done)
 	}()
 	return done
 }
 
-func renderEvents(events <-chan agentruntime.Event, showUsage bool) <-chan struct{} {
-	done := make(chan struct{})
+func renderEvents(events <-chan agentruntime.Event, showUsage bool) <-chan bool {
+	done := make(chan bool, 1)
 	go func() {
-		defer close(done)
 		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, showUsage)
 		for event := range events {
 			renderer.Render(event)
 		}
+		renderer.Finish()
+		done <- renderer.HasStreamedContent()
+		close(done)
 	}()
 	return done
 }
@@ -294,17 +296,58 @@ func workspaceRoot() (string, error) {
 }
 
 func debugStreamPolicy(debug bool) llmagent.StreamPolicy {
-	if !debug {
-		return llmagent.StreamPolicy{}
-	}
-	return llmagent.StreamPolicy{EmitContent: true, EmitThinking: true, EmitToolCall: true}
+	return llmagent.StreamPolicy{EmitContent: true, EmitThinking: true, EmitToolCall: debug}
 }
 
 func debugRedactor(debug bool) adapterllm.Redactor {
 	if !debug {
-		return adapterllm.Redactor{}
+		return adapterllm.Redactor{ExposeThinkingSummary: true}
 	}
-	return adapterllm.Redactor{ExposeThinking: true, ExposeToolArgs: true}
+	return adapterllm.Redactor{ExposeThinking: true, ExposeThinkingSummary: true, ExposeToolArgs: true}
+}
+
+type modelSelection struct {
+	Provider string
+	Model    string
+}
+
+func resolveModelSelection(opts coderOptions) modelSelection {
+	provider := strings.TrimSpace(opts.provider)
+	if provider == "" {
+		provider = "openai"
+	}
+	model := strings.TrimSpace(opts.model)
+	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
+		provider = before
+		model = after
+	}
+	if model == "" {
+		model = coder.DefaultModel
+	}
+	return modelSelection{Provider: provider, Model: model}
+}
+
+func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model, error) {
+	_, _, _ = modelcatalog.Find(selection.Provider, selection.Model)
+	runtime := openaiadapter.DefaultResponsesRuntimeConfig()
+	switch selection.Provider {
+	case "openai":
+		return openaiadapter.New(openaiadapter.Config{
+			Model:             selection.Model,
+			Runtime:           runtime,
+			ParallelToolCalls: true,
+			Redactor:          debugRedactor(opts.debug),
+		})
+	case "codex":
+		return codexadapter.New(codexadapter.Config{
+			Model:             selection.Model,
+			Runtime:           runtime,
+			ParallelToolCalls: true,
+			Redactor:          debugRedactor(opts.debug),
+		})
+	default:
+		return nil, fmt.Errorf("unknown provider %q", selection.Provider)
+	}
 }
 
 type localSandbox struct {

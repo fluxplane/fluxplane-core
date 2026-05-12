@@ -8,8 +8,9 @@ import (
 // Redactor controls which provider-normalized stream data is exposed through
 // runtime model streaming events.
 type Redactor struct {
-	ExposeThinking bool
-	ExposeToolArgs bool
+	ExposeThinking        bool
+	ExposeThinkingSummary bool
+	ExposeToolArgs        bool
 }
 
 // ToRuntimeStream converts and redacts a provider-normalized stream event into
@@ -25,12 +26,13 @@ func (r Redactor) ToRuntimeStream(evt StreamEvent) (llmagent.StreamEvent, bool) 
 			Final: evt.Final,
 		}, true
 	case StreamThinkingDelta:
-		if !r.ExposeThinking {
+		sensitivity := policy.NormalizeSensitivity(evt.Sensitivity)
+		if !r.ExposeThinking && (!r.ExposeThinkingSummary || sensitivity != policy.SensitivityInternal) {
 			return llmagent.StreamEvent{}, false
 		}
 		text := evt.Text
 		redaction := evt.Redaction
-		if redaction == "" && policy.NormalizeSensitivity(evt.Sensitivity) != policy.SensitivityPublic {
+		if redaction == "" && !r.ExposeThinking && sensitivity != policy.SensitivityInternal && sensitivity != policy.SensitivityPublic {
 			text = ""
 			redaction = "thinking_redacted"
 		}

@@ -41,6 +41,17 @@ type Config struct {
 	// BaseURL overrides OPENAI_BASE_URL when set. Only use trusted endpoints.
 	BaseURL string
 
+	// ProviderName identifies the provider in transcripts and usage records.
+	// Empty defaults to openai.
+	ProviderName string
+
+	// APIName identifies the provider API in transcripts. Empty defaults to
+	// openai.responses.
+	APIName string
+
+	// Runtime controls shared OpenAI Responses-compatible behavior.
+	Runtime ResponsesRuntimeConfig
+
 	// Store controls OpenAI response storage. The adapter sends this explicitly
 	// and defaults to false.
 	Store bool
@@ -52,12 +63,19 @@ type Config struct {
 	// Redactor controls which provider stream details may be exposed through
 	// runtime stream events.
 	Redactor adapterllm.Redactor
+
+	// RequestOptions appends low-level OpenAI SDK options such as provider
+	// middleware. Prefer higher-level config when adding new behavior.
+	RequestOptions []option.RequestOption
 }
 
 // Model implements runtime/agent/llmagent.Model using OpenAI Responses.
 type Model struct {
 	client            openai.Client
 	model             string
+	provider          string
+	api               string
+	runtime           ResponsesRuntimeConfig
 	store             bool
 	parallelToolCalls bool
 	redactor          adapterllm.Redactor
@@ -72,10 +90,20 @@ func New(cfg Config) (*Model, error) {
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
+	opts = append(opts, cfg.RequestOptions...)
+	opts = append(opts, option.WithMiddleware(httpUsageMiddleware()))
+	runtime := cfg.Runtime.withDefaults()
+	store := cfg.Store
+	if runtime.Continuation != ResponsesContinuationReplay {
+		store = true
+	}
 	return &Model{
 		client:            openai.NewClient(opts...),
 		model:             strings.TrimSpace(cfg.Model),
-		store:             cfg.Store,
+		provider:          normalizeProvider(cfg.ProviderName),
+		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
+		runtime:           runtime,
+		store:             store,
 		parallelToolCalls: cfg.ParallelToolCalls,
 		redactor:          cfg.Redactor,
 	}, nil
@@ -87,6 +115,8 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
+	httpUsage := newHTTPUsageCollector()
+	ctx = contextWithHTTPUsage(ctx, httpUsage)
 	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
@@ -98,11 +128,12 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	if resp == nil {
 		return llmagent.Response{}, errors.New("openai: nil response")
 	}
-	out, err := responseFromOpenAI(*resp, tools, openAIProviderIdentity(m.modelName(req)), m.store)
+	out, err := responseFromOpenAI(*resp, tools, m.providerIdentity(m.modelName(req)), m.store)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
+	out.Usage = append(out.Usage, httpUsageRecord(m.providerIdentity(m.modelName(req)), httpUsage)...)
 	return out, nil
 }
 
@@ -112,6 +143,8 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if m == nil {
 		return llmagent.Response{}, errors.New("openai: model is nil")
 	}
+	httpUsage := newHTTPUsageCollector()
+	ctx = contextWithHTTPUsage(ctx, httpUsage)
 	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
@@ -119,14 +152,17 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	stream := m.client.Responses.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
-	toolNames := map[int]tool.Name{}
+	streamState := openAIStreamState{
+		toolNames:    map[int]tool.Name{},
+		outputPhases: map[int]string{},
+	}
 	var final responses.Response
 	for stream.Next() {
 		evt := stream.Current()
 		if evt.Type == "response.completed" {
 			final = evt.AsResponseCompleted().Response
 		}
-		for _, normalized := range m.streamEvents(evt, toolNames) {
+		for _, normalized := range m.streamEvents(evt, &streamState) {
 			if runtimeEvent, ok := m.redactor.ToRuntimeStream(normalized); ok && emit != nil {
 				emit(runtimeEvent)
 			}
@@ -138,11 +174,14 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	if final.ID == "" {
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
-	out, err := responseFromOpenAI(final, tools, openAIProviderIdentity(m.modelName(req)), m.store)
+	provider := m.providerIdentity(m.modelName(req))
+	out, err := responseFromOpenAI(final, tools, provider, m.store)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
+	out = applyStreamedContentFallback(out, provider, &streamState)
+	out.Usage = append(out.Usage, httpUsageRecord(provider, httpUsage)...)
 	return out, nil
 }
 
@@ -155,10 +194,18 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		Model:             shared.ResponsesModel(model),
 		Store:             openai.Bool(m.store),
 		ParallelToolCalls: openai.Bool(m.parallelToolCalls),
+		Reasoning: shared.ReasoningParam{
+			Summary: shared.ReasoningSummaryAuto,
+		},
+	}
+	if m.runtime.Cache != ResponsesCacheOff {
+		params.PromptCacheKey = openai.String(promptCacheKey(m.provider, model, req))
+		params.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
+		params.Include = append(params.Include, responses.ResponseIncludableReasoningEncryptedContent)
 	}
 	var sentItems []coreconversation.Item
 	if req.Transcript != nil && !req.Transcript.Empty() {
-		provider := openAIProviderIdentity(model)
+		provider := m.providerIdentity(model)
 		transcript := *req.Transcript
 		transcript.Provider = provider
 		inputItems, _, err := inputItemsFromTranscript(transcript.Provider, transcript.Items)
@@ -174,7 +221,7 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
 		}
-		if req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID() {
+		if m.runtime.Continuation != ResponsesContinuationReplay && req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID() {
 			params.PreviousResponseID = openai.String(req.Transcript.Continuation.ResponseID)
 		}
 	} else {
@@ -212,6 +259,27 @@ func (m *Model) modelName(req llmagent.Request) string {
 		return strings.TrimSpace(req.Driver.Model.Model)
 	}
 	return strings.TrimSpace(req.Agent.Inference.Model)
+}
+
+// ProviderIdentity reports the provider identity this adapter will use for req.
+func (m *Model) ProviderIdentity(req llmagent.Request) coreconversation.ProviderIdentity {
+	if m == nil {
+		return coreconversation.ProviderIdentity{}
+	}
+	return m.providerIdentity(m.modelName(req))
+}
+
+func (m *Model) providerIdentity(model string) coreconversation.ProviderIdentity {
+	api := m.api
+	if api == "" {
+		api = "openai.responses"
+	}
+	return coreconversation.ProviderIdentity{
+		Provider: m.provider,
+		API:      api,
+		Family:   "responses",
+		Model:    model,
+	}
 }
 
 func toolParams(tools []adapterllm.ToolSpec) ([]responses.ToolUnionParam, error) {
@@ -321,7 +389,7 @@ func transcriptContentString(content any) string {
 }
 
 func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool) (llmagent.Response, error) {
-	recordedUsage := usageFromOpenAI(resp)
+	recordedUsage := usageFromOpenAI(resp, provider)
 	transcript := responseTranscript(resp, provider, store)
 	assembler := adapterllm.NewToolCallAssembler(tools)
 	var operations []agent.OperationRequest
@@ -348,7 +416,7 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 		out.Transcript = transcript
 		return out, nil
 	}
-	if text := strings.TrimSpace(resp.OutputText()); text != "" {
+	if text := strings.TrimSpace(responseFinalText(resp)); text != "" {
 		out := llmagent.MessageResponse(text)
 		out.Usage = recordedUsage
 		out.Transcript = transcript
@@ -373,7 +441,8 @@ func responseTranscript(resp responses.Response, provider coreconversation.Provi
 			Native:   json.RawMessage(output.RawJSON()),
 		}
 		if output.Type == "message" {
-			item.Content = resp.OutputText()
+			item.Content = outputMessageText(output)
+			item.Phase = outputPhase(output)
 		}
 		items = append(items, item)
 	}
@@ -410,22 +479,166 @@ func outputRole(output responses.ResponseOutputItemUnion) string {
 	return ""
 }
 
+func outputPhase(output responses.ResponseOutputItemUnion) string {
+	if output.Type != "message" {
+		return ""
+	}
+	return string(output.AsMessage().Phase)
+}
+
+func outputMessageText(output responses.ResponseOutputItemUnion) string {
+	if output.Type != "message" {
+		return ""
+	}
+	var out strings.Builder
+	for _, part := range output.AsMessage().Content {
+		if part.Type == "output_text" && part.Text != "" {
+			out.WriteString(part.Text)
+		}
+	}
+	return out.String()
+}
+
+func responseFinalText(resp responses.Response) string {
+	hasFinalPhase := false
+	var final strings.Builder
+	var unphased strings.Builder
+	for _, output := range resp.Output {
+		if output.Type != "message" {
+			continue
+		}
+		text := outputMessageText(output)
+		switch outputPhase(output) {
+		case "final_answer":
+			hasFinalPhase = true
+			final.WriteString(text)
+		case "":
+			unphased.WriteString(text)
+		}
+	}
+	if hasFinalPhase {
+		return final.String()
+	}
+	return unphased.String()
+}
+
 func openAIProviderIdentity(model string) coreconversation.ProviderIdentity {
-	return coreconversation.ProviderIdentity{
-		Provider: "openai",
-		API:      "openai.responses",
-		Family:   "responses",
-		Model:    model,
+	return (&Model{provider: "openai", api: "openai.responses"}).providerIdentity(model)
+}
+
+type openAIStreamState struct {
+	toolNames          map[int]tool.Name
+	outputPhases       map[int]string
+	completedToolCalls map[int]bool
+	contentDeltas      map[int]*strings.Builder
+}
+
+func (s *openAIStreamState) ensure() {
+	if s == nil {
+		return
+	}
+	if s.toolNames == nil {
+		s.toolNames = map[int]tool.Name{}
+	}
+	if s.outputPhases == nil {
+		s.outputPhases = map[int]string{}
+	}
+	if s.completedToolCalls == nil {
+		s.completedToolCalls = map[int]bool{}
+	}
+	if s.contentDeltas == nil {
+		s.contentDeltas = map[int]*strings.Builder{}
 	}
 }
 
-func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, toolNames map[int]tool.Name) []adapterllm.StreamEvent {
+func (s *openAIStreamState) phase(index int) string {
+	if s == nil || s.outputPhases == nil {
+		return ""
+	}
+	return s.outputPhases[index]
+}
+
+func (s *openAIStreamState) setPhase(index int, output responses.ResponseOutputItemUnion) {
+	if s == nil || output.Type != "message" {
+		return
+	}
+	s.ensure()
+	if phase := outputPhase(output); phase != "" {
+		s.outputPhases[index] = phase
+	}
+}
+
+func (s *openAIStreamState) appendContent(index int, text string) {
+	if s == nil || text == "" {
+		return
+	}
+	s.ensure()
+	builder := s.contentDeltas[index]
+	if builder == nil {
+		builder = &strings.Builder{}
+		s.contentDeltas[index] = builder
+	}
+	builder.WriteString(text)
+}
+
+func (s *openAIStreamState) finalContent() string {
+	if s == nil || len(s.contentDeltas) == 0 {
+		return ""
+	}
+	var maxIndex int
+	for index := range s.contentDeltas {
+		if index > maxIndex {
+			maxIndex = index
+		}
+	}
+	var out strings.Builder
+	for index := 0; index <= maxIndex; index++ {
+		if builder := s.contentDeltas[index]; builder != nil {
+			out.WriteString(builder.String())
+		}
+	}
+	return out.String()
+}
+
+func applyStreamedContentFallback(out llmagent.Response, provider coreconversation.ProviderIdentity, state *openAIStreamState) llmagent.Response {
+	if out.Message != nil || len(out.Operations) > 0 || out.Completion != nil {
+		return out
+	}
+	text := state.finalContent()
+	if strings.TrimSpace(text) == "" {
+		return out
+	}
+	out.Message = &agent.Message{Content: text}
+	out.Transcript.Provider = provider
+	out.Transcript.Items = append(out.Transcript.Items, coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		Role:     "assistant",
+		Content:  text,
+	})
+	return out
+}
+
+func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *openAIStreamState) []adapterllm.StreamEvent {
+	if state != nil {
+		state.ensure()
+	}
 	switch evt.Type {
 	case "response.output_text.delta":
+		delta := evt.AsResponseOutputTextDelta()
+		if state.phase(int(delta.OutputIndex)) == "commentary" {
+			return []adapterllm.StreamEvent{{
+				Kind:        adapterllm.StreamThinkingDelta,
+				Text:        delta.Delta,
+				Index:       int(delta.OutputIndex),
+				Sensitivity: "internal",
+			}}
+		}
+		state.appendContent(int(delta.OutputIndex), delta.Delta)
 		return []adapterllm.StreamEvent{{
 			Kind:  adapterllm.StreamContentDelta,
-			Text:  evt.AsResponseOutputTextDelta().Delta,
-			Index: int(evt.OutputIndex),
+			Text:  delta.Delta,
+			Index: int(delta.OutputIndex),
 		}}
 	case "response.reasoning_text.delta":
 		return []adapterllm.StreamEvent{{
@@ -443,32 +656,56 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, toolNames m
 		}}
 	case "response.output_item.added":
 		added := evt.AsResponseOutputItemAdded()
+		state.setPhase(int(added.OutputIndex), added.Item)
 		if added.Item.Type != "function_call" {
 			return nil
 		}
 		name := tool.Name(added.Item.Name)
-		toolNames[int(added.OutputIndex)] = name
+		state.toolNames[int(added.OutputIndex)] = name
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallStart,
 			Tool:       name,
 			ToolCallID: firstNonEmpty(added.Item.CallID, added.Item.ID),
 			Index:      int(added.OutputIndex),
 		}}
+	case "response.output_item.done":
+		done := evt.AsResponseOutputItemDone()
+		state.setPhase(int(done.OutputIndex), done.Item)
+		if done.Item.Type != "function_call" || state.completedToolCalls[int(done.OutputIndex)] {
+			return nil
+		}
+		name := tool.Name(done.Item.Name)
+		if name == "" {
+			name = state.toolNames[int(done.OutputIndex)]
+		}
+		state.completedToolCalls[int(done.OutputIndex)] = true
+		return []adapterllm.StreamEvent{{
+			Kind:       adapterllm.StreamToolCallDone,
+			Tool:       name,
+			ToolCallID: firstNonEmpty(done.Item.CallID, done.Item.ID),
+			Index:      int(done.OutputIndex),
+			Arguments:  done.Item.Arguments.OfString,
+			Final:      true,
+		}}
 	case "response.function_call_arguments.delta":
 		delta := evt.AsResponseFunctionCallArgumentsDelta()
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallDelta,
-			Tool:       toolNames[int(delta.OutputIndex)],
+			Tool:       state.toolNames[int(delta.OutputIndex)],
 			ToolCallID: delta.ItemID,
 			Index:      int(delta.OutputIndex),
 			Arguments:  delta.Delta,
 		}}
 	case "response.function_call_arguments.done":
 		done := evt.AsResponseFunctionCallArgumentsDone()
+		if state.completedToolCalls[int(done.OutputIndex)] {
+			return nil
+		}
 		name := tool.Name(done.Name)
 		if name == "" {
-			name = toolNames[int(done.OutputIndex)]
+			name = state.toolNames[int(done.OutputIndex)]
 		}
+		state.completedToolCalls[int(done.OutputIndex)] = true
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
@@ -511,7 +748,7 @@ func ProviderSpec() corellm.ProviderSpec {
 		Models: []corellm.ModelSpec{{
 			Ref: corellm.ModelRef{
 				Provider: "openai",
-				Name:     "gpt-4.1-mini",
+				Name:     "gpt-5.5",
 			},
 			InputModalities:  []corellm.Modality{corellm.ModalityText, corellm.ModalityImage},
 			OutputModalities: []corellm.Modality{corellm.ModalityText},
@@ -527,7 +764,7 @@ func ProviderSpec() corellm.ProviderSpec {
 	}
 }
 
-func usageFromOpenAI(resp responses.Response) []usage.Recorded {
+func usageFromOpenAI(resp responses.Response, provider coreconversation.ProviderIdentity) []usage.Recorded {
 	if resp.Usage.InputTokens == 0 &&
 		resp.Usage.InputTokensDetails.CachedTokens == 0 &&
 		resp.Usage.OutputTokens == 0 &&
@@ -539,7 +776,7 @@ func usageFromOpenAI(resp responses.Response) []usage.Recorded {
 		Source: "adapters/openai",
 		Subject: usage.Subject{
 			Kind:     usage.SubjectLLM,
-			Provider: "openai",
+			Provider: provider.Provider,
 			Name:     string(resp.Model),
 			ID:       resp.ID,
 		},
@@ -564,6 +801,14 @@ func usageFromOpenAI(resp responses.Response) []usage.Recorded {
 		return nil
 	}
 	return []usage.Recorded{recorded}
+}
+
+func promptCacheKey(provider, model string, req llmagent.Request) string {
+	parts := []string{"agentsdk", normalizeProvider(provider), strings.TrimSpace(model)}
+	if req.Agent.Name != "" {
+		parts = append(parts, string(req.Agent.Name))
+	}
+	return strings.Join(parts, ":")
 }
 
 func promptFromRequest(req llmagent.Request) string {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -229,6 +230,39 @@ func TestAgentStepEmitsRedactedModelEvents(t *testing.T) {
 	}
 }
 
+func TestAgentStepEmitsModelLifecycleProvider(t *testing.T) {
+	var events []event.Event
+	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	})}
+	runtime, err := New(agent.Spec{Name: "main", Inference: agent.InferenceSpec{Model: "test-model"}}, identifiedModel{
+		identity: coreconversation.ProviderIdentity{Provider: "codex", Model: "test-model"},
+		response: MessageResponse("ok"),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(ctx, agent.StepInput{})
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	requested, ok := events[0].(ModelRequested)
+	if !ok {
+		t.Fatalf("event[0] = %T, want ModelRequested", events[0])
+	}
+	if requested.Provider != "codex" {
+		t.Fatalf("requested provider = %q, want codex", requested.Provider)
+	}
+	completed, ok := events[len(events)-1].(ModelCompleted)
+	if !ok {
+		t.Fatalf("last event = %T, want ModelCompleted", events[len(events)-1])
+	}
+	if completed.Provider != "codex" {
+		t.Fatalf("completed provider = %q, want codex", completed.Provider)
+	}
+}
+
 func TestAgentStepEmitsUsageEventsFromModelResponse(t *testing.T) {
 	var events []event.Event
 	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
@@ -383,4 +417,17 @@ func (streamingModel) Stream(_ context.Context, _ Request, emit StreamFunc) (Res
 	emit(StreamEvent{Kind: StreamContentDelta, Text: "hello"})
 	emit(StreamEvent{Kind: StreamToolCallDelta, Tool: "inspect"})
 	return MessageResponse("hello"), nil
+}
+
+type identifiedModel struct {
+	identity coreconversation.ProviderIdentity
+	response Response
+}
+
+func (m identifiedModel) Complete(context.Context, Request) (Response, error) {
+	return m.response, nil
+}
+
+func (m identifiedModel) ProviderIdentity(Request) coreconversation.ProviderIdentity {
+	return m.identity
 }

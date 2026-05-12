@@ -185,12 +185,14 @@ replay of exact provider items. Native continuation, such as OpenAI Responses
 matching provider/API/model continuation handle and the adapter can send only
 the pending delta without changing the provider-visible prefix.
 
-OpenAI stored-response continuation is explicit opt-in. The default runtime
-mode does not ask OpenAI to store responses and therefore replays exact local
-provider transcript items. Hosts that enable OpenAI storage record
-`conversation.continuation.stored` handles; subsequent turns project
+OpenAI-compatible stored-response continuation is automatic best effort, not a
+provider-specific CLI flag. The Responses adapter uses max prompt-caching
+defaults and records `conversation.continuation.stored` handles when the
+provider returns a usable response ID. Subsequent turns can project
 `ProjectionNativeContinuation`, send `previous_response_id`, and persist only
 new turn items so thread history does not duplicate prior provider payloads.
+Hosts can disable provider continuation through generic Responses runtime
+config when replay-only behavior is required.
 
 The old `conversation` package should continue migrating into this split:
 message/conversation IDs and transcript events in `core/conversation`; exact
@@ -653,7 +655,12 @@ Implemented and green:
 - `adapters/openai`: first live model provider adapter. It uses
   `openai-go/v3` and the Responses API, maps projected runtime tools to
   function tools, converts multiple function calls into batched operation
-  requests, and keeps OpenAI response storage disabled by default.
+  requests, and owns shared Responses runtime config for transport,
+  continuation, prompt caching, and future Responses-compatible providers.
+- `adapters/codex`: Codex Responses provider wrapper using the Codex backend
+  URL and local Codex OAuth file (`~/.codex/auth.json` or `CODEX_AUTH_PATH`).
+- `adapters/modelcatalog`: bridge from `github.com/codewandler/modeldb` into
+  `core/llm` provider/model/pricing/capability specs.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
   ACL, command-risk, secrets, and approval enforcement.
 - `runtime/agent/llmagent`: first provider-neutral LLM-backed agent runtime
@@ -734,9 +741,26 @@ Important contract decisions from this slice:
   `core/model` or `core/provider` namespace. Provider specs describe model
   IDs, pricing units, capabilities, and constraints: tool calling, caching,
   thinking/reasoning, streaming, context windows, output limits, modalities,
-  safety features, and provider-specific knobs. OpenAI is first; Anthropic via
-  `github.com/anthropics/anthropic-sdk-go` is scheduled as a later provider
-  adapter/catalog batch.
+  safety features, and provider-specific knobs. `github.com/codewandler/modeldb`
+  is the source catalog for provider/model lists, supported APIs, parameters,
+  capabilities, and pricing. OpenAI and Codex are first; Anthropic API and
+  Claude Code are scheduled as later native providers.
+
+Anthropic provider migration notes:
+
+- Anthropic API should use the Messages API with API-key auth and modeldb
+  metadata for `anthropic-messages` support, pricing, caching, thinking, and
+  tool capabilities.
+- Claude Code should be a separate provider mode using local Claude OAuth
+  credentials, Claude Code CLI-compatible headers/preflight behavior, system
+  cache-control, and context-management request shape. It must act like Claude
+  Code rather than a plain Anthropic API client.
+- Prompt caching differs across Anthropic/Claude Code and OpenAI Responses:
+  modeldb capabilities should drive whether cache control is top-level,
+  per-message/block, implicit, or configurable.
+- OpenAI `tool_search` remains a parity target for large tool sets: implement
+  it behind modeldb capability/parameter checks and keep normal function-tool
+  projection as the fallback.
 
 Still intentionally incomplete:
 
@@ -752,10 +776,11 @@ Still intentionally incomplete:
   narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
   agent instantiation through configured sessions. It does not execute prompt
   commands, execute workflow commands, or activate skills yet.
-- The first live provider adapter is OpenAI Responses. It is still narrow: no
-  exact provider-transcript persistence in the live path, retry policy,
-  conversation compaction, durable usage aggregation, budget enforcement, or
-  Anthropic/local provider adapter yet.
+- The first live provider adapters are OpenAI Responses and Codex Responses.
+  They are still narrow: no complete WebSocket transport implementation in the
+  native OpenAI SDK path, retry policy, conversation compaction, durable usage
+  aggregation, budget enforcement, Anthropic API adapter, or Claude Code
+  provider yet.
 - Configured sessions can instantiate manifest-declared LLM agents when the
   host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
   path. Model routing policy beyond that first adapter is still open.
@@ -938,8 +963,10 @@ Parity should be reached in small slices:
    Done: `adapters/openai` calls the OpenAI Responses API through
    `openai-go/v3`, maps projected tools to function tools, streams
    content/thinking/tool-call deltas into runtime events, converts multiple
-   function calls into operation requests, and is reachable from
-   `apps/devclient -openai`. The existing devclient also has an app-injected
+   function calls into operation requests, applies shared Responses runtime
+   config for caching/continuation, and is reachable from
+   `apps/devclient -openai`. Done: `adapters/codex` wraps the Codex Responses
+   backend using local Codex OAuth credentials. The existing devclient also has an app-injected
    `-synthetic-tool` operation for proving OpenAI tool-call continuation
    without adding a separate example app.
 
@@ -964,9 +991,10 @@ Parity should be reached in small slices:
    should describe model capabilities and pricing so cost evaluation is data
    driven. Done initially: `core/usage` defines generic usage records,
    `core/llm` defines LLM provider/model/pricing/capability specs,
-   `runtime/usage` evaluates costs from pricing specs, and `adapters/openai`
-   emits LLM token usage from Responses usage. Schedule Anthropic via
-   `github.com/anthropics/anthropic-sdk-go` in this provider expansion path.
+   `runtime/usage` evaluates costs from pricing specs, `adapters/modelcatalog`
+   hydrates specs from `github.com/codewandler/modeldb`, and
+   `adapters/openai` emits LLM token usage from Responses usage. Schedule
+   Anthropic API and Claude Code in this provider expansion path.
 
 10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with

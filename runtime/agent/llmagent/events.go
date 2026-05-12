@@ -19,8 +19,9 @@ const (
 
 // ModelRequested describes a model call without carrying prompt content.
 type ModelRequested struct {
-	Agent agent.Name `json:"agent,omitempty"`
-	Model string     `json:"model,omitempty"`
+	Agent    agent.Name `json:"agent,omitempty"`
+	Provider string     `json:"provider,omitempty"`
+	Model    string     `json:"model,omitempty"`
 }
 
 // EventName returns the typed event name.
@@ -28,9 +29,10 @@ func (ModelRequested) EventName() event.Name { return EventModelRequestedName }
 
 // ModelStreamed carries one opt-in transient model stream delta.
 type ModelStreamed struct {
-	Agent agent.Name  `json:"agent,omitempty"`
-	Model string      `json:"model,omitempty"`
-	Event StreamEvent `json:"event"`
+	Agent    agent.Name  `json:"agent,omitempty"`
+	Provider string      `json:"provider,omitempty"`
+	Model    string      `json:"model,omitempty"`
+	Event    StreamEvent `json:"event"`
 }
 
 // EventName returns the typed event name.
@@ -40,6 +42,7 @@ func (ModelStreamed) EventName() event.Name { return EventModelStreamedName }
 // content.
 type ModelCompleted struct {
 	Agent    agent.Name         `json:"agent,omitempty"`
+	Provider string             `json:"provider,omitempty"`
 	Model    string             `json:"model,omitempty"`
 	Decision agent.DecisionKind `json:"decision,omitempty"`
 }
@@ -49,9 +52,10 @@ func (ModelCompleted) EventName() event.Name { return EventModelCompletedName }
 
 // ModelFailed describes a failed model call without carrying prompt content.
 type ModelFailed struct {
-	Agent agent.Name `json:"agent,omitempty"`
-	Model string     `json:"model,omitempty"`
-	Error string     `json:"error,omitempty"`
+	Agent    agent.Name `json:"agent,omitempty"`
+	Provider string     `json:"provider,omitempty"`
+	Model    string     `json:"model,omitempty"`
+	Error    string     `json:"error,omitempty"`
 }
 
 // EventName returns the typed event name.

@@ -72,6 +72,10 @@ and emits specs/contribution bundles. It must not execute operations, open
 sessions, instantiate model providers, inspect files, or import runtime,
 orchestration, adapters, plugins, or apps.
 
+LLM provider/model availability, pricing, APIs, and capability metadata should
+come from `github.com/codewandler/modeldb` through an adapter bridge. Do not
+hand-maintain broad model lists in core or app packages.
+
 ## `core/`
 
 `core` is the inner domain/kernel layer.

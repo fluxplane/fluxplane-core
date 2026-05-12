@@ -34,13 +34,15 @@ The current executable slice supports:
 - provider-neutral LLM adapter helpers for messages, tools, streaming,
   redaction, and fake provider tests;
 - OpenAI Responses API adapter using `openai-go/v3`, including streaming
-  content/thinking/tool-call events and token usage events for debug
-  subscribers, plus opt-in stored-response continuation with
-  `previous_response_id`;
+  content/reasoning/tool-call events, token usage events, max prompt-caching
+  defaults, and automatic best-effort stored-response continuation;
+- Codex provider wiring over the Codex Responses backend using local Codex
+  OAuth credentials;
+- markdown terminal rendering for streamed coder output and debug events;
 - an architecture import report for maintainers.
 
-Terminal UX, Slack, additional model providers, trigger execution, and
-side-effecting operation plugins are still under active design.
+Slack, Anthropic/Claude Code providers, trigger execution, and deeper context
+provider parity are still under active design.
 
 ## Library Use
 
@@ -84,10 +86,10 @@ lookupSpec := sdk.BuildOperation("lookup").
     Build()
 
 bundle := sdk.NewApp("demo").
-    WithModel("openai", "gpt-4.1-mini", "coding").
+    WithModel("openai", "gpt-5.5", "coding").
     WithDefaultAgent(
         sdk.BuildAgent("main").
-            AsLLMAgent("gpt-4.1-mini").
+            AsLLMAgent("gpt-5.5").
             WithSystem("Help with coding tasks.").
             WithOperation("lookup").
             Build(),
@@ -137,16 +139,21 @@ the model to `OPENAI_MODEL`, falling back to `gpt-4.1-mini` when unset.
 go run ./cmd/agentsdk coder "Inspect this repository and suggest the next step."
 go run ./cmd/agentsdk coder --debug "Run go test for the focused package."
 go run ./cmd/agentsdk coder --usage "Reply with one sentence."
-go run ./cmd/agentsdk coder --openai-store repl
+go run ./cmd/agentsdk coder --model codex/gpt-5.5 repl
+go run ./cmd/agentsdk coder --provider codex --model gpt-5.5 "Summarize the current diff."
 go run ./cmd/agentsdk coder repl
 ```
 
-The command uses `OPENAI_API_KEY` through the OpenAI SDK. Shell execution is
-implemented without a shell interpreter and uses bounded output and timeouts.
-By default, coder keeps model continuity through local full replay of exact
-provider transcript items. `--openai-store` explicitly enables OpenAI response
-storage and lets later turns continue from `previous_response_id`; this sends
-only the new turn delta plus the stored provider handle.
+The command defaults to `openai/gpt-5.5`. OpenAI uses `OPENAI_API_KEY` through
+the OpenAI SDK. Codex uses the local Codex OAuth file at `~/.codex/auth.json`
+or `CODEX_AUTH_PATH`. Normal output streams assistant markdown and reasoning
+summaries in the terminal. `--debug` renders runtime events as highlighted JSON
+markdown fences.
+
+OpenAI-compatible providers use automatic best-effort Responses settings:
+WebSocket-preferred transport intent, max prompt caching, reasoning encrypted
+content for replay, and provider continuation when available. These are runtime
+provider settings, not CLI-specific flags.
 
 ## Resource Apps
 

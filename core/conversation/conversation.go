@@ -129,6 +129,7 @@ type Item struct {
 	Provider ProviderIdentity  `json:"provider,omitempty"`
 	Kind     ItemKind          `json:"kind"`
 	Role     string            `json:"role,omitempty"`
+	Phase    string            `json:"phase,omitempty"`
 	ID       string            `json:"id,omitempty"`
 	CallID   string            `json:"call_id,omitempty"`
 	Name     string            `json:"name,omitempty"`

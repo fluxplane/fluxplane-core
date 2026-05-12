@@ -29,21 +29,40 @@ func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
 	if !strings.Contains(help, "--usage") {
 		t.Fatalf("help = %q, want inherited usage flag", help)
 	}
-	if !strings.Contains(help, "--openai-store") {
-		t.Fatalf("help = %q, want inherited openai-store flag", help)
+	if !strings.Contains(help, "--provider") {
+		t.Fatalf("help = %q, want inherited provider flag", help)
+	}
+	if strings.Contains(help, "--openai-store") {
+		t.Fatalf("help = %q, want openai-store removed", help)
 	}
 }
 
 func TestCoderBundleAppliesModelOverride(t *testing.T) {
-	bundle := coderBundle("gpt-test")
+	bundle := coderBundle("codex", "gpt-test")
 	if bundle.Apps[0].Model.Model != "gpt-test" {
 		t.Fatalf("app model = %q, want gpt-test", bundle.Apps[0].Model.Model)
+	}
+	if bundle.Apps[0].Model.Provider != "codex" {
+		t.Fatalf("app provider = %q, want codex", bundle.Apps[0].Model.Provider)
 	}
 	if bundle.Agents[0].Inference.Model != "gpt-test" {
 		t.Fatalf("agent model = %q, want gpt-test", bundle.Agents[0].Inference.Model)
 	}
 	if bundle.Agents[0].Name != coder.AgentName {
 		t.Fatalf("agent name = %q", bundle.Agents[0].Name)
+	}
+}
+
+func TestResolveModelSelectionParsesProviderPrefix(t *testing.T) {
+	got := resolveModelSelection(coderOptions{provider: "openai", model: "codex/gpt-5.5"})
+	if got.Provider != "codex" || got.Model != "gpt-5.5" {
+		t.Fatalf("selection = %#v, want codex/gpt-5.5", got)
+	}
+}
+
+func TestCoderDefaultModel(t *testing.T) {
+	if coder.DefaultModel != "gpt-5.5" {
+		t.Fatalf("DefaultModel = %q, want gpt-5.5", coder.DefaultModel)
 	}
 }
 

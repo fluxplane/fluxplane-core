@@ -13,7 +13,7 @@ const (
 	AgentName        = "coder"
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
-	DefaultModel     = "gpt-4.1-mini"
+	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 )
 

@@ -11,10 +11,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codewandler/markdown/stream"
+	mdterminal "github.com/codewandler/markdown/terminal"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
+)
+
+const (
+	ansiReset  = "\x1b[0m"
+	ansiDim    = "\x1b[2m"
+	ansiCyan   = "\x1b[36m"
+	ansiYellow = "\x1b[33m"
+	ansiGreen  = "\x1b[32m"
+	ansiRed    = "\x1b[31m"
 )
 
 // Renderer renders client events for humans.
@@ -25,11 +37,26 @@ type Renderer struct {
 
 	mu     sync.Mutex
 	starts map[operation.CallID]time.Time
+
+	content  *mdterminal.LiveRenderer
+	thinking *mdterminal.LiveRenderer
+	debug    *mdterminal.LiveRenderer
+
+	streamedContent bool
+	inThinking      bool
 }
 
 // NewRenderer returns a terminal event renderer.
 func NewRenderer(out, err io.Writer, showUsage bool) *Renderer {
-	return &Renderer{Out: out, Err: err, ShowUsage: showUsage, starts: map[operation.CallID]time.Time{}}
+	return &Renderer{
+		Out:       out,
+		Err:       err,
+		ShowUsage: showUsage,
+		starts:    map[operation.CallID]time.Time{},
+		content:   newMarkdownRenderer(out),
+		thinking:  newMarkdownRenderer(err),
+		debug:     newMarkdownRenderer(err),
+	}
 }
 
 // Render renders one event.
@@ -43,18 +70,20 @@ func (r *Renderer) Render(event clientapi.Event) {
 	}
 	switch event.Kind {
 	case clientapi.EventOperationRequested:
+		r.flushContent()
 		if event.Operation == nil {
 			return
 		}
 		r.mu.Lock()
 		r.starts[event.Operation.CallID] = time.Now()
 		r.mu.Unlock()
-		_, _ = fmt.Fprintf(out, "tool start: %s", event.Operation.Operation.String())
+		_, _ = fmt.Fprintf(out, "%stool start:%s %s%s", ansiYellow, ansiReset, ansiCyan, event.Operation.Operation.String())
 		if summary := compact(event.Operation.Input, 320); summary != "" {
 			_, _ = fmt.Fprintf(out, " %s", summary)
 		}
-		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "%s\n", ansiReset)
 	case clientapi.EventOperationCompleted:
+		r.flushContent()
 		if event.Operation == nil || event.Operation.Result == nil {
 			return
 		}
@@ -63,7 +92,11 @@ func (r *Renderer) Render(event clientapi.Event) {
 		if status == "" {
 			status = operation.StatusOK
 		}
-		_, _ = fmt.Fprintf(out, "tool end: %s status=%s duration=%s", event.Operation.Operation.String(), status, duration.Round(time.Millisecond))
+		color := ansiGreen
+		if event.Operation.Result.Error != nil || status != operation.StatusOK {
+			color = ansiRed
+		}
+		_, _ = fmt.Fprintf(out, "%stool end:%s %s status=%s duration=%s", color, ansiReset, event.Operation.Operation.String(), status, duration.Round(time.Millisecond))
 		if event.Operation.Result.Error != nil {
 			_, _ = fmt.Fprintf(out, " error=%s", event.Operation.Result.Error.Message)
 		} else if summary := resultSummary(*event.Operation.Result); summary != "" {
@@ -73,6 +106,38 @@ func (r *Renderer) Render(event clientapi.Event) {
 	case clientapi.EventRuntimeEmitted:
 		r.renderRuntime(out, event)
 	}
+}
+
+// Finish flushes streaming markdown state.
+func (r *Renderer) Finish() {
+	r.flushContent()
+	if r.debug != nil {
+		_ = r.debug.Flush()
+	}
+}
+
+// HasStreamedContent reports whether assistant content was rendered as deltas.
+func (r *Renderer) HasStreamedContent() bool {
+	if r == nil {
+		return false
+	}
+	return r.streamedContent
+}
+
+// RenderDebug renders a client event as syntax-highlighted fenced JSON.
+func (r *Renderer) RenderDebug(event clientapi.Event) {
+	if r == nil || r.debug == nil {
+		return
+	}
+	data, err := json.MarshalIndent(event, "", "  ")
+	if err != nil {
+		data = []byte(fmt.Sprintf("%#v", event))
+	}
+	_, _ = r.debug.Write([]byte("```json\n"))
+	_, _ = r.debug.Write(data)
+	_, _ = r.debug.Write([]byte("\n```\n\n"))
+	_ = r.debug.Flush()
+	r.debug = newMarkdownRenderer(r.Err)
 }
 
 func (r *Renderer) duration(callID operation.CallID) time.Duration {
@@ -91,15 +156,23 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 		return
 	}
 	switch payload := event.Runtime.Payload.(type) {
+	case llmagent.ModelStreamed:
+		r.renderModelStream(payload.Event)
 	case system.ProcessEvent:
+		r.flushContent()
 		renderProcessEvent(out, payload)
 	case usage.Recorded:
+		r.flushContent()
 		if r.ShowUsage {
 			if line := UsageLine(payload); line != "" {
 				_, _ = fmt.Fprintln(out, line)
 			}
 		}
 	case map[string]any:
+		if string(event.Runtime.Name) == string(llmagent.EventModelStreamedName) {
+			r.renderModelStreamFromMap(payload)
+			return
+		}
 		if string(event.Runtime.Name) == "human.clarification.requested" {
 			return
 		}
@@ -113,6 +186,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			}
 		}
 	default:
+		r.flushContent()
 		if string(event.Runtime.Name) == "human.clarification.requested" {
 			return
 		}
@@ -120,6 +194,108 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			_, _ = fmt.Fprintf(out, "clarify answer: %s\n", field(payload, "Answer"))
 		}
 	}
+}
+
+func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
+	switch event.Kind {
+	case llmagent.StreamThinkingDelta:
+		if event.Text == "" {
+			return
+		}
+		if !r.inThinking {
+			r.flushContent()
+			_, _ = fmt.Fprint(r.Err, ansiDim)
+			r.inThinking = true
+		}
+		if r.thinking != nil {
+			_, _ = r.thinking.Write([]byte(event.Text))
+			_ = r.thinking.Flush()
+		}
+	case llmagent.StreamContentDelta:
+		if event.Text == "" {
+			return
+		}
+		if r.inThinking {
+			r.flushThinking()
+		}
+		r.streamedContent = true
+		r.writeContentDelta(event.Text)
+	case llmagent.StreamToolCallDelta:
+		if event.Tool != "" && event.Final {
+			r.flushContent()
+			_, _ = fmt.Fprintf(r.Err, "%stool call:%s %s\n", ansiYellow, ansiReset, event.Tool)
+		}
+	}
+}
+
+func (r *Renderer) renderModelStreamFromMap(payload map[string]any) {
+	raw, ok := payload["event"]
+	if !ok {
+		return
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	var event llmagent.StreamEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return
+	}
+	r.renderModelStream(event)
+}
+
+func (r *Renderer) flushContent() {
+	if r == nil {
+		return
+	}
+	if r.inThinking {
+		r.flushThinking()
+	}
+	if r.content != nil {
+		_ = r.content.Flush()
+		r.content = newMarkdownRenderer(r.out())
+	}
+}
+
+func (r *Renderer) flushThinking() {
+	if r == nil || !r.inThinking {
+		return
+	}
+	if r.thinking != nil {
+		_ = r.thinking.Flush()
+	}
+	_, _ = fmt.Fprintf(r.Err, "%s\n", ansiReset)
+	r.thinking = newMarkdownRenderer(r.Err)
+	r.inThinking = false
+}
+
+func newMarkdownRenderer(w io.Writer) *mdterminal.LiveRenderer {
+	if w == nil {
+		w = io.Discard
+	}
+	return mdterminal.NewLiveRenderer(w, markdownRendererOptions()...)
+}
+
+func markdownRendererOptions() []mdterminal.RendererOption {
+	return []mdterminal.RendererOption{
+		mdterminal.WithAnsi(mdterminal.AnsiOn),
+		mdterminal.WithParserOptions(stream.WithGFMAutolinks()),
+	}
+}
+
+func (r *Renderer) writeContentDelta(text string) {
+	if r.content == nil {
+		r.content = newMarkdownRenderer(r.out())
+	}
+	_, _ = r.content.Write([]byte(text))
+	_ = r.content.Flush()
+}
+
+func (r *Renderer) out() io.Writer {
+	if r == nil || r.Out == nil {
+		return io.Discard
+	}
+	return r.Out
 }
 
 func field(value any, name string) string {

@@ -133,6 +133,43 @@ func TestSessionSendInputReturnsRunHandle(t *testing.T) {
 	}
 }
 
+func TestRunEventsForwardWhileInputIsExecuting(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := testClientWithAgent(t, blockingAgent{started: started, release: release})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "ping"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("agent did not start")
+	}
+	select {
+	case event := <-run.Events():
+		if event.Kind != clientapi.EventSubmissionReceived {
+			t.Fatalf("first live event = %q, want submission.received", event.Kind)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected run event before input completed")
+	}
+	close(release)
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	for range run.Events() {
+	}
+}
+
 func TestSessionEventsCanReplayFromThreadStore(t *testing.T) {
 	ctx := context.Background()
 	client := testClient(t)
@@ -225,6 +262,17 @@ func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
 
 func testClient(t *testing.T) *Client {
 	t.Helper()
+	return testClientWithAgent(t, fixedAgent{result: agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "pong"},
+		},
+	}})
+}
+
+func testClientWithAgent(t *testing.T, agentRuntime agent.Agent) *Client {
+	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
@@ -252,13 +300,7 @@ func testClient(t *testing.T) *Client {
 		t.Fatalf("NewStore: %v", err)
 	}
 	service := harness.New(harness.Config{
-		Agent: fixedAgent{result: agent.StepResult{
-			Status: agent.StatusOK,
-			Decision: agent.Decision{
-				Kind:    agent.DecisionMessage,
-				Message: &agent.Message{Content: "pong"},
-			},
-		}},
+		Agent:             agentRuntime,
 		Commands:          commands,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
@@ -285,4 +327,25 @@ func (a fixedAgent) Spec() agent.Spec {
 
 func (a fixedAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
 	return a.result
+}
+
+type blockingAgent struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (a blockingAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "blocking"}
+}
+
+func (a blockingAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
+	close(a.started)
+	<-a.release
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "pong"},
+		},
+	}
 }

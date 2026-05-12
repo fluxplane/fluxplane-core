@@ -270,6 +270,15 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 		return
 	}
 	defer cancel()
+	forwardDone := make(chan struct{})
+	go func() {
+		defer close(forwardDone)
+		r.forwardRunEvents(events)
+	}()
+	defer func() {
+		cancel()
+		<-forwardDone
+	}()
 
 	switch r.submission.Kind {
 	case clientapi.SubmissionInput:
@@ -296,7 +305,6 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Input:      &result.Input,
 			Outbound:   result.Outbound,
 		}, nil)
-		r.forwardRunEvents(events)
 	case clientapi.SubmissionCommand:
 		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
 			ID:           string(r.id),
@@ -318,7 +326,6 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Command:    &result.Command,
 			Outbound:   result.Outbound,
 		}, nil)
-		r.forwardRunEvents(events)
 	case clientapi.SubmissionEvent, clientapi.SubmissionSignal:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:
@@ -363,21 +370,16 @@ func (r *runHandle) emit(event clientapi.Event) {
 }
 
 func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {
-	timeout := time.After(time.Second)
 	for {
-		select {
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			if event.RunID != r.id {
-				continue
-			}
-			r.emit(event)
-			if event.Kind == clientapi.EventRunCompleted || event.Kind == clientapi.EventRunFailed {
-				return
-			}
-		case <-timeout:
+		event, ok := <-events
+		if !ok {
+			return
+		}
+		if event.RunID != r.id {
+			continue
+		}
+		r.emit(event)
+		if event.Kind == clientapi.EventRunCompleted || event.Kind == clientapi.EventRunFailed {
 			return
 		}
 	}

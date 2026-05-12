@@ -118,10 +118,11 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 	}
 
 	req := a.request(ctx, input)
-	emit(ctx, ModelRequested{Agent: a.spec.Name, Model: modelName(req)})
+	provider := a.providerName(req)
+	emit(ctx, ModelRequested{Agent: a.spec.Name, Provider: provider, Model: modelName(req)})
 	resp, err := a.complete(base, ctx, req)
 	if err != nil {
-		emit(ctx, ModelFailed{Agent: a.spec.Name, Model: modelName(req), Error: err.Error()})
+		emit(ctx, ModelFailed{Agent: a.spec.Name, Provider: provider, Model: modelName(req), Error: err.Error()})
 		return failed("model_failed", err.Error(), nil)
 	}
 	for _, recorded := range resp.Usage {
@@ -141,7 +142,10 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 		}
 	}
 	result := resultFromResponse(resp)
-	emit(ctx, ModelCompleted{Agent: a.spec.Name, Model: modelName(req), Decision: result.Decision.Kind})
+	if provider == "" && resp.Transcript.Provider.Provider != "" {
+		provider = resp.Transcript.Provider.Provider
+	}
+	emit(ctx, ModelCompleted{Agent: a.spec.Name, Provider: provider, Model: modelName(req), Decision: result.Decision.Kind})
 	return result
 }
 
@@ -171,7 +175,7 @@ func (a *Agent) emitStream(ctx agent.Context, req Request, evt StreamEvent) {
 	default:
 		return
 	}
-	emit(ctx, ModelStreamed{Agent: a.spec.Name, Model: modelName(req), Event: evt})
+	emit(ctx, ModelStreamed{Agent: a.spec.Name, Provider: a.providerName(req), Model: modelName(req), Event: evt})
 }
 
 func (a *Agent) request(ctx agent.Context, input agent.StepInput) Request {
@@ -186,6 +190,19 @@ func (a *Agent) request(ctx agent.Context, input agent.StepInput) Request {
 		Transcript:   transcriptFromContext(ctx),
 		State:        input.State,
 	}
+}
+
+func (a *Agent) providerName(req Request) string {
+	if a == nil {
+		return ""
+	}
+	if identified, ok := a.model.(ProviderIdentityModel); ok {
+		return identified.ProviderIdentity(req).Provider
+	}
+	if req.Transcript != nil {
+		return req.Transcript.Provider.Provider
+	}
+	return ""
 }
 
 func resultFromResponse(resp Response) agent.StepResult {

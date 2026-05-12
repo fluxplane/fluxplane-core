@@ -43,6 +43,27 @@ func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {
 	}
 }
 
+func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
+	model, err := New(Config{Model: "gpt-5.5"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	for _, want := range []string{`"store":true`, `"prompt_cache_key":"agentsdk:openai:gpt-5.5:coder"`, `"prompt_cache_retention":"24h"`, `"reasoning.encrypted_content"`, `"summary":"auto"`} {
+		if !strings.Contains(json, want) {
+			t.Fatalf("params json = %s, want %s", json, want)
+		}
+	}
+}
+
 func TestResponseParamsRejectsMissingModel(t *testing.T) {
 	model, err := New(Config{})
 	if err != nil {
@@ -232,24 +253,83 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 
 func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
 	model := &Model{}
-	toolNames := map[int]tool.Name{}
+	state := &openAIStreamState{toolNames: map[int]tool.Name{}, outputPhases: map[int]string{}}
 
 	added := mustStreamEvent(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","name":"inspect","arguments":""}}`)
-	events := model.streamEvents(added, toolNames)
+	events := model.streamEvents(added, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallStart || events[0].Tool != "inspect" {
 		t.Fatalf("added events = %#v, want inspect start", events)
 	}
 
 	delta := mustStreamEvent(t, `{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"call_1","delta":"{\"path\""}`)
-	events = model.streamEvents(delta, toolNames)
+	events = model.streamEvents(delta, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDelta || events[0].Tool != "inspect" {
 		t.Fatalf("delta events = %#v, want inspect delta", events)
 	}
 
 	thinking := mustStreamEvent(t, `{"type":"response.reasoning_summary_text.delta","output_index":1,"item_id":"rs_1","delta":"checking"}`)
-	events = model.streamEvents(thinking, toolNames)
+	events = model.streamEvents(thinking, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "checking" {
 		t.Fatalf("thinking events = %#v, want thinking delta", events)
+	}
+}
+
+func TestStreamEventsTreatCommentaryPhaseTextAsThinking(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{toolNames: map[int]tool.Name{}, outputPhases: map[int]string{}}
+
+	added := mustStreamEvent(t, `{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","phase":"commentary"}}`)
+	if events := model.streamEvents(added, state); len(events) != 0 {
+		t.Fatalf("added events = %#v, want none", events)
+	}
+	delta := mustStreamEvent(t, `{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"**checking**"}`)
+	events := model.streamEvents(delta, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "**checking**" || events[0].Sensitivity != "internal" {
+		t.Fatalf("delta events = %#v, want internal thinking", events)
+	}
+	if got := state.finalContent(); got != "" {
+		t.Fatalf("finalContent = %q, want commentary excluded", got)
+	}
+}
+
+func TestStreamedContentFallbackCreatesMessage(t *testing.T) {
+	provider := openAIProviderIdentity("gpt-test")
+	state := &openAIStreamState{}
+	state.appendContent(0, "The answer is ")
+	state.appendContent(0, "2.")
+	out := applyStreamedContentFallback(llmagent.Response{
+		Transcript: coreconversation.Transcript{Provider: provider},
+	}, provider, state)
+	if out.Message == nil || out.Message.Content != "The answer is 2." {
+		t.Fatalf("message = %#v, want streamed fallback", out.Message)
+	}
+	if len(out.Transcript.Items) != 1 || out.Transcript.Items[0].Content != "The answer is 2." {
+		t.Fatalf("transcript items = %#v, want assistant fallback item", out.Transcript.Items)
+	}
+}
+
+func TestResponseFinalTextExcludesCommentaryPhase(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"model": "gpt-test",
+		"status": "completed",
+		"output": [
+			{"id":"msg_1","type":"message","role":"assistant","status":"completed","phase":"commentary","content":[{"type":"output_text","text":"working"}]},
+			{"id":"msg_2","type":"message","role":"assistant","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}
+		]
+	}`)
+	if got := responseFinalText(resp); got != "done" {
+		t.Fatalf("responseFinalText = %q, want done", got)
+	}
+	out, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if out.Message == nil || out.Message.Content != "done" {
+		t.Fatalf("message = %#v, want final answer", out.Message)
+	}
+	if len(out.Transcript.Items) != 2 || out.Transcript.Items[0].Phase != "commentary" || out.Transcript.Items[1].Phase != "final_answer" {
+		t.Fatalf("transcript items = %#v, want preserved phases", out.Transcript.Items)
 	}
 }
 
