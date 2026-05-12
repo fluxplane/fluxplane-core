@@ -21,6 +21,8 @@ Current seed packages:
   handle, submission, and event contracts.
 - `orchestration/harness` — channel-to-session use-case facade.
 - `adapters/directchannel` — in-process proof channel used by `apps/devclient`.
+- `adapters/httpssechannel` — remote channel adapter using JSON endpoints and
+  SSE events while preserving the same client/session/run API.
 
 The current executable path supports command submissions and conversational
 input submissions through the same session/run handle API:
@@ -38,6 +40,14 @@ schedulers, and file watchers, but are not executed yet.
 Session event subscriptions use `client.Event` for both live delivery and
 replay. Replayed events carry an `EventCursor` backed by thread event sequence
 numbers, so future HTTP/SSE clients can resume from the last seen cursor.
+
+`apps/devclient` can run either in-process or against HTTP/SSE:
+
+```bash
+go run ./apps/devclient input hello
+go run ./apps/devclient serve -addr 127.0.0.1:8080
+go run ./apps/devclient -url http://127.0.0.1:8080 input hello
+```
 
 The rewrite is intentionally not source-compatible with `agentsdk`. Concepts
 are being reintroduced package by package with clear ownership boundaries.

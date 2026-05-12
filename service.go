@@ -80,6 +80,8 @@ type Service struct {
 	client  ChannelClient
 }
 
+var _ ChannelClient = (*Service)(nil)
+
 // New assembles an in-process runtime service with a direct channel client.
 func New(cfg Config) (*Service, error) {
 	commands := cfg.Commands

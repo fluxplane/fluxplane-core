@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -25,16 +27,19 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	debug, mode, text, err := parseArgs(args)
+	cfg, err := parseArgs(args)
 	if err != nil {
 		return err
+	}
+	if cfg.mode == "serve" {
+		return serve(cfg.addr)
 	}
 
-	service, err := newRuntime()
+	client, err := newClient(cfg.remoteURL)
 	if err != nil {
 		return err
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := client.Open(ctx, agentruntime.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "devclient"},
 	})
 	if err != nil {
@@ -42,18 +47,18 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	submission := agentruntime.Submission{}
-	switch mode {
+	switch cfg.mode {
 	case "echo":
 		submission.Kind = agentruntime.SubmissionCommand
-		submission.Command = &command.Invocation{Path: command.Path{mode}, Input: text}
+		submission.Command = &command.Invocation{Path: command.Path{cfg.mode}, Input: cfg.text}
 	case "input":
 		submission.Kind = agentruntime.SubmissionInput
-		submission.Input = &agentruntime.Input{Text: text}
+		submission.Input = &agentruntime.Input{Text: cfg.text}
 	default:
-		return fmt.Errorf("unknown mode %q (use echo or input)", mode)
+		return fmt.Errorf("unknown mode %q (use echo or input)", cfg.mode)
 	}
-	if debug {
-		debugPrint("input", text)
+	if cfg.debug {
+		debugPrint("input", cfg.text)
 		debugPrint("submission", submission)
 	}
 
@@ -61,43 +66,70 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	eventsDone := debugRunEvents(debug, run.Events())
+	eventsDone := debugRunEvents(cfg.debug, run.Events())
 	result, err := run.Wait(ctx)
 	if err != nil {
 		return err
 	}
 	eventsDone()
-	if debug {
+	if cfg.debug {
 		debugPrint("result", result)
 	}
 	if err := checkResult(result); err != nil {
 		return err
 	}
 	if result.Outbound == nil || result.Outbound.Message == nil {
-		return fmt.Errorf("%s produced no outbound message", mode)
+		return fmt.Errorf("%s produced no outbound message", cfg.mode)
 	}
-	if debug {
+	if cfg.debug {
 		debugPrint("output", result.Outbound.Message.Content)
 	}
 	fmt.Println(result.Outbound.Message.Content)
 	return nil
 }
 
-func parseArgs(args []string) (bool, string, string, error) {
-	debug := false
+type config struct {
+	debug     bool
+	remoteURL string
+	addr      string
+	mode      string
+	text      string
+}
+
+func parseArgs(args []string) (config, error) {
+	cfg := config{addr: "127.0.0.1:8080"}
 	positionals := make([]string, 0, len(args))
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch arg {
 		case "-debug", "--debug":
-			debug = true
+			cfg.debug = true
+		case "-url", "--url":
+			i++
+			if i >= len(args) {
+				return config{}, fmt.Errorf("%s", usage())
+			}
+			cfg.remoteURL = args[i]
+		case "-addr", "--addr":
+			i++
+			if i >= len(args) {
+				return config{}, fmt.Errorf("%s", usage())
+			}
+			cfg.addr = args[i]
 		default:
 			positionals = append(positionals, arg)
 		}
 	}
 	if len(positionals) == 0 {
-		return false, "", "", fmt.Errorf("usage: devclient [-debug] echo <text> | devclient [-debug] input <text>")
+		return config{}, fmt.Errorf("%s", usage())
 	}
-	return debug, positionals[0], strings.Join(positionals[1:], " "), nil
+	cfg.mode = positionals[0]
+	cfg.text = strings.Join(positionals[1:], " ")
+	return cfg, nil
+}
+
+func usage() string {
+	return "usage: devclient [-debug] [-url <base-url>] echo <text> | devclient [-debug] [-url <base-url>] input <text> | devclient serve [-addr <addr>]"
 }
 
 func debugRunEvents(debug bool, events <-chan agentruntime.Event) func() {
@@ -146,6 +178,26 @@ func checkResult(result agentruntime.Result) error {
 		return nil
 	}
 	return fmt.Errorf("run produced no command or input result")
+}
+
+func newClient(remoteURL string) (agentruntime.ChannelClient, error) {
+	if remoteURL != "" {
+		return httpssechannel.NewClient(httpssechannel.ClientConfig{BaseURL: remoteURL})
+	}
+	return newRuntime()
+}
+
+func serve(addr string) error {
+	service, err := newRuntime()
+	if err != nil {
+		return err
+	}
+	server, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: service})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "devclient listening on http://%s\n", addr)
+	return http.ListenAndServe(addr, server)
 }
 
 func newRuntime() (*agentruntime.Service, error) {
