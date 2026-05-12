@@ -183,6 +183,190 @@ them visible until they are resolved in code or deliberately rejected.
 | Command path display vs parsing | `command.Path.String()` is display-only. Actual slash parsing belongs in adapters, not `core/command`. |
 | Trust level semantics | `policy.TrustSystem` must not become unlimited authority by default; scopes should still matter for system callers. |
 
+## Current Rewrite Status
+
+The current rewrite proves the inner-to-outer path for the first executable
+slice:
+
+```text
+core operation/command/channel/session/thread/event model
+  -> runtime operation/event/thread implementations
+  -> orchestration session + harness + client handles
+  -> direct channel and HTTP/SSE channel adapters
+  -> devclient app
+```
+
+Implemented and green:
+
+- `core/operation`: operation specs, semantics, results, events, and registry.
+- `core/event`: event records, stream store port, registry, append conflict and
+  batch append contracts.
+- `runtime/eventstore`: in-memory append-only event store.
+- `adapters/sqleventstore`: SQLite-backed event store adapter.
+- `core/thread` + `runtime/thread`: event-backed thread store, branch model,
+  thread index, list replay fallback, and optional projected read model.
+- `core/projection`, `runtime/projection`, `orchestration/projections`:
+  checkpoint/projector contracts, runner, and orchestration freshness manager.
+- `core/command`, `core/invocation`, `core/policy`: channel-facing command
+  specs, invocation target vocabulary, caller/trust/policy evaluation.
+- `core/channel`: normalized channel specs and inbound/outbound envelopes.
+- `orchestration/session`: command and conversational input execution for one
+  bound thread.
+- `orchestration/harness`: channel conversation binding, explicit
+  session-bound execution, semantic event fanout, and replay from thread store.
+- `orchestration/client`: transport-neutral `ChannelClient`, `SessionHandle`,
+  `RunHandle`, `Submission`, `Result`, and semantic event contracts.
+- `adapters/directchannel`: in-process channel client over harness.
+- `adapters/httpssechannel`: remote JSON + SSE channel adapter preserving the
+  same client/session/run API.
+- `orchestration/app`: resource/app composition over supplied runtime
+  implementations, with fail-closed duplicate handling and source-aware
+  diagnostics for operation specs, executable operations, and command paths.
+- `orchestration/pluginhost`: minimal plugin contribution contract and plugin
+  ref resolution into resource bundles plus optional executable operation
+  implementations. Plugin bundles now receive plugin source refs when the
+  implementation does not provide one.
+- `plugins/echoplugin`: first migrated low-IO plugin, contributing a pure echo
+  operation and command projection.
+- `plugins/textplugin`: second migrated low-IO plugin, contributing
+  configurable pure text transformation operations and commands.
+- `adapters/resourcefs`: first local filesystem manifest loader
+  (`agentruntime.json`) into pure resource contribution bundles.
+- `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
+  ACL, command-risk, secrets, and approval enforcement.
+- `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
+  status and session-listing surface over an existing channel client.
+- root `agentruntime.Service`: public in-process facade for library consumers.
+- `apps/devclient`: small dogfood client for local and HTTP/SSE execution,
+  including debug event/result output and `-app` resource manifest loading.
+
+Important contract decisions from this slice:
+
+- Once opened or resumed, a session handle's thread is authoritative.
+  Submissions must execute against that thread instead of re-resolving from
+  channel/conversation.
+- Direct and remote channel clients must expose the same logical handles,
+  events, results, caller/trust normalization, and failure identity.
+- `submission.received` events should carry the normalized submission payload,
+  caller, and trust context for both live delivery and replay.
+- Live event subscriptions are best-effort fanout; durable replay belongs to
+  the event/thread stores.
+- HTTP/SSE channel transport is not the daemon/control API. It is only a remote
+  implementation of the channel client contract.
+- Resource operation specs are declarations. Executable operation
+  implementations come from runtime/plugin/app code and are matched during app
+  composition.
+- App composition preserves contribution order, but ambiguous overrides are not
+  supported yet. Duplicate operation specs, executable operations, and command
+  paths fail closed with diagnostics instead of being silently shadowed.
+- Real side-effecting operations must enter through the operation safety
+  envelope from their first migration batch.
+
+Still intentionally incomplete:
+
+- `SubmissionEvent` and `SubmissionSignal` are modeled but not executed.
+- Only low-IO first-party plugins have been migrated. Shell, browser,
+  filesystem, git, and connector plugins are intentionally blocked on concrete
+  safety adapters.
+- The plugin contract is intentionally minimal and only contributes resource
+  bundles plus operation implementations during app composition.
+- The daemon/control surface is minimal: status and session listing only.
+- The resource loader supports only the first JSON manifest shape; `.agents`,
+  `agentdir`, and appconfig compatibility are not migrated yet.
+- There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
+  spec shape.
+- There is no terminal/slash parser, Slack adapter, model provider adapter, or
+  approval UX yet.
+- Event subscription authorization is noted but not implemented beyond the
+  current policy/trust/sensitivity model foundations.
+
+## Next Migration-Completeness Milestone
+
+The next bigger batch should extend the new resource/app/daemon spine without
+pulling old architecture across wholesale. The milestone is:
+
+```text
+plugin contributions + signal/trigger execution + context providers
+  -> configured sessions
+  -> channel clients
+  -> executable submissions and event streams
+```
+
+Definition of done for that batch:
+
+- A library consumer can still do:
+
+  ```go
+  svc, err := agentruntime.New(...)
+  s, err := svc.Open(ctx, agentruntime.OpenRequest{...})
+  run, err := s.SendInput(ctx, agentruntime.Input{Text: "hello"})
+  result, err := run.Wait(ctx)
+  ```
+
+- A resource/app consumer can load an app directory, compose commands,
+  operations, agents, context providers, and plugins, then open a session
+  through the same `ChannelClient` API.
+- A daemon can start configured sessions from app resources, attach event
+  triggers, expose a control API for process/admin state, and expose a channel
+  API for user/client submissions without mixing those two HTTP surfaces.
+- Existing `cmd/agentclient` behavior can be represented as a CLI using a
+  channel client; it must not call harness/session internals directly.
+- At least one real migrated resource format is supported end to end, not just
+  hand-built Go config.
+- Real operation implementations are introduced safety-first. Any shell,
+  filesystem, network, browser, code execution, or connector operation work
+  must include sandboxing shape, ACL/scope checks, command-risk classification
+  (`codewandler/cmdrisk` or successor), secret handling/redaction, approval
+  requirements, audit events, and environment-boundary enforcement from the
+  start.
+
+Recommended order:
+
+1. **Plugin Contribution Hardening**
+   The second low-risk plugin now proves plugin-owned config and multiple
+   contribution ordering. Diagnostics, duplicate handling, and fail-closed
+   precedence now exist for app composition. Next, add richer diagnostic
+   aggregation and explicit override semantics only if a concrete app needs
+   them.
+
+2. **Resource Format Expansion**
+   Extend `adapters/resourcefs` only where app composition needs it next:
+   plugin refs, agent specs, context provider specs, and workflows. Keep
+   `.agents`, `agentdir`, and appconfig compatibility as adapter packages, not
+   core concepts.
+
+3. **Configured Session Host**
+   Extend `orchestration/daemon` from status/listing to configured session
+   startup from composed app resources. Keep user/client traffic on
+   `ChannelClient`.
+
+4. **Operation Safety Runtime**
+   Harden the initial safety envelope with concrete adapters before migrating
+   shell/filesystem/git/browser/web operations: sandbox execution boundary,
+   ACL/scope evaluation, `codewandler/cmdrisk` integration or successor,
+   secret handling/redaction, approval hooks, audit events, and environment
+   boundary checks.
+
+5. **CLI Client Migration**
+   Rebuild the old `cmd/agentclient` shape as an app over channel clients:
+   direct for in-process dev mode, HTTP/SSE for daemon mode. Keep `devclient`
+   as the small diagnostic client until the real CLI is good enough.
+
+6. **Trigger and Signal Execution**
+   Implement `SubmissionSignal` as the entry point for timers, file watchers,
+   and daemon-triggered sessions. File watcher/timer IO belongs in adapters or
+   apps; signal dispatch semantics belong in orchestration.
+
+7. **Context Provider Runtime**
+   Add the first narrow `core/context` provider contracts and
+   `runtime/context` materializer, then migrate only providers needed by the
+   first app. File/git/shell-backed providers should remain adapter/plugin
+   owned.
+
+Do not start with LLM provider integration or Slack. They are important, but
+they depend on the app/plugin/channel boundaries being stable enough that they
+do not drag old architecture back into the rewrite.
+
 ## Package Audit Template
 
 Use this template as we go through each current package.

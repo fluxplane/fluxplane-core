@@ -272,7 +272,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 
 	switch r.submission.Kind {
 	case clientapi.SubmissionInput:
-		result, err := service.HandleInbound(ctx, channel.Inbound{
+		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
 			ID:           string(r.id),
 			Channel:      info.Channel,
 			Conversation: info.Conversation,
@@ -297,7 +297,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 		}, nil)
 		r.forwardRunEvents(events)
 	case clientapi.SubmissionCommand:
-		result, err := service.HandleInbound(ctx, channel.Inbound{
+		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
 			ID:           string(r.id),
 			Channel:      info.Channel,
 			Conversation: info.Conversation,
@@ -379,6 +379,16 @@ func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {
 		case <-timeout:
 			return
 		}
+	}
+}
+
+func toHarnessSessionInfo(info clientapi.SessionInfo) harness.SessionInfo {
+	return harness.SessionInfo{
+		Thread:       info.Thread,
+		Channel:      info.Channel,
+		Conversation: info.Conversation,
+		Metadata:     cloneStringMap(info.Metadata),
+		Resumed:      info.Resumed,
 	}
 }
 

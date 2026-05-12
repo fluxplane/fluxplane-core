@@ -194,6 +194,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		Channel:      inbound.Channel,
 		Conversation: inbound.Conversation,
 		Caller:       inbound.Caller,
+		Trust:        inbound.Trust,
 	}); err != nil {
 		return inputFailed("thread_append_failed", err.Error(), nil)
 	}
@@ -308,6 +309,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		Channel:      inbound.Channel,
 		Conversation: inbound.Conversation,
 		Caller:       inbound.Caller,
+		Trust:        inbound.Trust,
 	}); err != nil {
 		return commandFailed("thread_append_failed", err.Error(), nil)
 	}

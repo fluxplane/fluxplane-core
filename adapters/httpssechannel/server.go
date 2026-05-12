@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -15,10 +14,8 @@ import (
 
 // Server exposes a ChannelClient through JSON endpoints and SSE event streams.
 type Server struct {
-	client   clientapi.ChannelClient
-	mux      *http.ServeMux
-	mu       sync.Mutex
-	sessions map[corethread.ID]clientapi.SessionHandle
+	client clientapi.ChannelClient
+	mux    *http.ServeMux
 }
 
 // ServerConfig configures an HTTP/SSE channel server.
@@ -31,11 +28,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("httpssechannel: client is nil")
 	}
-	server := &Server{
-		client:   cfg.Client,
-		mux:      http.NewServeMux(),
-		sessions: map[corethread.ID]clientapi.SessionHandle{},
-	}
+	server := &Server{client: cfg.Client, mux: http.NewServeMux()}
 	server.routes()
 	return server, nil
 }
@@ -62,7 +55,6 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	s.remember(session)
 	writeJSON(w, http.StatusOK, session.Info())
 }
 
@@ -76,7 +68,6 @@ func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	s.remember(session)
 	writeJSON(w, http.StatusOK, session.Info())
 }
 
@@ -111,19 +102,14 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("httpssechannel: submit thread id mismatch"))
 		return
 	}
-	session := s.sessionFor(threadID)
-	if session == nil {
-		var err error
-		session, err = s.client.Open(r.Context(), clientapi.OpenRequest{
-			ThreadID:     req.Session.Thread.ID,
-			Conversation: req.Session.Conversation,
-			Metadata:     req.Session.Metadata,
-		})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		s.remember(session)
+	session, err := s.client.Open(r.Context(), clientapi.OpenRequest{
+		ThreadID:     req.Session.Thread.ID,
+		Conversation: req.Session.Conversation,
+		Metadata:     req.Session.Metadata,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 	run, err := session.Submit(r.Context(), req.Submission)
 	if err != nil {
@@ -140,15 +126,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	threadID := corethread.ID(r.PathValue("threadID"))
-	session := s.sessionFor(threadID)
-	if session == nil {
-		var err error
-		session, err = s.client.Resume(r.Context(), clientapi.ResumeRequest{ThreadID: threadID})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		s.remember(session)
+	session, err := s.client.Resume(r.Context(), clientapi.ResumeRequest{ThreadID: threadID})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
 	}
 	opts := clientapi.EventOptions{
 		Buffer: parseInt(r.URL.Query().Get("buffer")),
@@ -188,24 +169,6 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-}
-
-func (s *Server) remember(session clientapi.SessionHandle) {
-	if session == nil || session.Info().Thread.ID == "" {
-		return
-	}
-	s.mu.Lock()
-	s.sessions[session.Info().Thread.ID] = session
-	s.mu.Unlock()
-}
-
-func (s *Server) sessionFor(threadID corethread.ID) clientapi.SessionHandle {
-	if threadID == "" {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sessions[threadID]
 }
 
 func writeSSE(w http.ResponseWriter, event clientapi.Event) error {

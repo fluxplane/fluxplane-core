@@ -2,17 +2,23 @@ package agentruntime_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/plugins/echoplugin"
 )
 
 func TestServiceSendInputThroughTopLevelAPI(t *testing.T) {
@@ -99,6 +105,119 @@ func TestServiceListsAndResumesSessions(t *testing.T) {
 	}
 	if resumed.Info().Thread.ID != opened.Info().Thread.ID {
 		t.Fatalf("resumed thread = %q, want %q", resumed.Info().Thread.ID, opened.Info().Thread.ID)
+	}
+}
+
+func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	manifest := []byte(`{
+  "commands": [
+    {
+      "path": ["echo"],
+      "operation": "echo",
+      "policy": {
+        "allowed_callers": ["user"],
+        "required_trust": "verified"
+      }
+    }
+  ]
+}`)
+	if err := os.WriteFile(filepath.Join(dir, resourcefs.DefaultManifestName), manifest, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	bundle, err := resourcefs.LoadDir(ctx, dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+
+	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Agent:      echoAgent{},
+		Operations: []operation.Operation{echo},
+		Bundles:    []agentruntime.ResourceBundle{bundle},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "resource-app"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+}
+
+func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	manifest := []byte(`{
+  "plugins": [
+    {"name": "echo"}
+  ]
+}`)
+	if err := os.WriteFile(filepath.Join(dir, resourcefs.DefaultManifestName), manifest, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	bundle, err := resourcefs.LoadDir(ctx, dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Agent:   echoAgent{},
+		Plugins: []pluginhost.Plugin{echoplugin.New()},
+		Bundles: []agentruntime.ResourceBundle{bundle},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "plugin-resource-app"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 }
 

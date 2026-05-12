@@ -10,13 +10,18 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/plugins/echoplugin"
+	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
 
 func main() {
@@ -32,10 +37,10 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	if cfg.mode == "serve" {
-		return serve(cfg.addr)
+		return serve(ctx, cfg.addr, cfg.appDir)
 	}
 
-	client, err := newClient(cfg.remoteURL)
+	client, err := newClient(ctx, cfg.remoteURL, cfg.appDir)
 	if err != nil {
 		return err
 	}
@@ -48,14 +53,14 @@ func run(ctx context.Context, args []string) error {
 
 	submission := agentruntime.Submission{}
 	switch cfg.mode {
-	case "echo":
+	case "command":
 		submission.Kind = agentruntime.SubmissionCommand
-		submission.Command = &command.Invocation{Path: command.Path{cfg.mode}, Input: cfg.text}
+		submission.Command = &command.Invocation{Path: cfg.commandPath, Input: cfg.text}
 	case "input":
 		submission.Kind = agentruntime.SubmissionInput
 		submission.Input = &agentruntime.Input{Text: cfg.text}
 	default:
-		return fmt.Errorf("unknown mode %q (use echo or input)", cfg.mode)
+		return fmt.Errorf("unknown mode %q", cfg.mode)
 	}
 	if cfg.debug {
 		debugPrint("input", cfg.text)
@@ -89,11 +94,13 @@ func run(ctx context.Context, args []string) error {
 }
 
 type config struct {
-	debug     bool
-	remoteURL string
-	addr      string
-	mode      string
-	text      string
+	debug       bool
+	remoteURL   string
+	appDir      string
+	addr        string
+	mode        string
+	commandPath command.Path
+	text        string
 }
 
 func parseArgs(args []string) (config, error) {
@@ -116,6 +123,12 @@ func parseArgs(args []string) (config, error) {
 				return config{}, fmt.Errorf("%s", usage())
 			}
 			cfg.addr = args[i]
+		case "-app", "--app":
+			i++
+			if i >= len(args) {
+				return config{}, fmt.Errorf("%s", usage())
+			}
+			cfg.appDir = args[i]
 		default:
 			positionals = append(positionals, arg)
 		}
@@ -123,13 +136,41 @@ func parseArgs(args []string) (config, error) {
 	if len(positionals) == 0 {
 		return config{}, fmt.Errorf("%s", usage())
 	}
-	cfg.mode = positionals[0]
-	cfg.text = strings.Join(positionals[1:], " ")
+	switch positionals[0] {
+	case "input":
+		cfg.mode = "input"
+		cfg.text = strings.Join(positionals[1:], " ")
+	case "serve":
+		cfg.mode = "serve"
+		cfg.text = strings.Join(positionals[1:], " ")
+	default:
+		path := parseCommandPath(positionals[0])
+		if len(path) == 0 {
+			return config{}, fmt.Errorf("%s", usage())
+		}
+		cfg.mode = "command"
+		cfg.commandPath = path
+		cfg.text = strings.Join(positionals[1:], " ")
+	}
 	return cfg, nil
 }
 
 func usage() string {
-	return "usage: devclient [-debug] [-url <base-url>] echo <text> | devclient [-debug] [-url <base-url>] input <text> | devclient serve [-addr <addr>]"
+	return "usage: devclient [-debug] [-app <dir>] [-url <base-url>] <command-path> <text> | devclient [-debug] [-app <dir>] [-url <base-url>] input <text> | devclient serve [-addr <addr>] [-app <dir>]"
+}
+
+func parseCommandPath(raw string) command.Path {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '/'
+	})
+	path := make(command.Path, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			path = append(path, part)
+		}
+	}
+	return path
 }
 
 func debugRunEvents(debug bool, events <-chan agentruntime.Event) func() {
@@ -180,15 +221,15 @@ func checkResult(result agentruntime.Result) error {
 	return fmt.Errorf("run produced no command or input result")
 }
 
-func newClient(remoteURL string) (agentruntime.ChannelClient, error) {
+func newClient(ctx context.Context, remoteURL, appDir string) (agentruntime.ChannelClient, error) {
 	if remoteURL != "" {
 		return httpssechannel.NewClient(httpssechannel.ClientConfig{BaseURL: remoteURL})
 	}
-	return newRuntime()
+	return newRuntime(ctx, appDir)
 }
 
-func serve(addr string) error {
-	service, err := newRuntime()
+func serve(ctx context.Context, addr, appDir string) error {
+	service, err := newRuntime(ctx, appDir)
 	if err != nil {
 		return err
 	}
@@ -200,33 +241,36 @@ func serve(addr string) error {
 	return http.ListenAndServe(addr, server)
 }
 
-func newRuntime() (*agentruntime.Service, error) {
+func newRuntime(ctx context.Context, appDir string) (*agentruntime.Service, error) {
 	ops := operation.NewRegistry()
-	if err := ops.Register(operation.New(operation.Spec{
+	echo := operation.New(operation.Spec{
 		Ref:         operation.Ref{Name: "echo"},
 		Description: "Return the provided input.",
 	}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
-	})); err != nil {
+	})
+	if err := ops.Register(echo); err != nil {
 		return nil, err
 	}
 
 	commands := command.NewRegistry()
-	if err := commands.Register(command.Spec{
-		Path: command.Path{"echo"},
-		Target: invocation.Target{
-			Kind:      invocation.TargetOperation,
-			Operation: operation.Ref{Name: "echo"},
-		},
-		Policy: policy.InvocationPolicy{
-			AllowedCallers: []policy.CallerKind{policy.CallerUser},
-			RequiredTrust:  policy.TrustVerified,
-		},
-	}); err != nil {
-		return nil, err
+	if appDir == "" {
+		if err := commands.Register(command.Spec{
+			Path: command.Path{"echo"},
+			Target: invocation.Target{
+				Kind:      invocation.TargetOperation,
+				Operation: operation.Ref{Name: "echo"},
+			},
+			Policy: policy.InvocationPolicy{
+				AllowedCallers: []policy.CallerKind{policy.CallerUser},
+				RequiredTrust:  policy.TrustVerified,
+			},
+		}); err != nil {
+			return nil, err
+		}
 	}
 
-	return agentruntime.New(agentruntime.Config{
+	cfg := agentruntime.Config{
 		Agent:      echoAgent{},
 		Commands:   commands,
 		Operations: ops,
@@ -243,7 +287,35 @@ func newRuntime() (*agentruntime.Service, error) {
 			Kind:  policy.TrustInvocation,
 			Level: policy.TrustVerified,
 		},
+	}
+	if appDir == "" {
+		return agentruntime.New(cfg)
+	}
+	bundle, err := resourcefs.LoadDir(ctx, appDir)
+	if err != nil {
+		return nil, err
+	}
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Agent:      cfg.Agent,
+		Operations: appOperations(bundle, echo),
+		Plugins:    []pluginhost.Plugin{echoplugin.New(), textplugin.New()},
+		Bundles:    []agentruntime.ResourceBundle{bundle},
 	})
+	if err != nil {
+		return nil, err
+	}
+	cfg.Commands = nil
+	cfg.Operations = nil
+	return agentruntime.NewFromComposition(composition, cfg)
+}
+
+func appOperations(bundle agentruntime.ResourceBundle, echo operation.Operation) []operation.Operation {
+	for _, ref := range bundle.Plugins {
+		if ref.Name == echoplugin.Name {
+			return nil
+		}
+	}
+	return []operation.Operation{echo}
 }
 
 type echoAgent struct{}

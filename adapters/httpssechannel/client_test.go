@@ -2,6 +2,9 @@ package httpssechannel
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -10,9 +13,11 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 )
@@ -132,6 +137,234 @@ func TestClientListsResumesAndReplaysSessionEvents(t *testing.T) {
 	}
 }
 
+func TestSessionEventsNormalizesNegativeBuffer(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-negative-buffer"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_, cancel, err := sessionHandle.Events(ctx, clientapi.EventOptions{Buffer: -1})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	cancel()
+}
+
+func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	opened, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-resume-submit"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	resumed, err := client.Resume(ctx, clientapi.ResumeRequest{ThreadID: opened.Info().Thread.ID})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	run, err := resumed.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Session.Thread.ID != opened.Info().Thread.ID {
+		t.Fatalf("result thread = %q, want %q", result.Session.Thread.ID, opened.Info().Thread.ID)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+}
+
+func TestRunHandleAdoptsServerNormalizedSubmission(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-normalized-run"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	submission := run.Submission()
+	if submission.Caller.Kind != policy.CallerUser {
+		t.Fatalf("caller = %#v, want user", submission.Caller)
+	}
+	if submission.Trust.Level != policy.TrustVerified {
+		t.Fatalf("trust = %#v, want verified", submission.Trust)
+	}
+}
+
+func TestRunWaitReturnsSSEDecodeError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {not-json}\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	mux.HandleFunc("POST /sessions/thread-1/submit", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(clientapi.Result{
+			RunID: "run-1",
+			Session: clientapi.SessionInfo{
+				Thread: openedThread("thread-1"),
+			},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sessionHandle := &Session{
+		client: client,
+		info: clientapi.SessionInfo{
+			Thread: openedThread("thread-1"),
+		},
+	}
+	run, err := sessionHandle.SendInput(context.Background(), clientapi.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	if _, err := run.Wait(context.Background()); err == nil {
+		t.Fatal("Wait error is nil, want SSE decode error")
+	}
+}
+
+func TestRunWaitReturnsSubmitErrorWithRunIdentity(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("POST /sessions/thread-1/submit", func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("boom"))
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sessionHandle := &Session{
+		client: client,
+		info: clientapi.SessionInfo{
+			Thread: openedThread("thread-1"),
+		},
+	}
+	run, err := sessionHandle.Submit(context.Background(), clientapi.Submission{
+		ID:    "run_1",
+		Kind:  clientapi.SubmissionInput,
+		Input: &clientapi.Input{Text: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(context.Background())
+	if err == nil {
+		t.Fatal("Wait error is nil, want submit error")
+	}
+	if result.RunID != "run_1" {
+		t.Fatalf("result run id = %q, want run_1", result.RunID)
+	}
+	if result.Session.Thread.ID != "thread-1" {
+		t.Fatalf("result thread = %q, want thread-1", result.Session.Thread.ID)
+	}
+	if result.Submission.Kind != clientapi.SubmissionInput {
+		t.Fatalf("result submission = %#v, want input", result.Submission)
+	}
+}
+
+func TestRunWaitFailsWhenSSEClosesBeforeTerminalEvent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`event: submission.received
+data: {"kind":"submission.received","run_id":"run_1"}
+
+`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	mux.HandleFunc("POST /sessions/thread-1/submit", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(clientapi.Result{
+			RunID: "run_1",
+			Session: clientapi.SessionInfo{
+				Thread: openedThread("thread-1"),
+			},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sessionHandle := &Session{
+		client: client,
+		info: clientapi.SessionInfo{
+			Thread: openedThread("thread-1"),
+		},
+	}
+	run, err := sessionHandle.Submit(context.Background(), clientapi.Submission{
+		ID:    "run_1",
+		Kind:  clientapi.SubmissionInput,
+		Input: &clientapi.Input{Text: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(context.Background()); err == nil {
+		t.Fatal("Wait error is nil, want terminal event error")
+	}
+}
+
+func TestEventSubmissionRequiresTypedEventCodec(t *testing.T) {
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(context.Background(), clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-event"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	_, err = sessionHandle.Submit(context.Background(), clientapi.Submission{
+		Kind:  clientapi.SubmissionEvent,
+		Event: stubEvent{},
+	})
+	if err == nil {
+		t.Fatal("Submit error is nil, want typed event codec error")
+	}
+}
+
 func assertRemoteRunEvent(t *testing.T, run clientapi.RunHandle, kind clientapi.EventKind) {
 	t.Helper()
 	deadline := time.After(time.Second)
@@ -148,6 +381,14 @@ func assertRemoteRunEvent(t *testing.T, run clientapi.RunHandle, kind clientapi.
 			t.Fatalf("timed out waiting for %s", kind)
 		}
 	}
+}
+
+type stubEvent struct{}
+
+func (stubEvent) EventName() coreevent.Name { return "stub.event" }
+
+func openedThread(id string) corethread.Ref {
+	return corethread.Ref{ID: corethread.ID(id), BranchID: corethread.MainBranch}
 }
 
 func testRemoteClient(t *testing.T) *Client {

@@ -13,6 +13,7 @@ type Executor struct {
 	Validator  Validator
 	Middleware []Middleware
 	EventSink  event.Sink
+	Safety     SafetyGate
 }
 
 // Option configures an Executor.
@@ -32,6 +33,11 @@ func WithMiddleware(middleware ...Middleware) Option {
 // context is nil.
 func WithEventSink(sink event.Sink) Option {
 	return func(e *Executor) { e.EventSink = sink }
+}
+
+// WithSafetyGate installs a pre-execution safety gate.
+func WithSafetyGate(gate SafetyGate) Option {
+	return func(e *Executor) { e.Safety = gate }
 }
 
 // NewExecutor returns an operation executor.
@@ -55,6 +61,11 @@ func (e Executor) Execute(ctx operation.Context, op operation.Operation, input o
 	ctx.Events().Emit(operation.OperationStarted{Operation: spec.Ref})
 
 	base := func(ctx operation.Context, input operation.Value) operation.Result {
+		if e.Safety != nil {
+			if err := e.Safety.Check(ctx, spec, input); err != nil {
+				return operation.Rejected("operation_safety_denied", err.Error(), nil)
+			}
+		}
 		if e.Validator != nil && !spec.Input.IsZero() {
 			if err := e.Validator.Validate(spec.Input, input); err != nil {
 				return validationFailed("input", err)

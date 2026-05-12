@@ -105,6 +105,9 @@ func (s *Session) Submit(ctx context.Context, submission clientapi.Submission) (
 	if submission.ID == "" {
 		submission.ID = clientapi.RunID(newID("run_"))
 	}
+	if submission.Kind == clientapi.SubmissionEvent {
+		return nil, fmt.Errorf("httpssechannel: event submissions require a typed event codec")
+	}
 	if err := submission.Validate(); err != nil {
 		return nil, err
 	}
@@ -138,7 +141,8 @@ func (s *Session) Events(ctx context.Context, opts clientapi.EventOptions) (<-ch
 		close(ch)
 		return ch, func() {}, fmt.Errorf("httpssechannel: session thread id is empty")
 	}
-	return s.client.openEvents(ctx, s.info.Thread.ID, opts)
+	events, cancel, _, err := s.client.openEventStream(ctx, s.info.Thread.ID, opts)
+	return events, cancel, err
 }
 
 func (s *Session) OnEvent(ctx context.Context, fn func(clientapi.Event)) (func(), error) {
@@ -200,9 +204,17 @@ func newRunHandle(client *Client, session clientapi.SessionInfo, submission clie
 
 func (r *runHandle) ID() clientapi.RunID { return r.id }
 
-func (r *runHandle) Session() clientapi.SessionInfo { return r.session }
+func (r *runHandle) Session() clientapi.SessionInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.session
+}
 
-func (r *runHandle) Submission() clientapi.Submission { return r.submission }
+func (r *runHandle) Submission() clientapi.Submission {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.submission
+}
 
 func (r *runHandle) Events() <-chan clientapi.Event { return r.events }
 
@@ -231,28 +243,38 @@ func (r *runHandle) Wait(ctx context.Context) (clientapi.Result, error) {
 func (r *runHandle) execute(ctx context.Context) {
 	defer close(r.done)
 
-	events, cancel, err := r.client.openEvents(ctx, r.session.Thread.ID, clientapi.EventOptions{Buffer: 16})
+	session, submission := r.snapshot()
+	events, cancel, streamErrs, err := r.client.openEventStream(ctx, session.Thread.ID, clientapi.EventOptions{Buffer: 16})
 	if err != nil {
-		r.setResult(clientapi.Result{RunID: r.id, Session: r.session, Submission: r.submission}, err)
+		r.setResult(clientapi.Result{RunID: r.id, Session: session, Submission: submission}, err)
 		close(r.events)
 		return
 	}
 	forwardDone := make(chan struct{})
+	forwardErr := make(chan error, 1)
 	go func() {
 		defer close(forwardDone)
-		r.forwardRunEvents(events)
+		defer close(forwardErr)
+		forwardErr <- r.forwardRunEvents(events, streamErrs)
 	}()
 
 	var result clientapi.Result
-	err = r.client.postJSON(ctx, "/sessions/"+url.PathEscape(string(r.session.Thread.ID))+"/submit", submitRequest{
-		Session:    r.session,
-		Submission: r.submission,
+	err = r.client.postJSON(ctx, "/sessions/"+url.PathEscape(string(session.Thread.ID))+"/submit", submitRequest{
+		Session:    session,
+		Submission: submission,
 	}, &result)
+	if err != nil && result.RunID == "" {
+		result = clientapi.Result{RunID: r.id, Session: session, Submission: submission}
+	}
 	r.setResult(result, err)
 	if err == nil {
 		select {
 		case <-forwardDone:
+			if forwardErrValue := <-forwardErr; forwardErrValue != nil {
+				r.setResult(result, forwardErrValue)
+			}
 		case <-time.After(time.Second):
+			r.setResult(result, fmt.Errorf("httpssechannel: timed out waiting for run %s terminal event", r.id))
 		}
 	}
 	cancel()
@@ -263,8 +285,20 @@ func (r *runHandle) execute(ctx context.Context) {
 	close(r.events)
 }
 
+func (r *runHandle) snapshot() (clientapi.SessionInfo, clientapi.Submission) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.session, r.submission
+}
+
 func (r *runHandle) setResult(result clientapi.Result, err error) {
 	r.mu.Lock()
+	if result.Session.Thread.ID != "" {
+		r.session = result.Session
+	}
+	if result.Submission.Kind != "" {
+		r.submission = result.Submission
+	}
 	r.result = result
 	r.err = err
 	r.mu.Unlock()
@@ -277,19 +311,58 @@ func (r *runHandle) emit(event clientapi.Event) {
 	}
 }
 
-func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {
-	for event := range events {
-		if event.RunID != r.id {
-			continue
-		}
-		r.emit(event)
-		if event.Kind == clientapi.EventRunCompleted || event.Kind == clientapi.EventRunFailed {
-			return
+func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event, streamErrs <-chan error) error {
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				if err := pendingStreamError(streamErrs); err != nil {
+					return err
+				}
+				return fmt.Errorf("httpssechannel: event stream closed before run %s completed", r.id)
+			}
+			if event.RunID != r.id {
+				continue
+			}
+			r.emit(event)
+			if event.Kind == clientapi.EventRunCompleted || event.Kind == clientapi.EventRunFailed {
+				return nil
+			}
+		case err, ok := <-streamErrs:
+			if !ok {
+				streamErrs = nil
+				continue
+			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 }
 
-func (c *Client) openEvents(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+func pendingStreamError(streamErrs <-chan error) error {
+	if streamErrs == nil {
+		return nil
+	}
+	for {
+		select {
+		case err, ok := <-streamErrs:
+			if !ok {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), <-chan error, error) {
+	if opts.Buffer < 0 {
+		opts.Buffer = 0
+	}
 	values := url.Values{}
 	if opts.Buffer > 0 {
 		values.Set("buffer", strconv.Itoa(opts.Buffer))
@@ -309,25 +382,27 @@ func (c *Client) openEvents(ctx context.Context, threadID corethread.ID, opts cl
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		cancelCtx()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		cancelCtx()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		cancelCtx()
-		return nil, nil, responseError(resp)
+		return nil, nil, nil, responseError(resp)
 	}
 
 	out := make(chan clientapi.Event, opts.Buffer)
+	errs := make(chan error, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer close(out)
+		defer close(errs)
 		defer resp.Body.Close()
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -337,12 +412,14 @@ func (c *Client) openEvents(ctx context.Context, threadID corethread.ID, opts cl
 			if line == "" {
 				if data.Len() > 0 {
 					var event clientapi.Event
-					if err := json.Unmarshal([]byte(data.String()), &event); err == nil {
-						select {
-						case out <- event:
-						case <-reqCtx.Done():
-							return
-						}
+					if err := json.Unmarshal([]byte(data.String()), &event); err != nil {
+						sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: decode SSE event: %w", err))
+						return
+					}
+					select {
+					case out <- event:
+					case <-reqCtx.Done():
+						return
 					}
 					data.Reset()
 				}
@@ -355,13 +432,24 @@ func (c *Client) openEvents(ctx context.Context, threadID corethread.ID, opts cl
 				data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 			}
 		}
+		if err := scanner.Err(); err != nil && reqCtx.Err() == nil {
+			sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: read SSE stream: %w", err))
+		}
 	}()
 	cancel := func() {
 		cancelCtx()
 		_ = resp.Body.Close()
 		<-done
 	}
-	return out, cancel, nil
+	return out, cancel, errs, nil
+}
+
+func sendStreamError(ctx context.Context, errs chan<- error, err error) {
+	select {
+	case errs <- err:
+	case <-ctx.Done():
+	default:
+	}
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {

@@ -27,6 +27,7 @@ type InputReceived struct {
 	Channel      channel.Ref             `json:"channel,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	Caller       policy.Caller           `json:"caller,omitempty"`
+	Trust        policy.Trust            `json:"trust,omitempty"`
 }
 
 func (InputReceived) EventName() event.Name { return EventInputReceived }
@@ -38,6 +39,7 @@ type CommandReceived struct {
 	Channel      channel.Ref             `json:"channel,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	Caller       policy.Caller           `json:"caller,omitempty"`
+	Trust        policy.Trust            `json:"trust,omitempty"`
 }
 
 func (CommandReceived) EventName() event.Name { return EventCommandReceived }

@@ -64,6 +64,9 @@ func TestHandleInboundCommandBindsChannelConversationAndPublishesOutbound(t *tes
 			if event.Outbound == nil {
 				continue
 			}
+			if event.Session.Thread.ID != info.Thread.ID {
+				t.Fatalf("event session thread = %q, want %q", event.Session.Thread.ID, info.Thread.ID)
+			}
 			if event.Outbound.Message == nil || event.Outbound.Message.Content != "hello" {
 				t.Fatalf("published event = %#v", event)
 			}
@@ -123,6 +126,131 @@ func TestOpenSessionConcurrentSameConversationUsesOneThread(t *testing.T) {
 			t.Fatalf("thread id = %q, want %q", id, first)
 		}
 	}
+}
+
+func TestHandleSessionInboundUsesExplicitSessionThread(t *testing.T) {
+	ctx := context.Background()
+	service, threadStore := testService(t)
+
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	other, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-2"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession other: %v", err)
+	}
+	otherBefore, err := threadStore.Read(ctx, corethread.ReadParams{ID: other.Thread.ID})
+	if err != nil {
+		t.Fatalf("Read other thread before: %v", err)
+	}
+
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:      "run-1",
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:    channel.InboundCommand,
+		Command: &command.Invocation{Path: command.Path{"echo"}, Input: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Session.Thread.ID != info.Thread.ID {
+		t.Fatalf("thread id = %q, want %q", result.Session.Thread.ID, info.Thread.ID)
+	}
+
+	snapshot, err := threadStore.Read(ctx, corethread.ReadParams{ID: info.Thread.ID})
+	if err != nil {
+		t.Fatalf("Read explicit thread: %v", err)
+	}
+	if len(snapshot.Events) == 0 {
+		t.Fatal("expected explicit thread events")
+	}
+	otherSnapshot, err := threadStore.Read(ctx, corethread.ReadParams{ID: other.Thread.ID})
+	if err != nil {
+		t.Fatalf("Read other thread: %v", err)
+	}
+	if len(otherSnapshot.Events) != len(otherBefore.Events) {
+		t.Fatalf("other thread event count = %d, want %d", len(otherSnapshot.Events), len(otherBefore.Events))
+	}
+}
+
+func TestHandleSessionInboundPreservesInboundRoutingWhenSessionIsThreadOnly(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	threadOnly := SessionInfo{Thread: info.Thread}
+
+	result, err := service.HandleSessionInbound(ctx, threadOnly, channel.Inbound{
+		ID:           "run-1",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"echo"}, Input: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Session.Channel.Name != "local" {
+		t.Fatalf("result channel = %q, want local", result.Session.Channel.Name)
+	}
+	if result.Session.Conversation.ID != "conv-1" {
+		t.Fatalf("result conversation = %q, want conv-1", result.Session.Conversation.ID)
+	}
+	if result.Outbound == nil || result.Outbound.Channel.Name != "local" || result.Outbound.Conversation.ID != "conv-1" {
+		t.Fatalf("outbound routing = %#v", result.Outbound)
+	}
+}
+
+func TestSubscribeCancelDoesNotRacePublish(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+
+	const iterations = 200
+	var wg sync.WaitGroup
+	for i := 0; i < iterations; i++ {
+		events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 1})
+		if err != nil {
+			t.Fatalf("Subscribe: %v", err)
+		}
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			cancel()
+		}()
+		go func(i int) {
+			defer wg.Done()
+			service.publish(info.Thread.ID, clientapi.Event{
+				Kind:  clientapi.EventRunCompleted,
+				RunID: clientapi.RunID("run"),
+			})
+			for range events {
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 func testService(t *testing.T) (*Service, corethread.Store) {

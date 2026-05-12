@@ -52,10 +52,20 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 	seenRunOutbound := false
+	seenSubmission := false
 	for event := range run.Events() {
+		if event.Kind == clientapi.EventSubmissionReceived {
+			seenSubmission = true
+			if event.Submission == nil || event.Submission.Command == nil || event.Submission.Command.Input != "hello" {
+				t.Fatalf("submission event = %#v", event)
+			}
+		}
 		if event.Kind == clientapi.EventOutboundProduced {
 			seenRunOutbound = true
 		}
+	}
+	if !seenSubmission {
+		t.Fatal("expected run submission event")
 	}
 	if !seenRunOutbound {
 		t.Fatal("expected run outbound event")
@@ -103,10 +113,20 @@ func TestSessionSendInputReturnsRunHandle(t *testing.T) {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 	seenInputCompleted := false
+	seenSubmission := false
 	for event := range run.Events() {
+		if event.Kind == clientapi.EventSubmissionReceived {
+			seenSubmission = true
+			if event.Submission == nil || event.Submission.Input == nil || event.Submission.Input.Content != "ping" {
+				t.Fatalf("submission event = %#v", event)
+			}
+		}
 		if event.Kind == clientapi.EventInputCompleted {
 			seenInputCompleted = true
 		}
+	}
+	if !seenSubmission {
+		t.Fatal("expected input submission event")
 	}
 	if !seenInputCompleted {
 		t.Fatal("expected input completed event")
@@ -137,11 +157,25 @@ func TestSessionEventsCanReplayFromThreadStore(t *testing.T) {
 	defer cancel()
 
 	deadline := time.After(time.Second)
+	seenSubmission := false
 	for {
 		select {
 		case event := <-events:
+			if event.Kind == clientapi.EventSubmissionReceived {
+				seenSubmission = true
+				if event.Submission == nil || event.Submission.Command == nil {
+					t.Fatalf("replayed submission = %#v", event)
+				}
+				if event.Submission.Trust.Level != policy.TrustVerified {
+					t.Fatalf("replayed trust = %#v, want verified", event.Submission.Trust)
+				}
+				continue
+			}
 			if event.Kind != clientapi.EventOutboundProduced {
 				continue
+			}
+			if !seenSubmission {
+				t.Fatal("expected replayed submission before outbound")
 			}
 			if !event.Replayed {
 				t.Fatalf("event = %#v, want replayed", event)
@@ -156,6 +190,36 @@ func TestSessionEventsCanReplayFromThreadStore(t *testing.T) {
 		case <-deadline:
 			t.Fatal("expected replayed outbound event")
 		}
+	}
+}
+
+func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
+	ctx := context.Background()
+	client := testClient(t)
+	opened, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	resumed, err := client.Resume(ctx, clientapi.ResumeRequest{ThreadID: opened.Info().Thread.ID})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	run, err := resumed.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Session.Thread.ID != opened.Info().Thread.ID {
+		t.Fatalf("result thread = %q, want %q", result.Session.Thread.ID, opened.Info().Thread.ID)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 }
 

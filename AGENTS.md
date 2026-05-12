@@ -162,11 +162,62 @@ channel and a remote HTTP/SSE channel should implement the same interfaces.
 Client events are the shared live/replay shape; replay cursors are thread event
 sequence positions, not transport-specific offsets.
 
+The client contract is handle-oriented:
+
+```text
+ChannelClient.Open/Resume/ListSessions
+  -> SessionHandle
+  -> Submit/SendInput/SendCommand
+  -> RunHandle
+  -> Events/Done/Wait/Result
+```
+
+Transport differences must not leak through that contract. An in-process
+direct channel and a remote HTTP/SSE channel should return the same logical
+session and run handles, normalize caller/trust the same way, expose the same
+semantic events, and preserve run/session/submission identity on failures.
+`Submission` is the neutral ingress shape for user input, commands, future
+events, and future signals/triggers.
+
 `orchestration/harness` is the channel-to-session use-case boundary. It should
 receive normalized `core/channel.Inbound`, bind channel conversations to
 session/thread refs, delegate execution to `orchestration/session`, and publish
 normalized `core/channel.Outbound`. Adapters and apps should call harness, not
 reach into sessions directly, unless they are testing session behavior itself.
+
+Once a channel client has opened or resumed a session, execution should use the
+resolved session/thread identity instead of re-resolving from channel and
+conversation. Channel/conversation metadata may still be supplied by the
+inbound envelope for routing and outbound production, but the thread selected by
+the session handle is authoritative.
+
+`orchestration/app` composes pure resource contribution bundles with supplied
+runtime implementations. Resource operation specs are declarations; executable
+operation implementations still come from runtime/plugin/app code. Composition
+may validate that resource commands point at available operation
+implementations, but it must not read files or choose protocol adapters.
+Composition preserves bundle and plugin-ref order for deterministic assembly,
+but it does not support implicit overrides. Duplicate operation declarations,
+duplicate executable operation names, and duplicate command paths are errors
+with source-aware diagnostics. Add an explicit override concept later only if a
+real app use case needs it.
+
+`orchestration/daemon` models process/control-plane state over an already
+assembled channel client. It can list sessions and report host status, but it
+must not become a second session execution path.
+
+`orchestration/pluginhost` resolves plugin refs into resource contribution
+bundles and optional executable operation implementations during app
+composition. It owns plugin selection at the abstract contract level only;
+concrete first-party implementations still belong in `plugins/`.
+When a plugin returns a bundle without a source, pluginhost stamps it with a
+plugin source ref so later composition diagnostics can point at the contribution
+that caused the failure.
+
+Plugin ref `config` is plugin-owned data. Resource adapters may preserve it,
+and pluginhost may pass it through, but only the selected plugin implementation
+should interpret it. A plugin should reject unsupported or unsafe config early
+instead of silently broadening its contribution set.
 
 ### `adapters/`
 
@@ -193,6 +244,28 @@ Forbidden in `adapters`:
 - plugin contribution types that should be core contracts.
 
 Adapters should answer: "How does an outside system talk to the runtime?"
+
+HTTP surfaces must stay conceptually separate:
+
+- **channel HTTP/SSE** exposes the session channel contract remotely. It is a
+  transport for `ChannelClient`, `SessionHandle`, `RunHandle`, submissions, and
+  semantic event streams.
+- **daemon/control HTTP** will manage a running process: status, configured
+  sessions, trigger state, logs, health, and administrative lifecycle.
+
+The channel surface must not grow daemon control semantics, and the daemon
+control surface must not become a side door into sessions that bypasses channel
+trust, submission, and harness rules.
+
+`adapters/resourcefs` is the local filesystem resource boundary. It may parse
+files such as `agentruntime.json` into `core/resource.ContributionBundle`, but
+all execution, plugin selection, and session behavior must stay in
+orchestration/runtime/apps.
+
+The seed `agentruntime.json` manifest may declare operation specs, command
+projections, and plugin refs with plugin-owned config. This is a rewrite-local
+seed format used to prove composition; compatibility with external formats must
+be implemented as additional adapters rather than folded into core.
 
 Candidate subpackages:
 
@@ -324,6 +397,14 @@ may be exposed through different tools, commands, channels, or agent projections
 with different policies. Runtime and orchestration combine operation semantics,
 projection policy, caller trust, and environment boundary to make enforcement
 decisions.
+
+When operation implementations move beyond pure/in-memory examples, implement
+them safety-first. Do not add shell, filesystem, network, browser, code
+execution, or connector operations as plain function calls and retrofit safety
+later. The first real operation runtime batch must include the enforcement
+shape for sandboxing, ACL/scope checks, command-risk classification
+(`codewandler/cmdrisk` or successor), secret handling/redaction, approval
+requirements, audit events, and environment boundaries.
 
 ## Projections and Tools
 
