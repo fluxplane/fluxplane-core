@@ -20,10 +20,12 @@ The current executable slice supports:
 - HTTP/SSE channel transport;
 - local `agentruntime.json` resource manifests;
 - first-party `echo` and `text` plugins;
+- provider-neutral LLM-agent runtime skeleton with a fake/test model path;
+- safe-by-default tool projection for LLM-visible commands and operations;
 - an architecture import report for maintainers.
 
-LLM-agent runtime, terminal UX, Slack, model provider adapters, trigger
-execution, and side-effecting operation plugins are still under active design.
+Terminal UX, Slack, model provider adapters, trigger execution, and
+side-effecting operation plugins are still under active design.
 
 ## Library Use
 

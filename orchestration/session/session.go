@@ -69,9 +69,10 @@ type StepRequest struct {
 
 // StepResult describes one orchestrated agent step.
 type StepResult struct {
-	Agent       agent.StepResult          `json:"agent"`
-	Effect      *environment.EffectResult `json:"effect,omitempty"`
-	Observation *environment.Observation  `json:"observation,omitempty"`
+	Agent       agent.StepResult           `json:"agent"`
+	Effect      *environment.EffectResult  `json:"effect,omitempty"`
+	Effects     []environment.EffectResult `json:"effects,omitempty"`
+	Observation *environment.Observation   `json:"observation,omitempty"`
 }
 
 // Step runs one observe-decide-apply cycle.
@@ -96,14 +97,17 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 	if agentResult.Status != agent.StatusOK {
 		return out
 	}
-	if agentResult.Decision.Kind != agent.DecisionOperation || agentResult.Decision.Operation == nil {
+	if agentResult.Decision.Kind != agent.DecisionOperation || len(agentResult.Decision.Operations) == 0 {
 		return out
 	}
 
-	effect := s.applyOperation(agentCtx, agentResult.Decision.Operation.Operation, agentResult.Decision.Operation.Input)
-	out.Effect = &effect
-	if effect.Observation.ID != "" || effect.Observation.Kind != "" {
-		out.Observation = &effect.Observation
+	for _, request := range agentResult.Decision.Operations {
+		effect := s.applyOperation(agentCtx, request.Operation, request.Input)
+		out.Effects = append(out.Effects, effect)
+		out.Effect = &out.Effects[len(out.Effects)-1]
+		if effect.Observation.ID != "" || effect.Observation.Kind != "" {
+			out.Observation = &effect.Observation
+		}
 	}
 	return out
 }
@@ -201,11 +205,12 @@ const (
 
 // InputResult is the structured outcome of session input dispatch.
 type InputResult struct {
-	Status   InputStatus               `json:"status"`
-	Agent    agent.StepResult          `json:"agent,omitempty"`
-	Effect   *environment.EffectResult `json:"effect,omitempty"`
-	Outbound *channel.Outbound         `json:"outbound,omitempty"`
-	Error    *CommandError             `json:"error,omitempty"`
+	Status   InputStatus                `json:"status"`
+	Agent    agent.StepResult           `json:"agent,omitempty"`
+	Effect   *environment.EffectResult  `json:"effect,omitempty"`
+	Effects  []environment.EffectResult `json:"effects,omitempty"`
+	Outbound *channel.Outbound          `json:"outbound,omitempty"`
+	Error    *CommandError              `json:"error,omitempty"`
 }
 
 // ExecuteInboundInput dispatches a channel message envelope as conversational
@@ -286,29 +291,39 @@ func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Cont
 		}
 		return InputResult{Status: InputStatusOK, Agent: agentResult, Outbound: &outbound}
 	case agent.DecisionOperation:
-		if agentResult.Decision.Operation == nil {
-			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is nil"}}
+		if len(agentResult.Decision.Operations) == 0 {
+			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
 		}
-		opReq := agentResult.Decision.Operation
-		if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
-			RunID:     inbound.ID,
-			Operation: opReq.Operation,
-			Input:     opReq.Input,
-		}); err != nil {
-			return inputFailed("thread_append_failed", err.Error(), nil)
+		var effects []environment.EffectResult
+		for _, opReq := range agentResult.Decision.Operations {
+			if err := s.appendThreadEvents(ctx, coresession.OperationRequested{
+				RunID:     inbound.ID,
+				Operation: opReq.Operation,
+				Input:     opReq.Input,
+			}); err != nil {
+				return inputFailed("thread_append_failed", err.Error(), nil)
+			}
+			effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
+			effects = append(effects, effect)
+			if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
+				RunID:     inbound.ID,
+				Operation: opReq.Operation,
+				Result:    effect.Result,
+			}); err != nil {
+				return inputFailed("thread_append_failed", err.Error(), nil)
+			}
 		}
-		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input)
+		effect := effects[len(effects)-1]
 		message := outboundMessageForOperationResult(effect.Result)
-		if err := s.appendThreadEvents(ctx, coresession.OperationCompleted{
-			RunID:     inbound.ID,
-			Operation: opReq.Operation,
-			Result:    effect.Result,
-		}, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
+		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
 		status := InputStatusOK
-		if effect.Result.IsError() {
-			status = InputStatusFailed
+		for _, current := range effects {
+			if current.Result.IsError() {
+				status = InputStatusFailed
+				break
+			}
 		}
 		outbound := channel.Outbound{
 			Channel:      inbound.Channel,
@@ -316,7 +331,7 @@ func (s Session) applyAgentDecision(ctx context.Context, agentCtx operation.Cont
 			Kind:         channel.OutboundMessage,
 			Message:      &message,
 		}
-		return InputResult{Status: status, Agent: agentResult, Effect: &effect, Outbound: &outbound}
+		return InputResult{Status: status, Agent: agentResult, Effect: &effect, Effects: effects, Outbound: &outbound}
 	case agent.DecisionNone, agent.DecisionWait:
 		return InputResult{Status: InputStatusOK, Agent: agentResult}
 	default:

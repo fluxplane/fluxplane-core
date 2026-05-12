@@ -154,6 +154,53 @@ func TestExecuteInboundInputDispatchesAgentMessage(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundInputDispatchesMultipleAgentOperations(t *testing.T) {
+	first := operation.Ref{Name: "first"}
+	second := operation.Ref{Name: "second"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(
+		operation.New(operation.Spec{Ref: first}, func(_ operation.Context, input operation.Value) operation.Result {
+			return operation.OK(map[string]any{"first": input})
+		}),
+		operation.New(operation.Spec{Ref: second}, func(_ operation.Context, input operation.Value) operation.Result {
+			return operation.OK(map[string]any{"second": input})
+		}),
+	); err != nil {
+		t.Fatalf("register operations: %v", err)
+	}
+	s := Session{
+		Agent: fixedAgent{
+			result: agent.StepResult{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind: agent.DecisionOperation,
+					Operations: []agent.OperationRequest{
+						{Operation: first, Input: "a"},
+						{Operation: second, Input: "b"},
+					},
+				},
+			},
+		},
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+	}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "run"},
+	})
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(result.Effects) != 2 {
+		t.Fatalf("effects len = %d, want 2", len(result.Effects))
+	}
+	if result.Effect == nil || result.Effect.Result.Output.(map[string]any)["second"] != "b" {
+		t.Fatalf("last effect = %#v, want second operation", result.Effect)
+	}
+}
+
 func TestExecuteInboundInputRequiresAgent(t *testing.T) {
 	result := (Session{}).ExecuteInboundInput(context.Background(), channel.Inbound{
 		Kind:    channel.InboundMessage,

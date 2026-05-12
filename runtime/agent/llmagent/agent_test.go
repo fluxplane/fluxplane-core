@@ -1,0 +1,341 @@
+package llmagent
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/fluxplane/agentruntime/core/agent"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	"github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/tool"
+)
+
+func TestAgentStepSendsStructuredRequestAndReturnsMessageDecision(t *testing.T) {
+	var got Request
+	model := ModelFunc(func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return MessageResponse("hello"), nil
+	})
+	spec := agent.Spec{
+		Name:   "main",
+		System: "You are helpful.",
+		Objective: agent.Objective{
+			Role:         "engineer",
+			Instructions: "Maintain the repo.",
+		},
+		Inference: agent.InferenceSpec{
+			Model:           "test-model",
+			MaxOutputTokens: 128,
+			ReasoningEffort: "low",
+		},
+	}
+	runtime, err := New(spec, model)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{
+		Goal: "fix tests",
+		Observations: []environment.Observation{{
+			Source:  "channel",
+			Kind:    "message",
+			Content: "please fix tests",
+		}},
+		Context: []corecontext.Block{{
+			ID:      "repo",
+			Kind:    corecontext.BlockText,
+			Content: "repo context",
+		}},
+	})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result.Error)
+	}
+	if result.Decision.Kind != agent.DecisionMessage {
+		t.Fatalf("decision = %q, want message", result.Decision.Kind)
+	}
+	if result.Decision.Message.Content != "hello" {
+		t.Fatalf("message = %#v, want hello", result.Decision.Message.Content)
+	}
+	if got.Agent.Name != spec.Name {
+		t.Fatalf("request agent = %q, want %q", got.Agent.Name, spec.Name)
+	}
+	if got.Driver.Instructions != spec.System {
+		t.Fatalf("driver instructions = %q, want system", got.Driver.Instructions)
+	}
+	if got.Driver.Model.Model != "test-model" {
+		t.Fatalf("driver model = %q, want test-model", got.Driver.Model.Model)
+	}
+	if got.Objective.Role != "engineer" {
+		t.Fatalf("objective role = %q, want engineer", got.Objective.Role)
+	}
+	if len(got.Observations) != 1 || got.Observations[0].Content != "please fix tests" {
+		t.Fatalf("observations = %#v, want channel message", got.Observations)
+	}
+	if len(got.Context) != 1 || got.Context[0].Content != "repo context" {
+		t.Fatalf("context = %#v, want repo context", got.Context)
+	}
+}
+
+func TestAgentStepIncludesProjectedTools(t *testing.T) {
+	var got Request
+	runtime, err := New(agent.Spec{Name: "main"}, ModelFunc(func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return MessageResponse("ok"), nil
+	}), WithTools(tool.Spec{Name: "inspect"}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(got.Tools) != 1 || got.Tools[0].Name != "inspect" {
+		t.Fatalf("tools = %#v, want inspect", got.Tools)
+	}
+}
+
+func TestAgentStepMapsOperationResponse(t *testing.T) {
+	runtime, err := New(agent.Spec{Name: "main"}, StaticModel{
+		Response: OperationResponse(agent.OperationRequest{
+			Operation: operation.Ref{Name: "echo"},
+			Input:     "hello",
+		}),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if result.Decision.Kind != agent.DecisionOperation {
+		t.Fatalf("decision = %q, want operation", result.Decision.Kind)
+	}
+	if len(result.Decision.Operations) != 1 {
+		t.Fatalf("operations len = %d, want 1", len(result.Decision.Operations))
+	}
+	if result.Decision.Operations[0].Operation.Name != "echo" {
+		t.Fatalf("operation = %q, want echo", result.Decision.Operations[0].Operation.Name)
+	}
+}
+
+func TestAgentStepMapsMultipleOperationResponses(t *testing.T) {
+	runtime, err := New(agent.Spec{Name: "main"}, StaticModel{
+		Response: OperationResponse(
+			agent.OperationRequest{Operation: operation.Ref{Name: "read"}, Input: "README.md"},
+			agent.OperationRequest{Operation: operation.Ref{Name: "test"}, Input: "./..."},
+		),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if result.Decision.Kind != agent.DecisionOperation {
+		t.Fatalf("decision = %q, want operation", result.Decision.Kind)
+	}
+	if len(result.Decision.Operations) != 2 {
+		t.Fatalf("operations len = %d, want 2", len(result.Decision.Operations))
+	}
+	if result.Decision.Operations[0].Operation.Name != "read" || result.Decision.Operations[1].Operation.Name != "test" {
+		t.Fatalf("operations = %#v, want read/test", result.Decision.Operations)
+	}
+}
+
+func TestAgentStepMapsCompletionResponse(t *testing.T) {
+	runtime, err := New(agent.Spec{Name: "main"}, StaticModel{
+		Response: CompleteResponse("done", "finished"),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if result.Decision.Kind != agent.DecisionComplete {
+		t.Fatalf("decision = %q, want complete", result.Decision.Kind)
+	}
+	if result.Decision.Complete.Output != "done" {
+		t.Fatalf("completion output = %#v, want done", result.Decision.Complete.Output)
+	}
+}
+
+func TestAgentStepReturnsWaitForEmptyResponse(t *testing.T) {
+	runtime, err := New(agent.Spec{Name: "main"}, StaticModel{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if result.Decision.Kind != agent.DecisionWait {
+		t.Fatalf("decision = %q, want wait", result.Decision.Kind)
+	}
+}
+
+func TestAgentStepEmitsRedactedModelEvents(t *testing.T) {
+	var events []event.Event
+	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	})}
+	runtime, err := New(agent.Spec{Name: "main", Inference: agent.InferenceSpec{Model: "test-model"}}, StaticModel{
+		Response: MessageResponse("secret response"),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(ctx, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want 2: %#v", len(events), events)
+	}
+	requested, ok := events[0].(ModelRequested)
+	if !ok {
+		t.Fatalf("event[0] = %T, want ModelRequested", events[0])
+	}
+	if requested.Model != "test-model" {
+		t.Fatalf("requested model = %q, want test-model", requested.Model)
+	}
+	completed, ok := events[1].(ModelCompleted)
+	if !ok {
+		t.Fatalf("event[1] = %T, want ModelCompleted", events[1])
+	}
+	if completed.Decision != agent.DecisionMessage {
+		t.Fatalf("completed decision = %q, want message", completed.Decision)
+	}
+}
+
+func TestAgentStepStreamingIsOptInAndRedactsThinkingByDefault(t *testing.T) {
+	var events []event.Event
+	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	})}
+	runtime, err := New(agent.Spec{Name: "main"}, streamingModel{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(ctx, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events len = %d, want requested/completed only: %#v", len(events), events)
+	}
+}
+
+func TestAgentStepStreamingCanEmitContentAndToolCallDeltas(t *testing.T) {
+	var streamed []ModelStreamed
+	ctx := testAgentContext{events: event.SinkFunc(func(evt event.Event) {
+		if payload, ok := evt.(ModelStreamed); ok {
+			streamed = append(streamed, payload)
+		}
+	})}
+	runtime, err := New(
+		agent.Spec{Name: "main"},
+		streamingModel{},
+		WithStreamPolicy(StreamPolicy{EmitContent: true, EmitToolCall: true}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(ctx, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(streamed) != 2 {
+		t.Fatalf("streamed len = %d, want content/tool deltas: %#v", len(streamed), streamed)
+	}
+	if streamed[0].Event.Kind != StreamContentDelta {
+		t.Fatalf("event[0] = %#v, want content delta", streamed[0].Event)
+	}
+	if streamed[1].Event.Kind != StreamToolCallDelta {
+		t.Fatalf("event[1] = %#v, want tool call delta", streamed[1].Event)
+	}
+}
+
+func TestAgentStepReturnsFailureForModelError(t *testing.T) {
+	runtime, err := New(agent.Spec{Name: "main"}, StaticModel{Err: errors.New("boom")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "model_failed" {
+		t.Fatalf("error = %#v, want model_failed", result.Error)
+	}
+}
+
+func TestNewRejectsUnsupportedDriverKind(t *testing.T) {
+	_, err := New(agent.Spec{
+		Name:   "main",
+		Driver: agent.DriverSpec{Kind: "rule"},
+	}, StaticModel{})
+	if err == nil {
+		t.Fatal("New error is nil, want unsupported driver kind")
+	}
+}
+
+type testAgentContext struct {
+	events event.Sink
+}
+
+func (c testAgentContext) Deadline() (deadline time.Time, ok bool) {
+	return time.Time{}, false
+}
+
+func (c testAgentContext) Done() <-chan struct{} { return nil }
+
+func (c testAgentContext) Err() error { return nil }
+
+func (c testAgentContext) Value(any) any { return nil }
+
+func (c testAgentContext) Events() event.Sink {
+	if c.events == nil {
+		return event.Discard()
+	}
+	return c.events
+}
+
+type streamingModel struct{}
+
+func (streamingModel) Complete(context.Context, Request) (Response, error) {
+	return MessageResponse("fallback"), nil
+}
+
+func (streamingModel) Stream(_ context.Context, _ Request, emit StreamFunc) (Response, error) {
+	emit(StreamEvent{Kind: StreamThinkingDelta, Text: "hidden reasoning"})
+	emit(StreamEvent{Kind: StreamContentDelta, Text: "hello"})
+	emit(StreamEvent{Kind: StreamToolCallDelta, Tool: "inspect"})
+	return MessageResponse("hello"), nil
+}

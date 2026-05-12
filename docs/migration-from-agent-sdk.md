@@ -277,10 +277,27 @@ Commands are core because they are channel-facing invocation specs that can be
 declared by resources and consumed by terminal, HTTP, Slack, or other channel
 adapters.
 
-Do not add a generic `core/tool` package unless "tool" becomes a
-driver-independent core concept. In this rewrite, LLM/model tools are expected
-to be driver-facing projections of operations and should live near the LLM
-agent driver or model adapter layer when that need is concrete.
+Model-visible tools are now a driver-independent projection concept:
+`core/tool` describes the provider-neutral descriptor shape after orchestration
+has applied resource identity, command policy, caller/trust, and operation
+semantics. Tools are not executable implementations and do not bypass
+command/session policy or operation runtime safety.
+
+Tool projection must be safe by default:
+
+- operation commands must point at an executable operation binding;
+- read-only, low-risk operations may be projected;
+- side-effecting operations are hidden unless explicitly allowed by the
+  projection policy and still remain subject to runtime safety enforcement;
+- command `InvocationPolicy` affects whether a tool is visible to an agent;
+- approval-required projections are hidden unless projection opts in.
+
+LLM streaming is a runtime concern, not a different agent result shape. The
+agent's final result remains a structured decision: message, completion, wait,
+or one-or-more operation requests. Streaming content, tool-call deltas, and
+thinking deltas are provider-neutral transient events emitted by
+`runtime/agent/llmagent`. Raw thinking is opt-in and should not be persisted by
+default; provider-hidden reasoning should be summarized or omitted.
 
 Shared target vocabulary belongs in `core/invocation`.
 
@@ -515,6 +532,7 @@ Implemented and green:
   checkpoint/projector contracts, runner, and orchestration freshness manager.
 - `core/command`, `core/invocation`, `core/policy`: channel-facing command
   specs, invocation target vocabulary, caller/trust/policy evaluation.
+- `core/tool`: provider-neutral model-facing tool projection descriptors.
 - `core/channel`: normalized channel specs and inbound/outbound envelopes.
 - `orchestration/session`: command and conversational input execution for one
   bound thread.
@@ -549,6 +567,14 @@ Implemented and green:
   and skill metadata.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
   ACL, command-risk, secrets, and approval enforcement.
+- `runtime/agent/llmagent`: first provider-neutral LLM-backed agent runtime
+  skeleton with a model port, structured request/response shape, fake/test
+  model path, projected tool descriptors, opt-in streaming deltas, redacted
+  lifecycle events, and decision mapping. Provider clients and wire formats are
+  still adapter work.
+- `orchestration/toolprojection`: projects command and operation resources into
+  model-facing tool descriptors after applying command policy, caller/trust,
+  executable binding checks, and safe-by-default operation semantics.
 - `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
   status, configured-session listing, and session-listing surface over an
   existing channel client.
@@ -587,6 +613,13 @@ Important contract decisions from this slice:
   canonicalized to the resolved `ResourceID` address before harness binding.
 - Real side-effecting operations must enter through the operation safety
   envelope from their first migration batch.
+- Agent operation decisions are batches. An agent may request multiple
+  operations from one step; orchestration may execute them sequentially now and
+  later schedule them through policy-aware planning or workflow machinery.
+- Model-facing tools are projected views. They do not bypass command/session
+  policy or operation runtime safety.
+- LLM streaming emits transient opt-in runtime events. Raw thinking is not
+  exposed by default.
 
 Still intentionally incomplete:
 
@@ -599,10 +632,11 @@ Still intentionally incomplete:
 - The daemon/control surface is minimal: status, configured-session listing,
   and live session listing only.
 - The engineer app parity plan has Phase 1A pure model support, Phase 1B
-  narrow adapters, and Phase 1C composition catalogs. It does not execute LLM
-  agents, prompt commands, workflow commands, or skills yet.
-- There is no LLM-agent runtime yet; `core/agent/llmagent` only contains pure
-  spec shape.
+  narrow adapters, and Phase 1C composition catalogs. It does not instantiate
+  manifest-declared LLM agents, execute prompt commands, execute workflow
+  commands, or activate skills yet.
+- The LLM-agent runtime has no real provider adapter yet. It only has a
+  provider-neutral model port and fake/test model path.
 - There is no terminal/slash parser, Slack adapter, model provider adapter, or
   approval UX yet.
 - There is no child-session supervisor or plan executor yet. The old
@@ -753,11 +787,17 @@ Parity should be reached in small slices:
 
 4. **Phase 2: LLM Agent Runtime Skeleton**
    Add `runtime/agent/llmagent` with a fake/test model path before migrating
-   real provider transport.
+   real provider transport. Done: the runtime builds structured model
+   requests from agent steps, maps model responses to message, completion, or
+   one-or-more operation decisions, and emits redacted model lifecycle events.
 
 5. **Phase 3: Tool Projection and Safety**
    Project operations/commands into model tools only behind the operation
-   safety envelope.
+   safety envelope. Done: `core/tool` defines provider-neutral descriptors;
+   `orchestration/toolprojection` applies command policy, caller/trust,
+   executable operation binding checks, and safe-by-default operation
+   semantics; `runtime/agent/llmagent` includes projected tools in model
+   requests.
 
 6. **Phase 4: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with

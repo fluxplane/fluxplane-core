@@ -212,10 +212,10 @@ type Completion struct {
 
 // Decision is the chosen next move from one agent step.
 type Decision struct {
-	Kind      DecisionKind      `json:"kind"`
-	Operation *OperationRequest `json:"operation,omitempty"`
-	Message   *Message          `json:"message,omitempty"`
-	Complete  *Completion       `json:"complete,omitempty"`
+	Kind       DecisionKind       `json:"kind"`
+	Operations []OperationRequest `json:"operations,omitempty"`
+	Message    *Message           `json:"message,omitempty"`
+	Complete   *Completion        `json:"complete,omitempty"`
 }
 
 // Status classifies the outcome of an agent step.

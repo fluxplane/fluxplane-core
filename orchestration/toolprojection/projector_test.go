@@ -1,0 +1,168 @@
+package toolprojection
+
+import (
+	"testing"
+
+	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/invocation"
+	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/session"
+)
+
+func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
+	op := operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "inspect"},
+		Description: "Inspect repository state.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNone},
+			Risk:        operation.RiskLow,
+		},
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	opID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "inspect"}
+	commandID := resource.ResourceID{Kind: "command", Origin: "embedded", Name: "inspect"}
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			opID.Address(): {ID: opID, Operation: op},
+		},
+		Commands: session.CommandCatalog{
+			commandID.Address(): {
+				ID:          commandID,
+				OperationID: opID,
+				Spec: command.Spec{
+					Path:        command.Path{"inspect"},
+					Description: "Inspect.",
+					Target: invocation.Target{
+						Kind:      invocation.TargetOperation,
+						Operation: operation.Ref{Name: "inspect"},
+					},
+				},
+			},
+		},
+		Caller: policy.Caller{Kind: policy.CallerAgent},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 1 {
+		t.Fatalf("tools len = %d, want 1: %#v", len(result.Tools), result.Diagnostics)
+	}
+	if result.Tools[0].Target.Kind != invocation.TargetOperation {
+		t.Fatalf("target kind = %q, want operation", result.Tools[0].Target.Kind)
+	}
+	if !result.Tools[0].TargetID.Equal(opID) {
+		t.Fatalf("target id = %s, want %s", result.Tools[0].TargetID.Address(), opID.Address())
+	}
+}
+
+func TestProjectRejectsSideEffectingOperationByDefault(t *testing.T) {
+	op := operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "write"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectFilesystem, operation.EffectWriteExternal},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	opID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "write"}
+
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			opID.Address(): {ID: opID, Operation: op},
+		},
+		IncludeBareOperations: true,
+		Caller:                policy.Caller{Kind: policy.CallerAgent},
+		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 0 {
+		t.Fatalf("tools len = %d, want 0", len(result.Tools))
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Reason != "side_effecting_operation" {
+		t.Fatalf("diagnostics = %#v, want side_effecting_operation", result.Diagnostics)
+	}
+}
+
+func TestProjectAppliesCommandPolicy(t *testing.T) {
+	id := resource.ResourceID{Kind: "command", Origin: "embedded", Name: "admin"}
+	result := Project(Config{
+		Commands: session.CommandCatalog{
+			id.Address(): {
+				ID: id,
+				Spec: command.Spec{
+					Path:   command.Path{"admin"},
+					Target: invocation.Target{Kind: invocation.TargetPrompt, Prompt: "admin"},
+					Policy: policy.InvocationPolicy{
+						AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					},
+				},
+			},
+		},
+		Caller: policy.Caller{Kind: policy.CallerAgent},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 0 {
+		t.Fatalf("tools len = %d, want 0", len(result.Tools))
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Reason != "caller_not_allowed" {
+		t.Fatalf("diagnostics = %#v, want caller_not_allowed", result.Diagnostics)
+	}
+}
+
+func TestProjectCanIncludeApprovedBareOperations(t *testing.T) {
+	op := operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "search"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectReadExternal},
+			Risk:    operation.RiskLow,
+		},
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	opID := resource.ResourceID{Kind: "operation", Origin: "explicit", Name: "search"}
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			opID.Address(): {ID: opID, Operation: op},
+		},
+		IncludeBareOperations: true,
+		Caller:                policy.Caller{Kind: policy.CallerAgent},
+		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 1 {
+		t.Fatalf("tools len = %d, want 1: %#v", len(result.Tools), result.Diagnostics)
+	}
+	if result.Tools[0].Name == "" {
+		t.Fatal("tool name is empty")
+	}
+}
+
+func TestProjectRejectsUnboundOperationCommand(t *testing.T) {
+	commandID := resource.ResourceID{Kind: "command", Origin: "embedded", Name: "missing"}
+	result := Project(Config{
+		Commands: session.CommandCatalog{
+			commandID.Address(): {
+				ID:          commandID,
+				OperationID: resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "missing"},
+				Spec: command.Spec{
+					Path:   command.Path{"missing"},
+					Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "missing"}},
+				},
+			},
+		},
+		Caller: policy.Caller{Kind: policy.CallerAgent},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 0 {
+		t.Fatalf("tools len = %d, want 0", len(result.Tools))
+	}
+	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Reason != "operation_not_bound" {
+		t.Fatalf("diagnostics = %#v, want operation_not_bound", result.Diagnostics)
+	}
+}
