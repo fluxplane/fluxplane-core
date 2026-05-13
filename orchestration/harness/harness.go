@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -18,6 +19,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -34,6 +36,7 @@ type Config struct {
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
+	Subagents         *subagent.Supervisor
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -54,6 +57,7 @@ type Service struct {
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
 	threadStore       corethread.Store
+	subagents         *subagent.Supervisor
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -76,9 +80,22 @@ func New(cfg Config) *Service {
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
+		subagents:         cfg.Subagents,
 		bindings:          map[bindingKey]corethread.Ref{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
 	}
+}
+
+// SetSubagentSupervisor installs the child-session supervisor used by
+// delegate/plan operations. It is set after channel-client construction so the
+// supervisor can open children through the same public session path.
+func (s *Service) SetSubagentSupervisor(supervisor *subagent.Supervisor) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.subagents = supervisor
+	s.mu.Unlock()
 }
 
 // OpenSessionRequest describes an explicit channel/session binding request.
@@ -301,9 +318,12 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
-		Events:            s.runtimeEventSink(info, runID),
+		Events:            s.runtimeEventSink(ctx, info, runID),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
+		Subagents:         s.currentSubagents(),
+		Delegation:        s.delegationForInfo(info),
+		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	s.publish(info.Thread.ID, clientapi.Event{
@@ -344,9 +364,12 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
 		OperationExecutor: s.operationExecutor,
-		Events:            s.runtimeEventSink(info, runID),
+		Events:            s.runtimeEventSink(ctx, info, runID),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
+		Subagents:         s.currentSubagents(),
+		Delegation:        s.delegationForInfo(info),
+		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
 	s.publish(info.Thread.ID, clientapi.Event{
@@ -381,6 +404,26 @@ func (s *Service) agentForSession(ctx context.Context, info SessionInfo) (agent.
 		return nil, fmt.Errorf("harness: resolve session agent for %q: %w", info.Session.Name, err)
 	}
 	return s.agentProvider.AgentForSession(ctx, binding.Spec)
+}
+
+func (s *Service) currentSubagents() *subagent.Supervisor {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.subagents
+}
+
+func (s *Service) delegationForInfo(info SessionInfo) coresession.DelegationPolicy {
+	if s == nil || info.Session.Name == "" {
+		return coresession.DelegationPolicy{}
+	}
+	binding, err := s.sessionCatalog.Resolve(string(info.Session.Name))
+	if err != nil {
+		return coresession.DelegationPolicy{}
+	}
+	return binding.Spec.Delegation
 }
 
 func commandOutbound(inbound channel.Inbound, result session.CommandResult) *channel.Outbound {
@@ -558,7 +601,7 @@ func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
 	}
 }
 
-func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) coreevent.Sink {
+func (s *Service) runtimeEventSink(ctx context.Context, info SessionInfo, runID clientapi.RunID) coreevent.Sink {
 	return coreevent.SinkFunc(func(payload coreevent.Event) {
 		if payload == nil {
 			return
@@ -570,6 +613,7 @@ func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) core
 			}
 			return
 		}
+		s.persistRuntimeEvent(ctx, info, runID, payload)
 		s.publish(info.Thread.ID, clientapi.Event{
 			Kind:    clientapi.EventRuntimeEmitted,
 			RunID:   runID,
@@ -583,6 +627,37 @@ func (s *Service) runtimeEventSink(info SessionInfo, runID clientapi.RunID) core
 			s.events.Emit(payload)
 		}
 	})
+}
+
+func (s *Service) persistRuntimeEvent(ctx context.Context, info SessionInfo, runID clientapi.RunID, payload coreevent.Event) {
+	if s == nil || s.threadStore == nil || info.Thread.ID == "" || payload == nil {
+		return
+	}
+	name := payload.EventName()
+	if !shouldPersistRuntimeEvent(name) {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	} else {
+		ctx = context.WithoutCancel(ctx)
+	}
+	_, _ = s.threadStore.Append(ctx, info.Thread, corethread.AppendRecord{
+		Event: coreevent.Record{
+			Name: coresession.EventRuntimeEmitted,
+			Payload: coresession.RuntimeEmitted{
+				RunID:   string(runID),
+				Name:    name,
+				Payload: payload,
+			},
+			Scope: coreevent.Scope{ThreadID: string(info.Thread.ID)},
+		},
+	})
+}
+
+func shouldPersistRuntimeEvent(name coreevent.Name) bool {
+	value := string(name)
+	return strings.HasPrefix(value, "plan.") || strings.HasPrefix(value, "subagent.")
 }
 
 func liveSessionEvent(info clientapi.SessionInfo, runID clientapi.RunID, payload coreevent.Event) (clientapi.Event, bool) {
@@ -786,6 +861,12 @@ func recordToClientEvents(info clientapi.SessionInfo, record corethread.Record) 
 			Kind:         channel.OutboundMessage,
 			Message:      &payload.Message,
 		}
+		return []clientapi.Event{event}
+	case coresession.RuntimeEmitted:
+		event := base
+		event.Kind = clientapi.EventRuntimeEmitted
+		event.RunID = clientapi.RunID(payload.RunID)
+		event.Runtime = &clientapi.RuntimeEvent{Name: payload.Name, Payload: payload.Payload}
 		return []clientapi.Event{event}
 	default:
 		return nil

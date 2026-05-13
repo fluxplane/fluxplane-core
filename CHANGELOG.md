@@ -6,6 +6,11 @@
 
 - `agentsdk remote` for opening local or URL-backed daemon sessions, including
   app-manifest listener discovery and Unix-socket HTTP/SSE connections.
+- `plugins/planexec` with `delegate` and `plan` operations for supervised
+  sub-agent tasks and synchronous DAG step execution.
+- Generic `orchestration/subagent` supervisor with delegation-policy checks,
+  capacity limits, cancellation, result lookup, and typed progress events.
+- Terminal and Slack rendering hooks for sub-agent and plan progress events.
 
 ### Changed
 

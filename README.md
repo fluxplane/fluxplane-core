@@ -39,10 +39,12 @@ The current executable slice supports:
 - Codex provider wiring over the Codex Responses backend using local Codex
   OAuth credentials;
 - markdown terminal rendering for streamed coder output and debug events;
+- `delegate` and `plan` operations for policy-bounded sub-agent work, with
+  terminal and Slack progress rendering;
 - an architecture import report for maintainers.
 
-Slack, Anthropic/Claude Code providers, trigger execution, and deeper context
-provider parity are still under active design.
+Claude Code provider integration, trigger execution, and deeper context provider
+parity are still under active design.
 
 ## Library Use
 
