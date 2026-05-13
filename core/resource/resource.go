@@ -6,6 +6,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -73,6 +74,7 @@ type ContributionBundle struct {
 	Skills           []skill.Spec               `json:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
 	Workflows        []workflow.Spec            `json:"workflows,omitempty"`
+	EventTypes       []event.Event              `json:"-"`
 	Plugins          []PluginRef                `json:"plugins,omitempty"`
 	Diagnostics      []Diagnostic               `json:"diagnostics,omitempty"`
 }
@@ -92,6 +94,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)
 	b.Workflows = append(b.Workflows, other.Workflows...)
+	b.EventTypes = append(b.EventTypes, other.EventTypes...)
 	b.Plugins = append(b.Plugins, other.Plugins...)
 	b.Diagnostics = append(b.Diagnostics, other.Diagnostics...)
 }

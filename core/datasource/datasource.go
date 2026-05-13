@@ -34,8 +34,9 @@ const (
 type EntityCapability string
 
 const (
-	EntityCapabilitySearch EntityCapability = "search"
-	EntityCapabilityGet    EntityCapability = "get"
+	EntityCapabilitySearch   EntityCapability = "search"
+	EntityCapabilityGet      EntityCapability = "get"
+	EntityCapabilityRelation EntityCapability = "relation"
 )
 
 // DetectorKind classifies one local, provider-neutral reference detector.
@@ -99,6 +100,7 @@ type EntitySpec struct {
 	Capabilities []EntityCapability `json:"capabilities,omitempty"`
 	Detectors    []DetectorSpec     `json:"detectors,omitempty"`
 	Fields       []FieldSpec        `json:"fields,omitempty"`
+	Relations    []RelationSpec     `json:"relations,omitempty"`
 }
 
 // Supports reports whether the entity declares a capability.
@@ -136,6 +138,14 @@ type FieldSpec struct {
 	URL         bool      `json:"url,omitempty"`
 }
 
+// RelationSpec describes a provider-backed relationship from one entity to another.
+type RelationSpec struct {
+	Name         string     `json:"name"`
+	Description  string     `json:"description,omitempty"`
+	TargetEntity EntityType `json:"target_entity"`
+	Exact        bool       `json:"exact,omitempty"`
+}
+
 // Validate checks the entity spec is structurally usable.
 func (s EntitySpec) Validate() error {
 	if strings.TrimSpace(string(s.Type)) == "" {
@@ -165,6 +175,20 @@ func (s EntitySpec) Validate() error {
 			return fmt.Errorf("datasource: entity %s detector %q kind is empty", s.Type, detector.Name)
 		}
 	}
+	seenRelations := map[string]bool{}
+	for i, relation := range s.Relations {
+		name := strings.TrimSpace(relation.Name)
+		if name == "" {
+			return fmt.Errorf("datasource: entity %s relations[%d] name is empty", s.Type, i)
+		}
+		if seenRelations[name] {
+			return fmt.Errorf("datasource: entity %s duplicate relation %q", s.Type, name)
+		}
+		seenRelations[name] = true
+		if strings.TrimSpace(string(relation.TargetEntity)) == "" {
+			return fmt.Errorf("datasource: entity %s relation %q target entity is empty", s.Type, name)
+		}
+	}
 	return nil
 }
 
@@ -182,12 +206,55 @@ type GetRequest struct {
 	ID     string     `json:"id"`
 }
 
+// BatchGetRequest describes a provider lookup for multiple record IDs.
+type BatchGetRequest struct {
+	Entity EntityType `json:"entity"`
+	IDs    []string   `json:"ids,omitempty"`
+}
+
+// RelationRequest describes a provider-backed relationship lookup.
+type RelationRequest struct {
+	Entity   EntityType `json:"entity"`
+	ID       string     `json:"id"`
+	Relation string     `json:"relation"`
+	Limit    int        `json:"limit,omitempty"`
+	Cursor   string     `json:"cursor,omitempty"`
+}
+
 // SearchResult is the normalized result for one datasource search.
 type SearchResult struct {
 	Datasource Name       `json:"datasource"`
 	Entity     EntityType `json:"entity"`
 	Records    []Record   `json:"records,omitempty"`
 	Total      int        `json:"total,omitempty"`
+}
+
+// BatchGetResult is the normalized result for a multi-record lookup.
+type BatchGetResult struct {
+	Datasource Name            `json:"datasource"`
+	Entity     EntityType      `json:"entity"`
+	Records    []Record        `json:"records,omitempty"`
+	Errors     []BatchGetError `json:"errors,omitempty"`
+}
+
+// BatchGetError describes one missing or failed record in a batch lookup.
+type BatchGetError struct {
+	ID      string `json:"id,omitempty"`
+	Message string `json:"message"`
+}
+
+// RelationResult is the normalized result for one relationship lookup.
+type RelationResult struct {
+	Datasource   Name       `json:"datasource"`
+	Entity       EntityType `json:"entity"`
+	ID           string     `json:"id"`
+	Relation     string     `json:"relation"`
+	TargetEntity EntityType `json:"target_entity"`
+	Records      []Record   `json:"records,omitempty"`
+	Total        int        `json:"total,omitempty"`
+	NextCursor   string     `json:"next_cursor,omitempty"`
+	Complete     bool       `json:"complete"`
+	Exact        bool       `json:"exact"`
 }
 
 // Record is one normalized entity instance returned by a datasource.
@@ -246,6 +313,16 @@ type Searcher interface {
 // Getter is implemented by accessors that support direct record retrieval.
 type Getter interface {
 	Get(context.Context, GetRequest) (Record, error)
+}
+
+// BatchGetter is implemented by accessors that support efficient multi-record retrieval.
+type BatchGetter interface {
+	BatchGet(context.Context, BatchGetRequest) (BatchGetResult, error)
+}
+
+// Relationer is implemented by accessors that support provider-backed relationships.
+type Relationer interface {
+	Relation(context.Context, RelationRequest) (RelationResult, error)
 }
 
 // Provider materializes datasource accessors for supported specs.
@@ -405,5 +482,5 @@ func DetectedRefsFromContext(ctx context.Context) ([]RecordRef, bool) {
 }
 
 func isZeroEntity(spec EntitySpec) bool {
-	return spec.Type == "" && spec.Description == "" && len(spec.Capabilities) == 0 && len(spec.Detectors) == 0 && len(spec.Fields) == 0
+	return spec.Type == "" && spec.Description == "" && len(spec.Capabilities) == 0 && len(spec.Detectors) == 0 && len(spec.Fields) == 0 && len(spec.Relations) == 0
 }

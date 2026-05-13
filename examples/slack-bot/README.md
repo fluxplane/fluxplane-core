@@ -22,7 +22,9 @@ execution.
 
 The configured datasources expose Slack users, channels, and messages, GitLab
 projects, Jira issues and projects, and local markdown/text files through
-`datasource_search` and `datasource_get`.
+`datasource_search`, `datasource_get`, `datasource_relation`, and
+`datasource_batch_get`. Use `datasource_relation` for exact Slack channel
+membership; message search only supports observed or inferred participants.
 
 Slack app requirements:
 
@@ -39,6 +41,7 @@ Connector datasource scopes:
 - Slack message search requires `search:read`.
 - Slack channel discovery requires `channels:read`, `groups:read`, `im:read`,
   and `mpim:read`.
+- Slack channel membership requires `channels:read` and `groups:read`.
 - Jira project discovery requires `read:jira-work`.
 
 If serve logs `slack channel connected` but never logs

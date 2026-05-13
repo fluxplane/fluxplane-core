@@ -193,6 +193,141 @@ func TestDatasourceActionMapsResultPathDefaultsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestDatasourceRelationFetchesSlackChannelMembersAndHydratesUsers(t *testing.T) {
+	executor := &scriptedConnectorExecutor{results: map[string][]connectoroperation.Result{
+		"slack.channel.members": {{
+			Status: connectoroperation.StatusOK,
+			Data: map[string]any{
+				"members": []any{"U2", "U1"},
+			},
+		}},
+		"slack.user.list": {{
+			Status: connectoroperation.StatusOK,
+			Data: map[string]any{
+				"members": []any{
+					map[string]any{"id": "U1", "name": "alice", "real_name": "Alice Example"},
+				},
+			},
+		}},
+		"slack.user.info": {{
+			Status: connectoroperation.StatusOK,
+			Data: map[string]any{
+				"user": map[string]any{"id": "U2", "name": "bob", "real_name": "Bob Example"},
+			},
+		}},
+	}}
+	provider := NewDatasourceProvider(executor, []DatasourceAction{
+		{
+			Kind:        "slack",
+			Entity:      coredatasource.EntitySpec{Type: "slack.user"},
+			SearchOp:    "slack.user.list",
+			GetOp:       "slack.user.info",
+			QueryParam:  "-",
+			IDParam:     "user",
+			IDFields:    []string{"id"},
+			TitleFields: []string{"real_name", "name"},
+		},
+		{
+			Kind:     "slack",
+			Entity:   coredatasource.EntitySpec{Type: "slack.channel"},
+			SearchOp: "slack.channel.list",
+			GetOp:    "slack.channel.info",
+			IDParam:  "channel",
+			Relations: []DatasourceRelationAction{{
+				Name:         "members",
+				TargetEntity: "slack.user",
+				Operation:    "slack.channel.members",
+				IDParam:      "channel",
+				ResultPath:   "members",
+				Exact:        true,
+			}},
+		},
+	})
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:      "slack-bot",
+		Connector: "slack-bot",
+		Kind:      "slack",
+		Entities:  []coredatasource.EntityType{"slack.channel", "slack.user"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Relationer).Relation(context.Background(), coredatasource.RelationRequest{
+		Entity:   "slack.channel",
+		ID:       "C1",
+		Relation: "members",
+	})
+	if err != nil {
+		t.Fatalf("Relation: %v", err)
+	}
+	if !result.Exact || !result.Complete || result.TargetEntity != "slack.user" {
+		t.Fatalf("result metadata = %#v, want exact complete slack.user", result)
+	}
+	if len(result.Records) != 2 || result.Records[0].ID != "U2" || result.Records[0].Title != "Bob Example" || result.Records[1].ID != "U1" {
+		t.Fatalf("records = %#v, want requested member order with hydrated users", result.Records)
+	}
+	if executor.calls[0].operation != "slack.channel.members" || executor.calls[0].params["channel"] != "C1" {
+		t.Fatalf("calls = %#v, want channel.members with channel C1", executor.calls)
+	}
+}
+
+func TestDatasourceLocalFilterPaginatesBeforeFiltering(t *testing.T) {
+	executor := &scriptedConnectorExecutor{results: map[string][]connectoroperation.Result{
+		"slack.channel.list": {
+			{
+				Status: connectoroperation.StatusOK,
+				Data: map[string]any{
+					"channels": []any{
+						map[string]any{"id": "C1", "name": "general"},
+					},
+					"response_metadata": map[string]any{"next_cursor": "next-page"},
+				},
+			},
+			{
+				Status: connectoroperation.StatusOK,
+				Data: map[string]any{
+					"channels": []any{
+						map[string]any{"id": "C2", "name": "lyse-internal"},
+					},
+				},
+			},
+		},
+	}}
+	provider := NewDatasourceProvider(executor, []DatasourceAction{{
+		Kind:           "slack",
+		Entity:         coredatasource.EntitySpec{Type: "slack.channel"},
+		SearchOp:       "slack.channel.list",
+		QueryParam:     "-",
+		LocalFilter:    true,
+		NextCursorPath: "response_metadata.next_cursor",
+		IDFields:       []string{"id"},
+		TitleFields:    []string{"name"},
+	}})
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:      "slack-bot",
+		Connector: "slack-bot",
+		Kind:      "slack",
+		Entities:  []coredatasource.EntityType{"slack.channel"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{
+		Entity: "slack.channel",
+		Query:  "lyse",
+		Limit:  1,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "C2" {
+		t.Fatalf("records = %#v, want second-page lyse channel", result.Records)
+	}
+	if len(executor.calls) != 2 || executor.calls[1].params["cursor"] != "next-page" {
+		t.Fatalf("calls = %#v, want second page with cursor", executor.calls)
+	}
+}
+
 type fakeConnectorExecutor struct {
 	instanceID string
 	operation  string
@@ -208,4 +343,31 @@ func (e *fakeConnectorExecutor) ExecWithInstance(_ context.Context, instanceID, 
 	e.role = role
 	e.params = params
 	return e.result, e.err
+}
+
+type connectorCall struct {
+	instanceID string
+	operation  string
+	role       string
+	params     map[string]any
+}
+
+type scriptedConnectorExecutor struct {
+	calls   []connectorCall
+	results map[string][]connectoroperation.Result
+}
+
+func (e *scriptedConnectorExecutor) ExecWithInstance(_ context.Context, instanceID, opName, role string, params map[string]any) (connectoroperation.Result, error) {
+	copied := map[string]any{}
+	for key, value := range params {
+		copied[key] = value
+	}
+	e.calls = append(e.calls, connectorCall{instanceID: instanceID, operation: opName, role: role, params: copied})
+	results := e.results[opName]
+	if len(results) == 0 {
+		return connectoroperation.Result{Status: connectoroperation.StatusOK}, nil
+	}
+	result := results[0]
+	e.results[opName] = results[1:]
+	return result, nil
 }

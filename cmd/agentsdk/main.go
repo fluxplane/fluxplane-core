@@ -40,6 +40,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -54,6 +55,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
@@ -1156,10 +1158,15 @@ func openRemoteSession(ctx context.Context, opts remoteOptions) (agentruntime.Se
 	if err != nil {
 		return nil, err
 	}
+	events, err := terminalEventRegistry()
+	if err != nil {
+		return nil, err
+	}
 	client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
 		BaseURL:     target.baseURL,
 		UnixSocket:  target.socket,
 		BearerToken: target.bearerToken,
+		Events:      events,
 	})
 	if err != nil {
 		return nil, err
@@ -1727,25 +1734,19 @@ func usageFromEvent(event agentruntime.Event) (coreusage.Recorded, bool) {
 	if event.Runtime == nil || event.Runtime.Name != coreusage.EventRecordedName {
 		return coreusage.Recorded{}, false
 	}
-	switch payload := event.Runtime.Payload.(type) {
-	case coreusage.Recorded:
-		if payload.Empty() {
-			return coreusage.Recorded{}, false
-		}
-		return payload, true
-	case map[string]any:
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return coreusage.Recorded{}, false
-		}
-		var recorded coreusage.Recorded
-		if err := json.Unmarshal(data, &recorded); err != nil || recorded.Empty() {
-			return coreusage.Recorded{}, false
-		}
-		return recorded, true
-	default:
+	recorded, ok := event.Runtime.Payload.(coreusage.Recorded)
+	if !ok || recorded.Empty() {
 		return coreusage.Recorded{}, false
 	}
+	return recorded, true
+}
+
+func terminalEventRegistry() (*coreevent.Registry, error) {
+	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
+	if err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func workspaceRoot() (string, error) {

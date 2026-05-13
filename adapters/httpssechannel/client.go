@@ -18,17 +18,21 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/command"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)
 
+const maxSSEEventBytes = 16 << 20
+
 // Client is a remote ChannelClient backed by HTTP JSON and SSE.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	headers    http.Header
+	registry   *coreevent.Registry
 }
 
 // ClientConfig configures a remote HTTP/SSE channel client.
@@ -38,6 +42,7 @@ type ClientConfig struct {
 	UnixSocket  string
 	BearerToken string
 	Headers     http.Header
+	Events      *coreevent.Registry
 }
 
 // NewClient returns a remote HTTP/SSE channel client.
@@ -65,7 +70,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if strings.TrimSpace(cfg.BearerToken) != "" {
 		headers.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.BearerToken))
 	}
-	return &Client{baseURL: baseURL, httpClient: httpClient, headers: headers}, nil
+	return &Client{baseURL: baseURL, httpClient: httpClient, headers: headers, registry: cfg.Events}, nil
 }
 
 func (c *Client) Open(ctx context.Context, req clientapi.OpenRequest) (clientapi.SessionHandle, error) {
@@ -424,36 +429,43 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 		defer close(out)
 		defer close(errs)
 		defer func() { _ = resp.Body.Close() }()
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		reader := bufio.NewReaderSize(resp.Body, 64*1024)
 		var data strings.Builder
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
-				if data.Len() > 0 {
-					var event clientapi.Event
-					if err := json.Unmarshal([]byte(data.String()), &event); err != nil {
-						sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: decode SSE event: %w", err))
-						return
-					}
-					select {
-					case out <- event:
-					case <-reqCtx.Done():
-						return
-					}
-					data.Reset()
+		var line []byte
+		for {
+			fragment, err := reader.ReadSlice('\n')
+			if len(fragment) > 0 {
+				if len(line)+len(fragment) > maxSSEEventBytes {
+					sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: SSE line exceeds %d bytes", maxSSEEventBytes))
+					return
 				}
+				line = append(line, fragment...)
+			}
+			if err == bufio.ErrBufferFull {
 				continue
 			}
-			if strings.HasPrefix(line, "data:") {
-				if data.Len() > 0 {
-					data.WriteByte('\n')
+			if err != nil && err != io.EOF {
+				if reqCtx.Err() == nil {
+					sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: read SSE stream: %w", err))
 				}
-				data.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+				return
 			}
-		}
-		if err := scanner.Err(); err != nil && reqCtx.Err() == nil {
-			sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: read SSE stream: %w", err))
+			if len(line) > 0 {
+				trimmed := bytes.TrimRight(line, "\r\n")
+				if processErr := c.processSSELine(reqCtx, out, &data, trimmed); processErr != nil {
+					sendStreamError(reqCtx, errs, processErr)
+					return
+				}
+				line = line[:0]
+			}
+			if err == io.EOF {
+				if data.Len() > 0 {
+					if flushErr := c.flushSSEEvent(reqCtx, out, &data); flushErr != nil {
+						sendStreamError(reqCtx, errs, flushErr)
+					}
+				}
+				return
+			}
 		}
 	}()
 	cancel := func() {
@@ -462,6 +474,89 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 		<-done
 	}
 	return out, cancel, errs, nil
+}
+
+func (c *Client) processSSELine(ctx context.Context, out chan<- clientapi.Event, data *strings.Builder, line []byte) error {
+	if len(line) == 0 {
+		if data.Len() == 0 {
+			return nil
+		}
+		return c.flushSSEEvent(ctx, out, data)
+	}
+	chunk, ok := sseDataFragment(line)
+	if !ok {
+		return nil
+	}
+	nextLen := data.Len() + len(chunk)
+	if data.Len() > 0 {
+		nextLen++
+	}
+	if nextLen > maxSSEEventBytes {
+		return fmt.Errorf("httpssechannel: SSE event exceeds %d bytes", maxSSEEventBytes)
+	}
+	if data.Len() > 0 {
+		data.WriteByte('\n')
+	}
+	_, _ = data.Write(chunk)
+	return nil
+}
+
+func sseDataFragment(line []byte) ([]byte, bool) {
+	if !bytes.HasPrefix(line, []byte("data:")) {
+		return nil, false
+	}
+	chunk := line[len("data:"):]
+	if len(chunk) > 0 && chunk[0] == ' ' {
+		chunk = chunk[1:]
+	}
+	return chunk, true
+}
+
+func (c *Client) flushSSEEvent(ctx context.Context, out chan<- clientapi.Event, data *strings.Builder) error {
+	event, err := c.decodeEvent([]byte(data.String()))
+	if err != nil {
+		return fmt.Errorf("httpssechannel: decode SSE event: %w", err)
+	}
+	select {
+	case out <- event:
+	case <-ctx.Done():
+	}
+	data.Reset()
+	return nil
+}
+
+func (c *Client) decodeEvent(raw []byte) (clientapi.Event, error) {
+	var event clientapi.Event
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return clientapi.Event{}, err
+	}
+	if event.Runtime == nil {
+		return event, nil
+	}
+	var envelope struct {
+		Runtime *struct {
+			Name    coreevent.Name  `json:"name"`
+			Payload json.RawMessage `json:"payload,omitempty"`
+		} `json:"runtime,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return clientapi.Event{}, err
+	}
+	if envelope.Runtime == nil || len(envelope.Runtime.Payload) == 0 {
+		return event, nil
+	}
+	if c != nil && c.registry != nil {
+		decoded, ok, err := c.registry.TryDecode(envelope.Runtime.Name, envelope.Runtime.Payload)
+		if err != nil {
+			return clientapi.Event{}, err
+		}
+		if ok {
+			event.Runtime.Payload = decoded
+			return event, nil
+		}
+	}
+	event.Runtime.Payload = append(json.RawMessage(nil), envelope.Runtime.Payload...)
+	return event, nil
 }
 
 func sendStreamError(ctx context.Context, errs chan<- error, err error) {

@@ -11,6 +11,8 @@
 - Generic `orchestration/subagent` supervisor with delegation-policy checks,
   capacity limits, cancellation, result lookup, and typed progress events.
 - Terminal and Slack rendering hooks for sub-agent and plan progress events.
+- Generic datasource relationship and batch-get operations, with exact Slack
+  channel membership via `slack.channel` `members -> slack.user`.
 
 ### Changed
 
@@ -21,6 +23,9 @@
   rendering path for streamed model events and final markdown fallback.
 - `plan execute` now starts background plan execution; `plan wait` is the
   synchronous plan action for callers that need to block for completion.
+- Slack datasource channel/user discovery now paginates before local filtering,
+  and `examples/slack-bot` prefers exact membership relations over inferred
+  message participation.
 
 ### Fixed
 

@@ -87,6 +87,26 @@ func TestPluginContributesSlackDatasourceEntities(t *testing.T) {
 	}
 }
 
+func TestPluginContributesSlackChannelMembersRelation(t *testing.T) {
+	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	var channel coredatasource.EntitySpec
+	for _, entity := range providers[0].Entities() {
+		if entity.Type == ChannelEntity {
+			channel = entity
+			break
+		}
+	}
+	if !channel.Supports(coredatasource.EntityCapabilityRelation) {
+		t.Fatalf("channel capabilities = %#v, want relation", channel.Capabilities)
+	}
+	if len(channel.Relations) != 1 || channel.Relations[0].Name != "members" || channel.Relations[0].TargetEntity != UserEntity || !channel.Relations[0].Exact {
+		t.Fatalf("channel relations = %#v, want exact members -> slack.user", channel.Relations)
+	}
+}
+
 func TestPluginContributesSlackEntityDetectors(t *testing.T) {
 	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {

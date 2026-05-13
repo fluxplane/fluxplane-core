@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -560,7 +562,7 @@ func TestOpenRouterReasoningDefaultsPreferMinimalAndAuto(t *testing.T) {
 	}
 }
 
-func TestUsageFromEventParsesTypedAndMapPayloads(t *testing.T) {
+func TestUsageFromEventParsesTypedPayload(t *testing.T) {
 	typed := usage.Recorded{
 		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
 		Measurements: []usage.Measurement{{
@@ -569,24 +571,38 @@ func TestUsageFromEventParsesTypedAndMapPayloads(t *testing.T) {
 			Unit:     usage.UnitToken,
 		}},
 	}
-	for _, evt := range []agentruntime.Event{
-		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}},
-		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{
-			"subject": map[string]any{"kind": "llm", "provider": "openai", "name": "gpt-test"},
-			"measurements": []any{map[string]any{
-				"metric":   "llm.input_tokens",
-				"quantity": float64(12),
-				"unit":     "token",
-			}},
-		}}},
-	} {
-		got, ok := usageFromEvent(evt)
-		if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
-			t.Fatalf("usageFromEvent = %#v, %v", got, ok)
-		}
+	got, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}})
+	if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
+		t.Fatalf("usageFromEvent = %#v, %v", got, ok)
 	}
 	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: event.Name("other")}}); ok {
 		t.Fatalf("usageFromEvent accepted non-usage event")
+	}
+	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{}}}); ok {
+		t.Fatalf("usageFromEvent accepted untyped usage payload")
+	}
+}
+
+func TestTerminalEventRegistryDecodesPluginCatalogEvents(t *testing.T) {
+	registry, err := terminalEventRegistry()
+	if err != nil {
+		t.Fatalf("terminalEventRegistry: %v", err)
+	}
+	for _, sample := range eventcatalog.All() {
+		raw, err := json.Marshal(sample)
+		if err != nil {
+			t.Fatalf("Marshal %s: %v", sample.EventName(), err)
+		}
+		decoded, ok, err := registry.TryDecode(sample.EventName(), raw)
+		if err != nil {
+			t.Fatalf("TryDecode %s: %v", sample.EventName(), err)
+		}
+		if !ok {
+			t.Fatalf("event %s was not registered", sample.EventName())
+		}
+		if decoded.EventName() != sample.EventName() {
+			t.Fatalf("decoded event name = %s, want %s", decoded.EventName(), sample.EventName())
+		}
 	}
 }
 

@@ -68,6 +68,19 @@ func (r *Registry) Decode(name Name, raw json.RawMessage) (Event, error) {
 	return decoder(raw)
 }
 
+// TryDecode decodes raw when name is registered.
+func (r *Registry) TryDecode(name Name, raw json.RawMessage) (Event, bool, error) {
+	if r == nil || r.decoders == nil {
+		return nil, false, nil
+	}
+	decoder, ok := r.decoders[name]
+	if !ok {
+		return nil, false, nil
+	}
+	decoded, err := decoder(raw)
+	return decoded, true, err
+}
+
 func indirectType(typ reflect.Type) reflect.Type {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
