@@ -15,6 +15,11 @@ tasks:
     cmds:
       - go install ./cmd/agentsdk
 
+  index:
+    desc: Build or update the root app semantic index for local markdown docs.
+    cmds:
+      - go run ./cmd/agentsdk datasource index build . --datasource local-docs --entity file.document --full
+
   verify:
     desc: Run the rewrite quality gate.
     cmds:

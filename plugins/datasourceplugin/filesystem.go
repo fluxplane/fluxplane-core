@@ -102,6 +102,9 @@ func (a *filesystemAccessor) Search(ctx context.Context, req coredatasource.Sear
 			return ctx.Err()
 		}
 		if entry.IsDir() {
+			if a.skippedDir(name) {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		if !a.included(name) {
@@ -159,7 +162,13 @@ func (a *filesystemAccessor) Corpus(ctx context.Context, req coredatasource.Corp
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if entry.IsDir() || !a.included(name) {
+		if entry.IsDir() {
+			if a.skippedDir(name) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !a.included(name) {
 			return nil
 		}
 		doc, err := a.readCorpusDocument(name)
@@ -176,6 +185,18 @@ func (a *filesystemAccessor) Corpus(ctx context.Context, req coredatasource.Corp
 		return coredatasource.CorpusPage{}, err
 	}
 	return coredatasource.CorpusPage{Documents: docs, Complete: true}, nil
+}
+
+func (a *filesystemAccessor) skippedDir(name string) bool {
+	if name == "." || name == a.base {
+		return false
+	}
+	switch path.Base(name) {
+	case ".git", ".agents", ".codex", "node_modules", "vendor":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *filesystemAccessor) included(name string) bool {

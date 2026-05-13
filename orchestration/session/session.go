@@ -1283,7 +1283,7 @@ func (s Session) maxSteps() int {
 	if spec.Policy.MaxSteps > 0 {
 		return spec.Policy.MaxSteps
 	}
-	if spec.Driver.Kind == llmagent.DriverKind {
+	if isLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMMaxSteps
 	}
 	return 1
@@ -1294,7 +1294,7 @@ func (s Session) failOnStepLimit() bool {
 		return true
 	}
 	spec := s.Agent.Spec()
-	return spec.Driver.Kind == llmagent.DriverKind || spec.Policy.MaxSteps > 0
+	return isLLMDriverKind(spec.Driver.Kind) || spec.Policy.MaxSteps > 0
 }
 
 func (s Session) maxContinuations() int {
@@ -1305,10 +1305,14 @@ func (s Session) maxContinuations() int {
 	if spec.Policy.MaxContinuations > 0 {
 		return spec.Policy.MaxContinuations
 	}
-	if spec.Driver.Kind == llmagent.DriverKind {
+	if isLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMContinuations
 	}
 	return 0
+}
+
+func isLLMDriverKind(kind agent.DriverKind) bool {
+	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)
 }
 
 func (s Session) shouldContinueAfterTerminal(completed int, agentResult agent.StepResult) bool {

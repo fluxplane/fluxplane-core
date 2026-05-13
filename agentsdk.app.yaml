@@ -1,7 +1,39 @@
 kind: app
 name: "agentsdk"
-description: Minimal local agentsdk app.
+description: Local agentsdk app with searchable repository documentation.
 default_agent: default
+semantic_search:
+  enabled: true
+  embeddings:
+    provider: axon
+  store:
+    kind: json
+    path: .agents/index/datasources.json
+  defaults:
+    chunking:
+      target_tokens: 350
+      overlap_tokens: 50
+    retrieval:
+      mode: hybrid
+      limit: 8
+datasources:
+  - name: local-docs
+    kind: filesystem
+    entities:
+      - file.document
+    description: Markdown documentation from this repository, including docs and root-level docs.
+    path: .
+    include: ["*.md", "*.markdown"]
+    semantic:
+      enabled: true
+      entities:
+        file.document:
+          chunking:
+            target_tokens: 350
+            overlap_tokens: 50
+          retrieval:
+            mode: hybrid
+            limit: 8
 daemon:
   listeners:
     - name: local
@@ -23,5 +55,16 @@ agent: default
 ---
 kind: agent
 name: default
+tools:
+  - datasource_search
+context:
+  - datasource.catalog
+  - datasource.detected
+datasources:
+  - local-docs
 system: |
-  You are a helpful assistant for this local agentsdk app.
+  You are a helpful assistant for this local agentsdk app. Use
+  datasource_search when answering questions about repository documentation or
+  markdown files in this checkout, especially under `docs/`. Answer by
+  summarizing relevant details and cite file paths. Do not reproduce full
+  documents unless the user explicitly asks for verbatim content.

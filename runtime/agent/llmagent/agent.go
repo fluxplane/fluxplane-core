@@ -82,6 +82,9 @@ func New(spec agent.Spec, model Model, opts ...Option) (*Agent, error) {
 	if model == nil {
 		return nil, ErrModelMissing
 	}
+	if spec.Driver.Kind == "" {
+		spec.Driver.Kind = DriverKind
+	}
 	a := &Agent{
 		spec:   spec,
 		driver: deriveDriverSpec(spec),

@@ -1038,6 +1038,21 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 }
 
 func TestStepAndContinuationLimitsUseLLMDefaultsAndExplicitOverrides(t *testing.T) {
+	implicitLLMAgent, err := llmagent.New(agent.Spec{Name: "main"}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")})
+	if err != nil {
+		t.Fatalf("new implicit llm agent: %v", err)
+	}
+	implicitLLMSession := Session{Agent: implicitLLMAgent}
+	if got := implicitLLMSession.maxSteps(); got != 50 {
+		t.Fatalf("implicit llm maxSteps = %d, want 50", got)
+	}
+	if got := implicitLLMSession.maxContinuations(); got != 3 {
+		t.Fatalf("implicit llm maxContinuations = %d, want 3", got)
+	}
+	if !implicitLLMSession.failOnStepLimit() {
+		t.Fatal("implicit llm failOnStepLimit = false, want true")
+	}
+
 	defaultSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
 		Name:   "main",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},

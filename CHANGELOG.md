@@ -8,6 +8,9 @@
   default no-tool agent, default session, and Unix-socket direct channel.
 - The repository root now includes a minimal local `agentsdk.app.yaml` manifest
   for direct dogfooding.
+- The repository-local app manifest now enables a `local-docs` filesystem
+  datasource with semantic search settings for markdown documentation.
+- `task index` builds the repository-local datasource semantic index.
 
 ### Changed
 
@@ -18,6 +21,11 @@
   no path argument is provided.
 - Local distribution loading now exposes the generated `default` session when
   an app manifest declares `default_agent` without an explicit default session.
+- Filesystem datasource corpus traversal now skips runtime and dependency
+  directories such as `.git`, `.agents`, `.codex`, `node_modules`, and
+  `vendor`.
+- LLM agent construction now normalizes an empty driver kind to the LLM driver
+  kind so session limit defaults apply consistently.
 
 ## 0.7.0
 
