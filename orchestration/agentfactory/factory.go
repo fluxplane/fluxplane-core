@@ -3,6 +3,7 @@ package agentfactory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -12,11 +13,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/tool"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 )
 
 // ModelResolver resolves the provider-neutral model implementation for one
@@ -39,6 +42,7 @@ func (f ModelResolverFunc) ResolveModel(ctx context.Context, spec agent.Spec) (l
 // Config configures a composed-agent factory.
 type Config struct {
 	Agents           appcomposition.AgentCatalog
+	Skills           appcomposition.SkillCatalog
 	Resolver         *resource.Resolver
 	CommandCatalog   session.CommandCatalog
 	OperationCatalog session.OperationCatalog
@@ -52,6 +56,7 @@ type Config struct {
 // Factory builds runnable agents from composed agent specs.
 type Factory struct {
 	agents           appcomposition.AgentCatalog
+	skills           appcomposition.SkillCatalog
 	resolver         *resource.Resolver
 	commandCatalog   session.CommandCatalog
 	operationCatalog session.OperationCatalog
@@ -66,6 +71,7 @@ type Factory struct {
 func New(cfg Config) *Factory {
 	return &Factory{
 		agents:           cfg.Agents,
+		skills:           cfg.Skills,
 		resolver:         cfg.Resolver,
 		commandCatalog:   cfg.CommandCatalog,
 		operationCatalog: cfg.OperationCatalog,
@@ -122,14 +128,103 @@ func (f *Factory) buildLLMAgent(ctx context.Context, spec agent.Spec) (agent.Age
 	if err != nil {
 		return nil, err
 	}
+	repo, state, err := f.skillState(spec)
+	if err != nil {
+		return nil, err
+	}
+	contextProviders := filterContextProviders(spec, f.contextProviders)
+	if repo != nil && skillContextAllowed(spec) {
+		contextProviders = append(contextProviders, runtimeskill.NewContextProvider(repo, state))
+	}
 	projection := f.projectTools()
-	return llmagent.New(
+	runtimeAgent, err := llmagent.New(
 		spec,
 		model,
 		llmagent.WithTools(filterTools(spec, projection.Tools)...),
-		llmagent.WithContextProviders(filterContextProviders(spec, f.contextProviders)...),
+		llmagent.WithContextProviders(contextProviders...),
 		llmagent.WithStreamPolicy(f.streamPolicy),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeskill.WrapAgent(runtimeAgent, state), nil
+}
+
+func skillContextAllowed(spec agent.Spec) bool {
+	if spec.Context == nil {
+		return true
+	}
+	for _, ref := range spec.Context {
+		if ref.Name == runtimeskill.ContextProviderName {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *Factory) skillState(spec agent.Spec) (*runtimeskill.Repository, *runtimeskill.ActivationState, error) {
+	if len(f.skills) == 0 {
+		if len(spec.Skills) == 0 {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("agentfactory: agent %q references skills but no skills are composed", spec.Name)
+	}
+	skillSpecs, err := f.resolvedSkillSpecs()
+	if err != nil {
+		return nil, nil, fmt.Errorf("agentfactory: skill repository: %w", err)
+	}
+	repo, err := runtimeskill.NewRepository(skillSpecs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agentfactory: skill repository: %w", err)
+	}
+	state, err := runtimeskill.NewActivationState(repo, spec.Skills)
+	if err != nil {
+		return nil, nil, fmt.Errorf("agentfactory: skills for agent %q: %w", spec.Name, err)
+	}
+	return repo, state, nil
+}
+
+func (f *Factory) resolvedSkillSpecs() ([]skill.Spec, error) {
+	byName := map[string][]appcomposition.ResourceBinding[skill.Spec]{}
+	for _, binding := range f.skills {
+		name := strings.TrimSpace(string(binding.Spec.Name))
+		if name == "" {
+			continue
+		}
+		byName[name] = append(byName[name], binding)
+	}
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]skill.Spec, 0, len(names))
+	for _, name := range names {
+		candidates := byName[name]
+		if len(candidates) == 1 {
+			out = append(out, candidates[0].Spec)
+			continue
+		}
+		if f.resolver == nil {
+			return nil, fmt.Errorf("duplicate skill %q and resolver is nil", name)
+		}
+		id, err := f.resolver.Resolve("skill", name)
+		if err != nil {
+			return nil, err
+		}
+		var found bool
+		for _, binding := range candidates {
+			if binding.ID.Equal(id) {
+				out = append(out, binding.Spec)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("resolved skill %q to unbound resource %s", name, id.Address())
+		}
+	}
+	return out, nil
 }
 
 func (f *Factory) resolveModel(ctx context.Context, spec agent.Spec) (llmagent.Model, error) {

@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	"gopkg.in/yaml.v3"
 )
 
@@ -347,6 +348,7 @@ type agentDoc struct {
 	Tools            []string `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Context          []string `json:"context,omitempty" yaml:"context,omitempty"`
 	Datasources      []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Skills           []string `json:"skills,omitempty" yaml:"skills,omitempty"`
 	System           string   `json:"system,omitempty" yaml:"system,omitempty"`
 }
 
@@ -383,6 +385,12 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 		name = strings.TrimSpace(name)
 		if name != "" {
 			spec.Datasources = append(spec.Datasources, coredatasource.Ref{Name: coredatasource.Name(name)})
+		}
+	}
+	for _, name := range raw.Skills {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Skills = append(spec.Skills, coreskill.Ref{Name: coreskill.Name(name)})
 		}
 	}
 	if err := spec.Validate(); err != nil {

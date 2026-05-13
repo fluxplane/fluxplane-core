@@ -50,6 +50,7 @@ type Composition struct {
 	SkillCatalog         SkillCatalog
 	ContextProviders     ContextProviderCatalog
 	ContextProviderImpls []corecontext.Provider
+	DatasourceProviders  []coredatasource.Provider
 	DatasourceCatalog    DatasourceCatalog
 	WorkflowCatalog      WorkflowCatalog
 	OperationSetCatalog  OperationSetCatalog
@@ -78,7 +79,7 @@ type Composition struct {
 // declarations; executable operation implementations come from host or plugin
 // code.
 func Compose(cfg Config) (Composition, error) {
-	bundles, pluginOperations, pluginContextProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -224,6 +225,7 @@ func Compose(cfg Config) (Composition, error) {
 		SkillCatalog:         skillCatalog,
 		ContextProviders:     contextCatalog,
 		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
+		DatasourceProviders:  pluginDatasourceProviders,
 		DatasourceCatalog:    datasourceCatalog,
 		WorkflowCatalog:      workflowCatalog,
 		OperationSetCatalog:  operationSetCatalog,
@@ -479,15 +481,16 @@ func defaultSessionSpec(appBinding ResourceBinding[coreapp.Spec], resolver *reso
 	}, true, nil
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
+	var datasourceProviders []coredatasource.Provider
 	var diagnostics []resource.Diagnostic
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, diagnostics, err
+		return out, operations, contextProviders, datasourceProviders, diagnostics, err
 	}
 	for _, bundle := range bundles {
 		if len(bundle.Plugins) == 0 {
@@ -496,15 +499,18 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, diagnostics, err
+			return out, operations, contextProviders, datasourceProviders, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
 		for _, provider := range contributed.ContextProviders {
 			contextProviders = append(contextProviders, provider.Provider)
 		}
+		for _, provider := range contributed.DatasourceProviders {
+			datasourceProviders = append(datasourceProviders, provider.Provider)
+		}
 	}
-	return out, operations, contextProviders, diagnostics, nil
+	return out, operations, contextProviders, datasourceProviders, diagnostics, nil
 }
 
 type operationSpecContribution struct {

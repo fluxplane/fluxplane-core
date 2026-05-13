@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -62,6 +64,46 @@ func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, erro
 			return resource.ContributionBundle{}, err
 		}
 		if err := load(ctx, root, &bundle); err != nil {
+			return resource.ContributionBundle{}, err
+		}
+	}
+	return bundle, nil
+}
+
+// LoadFS loads a .agents-compatible tree from fsys rooted at root. It is used
+// by embedded first-party apps and tests.
+func LoadFS(ctx context.Context, fsys fs.FS, root string, source resource.SourceRef) (resource.ContributionBundle, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if fsys == nil {
+		return resource.ContributionBundle{}, fmt.Errorf("agentdir: fs is nil")
+	}
+	root = cleanFSRoot(root)
+	if source.ID == "" {
+		source = resource.SourceRef{
+			ID:        "agentdir:" + root,
+			Ecosystem: "agentdir",
+			Scope:     resource.ScopeEmbedded,
+			Location:  root,
+			Trust: policy.Trust{
+				Kind:  policy.TrustSource,
+				Level: policy.TrustVerified,
+			},
+		}
+	}
+	bundle := resource.ContributionBundle{Source: source}
+	loaders := []func(context.Context, fs.FS, string, *resource.ContributionBundle) error{
+		loadAgentsFS,
+		loadCommandsFS,
+		loadWorkflowsFS,
+		loadSkillsFS,
+	}
+	for _, load := range loaders {
+		if err := ctx.Err(); err != nil {
+			return resource.ContributionBundle{}, err
+		}
+		if err := load(ctx, fsys, root, &bundle); err != nil {
 			return resource.ContributionBundle{}, err
 		}
 	}
@@ -171,6 +213,122 @@ func loadSkills(ctx context.Context, root string, bundle *resource.ContributionB
 		if err != nil {
 			return err
 		}
+		refs, err := loadSkillReferencesDir(filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		spec.References = refs
+		bundle.Skills = append(bundle.Skills, spec)
+	}
+	return nil
+}
+
+func loadAgentsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+	files, err := sortedFSGlob(fsys, path.Join(root, dirNameAgents, "*.md"))
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return fmt.Errorf("agentdir: read agent %s: %w", file, err)
+		}
+		spec, err := DecodeAgent(path.Base(file), data)
+		if err != nil {
+			return fmt.Errorf("agentdir: decode agent %s: %w", file, err)
+		}
+		bundle.Agents = append(bundle.Agents, spec)
+	}
+	return nil
+}
+
+func loadCommandsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+	mdFiles, err := sortedFSGlob(fsys, path.Join(root, dirNameCommands, "*.md"))
+	if err != nil {
+		return err
+	}
+	for _, file := range mdFiles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return fmt.Errorf("agentdir: read prompt command %s: %w", file, err)
+		}
+		spec, err := DecodePromptCommand(path.Base(file), data)
+		if err != nil {
+			return fmt.Errorf("agentdir: decode prompt command %s: %w", file, err)
+		}
+		bundle.Commands = append(bundle.Commands, spec)
+	}
+	yamlFiles, err := sortedFSYAMLFiles(fsys, path.Join(root, dirNameCommands))
+	if err != nil {
+		return err
+	}
+	for _, file := range yamlFiles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return fmt.Errorf("agentdir: read command %s: %w", file, err)
+		}
+		spec, err := DecodeCommand(path.Base(file), data)
+		if err != nil {
+			return fmt.Errorf("agentdir: decode command %s: %w", file, err)
+		}
+		bundle.Commands = append(bundle.Commands, spec)
+	}
+	return nil
+}
+
+func loadWorkflowsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+	files, err := sortedFSYAMLFiles(fsys, path.Join(root, dirNameWorkflows))
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return fmt.Errorf("agentdir: read workflow %s: %w", file, err)
+		}
+		spec, err := DecodeWorkflow(path.Base(file), data)
+		if err != nil {
+			return fmt.Errorf("agentdir: decode workflow %s: %w", file, err)
+		}
+		bundle.Workflows = append(bundle.Workflows, spec)
+	}
+	return nil
+}
+
+func loadSkillsFS(ctx context.Context, fsys fs.FS, root string, bundle *resource.ContributionBundle) error {
+	files, err := sortedFSGlob(fsys, path.Join(root, dirNameSkills, "*", "SKILL.md"))
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return fmt.Errorf("agentdir: read skill %s: %w", file, err)
+		}
+		spec, err := DecodeSkill(path.Base(path.Dir(file)), "fs://"+file, data)
+		if err != nil {
+			return fmt.Errorf("agentdir: decode skill %s: %w", file, err)
+		}
+		refs, err := loadSkillReferencesFS(fsys, path.Dir(file))
+		if err != nil {
+			return err
+		}
+		spec.References = refs
 		bundle.Skills = append(bundle.Skills, spec)
 	}
 	return nil
@@ -382,7 +540,7 @@ func DecodeSkillFile(path string) (skill.Spec, error) {
 // DecodeSkill decodes one markdown skill resource.
 func DecodeSkill(defaultName, sourceURI string, data []byte) (skill.Spec, error) {
 	var fm skillFrontmatter
-	_, err := decodeFrontmatter(data, &fm)
+	body, err := decodeFrontmatter(data, &fm)
 	if err != nil {
 		return skill.Spec{}, err
 	}
@@ -393,10 +551,14 @@ func DecodeSkill(defaultName, sourceURI string, data []byte) (skill.Spec, error)
 	spec := skill.Spec{
 		Name:        skill.Name(name),
 		Description: strings.TrimSpace(fm.Description),
+		Body:        strings.TrimSpace(body),
 		Source: skill.SourceRef{
 			URI:  sourceURI,
 			Kind: "agentdir",
 		},
+		Triggers:    cleanStrings(fm.Triggers),
+		Metadata:    skillMetadata(fm),
+		Annotations: stringListAnnotations("allowed_tools", fm.AllowedTools),
 	}
 	if err := spec.Validate(); err != nil {
 		return skill.Spec{}, err
@@ -475,8 +637,20 @@ type workflowStep struct {
 }
 
 type skillFrontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
+	Name          string   `yaml:"name"`
+	Description   string   `yaml:"description"`
+	Triggers      []string `yaml:"triggers"`
+	AllowedTools  []string `yaml:"allowed-tools"`
+	License       string   `yaml:"license"`
+	Risk          string   `yaml:"risk"`
+	Compatibility string   `yaml:"compatibility"`
+	Domain        string   `yaml:"domain"`
+	Role          string   `yaml:"role"`
+}
+
+type referenceFrontmatter struct {
+	Trigger  string   `yaml:"trigger"`
+	Triggers []string `yaml:"triggers"`
 }
 
 func decodeFrontmatter(data []byte, out any) (string, error) {
@@ -529,6 +703,141 @@ func sortedYAMLFiles(dir string) ([]string, error) {
 	files := append(yml, yamlFiles...)
 	sort.Strings(files)
 	return files, nil
+}
+
+func sortedFSGlob(fsys fs.FS, pattern string) ([]string, error) {
+	files, err := fs.Glob(fsys, pattern)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func sortedFSYAMLFiles(fsys fs.FS, dir string) ([]string, error) {
+	yml, err := sortedFSGlob(fsys, path.Join(dir, "*.yml"))
+	if err != nil {
+		return nil, err
+	}
+	yamlFiles, err := sortedFSGlob(fsys, path.Join(dir, "*.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	files := append(yml, yamlFiles...)
+	sort.Strings(files)
+	return files, nil
+}
+
+func loadSkillReferencesDir(skillDir string) ([]skill.ReferenceSpec, error) {
+	files, err := sortedGlob(filepath.Join(skillDir, "references", "*.md"))
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]skill.ReferenceSpec, 0, len(files))
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("agentdir: read skill reference %s: %w", file, err)
+		}
+		ref, err := DecodeSkillReference(filepath.ToSlash(filepath.Join("references", filepath.Base(file))), data)
+		if err != nil {
+			return nil, fmt.Errorf("agentdir: decode skill reference %s: %w", file, err)
+		}
+		refs = append(refs, ref)
+	}
+	return refs, nil
+}
+
+func loadSkillReferencesFS(fsys fs.FS, skillDir string) ([]skill.ReferenceSpec, error) {
+	files, err := sortedFSGlob(fsys, path.Join(skillDir, "references", "*.md"))
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]skill.ReferenceSpec, 0, len(files))
+	for _, file := range files {
+		data, err := fs.ReadFile(fsys, file)
+		if err != nil {
+			return nil, fmt.Errorf("agentdir: read skill reference %s: %w", file, err)
+		}
+		ref, err := DecodeSkillReference(path.Join("references", path.Base(file)), data)
+		if err != nil {
+			return nil, fmt.Errorf("agentdir: decode skill reference %s: %w", file, err)
+		}
+		refs = append(refs, ref)
+	}
+	return refs, nil
+}
+
+// DecodeSkillReference decodes one skill reference markdown file.
+func DecodeSkillReference(refPath string, data []byte) (skill.ReferenceSpec, error) {
+	var fm referenceFrontmatter
+	body, err := decodeFrontmatter(data, &fm)
+	if err != nil {
+		return skill.ReferenceSpec{}, err
+	}
+	refPath = strings.TrimSpace(strings.ReplaceAll(refPath, "\\", "/"))
+	spec := skill.ReferenceSpec{
+		Path:     refPath,
+		Body:     strings.TrimSpace(body),
+		Triggers: referenceTriggers(fm),
+	}
+	if !skill.ValidReferencePath(spec.Path) {
+		return skill.ReferenceSpec{}, fmt.Errorf("skill reference path %q is invalid", refPath)
+	}
+	return spec, nil
+}
+
+func referenceTriggers(fm referenceFrontmatter) []string {
+	if len(fm.Triggers) > 0 {
+		return cleanStrings(fm.Triggers)
+	}
+	if strings.TrimSpace(fm.Trigger) == "" {
+		return nil
+	}
+	return cleanStrings(strings.Split(fm.Trigger, ","))
+}
+
+func skillMetadata(fm skillFrontmatter) map[string]string {
+	values := map[string]string{
+		"license":       strings.TrimSpace(fm.License),
+		"risk":          strings.TrimSpace(fm.Risk),
+		"compatibility": strings.TrimSpace(fm.Compatibility),
+		"domain":        strings.TrimSpace(fm.Domain),
+		"role":          strings.TrimSpace(fm.Role),
+	}
+	out := map[string]string{}
+	for key, value := range values {
+		if value != "" {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cleanStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func cleanFSRoot(root string) string {
+	root = strings.TrimSpace(strings.ReplaceAll(root, "\\", "/"))
+	root = path.Clean(root)
+	if root == "." || root == "" {
+		return "."
+	}
+	return strings.Trim(root, "/")
 }
 
 func filenameStem(filename string) string {

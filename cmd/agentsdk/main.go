@@ -60,6 +60,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -87,6 +88,7 @@ func newRootCommand() *cobra.Command {
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newRemoteCommand())
 	cmd.AddCommand(newConnectCommand())
+	cmd.AddCommand(newDiscoverCommand())
 	return cmd
 }
 
@@ -698,11 +700,15 @@ func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 		gitlabPlugin,
 		jiraPlugin,
 		planexecplugin.New(),
+		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),
 	}
 	bundle := cfgFile.Bundle
 	plugins := basePlugins
+	if bundleHasPlugin(bundle, skillplugin.Name) && !hasDatasource(bundle, skillplugin.DatasourceName) {
+		bundle.Datasources = append(bundle.Datasources, skillplugin.DatasourceSpec())
+	}
 	if len(bundle.Datasources) > 0 {
 		registry, err := serveDatasourceRegistry(ctx, bundle, basePlugins, root)
 		if err != nil {
@@ -864,6 +870,15 @@ func serveDatasourceRegistry(ctx context.Context, bundle resource.ContributionBu
 func bundleHasPlugin(bundle resource.ContributionBundle, name string) bool {
 	for _, ref := range bundle.Plugins {
 		if ref.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDatasource(bundle resource.ContributionBundle, name string) bool {
+	for _, spec := range bundle.Datasources {
+		if string(spec.Name) == name {
 			return true
 		}
 	}
@@ -1435,6 +1450,7 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(hostSystem),
 			planexecplugin.New(),
+			skillplugin.New(),
 		},
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:        localSandbox{Root: root},

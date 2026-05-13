@@ -245,6 +245,7 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if cfg.AgentProvider == nil && cfg.Agent == nil && (cfg.LLMModel != nil || cfg.LLMModelResolver != nil) {
 		cfg.AgentProvider = agentfactory.New(agentfactory.Config{
 			Agents:           composition.AgentCatalog,
+			Skills:           composition.SkillCatalog,
 			Resolver:         composition.Resolver,
 			CommandCatalog:   composition.CommandCatalog,
 			OperationCatalog: composition.OperationCatalog,

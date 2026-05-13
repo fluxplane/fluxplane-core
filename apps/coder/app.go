@@ -15,6 +15,7 @@ const (
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
 	PlanExecPlugin   = "planexec"
+	SkillsPlugin     = "skills"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 )
@@ -49,7 +50,7 @@ func Bundle() resource.ContributionBundle {
 			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
 			"code_execute",
 			"clarify",
-			"delegate", "plan",
+			"delegate", "plan", "skill",
 		).
 		Build()
 
@@ -63,6 +64,7 @@ func Bundle() resource.ContributionBundle {
 		WithModel("openai", DefaultModel, "coding").
 		WithPlugin(resource.PluginRef{Name: CodingPlugin}).
 		WithPlugin(resource.PluginRef{Name: PlanExecPlugin}).
+		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
 			Name:        SessionName,

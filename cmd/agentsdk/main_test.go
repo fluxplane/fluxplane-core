@@ -31,6 +31,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -67,7 +68,7 @@ func TestCoderToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{coder.Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New()},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)

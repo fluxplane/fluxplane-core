@@ -21,11 +21,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 )
 
 // Session is the first orchestration boundary for the observe-decide-apply
@@ -262,6 +264,9 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	}
 	if s.Agent == nil {
 		return inputFailed("agent_missing", "agent is nil", nil)
+	}
+	if err := s.replaySkillEvents(ctx); err != nil {
+		return inputFailed("skill_replay_failed", err.Error(), nil)
 	}
 
 	baseCtx := ensureContext(ctx)
@@ -1126,10 +1131,23 @@ func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBindi
 }
 
 func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
+	ctx = s.withSkillAccess(ctx)
 	ctx = s.withDatasourceAccess(ctx)
 	ctx = operation.WithCallID(ctx, callID)
 	ctx = s.withSubagentScope(ctx, callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
+}
+
+func (s Session) withSkillAccess(ctx operation.Context) operation.Context {
+	if ctx == nil || s.Agent == nil {
+		return ctx
+	}
+	state, ok := runtimeskill.StateFromAgent(s.Agent)
+	if !ok {
+		return ctx
+	}
+	base := runtimeskill.ContextWithState(ctx, state)
+	return operation.NewContext(base, ctx.Events())
 }
 
 func (s Session) withSubagentScope(ctx operation.Context, callID operation.CallID) operation.Context {
@@ -1146,6 +1164,44 @@ func (s Session) withSubagentScope(ctx operation.Context, callID operation.CallI
 		ThreadStore:    s.ThreadStore,
 	})
 	return operation.NewContext(base, ctx.Events())
+}
+
+func (s Session) replaySkillEvents(ctx context.Context) error {
+	if s.ThreadStore == nil || s.Thread.ID == "" || s.Agent == nil {
+		return nil
+	}
+	state, ok := runtimeskill.StateFromAgent(s.Agent)
+	if !ok {
+		return nil
+	}
+	snapshot, err := s.ThreadStore.Read(persistenceContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		runtimeEvent, ok := record.Event.Payload.(coresession.RuntimeEmitted)
+		if !ok {
+			if ptr, ok := record.Event.Payload.(*coresession.RuntimeEmitted); ok && ptr != nil {
+				runtimeEvent = *ptr
+			} else {
+				continue
+			}
+		}
+		switch runtimeEvent.Name {
+		case coreskill.EventSkillActivated, coreskill.EventSkillReferenceActivated:
+			if err := state.ApplyEvent(runtimeEvent.Payload); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s Session) withDatasourceAccess(ctx operation.Context) operation.Context {

@@ -6,6 +6,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -59,6 +60,8 @@ func defaultEventTypes() []event.Event {
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
 		usage.Recorded{},
+		skill.SkillActivated{},
+		skill.SkillReferenceActivated{},
 		llmagent.ModelRequested{},
 		llmagent.ModelStreamed{},
 		llmagent.ModelCompleted{},

@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -18,7 +19,7 @@ func TestBundleComposes(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New()},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -32,8 +33,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Policy.MaxContinuations; got != 3 {
 		t.Fatalf("max continuations = %d, want 3", got)
 	}
-	if len(composition.OperationSpecs) != 40 {
-		t.Fatalf("operation specs len = %d, want 40", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 41 {
+		t.Fatalf("operation specs len = %d, want 41", len(composition.OperationSpecs))
 	}
 	session := composition.SessionSpecs[0]
 	if len(session.Delegation.Commands) == 0 {
