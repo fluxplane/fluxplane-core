@@ -145,7 +145,7 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 		return tool.Spec{}, false, reason
 	}
 	return tool.Spec{
-		Name:        tool.Name(toolName(binding.ID)),
+		Name:        tool.Name(spec.Ref.Name),
 		Description: spec.Description,
 		Target: invocation.Target{
 			Kind:      invocation.TargetOperation,

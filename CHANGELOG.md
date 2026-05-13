@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 ### Added
 
 - `core/usage` session tracker for accumulating usage by stable subject and
@@ -10,6 +12,34 @@
   and estimated cost lines after each prompt.
 - Shared usage cost enrichment from model pricing for OpenAI-compatible
   providers.
+- `agentsdk serve` daemon mode for app manifests with daemon listeners,
+  direct channels, and long-running runtime channel startup.
+- Native `agentsdk connect` command for offline connection status and
+  provider-specific connector setup without embedding the connectors CLI tree.
+- Slack channel plugin with Socket Mode support, Slack-derived caller/trust
+  propagation, `channel_send`, and `slack_search` for public-channel message
+  search.
+- App config support for multi-document `kind:` manifests with daemon
+  listeners/channels, app/session/agent documents, and the rewrite-native
+  `examples/slack-bot` app.
+- Connector-backed Slack credential loading and first-party OpenAI/Slack
+  connector provider registration.
+- Runtime channel host contracts and daemon lifecycle support for channel
+  implementations.
+
+### Changed
+
+- Bare operation tool projection now exposes the operation short name for
+  synthetic channel tools.
+
+### Fixed
+
+- Daemon HTTP listeners enforce configured auth and reject unauthenticated TCP
+  listeners.
+- Slack channel turns submit Slack user identity and trust instead of falling
+  back to the local daemon caller.
+- Slack connector selection preserves the empty-instance fallback when a Slack
+  channel omits a connector instance.
 
 ## 0.3.0
 

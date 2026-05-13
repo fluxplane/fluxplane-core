@@ -6,27 +6,50 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
+	"github.com/codewandler/connectors/credential"
+	connectorsdefinition "github.com/codewandler/connectors/definition"
+	"github.com/codewandler/connectors/integrate"
+	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
 	cmdriskadapter "github.com/fluxplane/agentruntime/adapters/cmdrisk"
 	codexadapter "github.com/fluxplane/agentruntime/adapters/codex"
+	"github.com/fluxplane/agentruntime/adapters/connectauth"
+	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
+	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/apps/coder"
+	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coreusage "github.com/fluxplane/agentruntime/core/usage"
+	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
+	"github.com/fluxplane/agentruntime/orchestration/daemon"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
+	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -48,7 +71,491 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(newCoderCommand())
+	cmd.AddCommand(newServeCommand())
+	cmd.AddCommand(newConnectCommand())
 	return cmd
+}
+
+type serveOptions struct {
+	debug    bool
+	authPath string
+}
+
+func newServeCommand() *cobra.Command {
+	var opts serveOptions
+	cmd := &cobra.Command{
+		Use:   "serve [app-dir]",
+		Short: "Run an app daemon",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runServe(cmd.Context(), opts, args[0])
+		},
+	}
+	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print daemon startup details")
+	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
+	return cmd
+}
+
+type connectOptions struct {
+	connectorsPath string
+	auth           string
+	groups         string
+	instance       string
+	fields         []string
+	info           bool
+}
+
+func newConnectCommand() *cobra.Command {
+	var opts connectOptions
+	cmd := &cobra.Command{
+		Use:   "connect [provider]",
+		Short: "Manage connector auth",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return runConnectStatus(cmd.Context(), opts, cmd.OutOrStdout())
+			}
+			return runConnectProvider(cmd.Context(), opts, args[0], cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "~/.connectors", "connector credential store path")
+	cmd.Flags().StringVar(&opts.auth, "auth", "", "authentication method kind to use")
+	cmd.Flags().StringArrayVarP(&opts.fields, "field", "f", nil, "setup/auth field value (key=value, repeatable)")
+	cmd.Flags().StringVar(&opts.groups, "groups", "", "operation groups to enable (comma-separated or all)")
+	cmd.Flags().StringVar(&opts.instance, "instance", "", "instance ID to create/update")
+	cmd.Flags().BoolVar(&opts.info, "info", false, "print available auth methods and fields, then exit")
+	return cmd
+}
+
+func runConnectStatus(ctx context.Context, opts connectOptions, out io.Writer) error {
+	basePath, err := resolveConnectorsPath(opts.connectorsPath)
+	if err != nil {
+		return err
+	}
+	instances, err := credential.NewInstanceStore(filepath.Join(basePath, "instances")).List(ctx)
+	if err != nil {
+		return err
+	}
+	sort.Slice(instances, func(i, j int) bool {
+		if instances[i].Connector == instances[j].Connector {
+			return instances[i].ID < instances[j].ID
+		}
+		return instances[i].Connector < instances[j].Connector
+	})
+	if len(instances) == 0 {
+		_, _ = fmt.Fprintln(out, "No connection instances.")
+		_, _ = fmt.Fprintln(out, "Run agentsdk connect <provider> to connect one.")
+		return nil
+	}
+	credStore := credential.NewFileStore(filepath.Join(basePath, "credentials"))
+	_, _ = fmt.Fprintf(out, "%-16s %-24s %-12s %-10s %-20s %s\n", "PROVIDER", "INSTANCE", "AUTH", "HEALTH", "UPDATED", "SOURCE")
+	_, _ = fmt.Fprintf(out, "%-16s %-24s %-12s %-10s %-20s %s\n", "────────", "────────", "────", "──────", "───────", "──────")
+	for _, inst := range instances {
+		source := inst.Source
+		if source == "" {
+			source = "manual"
+		}
+		updated := "-"
+		if !inst.UpdatedAt.IsZero() {
+			updated = inst.UpdatedAt.Local().Format("2006-01-02 15:04")
+		}
+		_, _ = fmt.Fprintf(out, "%-16s %-24s %-12s %-10s %-20s %s\n",
+			inst.Connector, inst.ID, emptyDash(inst.AuthMethod), credentialHealth(ctx, credStore, inst.ID), updated, source)
+	}
+	return nil
+}
+
+func runConnectProvider(ctx context.Context, opts connectOptions, provider string, in io.Reader, out io.Writer) error {
+	engine, providers, err := newConnectEngine(ctx, opts.connectorsPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = engine.Close() }()
+	def, ok := engine.Definition(provider)
+	if !ok {
+		return fmt.Errorf("unknown connector provider %q (available: %s)", provider, strings.Join(providers, ", "))
+	}
+	if opts.info {
+		printConnectInfo(out, def)
+		return nil
+	}
+	handler, err := newAgentsDKConnectHandler(ctx, engine, connectHandlerConfig{
+		in:        in,
+		out:       out,
+		connector: provider,
+		auth:      opts.auth,
+		groups:    opts.groups,
+		instance:  opts.instance,
+		fields:    opts.fields,
+	})
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "\n  %s Connector Setup\n", def.Info.DisplayName)
+	_, _ = fmt.Fprintf(out, "  %s\n\n", strings.Repeat("─", len(def.Info.DisplayName)+17))
+	result, err := engine.ConnectInteractive(ctx, provider, handler)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "\n  ✓ Connected as %s\n", result.InstanceID)
+	_, _ = fmt.Fprintf(out, "  Operations: %d  |  Entities: %d\n\n", result.Operations, result.Entities)
+	return nil
+}
+
+func newConnectEngine(ctx context.Context, basePath string) (*connectorsruntime.Engine, []string, error) {
+	providers, err := registeredConnectorProviderNames(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(providers) == 0 {
+		return nil, nil, fmt.Errorf("connect: no connector providers registered")
+	}
+	resolvedPath, err := resolveConnectorsPath(basePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	engine, err := integrate.Engine(
+		integrate.WithBasePath(resolvedPath),
+		integrate.WithAllowList(providers...),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return engine, providers, nil
+}
+
+func registeredConnectorProviderNames(ctx context.Context) ([]string, error) {
+	plugins := []pluginhost.Plugin{
+		openaiplugin.New(),
+		slackplugin.New(nil),
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, plugin := range plugins {
+		contributor, ok := plugin.(pluginhost.ConnectorProviderContributor)
+		if !ok {
+			continue
+		}
+		manifest := plugin.Manifest()
+		providers, err := contributor.ConnectorProviders(ctx, pluginhost.Context{Ref: resource.PluginRef{Name: manifest.Name}})
+		if err != nil {
+			return nil, err
+		}
+		for _, provider := range providers {
+			name := strings.TrimSpace(provider.Name)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func resolveConnectorsPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "~/.connectors"
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if path == "~" {
+			path = home
+		} else {
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path, nil
+}
+
+func credentialHealth(ctx context.Context, store credential.Store, instanceID string) string {
+	creds, err := store.Load(ctx, instanceID)
+	if err != nil {
+		return "unknown"
+	}
+	if creds.Auth.ExpiresAt == "" {
+		return "ok"
+	}
+	expiry, err := time.Parse(time.RFC3339, creds.Auth.ExpiresAt)
+	if err != nil {
+		return "unknown"
+	}
+	if time.Now().After(expiry) {
+		return "expired"
+	}
+	return "ok"
+}
+
+func emptyDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return value
+}
+
+type connectHandlerConfig struct {
+	in        io.Reader
+	out       io.Writer
+	connector string
+	auth      string
+	groups    string
+	instance  string
+	fields    []string
+}
+
+type agentsdkConnectHandler struct {
+	engine    *connectorsruntime.Engine
+	reader    *bufio.Reader
+	out       io.Writer
+	connector string
+	auth      string
+	groups    string
+	instance  string
+	explicit  map[string]string
+	previous  map[string]string
+}
+
+func newAgentsDKConnectHandler(ctx context.Context, engine *connectorsruntime.Engine, cfg connectHandlerConfig) (*agentsdkConnectHandler, error) {
+	explicit := map[string]string{}
+	for _, raw := range cfg.fields {
+		key, value, ok := strings.Cut(raw, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid field %q (expected key=value)", raw)
+		}
+		explicit[key] = value
+	}
+	previousInstanceID := cfg.connector
+	if cfg.instance != "" {
+		previousInstanceID = cfg.instance
+	}
+	return &agentsdkConnectHandler{
+		engine:    engine,
+		reader:    bufio.NewReader(cfg.in),
+		out:       cfg.out,
+		connector: cfg.connector,
+		auth:      cfg.auth,
+		groups:    cfg.groups,
+		instance:  cfg.instance,
+		explicit:  explicit,
+		previous:  previousConnectFields(ctx, engine, previousInstanceID),
+	}, nil
+}
+
+func (h *agentsdkConnectHandler) ResolveFields(ctx context.Context, _ connectorsruntime.InteractionContext, fields []connectorsdefinition.SetupFieldDef) (map[string]string, error) {
+	resolved := map[string]string{}
+	for _, field := range fields {
+		if field.Name == "_instance_id" {
+			value := h.instance
+			if value == "" {
+				value = h.resolvePrompt(field)
+			}
+			if value == "" {
+				value = h.connector
+			}
+			if value != h.connector && h.instance == "" {
+				h.previous = previousConnectFields(ctx, h.engine, value)
+			}
+			resolved[field.Name] = value
+			continue
+		}
+		if value, ok := h.explicit[field.Name]; ok {
+			_, _ = fmt.Fprintf(h.out, "  %s: (from --field)\n", field.Label)
+			resolved[field.Name] = value
+			continue
+		}
+		if value := h.previous[field.Name]; value != "" {
+			_, _ = fmt.Fprintf(h.out, "  %s: (from previous credentials)\n", field.Label)
+			resolved[field.Name] = value
+			continue
+		}
+		fromEnv := ""
+		for _, envKey := range field.EnvVar {
+			if value := os.Getenv(envKey); value != "" {
+				_, _ = fmt.Fprintf(h.out, "  %s: (from %s)\n", field.Label, envKey)
+				fromEnv = value
+				break
+			}
+		}
+		if fromEnv != "" {
+			resolved[field.Name] = fromEnv
+			continue
+		}
+		value := h.resolvePrompt(field)
+		if field.Required && value == "" {
+			return nil, fmt.Errorf("field %q is required", field.Name)
+		}
+		resolved[field.Name] = value
+	}
+	return resolved, nil
+}
+
+func (h *agentsdkConnectHandler) SelectOne(_ context.Context, _ connectorsruntime.InteractionContext, prompt string, options []connectorsruntime.SelectOption) (int, error) {
+	if h.auth != "" {
+		for i, option := range options {
+			if strings.EqualFold(option.Value, h.auth) || strings.EqualFold(option.Label, h.auth) {
+				_, _ = fmt.Fprintf(h.out, "  Auth: %s\n", option.Label)
+				return i, nil
+			}
+		}
+		return 0, fmt.Errorf("auth method %q not found", h.auth)
+	}
+	if len(options) == 1 {
+		_, _ = fmt.Fprintf(h.out, "  Auth: %s\n", options[0].Label)
+		return 0, nil
+	}
+	_, _ = fmt.Fprintf(h.out, "\n  %s:\n", prompt)
+	for i, option := range options {
+		_, _ = fmt.Fprintf(h.out, "  [%d] %s\n", i+1, option.Label)
+	}
+	_, _ = fmt.Fprint(h.out, "  > ")
+	input, _ := h.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	idx := 0
+	if len(input) >= 1 {
+		idx = int(input[0]-'0') - 1
+	}
+	if idx < 0 || idx >= len(options) {
+		idx = 0
+	}
+	return idx, nil
+}
+
+func (h *agentsdkConnectHandler) SelectMany(_ context.Context, _ connectorsruntime.InteractionContext, prompt string, options []connectorsruntime.SelectOption) ([]int, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+	if h.groups != "" {
+		if strings.EqualFold(h.groups, "all") {
+			return allConnectOptionIndices(options), nil
+		}
+		byValue := map[string]int{}
+		for i, option := range options {
+			byValue[option.Value] = i
+		}
+		var selected []int
+		for _, part := range strings.Split(h.groups, ",") {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				continue
+			}
+			idx, ok := byValue[value]
+			if !ok {
+				return nil, fmt.Errorf("operation group %q not found", value)
+			}
+			selected = append(selected, idx)
+		}
+		if len(selected) == 0 {
+			return allConnectOptionIndices(options), nil
+		}
+		return selected, nil
+	}
+	_, _ = fmt.Fprintf(h.out, "\n  %s\n", prompt)
+	for i, option := range options {
+		desc := option.Description
+		if desc != "" {
+			desc = " (" + desc + ")"
+		}
+		_, _ = fmt.Fprintf(h.out, "  [%d] %-25s%s\n", i+1, option.Label, desc)
+	}
+	_, _ = fmt.Fprint(h.out, "  Select (comma-separated, or 'all'): ")
+	input, _ := h.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" || strings.EqualFold(input, "all") {
+		return allConnectOptionIndices(options), nil
+	}
+	var selected []int
+	for _, part := range strings.Split(input, ",") {
+		part = strings.TrimSpace(part)
+		if len(part) >= 1 {
+			idx := int(part[0]-'0') - 1
+			if idx >= 0 && idx < len(options) {
+				selected = append(selected, idx)
+			}
+		}
+	}
+	if len(selected) == 0 {
+		return allConnectOptionIndices(options), nil
+	}
+	return selected, nil
+}
+
+func (h *agentsdkConnectHandler) OpenURL(context.Context, connectorsruntime.InteractionContext, string, string) bool {
+	return false
+}
+
+func (h *agentsdkConnectHandler) Status(_ context.Context, _ connectorsruntime.InteractionContext, message string) {
+	if message != "" {
+		_, _ = fmt.Fprintf(h.out, "  %s\n", message)
+	}
+}
+
+func (h *agentsdkConnectHandler) resolvePrompt(field connectorsdefinition.SetupFieldDef) string {
+	if field.Help != "" {
+		_, _ = fmt.Fprintf(h.out, "  (%s)\n", field.Help)
+	}
+	prompt := fmt.Sprintf("  %s", field.Label)
+	if field.Default != "" {
+		prompt += fmt.Sprintf(" [%s]", field.Default)
+	}
+	prompt += ": "
+	_, _ = fmt.Fprint(h.out, prompt)
+	input, _ := h.reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" {
+		input = field.Default
+	}
+	return input
+}
+
+func previousConnectFields(ctx context.Context, engine *connectorsruntime.Engine, instanceID string) map[string]string {
+	fields := map[string]string{}
+	if inst, err := engine.Instances.Load(ctx, instanceID); err == nil {
+		for k, v := range inst.Fields {
+			fields[k] = v
+		}
+	}
+	if creds, err := engine.Credentials.Load(ctx, instanceID); err == nil {
+		for k, v := range creds.Fields {
+			fields[k] = v
+		}
+	}
+	return fields
+}
+
+func allConnectOptionIndices(options []connectorsruntime.SelectOption) []int {
+	indices := make([]int, len(options))
+	for i := range options {
+		indices[i] = i
+	}
+	return indices
+}
+
+func printConnectInfo(out io.Writer, def *connectorsdefinition.Definition) {
+	_, _ = fmt.Fprintf(out, "%s (%s)\n", def.Info.DisplayName, def.Name)
+	_, _ = fmt.Fprintln(out, "Auth methods:")
+	for _, method := range def.Auth.Methods {
+		_, _ = fmt.Fprintf(out, "- %s (%s)\n", method.Kind, method.Label)
+		for _, field := range append(def.Auth.Fields, method.Fields...) {
+			required := "optional"
+			if field.Required {
+				required = "required"
+			}
+			env := ""
+			if len(field.EnvVar) > 0 {
+				env = fmt.Sprintf(" env=%s", strings.Join(field.EnvVar, ","))
+			}
+			_, _ = fmt.Fprintf(out, "  --field %s=<%s> (%s%s)\n", field.Name, field.Type, required, env)
+		}
+	}
+	groups := def.OperationGroups()
+	if len(groups) > 0 {
+		_, _ = fmt.Fprintf(out, "Groups: %s\n", strings.Join(groups, ", "))
+	}
 }
 
 type coderOptions struct {
@@ -89,6 +596,311 @@ func newCoderReplCommand(opts *coderOptions) *cobra.Command {
 			return runCoderREPL(cmd.Context(), *opts)
 		},
 	}
+}
+
+func runServe(ctx context.Context, opts serveOptions, appDir string) error {
+	cfgFile, err := appconfig.LoadDirFile(ctx, appDir)
+	if err != nil {
+		return err
+	}
+	if err := cfgFile.Validate(); err != nil {
+		return err
+	}
+	root, err := filepath.Abs(appDir)
+	if err != nil {
+		return err
+	}
+	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		return err
+	}
+	dispatcher := slackplugin.NewDispatcher()
+	slackPlugin := slackplugin.New(dispatcher)
+	plugins := []pluginhost.Plugin{slackPlugin, textplugin.New(), webplugin.New(hostSystem)}
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{cfgFile.Bundle},
+		Plugins: plugins,
+		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
+			Sandbox:   localSandbox{Root: root},
+			ACL:       localACL{},
+			AllowPure: true,
+		})),
+	})
+	if err != nil {
+		return err
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModelResolver: serveModelResolver{debug: opts.debug},
+		ToolProjection: agentruntime.ToolProjectionConfig{
+			AllowSideEffects:      true,
+			MaxRisk:               operation.RiskMedium,
+			IncludeBareOperations: true,
+		},
+		Channel: channel.Ref{Name: "local"},
+		Caller: policy.Caller{
+			Kind: policy.CallerUser,
+			Principal: policy.Principal{
+				Kind: "user",
+				ID:   "agentsdk",
+				Name: "agentsdk",
+			},
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		return err
+	}
+	channels, err := serveChannels(ctx, cfgFile.Daemon.Channels, opts, dispatcher)
+	if err != nil {
+		return err
+	}
+	host, err := daemon.New(daemon.Config{
+		Client:         service,
+		SessionCatalog: composition.SessionCatalog,
+		Channels:       channels,
+	})
+	if err != nil {
+		return err
+	}
+	if err := startServeListeners(ctx, cfgFile.Daemon.Listeners, cfgFile.Daemon.Channels, service, host); err != nil {
+		return err
+	}
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
+	defer stop()
+	if opts.debug {
+		_, _ = fmt.Fprintf(os.Stderr, "agentsdk serve loaded %s\n", cfgFile.Path)
+	}
+	if len(channels) == 0 {
+		<-runCtx.Done()
+		return nil
+	}
+	for _, ch := range channels {
+		if ch != nil && ch.Name() != "" {
+			_, _ = fmt.Fprintf(os.Stderr, "channel %s starting\n", ch.Name())
+		}
+	}
+	if err := host.RunChannels(runCtx); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
+type serveModelResolver struct {
+	debug bool
+}
+
+func (r serveModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
+	selection := resolveModelSelection(coderOptions{provider: "openai", model: spec.Inference.Model})
+	return newCoderModel(selection, coderOptions{debug: r.debug})
+}
+
+func serveChannels(ctx context.Context, docs []appconfig.ChannelDoc, opts serveOptions, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
+	var out []channelruntime.Channel
+	store := connectauth.NewStore(opts.authPath)
+	for _, doc := range docs {
+		switch doc.Type {
+		case "direct":
+			continue
+		case "slack":
+			creds, err := store.LoadSlack(ctx, doc.Connector)
+			if err != nil {
+				return nil, err
+			}
+			sessionName := doc.Session
+			if sessionName == "" {
+				sessionName = doc.Name
+			}
+			ch, err := slackplugin.NewChannel(slackplugin.ChannelConfig{
+				Name:       doc.Name,
+				Session:    agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
+				BotToken:   creds.BotToken,
+				UserToken:  creds.UserToken,
+				AppToken:   creds.AppToken,
+				BotUserID:  creds.BotUserID,
+				TeamID:     creds.TeamID,
+				Access:     slackAccess(doc.Access),
+				Dispatcher: dispatcher,
+			})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ch)
+		default:
+			return nil, fmt.Errorf("serve: unsupported channel type %q", doc.Type)
+		}
+	}
+	return out, nil
+}
+
+func slackAccess(doc appconfig.AccessDoc) slackplugin.AccessPolicy {
+	return slackplugin.AccessPolicy{
+		Mode:             doc.Mode,
+		AllowUsers:       append([]string(nil), doc.AllowUsers...),
+		DenyUsers:        append([]string(nil), doc.DenyUsers...),
+		AllowChannels:    append([]string(nil), doc.AllowChannels...),
+		DenyChannels:     append([]string(nil), doc.DenyChannels...),
+		AllowKinds:       append([]string(nil), doc.AllowKinds...),
+		DefaultTrust:     userTrust(doc.DefaultTrust),
+		Operators:        append([]string(nil), doc.Operators...),
+		InternalUsers:    append([]string(nil), doc.InternalUsers...),
+		InternalChannels: append([]string(nil), doc.InternalChannels...),
+		Sharing:          firstNonEmptyString(doc.Sharing, "strict"),
+	}
+}
+
+func userTrust(raw string) user.TrustLevel {
+	switch strings.TrimSpace(raw) {
+	case "operator":
+		return user.TrustOperator
+	case "internal":
+		return user.TrustInternal
+	default:
+		return user.TrustPublic
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func startServeListeners(ctx context.Context, listeners []appconfig.ListenerDoc, channels []appconfig.ChannelDoc, client agentruntime.ChannelClient, host *daemon.Host) error {
+	needsDirect := map[string]bool{}
+	for _, ch := range channels {
+		if ch.Type == "direct" && ch.Listener != "" {
+			needsDirect[ch.Listener] = true
+		}
+	}
+	for _, listenerDoc := range listeners {
+		if listenerDoc.Type != "http" {
+			return fmt.Errorf("serve: unsupported listener type %q", listenerDoc.Type)
+		}
+		mux := http.NewServeMux()
+		controlServer, err := httpcontrol.NewServer(httpcontrol.ServerConfig{Host: host})
+		if err != nil {
+			return err
+		}
+		mux.Handle("/control/", http.StripPrefix("/control", controlServer))
+		if needsDirect[listenerDoc.Name] {
+			channelServer, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: client})
+			if err != nil {
+				return err
+			}
+			mux.Handle("/", channelServer)
+		}
+		ln, display, err := listenServe(listenerDoc.Addr)
+		if err != nil {
+			return err
+		}
+		handler, err := serveListenerHandler(listenerDoc, mux)
+		if err != nil {
+			return err
+		}
+		server := &http.Server{Handler: handler}
+		go func() {
+			<-ctx.Done()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = server.Shutdown(shutdownCtx)
+		}()
+		go func() {
+			if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				_, _ = fmt.Fprintf(os.Stderr, "listener %s failed: %v\n", listenerDoc.Name, err)
+			}
+		}()
+		_, _ = fmt.Fprintf(os.Stderr, "listener %s on %s\n", listenerDoc.Name, display)
+	}
+	return nil
+}
+
+func serveListenerHandler(listener appconfig.ListenerDoc, next http.Handler) (http.Handler, error) {
+	mode := strings.ToLower(strings.TrimSpace(authString(listener.Auth, "mode")))
+	if mode == "" {
+		if serveAddrIsTCP(listener.Addr) {
+			return nil, fmt.Errorf("serve: listener %q uses TCP addr %q and requires auth", listener.Name, listener.Addr)
+		}
+		return next, nil
+	}
+	switch mode {
+	case "local_socket":
+		if serveAddrIsTCP(listener.Addr) {
+			return nil, fmt.Errorf("serve: listener %q auth mode local_socket requires a unix socket addr", listener.Name)
+		}
+		return next, nil
+	case "bearer", "token":
+		token := authString(listener.Auth, "token")
+		if token == "" {
+			if env := authString(listener.Auth, "env"); env != "" {
+				token = os.Getenv(env)
+			}
+		}
+		if token == "" {
+			return nil, fmt.Errorf("serve: listener %q bearer auth token is empty", listener.Name)
+		}
+		return bearerAuthHandler(token, next), nil
+	default:
+		return nil, fmt.Errorf("serve: listener %q unsupported auth mode %q", listener.Name, mode)
+	}
+}
+
+func bearerAuthHandler(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="agentsdk"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func authString(auth map[string]any, key string) string {
+	if len(auth) == 0 {
+		return ""
+	}
+	value, ok := auth[key]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func serveAddrIsTCP(addr string) bool {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return true
+	}
+	return !strings.HasSuffix(addr, ".sock")
+}
+
+func listenServe(addr string) (net.Listener, string, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	if strings.HasSuffix(addr, ".sock") {
+		path := addr
+		if !strings.ContainsRune(addr, filepath.Separator) {
+			base := os.Getenv("XDG_RUNTIME_DIR")
+			if base == "" {
+				base = os.TempDir()
+			}
+			path = filepath.Join(base, addr)
+		}
+		ln, err := net.Listen("unix", path)
+		return ln, "unix:" + path, err
+	}
+	ln, err := net.Listen("tcp", addr)
+	return ln, "http://" + addr, err
 }
 
 func runCoder(ctx context.Context, opts coderOptions, prompt string) error {

@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 )
 
 // Manifest describes one plugin implementation.
@@ -33,16 +34,47 @@ type OperationContributor interface {
 	Operations(context.Context, Context) ([]operation.Operation, error)
 }
 
+// ChannelContributor is implemented by plugins that can provide long-running
+// runtime channels for daemon mode.
+type ChannelContributor interface {
+	Channels(context.Context, Context) ([]ChannelContribution, error)
+}
+
+// ConnectorProviderContributor is implemented by plugins that make a
+// third-party connection provider available to host-level connect commands.
+type ConnectorProviderContributor interface {
+	ConnectorProviders(context.Context, Context) ([]ConnectorProvider, error)
+}
+
 // OperationContribution is one executable operation contributed by a plugin.
 type OperationContribution struct {
 	Source    resource.SourceRef
 	Operation operation.Operation
 }
 
+// ChannelContribution is one runtime channel contributed by a plugin.
+type ChannelContribution struct {
+	Source  resource.SourceRef
+	Channel channelruntime.Channel
+}
+
+// ConnectorProvider identifies one connection provider exposed by a plugin.
+type ConnectorProvider struct {
+	Name string `json:"name"`
+}
+
+// ConnectorProviderContribution is one connection provider contribution.
+type ConnectorProviderContribution struct {
+	Source   resource.SourceRef
+	Provider ConnectorProvider
+}
+
 // Resolution is the complete contribution set resolved for plugin refs.
 type Resolution struct {
-	Bundles    []resource.ContributionBundle
-	Operations []OperationContribution
+	Bundles            []resource.ContributionBundle
+	Operations         []OperationContribution
+	Channels           []ChannelContribution
+	ConnectorProviders []ConnectorProviderContribution
 }
 
 // Host resolves plugin refs through registered plugin implementations.
@@ -121,6 +153,30 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.Operations = append(out.Operations, OperationContribution{
 					Source:    source,
 					Operation: op,
+				})
+			}
+		}
+		if contributor, ok := plugin.(ChannelContributor); ok {
+			channels, err := contributor.Channels(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q channels: %w", ref.Name, err)
+			}
+			for _, ch := range channels {
+				if ch.Source.ID == "" {
+					ch.Source = source
+				}
+				out.Channels = append(out.Channels, ch)
+			}
+		}
+		if contributor, ok := plugin.(ConnectorProviderContributor); ok {
+			providers, err := contributor.ConnectorProviders(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q connector providers: %w", ref.Name, err)
+			}
+			for _, provider := range providers {
+				out.ConnectorProviders = append(out.ConnectorProviders, ConnectorProviderContribution{
+					Source:   source,
+					Provider: provider,
 				})
 			}
 		}

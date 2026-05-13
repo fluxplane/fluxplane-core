@@ -1,18 +1,22 @@
 package appconfig
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
+	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,40 +30,112 @@ var DefaultManifestNames = []string{
 
 // LoadDir loads the default app manifest from dir.
 func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, error) {
+	file, err := LoadDirFile(ctx, dir)
+	if err != nil {
+		return resource.ContributionBundle{}, err
+	}
+	return file.Bundle, nil
+}
+
+// LoadDirFile loads the default app manifest from dir and returns both pure
+// resource contributions and serve/daemon configuration.
+func LoadDirFile(ctx context.Context, dir string) (File, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return resource.ContributionBundle{}, err
+		return File{}, err
 	}
 	var missing []string
 	for _, name := range DefaultManifestNames {
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err == nil {
-			return DecodeManifest(path, data)
+			return DecodeFile(path, data)
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return resource.ContributionBundle{}, fmt.Errorf("appconfig: read manifest %s: %w", path, err)
+			return File{}, fmt.Errorf("appconfig: read manifest %s: %w", path, err)
 		}
 		missing = append(missing, name)
 	}
-	return resource.ContributionBundle{}, fmt.Errorf("appconfig: no manifest found in %s (looked for %s)", filepath.Clean(dir), strings.Join(missing, ", "))
+	return File{}, fmt.Errorf("appconfig: no manifest found in %s (looked for %s)", filepath.Clean(dir), strings.Join(missing, ", "))
 }
 
 // DecodeManifest decodes one local app manifest.
 func DecodeManifest(path string, data []byte) (resource.ContributionBundle, error) {
-	var manifest Manifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
-		return resource.ContributionBundle{}, fmt.Errorf("appconfig: decode manifest: %w", err)
+	file, err := DecodeFile(path, data)
+	if err != nil {
+		return resource.ContributionBundle{}, err
 	}
+	return file.Bundle, nil
+}
 
-	spec := manifest.Spec()
-	if err := spec.Validate(); err != nil {
-		return resource.ContributionBundle{}, fmt.Errorf("appconfig: validate manifest: %w", err)
+// File is the complete app configuration file shape after decoding.
+type File struct {
+	Path   string
+	Bundle resource.ContributionBundle
+	Daemon DaemonConfig
+}
+
+// DecodeFile decodes one local app file. It supports both the legacy single
+// app document and the rewrite-native multi-document kind-based shape.
+func DecodeFile(path string, data []byte) (File, error) {
+	source := manifestSource(path)
+	bundle := resource.ContributionBundle{Source: source}
+	daemon := DaemonConfig{}
+
+	docs, err := decodeDocuments(data)
+	if err != nil {
+		return File{}, fmt.Errorf("appconfig: decode manifest: %w", err)
 	}
+	if len(docs) == 0 {
+		return File{}, fmt.Errorf("appconfig: manifest is empty")
+	}
+	for i, doc := range docs {
+		kind := strings.TrimSpace(documentKind(doc))
+		if i == 0 && (kind == "" || kind == "app") {
+			var manifest Manifest
+			if err := doc.Decode(&manifest); err != nil {
+				return File{}, fmt.Errorf("appconfig: decode app document: %w", err)
+			}
+			spec := manifest.Spec()
+			if err := spec.Validate(); err != nil {
+				return File{}, fmt.Errorf("appconfig: validate manifest: %w", err)
+			}
+			bundle.Apps = append(bundle.Apps, spec)
+			for _, plugin := range spec.Plugins {
+				bundle.Plugins = append(bundle.Plugins, resource.PluginRef{
+					Name:   plugin.Name,
+					Config: cloneMap(plugin.Config),
+				})
+			}
+			daemon = manifest.Daemon
+			continue
+		}
+		switch kind {
+		case "agent":
+			spec, err := decodeAgentDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Agents = append(bundle.Agents, spec)
+		case "session":
+			spec, err := decodeSessionDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Sessions = append(bundle.Sessions, spec)
+		case "":
+			return File{}, fmt.Errorf("appconfig: document %d kind is empty", i+1)
+		default:
+			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
+		}
+	}
+	return File{Path: filepath.Clean(path), Bundle: bundle, Daemon: daemon}, nil
+}
 
-	source := resource.SourceRef{
+func manifestSource(path string) resource.SourceRef {
+	return resource.SourceRef{
 		ID:       "appconfig:" + filepath.Clean(path),
 		Scope:    resource.ScopeProject,
 		Location: filepath.Clean(path),
@@ -68,21 +144,55 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 			Level: policy.TrustVerified,
 		},
 	}
-	bundle := resource.ContributionBundle{
-		Source: source,
-		Apps:   []coreapp.Spec{spec},
+}
+
+func decodeDocuments(data []byte) ([]yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var docs []yaml.Node
+	for {
+		var doc yaml.Node
+		err := decoder.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(doc.Content) == 0 {
+			continue
+		}
+		docs = append(docs, *doc.Content[0])
 	}
-	for _, plugin := range spec.Plugins {
-		bundle.Plugins = append(bundle.Plugins, resource.PluginRef{
-			Name:   plugin.Name,
-			Config: cloneMap(plugin.Config),
-		})
+	return docs, nil
+}
+
+func (f File) Validate() error {
+	for i, listener := range f.Daemon.Listeners {
+		if strings.TrimSpace(listener.Name) == "" {
+			return fmt.Errorf("appconfig: daemon.listeners[%d] name is empty", i)
+		}
+		if strings.TrimSpace(listener.Type) == "" {
+			return fmt.Errorf("appconfig: daemon.listeners[%d] type is empty", i)
+		}
 	}
-	return bundle, nil
+	for i, ch := range f.Daemon.Channels {
+		if strings.TrimSpace(ch.Name) == "" {
+			return fmt.Errorf("appconfig: daemon.channels[%d] name is empty", i)
+		}
+		if strings.TrimSpace(ch.Type) == "" {
+			return fmt.Errorf("appconfig: daemon.channels[%d] type is empty", i)
+		}
+	}
+	return nil
+}
+
+type kindDoc struct {
+	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
 }
 
 // Manifest is the app manifest file shape accepted by this adapter.
 type Manifest struct {
+	Kind         string       `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name         coreapp.Name `json:"name,omitempty" yaml:"name,omitempty"`
 	Description  string       `json:"description,omitempty" yaml:"description,omitempty"`
 	DefaultAgent agentRef     `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
@@ -90,6 +200,120 @@ type Manifest struct {
 	Discovery    discovery    `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 	ModelPolicy  modelPolicy  `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
 	Plugins      []pluginRef  `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+	Daemon       DaemonConfig `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+}
+
+// DaemonConfig contains process wiring consumed by agentsdk serve.
+type DaemonConfig struct {
+	Listeners []ListenerDoc `json:"listeners,omitempty" yaml:"listeners,omitempty"`
+	Channels  []ChannelDoc  `json:"channels,omitempty" yaml:"channels,omitempty"`
+}
+
+type ListenerDoc struct {
+	Name string         `json:"name" yaml:"name"`
+	Type string         `json:"type" yaml:"type"`
+	Addr string         `json:"addr,omitempty" yaml:"addr,omitempty"`
+	Auth map[string]any `json:"auth,omitempty" yaml:"auth,omitempty"`
+}
+
+type ChannelDoc struct {
+	Name      string    `json:"name" yaml:"name"`
+	Type      string    `json:"type" yaml:"type"`
+	Connector string    `json:"connector,omitempty" yaml:"connector,omitempty"`
+	Listener  string    `json:"listener,omitempty" yaml:"listener,omitempty"`
+	Session   string    `json:"session,omitempty" yaml:"session,omitempty"`
+	Access    AccessDoc `json:"access,omitempty" yaml:"access,omitempty"`
+}
+
+type AccessDoc struct {
+	Mode             string   `json:"mode,omitempty" yaml:"mode,omitempty"`
+	AllowUsers       []string `json:"allow_users,omitempty" yaml:"allow_users,omitempty"`
+	DenyUsers        []string `json:"deny_users,omitempty" yaml:"deny_users,omitempty"`
+	AllowChannels    []string `json:"allow_channels,omitempty" yaml:"allow_channels,omitempty"`
+	DenyChannels     []string `json:"deny_channels,omitempty" yaml:"deny_channels,omitempty"`
+	AllowKinds       []string `json:"allow_kinds,omitempty" yaml:"allow_kinds,omitempty"`
+	DefaultTrust     string   `json:"default_trust,omitempty" yaml:"default_trust,omitempty"`
+	Operators        []string `json:"operators,omitempty" yaml:"operators,omitempty"`
+	InternalUsers    []string `json:"internal_users,omitempty" yaml:"internal_users,omitempty"`
+	InternalChannels []string `json:"internal_channels,omitempty" yaml:"internal_channels,omitempty"`
+	Sharing          string   `json:"sharing,omitempty" yaml:"sharing,omitempty"`
+}
+
+type agentDoc struct {
+	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
+	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxSteps    int      `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
+	Thinking    string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort      string   `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Tools       []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+	System      string   `json:"system,omitempty" yaml:"system,omitempty"`
+}
+
+func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
+	var raw agentDoc
+	if err := node.Decode(&raw); err != nil {
+		return agent.Spec{}, fmt.Errorf("appconfig: decode agent document: %w", err)
+	}
+	spec := agent.Spec{
+		Name:        agent.Name(strings.TrimSpace(raw.Name)),
+		Description: strings.TrimSpace(raw.Description),
+		System:      strings.TrimSpace(raw.System),
+		Inference: agent.InferenceSpec{
+			Model:           strings.TrimSpace(raw.Model),
+			MaxOutputTokens: raw.MaxTokens,
+			Thinking:        strings.TrimSpace(raw.Thinking),
+			ReasoningEffort: strings.TrimSpace(raw.Effort),
+		},
+		Policy: agent.Policy{MaxSteps: raw.MaxSteps},
+	}
+	for _, name := range raw.Tools {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Tools = append(spec.Tools, agent.ToolRef{Name: name})
+		}
+	}
+	if err := spec.Validate(); err != nil {
+		return agent.Spec{}, fmt.Errorf("appconfig: validate agent document: %w", err)
+	}
+	return spec, nil
+}
+
+type sessionDoc struct {
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Agent       string            `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Channel     string            `json:"channel,omitempty" yaml:"channel,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+func decodeSessionDoc(node yaml.Node) (coresession.Spec, error) {
+	var raw sessionDoc
+	if err := node.Decode(&raw); err != nil {
+		return coresession.Spec{}, fmt.Errorf("appconfig: decode session document: %w", err)
+	}
+	spec := coresession.Spec{
+		Name:        coresession.Name(strings.TrimSpace(raw.Name)),
+		Description: strings.TrimSpace(raw.Description),
+		Agent:       agent.Ref{Name: agent.Name(strings.TrimSpace(raw.Agent))},
+		Metadata:    cloneStringMap(raw.Metadata),
+	}
+	if raw.Channel != "" {
+		spec.Channel = channel.Ref{Name: channel.Name(strings.TrimSpace(raw.Channel))}
+	}
+	if err := spec.Validate(); err != nil {
+		return coresession.Spec{}, fmt.Errorf("appconfig: validate session document: %w", err)
+	}
+	return spec, nil
+}
+
+func documentKind(node yaml.Node) string {
+	var raw kindDoc
+	_ = node.Decode(&raw)
+	return raw.Kind
 }
 
 // Spec converts the manifest file shape to the pure app model.

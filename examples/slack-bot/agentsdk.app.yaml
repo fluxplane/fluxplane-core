@@ -1,0 +1,53 @@
+kind: app
+name: slack-bot
+description: Minimal Slack daemon app for the rewrite runtime.
+default_agent: slack_bot
+
+plugins:
+  - name: slack
+
+daemon:
+  listeners:
+    - name: control
+      type: http
+      addr: 127.0.0.1:8787
+      auth:
+        mode: bearer
+        token: dev-slack-bot
+
+  channels:
+    - name: local
+      type: direct
+      listener: control
+      session: slack-main
+      access:
+        mode: open
+
+    - name: slack-main
+      type: slack
+      connector: slack-bot
+      session: slack-main
+      access:
+        mode: open
+        allow_kinds: [dm, mention, thread_reply]
+        default_trust: public
+        sharing: strict
+
+---
+kind: session
+name: slack-main
+agent: slack_bot
+
+---
+kind: agent
+name: slack_bot
+model: openai/gpt-5.5
+max_steps: 8
+tools:
+  - channel_send
+  - slack_search
+system: |
+  You are a helpful Slack assistant. Keep replies concise and format them with
+  standard Markdown. Use channel_send only for useful intermediate updates in
+  long-running turns. Use slack_search when you need to find content in public
+  Slack channels.

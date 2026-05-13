@@ -118,6 +118,62 @@ plugins:
 	}
 }
 
+func TestDecodeFileLoadsRewriteNativeSlackManifest(t *testing.T) {
+	data := []byte(`
+kind: app
+name: slack-bot
+default_agent: slack_bot
+plugins:
+  - name: slack
+daemon:
+  listeners:
+    - name: control
+      type: http
+      addr: agentsdk-slack-bot.sock
+  channels:
+    - name: slack-main
+      type: slack
+      connector: slack
+      session: slack-main
+      access:
+        mode: open
+        allow_kinds: [dm, mention, thread_reply]
+        default_trust: public
+        sharing: strict
+---
+kind: session
+name: slack-main
+agent: slack_bot
+---
+kind: agent
+name: slack_bot
+model: openai/gpt-5.5
+tools: [channel_send]
+system: |
+  You are a Slack bot.
+`)
+
+	file, err := DecodeFile("/repo/examples/slack-bot/agentsdk.app.yaml", data)
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Apps) != 1 || file.Bundle.Apps[0].Name != "slack-bot" {
+		t.Fatalf("apps = %#v", file.Bundle.Apps)
+	}
+	if len(file.Bundle.Sessions) != 1 || file.Bundle.Sessions[0].Name != "slack-main" {
+		t.Fatalf("sessions = %#v", file.Bundle.Sessions)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Inference.Model != "openai/gpt-5.5" {
+		t.Fatalf("agents = %#v", file.Bundle.Agents)
+	}
+	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "agentsdk-slack-bot.sock" {
+		t.Fatalf("listeners = %#v", file.Daemon.Listeners)
+	}
+	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {
+		t.Fatalf("channels = %#v", file.Daemon.Channels)
+	}
+}
+
 func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
 	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"sources":[""]}`))
 	if err == nil {

@@ -1,0 +1,60 @@
+package user
+
+// ID identifies one canonical person across external identities.
+type ID string
+
+// TrustLevel describes how much user-visible context a person may receive.
+type TrustLevel string
+
+const (
+	TrustPublic   TrustLevel = "public"
+	TrustInternal TrustLevel = "internal"
+	TrustOperator TrustLevel = "operator"
+)
+
+// User is a stable person record.
+type User struct {
+	ID          ID                `json:"id"`
+	DisplayName string            `json:"display_name,omitempty"`
+	Trust       TrustLevel        `json:"trust,omitempty"`
+	Identities  []Identity        `json:"identities,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Identity is a provider-specific proof or claim about a user.
+type Identity struct {
+	Provider    string            `json:"provider"`
+	ProviderID  string            `json:"provider_id"`
+	Email       string            `json:"email,omitempty"`
+	DisplayName string            `json:"display_name,omitempty"`
+	Claims      map[string]string `json:"claims,omitempty"`
+}
+
+// NormalizeTrust returns a conservative default for empty trust.
+func NormalizeTrust(level TrustLevel) TrustLevel {
+	if level == "" {
+		return TrustPublic
+	}
+	return level
+}
+
+// Min returns the more restrictive of two trust levels.
+func Min(a, b TrustLevel) TrustLevel {
+	a = NormalizeTrust(a)
+	b = NormalizeTrust(b)
+	if trustRank(a) <= trustRank(b) {
+		return a
+	}
+	return b
+}
+
+func trustRank(level TrustLevel) int {
+	switch level {
+	case TrustOperator:
+		return 3
+	case TrustInternal:
+		return 2
+	default:
+		return 1
+	}
+}

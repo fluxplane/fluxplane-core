@@ -11,9 +11,17 @@ require (
 	github.com/codewandler/modeldb v0.15.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/openai/openai-go/v3 v3.35.0
+	github.com/slack-go/slack v0.23.1
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.50.0
+)
+
+require (
+	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/go-sql-driver/mysql v1.10.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
+	nhooyr.io/websocket v1.8.17 // indirect
 )
 
 require (
@@ -37,6 +45,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
+	github.com/codewandler/connectors v0.0.0
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
@@ -62,3 +71,5 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
+
+replace github.com/codewandler/connectors => ../../connectors

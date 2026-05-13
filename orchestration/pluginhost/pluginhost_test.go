@@ -68,6 +68,26 @@ func TestHostResolvesPluginOperations(t *testing.T) {
 	}
 }
 
+func TestHostResolvesConnectorProviders(t *testing.T) {
+	host, err := New(fakeConnectorProviderPlugin{name: "openai"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "openai"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.ConnectorProviders) != 1 {
+		t.Fatalf("connector providers len = %d, want 1", len(resolution.ConnectorProviders))
+	}
+	if resolution.ConnectorProviders[0].Provider.Name != "openai" {
+		t.Fatalf("provider = %#v, want openai", resolution.ConnectorProviders[0].Provider)
+	}
+	if resolution.ConnectorProviders[0].Source.ID != "plugin:openai" {
+		t.Fatalf("source ID = %q, want plugin:openai", resolution.ConnectorProviders[0].Source.ID)
+	}
+}
+
 type fakeOperationPlugin struct {
 	name string
 }
@@ -86,4 +106,20 @@ func (p fakeOperationPlugin) Operations(context.Context, Context) ([]operation.O
 			return operation.OK(input)
 		}),
 	}, nil
+}
+
+type fakeConnectorProviderPlugin struct {
+	name string
+}
+
+func (p fakeConnectorProviderPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeConnectorProviderPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p fakeConnectorProviderPlugin) ConnectorProviders(context.Context, Context) ([]ConnectorProvider, error) {
+	return []ConnectorProvider{{Name: p.name}}, nil
 }
