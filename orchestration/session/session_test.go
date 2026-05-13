@@ -574,6 +574,28 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 	}
 }
 
+func TestMaxContinuationsUsesLLMDefaultAndExplicitOverride(t *testing.T) {
+	defaultSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
+		Name:   "main",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+	}}}
+	if got := defaultSession.maxContinuations(); got != 20 {
+		t.Fatalf("default maxContinuations = %d, want 20", got)
+	}
+
+	overrideSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
+		Name:   "main",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+		Policy: agent.Policy{
+			MaxSteps:         8,
+			MaxContinuations: 50,
+		},
+	}}}
+	if got := overrideSession.maxContinuations(); got != 50 {
+		t.Fatalf("override maxContinuations = %d, want 50", got)
+	}
+}
+
 func TestExecuteInboundInputUsesStoredProviderContinuation(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -680,6 +702,101 @@ func TestExecuteInboundInputUsesStoredProviderContinuation(t *testing.T) {
 	}
 	if countEvent(stored.Events, coreconversation.EventContinuationStored) != 2 {
 		t.Fatalf("stored events = %#v, want two continuation handles", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputUsesProviderContinuationWithPrefixedModel(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-prefixed-model-continuation"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{
+		Provider: "openai",
+		API:      "openai.responses",
+		Family:   "responses",
+		Model:    "gpt-test",
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		if len(transcripts) == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "lyse", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: []coreconversation.Item{
+						{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "search for lyse"},
+						{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup", Native: json.RawMessage(`{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"lyse\"}"}`)},
+					},
+					Continuation: &coreconversation.ContinuationHandle{
+						Provider:   provider,
+						Mode:       coreconversation.ContinuationPreviousResponseID,
+						Transport:  coreconversation.TransportHTTPSSE,
+						ResponseID: "resp_tool_call",
+					},
+					Mode: coreconversation.ProjectionNativeContinuation,
+				},
+			}, nil
+		}
+		return llmagent.Response{
+			Message: &agent.Message{Content: "found lyse"},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: []coreconversation.Item{
+					{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "found lyse", Native: json.RawMessage(`{"type":"message","role":"assistant","content":[{"type":"output_text","text":"found lyse"}]}`)},
+				},
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "openai/gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{
+		Agent:             runtimeAgent,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ThreadStore:       threadStore,
+		Thread:            corethread.Ref{ID: "thread-prefixed-model-continuation"},
+	}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "search for lyse"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if transcripts[1].Mode != coreconversation.ProjectionNativeContinuation {
+		t.Fatalf("second mode = %q, want native continuation", transcripts[1].Mode)
+	}
+	if transcripts[1].Continuation == nil || transcripts[1].Continuation.ResponseID != "resp_tool_call" {
+		t.Fatalf("second continuation = %#v, want resp_tool_call", transcripts[1].Continuation)
+	}
+	if !hasToolResultCallID(transcripts[1].Items, "call_1") {
+		t.Fatalf("second items = %#v, want tool result for call_1", transcripts[1].Items)
 	}
 }
 

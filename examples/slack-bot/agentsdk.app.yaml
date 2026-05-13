@@ -5,6 +5,49 @@ default_agent: slack_bot
 
 plugins:
   - name: slack
+  - name: gitlab
+  - name: jira
+
+connectors:
+  slack-bot:
+    kind: slack
+  gitlab:
+    kind: gitlab
+  jira:
+    kind: jira
+
+datasources:
+  - name: slack-bot
+    connector: slack-bot
+    kind: slack
+    entities:
+      - slack.user
+      - slack.channel
+      - slack.message
+    description: Slack workspace content available to the bot.
+
+  - name: gitlab
+    connector: gitlab
+    kind: gitlab
+    entities:
+      - gitlab.project
+    description: GitLab projects visible to the configured connector.
+
+  - name: jira
+    connector: jira
+    kind: jira
+    entities:
+      - jira.issue
+      - jira.project
+    description: Jira issues visible to the configured connector.
+
+  - name: local-docs
+    kind: filesystem
+    entities:
+      - file.document
+    description: Local markdown and text files in this example.
+    path: .
+    include: ["*.md", "*.txt"]
 
 daemon:
   listeners:
@@ -43,11 +86,23 @@ kind: agent
 name: slack_bot
 model: openai/gpt-5.5
 max_steps: 8
+max_continuations: 50
 tools:
   - channel_send
-  - slack_search
+  - datasource_search
+  - datasource_get
+context:
+  - datasource.catalog
+  - datasource.detected
+datasources:
+  - slack-bot
+  - gitlab
+  - jira
+  - local-docs
 system: |
   You are a helpful Slack assistant. Keep replies concise and format them with
   standard Markdown. Use channel_send only for useful intermediate updates in
-  long-running turns. Use slack_search when you need to find content in public
-  Slack channels.
+  long-running turns. Use datasource_search with entity filters when you need to
+  search Slack users, Slack channels, Slack messages, GitLab projects, Jira
+  issues, Jira projects, or local documentation files (`file.document`). Use
+  datasource_get when you need a specific datasource record by id.

@@ -9,6 +9,7 @@ import (
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -27,6 +28,7 @@ type Config struct {
 	Context           context.Context
 	Agent             agent.Agent
 	Operations        []operation.Operation
+	ContextProviders  []corecontext.Provider
 	Plugins           []pluginhost.Plugin
 	Bundles           []resource.ContributionBundle
 	OperationExecutor operationruntime.Executor
@@ -37,33 +39,36 @@ type Config struct {
 // Composition is executable runtime configuration assembled from resources and
 // provided implementations.
 type Composition struct {
-	Agent               agent.Agent
-	Commands            *command.Registry
-	Operations          *operation.Registry
-	ResourceIndex       *resource.ResourceIndex
-	Resolver            *resource.Resolver
-	AppCatalog          AppCatalog
-	AgentCatalog        AgentCatalog
-	SkillCatalog        SkillCatalog
-	ContextProviders    ContextProviderCatalog
-	WorkflowCatalog     WorkflowCatalog
-	OperationSetCatalog OperationSetCatalog
-	CommandCatalog      session.CommandCatalog
-	OperationCatalog    session.OperationCatalog
-	SessionCatalog      session.SessionCatalog
-	AppSpecs            []coreapp.Spec
-	AgentSpecs          []agent.Spec
-	SkillSpecs          []skill.Spec
-	ContextSpecs        []corecontext.ProviderSpec
-	WorkflowSpecs       []workflow.Spec
-	OperationSets       []operation.Set
-	OperationSpecs      []operation.Spec
-	SessionSpecs        []coresession.Spec
-	OperationExecutor   operationruntime.Executor
-	Events              event.Sink
-	ThreadStore         corethread.Store
-	Bundles             []resource.ContributionBundle
-	Diagnostics         []resource.Diagnostic
+	Agent                agent.Agent
+	Commands             *command.Registry
+	Operations           *operation.Registry
+	ResourceIndex        *resource.ResourceIndex
+	Resolver             *resource.Resolver
+	AppCatalog           AppCatalog
+	AgentCatalog         AgentCatalog
+	SkillCatalog         SkillCatalog
+	ContextProviders     ContextProviderCatalog
+	ContextProviderImpls []corecontext.Provider
+	DatasourceCatalog    DatasourceCatalog
+	WorkflowCatalog      WorkflowCatalog
+	OperationSetCatalog  OperationSetCatalog
+	CommandCatalog       session.CommandCatalog
+	OperationCatalog     session.OperationCatalog
+	SessionCatalog       session.SessionCatalog
+	AppSpecs             []coreapp.Spec
+	AgentSpecs           []agent.Spec
+	SkillSpecs           []skill.Spec
+	ContextSpecs         []corecontext.ProviderSpec
+	DatasourceSpecs      []coredatasource.Spec
+	WorkflowSpecs        []workflow.Spec
+	OperationSets        []operation.Set
+	OperationSpecs       []operation.Spec
+	SessionSpecs         []coresession.Spec
+	OperationExecutor    operationruntime.Executor
+	Events               event.Sink
+	ThreadStore          corethread.Store
+	Bundles              []resource.ContributionBundle
+	Diagnostics          []resource.Diagnostic
 }
 
 // Compose validates and registers resource contributions with supplied and
@@ -71,7 +76,7 @@ type Composition struct {
 // declarations; executable operation implementations come from host or plugin
 // code.
 func Compose(cfg Config) (Composition, error) {
-	bundles, pluginOperations, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
+	bundles, pluginOperations, pluginContextProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -100,6 +105,11 @@ func Compose(cfg Config) (Composition, error) {
 	contextCatalog, contextSpecs, contextDiagnostic, err := collectContextProviders(bundles, index)
 	if err != nil {
 		diagnostics = append(diagnostics, contextDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	datasourceCatalog, datasourceSpecs, datasourceDiagnostic, err := collectDatasources(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, datasourceDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
 	workflowCatalog, workflowSpecs, workflowDiagnostic, err := collectWorkflows(bundles, index)
@@ -197,33 +207,36 @@ func Compose(cfg Config) (Composition, error) {
 	}
 
 	return Composition{
-		Agent:               cfg.Agent,
-		Commands:            commands,
-		Operations:          operations,
-		ResourceIndex:       index,
-		Resolver:            resolver,
-		AppCatalog:          appCatalog,
-		AgentCatalog:        agentCatalog,
-		SkillCatalog:        skillCatalog,
-		ContextProviders:    contextCatalog,
-		WorkflowCatalog:     workflowCatalog,
-		OperationSetCatalog: operationSetCatalog,
-		CommandCatalog:      commandCatalog,
-		OperationCatalog:    operationCatalog,
-		SessionCatalog:      sessionCatalog,
-		AppSpecs:            appSpecs,
-		AgentSpecs:          agentSpecs,
-		SkillSpecs:          skillSpecs,
-		ContextSpecs:        contextSpecs,
-		WorkflowSpecs:       workflowSpecs,
-		OperationSets:       operationSets,
-		OperationSpecs:      operationSpecs,
-		SessionSpecs:        sessionSpecs,
-		OperationExecutor:   cfg.OperationExecutor,
-		Events:              cfg.Events,
-		ThreadStore:         cfg.ThreadStore,
-		Bundles:             bundles,
-		Diagnostics:         diagnostics,
+		Agent:                cfg.Agent,
+		Commands:             commands,
+		Operations:           operations,
+		ResourceIndex:        index,
+		Resolver:             resolver,
+		AppCatalog:           appCatalog,
+		AgentCatalog:         agentCatalog,
+		SkillCatalog:         skillCatalog,
+		ContextProviders:     contextCatalog,
+		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
+		DatasourceCatalog:    datasourceCatalog,
+		WorkflowCatalog:      workflowCatalog,
+		OperationSetCatalog:  operationSetCatalog,
+		CommandCatalog:       commandCatalog,
+		OperationCatalog:     operationCatalog,
+		SessionCatalog:       sessionCatalog,
+		AppSpecs:             appSpecs,
+		AgentSpecs:           agentSpecs,
+		SkillSpecs:           skillSpecs,
+		ContextSpecs:         contextSpecs,
+		DatasourceSpecs:      datasourceSpecs,
+		WorkflowSpecs:        workflowSpecs,
+		OperationSets:        operationSets,
+		OperationSpecs:       operationSpecs,
+		SessionSpecs:         sessionSpecs,
+		OperationExecutor:    cfg.OperationExecutor,
+		Events:               cfg.Events,
+		ThreadStore:          cfg.ThreadStore,
+		Bundles:              bundles,
+		Diagnostics:          diagnostics,
 	}, nil
 }
 
@@ -312,6 +325,18 @@ func collectContextProviders(bundles []resource.ContributionBundle, index *resou
 		func(spec corecontext.ProviderSpec) error { return spec.Validate() },
 	)
 	return ContextProviderCatalog(catalog), specs, diag, err
+}
+
+func collectDatasources(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (DatasourceCatalog, []coredatasource.Spec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"datasource",
+		func(bundle resource.ContributionBundle) []coredatasource.Spec { return bundle.Datasources },
+		func(spec coredatasource.Spec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec coredatasource.Spec) error { return spec.Validate() },
+	)
+	return DatasourceCatalog(catalog), specs, diag, err
 }
 
 func collectWorkflows(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (WorkflowCatalog, []workflow.Spec, resource.Diagnostic, error) {
@@ -446,14 +471,15 @@ func defaultSessionSpec(appBinding ResourceBinding[coreapp.Spec], resolver *reso
 	}, true, nil
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
+	var contextProviders []corecontext.Provider
 	var diagnostics []resource.Diagnostic
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, diagnostics, err
+		return out, operations, contextProviders, diagnostics, err
 	}
 	for _, bundle := range bundles {
 		if len(bundle.Plugins) == 0 {
@@ -462,12 +488,15 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, diagnostics, err
+			return out, operations, contextProviders, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
+		for _, provider := range contributed.ContextProviders {
+			contextProviders = append(contextProviders, provider.Provider)
+		}
 	}
-	return out, operations, diagnostics, nil
+	return out, operations, contextProviders, diagnostics, nil
 }
 
 type operationSpecContribution struct {

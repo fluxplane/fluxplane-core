@@ -2,6 +2,9 @@ package architecture_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +26,32 @@ func TestLayerImportsPointInward(t *testing.T) {
 		for _, violation := range report.Violations {
 			t.Errorf("%s imports %s: %s", violation.From, violation.To, violation.Reason)
 		}
+	}
+}
+
+func TestCoreDatasourceHasNoProviderSpecificDetectorTerms(t *testing.T) {
+	root := filepath.Join("..", "..", "core", "datasource")
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".go" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lower := strings.ToLower(string(data))
+		for _, term := range []string{"slack", "jira", "gitlab"} {
+			if strings.Contains(lower, term) {
+				t.Fatalf("%s contains provider-specific term %q", path, term)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

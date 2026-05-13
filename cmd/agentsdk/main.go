@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -38,6 +39,7 @@ import (
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -50,6 +52,10 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
+	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
+	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
@@ -232,6 +238,8 @@ func registeredConnectorProviderNames(ctx context.Context) ([]string, error) {
 	plugins := []pluginhost.Plugin{
 		openaiplugin.New(),
 		slackplugin.New(nil),
+		gitlabplugin.New(nil, nil),
+		jiraplugin.New(nil, nil),
 	}
 	seen := map[string]bool{}
 	var names []string
@@ -603,6 +611,7 @@ func newCoderReplCommand(opts *coderOptions) *cobra.Command {
 }
 
 func runServe(ctx context.Context, opts serveOptions, appDir string) error {
+	configureServeLogging(opts.debug)
 	cfgFile, err := appconfig.LoadDirFile(ctx, appDir)
 	if err != nil {
 		return err
@@ -619,10 +628,37 @@ func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 		return err
 	}
 	dispatcher := slackplugin.NewDispatcher()
-	slackPlugin := slackplugin.New(dispatcher)
-	plugins := []pluginhost.Plugin{slackPlugin, textplugin.New(), webplugin.New(hostSystem)}
+	connectorEngine, connectorInstances, err := serveConnectorEngine(ctx, opts, cfgFile.Connectors)
+	if err != nil {
+		return err
+	}
+	if connectorEngine != nil {
+		defer func() { _ = connectorEngine.Close() }()
+	}
+	slackPlugin := slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name))
+	gitlabPlugin := gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name))
+	jiraPlugin := jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name))
+	basePlugins := []pluginhost.Plugin{
+		slackPlugin,
+		gitlabPlugin,
+		jiraPlugin,
+		textplugin.New(),
+		webplugin.New(hostSystem),
+	}
+	bundle := cfgFile.Bundle
+	plugins := basePlugins
+	if len(bundle.Datasources) > 0 {
+		registry, err := serveDatasourceRegistry(ctx, bundle, basePlugins, root)
+		if err != nil {
+			return err
+		}
+		plugins = append(plugins, datasourceplugin.New(registry))
+		if !bundleHasPlugin(bundle, datasourceplugin.Name) {
+			bundle.Plugins = append(bundle.Plugins, resource.PluginRef{Name: datasourceplugin.Name})
+		}
+	}
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{cfgFile.Bundle},
+		Bundles: []agentruntime.ResourceBundle{bundle},
 		Plugins: plugins,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:   localSandbox{Root: root},
@@ -635,6 +671,7 @@ func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		LLMModelResolver: serveModelResolver{debug: opts.debug},
+		LLMStreamPolicy:  debugStreamPolicy(opts.debug),
 		ToolProjection: agentruntime.ToolProjectionConfig{
 			AllowSideEffects:      true,
 			MaxRisk:               operation.RiskMedium,
@@ -698,6 +735,95 @@ func (r serveModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (ll
 	return newCoderModel(selection, coderOptions{debug: r.debug})
 }
 
+func serveConnectorEngine(ctx context.Context, opts serveOptions, docs map[string]appconfig.ConnectorDoc) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
+	if len(docs) == 0 {
+		return nil, nil, nil
+	}
+	engine, providers, err := newConnectEngine(ctx, opts.authPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	knownProviders := map[string]bool{}
+	for _, provider := range providers {
+		knownProviders[provider] = true
+	}
+	names := make([]string, 0, len(docs))
+	for name := range docs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	instances := make([]connectorplugin.Instance, 0, len(names))
+	for _, instanceID := range names {
+		doc := docs[instanceID]
+		kind := strings.TrimSpace(doc.Kind)
+		if kind == "" {
+			_ = engine.Close()
+			return nil, nil, fmt.Errorf("serve: connector instance %q kind is empty", instanceID)
+		}
+		if !knownProviders[kind] {
+			_ = engine.Close()
+			return nil, nil, fmt.Errorf("serve: connector instance %q uses unknown provider %q (available: %s)", instanceID, kind, strings.Join(providers, ", "))
+		}
+		stored, err := engine.Instances.Load(ctx, instanceID)
+		if err != nil {
+			_ = engine.Close()
+			return nil, nil, fmt.Errorf("serve: load connector instance %q: %w", instanceID, err)
+		}
+		if stored.Connector != kind {
+			_ = engine.Close()
+			return nil, nil, fmt.Errorf("serve: connector instance %q has kind %q, want %q", instanceID, stored.Connector, kind)
+		}
+		if err := engine.ConnectInstance(ctx, instanceID); err != nil {
+			_ = engine.Close()
+			return nil, nil, fmt.Errorf("serve: connect %s connector instance %q: %w", kind, instanceID, err)
+		}
+		instances = append(instances, connectorplugin.Instance{ID: instanceID, Kind: kind})
+	}
+	return engine, instances, nil
+}
+
+func serveDatasourceRegistry(ctx context.Context, bundle resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
+	host, err := pluginhost.New(plugins...)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]resource.PluginRef, 0, len(bundle.Plugins))
+	for _, ref := range bundle.Plugins {
+		if ref.Name != datasourceplugin.Name {
+			refs = append(refs, ref)
+		}
+	}
+	resolved, err := host.Resolve(ctx, refs...)
+	if err != nil {
+		return nil, err
+	}
+	var providers []coredatasource.Provider
+	for _, contribution := range resolved.DatasourceProviders {
+		providers = append(providers, contribution.Provider)
+	}
+	providers = append(providers, datasourceplugin.NewFilesystemProvider(os.DirFS(root)))
+	return datasourceplugin.BuildRegistry(ctx, bundle.Datasources, providers)
+}
+
+func bundleHasPlugin(bundle resource.ContributionBundle, name string) bool {
+	for _, ref := range bundle.Plugins {
+		if ref.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func connectorInstancesForKind(instances []connectorplugin.Instance, kind string) []connectorplugin.Instance {
+	var out []connectorplugin.Instance
+	for _, instance := range instances {
+		if instance.Kind == kind {
+			out = append(out, instance)
+		}
+	}
+	return out
+}
+
 func serveChannels(ctx context.Context, docs []appconfig.ChannelDoc, opts serveOptions, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	store := connectauth.NewStore(opts.authPath)
@@ -722,6 +848,7 @@ func serveChannels(ctx context.Context, docs []appconfig.ChannelDoc, opts serveO
 				AppToken:   creds.AppToken,
 				BotUserID:  creds.BotUserID,
 				TeamID:     creds.TeamID,
+				Debug:      opts.debug,
 				Access:     slackAccess(doc.Access),
 				Dispatcher: dispatcher,
 			})
@@ -734,6 +861,14 @@ func serveChannels(ctx context.Context, docs []appconfig.ChannelDoc, opts serveO
 		}
 	}
 	return out, nil
+}
+
+func configureServeLogging(debug bool) {
+	level := slog.LevelInfo
+	if debug {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 }
 
 func slackAccess(doc appconfig.AccessDoc) slackplugin.AccessPolicy {

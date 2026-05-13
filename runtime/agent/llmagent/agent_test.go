@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -100,6 +101,40 @@ func TestAgentStepIncludesProjectedTools(t *testing.T) {
 	}
 	if len(got.Tools) != 1 || got.Tools[0].Name != "inspect" {
 		t.Fatalf("tools = %#v, want inspect", got.Tools)
+	}
+}
+
+func TestAgentStepPassesChannelMessageToContextProvidersForDetection(t *testing.T) {
+	var gotInput coredatasource.DetectionInput
+	provider := contextProviderFunc{
+		spec: corecontext.ProviderSpec{Name: "detect"},
+		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+			gotInput, _ = coredatasource.DetectionInputFromContext(ctx)
+			return []corecontext.Block{{ID: "detect", Provider: "detect", Kind: corecontext.BlockText, Content: "detected"}}, nil
+		},
+	}
+	var got Request
+	runtime, err := New(agent.Spec{Name: "main"}, ModelFunc(func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return MessageResponse("ok"), nil
+	}), WithContextProviders(provider))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{Observations: []environment.Observation{{
+		Source:  "channel",
+		Kind:    "channel.message",
+		Content: map[string]any{"text": "see DEV-381"},
+	}}})
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(gotInput.Sources) != 1 || gotInput.Sources[0].Text != "see DEV-381" {
+		t.Fatalf("detection input = %#v, want channel text", gotInput)
+	}
+	if len(got.Context) != 1 || got.Context[0].Content != "detected" {
+		t.Fatalf("context = %#v, want provider block", got.Context)
 	}
 }
 
@@ -404,6 +439,17 @@ func (c testAgentContext) Events() event.Sink {
 		return event.Discard()
 	}
 	return c.events
+}
+
+type contextProviderFunc struct {
+	spec  corecontext.ProviderSpec
+	build func(context.Context, corecontext.Request) ([]corecontext.Block, error)
+}
+
+func (p contextProviderFunc) Spec() corecontext.ProviderSpec { return p.spec }
+
+func (p contextProviderFunc) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+	return p.build(ctx, req)
 }
 
 type streamingModel struct{}

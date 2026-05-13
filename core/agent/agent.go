@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -113,6 +114,7 @@ type Spec struct {
 	Operations  []operation.Ref           `json:"operations,omitempty"`
 	Tools       []ToolRef                 `json:"tools,omitempty"`
 	Commands    []CommandRef              `json:"commands,omitempty"`
+	Datasources []coredatasource.Ref      `json:"datasources,omitempty"`
 	Skills      []skill.Ref               `json:"skills,omitempty"`
 	Context     []corecontext.ProviderRef `json:"context,omitempty"`
 	Annotations map[string]string         `json:"annotations,omitempty"`
@@ -126,6 +128,9 @@ func (s Spec) Validate() error {
 	if s.Policy.MaxSteps < 0 {
 		return fmt.Errorf("agent: max_steps must be >= 0")
 	}
+	if s.Policy.MaxContinuations < 0 {
+		return fmt.Errorf("agent: max_continuations must be >= 0")
+	}
 	for i, tool := range s.Tools {
 		if strings.TrimSpace(tool.Name) == "" {
 			return fmt.Errorf("agent: tools[%d] name is empty", i)
@@ -136,9 +141,19 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("agent: commands[%d] name is empty", i)
 		}
 	}
+	for i, ref := range s.Datasources {
+		if strings.TrimSpace(string(ref.Name)) == "" {
+			return fmt.Errorf("agent: datasources[%d] name is empty", i)
+		}
+	}
 	for i, ref := range s.Skills {
 		if strings.TrimSpace(string(ref.Name)) == "" {
 			return fmt.Errorf("agent: skills[%d] name is empty", i)
+		}
+	}
+	for i, ref := range s.Context {
+		if strings.TrimSpace(string(ref.Name)) == "" {
+			return fmt.Errorf("agent: context[%d] name is empty", i)
 		}
 	}
 	return nil

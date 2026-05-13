@@ -3,6 +3,7 @@ package agent
 import (
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/skill"
 )
 
@@ -42,6 +43,13 @@ func TestSpecValidateRejectsEmptyName(t *testing.T) {
 	}
 }
 
+func TestSpecValidateRejectsNegativeMaxContinuations(t *testing.T) {
+	err := Spec{Name: "main", Policy: Policy{MaxContinuations: -1}}.Validate()
+	if err == nil {
+		t.Fatal("Validate error is nil, want negative max continuations error")
+	}
+}
+
 func TestSpecValidateRejectsEmptyRefs(t *testing.T) {
 	tests := []struct {
 		name string
@@ -49,6 +57,7 @@ func TestSpecValidateRejectsEmptyRefs(t *testing.T) {
 	}{
 		{name: "tool", spec: Spec{Name: "main", Tools: []ToolRef{{}}}},
 		{name: "command", spec: Spec{Name: "main", Commands: []CommandRef{{}}}},
+		{name: "datasource", spec: Spec{Name: "main", Datasources: []datasource.Ref{{}}}},
 		{name: "skill", spec: Spec{Name: "main", Skills: []skill.Ref{{}}}},
 	}
 	for _, tt := range tests {

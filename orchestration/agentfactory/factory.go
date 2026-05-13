@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -40,6 +41,7 @@ type Config struct {
 	Resolver         *resource.Resolver
 	CommandCatalog   session.CommandCatalog
 	OperationCatalog session.OperationCatalog
+	ContextProviders []corecontext.Provider
 	Model            llmagent.Model
 	ModelResolver    ModelResolver
 	StreamPolicy     llmagent.StreamPolicy
@@ -52,6 +54,7 @@ type Factory struct {
 	resolver         *resource.Resolver
 	commandCatalog   session.CommandCatalog
 	operationCatalog session.OperationCatalog
+	contextProviders []corecontext.Provider
 	model            llmagent.Model
 	modelResolver    ModelResolver
 	streamPolicy     llmagent.StreamPolicy
@@ -65,6 +68,7 @@ func New(cfg Config) *Factory {
 		resolver:         cfg.Resolver,
 		commandCatalog:   cfg.CommandCatalog,
 		operationCatalog: cfg.OperationCatalog,
+		contextProviders: append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		model:            cfg.Model,
 		modelResolver:    cfg.ModelResolver,
 		streamPolicy:     cfg.StreamPolicy,
@@ -118,6 +122,7 @@ func (f *Factory) buildLLMAgent(ctx context.Context, spec agent.Spec) (agent.Age
 		spec,
 		model,
 		llmagent.WithTools(filterTools(spec, projection.Tools)...),
+		llmagent.WithContextProviders(filterContextProviders(spec, f.contextProviders)...),
 		llmagent.WithStreamPolicy(f.streamPolicy),
 	)
 }
@@ -204,6 +209,31 @@ func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[st
 		}
 	}
 	return false
+}
+
+func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) []corecontext.Provider {
+	if len(providers) == 0 {
+		return nil
+	}
+	if len(spec.Context) == 0 {
+		return append([]corecontext.Provider(nil), providers...)
+	}
+	allowed := map[corecontext.ProviderName]struct{}{}
+	for _, ref := range spec.Context {
+		if ref.Name != "" {
+			allowed[ref.Name] = struct{}{}
+		}
+	}
+	out := make([]corecontext.Provider, 0, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		if _, ok := allowed[provider.Spec().Name]; ok {
+			out = append(out, provider)
+		}
+	}
+	return out
 }
 
 func refMatches(ref, address string) bool {

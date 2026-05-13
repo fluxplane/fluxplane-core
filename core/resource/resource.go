@@ -5,6 +5,7 @@ import (
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -67,6 +68,7 @@ type ContributionBundle struct {
 	OperationSets    []operation.Set            `json:"operation_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
+	Datasources      []coredatasource.Spec      `json:"datasources,omitempty"`
 	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
 	Skills           []skill.Spec               `json:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
@@ -85,6 +87,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.OperationSets = append(b.OperationSets, other.OperationSets...)
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)
+	b.Datasources = append(b.Datasources, other.Datasources...)
 	b.Sessions = append(b.Sessions, other.Sessions...)
 	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)

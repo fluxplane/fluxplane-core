@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -34,6 +36,12 @@ type OperationContributor interface {
 	Operations(context.Context, Context) ([]operation.Operation, error)
 }
 
+// ContextProviderContributor is implemented by plugins that provide executable
+// context providers in addition to pure context provider specs.
+type ContextProviderContributor interface {
+	ContextProviders(context.Context, Context) ([]corecontext.Provider, error)
+}
+
 // ChannelContributor is implemented by plugins that can provide long-running
 // runtime channels for daemon mode.
 type ChannelContributor interface {
@@ -44,6 +52,12 @@ type ChannelContributor interface {
 // third-party connection provider available to host-level connect commands.
 type ConnectorProviderContributor interface {
 	ConnectorProviders(context.Context, Context) ([]ConnectorProvider, error)
+}
+
+// DatasourceProviderContributor is implemented by plugins that make
+// datasource entity accessors available to host-level app composition.
+type DatasourceProviderContributor interface {
+	DatasourceProviders(context.Context, Context) ([]coredatasource.Provider, error)
 }
 
 // OperationContribution is one executable operation contributed by a plugin.
@@ -69,12 +83,26 @@ type ConnectorProviderContribution struct {
 	Provider ConnectorProvider
 }
 
+// DatasourceProviderContribution is one datasource provider contribution.
+type DatasourceProviderContribution struct {
+	Source   resource.SourceRef
+	Provider coredatasource.Provider
+}
+
+// ContextProviderContribution is one executable context provider contribution.
+type ContextProviderContribution struct {
+	Source   resource.SourceRef
+	Provider corecontext.Provider
+}
+
 // Resolution is the complete contribution set resolved for plugin refs.
 type Resolution struct {
-	Bundles            []resource.ContributionBundle
-	Operations         []OperationContribution
-	Channels           []ChannelContribution
-	ConnectorProviders []ConnectorProviderContribution
+	Bundles             []resource.ContributionBundle
+	Operations          []OperationContribution
+	ContextProviders    []ContextProviderContribution
+	Channels            []ChannelContribution
+	ConnectorProviders  []ConnectorProviderContribution
+	DatasourceProviders []DatasourceProviderContribution
 }
 
 // Host resolves plugin refs through registered plugin implementations.
@@ -156,6 +184,18 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
+		if contributor, ok := plugin.(ContextProviderContributor); ok {
+			providers, err := contributor.ContextProviders(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q context providers: %w", ref.Name, err)
+			}
+			for _, provider := range providers {
+				out.ContextProviders = append(out.ContextProviders, ContextProviderContribution{
+					Source:   source,
+					Provider: provider,
+				})
+			}
+		}
 		if contributor, ok := plugin.(ChannelContributor); ok {
 			channels, err := contributor.Channels(ctx, pluginCtx)
 			if err != nil {
@@ -175,6 +215,18 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 			}
 			for _, provider := range providers {
 				out.ConnectorProviders = append(out.ConnectorProviders, ConnectorProviderContribution{
+					Source:   source,
+					Provider: provider,
+				})
+			}
+		}
+		if contributor, ok := plugin.(DatasourceProviderContributor); ok {
+			providers, err := contributor.DatasourceProviders(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q datasource providers: %w", ref.Name, err)
+			}
+			for _, provider := range providers {
+				out.DatasourceProviders = append(out.DatasourceProviders, DatasourceProviderContribution{
 					Source:   source,
 					Provider: provider,
 				})

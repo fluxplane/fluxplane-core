@@ -14,6 +14,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -72,9 +74,10 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 
 // File is the complete app configuration file shape after decoding.
 type File struct {
-	Path   string
-	Bundle resource.ContributionBundle
-	Daemon DaemonConfig
+	Path       string
+	Bundle     resource.ContributionBundle
+	Daemon     DaemonConfig
+	Connectors map[string]ConnectorDoc
 }
 
 // DecodeFile decodes one local app file. It supports both the legacy single
@@ -83,6 +86,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 	source := manifestSource(path)
 	bundle := resource.ContributionBundle{Source: source}
 	daemon := DaemonConfig{}
+	connectors := map[string]ConnectorDoc{}
 
 	docs, err := decodeDocuments(data)
 	if err != nil {
@@ -109,7 +113,11 @@ func DecodeFile(path string, data []byte) (File, error) {
 					Config: cloneMap(plugin.Config),
 				})
 			}
+			for _, ds := range manifest.Datasources {
+				bundle.Datasources = append(bundle.Datasources, ds.Spec())
+			}
 			daemon = manifest.Daemon
+			connectors = cloneConnectorMap(manifest.Connectors)
 			continue
 		}
 		switch kind {
@@ -125,13 +133,19 @@ func DecodeFile(path string, data []byte) (File, error) {
 				return File{}, err
 			}
 			bundle.Sessions = append(bundle.Sessions, spec)
+		case "datasource":
+			spec, err := decodeDatasourceDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Datasources = append(bundle.Datasources, spec)
 		case "":
 			return File{}, fmt.Errorf("appconfig: document %d kind is empty", i+1)
 		default:
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
 		}
 	}
-	return File{Path: filepath.Clean(path), Bundle: bundle, Daemon: daemon}, nil
+	return File{Path: filepath.Clean(path), Bundle: bundle, Daemon: daemon, Connectors: connectors}, nil
 }
 
 func manifestSource(path string) resource.SourceRef {
@@ -167,6 +181,19 @@ func decodeDocuments(data []byte) ([]yaml.Node, error) {
 }
 
 func (f File) Validate() error {
+	for i, spec := range f.Bundle.Datasources {
+		if err := spec.Validate(); err != nil {
+			return fmt.Errorf("appconfig: datasources[%d]: %w", i, err)
+		}
+	}
+	for name, connector := range f.Connectors {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("appconfig: connectors contains an empty instance name")
+		}
+		if strings.TrimSpace(connector.Kind) == "" {
+			return fmt.Errorf("appconfig: connectors[%q].kind is empty", name)
+		}
+	}
 	for i, listener := range f.Daemon.Listeners {
 		if strings.TrimSpace(listener.Name) == "" {
 			return fmt.Errorf("appconfig: daemon.listeners[%d] name is empty", i)
@@ -192,15 +219,83 @@ type kindDoc struct {
 
 // Manifest is the app manifest file shape accepted by this adapter.
 type Manifest struct {
-	Kind         string       `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name         coreapp.Name `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string       `json:"description,omitempty" yaml:"description,omitempty"`
-	DefaultAgent agentRef     `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
-	Sources      []sourceSpec `json:"sources,omitempty" yaml:"sources,omitempty"`
-	Discovery    discovery    `json:"discovery,omitempty" yaml:"discovery,omitempty"`
-	ModelPolicy  modelPolicy  `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
-	Plugins      []pluginRef  `json:"plugins,omitempty" yaml:"plugins,omitempty"`
-	Daemon       DaemonConfig `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+	Kind         string                  `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name         coreapp.Name            `json:"name,omitempty" yaml:"name,omitempty"`
+	Description  string                  `json:"description,omitempty" yaml:"description,omitempty"`
+	DefaultAgent agentRef                `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
+	Sources      []sourceSpec            `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Discovery    discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
+	ModelPolicy  modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
+	Plugins      []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+	Datasources  []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Daemon       DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+	Connectors   map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+// DatasourceDoc declares one configured datasource instance.
+type DatasourceDoc struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Entities    []string          `json:"entities,omitempty" yaml:"entities,omitempty"`
+	Connector   string            `json:"connector,omitempty" yaml:"connector,omitempty"`
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Type        string            `json:"type,omitempty" yaml:"type,omitempty"`
+	Path        string            `json:"path,omitempty" yaml:"path,omitempty"`
+	Include     []string          `json:"include,omitempty" yaml:"include,omitempty"`
+	Config      map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+}
+
+func (d DatasourceDoc) Spec() coredatasource.Spec {
+	cfg := cloneStringMap(d.Config)
+	if cfg == nil {
+		cfg = map[string]string{}
+	}
+	if strings.TrimSpace(d.Path) != "" {
+		cfg["path"] = strings.TrimSpace(d.Path)
+	}
+	if len(d.Include) > 0 {
+		var include []string
+		for _, pattern := range d.Include {
+			if pattern = strings.TrimSpace(pattern); pattern != "" {
+				include = append(include, pattern)
+			}
+		}
+		if len(include) > 0 {
+			cfg["include"] = strings.Join(include, ",")
+		}
+	}
+	if len(cfg) == 0 {
+		cfg = nil
+	}
+	var entities []coredatasource.EntityType
+	for _, entity := range d.Entities {
+		if entity = strings.TrimSpace(entity); entity != "" {
+			entities = append(entities, coredatasource.EntityType(entity))
+		}
+	}
+	return coredatasource.Spec{
+		Name:        coredatasource.Name(strings.TrimSpace(d.Name)),
+		Description: strings.TrimSpace(d.Description),
+		Entities:    entities,
+		Connector:   strings.TrimSpace(d.Connector),
+		Kind:        datasourceKind(d),
+		Config:      cfg,
+	}
+}
+
+func datasourceKind(d DatasourceDoc) string {
+	kind := strings.TrimSpace(d.Kind)
+	if kind == "datasource" || kind == "" {
+		if typ := strings.TrimSpace(d.Type); typ != "" {
+			return typ
+		}
+	}
+	return kind
+}
+
+// ConnectorDoc declares one connector instance required by agentsdk serve.
+type ConnectorDoc struct {
+	Kind string `json:"kind" yaml:"kind"`
 }
 
 // DaemonConfig contains process wiring consumed by agentsdk serve.
@@ -240,16 +335,19 @@ type AccessDoc struct {
 }
 
 type agentDoc struct {
-	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name        string   `json:"name" yaml:"name"`
-	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
-	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
-	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	MaxSteps    int      `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
-	Thinking    string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	Effort      string   `json:"effort,omitempty" yaml:"effort,omitempty"`
-	Tools       []string `json:"tools,omitempty" yaml:"tools,omitempty"`
-	System      string   `json:"system,omitempty" yaml:"system,omitempty"`
+	Kind             string   `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name             string   `json:"name" yaml:"name"`
+	Description      string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Model            string   `json:"model,omitempty" yaml:"model,omitempty"`
+	MaxTokens        int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxSteps         int      `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
+	MaxContinuations int      `json:"max_continuations,omitempty" yaml:"max_continuations,omitempty"`
+	Thinking         string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort           string   `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Tools            []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Context          []string `json:"context,omitempty" yaml:"context,omitempty"`
+	Datasources      []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	System           string   `json:"system,omitempty" yaml:"system,omitempty"`
 }
 
 func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
@@ -267,7 +365,7 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 			Thinking:        strings.TrimSpace(raw.Thinking),
 			ReasoningEffort: strings.TrimSpace(raw.Effort),
 		},
-		Policy: agent.Policy{MaxSteps: raw.MaxSteps},
+		Policy: agent.Policy{MaxSteps: raw.MaxSteps, MaxContinuations: raw.MaxContinuations},
 	}
 	for _, name := range raw.Tools {
 		name = strings.TrimSpace(name)
@@ -275,8 +373,32 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 			spec.Tools = append(spec.Tools, agent.ToolRef{Name: name})
 		}
 	}
+	for _, name := range raw.Context {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Context = append(spec.Context, corecontext.ProviderRef{Name: corecontext.ProviderName(name)})
+		}
+	}
+	for _, name := range raw.Datasources {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Datasources = append(spec.Datasources, coredatasource.Ref{Name: coredatasource.Name(name)})
+		}
+	}
 	if err := spec.Validate(); err != nil {
 		return agent.Spec{}, fmt.Errorf("appconfig: validate agent document: %w", err)
+	}
+	return spec, nil
+}
+
+func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
+	var raw DatasourceDoc
+	if err := node.Decode(&raw); err != nil {
+		return coredatasource.Spec{}, fmt.Errorf("appconfig: decode datasource document: %w", err)
+	}
+	spec := raw.Spec()
+	if err := spec.Validate(); err != nil {
+		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document: %w", err)
 	}
 	return spec, nil
 }
@@ -476,6 +598,19 @@ func cloneMap(in map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(in))
 	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneConnectorMap(in map[string]ConnectorDoc) map[string]ConnectorDoc {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]ConnectorDoc, len(in))
+	for key, value := range in {
+		key = strings.TrimSpace(key)
+		value.Kind = strings.TrimSpace(value.Kind)
 		out[key] = value
 	}
 	return out

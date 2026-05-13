@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -42,7 +43,7 @@ type Session struct {
 	Thread            corethread.Ref
 }
 
-const defaultLLMContinuations = 4
+const defaultLLMContinuations = 20
 
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
@@ -261,13 +262,10 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	var localContinuation *coreconversation.ContinuationHandle
 	events := s.conversationEventSink(ctx, inbound.ID, &conversationErr, &localTranscript, &localContinuation)
 	observations := []environment.Observation{{
-		Source:  "channel",
-		Kind:    "channel.message",
-		Content: inbound.Message.Content,
-		Metadata: map[string]any{
-			"channel":      inbound.Channel.Name,
-			"conversation": inbound.Conversation.ID,
-		},
+		Source:   "channel",
+		Kind:     "channel.message",
+		Content:  inbound.Message.Content,
+		Metadata: inputObservationMetadata(inbound),
 	}}
 	continuations := 0
 	maxContinuations := s.maxContinuations()
@@ -335,6 +333,19 @@ func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string
 		*localItems = append(*localItems, copied...)
 	}
 	return conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, turnID, provider, copied)
+}
+
+func inputObservationMetadata(inbound channel.Inbound) map[string]any {
+	out := map[string]any{
+		"channel":      inbound.Channel.Name,
+		"conversation": inbound.Conversation.ID,
+	}
+	if inbound.Message != nil {
+		for key, value := range inbound.Message.Metadata {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func hasToolResultTranscriptItems(items []coreconversation.Item) bool {
@@ -415,7 +426,31 @@ func (s Session) providerIdentity() coreconversation.ProviderIdentity {
 			stringFromAny(spec.Driver.Config["family"]),
 		)
 	}
+	identity.Provider, identity.Model = normalizeProviderModel(identity.Provider, identity.Model)
 	return identity
+}
+
+func normalizeProviderModel(provider, model string) (string, string) {
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
+		switch {
+		case provider == "" && knownModelProviderPrefix(before):
+			return before, after
+		case provider != "" && before == provider:
+			return provider, after
+		}
+	}
+	return provider, model
+}
+
+func knownModelProviderPrefix(value string) bool {
+	switch value {
+	case "openai", "codex", "openrouter", "anthropic", "minimax":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstNonEmptyString(values ...string) string {
@@ -930,8 +965,24 @@ func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBindi
 }
 
 func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
+	ctx = s.withDatasourceAccess(ctx)
 	ctx = operation.WithCallID(ctx, callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
+}
+
+func (s Session) withDatasourceAccess(ctx operation.Context) operation.Context {
+	if ctx == nil || s.Agent == nil {
+		return ctx
+	}
+	spec := s.Agent.Spec()
+	names := make([]coredatasource.Name, 0, len(spec.Datasources))
+	for _, ref := range spec.Datasources {
+		if ref.Name != "" {
+			names = append(names, ref.Name)
+		}
+	}
+	base := coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
+	return operation.NewContext(base, ctx.Events())
 }
 
 func operationCallID(runID string, ordinal int) operation.CallID {

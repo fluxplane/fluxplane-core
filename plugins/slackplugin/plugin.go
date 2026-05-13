@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -18,6 +19,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
+	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -27,18 +30,20 @@ import (
 const (
 	Name          = "slack"
 	ChannelSendOp = "channel_send"
-	SearchOp      = "slack_search"
 )
 
 var requiredSlackBotEvents = []string{"app_mention", "message.im", "message.channels", "message.groups", "message.mpim"}
 
 type Plugin struct {
 	dispatcher *Dispatcher
+	executor   connectorplugin.Executor
+	instances  []connectorplugin.Instance
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ConnectorProviderContributor = Plugin{}
+var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 func New(dispatcher *Dispatcher) Plugin {
 	if dispatcher == nil {
@@ -47,27 +52,182 @@ func New(dispatcher *Dispatcher) Plugin {
 	return Plugin{dispatcher: dispatcher}
 }
 
+func NewWithConnectors(dispatcher *Dispatcher, executor connectorplugin.Executor, instances []connectorplugin.Instance) Plugin {
+	plugin := New(dispatcher)
+	plugin.executor = executor
+	plugin.instances = append([]connectorplugin.Instance(nil), instances...)
+	return plugin
+}
+
 func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Slack channel integration."}
 }
 
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	sendSpec := channelSendSpec()
-	searchSpec := searchSpec()
+	searchSpecs, err := connectorplugin.Specs(p.instances, slackConnectorActions())
+	if err != nil {
+		return resource.ContributionBundle{}, err
+	}
+	specs := append([]operation.Spec{sendSpec}, searchSpecs...)
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{sendSpec, searchSpec},
+		Operations: specs,
 	}, nil
 }
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	return []operation.Operation{
+	ops := []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](channelSendSpec(), p.channelSend),
-		operationruntime.NewTypedResult[searchInput, searchOutput](searchSpec(), p.search),
-	}, nil
+	}
+	searchOps, err := connectorplugin.Operations(p.executor, p.instances, slackConnectorActions())
+	if err != nil {
+		return nil, err
+	}
+	ops = append(ops, searchOps...)
+	return ops, nil
 }
 
 func (Plugin) ConnectorProviders(context.Context, pluginhost.Context) ([]pluginhost.ConnectorProvider, error) {
 	return []pluginhost.ConnectorProvider{{Name: Name}}, nil
+}
+
+func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
+	userEntity := runtimedatasource.EntityOf[User](UserEntity, "Slack workspace user.")
+	channelEntity := runtimedatasource.EntityOf[Channel](ChannelEntity, "Slack public or private channel.")
+	channelEntity.Detectors = []coredatasource.DetectorSpec{
+		{
+			Name:       "slack_channel_ref",
+			Kind:       coredatasource.DetectorRegex,
+			Pattern:    `<#([A-Z0-9]+)(?:\|[^>]+)?>`,
+			IDTemplate: "$1",
+			Confidence: 0.9,
+		},
+		{
+			Name:          "slack_channel_url",
+			Kind:          coredatasource.DetectorURL,
+			Pattern:       `https?://[^\s<>"']+/archives/([A-Z0-9]+)(?:[/?#][^\s<>"']*)?`,
+			IDTemplate:    "$1",
+			QueryTemplate: "$1",
+			URLTemplate:   "$0",
+			Confidence:    0.85,
+		},
+	}
+	messageEntity := runtimedatasource.EntityOf[Message](MessageEntity, "Slack message search result.")
+	messageEntity.Detectors = []coredatasource.DetectorSpec{
+		{
+			Name:          "slack_message_permalink",
+			Kind:          coredatasource.DetectorURL,
+			Pattern:       `https?://[^\s<>"']+/archives/([A-Z0-9]+)/p([0-9]{10})([0-9]{6})`,
+			IDTemplate:    "$1:$2.$3",
+			QueryTemplate: "$0",
+			URLTemplate:   "$0",
+			Confidence:    0.95,
+		},
+	}
+	return []coredatasource.Provider{connectorplugin.NewDatasourceProvider(p.executor, []connectorplugin.DatasourceAction{
+		{
+			Kind:        Name,
+			Entity:      userEntity,
+			SearchOp:    "slack.user.list",
+			GetOp:       "slack.user.info",
+			QueryParam:  "-",
+			LimitParam:  "limit",
+			IDParam:     "user",
+			LocalFilter: true,
+			IDFields:    []string{"id"},
+			TitleFields: []string{"real_name", "profile.real_name", "name"},
+			TextFields:  []string{"name", "team_id"},
+			URLFields:   []string{"profile.image_original"},
+			MetadataFields: map[string][]string{
+				"team_id": {"team_id"},
+				"is_bot":  {"is_bot"},
+				"deleted": {"deleted"},
+			},
+		},
+		{
+			Kind:        Name,
+			Entity:      channelEntity,
+			SearchOp:    "slack.channel.list",
+			GetOp:       "slack.channel.info",
+			QueryParam:  "-",
+			LimitParam:  "limit",
+			IDParam:     "channel",
+			LocalFilter: true,
+			IDFields:    []string{"id"},
+			TitleFields: []string{"name", "name_normalized"},
+			TextFields:  []string{"topic.value", "purpose.value"},
+			MetadataFields: map[string][]string{
+				"channel_id":  {"id"},
+				"topic":       {"topic.value"},
+				"purpose":     {"purpose.value"},
+				"is_archived": {"is_archived"},
+				"is_member":   {"is_member"},
+			},
+		},
+		{
+			Kind:       Name,
+			Entity:     messageEntity,
+			SearchOp:   "slack.message.search",
+			QueryParam: "query",
+			LimitParam: "count",
+			ResultPath: "messages.matches",
+			ParamDefaults: map[string]any{
+				"sort":     "timestamp",
+				"sort_dir": "desc",
+			},
+			IDFields:    []string{"iid", "ts"},
+			TitleFields: []string{"channel.name", "username", "user"},
+			TextFields:  []string{"text"},
+			URLFields:   []string{"permalink"},
+			MetadataFields: map[string][]string{
+				"channel_id": {"channel.id", "channel_id"},
+				"channel":    {"channel.name", "channel"},
+				"user":       {"user", "username"},
+				"permalink":  {"permalink"},
+				"timestamp":  {"ts"},
+			},
+		},
+	})}, nil
+}
+
+const UserEntity coredatasource.EntityType = "slack.user"
+const ChannelEntity coredatasource.EntityType = "slack.channel"
+const MessageEntity coredatasource.EntityType = "slack.message"
+
+type User struct {
+	ID       string `json:"id" datasource:"id,filterable" jsonschema:"description=Slack user id."`
+	Name     string `json:"name" datasource:"searchable,filterable" jsonschema:"description=Slack username."`
+	RealName string `json:"real_name,omitempty" datasource:"searchable" jsonschema:"description=Slack real name."`
+	TeamID   string `json:"team_id,omitempty" datasource:"filterable" jsonschema:"description=Slack team id."`
+	Deleted  bool   `json:"deleted,omitempty" datasource:"filterable" jsonschema:"description=Whether the user is deleted."`
+	IsBot    bool   `json:"is_bot,omitempty" datasource:"filterable" jsonschema:"description=Whether the user is a bot."`
+}
+
+type Channel struct {
+	ID             string `json:"id" datasource:"id,filterable" jsonschema:"description=Slack channel id."`
+	Name           string `json:"name" datasource:"searchable,filterable" jsonschema:"description=Slack channel name."`
+	NameNormalized string `json:"name_normalized,omitempty" datasource:"searchable" jsonschema:"description=Normalized channel name."`
+	IsChannel      bool   `json:"is_channel,omitempty" datasource:"filterable" jsonschema:"description=Whether this conversation is a public channel."`
+	IsGroup        bool   `json:"is_group,omitempty" datasource:"filterable" jsonschema:"description=Whether this conversation is a private channel."`
+	IsIM           bool   `json:"is_im,omitempty" datasource:"filterable" jsonschema:"description=Whether this conversation is a direct message."`
+	IsMPIM         bool   `json:"is_mpim,omitempty" datasource:"filterable" jsonschema:"description=Whether this conversation is a group direct message."`
+	IsArchived     bool   `json:"is_archived,omitempty" datasource:"filterable" jsonschema:"description=Whether the channel is archived."`
+	IsMember       bool   `json:"is_member,omitempty" datasource:"filterable" jsonschema:"description=Whether the bot is a member."`
+	Creator        string `json:"creator,omitempty" datasource:"filterable" jsonschema:"description=Creator user id."`
+	NumMembers     int    `json:"num_members,omitempty" datasource:"filterable" jsonschema:"description=Approximate channel member count."`
+	TopicValue     string `json:"topic_value,omitempty" datasource:"searchable" jsonschema:"description=Channel topic text."`
+	PurposeValue   string `json:"purpose_value,omitempty" datasource:"searchable" jsonschema:"description=Channel purpose text."`
+}
+
+type Message struct {
+	ID        string `json:"iid,omitempty" datasource:"id" jsonschema:"description=Slack search result id."`
+	Timestamp string `json:"ts,omitempty" datasource:"filterable" jsonschema:"description=Slack message timestamp."`
+	ChannelID string `json:"channel_id,omitempty" datasource:"filterable" jsonschema:"description=Slack channel id."`
+	Channel   string `json:"channel,omitempty" datasource:"searchable,filterable" jsonschema:"description=Slack channel name."`
+	User      string `json:"user,omitempty" datasource:"filterable" jsonschema:"description=Slack user id."`
+	Username  string `json:"username,omitempty" datasource:"searchable" jsonschema:"description=Slack username."`
+	Text      string `json:"text,omitempty" datasource:"searchable" jsonschema:"description=Message text."`
+	Permalink string `json:"permalink,omitempty" datasource:"url" jsonschema:"description=Slack permalink."`
 }
 
 func channelSendSpec() operation.Spec {
@@ -93,38 +253,33 @@ type channelSendOutput struct {
 	Ts      string `json:"ts,omitempty"`
 }
 
-func searchSpec() operation.Spec {
-	return operationruntime.WithTypedContract[searchInput, searchOutput](operation.Spec{
-		Ref:         operation.Ref{Name: SearchOp},
-		Description: "Search Slack messages in public channels.",
-		Semantics: operation.Semantics{
-			Determinism: operation.DeterminismNonDeterministic,
-			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectReadExternal},
-			Idempotency: operation.IdempotencyIdempotent,
-			Risk:        operation.RiskLow,
+func slackConnectorActions() []connectorplugin.Action {
+	return []connectorplugin.Action{{
+		Kind:        Name,
+		Operation:   "slack.message.search",
+		Suffix:      "search",
+		Description: "Search Slack messages across the workspace.",
+		Spec: func(name string) operation.Spec {
+			return operationruntime.WithTypedContract[connectorSearchInput, connectorplugin.Output](operation.Spec{
+				Ref:         operation.Ref{Name: operation.Name(name)},
+				Description: "Search Slack messages across the workspace.",
+				Semantics: operation.Semantics{
+					Determinism: operation.DeterminismNonDeterministic,
+					Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectReadExternal},
+					Idempotency: operation.IdempotencyIdempotent,
+					Risk:        operation.RiskLow,
+				},
+			})
 		},
-	})
+	}}
 }
 
-type searchInput struct {
-	Query string `json:"query" jsonschema:"description=Slack search query.,required"`
-	Limit int    `json:"limit,omitempty" jsonschema:"description=Maximum number of public-channel matches to return. Defaults to 5 and caps at 20."`
-}
-
-type searchOutput struct {
-	Query   string         `json:"query"`
-	Total   int            `json:"total"`
-	Results []searchResult `json:"results"`
-}
-
-type searchResult struct {
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name,omitempty"`
-	User        string `json:"user,omitempty"`
-	Username    string `json:"username,omitempty"`
-	Text        string `json:"text,omitempty"`
-	Timestamp   string `json:"ts,omitempty"`
-	Permalink   string `json:"permalink,omitempty"`
+type connectorSearchInput struct {
+	Query   string `json:"query" jsonschema:"description=Slack search query.,required"`
+	Count   int    `json:"count,omitempty" jsonschema:"description=Maximum matches to return. Defaults to 20."`
+	Page    int    `json:"page,omitempty" jsonschema:"description=Result page number. Defaults to 1."`
+	Sort    string `json:"sort,omitempty" jsonschema:"description=Slack search sort. Usually score or timestamp."`
+	SortDir string `json:"sort_dir,omitempty" jsonschema:"description=Slack search sort direction. Usually desc or asc."`
 }
 
 func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) operation.Result {
@@ -141,47 +296,6 @@ func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) opera
 		return operation.Failed("slack_channel_send_failed", err.Error(), nil)
 	}
 	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
-}
-
-func (p Plugin) search(ctx operation.Context, input searchInput) operation.Result {
-	query := strings.TrimSpace(input.Query)
-	if query == "" {
-		return operation.Failed("invalid_slack_search_input", "query is required", nil)
-	}
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 5
-	}
-	if limit > 20 {
-		limit = 20
-	}
-	target, _ := TargetFromContext(ctx)
-	messages, err := p.dispatcher.SearchMessages(ctx, target.ChannelName, query, limit)
-	if err != nil {
-		return operation.Failed("slack_search_failed", err.Error(), nil)
-	}
-	if messages == nil {
-		return operation.Failed("slack_search_failed", "Slack search returned no response", nil)
-	}
-	out := searchOutput{Query: query, Total: messages.Total}
-	for _, match := range messages.Matches {
-		if match.Channel.IsPrivate {
-			continue
-		}
-		out.Results = append(out.Results, searchResult{
-			ChannelID:   match.Channel.ID,
-			ChannelName: match.Channel.Name,
-			User:        match.User,
-			Username:    match.Username,
-			Text:        match.Text,
-			Timestamp:   match.Timestamp,
-			Permalink:   match.Permalink,
-		})
-		if len(out.Results) >= limit {
-			break
-		}
-	}
-	return operation.OK(out)
 }
 
 type Target struct {
@@ -295,6 +409,7 @@ type ChannelConfig struct {
 	AppToken   string
 	BotUserID  string
 	TeamID     string
+	Debug      bool
 	Access     AccessPolicy
 	Dispatcher *Dispatcher
 	API        *slack.Client
@@ -308,6 +423,7 @@ type SlackChannel struct {
 	botUserID  string
 	teamID     string
 	access     AccessPolicy
+	debug      bool
 	api        *slack.Client
 	socket     *socketmode.Client
 	dispatcher *Dispatcher
@@ -356,6 +472,7 @@ func NewChannel(cfg ChannelConfig) (*SlackChannel, error) {
 		botUserID:  cfg.BotUserID,
 		teamID:     cfg.TeamID,
 		access:     cfg.Access,
+		debug:      cfg.Debug,
 		api:        api,
 		socket:     socketClient,
 		dispatcher: dispatcher,
@@ -582,22 +699,60 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	if err != nil {
 		return err
 	}
+	observer := newRunObserver(c, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID})
+	observer.ensureStarted(turnCtx)
+	observer.setStatus(turnCtx, "is thinking...")
+	eventsDone := observer.Observe(run.Events())
 	result, err := run.Wait(turnCtx)
+	summary := <-eventsDone
+	observerFinished := false
+	finishObserver := func() {
+		if observerFinished {
+			return
+		}
+		observer.Finish(turnCtx)
+		observerFinished = true
+	}
 	if err != nil {
+		finishObserver()
+		_ = c.postError(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, err)
 		return err
+	}
+	if inputErr := slackResultError(result); inputErr != nil {
+		finishObserver()
+		_ = c.postError(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, inputErr)
+		return inputErr
 	}
 	if result.Outbound != nil && result.Outbound.Message != nil {
 		text := fmt.Sprint(result.Outbound.Message.Content)
 		if strings.TrimSpace(text) != "" {
-			_, err = c.dispatcher.Post(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, text)
+			if summary.Streamed {
+				if !summary.ContentStreamed {
+					observer.Append(text)
+					observer.Flush()
+				}
+				finishObserver()
+				slog.Info("slack channel reply streamed", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
+			} else {
+				finishObserver()
+				_, err = c.dispatcher.Post(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, text)
+			}
 		}
 	}
 	if err != nil {
 		return err
 	}
 	if result.Outbound == nil || result.Outbound.Message == nil || strings.TrimSpace(fmt.Sprint(result.Outbound.Message.Content)) == "" {
-		slog.Warn("slack channel run completed without outbound message", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
+		finishObserver()
+		if summary.Streamed {
+			slog.Info("slack channel run completed with streamed content", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
+			return nil
+		}
+		slog.Warn("slack channel run completed without outbound message", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started), "events", summary.Events, "model_events", summary.ModelEvents, "operation_events", summary.OperationEvents)
 		return nil
+	}
+	if !summary.Streamed {
+		finishObserver()
 	}
 	slog.Info("slack channel reply posted", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
 	return err

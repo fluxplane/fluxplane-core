@@ -125,6 +125,19 @@ name: slack-bot
 default_agent: slack_bot
 plugins:
   - name: slack
+connectors:
+  slack-bot:
+    kind: slack
+datasources:
+  - name: slack-bot
+    connector: slack-bot
+    kind: slack
+    entities: [slack.user]
+  - name: local-docs
+    kind: filesystem
+    entities: [file.document]
+    path: docs
+    include: ["*.md"]
 daemon:
   listeners:
     - name: control
@@ -148,7 +161,10 @@ agent: slack_bot
 kind: agent
 name: slack_bot
 model: openai/gpt-5.5
+max_continuations: 50
 tools: [channel_send]
+context: [datasource.catalog]
+datasources: [slack-bot, local-docs]
 system: |
   You are a Slack bot.
 `)
@@ -166,11 +182,36 @@ system: |
 	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Inference.Model != "openai/gpt-5.5" {
 		t.Fatalf("agents = %#v", file.Bundle.Agents)
 	}
+	if file.Bundle.Agents[0].Policy.MaxContinuations != 50 {
+		t.Fatalf("max continuations = %d, want 50", file.Bundle.Agents[0].Policy.MaxContinuations)
+	}
+	if len(file.Bundle.Agents[0].Datasources) != 2 || file.Bundle.Agents[0].Datasources[0].Name != "slack-bot" {
+		t.Fatalf("agent datasources = %#v", file.Bundle.Agents[0].Datasources)
+	}
+	if len(file.Bundle.Agents[0].Context) != 1 || file.Bundle.Agents[0].Context[0].Name != "datasource.catalog" {
+		t.Fatalf("agent context = %#v", file.Bundle.Agents[0].Context)
+	}
+	if len(file.Bundle.Datasources) != 2 || file.Bundle.Datasources[1].Config["path"] != "docs" || file.Bundle.Datasources[1].Config["include"] != "*.md" {
+		t.Fatalf("datasources = %#v", file.Bundle.Datasources)
+	}
+	if len(file.Bundle.Datasources[0].Entities) != 1 || file.Bundle.Datasources[0].Entities[0] != "slack.user" {
+		t.Fatalf("datasource entities = %#v", file.Bundle.Datasources[0].Entities)
+	}
 	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "agentsdk-slack-bot.sock" {
 		t.Fatalf("listeners = %#v", file.Daemon.Listeners)
 	}
 	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {
 		t.Fatalf("channels = %#v", file.Daemon.Channels)
+	}
+	if len(file.Connectors) != 1 || file.Connectors["slack-bot"].Kind != "slack" {
+		t.Fatalf("connectors = %#v, want slack-bot slack", file.Connectors)
+	}
+}
+
+func TestFileValidateRejectsConnectorWithoutKind(t *testing.T) {
+	file := File{Connectors: map[string]ConnectorDoc{"gitlab-prod": {}}}
+	if err := file.Validate(); err == nil || !strings.Contains(err.Error(), "connectors[\"gitlab-prod\"].kind is empty") {
+		t.Fatalf("Validate error = %v, want connector kind error", err)
 	}
 }
 

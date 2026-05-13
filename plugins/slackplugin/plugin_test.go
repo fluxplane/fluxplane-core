@@ -2,15 +2,21 @@ package slackplugin
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/command"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -54,43 +60,6 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	}
 }
 
-func TestSlackSearchFiltersPrivateChannels(t *testing.T) {
-	dispatcher := NewDispatcher()
-	dispatcher.RegisterSearcher("slack-main", fakeSearcher{messages: &slack.SearchMessages{
-		Total: 2,
-		Matches: []slack.SearchMessage{
-			{
-				Channel:   slack.CtxChannel{ID: "C1", Name: "general"},
-				User:      "U1",
-				Text:      "public result",
-				Timestamp: "111.222",
-				Permalink: "https://example.slack.com/archives/C1/p111222",
-			},
-			{
-				Channel: slack.CtxChannel{ID: "G1", Name: "private", IsPrivate: true},
-				Text:    "private result",
-			},
-		},
-	}})
-	plugin := New(dispatcher)
-	ctx := operation.NewContext(ContextWithTarget(context.Background(), Target{ChannelName: "slack-main"}), nil)
-
-	result := plugin.search(ctx, searchInput{Query: "release", Limit: 10})
-	if result.IsError() {
-		t.Fatalf("search result = %#v", result)
-	}
-	out, ok := result.Output.(searchOutput)
-	if !ok {
-		t.Fatalf("result output = %#v, want searchOutput", result.Output)
-	}
-	if out.Total != 2 || len(out.Results) != 1 {
-		t.Fatalf("output = %#v, want one public result with total 2", out)
-	}
-	if out.Results[0].ChannelID != "C1" || out.Results[0].Text != "public result" {
-		t.Fatalf("result = %#v, want public result", out.Results[0])
-	}
-}
-
 func TestPluginContributesSlackConnectorProvider(t *testing.T) {
 	providers, err := New(nil).ConnectorProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
@@ -99,6 +68,52 @@ func TestPluginContributesSlackConnectorProvider(t *testing.T) {
 	if len(providers) != 1 || providers[0].Name != "slack" {
 		t.Fatalf("providers = %#v, want slack", providers)
 	}
+}
+
+func TestPluginContributesSlackDatasourceEntities(t *testing.T) {
+	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	if len(providers) != 1 {
+		t.Fatalf("providers len = %d, want 1", len(providers))
+	}
+	got := entityTypes(providers[0].Entities())
+	for _, want := range []coredatasource.EntityType{UserEntity, ChannelEntity, MessageEntity} {
+		if !got[want] {
+			t.Fatalf("entities = %#v, missing %s", got, want)
+		}
+	}
+}
+
+func TestPluginContributesSlackEntityDetectors(t *testing.T) {
+	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	var channel, message coredatasource.EntitySpec
+	for _, entity := range providers[0].Entities() {
+		switch entity.Type {
+		case ChannelEntity:
+			channel = entity
+		case MessageEntity:
+			message = entity
+		}
+	}
+	if len(channel.Detectors) != 2 {
+		t.Fatalf("channel detectors = %#v, want ref and url detectors", channel.Detectors)
+	}
+	if len(message.Detectors) != 1 || message.Detectors[0].Kind != coredatasource.DetectorURL || message.Detectors[0].IDTemplate == "" {
+		t.Fatalf("message detectors = %#v, want URL detector with stable id template", message.Detectors)
+	}
+}
+
+func entityTypes(entities []coredatasource.EntitySpec) map[coredatasource.EntityType]bool {
+	out := map[coredatasource.EntityType]bool{}
+	for _, entity := range entities {
+		out[entity.Type] = true
+	}
+	return out
 }
 
 func TestInboundFromMessageAllowsThreadReplyOnlyInDM(t *testing.T) {
@@ -180,6 +195,68 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	}
 }
 
+func TestRunObserverStreamsTaskUpdatesWithoutThinkingText(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, r.URL.Path+" "+string(body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"999.0001"}`))
+	}))
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api, debug: true}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.ensureStarted(context.Background())
+	observer.Handle(clientapi.Event{
+		Kind:  clientapi.EventOperationRequested,
+		RunID: "run-1",
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-1",
+			Operation: operation.Ref{Name: "datasource_search"},
+			Input:     map[string]any{"query": "DEV-381"},
+		},
+	})
+	observer.Handle(clientapi.Event{
+		Kind:  clientapi.EventRuntimeEmitted,
+		RunID: "run-1",
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamThinkingDelta,
+				Text: "secret chain of thought",
+			}},
+		},
+	})
+	observer.Handle(clientapi.Event{
+		Kind:  clientapi.EventOperationCompleted,
+		RunID: "run-1",
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-1",
+			Operation: operation.Ref{Name: "datasource_search"},
+			Result: &operation.Result{
+				Status: operation.StatusOK,
+				Output: operation.Rendered{Data: map[string]any{
+					"results": []any{
+						map[string]any{"records": []any{map[string]any{"id": "DEV-381"}, map[string]any{"id": "DEV-382"}}},
+					},
+				}},
+			},
+		},
+	})
+	observer.Finish(context.Background())
+
+	joined := strings.Join(requests, "\n")
+	for _, want := range []string{"chat.startStream", "task_update", "Working+on+it", "searching+datasources", "2+results", "chat.stopStream"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("requests = %s\nmissing %q", joined, want)
+		}
+	}
+	if strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
+		t.Fatalf("requests leaked thinking text: %s", joined)
+	}
+}
+
 type fakePoster struct {
 	channel string
 	calls   int
@@ -190,15 +267,6 @@ func (p *fakePoster) PostMessageContext(_ context.Context, channelID string, opt
 	p.channel = channelID
 	p.calls++
 	return channelID, "456.7", nil
-}
-
-type fakeSearcher struct {
-	messages *slack.SearchMessages
-	err      error
-}
-
-func (s fakeSearcher) SearchMessagesContext(context.Context, string, slack.SearchParameters) (*slack.SearchMessages, error) {
-	return s.messages, s.err
 }
 
 type capturingClient struct {

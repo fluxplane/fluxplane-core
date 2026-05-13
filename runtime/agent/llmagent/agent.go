@@ -2,13 +2,16 @@ package llmagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/tool"
 )
@@ -26,11 +29,12 @@ var (
 
 // Agent implements agent.Agent using a provider-neutral model port.
 type Agent struct {
-	spec         agent.Spec
-	driver       corellmagent.Spec
-	model        Model
-	tools        []tool.Spec
-	streamPolicy StreamPolicy
+	spec             agent.Spec
+	driver           corellmagent.Spec
+	model            Model
+	tools            []tool.Spec
+	contextProviders []corecontext.Provider
+	streamPolicy     StreamPolicy
 }
 
 // Option configures an LLM agent.
@@ -45,6 +49,12 @@ func WithDriverSpec(spec corellmagent.Spec) Option {
 // WithTools sets the model-visible tool projections for this runtime agent.
 func WithTools(tools ...tool.Spec) Option {
 	return func(a *Agent) { a.tools = append([]tool.Spec(nil), tools...) }
+}
+
+// WithContextProviders sets model-visible context providers for this runtime
+// agent.
+func WithContextProviders(providers ...corecontext.Provider) Option {
+	return func(a *Agent) { a.contextProviders = append([]corecontext.Provider(nil), providers...) }
 }
 
 // StreamPolicy controls which transient model stream deltas are emitted
@@ -113,10 +123,16 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 	if ctx != nil {
 		base = ctx
 	}
+	base = coredatasource.ContextWithDetectionInput(base, detectionInput(input))
 	if err := base.Err(); err != nil {
 		return failed("context_canceled", err.Error(), nil)
 	}
 
+	dynamicContext, err := a.buildContext(base)
+	if err != nil {
+		return failed("context_provider_failed", err.Error(), nil)
+	}
+	input.Context = append(dynamicContext, input.Context...)
 	req := a.request(ctx, input)
 	provider := a.providerName(req)
 	emit(ctx, ModelRequested{Agent: a.spec.Name, Provider: provider, Model: modelName(req)})
@@ -190,6 +206,96 @@ func (a *Agent) request(ctx agent.Context, input agent.StepInput) Request {
 		Transcript:   transcriptFromContext(ctx),
 		State:        input.State,
 	}
+}
+
+func (a *Agent) buildContext(ctx context.Context) ([]corecontext.Block, error) {
+	if len(a.contextProviders) == 0 {
+		return nil, nil
+	}
+	ctx = a.withDatasourceAccess(ctx)
+	var out []corecontext.Block
+	for _, provider := range a.contextProviders {
+		if provider == nil {
+			continue
+		}
+		blocks, err := provider.Build(ctx, corecontext.Request{})
+		if err != nil {
+			return nil, fmt.Errorf("context provider %q: %w", provider.Spec().Name, err)
+		}
+		out = append(out, blocks...)
+	}
+	return out, nil
+}
+
+func detectionInput(input agent.StepInput) coredatasource.DetectionInput {
+	var sources []coredatasource.DetectionSource
+	for i, observation := range input.Observations {
+		if observation.Kind != "channel.message" {
+			continue
+		}
+		text := detectionText(observation.Content)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		sources = append(sources, coredatasource.DetectionSource{
+			ID:       fmt.Sprintf("observation-%d", i),
+			Kind:     observation.Kind,
+			Text:     text,
+			Metadata: stringMetadata(observation.Metadata),
+		})
+	}
+	return coredatasource.DetectionInput{Sources: sources}
+}
+
+func detectionText(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case map[string]any:
+		if text, ok := typed["text"].(string); ok {
+			return text
+		}
+	case map[string]string:
+		if text := typed["text"]; text != "" {
+			return text
+		}
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
+}
+
+func stringMetadata(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range values {
+		if text := strings.TrimSpace(fmt.Sprint(value)); text != "" && text != "<nil>" {
+			out[key] = text
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (a *Agent) withDatasourceAccess(ctx context.Context) context.Context {
+	if a == nil {
+		return ctx
+	}
+	names := make([]coredatasource.Name, 0, len(a.spec.Datasources))
+	for _, ref := range a.spec.Datasources {
+		if ref.Name != "" {
+			names = append(names, ref.Name)
+		}
+	}
+	return coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
 }
 
 func (a *Agent) providerName(req Request) string {

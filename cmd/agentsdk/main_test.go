@@ -132,6 +132,19 @@ func TestConnectProviderInfoUsesRegisteredProviders(t *testing.T) {
 	}
 }
 
+func TestRegisteredConnectorProvidersIncludeGitLabAndJira(t *testing.T) {
+	providers, err := registeredConnectorProviderNames(context.Background())
+	if err != nil {
+		t.Fatalf("registeredConnectorProviderNames: %v", err)
+	}
+	got := "," + strings.Join(providers, ",") + ","
+	for _, want := range []string{",gitlab,", ",jira,", ",slack,"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("providers = %#v, want %s", providers, strings.Trim(want, ","))
+		}
+	}
+}
+
 func TestServeListenerRequiresTCPAuthAndEnforcesBearer(t *testing.T) {
 	_, err := serveListenerHandler(appconfig.ListenerDoc{Name: "control", Type: "http", Addr: "127.0.0.1:0"}, http.NewServeMux())
 	if err == nil || !strings.Contains(err.Error(), "requires auth") {

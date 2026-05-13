@@ -4,6 +4,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/skill"
@@ -30,6 +31,9 @@ type SkillCatalog map[string]ResourceBinding[skill.Spec]
 // ContextProviderCatalog indexes context provider specs by canonical resource
 // ID address.
 type ContextProviderCatalog map[string]ResourceBinding[corecontext.ProviderSpec]
+
+// DatasourceCatalog indexes datasource specs by canonical resource ID address.
+type DatasourceCatalog map[string]ResourceBinding[coredatasource.Spec]
 
 // WorkflowCatalog indexes workflow specs by canonical resource ID address.
 type WorkflowCatalog map[string]ResourceBinding[workflow.Spec]

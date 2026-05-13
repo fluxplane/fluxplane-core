@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+## 0.5.0
+
+### Added
+
+- First-class datasource specs, registry, access policy, context catalog, and
+  generic `datasource_search` / `datasource_get` operations.
+- Connector-backed datasource providers for Slack users/channels/messages,
+  Jira issues/projects, GitLab projects, and local file documents.
+- Datasource entity capabilities, local reference detector specs, turn-scoped
+  `datasource.detected` context, and generic record crosslinks without
+  pre-turn datasource IO.
+- Slack streaming task-card progress for assistant turns, with tool updates and
+  final markdown streaming fallback.
+
+### Changed
+
+- App manifests can declare configured connector-backed datasource instances
+  and agents can grant datasource access by instance name.
+- `examples/slack-bot` now uses datasource instances for Slack, Jira, GitLab,
+  and local docs, with entity-filtered search guidance.
+- Datasource search rejects ambiguous broad searches when multiple entity types
+  are available and reports partial errors alongside successful results.
+
+### Fixed
+
+- Slack progress logging no longer exposes raw thinking text.
+- Datasource connector normalization now maps nested record fields explicitly
+  for Slack, Jira, and GitLab metadata.
+
 ## 0.4.0
 
 ### Added
