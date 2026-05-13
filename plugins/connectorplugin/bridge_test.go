@@ -156,6 +156,10 @@ func TestDatasourceActionMapsResultPathDefaultsAndMetadata(t *testing.T) {
 			"user":       {"user"},
 			"permalink":  {"permalink"},
 		},
+		RecordTransform: func(record coredatasource.Record) coredatasource.Record {
+			record.Metadata["transformed"] = "yes"
+			return record
+		},
 	}})
 	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
 		Name:      "slack-bot",
@@ -186,6 +190,9 @@ func TestDatasourceActionMapsResultPathDefaultsAndMetadata(t *testing.T) {
 	}
 	if record.Metadata["channel_id"] != "C1" || record.Metadata["channel"] != "deploys" || record.Metadata["user"] != "U1" || record.Metadata["permalink"] == "" {
 		t.Fatalf("metadata = %#v, want mapped Slack fields", record.Metadata)
+	}
+	if record.Metadata["transformed"] != "yes" {
+		t.Fatalf("metadata = %#v, want record transform applied", record.Metadata)
 	}
 	entities := provider.Entities()
 	if len(entities) != 1 || !entities[0].Supports(coredatasource.EntityCapabilitySearch) || entities[0].Supports(coredatasource.EntityCapabilityGet) {

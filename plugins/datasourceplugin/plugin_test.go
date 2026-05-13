@@ -108,6 +108,48 @@ func TestSearchSelectsEntitiesWithoutDatasourceInput(t *testing.T) {
 	}
 }
 
+func TestSearchRendersSlackMessageChannelIdentity(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "slack-bot", Entities: []coredatasource.EntityType{"slack.message"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "slack.message"},
+			records: []coredatasource.Record{{
+				ID:         "C04LYSEINTERNAL:1710000000.000100",
+				Datasource: "slack-bot",
+				Entity:     "slack.message",
+				Title:      "lyse-internal",
+				Content:    "The ticket has a short description first.",
+				URL:        "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+				Metadata: map[string]string{
+					"channel":    "lyse-internal",
+					"channel_id": "C04LYSEINTERNAL",
+					"permalink":  "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+				},
+			}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"slack-bot"},
+	}), nil)
+
+	result := New(registry).search(ctx, searchInput{Query: "lyse-internal", Entities: []string{"slack.message"}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	rendered := result.Output.(operation.Rendered)
+	for _, want := range []string{"#lyse-internal", "C04LYSEINTERNAL", "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100", "The ticket has a short description first."} {
+		if !strings.Contains(rendered.Text, want) {
+			t.Fatalf("rendered text = %q\nmissing %q", rendered.Text, want)
+		}
+	}
+	if strings.Contains(rendered.Text, "#ly-internal") {
+		t.Fatalf("rendered text = %q, channel name was shortened", rendered.Text)
+	}
+}
+
 func TestSearchRejectsAmbiguousBroadSearch(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{

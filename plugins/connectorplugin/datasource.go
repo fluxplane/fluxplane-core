@@ -13,26 +13,27 @@ import (
 
 // DatasourceAction maps one datasource entity to explicit connector operations.
 type DatasourceAction struct {
-	Entity         coredatasource.EntitySpec
-	Kind           string
-	SearchOp       string
-	GetOp          string
-	QueryParam     string
-	LimitParam     string
-	IDParam        string
-	CursorParam    string
-	NextCursorPath string
-	ResultPath     string
-	LocalFilter    bool
-	QueryValue     func(string) string
-	ParamDefaults  map[string]any
-	TitleFields    []string
-	TextFields     []string
-	URLFields      []string
-	IDFields       []string
-	MetadataFields map[string][]string
-	Relations      []DatasourceRelationAction
-	MaxPages       int
+	Entity          coredatasource.EntitySpec
+	Kind            string
+	SearchOp        string
+	GetOp           string
+	QueryParam      string
+	LimitParam      string
+	IDParam         string
+	CursorParam     string
+	NextCursorPath  string
+	ResultPath      string
+	LocalFilter     bool
+	QueryValue      func(string) string
+	ParamDefaults   map[string]any
+	TitleFields     []string
+	TextFields      []string
+	URLFields       []string
+	IDFields        []string
+	MetadataFields  map[string][]string
+	RecordTransform func(coredatasource.Record) coredatasource.Record
+	Relations       []DatasourceRelationAction
+	MaxPages        int
 }
 
 // DatasourceRelationAction maps one entity relationship to a connector operation.
@@ -450,7 +451,7 @@ func (a connectorAccessor) records(action DatasourceAction, entity coredatasourc
 }
 
 func (a connectorAccessor) record(action DatasourceAction, entity coredatasource.EntityType, item map[string]any) coredatasource.Record {
-	return coredatasource.Record{
+	record := coredatasource.Record{
 		ID:         firstString(item, append(action.IDFields, "id", "iid", "key")...),
 		Datasource: a.spec.Name,
 		Entity:     entity,
@@ -460,6 +461,10 @@ func (a connectorAccessor) record(action DatasourceAction, entity coredatasource
 		Metadata:   stringMetadata(item, action.MetadataFields),
 		Raw:        item,
 	}
+	if action.RecordTransform != nil {
+		record = action.RecordTransform(record)
+	}
+	return record
 }
 
 func flattenRecords(data any, paths ...string) []map[string]any {

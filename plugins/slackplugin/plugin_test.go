@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	connectoroperation "github.com/codewandler/connectors/operation"
 	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -17,6 +18,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
@@ -127,6 +129,87 @@ func TestPluginContributesSlackEntityDetectors(t *testing.T) {
 	}
 	if len(message.Detectors) != 1 || message.Detectors[0].Kind != coredatasource.DetectorURL || message.Detectors[0].IDTemplate == "" {
 		t.Fatalf("message detectors = %#v, want URL detector with stable id template", message.Detectors)
+	}
+}
+
+func TestNormalizeSlackMessageRecordKeepsCanonicalChannelMetadata(t *testing.T) {
+	record := normalizeSlackMessageRecord(coredatasource.Record{
+		Entity:  MessageEntity,
+		Title:   "lyse-internal",
+		Content: "deployment note",
+		URL:     "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+		Metadata: map[string]string{
+			"permalink": "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+		},
+	})
+
+	if record.Metadata["channel"] != "lyse-internal" {
+		t.Fatalf("channel metadata = %q, want lyse-internal", record.Metadata["channel"])
+	}
+	if record.Metadata["channel_id"] != "C04LYSEINTERNAL" {
+		t.Fatalf("channel_id metadata = %q, want permalink-derived channel id", record.Metadata["channel_id"])
+	}
+	if record.Metadata["permalink"] == "" {
+		t.Fatalf("metadata = %#v, want permalink preserved", record.Metadata)
+	}
+}
+
+func TestSlackMessageDatasourceSearchPreservesChannelIdentity(t *testing.T) {
+	executor := &slackDatasourceExecutor{
+		result: connectoroperation.Result{
+			Status: connectoroperation.StatusOK,
+			Data: map[string]any{
+				"messages": map[string]any{
+					"matches": []any{
+						map[string]any{
+							"iid":       "m1",
+							"ts":        "1710000000.000100",
+							"text":      "The ticket has a short description first.",
+							"permalink": "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+							"channel": map[string]any{
+								"name": "lyse-internal",
+							},
+							"user": "U1",
+						},
+					},
+				},
+			},
+		},
+	}
+	plugin := NewWithConnectors(nil, executor, []connectorplugin.Instance{{ID: "slack-bot", Kind: Name}})
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{
+		Name:      "slack-bot",
+		Connector: "slack-bot",
+		Kind:      Name,
+		Entities:  []coredatasource.EntityType{MessageEntity},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{
+		Entity: MessageEntity,
+		Query:  "lyse",
+		Limit:  5,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if executor.instanceID != "slack-bot" || executor.operation != "slack.message.search" {
+		t.Fatalf("executor call = instance %q operation %q", executor.instanceID, executor.operation)
+	}
+	if len(result.Records) != 1 {
+		t.Fatalf("records = %#v, want one", result.Records)
+	}
+	record := result.Records[0]
+	if record.Title != "lyse-internal" {
+		t.Fatalf("title = %q, want exact Slack channel name", record.Title)
+	}
+	if record.Metadata["channel"] != "lyse-internal" || record.Metadata["channel_id"] != "C04LYSEINTERNAL" || record.Metadata["permalink"] == "" {
+		t.Fatalf("metadata = %#v, want exact channel, permalink-derived channel_id, permalink", record.Metadata)
 	}
 }
 
@@ -299,9 +382,12 @@ func TestRunObserverStreamsRepeatedContentDeltas(t *testing.T) {
 	}
 	observer.Finish(context.Background(), "haha")
 
-	chunks := joinSlackChunks(requests)
-	if !strings.Contains(chunks, `"text":"haha"`) {
-		t.Fatalf("chunks = %s\nwant repeated deltas preserved as haha", chunks)
+	markdown := joinSlackMarkdown(requests)
+	if !strings.Contains(markdown, "haha") {
+		t.Fatalf("markdown = %s\nwant repeated deltas preserved as haha", markdown)
+	}
+	if strings.Contains(joinSlackRequests(requests), "chunks=") {
+		t.Fatalf("markdown stream used chunks: %s", joinSlackRequests(requests))
 	}
 }
 
@@ -348,6 +434,56 @@ func TestRunObserverPlanEventsUseTaskCards(t *testing.T) {
 	}
 }
 
+func TestRunObserverKeepsMarkdownAndTaskStreamParametersSeparate(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Append("**Summary**\n- item one\n")
+	if err := observer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	observer.Handle(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: planexecplugin.EventPlanCreated,
+			Payload: planexecplugin.PlanCreated{
+				PlanID: "plan_1",
+				Spec:   planexecplugin.PlanSpec{Title: "Plan", Steps: []planexecplugin.StepSpec{{ID: "step_1", Title: "Step"}}},
+			},
+		},
+	})
+	observer.Finish(context.Background(), "**Summary**\n- item one\nDone")
+
+	var sawMarkdownAppend, sawTaskAppend bool
+	for _, request := range *requests {
+		if request.path != "/chat.appendStream" {
+			continue
+		}
+		markdown := request.values.Get("markdown_text")
+		chunks := request.values.Get("chunks")
+		if markdown != "" && chunks != "" {
+			t.Fatalf("append request mixed markdown_text and chunks: %#v", request.values)
+		}
+		if markdown != "" {
+			sawMarkdownAppend = true
+			if markdown != "**Summary**\n- item one\n" {
+				t.Fatalf("markdown_text = %q, want raw markdown preserved", markdown)
+			}
+		}
+		if chunks != "" {
+			sawTaskAppend = true
+			if !strings.Contains(chunks, `"type":"task_update"`) {
+				t.Fatalf("chunks = %s, want task_update", chunks)
+			}
+		}
+	}
+	if !sawMarkdownAppend || !sawTaskAppend {
+		t.Fatalf("saw markdown append=%v task append=%v requests=%s", sawMarkdownAppend, sawTaskAppend, joinSlackRequests(requests))
+	}
+}
+
 func TestRunObserverRequeuesFailedMarkdownAppend(t *testing.T) {
 	appendAttempts := 0
 	server, requests := slackCaptureServer(t, func(w http.ResponseWriter, r *http.Request, _ string) bool {
@@ -377,9 +513,9 @@ func TestRunObserverRequeuesFailedMarkdownAppend(t *testing.T) {
 	if appendAttempts != 2 {
 		t.Fatalf("append attempts = %d, want 2", appendAttempts)
 	}
-	chunks := joinSlackChunks(requests)
-	if !strings.Contains(chunks, `"text":"recover me"`) {
-		t.Fatalf("chunks = %s\nwant requeued markdown append", chunks)
+	markdown := joinSlackMarkdown(requests)
+	if !strings.Contains(markdown, "recover me") {
+		t.Fatalf("markdown = %s\nwant requeued markdown append", markdown)
 	}
 }
 
@@ -494,6 +630,16 @@ func joinSlackChunks(requests *[]capturedSlackRequest) string {
 	return strings.Join(chunks, "\n")
 }
 
+func joinSlackMarkdown(requests *[]capturedSlackRequest) string {
+	var markdown []string
+	for _, request := range *requests {
+		if text := request.values.Get("markdown_text"); text != "" {
+			markdown = append(markdown, text)
+		}
+	}
+	return strings.Join(markdown, "\n")
+}
+
 type fakePoster struct {
 	channel string
 	calls   int
@@ -504,6 +650,21 @@ func (p *fakePoster) PostMessageContext(_ context.Context, channelID string, opt
 	p.channel = channelID
 	p.calls++
 	return channelID, "456.7", nil
+}
+
+type slackDatasourceExecutor struct {
+	instanceID string
+	operation  string
+	params     map[string]any
+	result     connectoroperation.Result
+	err        error
+}
+
+func (e *slackDatasourceExecutor) ExecWithInstance(_ context.Context, instanceID, opName, _ string, params map[string]any) (connectoroperation.Result, error) {
+	e.instanceID = instanceID
+	e.operation = opName
+	e.params = params
+	return e.result, e.err
 }
 
 type capturingClient struct {

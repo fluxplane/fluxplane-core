@@ -727,6 +727,9 @@ func renderSearchRecord(result coredatasource.SearchResult, record coredatasourc
 	if record.Title != "" && record.Title != record.ID {
 		line += " - " + record.Title
 	}
+	if metadata := renderSlackMessageMetadata(record); metadata != "" {
+		line += " [" + metadata + "]"
+	}
 	if strings.TrimSpace(line) == "-" {
 		line = "- " + record.Title
 	}
@@ -734,6 +737,51 @@ func renderSearchRecord(result coredatasource.SearchResult, record coredatasourc
 		line = "- " + record.ID
 	}
 	return line
+}
+
+func renderSlackMessageMetadata(record coredatasource.Record) string {
+	if record.Entity != "slack.message" {
+		return ""
+	}
+	channel := strings.TrimSpace(record.Metadata["channel"])
+	channelID := strings.TrimSpace(record.Metadata["channel_id"])
+	permalink := strings.TrimSpace(firstMetadataNonEmpty(record.Metadata["permalink"], record.URL))
+	var parts []string
+	if channel != "" || channelID != "" {
+		label := ""
+		if channel != "" {
+			label = slackChannelLabel(channel)
+		}
+		if channelID != "" {
+			if label != "" {
+				label += " (" + channelID + ")"
+			} else {
+				label = channelID
+			}
+		}
+		parts = append(parts, "channel="+label)
+	}
+	if permalink != "" {
+		parts = append(parts, "message="+permalink)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func slackChannelLabel(channel string) string {
+	channel = strings.TrimSpace(channel)
+	if channel == "" || strings.HasPrefix(channel, "#") {
+		return channel
+	}
+	return "#" + channel
+}
+
+func firstMetadataNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func plural(count int, singular string) string {

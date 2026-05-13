@@ -208,6 +208,7 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 				"permalink":  {"permalink"},
 				"timestamp":  {"ts"},
 			},
+			RecordTransform: normalizeSlackMessageRecord,
 		},
 	})}, nil
 }
@@ -250,6 +251,41 @@ type Message struct {
 	Username  string `json:"username,omitempty" datasource:"searchable" jsonschema:"description=Slack username."`
 	Text      string `json:"text,omitempty" datasource:"searchable" jsonschema:"description=Message text."`
 	Permalink string `json:"permalink,omitempty" datasource:"url" jsonschema:"description=Slack permalink."`
+}
+
+func normalizeSlackMessageRecord(record coredatasource.Record) coredatasource.Record {
+	if record.Metadata == nil {
+		record.Metadata = map[string]string{}
+	}
+	if record.URL != "" && record.Metadata["permalink"] == "" {
+		record.Metadata["permalink"] = record.URL
+	}
+	if record.Metadata["channel_id"] == "" {
+		record.Metadata["channel_id"] = slackChannelIDFromPermalink(firstNonEmpty(record.Metadata["permalink"], record.URL))
+	}
+	if record.Metadata["channel"] == "" && record.Title != "" {
+		record.Metadata["channel"] = strings.TrimPrefix(record.Title, "#")
+	}
+	if record.Title == "" && record.Metadata["channel"] != "" {
+		record.Title = record.Metadata["channel"]
+	}
+	if len(record.Metadata) == 0 {
+		record.Metadata = nil
+	}
+	return record
+}
+
+func slackChannelIDFromPermalink(permalink string) string {
+	const marker = "/archives/"
+	index := strings.Index(permalink, marker)
+	if index < 0 {
+		return ""
+	}
+	rest := permalink[index+len(marker):]
+	if cut := strings.IndexAny(rest, "/?#"); cut >= 0 {
+		rest = rest[:cut]
+	}
+	return strings.TrimSpace(rest)
 }
 
 func channelSendSpec() operation.Spec {

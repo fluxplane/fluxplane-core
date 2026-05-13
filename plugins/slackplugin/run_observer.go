@@ -519,7 +519,7 @@ func (o *runObserver) startStream(ctx context.Context) error {
 }
 
 func (o *runObserver) appendMarkdown(ctx context.Context, text string) error {
-	return o.appendChunks(ctx, slack.NewMarkdownTextChunk(text))
+	return o.appendStream(ctx, slack.MsgOptionMarkdownText(text))
 }
 
 func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCardStatus, details, output string) {
@@ -542,6 +542,10 @@ func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCa
 }
 
 func (o *runObserver) appendChunks(ctx context.Context, chunks ...slack.StreamChunk) error {
+	return o.appendStream(ctx, slack.MsgOptionChunks(chunks...))
+}
+
+func (o *runObserver) appendStream(ctx context.Context, options ...slack.MsgOption) error {
 	o.mu.Lock()
 	ts := o.streamTS
 	o.mu.Unlock()
@@ -552,10 +556,8 @@ func (o *runObserver) appendChunks(ctx context.Context, chunks ...slack.StreamCh
 	defer cancel()
 	var err error
 	for attempt := 0; attempt <= slackAppendRetries; attempt++ {
-		_, _, err = o.channel.api.PostMessageContext(ctx, o.target.ChannelID,
-			slack.MsgOptionAppendStream(ts),
-			slack.MsgOptionChunks(chunks...),
-		)
+		callOptions := append([]slack.MsgOption{slack.MsgOptionAppendStream(ts)}, options...)
+		_, _, err = o.channel.api.PostMessageContext(ctx, o.target.ChannelID, callOptions...)
 		if err == nil {
 			return nil
 		}
