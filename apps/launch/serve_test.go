@@ -7,7 +7,7 @@ import (
 
 	"github.com/codewandler/connectors/connector"
 	"github.com/codewandler/connectors/credential"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 )
 
@@ -29,7 +29,7 @@ func TestServeChannelsUsesEmptySlackConnectorFallback(t *testing.T) {
 		t.Fatalf("Save credentials: %v", err)
 	}
 
-	channels, err := serveChannels(ctx, []appconfig.ChannelDoc{{
+	channels, err := serveChannels(ctx, []distribution.Channel{{
 		Name:    "slack-main",
 		Type:    "slack",
 		Session: "slack-main",

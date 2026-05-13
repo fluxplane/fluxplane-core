@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
@@ -29,6 +31,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
+	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
@@ -45,12 +48,38 @@ type LocalRuntimeConfig struct {
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	AllowPrivateNetwork bool
-	Connectors          map[string]distribution.Connector
+	Launch              distribution.LaunchConfig
 	AuthPath            string
 }
 
 type AttachOptions struct {
 	AuthPath string
+}
+
+// RuntimeOptions describes the surface-neutral local launch inputs shared by
+// run, serve, and first-party distribution executables.
+type RuntimeOptions struct {
+	Root                string
+	Spec                coredistribution.Spec
+	Bundles             []resource.ContributionBundle
+	Launch              distribution.LaunchConfig
+	AuthPath            string
+	Provider            string
+	Model               string
+	Debug               bool
+	Plugins             func(system.System) []pluginhost.Plugin
+	ToolProjection      agentruntime.ToolProjectionConfig
+	AllowPrivateNetwork bool
+}
+
+// Runtime is the composed local runtime plus the resources needed by hosting
+// surfaces such as serve.
+type Runtime struct {
+	Service     agentruntime.ChannelClient
+	Composition app.Composition
+	System      system.System
+	Dispatcher  *slackplugin.Dispatcher
+	Close       func()
 }
 
 // AttachLocalRuntime gives a loaded distribution the concrete local session
@@ -68,7 +97,7 @@ func AttachLocalRuntimeWithOptions(loaded distribution.Loaded, opts AttachOption
 		Spec:                loaded.Distribution.Spec,
 		Bundles:             loaded.Distribution.Bundles,
 		AllowPrivateNetwork: true,
-		Connectors:          loaded.Launch.Connectors,
+		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
 	})
 	return loaded
@@ -95,44 +124,96 @@ func needsLocalRuntimeOpener(runtime distribution.Runtime) bool {
 }
 
 func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
-	root := cfg.Root
+	runtime, err := Launch(ctx, RuntimeOptions{
+		Root:                cfg.Root,
+		Spec:                cfg.Spec,
+		Bundles:             cfg.Bundles,
+		Launch:              cfg.Launch,
+		AuthPath:            cfg.AuthPath,
+		Provider:            req.Provider,
+		Model:               req.Model,
+		Debug:               req.Debug,
+		Plugins:             cfg.Plugins,
+		ToolProjection:      cfg.ToolProjection,
+		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
+	})
+	if err != nil {
+		return nil, err
+	}
+	session, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      req.Session,
+		Conversation: req.Conversation,
+	})
+	if err != nil {
+		runtime.Close()
+		return nil, err
+	}
+	return &sessionWithRuntime{SessionHandle: session, closeRuntime: runtime.Close}, nil
+}
+
+type sessionWithRuntime struct {
+	clientapi.SessionHandle
+	closeOnce    sync.Once
+	closeRuntime func()
+}
+
+func (s *sessionWithRuntime) Close(ctx context.Context) error {
+	err := s.SessionHandle.Close(ctx)
+	if s.closeRuntime != nil {
+		s.closeOnce.Do(s.closeRuntime)
+	}
+	return err
+}
+
+// Launch composes a loaded distribution into a runnable local service.
+func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
+	root := opts.Root
 	if strings.TrimSpace(root) == "" {
 		root = "."
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
-		return nil, err
+		return Runtime{}, err
 	}
-	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: cfg.AllowPrivateNetwork})
+	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: opts.AllowPrivateNetwork})
 	if err != nil {
-		return nil, err
+		return Runtime{}, err
 	}
 	hostSystem.SetClarifier(terminalui.Prompter{In: os.Stdin, Out: os.Stderr})
 	browser, err := browsercdp.New(browsercdp.Config{Workspace: hostSystem.Workspace(), Headless: true})
 	if err == nil {
 		hostSystem.SetBrowser(browser)
-	} else if req.Debug {
+	} else if opts.Debug {
 		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
 	}
 
-	connectorEngine, connectorInstances, err := runConnectorEngine(ctx, cfg.AuthPath, cfg.Connectors)
+	connectorEngine, connectorInstances, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
 	if err != nil {
-		return nil, err
+		return Runtime{}, err
 	}
-	if connectorEngine != nil {
-		defer func() { _ = connectorEngine.Close() }()
+	closeRuntime := func() {
+		if connectorEngine != nil {
+			_ = connectorEngine.Close()
+		}
 	}
 
-	bundles := cloneBundles(cfg.Bundles)
+	dispatcher := slackplugin.NewDispatcher()
+	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
-	plugins := basePlugins(hostSystem, connectorEngine, connectorInstances)
-	if cfg.Plugins != nil {
-		plugins = cfg.Plugins(hostSystem)
+	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher)
+	if opts.Plugins != nil {
+		available = opts.Plugins(hostSystem)
+	}
+	plugins, err := selectDeclaredPlugins(bundles, available)
+	if err != nil {
+		closeRuntime()
+		return Runtime{}, err
 	}
 	if hasAnyDatasource(bundles) {
 		registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 		if err != nil {
-			return nil, err
+			closeRuntime()
+			return Runtime{}, err
 		}
 		plugins = append(plugins, datasourceplugin.New(registry))
 		ensurePluginRef(bundles, datasourceplugin.Name)
@@ -150,17 +231,18 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		})),
 	})
 	if err != nil {
-		return nil, err
+		closeRuntime()
+		return Runtime{}, err
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		LLMModelResolver: distrun.ModelResolver{
-			Provider:     req.Provider,
-			Model:        req.Model,
-			DefaultModel: cfg.Spec.DefaultModel.Model,
-			Debug:        req.Debug,
+			Provider:     opts.Provider,
+			Model:        opts.Model,
+			DefaultModel: opts.Spec.DefaultModel.Model,
+			Debug:        opts.Debug,
 		},
-		LLMStreamPolicy: distrun.DebugStreamPolicy(req.Debug),
-		ToolProjection: firstToolProjection(cfg.ToolProjection, agentruntime.ToolProjectionConfig{
+		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
+		ToolProjection: firstToolProjection(opts.ToolProjection, agentruntime.ToolProjectionConfig{
 			AllowSideEffects:      true,
 			MaxRisk:               operation.RiskMedium,
 			IncludeBareOperations: true,
@@ -177,12 +259,16 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
 	})
 	if err != nil {
-		return nil, err
+		closeRuntime()
+		return Runtime{}, err
 	}
-	return service.Open(ctx, agentruntime.OpenRequest{
-		Session:      req.Session,
-		Conversation: req.Conversation,
-	})
+	return Runtime{
+		Service:     service,
+		Composition: composition,
+		System:      hostSystem,
+		Dispatcher:  dispatcher,
+		Close:       closeRuntime,
+	}, nil
 }
 
 func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agentruntime.ToolProjectionConfig {
@@ -197,10 +283,10 @@ func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agen
 	return fallback
 }
 
-func basePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance) []pluginhost.Plugin {
-	dispatcher := slackplugin.NewDispatcher()
+func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		codingplugin.New(hostSystem),
+		openaiplugin.New(),
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
 		gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name)),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
@@ -211,11 +297,48 @@ func basePlugins(hostSystem system.System, connectorEngine connectorplugin.Execu
 	}
 }
 
-func runConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
+func connectorInstancesForKind(instances []connectorplugin.Instance, kind string) []connectorplugin.Instance {
+	var out []connectorplugin.Instance
+	for _, instance := range instances {
+		if instance.Kind == kind {
+			out = append(out, instance)
+		}
+	}
+	return out
+}
+
+func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pluginhost.Plugin) ([]pluginhost.Plugin, error) {
+	byName := map[string]pluginhost.Plugin{}
+	for _, plugin := range available {
+		if plugin == nil {
+			continue
+		}
+		name := strings.TrimSpace(plugin.Manifest().Name)
+		if name == "" {
+			return nil, fmt.Errorf("launch: plugin has empty name")
+		}
+		if _, exists := byName[name]; exists {
+			return nil, fmt.Errorf("launch: plugin %q is registered more than once", name)
+		}
+		byName[name] = plugin
+	}
+	refs := pluginRefs(bundles)
+	plugins := make([]pluginhost.Plugin, 0, len(refs))
+	for _, ref := range refs {
+		plugin, ok := byName[ref.Name]
+		if !ok {
+			return nil, fmt.Errorf("launch: plugin %q is not available", ref.Name)
+		}
+		plugins = append(plugins, plugin)
+	}
+	return plugins, nil
+}
+
+func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
 	if len(connectors) == 0 {
 		return nil, nil, nil
 	}
-	engine, providers, err := newServeConnectEngine(ctx, authPath)
+	engine, providers, err := newConnectEngine(ctx, authPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -234,28 +357,101 @@ func runConnectorEngine(ctx context.Context, authPath string, connectors map[str
 		kind := strings.TrimSpace(connector.Kind)
 		if kind == "" {
 			_ = engine.Close()
-			return nil, nil, fmt.Errorf("run: connector instance %q kind is empty", instanceID)
+			return nil, nil, fmt.Errorf("launch: connector instance %q kind is empty", instanceID)
 		}
 		if !knownProviders[kind] {
 			_ = engine.Close()
-			return nil, nil, fmt.Errorf("run: connector instance %q uses unknown provider %q (available: %s)", instanceID, kind, strings.Join(providers, ", "))
+			return nil, nil, fmt.Errorf("launch: connector instance %q uses unknown provider %q (available: %s)", instanceID, kind, strings.Join(providers, ", "))
 		}
 		stored, err := engine.Instances.Load(ctx, instanceID)
 		if err != nil {
 			_ = engine.Close()
-			return nil, nil, fmt.Errorf("run: load connector instance %q: %w", instanceID, err)
+			return nil, nil, fmt.Errorf("launch: load connector instance %q: %w", instanceID, err)
 		}
 		if stored.Connector != kind {
 			_ = engine.Close()
-			return nil, nil, fmt.Errorf("run: connector instance %q has kind %q, want %q", instanceID, stored.Connector, kind)
+			return nil, nil, fmt.Errorf("launch: connector instance %q has kind %q, want %q", instanceID, stored.Connector, kind)
 		}
 		if err := engine.ConnectInstance(ctx, instanceID); err != nil {
 			_ = engine.Close()
-			return nil, nil, fmt.Errorf("run: connect %s connector instance %q: %w", kind, instanceID, err)
+			return nil, nil, fmt.Errorf("launch: connect %s connector instance %q: %w", kind, instanceID, err)
 		}
 		instances = append(instances, connectorplugin.Instance{ID: instanceID, Kind: kind})
 	}
 	return engine, instances, nil
+}
+
+func newConnectEngine(ctx context.Context, basePath string) (*connectorsruntime.Engine, []string, error) {
+	providers, err := connectorProviderNames(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(providers) == 0 {
+		return nil, nil, fmt.Errorf("connect: no connector providers registered")
+	}
+	resolvedPath, err := resolveConnectorsPath(basePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	engine, err := integrate.Engine(
+		integrate.WithBasePath(resolvedPath),
+		integrate.WithAllowList(providers...),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return engine, providers, nil
+}
+
+func connectorProviderNames(ctx context.Context) ([]string, error) {
+	plugins := []pluginhost.Plugin{
+		openaiplugin.New(),
+		slackplugin.New(nil),
+		gitlabplugin.New(nil, nil),
+		jiraplugin.New(nil, nil),
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, plugin := range plugins {
+		contributor, ok := plugin.(pluginhost.ConnectorProviderContributor)
+		if !ok {
+			continue
+		}
+		manifest := plugin.Manifest()
+		providers, err := contributor.ConnectorProviders(ctx, pluginhost.Context{Ref: resource.PluginRef{Name: manifest.Name}})
+		if err != nil {
+			return nil, err
+		}
+		for _, provider := range providers {
+			name := strings.TrimSpace(provider.Name)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func resolveConnectorsPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "~/.connectors"
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if path == "~" {
+			path = home
+		} else {
+			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path, nil
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
@@ -338,7 +534,22 @@ func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
 
 func cloneBundles(bundles []resource.ContributionBundle) []resource.ContributionBundle {
 	out := make([]resource.ContributionBundle, len(bundles))
-	copy(out, bundles)
+	for i, bundle := range bundles {
+		out[i] = bundle
+		out[i].Apps = append(out[i].Apps[:0:0], bundle.Apps...)
+		out[i].Agents = append(out[i].Agents[:0:0], bundle.Agents...)
+		out[i].OperationSets = append(out[i].OperationSets[:0:0], bundle.OperationSets...)
+		out[i].Operations = append(out[i].Operations[:0:0], bundle.Operations...)
+		out[i].Commands = append(out[i].Commands[:0:0], bundle.Commands...)
+		out[i].Datasources = append(out[i].Datasources[:0:0], bundle.Datasources...)
+		out[i].Sessions = append(out[i].Sessions[:0:0], bundle.Sessions...)
+		out[i].Skills = append(out[i].Skills[:0:0], bundle.Skills...)
+		out[i].ContextProviders = append(out[i].ContextProviders[:0:0], bundle.ContextProviders...)
+		out[i].Workflows = append(out[i].Workflows[:0:0], bundle.Workflows...)
+		out[i].EventTypes = append(out[i].EventTypes[:0:0], bundle.EventTypes...)
+		out[i].Plugins = append(out[i].Plugins[:0:0], bundle.Plugins...)
+		out[i].Diagnostics = append(out[i].Diagnostics[:0:0], bundle.Diagnostics...)
+	}
 	return out
 }
 

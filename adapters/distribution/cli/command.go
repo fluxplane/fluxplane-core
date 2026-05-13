@@ -88,6 +88,7 @@ func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOpt
 	if err != nil {
 		return err
 	}
+	defer func() { _ = session.Close(ctx) }()
 	return terminalui.RunTurn(ctx, session, opts.Input, terminalOptions(opts), usage.NewTracker())
 }
 
@@ -96,6 +97,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 	if err != nil {
 		return err
 	}
+	defer func() { _ = session.Close(ctx) }()
 	name := strings.TrimSpace(opts.Prompt)
 	if name == "" {
 		name = dist.Spec.Name

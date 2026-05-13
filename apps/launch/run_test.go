@@ -8,9 +8,12 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
@@ -57,12 +60,76 @@ func TestAttachLocalRuntimePreservesConcreteRuntime(t *testing.T) {
 }
 
 func TestRunConnectorEngineRejectsUnknownProvider(t *testing.T) {
-	_, _, err := runConnectorEngine(context.Background(), t.TempDir(), map[string]distribution.Connector{
+	_, _, err := launchConnectorEngine(context.Background(), t.TempDir(), map[string]distribution.Connector{
 		"unknown": {Kind: "does-not-exist"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
-		t.Fatalf("runConnectorEngine error = %v, want unknown provider", err)
+		t.Fatalf("launchConnectorEngine error = %v, want unknown provider", err)
 	}
+}
+
+func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: textplugin.Name}},
+		}},
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	if !hasOperationSpec(runtime, "upper") {
+		t.Fatal("expected text plugin operation upper")
+	}
+	if hasOperationSpec(runtime, "shell_exec") {
+		t.Fatal("did not expect coding shell operation without coding plugin ref")
+	}
+}
+
+func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
+	_, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: "missing"}},
+		}},
+		AllowPrivateNetwork: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), `plugin "missing" is not available`) {
+		t.Fatalf("Launch error = %v, want missing plugin", err)
+	}
+}
+
+func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: codingplugin.Name}},
+		}},
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	if !hasOperationSpec(runtime, "shell_exec") {
+		t.Fatal("expected coding plugin shell operation")
+	}
+	if !hasOperationSpec(runtime, "file_read") {
+		t.Fatal("expected coding plugin filesystem operation")
+	}
+}
+
+func hasOperationSpec(runtime Runtime, name string) bool {
+	for _, spec := range runtime.Composition.OperationSpecs {
+		if string(spec.Ref.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeRuntime struct{}
