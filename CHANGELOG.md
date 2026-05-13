@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `plugins/planexec` with `delegate` and `plan` operations for supervised
+  sub-agent tasks and synchronous DAG step execution.
+- Generic `orchestration/subagent` supervisor with delegation-policy checks,
+  capacity limits, cancellation, result lookup, and typed progress events.
+- Terminal and Slack rendering hooks for sub-agent and plan progress events.
+
 ## 0.5.0
 
 ### Added

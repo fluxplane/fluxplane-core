@@ -13,6 +13,7 @@ const (
 	AgentName        = "coder"
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
+	PlanExecPlugin   = "planexec"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 )
@@ -46,6 +47,7 @@ func Bundle() resource.ContributionBundle {
 			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
 			"code_execute",
 			"clarify",
+			"delegate", "plan",
 		).
 		Build()
 
@@ -58,12 +60,18 @@ func Bundle() resource.ContributionBundle {
 		WithDescription("Small local coding agent app.").
 		WithModel("openai", DefaultModel, "coding").
 		WithPlugin(resource.PluginRef{Name: CodingPlugin}).
+		WithPlugin(resource.PluginRef{Name: PlanExecPlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
 			Name:        SessionName,
 			Description: "Default local coding session.",
 			Agent:       agent.Ref{Name: AgentName},
 			Metadata:    map[string]string{"app": AppName},
+			Delegation: coresession.DelegationPolicy{
+				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
+				MaxParallel:     4,
+				DefaultTimeout:  "10m",
+			},
 		}).
 		Build()
 }

@@ -20,6 +20,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
@@ -153,7 +154,85 @@ func New(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	service.SetSubagentSupervisor(subagent.New(subagent.Config{
+		Client: subagentClient{client: client},
+		ResolveProfile: subagent.ProfileResolverFunc(func(_ context.Context, ref coresession.Ref) (coresession.Spec, error) {
+			binding, err := cfg.SessionCatalog.Resolve(string(ref.Name))
+			if err != nil {
+				return coresession.Spec{}, err
+			}
+			return binding.Spec, nil
+		}),
+	}))
 	return &Service{harness: service, client: client}, nil
+}
+
+type subagentClient struct {
+	client ChannelClient
+}
+
+func (c subagentClient) Open(ctx context.Context, req subagent.OpenRequest) (subagent.Session, error) {
+	session, err := c.client.Open(ctx, OpenRequest{
+		Session:      req.Session,
+		Conversation: req.Conversation,
+		Metadata:     req.Metadata,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return subagentSession{session: session}, nil
+}
+
+type subagentSession struct {
+	session Session
+}
+
+func (s subagentSession) Info() subagent.SessionInfo {
+	info := s.session.Info()
+	return subagent.SessionInfo{Thread: info.Thread}
+}
+
+func (s subagentSession) SendInput(ctx context.Context, input subagent.Input) (subagent.Run, error) {
+	run, err := s.session.SendInput(ctx, Input{Text: input.Text, Metadata: input.Metadata})
+	if err != nil {
+		return nil, err
+	}
+	return subagentRun{run: run}, nil
+}
+
+type subagentRun struct {
+	run Run
+}
+
+func (r subagentRun) ID() string { return string(r.run.ID()) }
+
+func (r subagentRun) Events() <-chan subagent.RunEvent {
+	out := make(chan subagent.RunEvent, 16)
+	go func() {
+		defer close(out)
+		for event := range r.run.Events() {
+			converted := subagent.RunEvent{Kind: string(event.Kind)}
+			if event.Operation != nil {
+				converted.Operation = event.Operation.Operation.String()
+			}
+			if event.Runtime != nil {
+				converted.Runtime = string(event.Runtime.Name)
+			}
+			out <- converted
+		}
+	}()
+	return out
+}
+
+func (r subagentRun) Wait(ctx context.Context) (subagent.RunResult, error) {
+	result, err := r.run.Wait(ctx)
+	if err != nil {
+		return subagent.RunResult{}, err
+	}
+	if result.Outbound != nil && result.Outbound.Message != nil {
+		return subagent.RunResult{Text: fmt.Sprint(result.Outbound.Message.Content)}, nil
+	}
+	return subagent.RunResult{}, nil
 }
 
 // NewFromComposition assembles an in-process runtime service from composed app

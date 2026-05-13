@@ -17,6 +17,7 @@ const (
 	EventOperationRequested event.Name = "session.operation.requested"
 	EventOperationCompleted event.Name = "session.operation.completed"
 	EventOutboundProduced   event.Name = "session.outbound.produced"
+	EventRuntimeEmitted     event.Name = "session.runtime.emitted"
 )
 
 // InputReceived records inbound conversational input accepted by the session
@@ -88,3 +89,13 @@ type OutboundProduced struct {
 }
 
 func (OutboundProduced) EventName() event.Name { return EventOutboundProduced }
+
+// RuntimeEmitted records selected runtime/domain events that should be
+// replayable through the session event stream.
+type RuntimeEmitted struct {
+	RunID   string     `json:"run_id,omitempty"`
+	Name    event.Name `json:"name"`
+	Payload any        `json:"payload,omitempty"`
+}
+
+func (RuntimeEmitted) EventName() event.Name { return EventRuntimeEmitted }

@@ -12,6 +12,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 )
@@ -158,28 +160,110 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 		slog.Warn("slack run model failed", "channel", o.channel.name, "run", event.RunID, "provider", payload.Provider, "model", payload.Model, "error", payload.Error)
 	case llmagent.ModelStreamed:
 		o.handleModelStream(event.RunID, payload.Event)
+	case planexecplugin.PlanCreated:
+		o.handlePlanCreated(payload)
+	case planexecplugin.StepDispatched:
+		o.handlePlanStepDispatched(payload)
+	case planexecplugin.StepProgressed:
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusInProgress, payload.Message)
+	case planexecplugin.StepCompleted:
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusComplete, payload.Output)
+	case planexecplugin.StepFailed:
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusError, payload.Error)
+	case planexecplugin.PlanCompleted:
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan completed", slack.TaskCardStatusComplete, payload.Summary)
+	case planexecplugin.PlanFailed:
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan failed", slack.TaskCardStatusError, payload.Reason)
+	case subagent.Started:
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusInProgress, payload.Task)
+	case subagent.Completed:
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusComplete, payload.Output)
+	case subagent.Failed:
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, payload.Error)
+	case subagent.Cancelled:
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, payload.Reason)
 	case map[string]any:
 		o.handleRuntimeMap(event, payload)
 	}
 }
 
 func (o *runObserver) handleRuntimeMap(event clientapi.Event, payload map[string]any) {
-	if string(event.Runtime.Name) != string(llmagent.EventModelStreamedName) {
-		return
+	switch string(event.Runtime.Name) {
+	case string(llmagent.EventModelStreamedName):
+		raw, ok := payload["event"]
+		if !ok {
+			return
+		}
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return
+		}
+		var streamEvent llmagent.StreamEvent
+		if err := json.Unmarshal(data, &streamEvent); err != nil {
+			return
+		}
+		o.handleModelStream(event.RunID, streamEvent)
+	case string(planexecplugin.EventPlanCreated):
+		var typed planexecplugin.PlanCreated
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.handlePlanCreated(typed)
+		}
+	case string(planexecplugin.EventStepDispatched):
+		var typed planexecplugin.StepDispatched
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.handlePlanStepDispatched(typed)
+		}
+	case string(planexecplugin.EventStepProgressed):
+		var typed planexecplugin.StepProgressed
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusInProgress, typed.Message)
+		}
+	case string(planexecplugin.EventStepCompleted):
+		var typed planexecplugin.StepCompleted
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusComplete, typed.Output)
+		}
+	case string(planexecplugin.EventStepFailed):
+		var typed planexecplugin.StepFailed
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusError, typed.Error)
+		}
 	}
-	raw, ok := payload["event"]
-	if !ok {
-		return
+}
+
+func (o *runObserver) handlePlanCreated(event planexecplugin.PlanCreated) {
+	o.appendTaskUpdate("plan:"+event.PlanID, event.Spec.Title, slack.TaskCardStatusInProgress, event.Spec.Description)
+	for _, step := range event.Spec.Steps {
+		o.appendTaskUpdate(planTaskID(event.PlanID, step.ID), step.Title, slack.TaskCardStatusPending, "")
 	}
-	data, err := json.Marshal(raw)
+}
+
+func (o *runObserver) handlePlanStepDispatched(event planexecplugin.StepDispatched) {
+	title := event.Title
+	if title == "" {
+		title = "Step " + event.StepID
+	}
+	detail := event.Profile
+	if event.WorkerID != "" {
+		detail = strings.TrimSpace(detail + " " + string(event.WorkerID))
+	}
+	o.appendTaskUpdate(planTaskID(event.PlanID, event.StepID), title, slack.TaskCardStatusInProgress, detail)
+}
+
+func decodeRuntimeMap(payload map[string]any, out any) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return
+		return err
 	}
-	var streamEvent llmagent.StreamEvent
-	if err := json.Unmarshal(data, &streamEvent); err != nil {
-		return
-	}
-	o.handleModelStream(event.RunID, streamEvent)
+	return json.Unmarshal(data, out)
+}
+
+func planTaskID(planID, stepID string) string {
+	return "plan:" + planID + ":" + stepID
+}
+
+func delegateTaskID(workerID subagent.ID) string {
+	return "delegate:" + string(workerID)
 }
 
 func (o *runObserver) handleModelStream(runID clientapi.RunID, event llmagent.StreamEvent) {

@@ -57,6 +57,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -642,6 +643,7 @@ func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 		slackPlugin,
 		gitlabPlugin,
 		jiraPlugin,
+		planexecplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),
 	}
@@ -1106,6 +1108,7 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 		Bundles: []agentruntime.ResourceBundle{bundle},
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(hostSystem),
+			planexecplugin.New(),
 		},
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:        localSandbox{Root: root},

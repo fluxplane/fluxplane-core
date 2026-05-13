@@ -799,9 +799,11 @@ Still intentionally incomplete:
   toolkit live adapters should use.
 - There is no terminal/slash parser, Slack adapter, Anthropic/local model
   provider adapter, or approval UX yet.
-- There is no child-session supervisor or plan executor yet. The old
-  `harness/worker` and `capabilities/planexec` concepts are scheduled; the
-  current session profile model only reserves the delegation shape.
+- A first child-session supervisor and `plugins/planexec` implementation now
+  exist. `delegate` handles ad-hoc sub-agent tasks and `plan` executes a DAG
+  synchronously through supervised child sessions so terminal and Slack adapters
+  can render progress during the parent run. Durable replay/checkpointing of
+  plan state remains future work.
 - Event subscription authorization is noted but not implemented beyond the
   current policy/trust/sensitivity model foundations.
 
@@ -831,9 +833,10 @@ Definition of done for that batch:
 - A resource/app consumer can load an app directory, compose commands,
   operations, agents, context providers, and plugins, then open a session
   through the same `ChannelClient` API.
-- Configured sessions can express future delegation boundaries without
-  enabling them yet: allowed sub-agent profiles, concurrency limit, timeout,
-  context/command narrowing, and parent/child causation policy.
+- Configured sessions can express delegation boundaries and the first
+  `plugins/planexec` slice can execute allowed child profiles through those
+  boundaries: allowed sub-agent profiles, concurrency limit, timeout, and
+  parent/child causation policy.
 - A daemon can start configured sessions from app resources, attach event
   triggers, expose a control API for process/admin state, and expose a channel
   API for user/client submissions without mixing those two HTTP surfaces.
@@ -870,12 +873,12 @@ Recommended order:
    open them on trigger/client demand. Keep user/client traffic on
    `ChannelClient` either way.
 
-4. **Sub-Agent Supervisor Shape**
-   Add pure delegation policy/spec types only if needed by configured sessions.
-   Do not implement worker execution in this batch. The future runtime should
-   preserve the old worker manager's useful properties: capacity limits,
-   cancellation, progress callbacks/events, prepare-then-start dispatch, and
-   parent/child causation.
+4. **Sub-Agent Supervisor Hardening**
+   The first worker execution slice exists: capacity limits, cancellation,
+   progress callbacks/events, prepare-then-start dispatch, and parent/child
+   causation. Next, make plan state durable/replayable, tighten context and
+   command narrowing for child profiles, and add richer recovery for background
+   child runs that outlive the parent turn.
 
 5. **Operation Safety Runtime**
    Initial `codewandler/cmdrisk` integration, shell hardening, and HTTP target

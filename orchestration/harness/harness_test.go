@@ -8,6 +8,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -144,6 +145,73 @@ func TestHandleInboundCommandPublishesOperationLifecycle(t *testing.T) {
 			t.Fatalf("operation lifecycle requested=%v completed=%v", requested, completed)
 		}
 	}
+}
+
+func TestRuntimeEventSinkPersistsReplayableRuntimeEvents(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "emit_plan"}}, func(ctx operation.Context, _ operation.Value) operation.Result {
+		ctx.Events().Emit(testPlanRuntimeEvent{Value: "persist me"})
+		return operation.OK("ok")
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"emit_plan"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "emit_plan"},
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	service := New(Config{
+		Commands:          commands,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ThreadStore:       threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-runtime"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if _, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-runtime",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-runtime"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"emit_plan"}},
+	}); err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	replayed, err := service.replayEvents(ctx, info.Thread.ID, clientapi.EventOptions{Replay: true})
+	if err != nil {
+		t.Fatalf("replayEvents: %v", err)
+	}
+	for _, event := range replayed {
+		if event.Kind == clientapi.EventRuntimeEmitted && event.Runtime != nil && event.Runtime.Name == "plan.test" {
+			payload, ok := event.Runtime.Payload.(testPlanRuntimeEvent)
+			if !ok || payload.Value != "persist me" {
+				t.Fatalf("runtime payload = %#v, want testPlanRuntimeEvent", event.Runtime.Payload)
+			}
+			return
+		}
+	}
+	t.Fatalf("replayed events missing persisted runtime event: %#v", replayed)
 }
 
 func TestOpenSessionConcurrentSameConversationUsesOneThread(t *testing.T) {
@@ -449,3 +517,9 @@ func testService(t *testing.T) (*Service, corethread.Store) {
 		ThreadStore:       threadStore,
 	}), threadStore
 }
+
+type testPlanRuntimeEvent struct {
+	Value string `json:"value,omitempty"`
+}
+
+func (testPlanRuntimeEvent) EventName() coreevent.Name { return "plan.test" }

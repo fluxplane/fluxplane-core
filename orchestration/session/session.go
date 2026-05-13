@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -41,6 +42,9 @@ type Session struct {
 	Events            event.Sink
 	ThreadStore       corethread.Store
 	Thread            corethread.Ref
+	Subagents         *subagent.Supervisor
+	Delegation        coresession.DelegationPolicy
+	RunID             string
 }
 
 const defaultLLMContinuations = 20
@@ -967,7 +971,24 @@ func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBindi
 func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
 	ctx = s.withDatasourceAccess(ctx)
 	ctx = operation.WithCallID(ctx, callID)
+	ctx = s.withSubagentScope(ctx, callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
+}
+
+func (s Session) withSubagentScope(ctx operation.Context, callID operation.CallID) operation.Context {
+	if ctx == nil || s.Subagents == nil {
+		return ctx
+	}
+	base := subagent.ContextWithScope(ctx, subagent.Scope{
+		Supervisor:     s.Subagents,
+		ParentThreadID: s.Thread.ID,
+		ParentRunID:    s.RunID,
+		ParentCallID:   callID,
+		Policy:         s.Delegation,
+		Events:         ctx.Events(),
+		ThreadStore:    s.ThreadStore,
+	})
+	return operation.NewContext(base, ctx.Events())
 }
 
 func (s Session) withDatasourceAccess(ctx operation.Context) operation.Context {

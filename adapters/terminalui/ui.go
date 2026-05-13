@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -158,6 +159,9 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	if event.Runtime == nil {
 		return
 	}
+	if r.renderPlanRuntime(out, string(event.Runtime.Name), event.Runtime.Payload) {
+		return
+	}
 	switch payload := event.Runtime.Payload.(type) {
 	case llmagent.ModelStreamed:
 		r.renderModelStream(payload.Event)
@@ -169,6 +173,15 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 		if r.ShowUsage {
 			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
 		}
+	case subagent.Started:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, payload.WorkerID, ansiDim, payload.Profile.Name, ansiReset)
+	case subagent.Completed:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, payload.WorkerID, compact(payload.Output, 160))
+	case subagent.Failed:
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%sdelegate failed:%s %s %s\n", ansiRed, ansiReset, payload.WorkerID, payload.Error)
 	case map[string]any:
 		if string(event.Runtime.Name) == string(llmagent.EventModelStreamedName) {
 			r.renderModelStreamFromMap(payload)
@@ -186,6 +199,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 				RenderUsageSnapshot(out, usage.NewSnapshot(recorded))
 			}
 		}
+		r.renderSubagentMap(out, event, payload)
 	default:
 		r.flushContent()
 		if string(event.Runtime.Name) == "human.clarification.requested" {
@@ -195,6 +209,149 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			_, _ = fmt.Fprintf(out, "clarify answer: %s\n", field(payload, "Answer"))
 		}
 	}
+}
+
+func (r *Renderer) renderPlanCreated(out io.Writer, payload terminalPlanCreated) {
+	r.flushContent()
+	_, _ = fmt.Fprintf(out, "\n%splan:%s %s %s(%d steps)%s\n", ansiCyan, ansiReset, payload.Spec.Title, ansiDim, len(payload.Spec.Steps), ansiReset)
+	for _, step := range payload.Spec.Steps {
+		profile := step.Profile
+		if profile == "" {
+			profile = "worker"
+		}
+		_, _ = fmt.Fprintf(out, "  %s◌%s %s %s[%s]%s\n", ansiDim, ansiReset, step.Title, ansiDim, profile, ansiReset)
+	}
+}
+
+func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bool {
+	switch name {
+	case "plan.created":
+		var typed terminalPlanCreated
+		if decodeAny(payload, &typed) == nil {
+			r.renderPlanCreated(out, typed)
+			return true
+		}
+	case "plan.step.dispatched":
+		var typed terminalPlanStepDispatched
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan step:%s %s %s[%s]%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Profile, ansiReset)
+			return true
+		}
+	case "plan.step.progressed":
+		var typed terminalPlanStepProgressed
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan progress:%s %s %s%s%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Message, ansiReset)
+			return true
+		}
+	case "plan.step.completed":
+		var typed terminalPlanStepCompleted
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan done:%s %s %s\n", ansiGreen, ansiReset, typed.StepID, compact(typed.Output, 160))
+			return true
+		}
+	case "plan.step.failed":
+		var typed terminalPlanStepFailed
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan failed:%s %s %s\n", ansiRed, ansiReset, typed.StepID, typed.Error)
+			return true
+		}
+	case "plan.completed":
+		var typed terminalPlanCompleted
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan completed:%s %s\n", ansiGreen, ansiReset, typed.Summary)
+			return true
+		}
+	case "plan.failed":
+		var typed terminalPlanFailed
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan failed:%s %s\n", ansiRed, ansiReset, typed.Reason)
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Renderer) renderSubagentMap(out io.Writer, event clientapi.Event, payload map[string]any) {
+	switch string(event.Runtime.Name) {
+	case string(subagent.EventStarted):
+		var typed subagent.Started
+		if decodeMap(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, typed.WorkerID, ansiDim, typed.Profile.Name, ansiReset)
+		}
+	case string(subagent.EventCompleted):
+		var typed subagent.Completed
+		if decodeMap(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, typed.WorkerID, compact(typed.Output, 160))
+		}
+	}
+}
+
+type terminalPlanCreated struct {
+	PlanID string           `json:"plan_id"`
+	Spec   terminalPlanSpec `json:"spec"`
+}
+
+type terminalPlanSpec struct {
+	Title string             `json:"title,omitempty"`
+	Steps []terminalStepSpec `json:"steps,omitempty"`
+}
+
+type terminalStepSpec struct {
+	ID      string `json:"id,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Profile string `json:"profile,omitempty"`
+}
+
+type terminalPlanStepDispatched struct {
+	StepID  string `json:"step_id"`
+	Profile string `json:"profile,omitempty"`
+}
+
+type terminalPlanStepProgressed struct {
+	StepID  string `json:"step_id"`
+	Message string `json:"message,omitempty"`
+}
+
+type terminalPlanStepCompleted struct {
+	StepID string `json:"step_id"`
+	Output string `json:"output,omitempty"`
+}
+
+type terminalPlanStepFailed struct {
+	StepID string `json:"step_id"`
+	Error  string `json:"error,omitempty"`
+}
+
+type terminalPlanCompleted struct {
+	Summary string `json:"summary,omitempty"`
+}
+
+type terminalPlanFailed struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+func decodeAny(payload any, out any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, out)
+}
+
+func decodeMap(payload map[string]any, out any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, out)
 }
 
 func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
