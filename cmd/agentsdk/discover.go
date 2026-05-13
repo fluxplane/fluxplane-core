@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
 	"github.com/spf13/cobra"
 )
@@ -22,9 +23,14 @@ func newDiscoverCommand() *cobra.Command {
 			if len(args) > 0 {
 				root = args[0]
 			}
-			result, err := resourcediscovery.Discover(cmd.Context(), root)
+			loaded, err := distlocal.Load(cmd.Context(), root)
 			if err != nil {
 				return err
+			}
+			result := resourcediscovery.Result{
+				Root:        loaded.Root,
+				Bundles:     loaded.Distribution.Bundles,
+				Diagnostics: loaded.Diagnostics,
 			}
 			switch opts.output {
 			case "", "tree", "pretty":

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,13 @@ import (
 	"github.com/codewandler/connectors/connector"
 	"github.com/codewandler/connectors/credential"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/core/channel"
+	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	coresession "github.com/fluxplane/agentruntime/core/session"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 )
@@ -27,10 +35,80 @@ func TestRootCommandHasServeAndConnect(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "serve", "connect", "remote"} {
+	for _, want := range []string{"coder", "run", "serve", "connect", "remote"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}
+	}
+}
+
+func TestRunHelpIncludesLaunchFlags(t *testing.T) {
+	cmd := newRootCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"run", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestRunUsesLoadedDistributionAndSubmitsInput(t *testing.T) {
+	runtime := &fakeRunRuntime{}
+	loader := func(context.Context, string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec: coredistribution.Spec{
+					Name:           "sample",
+					DefaultSession: coresession.Ref{Name: "main"},
+				},
+				Runtime: runtime,
+			},
+		}, nil
+	}
+	out := bytes.Buffer{}
+	errOut := bytes.Buffer{}
+	err := runLocalDistribution(context.Background(), loader, runOptions{
+		session:      "custom",
+		conversation: "conv",
+		input:        "hello",
+	}, "ignored", strings.NewReader(""), &out, &errOut)
+	if err != nil {
+		t.Fatalf("runLocalDistribution: %v", err)
+	}
+	if runtime.request.Session.Name != "custom" {
+		t.Fatalf("session = %q, want custom", runtime.request.Session.Name)
+	}
+	if runtime.request.Conversation.ID != "conv" {
+		t.Fatalf("conversation = %q, want conv", runtime.request.Conversation.ID)
+	}
+	if runtime.session.submission.Input == nil || runtime.session.submission.Input.Text != "hello" {
+		t.Fatalf("submission = %#v, want input hello", runtime.session.submission)
+	}
+	if !strings.Contains(out.String(), "ok") {
+		t.Fatalf("output = %q, want ok", out.String())
+	}
+}
+
+func TestRunRequiresDefaultOrExplicitSession(t *testing.T) {
+	loader := func(context.Context, string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec:    coredistribution.Spec{Name: "sample"},
+				Runtime: &fakeRunRuntime{},
+			},
+		}, nil
+	}
+	err := runLocalDistribution(context.Background(), loader, runOptions{input: "hello"}, "ignored", strings.NewReader(""), io.Discard, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "no default session") {
+		t.Fatalf("runLocalDistribution error = %v, want no default session", err)
 	}
 }
 
@@ -385,4 +463,83 @@ func TestTerminalEventRegistryDecodesPluginCatalogEvents(t *testing.T) {
 			t.Fatalf("decoded event name = %s, want %s", decoded.EventName(), sample.EventName())
 		}
 	}
+}
+
+type fakeRunRuntime struct {
+	request distribution.OpenRequest
+	session *fakeRunSession
+}
+
+func (r *fakeRunRuntime) OpenSession(_ context.Context, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
+	r.request = req
+	r.session = &fakeRunSession{
+		info: clientapi.SessionInfo{
+			Session:      req.Session,
+			Thread:       corethread.Ref{ID: "thread-1", BranchID: corethread.MainBranch},
+			Conversation: req.Conversation,
+		},
+	}
+	return r.session, nil
+}
+
+type fakeRunSession struct {
+	info       clientapi.SessionInfo
+	submission clientapi.Submission
+}
+
+func (s *fakeRunSession) Info() clientapi.SessionInfo { return s.info }
+
+func (s *fakeRunSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
+	s.submission = submission
+	return fakeRunHandle{info: s.info, submission: submission}, nil
+}
+
+func (s *fakeRunSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch, func() {}, nil
+}
+
+func (s *fakeRunSession) OnEvent(context.Context, func(clientapi.Event)) (func(), error) {
+	return func() {}, nil
+}
+
+func (s *fakeRunSession) Close(context.Context) error { return nil }
+
+type fakeRunHandle struct {
+	info       clientapi.SessionInfo
+	submission clientapi.Submission
+}
+
+func (r fakeRunHandle) ID() clientapi.RunID { return "run-1" }
+
+func (r fakeRunHandle) Session() clientapi.SessionInfo { return r.info }
+
+func (r fakeRunHandle) Submission() clientapi.Submission { return r.submission }
+
+func (r fakeRunHandle) Events() <-chan clientapi.Event {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch
+}
+
+func (r fakeRunHandle) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (r fakeRunHandle) Err() error { return nil }
+
+func (r fakeRunHandle) Wait(context.Context) (clientapi.Result, error) {
+	return clientapi.Result{
+		RunID:      r.ID(),
+		Session:    r.info,
+		Submission: r.submission,
+		Input:      &sessionruntime.InputResult{Status: sessionruntime.InputStatusOK},
+		Outbound: &channel.Outbound{
+			Kind:    channel.OutboundMessage,
+			Message: &channel.Message{Content: "ok"},
+		},
+	}, nil
 }

@@ -23,9 +23,12 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/connectauth"
+	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
+	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	agentsdkapp "github.com/fluxplane/agentruntime/apps/agentsdk"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -39,6 +42,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	"github.com/fluxplane/agentruntime/orchestration/daemon"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
@@ -72,6 +76,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(coder.NewCommand())
+	cmd.AddCommand(newRunCommand())
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newRemoteCommand())
 	cmd.AddCommand(newConnectCommand())
@@ -79,9 +84,75 @@ func newRootCommand() *cobra.Command {
 	return cmd
 }
 
+type runOptions struct {
+	session      string
+	conversation string
+	provider     string
+	model        string
+	input        string
+	debug        bool
+	usage        bool
+}
+
 type serveOptions struct {
 	debug    bool
 	authPath string
+}
+
+type runLoader func(context.Context, string) (distribution.Loaded, error)
+
+func newRunCommand() *cobra.Command {
+	return newRunCommandWithLoader(distlocal.Load)
+}
+
+func newRunCommandWithLoader(loader runLoader) *cobra.Command {
+	var opts runOptions
+	cmd := &cobra.Command{
+		Use:   "run [path]",
+		Short: "Run a local app distribution",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLocalDistribution(cmd.Context(), loader, opts, args[0], cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
+	cmd.Flags().StringVar(&opts.session, "session", "", "configured session name to open")
+	cmd.Flags().StringVar(&opts.conversation, "conversation", "", "conversation id")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider")
+	cmd.Flags().StringVar(&opts.model, "model", "", "model name or provider/model")
+	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
+	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
+	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	return cmd
+}
+
+func runLocalDistribution(ctx context.Context, loader runLoader, opts runOptions, path string, in io.Reader, out, errOut io.Writer) error {
+	if loader == nil {
+		loader = distlocal.Load
+	}
+	loaded, err := loader(ctx, path)
+	if err != nil {
+		return err
+	}
+	if loaded.Distribution.Runtime == nil {
+		return fmt.Errorf("run: distribution %q has no runtime", loaded.Distribution.Spec.Name)
+	}
+	if strings.TrimSpace(opts.session) == "" && loaded.Distribution.Spec.DefaultSession.Name == "" {
+		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
+	}
+	loaded = agentsdkapp.AttachLocalRuntime(loaded)
+	return distcli.Run(ctx, loaded.Distribution, distcli.RunOptions{
+		Session:      opts.session,
+		Conversation: opts.conversation,
+		Provider:     opts.provider,
+		Model:        opts.model,
+		Input:        opts.input,
+		Debug:        opts.debug,
+		Usage:        opts.usage,
+		Prompt:       loaded.Distribution.Spec.Name,
+		In:           in,
+		Out:          out,
+		Err:          errOut,
+	})
 }
 
 func newServeCommand() *cobra.Command {

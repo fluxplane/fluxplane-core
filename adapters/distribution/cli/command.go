@@ -5,11 +5,14 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	"github.com/fluxplane/agentruntime/core/channel"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -27,10 +30,17 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 		Short: shortDescription(dist),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(opts.input) != "" {
-				return runOneShot(cmd.Context(), dist, opts)
-			}
-			return runREPL(cmd.Context(), dist, opts)
+			return Run(cmd.Context(), dist, RunOptions{
+				Provider: opts.provider,
+				Model:    opts.model,
+				Input:    opts.input,
+				Debug:    opts.debug,
+				Usage:    opts.usage,
+				Prompt:   dist.Spec.Name,
+				In:       os.Stdin,
+				Out:      os.Stdout,
+				Err:      os.Stderr,
+			})
 		},
 	}
 	cmd.PersistentFlags().StringVar(&opts.provider, "provider", opts.provider, "model provider")
@@ -50,25 +60,53 @@ type options struct {
 	usage    bool
 }
 
-func runOneShot(ctx context.Context, dist distribution.Distribution, opts options) error {
-	session, err := openSession(ctx, dist, opts)
-	if err != nil {
-		return err
-	}
-	return terminalui.RunTurn(ctx, session, opts.input, terminalOptions(opts), usage.NewTracker())
+// RunOptions configures a distribution REPL or one-shot run.
+type RunOptions struct {
+	Session      string
+	Conversation string
+	Provider     string
+	Model        string
+	Input        string
+	Debug        bool
+	Usage        bool
+	Prompt       string
+	In           io.Reader
+	Out          io.Writer
+	Err          io.Writer
 }
 
-func runREPL(ctx context.Context, dist distribution.Distribution, opts options) error {
+// Run opens a distribution session and runs a one-shot prompt or REPL.
+func Run(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
+	if strings.TrimSpace(opts.Input) != "" {
+		return runOneShot(ctx, dist, opts)
+	}
+	return runREPL(ctx, dist, opts)
+}
+
+func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
 	session, err := openSession(ctx, dist, opts)
 	if err != nil {
 		return err
 	}
-	name := dist.Spec.Name
+	return terminalui.RunTurn(ctx, session, opts.Input, terminalOptions(opts), usage.NewTracker())
+}
+
+func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
+	session, err := openSession(ctx, dist, opts)
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(opts.Prompt)
+	if name == "" {
+		name = dist.Spec.Name
+	}
 	tracker := usage.NewTracker()
-	_, _ = fmt.Fprintf(os.Stderr, "agentsdk %s repl. Type /exit or /quit to stop.\n", name)
-	scanner := bufio.NewScanner(os.Stdin)
+	errOut := writerOr(opts.Err, os.Stderr)
+	stdout := writerOr(opts.Out, os.Stdout)
+	_, _ = fmt.Fprintf(errOut, "agentsdk %s repl. Type /exit or /quit to stop.\n", name)
+	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
-		_, _ = fmt.Fprintf(os.Stdout, "%s> ", name)
+		_, _ = fmt.Fprintf(stdout, "%s> ", name)
 		if !scanner.Scan() {
 			break
 		}
@@ -80,7 +118,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts options) 
 			return nil
 		}
 		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts), tracker); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -89,24 +127,40 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts options) 
 	return nil
 }
 
-func openSession(ctx context.Context, dist distribution.Distribution, opts options) (clientapi.SessionHandle, error) {
+func openSession(ctx context.Context, dist distribution.Distribution, opts RunOptions) (clientapi.SessionHandle, error) {
 	if dist.Runtime == nil {
 		return nil, fmt.Errorf("distribution %q has no runtime", dist.Spec.Name)
 	}
 	return dist.Runtime.OpenSession(ctx, distribution.OpenRequest{
-		Provider: opts.provider,
-		Model:    opts.model,
-		Debug:    opts.debug,
+		Session:      coresession.Ref{Name: coresession.Name(strings.TrimSpace(opts.Session))},
+		Conversation: channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
+		Provider:     opts.Provider,
+		Model:        opts.Model,
+		Debug:        opts.Debug,
 	})
 }
 
-func terminalOptions(opts options) terminalui.TurnOptions {
+func terminalOptions(opts RunOptions) terminalui.TurnOptions {
 	return terminalui.TurnOptions{
-		Debug: opts.debug,
-		Usage: opts.usage,
-		Out:   os.Stdout,
-		Err:   os.Stderr,
+		Debug: opts.Debug,
+		Usage: opts.Usage,
+		Out:   writerOr(opts.Out, os.Stdout),
+		Err:   writerOr(opts.Err, os.Stderr),
 	}
+}
+
+func readerOr(value io.Reader, fallback io.Reader) io.Reader {
+	if value != nil {
+		return value
+	}
+	return fallback
+}
+
+func writerOr(value io.Writer, fallback io.Writer) io.Writer {
+	if value != nil {
+		return value
+	}
+	return fallback
 }
 
 func newDescribeCommand(dist distribution.Distribution) *cobra.Command {
