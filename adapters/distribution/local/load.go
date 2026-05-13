@@ -176,6 +176,9 @@ func specFor(root string, bundles []resource.ContributionBundle) coredistributio
 		}
 		spec.Description = appSpec.Description
 		spec.DefaultSession = appSpec.DefaultSession
+		if spec.DefaultSession.Name == "" && appSpec.DefaultAgent.Name != "" {
+			spec.DefaultSession = coresession.Ref{Name: "default"}
+		}
 		spec.DefaultModel = coredistribution.ModelDefault{
 			Provider: appSpec.Model.Provider,
 			Model:    appSpec.Model.Model,

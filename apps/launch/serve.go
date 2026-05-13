@@ -37,6 +37,9 @@ func Serve(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	if err := validateServeLaunch(loaded, opts.AppDir); err != nil {
+		return err
+	}
 	runtime, err := Launch(ctx, RuntimeOptions{
 		Root:                loaded.Root,
 		Spec:                loaded.Distribution.Spec,
@@ -81,6 +84,19 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	if err := host.RunChannels(runCtx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
+	}
+	return nil
+}
+
+func validateServeLaunch(loaded distribution.Loaded, initPath string) error {
+	if len(loaded.Launch.Listeners) == 0 && len(loaded.Launch.Channels) == 0 {
+		if loaded.Manifest == "" {
+			if strings.TrimSpace(initPath) == "" {
+				initPath = loaded.Root
+			}
+			return fmt.Errorf("serve: %s is not initialized; run \"agentsdk init %s\" to create a minimal local app manifest", loaded.Root, initPath)
+		}
+		return fmt.Errorf("serve: distribution %q has no daemon listeners or channels", loaded.Distribution.Spec.Name)
 	}
 	return nil
 }

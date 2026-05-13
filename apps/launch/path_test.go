@@ -59,6 +59,7 @@ func TestRunPathUsesLoadedDistributionAndSubmitsInput(t *testing.T) {
 func TestRunPathRequiresDefaultOrExplicitSession(t *testing.T) {
 	loader := func(context.Context, string) (distribution.Loaded, error) {
 		return distribution.Loaded{
+			Manifest: "agentsdk.app.yaml",
 			Distribution: distribution.Distribution{
 				Spec:    coredistribution.Spec{Name: "sample"},
 				Runtime: &fakeRunRuntime{},
@@ -73,6 +74,27 @@ func TestRunPathRequiresDefaultOrExplicitSession(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "no default session") {
 		t.Fatalf("RunPathWithLoader error = %v, want no default session", err)
+	}
+}
+
+func TestRunPathSuggestsInitWhenUninitialized(t *testing.T) {
+	loader := func(context.Context, string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Root: "/repo/sample",
+			Distribution: distribution.Distribution{
+				Spec:    coredistribution.Spec{Name: "sample"},
+				Runtime: &fakeRunRuntime{},
+			},
+		}, nil
+	}
+	err := RunPathWithLoader(context.Background(), loader, "sample", RunPathOptions{
+		Input: "hello",
+		In:    strings.NewReader(""),
+		Out:   io.Discard,
+		Err:   io.Discard,
+	})
+	if err == nil || !strings.Contains(err.Error(), "agentsdk init sample") {
+		t.Fatalf("RunPathWithLoader error = %v, want init guidance", err)
 	}
 }
 

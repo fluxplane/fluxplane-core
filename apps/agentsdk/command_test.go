@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 )
 
@@ -18,10 +19,87 @@ func TestRootCommandHasExpectedCommands(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "run", "serve", "connect", "remote", "discover"} {
+	for _, want := range []string{"coder", "init", "run", "serve", "connect", "remote", "discover"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}
+	}
+}
+
+func TestInitCommandCreatesMinimalSecureManifest(t *testing.T) {
+	dir := t.TempDir()
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"init", dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	manifestPath := filepath.Join(dir, "agentsdk.app.yaml")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	file, err := appconfig.DecodeFile(manifestPath, data)
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Apps) != 1 || string(file.Bundle.Apps[0].Name) != filepath.Base(dir) {
+		t.Fatalf("apps = %#v, want app named after directory", file.Bundle.Apps)
+	}
+	if file.Bundle.Apps[0].DefaultAgent.Name != "default" {
+		t.Fatalf("default agent = %#v, want default", file.Bundle.Apps[0].DefaultAgent)
+	}
+	if len(file.Bundle.Plugins) != 0 {
+		t.Fatalf("plugins = %#v, want none", file.Bundle.Plugins)
+	}
+	if len(file.Bundle.Datasources) != 0 {
+		t.Fatalf("datasources = %#v, want none", file.Bundle.Datasources)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "default" {
+		t.Fatalf("agents = %#v, want default", file.Bundle.Agents)
+	}
+	if len(file.Bundle.Agents[0].Tools) != 0 || len(file.Bundle.Agents[0].Context) != 0 ||
+		len(file.Bundle.Agents[0].Datasources) != 0 || len(file.Bundle.Agents[0].Skills) != 0 {
+		t.Fatalf("agent = %#v, want no tools/context/datasources/skills", file.Bundle.Agents[0])
+	}
+	if len(file.Daemon.Listeners) != 1 {
+		t.Fatalf("listeners = %#v, want one", file.Daemon.Listeners)
+	}
+	listener := file.Daemon.Listeners[0]
+	if listener.Addr == "" || !strings.HasSuffix(listener.Addr, ".sock") {
+		t.Fatalf("listener addr = %q, want unix socket", listener.Addr)
+	}
+	if listener.Auth["mode"] != "local_socket" {
+		t.Fatalf("listener auth = %#v, want local_socket", listener.Auth)
+	}
+	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Type != "direct" ||
+		file.Daemon.Channels[0].Session != "default" {
+		t.Fatalf("channels = %#v, want direct default channel", file.Daemon.Channels)
+	}
+	if !strings.Contains(out.String(), "created ") {
+		t.Fatalf("output = %q, want created message", out.String())
+	}
+}
+
+func TestInitRefusesExistingManifestUnlessForced(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "agentsdk.app.yaml", "kind: app\nname: existing\n")
+
+	if _, err := Init(dir, InitOptions{}); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("Init error = %v, want already exists", err)
+	}
+	if _, err := Init(dir, InitOptions{Force: true}); err != nil {
+		t.Fatalf("Init force: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "agentsdk.app.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "default_agent: default") {
+		t.Fatalf("manifest = %s, want generated minimal manifest", data)
 	}
 }
 

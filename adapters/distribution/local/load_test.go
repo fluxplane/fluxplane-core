@@ -87,6 +87,26 @@ func TestLoadUsesPathNameAndReportsNoDefaultSessionWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestLoadExposesGeneratedDefaultSessionForDefaultAgent(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, `
+kind: app
+name: sample
+default_agent: assistant
+---
+kind: agent
+name: assistant
+`)
+
+	loaded, err := Load(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Distribution.Spec.DefaultSession.Name != "default" {
+		t.Fatalf("default session = %q, want default", loaded.Distribution.Spec.DefaultSession.Name)
+	}
+}
+
 func writeManifest(t *testing.T, dir, data string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "agentsdk.app.yaml"), []byte(data), 0o600); err != nil {
