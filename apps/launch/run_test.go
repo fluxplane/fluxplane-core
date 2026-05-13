@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
@@ -52,6 +53,15 @@ func TestAttachLocalRuntimePreservesConcreteRuntime(t *testing.T) {
 
 	if got.Distribution.Runtime != existing {
 		t.Fatalf("runtime = %T, want existing fakeRuntime", got.Distribution.Runtime)
+	}
+}
+
+func TestRunConnectorEngineRejectsUnknownProvider(t *testing.T) {
+	_, _, err := runConnectorEngine(context.Background(), t.TempDir(), map[string]distribution.Connector{
+		"unknown": {Kind: "does-not-exist"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
+		t.Fatalf("runConnectorEngine error = %v, want unknown provider", err)
 	}
 }
 

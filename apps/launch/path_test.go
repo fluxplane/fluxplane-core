@@ -76,6 +76,21 @@ func TestRunPathRequiresDefaultOrExplicitSession(t *testing.T) {
 	}
 }
 
+func TestRunCommandHelpIncludesConnectorPath(t *testing.T) {
+	cmd := NewRunCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out.String(), "--connectors-path") {
+		t.Fatalf("help = %q, want --connectors-path", out.String())
+	}
+}
+
 type fakeRunRuntime struct {
 	request distribution.OpenRequest
 	session *fakeRunSession

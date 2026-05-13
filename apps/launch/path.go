@@ -20,6 +20,7 @@ type RunPathOptions struct {
 	Input        string
 	Debug        bool
 	Usage        bool
+	AuthPath     string
 	In           io.Reader
 	Out          io.Writer
 	Err          io.Writer
@@ -45,7 +46,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 	if strings.TrimSpace(opts.Session) == "" && loaded.Distribution.Spec.DefaultSession.Name == "" {
 		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
 	}
-	loaded = AttachLocalRuntime(loaded)
+	loaded = AttachLocalRuntimeWithOptions(loaded, AttachOptions{AuthPath: opts.AuthPath})
 	return distcli.Run(ctx, loaded.Distribution, distcli.RunOptions{
 		Session:      opts.Session,
 		Conversation: opts.Conversation,
@@ -69,6 +70,7 @@ type runCommandOptions struct {
 	input        string
 	debug        bool
 	usage        bool
+	authPath     string
 }
 
 func NewRunCommand() *cobra.Command {
@@ -90,6 +92,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Input:        opts.input,
 				Debug:        opts.debug,
 				Usage:        opts.usage,
+				AuthPath:     opts.authPath,
 				In:           cmd.InOrStdin(),
 				Out:          cmd.OutOrStdout(),
 				Err:          cmd.ErrOrStderr(),
@@ -103,5 +106,6 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	return cmd
 }
