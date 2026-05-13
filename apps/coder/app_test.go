@@ -1,50 +1,248 @@
 package coder
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/resource"
+	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
+	"github.com/fluxplane/agentruntime/core/channel"
+	corecommand "github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-func TestBundleComposes(t *testing.T) {
+func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	if !strings.Contains(help, "interactive session") {
+		t.Fatalf("help = %q, want interactive help", help)
+	}
+	if !strings.Contains(help, "--input") {
+		t.Fatalf("help = %q, want input flag", help)
+	}
+	if !strings.Contains(help, "--usage") {
+		t.Fatalf("help = %q, want usage flag", help)
+	}
+	if !strings.Contains(help, "--provider") {
+		t.Fatalf("help = %q, want provider flag", help)
+	}
+	if strings.Contains(help, "--openai-store") {
+		t.Fatalf("help = %q, want openai-store removed", help)
+	}
+	for _, child := range cmd.Commands() {
+		if child.Name() == "repl" {
+			t.Fatalf("coder command has repl subcommand, want coder to be the repl entrypoint")
+		}
+	}
+}
+
+func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent Rules\n\nUse system context.\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{
+			codingplugin.New(sys),
+			planexecplugin.New(),
+			skillplugin.New(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel: llmagent.StaticModel{Response: llmagent.MessageResponse("ok")},
+		Channel:  channel.Ref{Name: "local"},
+		Caller:   policy.Caller{Kind: policy.CallerUser},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "context-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(corecommand.Invocation{
+		Path:  corecommand.Path{"context"},
+		Input: map[string]any{"fresh": true, "key": codingplugin.AgentsContextProvider},
+	}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Command == nil || result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("command result = %#v", result.Command)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil {
+		t.Fatalf("outbound = %#v, want context output", result.Outbound)
+	}
+	output := result.Outbound.Message.Content
+	if !strings.Contains(fmt.Sprint(output), "Use system context.") || !strings.Contains(fmt.Sprint(output), "## system") {
+		t.Fatalf("output = %q, want AGENTS.md system context", output)
+	}
+}
+
+func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
 	composition, err := app.Compose(app.Config{
-		Bundles: []resource.ContributionBundle{Bundle()},
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
 		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.AgentSpecs) != 3 {
-		t.Fatalf("agent specs len = %d, want 3", len(composition.AgentSpecs))
+	cfg := ToolProjectionConfig()
+	cfg.Commands = composition.CommandCatalog
+	cfg.Operations = composition.OperationCatalog
+	cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
+	cfg.Trust = policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified}
+
+	projected := toolprojection.Project(cfg)
+	names := map[string]bool{}
+	for _, spec := range projected.Tools {
+		names[string(spec.Name)] = true
 	}
-	if got := composition.AgentSpecs[0].Policy.MaxSteps; got != 50 {
-		t.Fatalf("max steps = %d, want 50", got)
+	for _, want := range []string{"plan", "delegate"} {
+		if !names[want] {
+			t.Fatalf("projected tool names missing %q: %#v", want, names)
+		}
 	}
-	if got := composition.AgentSpecs[0].Policy.MaxContinuations; got != 3 {
-		t.Fatalf("max continuations = %d, want 3", got)
+}
+
+func TestBundleAppliesModelOverride(t *testing.T) {
+	bundle := BundleWithModel("codex", "gpt-test")
+	if bundle.Apps[0].Model.Model != "gpt-test" {
+		t.Fatalf("app model = %q, want gpt-test", bundle.Apps[0].Model.Model)
 	}
-	if len(composition.OperationSpecs) != 43 {
-		t.Fatalf("operation specs len = %d, want 43", len(composition.OperationSpecs))
+	if bundle.Apps[0].Model.Provider != "codex" {
+		t.Fatalf("app provider = %q, want codex", bundle.Apps[0].Model.Provider)
 	}
-	session := composition.SessionSpecs[0]
-	if len(session.Delegation.Commands) == 0 {
-		t.Fatal("delegation commands len = 0, want child command caps")
+	if bundle.Agents[0].Inference.Model != "gpt-test" {
+		t.Fatalf("agent model = %q, want gpt-test", bundle.Agents[0].Inference.Model)
 	}
-	worker := composition.AgentSpecs[1]
-	if len(worker.Commands) == 0 {
-		t.Fatal("worker commands len = 0, want command-projected tools")
+	if bundle.Agents[0].Name != AgentName {
+		t.Fatalf("agent name = %q", bundle.Agents[0].Name)
 	}
-	if len(worker.Operations) != 0 {
-		t.Fatalf("worker operations len = %d, want command-only tools", len(worker.Operations))
+}
+
+func TestResolveModelSelectionParsesProviderPrefix(t *testing.T) {
+	got := ResolveModelSelection("openai", "codex/gpt-5.5")
+	if got.Provider != "codex" || got.Model != "gpt-5.5" {
+		t.Fatalf("selection = %#v, want codex/gpt-5.5", got)
+	}
+	got = ResolveModelSelection("openai", "anthropic/claude-haiku-4-5-20251001")
+	if got.Provider != "anthropic" || got.Model != "claude-haiku-4-5-20251001" {
+		t.Fatalf("selection = %#v, want anthropic/claude-haiku-4-5-20251001", got)
+	}
+	got = ResolveModelSelection("openai", "minimax/MiniMax-M2.7")
+	if got.Provider != "minimax" || got.Model != "MiniMax-M2.7" {
+		t.Fatalf("selection = %#v, want minimax/MiniMax-M2.7", got)
+	}
+}
+
+func TestResolveModelSelectionKeepsOpenRouterSlashModel(t *testing.T) {
+	got := ResolveModelSelection("openai", "openrouter/anthropic/claude-sonnet-4.6")
+	if got.Provider != "openrouter" || got.Model != "anthropic/claude-sonnet-4.6" {
+		t.Fatalf("selection = %#v, want openrouter/anthropic/claude-sonnet-4.6", got)
+	}
+	got = ResolveModelSelection("openrouter", "anthropic/claude-sonnet-4.6")
+	if got.Provider != "openrouter" || got.Model != "anthropic/claude-sonnet-4.6" {
+		t.Fatalf("selection = %#v, want explicit openrouter provider", got)
+	}
+}
+
+func TestDefaultModel(t *testing.T) {
+	if DefaultModel != "gpt-5.5" {
+		t.Fatalf("DefaultModel = %q, want gpt-5.5", DefaultModel)
+	}
+}
+
+func TestNewModelRejectsUnknownOpenRouterModel(t *testing.T) {
+	_, err := NewModel(ModelSelection{Provider: "openrouter", Model: "gpt-5.5"}, false)
+	if err == nil || !strings.Contains(err.Error(), "exact OpenRouter model id") {
+		t.Fatalf("error = %v, want exact OpenRouter model id", err)
+	}
+}
+
+func TestNewModelSupportsOpenRouterResponsesModel(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	model, err := NewModel(ModelSelection{Provider: "openrouter", Model: "anthropic/claude-sonnet-4.6"}, false)
+	if err != nil {
+		t.Fatalf("NewModel: %v", err)
+	}
+	if model == nil {
+		t.Fatalf("model is nil")
+	}
+}
+
+func TestNewModelSupportsAnthropicMessagesModels(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	model, err := NewModel(ModelSelection{Provider: "anthropic", Model: "claude-haiku-4-5-20251001"}, false)
+	if err != nil {
+		t.Fatalf("NewModel anthropic: %v", err)
+	}
+	if model == nil {
+		t.Fatal("anthropic model is nil")
+	}
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	model, err = NewModel(ModelSelection{Provider: "minimax", Model: "MiniMax-M2.7"}, false)
+	if err != nil {
+		t.Fatalf("NewModel minimax: %v", err)
+	}
+	if model == nil {
+		t.Fatal("minimax model is nil")
+	}
+}
+
+func TestOpenRouterReasoningDefaultsPreferMinimalAndAuto(t *testing.T) {
+	_, modelSpec, ok := modelcatalog.Find("openrouter", "moonshotai/kimi-k2-thinking")
+	if !ok {
+		t.Fatal("openrouter moonshotai/kimi-k2-thinking missing from modeldb")
+	}
+	effort, summary := OpenRouterReasoningDefaults(modelSpec)
+	if effort != "minimal" {
+		t.Fatalf("effort = %q, want minimal", effort)
+	}
+	if summary != "auto" {
+		t.Fatalf("summary = %q, want auto", summary)
 	}
 }

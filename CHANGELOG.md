@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0
+
 ### Added
 
 - `agentsdk remote` for opening local or URL-backed daemon sessions, including
@@ -22,6 +24,8 @@
   to the LLM, including `--fresh` and provider `--key` filtering.
 - `agents.md` coding context provider that renders workspace `AGENTS.md` into
   system-scoped model context.
+- Distribution specs and CLI adapters for packaging runnable agent bundles as
+  reusable local command surfaces.
 
 ### Changed
 
@@ -39,6 +43,8 @@
   turns.
 - Slack run rendering now uses a generic working status and streams markdown
   through chunk-based appends.
+- `agentsdk coder` now lives in `apps/coder`, with `cmd/agentsdk` reduced to
+  command wiring and terminal turn handling shared through `adapters/terminalui`.
 
 ### Fixed
 

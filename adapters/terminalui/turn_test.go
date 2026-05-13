@@ -1,0 +1,92 @@
+package terminalui
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/usage"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/session"
+)
+
+func TestUsageFromEventParsesTypedPayload(t *testing.T) {
+	typed := usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
+		Measurements: []usage.Measurement{{
+			Metric:   usage.MetricLLMInputTokens,
+			Quantity: 12,
+			Unit:     usage.UnitToken,
+		}},
+	}
+	got, ok := usageFromEvent(clientapi.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}})
+	if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
+		t.Fatalf("usageFromEvent = %#v, %v", got, ok)
+	}
+	if _, ok := usageFromEvent(clientapi.Event{Runtime: &clientapi.RuntimeEvent{Name: event.Name("other")}}); ok {
+		t.Fatalf("usageFromEvent accepted non-usage event")
+	}
+	if _, ok := usageFromEvent(clientapi.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{}}}); ok {
+		t.Fatalf("usageFromEvent accepted untyped usage payload")
+	}
+}
+
+func TestTrackPlanRuntimeEventTracksActivePlansAndSeenKeys(t *testing.T) {
+	active := map[string]bool{}
+	seen := map[string]bool{}
+	started := clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    "plan.execution_started",
+			Payload: map[string]any{"plan_id": "plan_1"},
+		},
+	}
+	trackPlanRuntimeEvent(started, active, seen)
+	if !active["plan_1"] {
+		t.Fatalf("active = %#v, want plan_1 active", active)
+	}
+	if key := runtimeEventKey(started); key == "" || !seen[key] {
+		t.Fatalf("seen missing runtime key %q: %#v", key, seen)
+	}
+	trackPlanRuntimeEvent(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    "plan.completed",
+			Payload: map[string]any{"plan_id": "plan_1"},
+		},
+	}, active, seen)
+	if active["plan_1"] {
+		t.Fatalf("active = %#v, want plan_1 removed", active)
+	}
+}
+
+func TestResultErrorReportsFailedInput(t *testing.T) {
+	err := ResultError(clientapi.Result{
+		Input: &session.InputResult{
+			Status: session.InputStatusFailed,
+			Error:  &session.CommandError{Code: "model_failed", Message: "boom"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "model_failed: boom") {
+		t.Fatalf("err = %v, want model_failed", err)
+	}
+}
+
+func TestRenderOutboundRendersMarkdown(t *testing.T) {
+	var out bytes.Buffer
+	renderOutbound(&out, clientapi.Result{
+		Outbound: &channel.Outbound{
+			Message: &channel.Message{Content: "**Hi** `there`"},
+		},
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "Hi") || !strings.Contains(got, "there") {
+		t.Fatalf("out = %q, want rendered final outbound", got)
+	}
+	if strings.Contains(got, "**Hi**") || strings.Contains(got, "`there`") {
+		t.Fatalf("out = %q, want markdown rendered without source markers", got)
+	}
+}

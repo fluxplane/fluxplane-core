@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,27 +21,16 @@ import (
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
-	anthropicadapter "github.com/fluxplane/agentruntime/adapters/anthropic"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
-	"github.com/fluxplane/agentruntime/adapters/browsercdp"
-	cmdriskadapter "github.com/fluxplane/agentruntime/adapters/cmdrisk"
-	codexadapter "github.com/fluxplane/agentruntime/adapters/codex"
 	"github.com/fluxplane/agentruntime/adapters/connectauth"
 	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	minimaxadapter "github.com/fluxplane/agentruntime/adapters/minimax"
-	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
-	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
-	openrouteradapter "github.com/fluxplane/agentruntime/adapters/openrouter"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
-	corecommand "github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -52,8 +40,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	"github.com/fluxplane/agentruntime/orchestration/daemon"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
@@ -85,7 +71,7 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	cmd.AddCommand(newCoderCommand())
+	cmd.AddCommand(coder.NewCommand())
 	cmd.AddCommand(newServeCommand())
 	cmd.AddCommand(newRemoteCommand())
 	cmd.AddCommand(newConnectCommand())
@@ -628,35 +614,6 @@ func printConnectInfo(out io.Writer, def *connectorsdefinition.Definition) {
 	}
 }
 
-type coderOptions struct {
-	provider string
-	model    string
-	input    string
-	debug    bool
-	usage    bool
-}
-
-func newCoderCommand() *cobra.Command {
-	var opts coderOptions
-	cmd := &cobra.Command{
-		Use:   "coder",
-		Short: "Run coder in an interactive session",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(opts.input) != "" {
-				return runCoder(cmd.Context(), opts, opts.input)
-			}
-			return runCoderREPL(cmd.Context(), opts)
-		},
-	}
-	cmd.PersistentFlags().StringVar(&opts.provider, "provider", "openai", "model provider")
-	cmd.PersistentFlags().StringVar(&opts.model, "model", coder.DefaultModel, "model name or provider/model")
-	cmd.PersistentFlags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
-	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
-	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
-	return cmd
-}
-
 func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 	configureServeLogging(opts.debug)
 	cfgFile, err := appconfig.LoadDirFile(ctx, appDir)
@@ -723,7 +680,7 @@ func runServe(ctx context.Context, opts serveOptions, appDir string) error {
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		LLMModelResolver: serveModelResolver{debug: opts.debug},
-		LLMStreamPolicy:  debugStreamPolicy(opts.debug),
+		LLMStreamPolicy:  coder.DebugStreamPolicy(opts.debug),
 		ToolProjection: agentruntime.ToolProjectionConfig{
 			AllowSideEffects:      true,
 			MaxRisk:               operation.RiskMedium,
@@ -783,8 +740,8 @@ type serveModelResolver struct {
 }
 
 func (r serveModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	selection := resolveModelSelection(coderOptions{provider: "openai", model: spec.Inference.Model})
-	return newCoderModel(selection, coderOptions{debug: r.debug})
+	selection := coder.ResolveModelSelection("openai", spec.Inference.Model)
+	return coder.NewModel(selection, r.debug)
 }
 
 func serveConnectorEngine(ctx context.Context, opts serveOptions, docs map[string]appconfig.ConnectorDoc) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
@@ -1135,9 +1092,11 @@ func runRemote(ctx context.Context, opts remoteOptions) error {
 	}
 	tracker := coreusage.NewTracker()
 	if strings.TrimSpace(opts.input) != "" {
-		return sendInput(ctx, session, opts.input, terminalTurnOptions{
+		return terminalui.RunTurn(ctx, session, opts.input, terminalui.TurnOptions{
 			Debug: opts.debug,
 			Usage: opts.usage,
+			Out:   os.Stdout,
+			Err:   os.Stderr,
 		}, tracker)
 	}
 	_, _ = fmt.Fprintln(os.Stderr, "agentsdk remote. Type /exit or /quit to stop.")
@@ -1154,9 +1113,11 @@ func runRemote(ctx context.Context, opts remoteOptions) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := sendInput(ctx, session, prompt, terminalTurnOptions{
+		if err := terminalui.RunTurn(ctx, session, prompt, terminalui.TurnOptions{
 			Debug: opts.debug,
 			Usage: opts.usage,
+			Out:   os.Stdout,
+			Err:   os.Stderr,
 		}, tracker); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
@@ -1374,566 +1335,12 @@ func resolveRemoteSocketPath(raw string) string {
 	return resolveServeSocketPath(raw)
 }
 
-func runCoder(ctx context.Context, opts coderOptions, prompt string) error {
-	session, err := openCoderSession(ctx, opts)
-	if err != nil {
-		return err
-	}
-	return sendInput(ctx, session, prompt, terminalTurnOptions{
-		Debug: opts.debug,
-		Usage: opts.usage,
-	}, coreusage.NewTracker())
-}
-
-func runCoderREPL(ctx context.Context, opts coderOptions) error {
-	session, err := openCoderSession(ctx, opts)
-	if err != nil {
-		return err
-	}
-	tracker := coreusage.NewTracker()
-	_, _ = fmt.Fprintln(os.Stderr, "agentsdk coder repl. Type /exit or /quit to stop.")
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		_, _ = fmt.Fprint(os.Stdout, "coder> ")
-		if !scanner.Scan() {
-			break
-		}
-		prompt := strings.TrimSpace(scanner.Text())
-		switch prompt {
-		case "":
-			continue
-		case "/exit", "/quit":
-			return nil
-		}
-		if err := sendInput(ctx, session, prompt, terminalTurnOptions{
-			Debug: opts.debug,
-			Usage: opts.usage,
-		}, tracker); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Session, error) {
-	root, err := workspaceRoot()
-	if err != nil {
-		return nil, err
-	}
-	selection := resolveModelSelection(opts)
-	model, err := newCoderModel(selection, opts)
-	if err != nil {
-		return nil, err
-	}
-	hostSystem, err := system.NewHost(system.Config{Root: root})
-	if err != nil {
-		return nil, err
-	}
-	hostSystem.SetClarifier(terminalui.Prompter{In: os.Stdin, Out: os.Stderr})
-	browser, err := browsercdp.New(browsercdp.Config{Workspace: hostSystem.Workspace(), Headless: true})
-	if err == nil {
-		hostSystem.SetBrowser(browser)
-	} else if opts.debug {
-		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
-	}
-	bundle := coderBundle(selection.Provider, selection.Model)
-	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{bundle},
-		Plugins: []pluginhost.Plugin{
-			codingplugin.New(hostSystem),
-			planexecplugin.New(),
-			skillplugin.New(),
-		},
-		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
-			Sandbox:        localSandbox{Root: root},
-			ACL:            localACL{},
-			CommandRisk:    coderCommandRisk(root),
-			MaxCommandRisk: operation.RiskMedium,
-			AllowPure:      true,
-		})),
-	})
-	if err != nil {
-		return nil, err
-	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
-		LLMModel:        model,
-		LLMStreamPolicy: debugStreamPolicy(opts.debug),
-		ToolProjection:  coderToolProjectionConfig(),
-		Channel:         channel.Ref{Name: "local"},
-		Caller: policy.Caller{
-			Kind: policy.CallerUser,
-			Principal: policy.Principal{
-				Kind: "user",
-				ID:   "agentsdk",
-				Name: "agentsdk",
-			},
-		},
-		Trust: policy.Trust{
-			Kind:  policy.TrustInvocation,
-			Level: policy.TrustVerified,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	session, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: coder.SessionName},
-		Conversation: channel.ConversationRef{ID: "agentsdk-coder"},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return session, nil
-}
-
-func coderToolProjectionConfig() agentruntime.ToolProjectionConfig {
-	return agentruntime.ToolProjectionConfig{
-		AllowSideEffects:        true,
-		MaxRisk:                 operation.RiskMedium,
-		IncludeBareOperations:   true,
-		PreferCommandProjection: true,
-	}
-}
-
-func coderBundle(provider, model string) agentruntime.ResourceBundle {
-	bundle := coder.Bundle()
-	if model == "" {
-		return bundle
-	}
-	for i := range bundle.Agents {
-		if bundle.Agents[i].Name == coder.AgentName {
-			bundle.Agents[i].Inference.Model = model
-		}
-	}
-	for i := range bundle.Apps {
-		if bundle.Apps[i].Name == coder.AppName {
-			bundle.Apps[i].Model.Provider = provider
-			bundle.Apps[i].Model.Model = model
-		}
-	}
-	return bundle
-}
-
-func sendInput(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
-	if invocation, ok, err := corecommand.ParseSlash(prompt); err != nil {
-		return err
-	} else if ok {
-		return runTerminalCommand(ctx, session, invocation, opts, tracker)
-	}
-	return runTerminalPrompt(ctx, session, prompt, opts, tracker)
-}
-
-type terminalTurnOptions struct {
-	Debug bool
-	Usage bool
-}
-
-type terminalRenderResult struct {
-	Streamed    bool
-	ActivePlans map[string]bool
-	SeenRuntime map[string]bool
-}
-
-func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
-	run, err := session.Submit(ctx, agentruntime.NewSubmission().WithText(prompt))
-	if err != nil {
-		return err
-	}
-	eventsDone := renderTerminalEvents(run.Events(), tracker, opts.Debug)
-	result, err := run.Wait(ctx)
-	eventResult := terminalRenderResult{}
-	if eventsDone != nil {
-		eventResult = <-eventsDone
-	}
-	if len(eventResult.ActivePlans) > 0 {
-		followResult := followTerminalBackgroundPlans(ctx, session, eventResult, tracker, opts.Debug)
-		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
-	}
-	if !eventResult.Streamed {
-		renderTerminalOutbound(os.Stdout, result)
-	}
-	if opts.Usage && tracker != nil {
-		terminalui.RenderUsageSnapshot(os.Stderr, tracker.Snapshot())
-	}
-	if err != nil {
-		return err
-	}
-	return resultError(result)
-}
-
-func runTerminalCommand(ctx context.Context, session agentruntime.Session, invocation corecommand.Invocation, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
-	run, err := session.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
-	if err != nil {
-		return err
-	}
-	eventsDone := renderTerminalEvents(run.Events(), tracker, opts.Debug)
-	result, err := run.Wait(ctx)
-	if eventsDone != nil {
-		<-eventsDone
-	}
-	renderTerminalOutbound(os.Stdout, result)
-	if opts.Usage && tracker != nil {
-		terminalui.RenderUsageSnapshot(os.Stderr, tracker.Snapshot())
-	}
-	if err != nil {
-		return err
-	}
-	return resultError(result)
-}
-
-func resultError(result agentruntime.Result) error {
-	if result.Input != nil && result.Input.Status != sessionruntime.InputStatusOK {
-		if result.Input.Error != nil {
-			return fmt.Errorf("%s: %s", result.Input.Error.Code, result.Input.Error.Message)
-		}
-		return fmt.Errorf("input failed: %s", result.Input.Status)
-	}
-	if result.Command != nil && result.Command.Status != sessionruntime.CommandStatusOK {
-		if result.Command.Error != nil {
-			return fmt.Errorf("%s: %s", result.Command.Error.Code, result.Command.Error.Message)
-		}
-		return fmt.Errorf("command failed: %s", result.Command.Status)
-	}
-	return nil
-}
-
-func renderTerminalOutbound(out io.Writer, result agentruntime.Result) {
-	if out == nil {
-		out = io.Discard
-	}
-	if result.Outbound == nil || result.Outbound.Message == nil {
-		return
-	}
-	content := fmt.Sprint(result.Outbound.Message.Content)
-	if content == "" {
-		return
-	}
-	_ = terminalui.RenderMarkdown(out, content)
-}
-
-func renderTerminalEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker, debug bool) <-chan terminalRenderResult {
-	done := make(chan terminalRenderResult, 1)
-	go func() {
-		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
-		result := terminalRenderResult{ActivePlans: map[string]bool{}, SeenRuntime: map[string]bool{}}
-		for event := range events {
-			trackUsageEvent(tracker, event)
-			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
-			if debug {
-				renderer.RenderDebug(event)
-			}
-			renderer.Render(event)
-		}
-		renderer.Finish()
-		result.Streamed = renderer.HasStreamedContent()
-		done <- result
-		close(done)
-	}()
-	return done
-}
-
-func followTerminalBackgroundPlans(ctx context.Context, session agentruntime.Session, initial terminalRenderResult, tracker *coreusage.Tracker, debug bool) terminalRenderResult {
-	if session == nil || len(initial.ActivePlans) == 0 {
-		return terminalRenderResult{}
-	}
-	events, cancel, err := session.Events(ctx, agentruntime.EventOptions{Buffer: 64, Replay: true})
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "background plan events unavailable: %v\n", err)
-		return terminalRenderResult{}
-	}
-	defer cancel()
-	renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
-	result := terminalRenderResult{ActivePlans: cloneBoolMap(initial.ActivePlans), SeenRuntime: cloneBoolMap(initial.SeenRuntime)}
-	for len(result.ActivePlans) > 0 {
-		select {
-		case <-ctx.Done():
-			renderer.Finish()
-			return result
-		case event, ok := <-events:
-			if !ok {
-				renderer.Finish()
-				return result
-			}
-			if !isPlanRuntimeEvent(event) && !isSubagentRuntimeEvent(event) {
-				continue
-			}
-			key := runtimeEventKey(event)
-			if key != "" && result.SeenRuntime[key] {
-				continue
-			}
-			trackUsageEvent(tracker, event)
-			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
-			if debug {
-				renderer.RenderDebug(event)
-			}
-			renderer.Render(event)
-		}
-	}
-	renderer.Finish()
-	result.Streamed = renderer.HasStreamedContent()
-	return result
-}
-
-func trackPlanRuntimeEvent(event agentruntime.Event, active map[string]bool, seen map[string]bool) {
-	if event.Runtime == nil {
-		return
-	}
-	if key := runtimeEventKey(event); key != "" && seen != nil {
-		seen[key] = true
-	}
-	planID := runtimePlanID(event)
-	if planID == "" || active == nil {
-		return
-	}
-	switch string(event.Runtime.Name) {
-	case "plan.execution_started":
-		active[planID] = true
-	case "plan.completed", "plan.failed", "plan.cancelled":
-		delete(active, planID)
-	}
-}
-
-func runtimePlanID(event agentruntime.Event) string {
-	if event.Runtime == nil {
-		return ""
-	}
-	payload := runtimePayloadMap(event.Runtime.Payload)
-	if value, ok := payload["plan_id"].(string); ok {
-		return value
-	}
-	return ""
-}
-
-func isPlanRuntimeEvent(event agentruntime.Event) bool {
-	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "plan.")
-}
-
-func isSubagentRuntimeEvent(event agentruntime.Event) bool {
-	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "subagent.")
-}
-
-func runtimeEventKey(event agentruntime.Event) string {
-	if event.Runtime == nil {
-		return ""
-	}
-	raw, err := json.Marshal(event.Runtime.Payload)
-	if err != nil {
-		return string(event.Runtime.Name)
-	}
-	return string(event.Runtime.Name) + ":" + string(raw)
-}
-
-func runtimePayloadMap(payload any) map[string]any {
-	switch typed := payload.(type) {
-	case map[string]any:
-		return typed
-	default:
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			return nil
-		}
-		var out map[string]any
-		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil
-		}
-		return out
-	}
-}
-
-func cloneBoolMap(in map[string]bool) map[string]bool {
-	if len(in) == 0 {
-		return map[string]bool{}
-	}
-	out := make(map[string]bool, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
-}
-
-func trackUsageEvent(tracker *coreusage.Tracker, event agentruntime.Event) {
-	if tracker == nil {
-		return
-	}
-	if recorded, ok := usageFromEvent(event); ok {
-		tracker.Add(recorded)
-	}
-}
-
-func usageFromEvent(event agentruntime.Event) (coreusage.Recorded, bool) {
-	if event.Runtime == nil || event.Runtime.Name != coreusage.EventRecordedName {
-		return coreusage.Recorded{}, false
-	}
-	recorded, ok := event.Runtime.Payload.(coreusage.Recorded)
-	if !ok || recorded.Empty() {
-		return coreusage.Recorded{}, false
-	}
-	return recorded, true
-}
-
 func terminalEventRegistry() (*coreevent.Registry, error) {
 	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
 	if err != nil {
 		return nil, err
 	}
 	return registry, nil
-}
-
-func workspaceRoot() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(wd)
-}
-
-func debugStreamPolicy(debug bool) llmagent.StreamPolicy {
-	return llmagent.StreamPolicy{EmitContent: true, EmitThinking: true, EmitToolCall: debug}
-}
-
-func debugRedactor(debug bool) adapterllm.Redactor {
-	if !debug {
-		return adapterllm.Redactor{ExposeThinkingSummary: true}
-	}
-	return adapterllm.Redactor{ExposeThinking: true, ExposeThinkingSummary: true, ExposeToolArgs: true}
-}
-
-type modelSelection struct {
-	Provider string
-	Model    string
-}
-
-func resolveModelSelection(opts coderOptions) modelSelection {
-	provider := strings.TrimSpace(opts.provider)
-	if provider == "" {
-		provider = "openai"
-	}
-	model := strings.TrimSpace(opts.model)
-	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
-		if knownCLIProvider(before) && provider == "openai" {
-			provider = before
-			model = after
-		}
-	}
-	if model == "" {
-		model = coder.DefaultModel
-	}
-	return modelSelection{Provider: provider, Model: model}
-}
-
-func knownCLIProvider(provider string) bool {
-	switch provider {
-	case "openai", "codex", "openrouter", "anthropic", "minimax":
-		return true
-	default:
-		return false
-	}
-}
-
-func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model, error) {
-	_, modelSpec, found := modelcatalog.Find(selection.Provider, selection.Model)
-	pricing := modelSpec.Pricing
-	runtime := openaiadapter.DefaultResponsesRuntimeConfig()
-	switch selection.Provider {
-	case "openai":
-		return openaiadapter.New(openaiadapter.Config{
-			Model:             selection.Model,
-			Runtime:           runtime,
-			Pricing:           pricing,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(opts.debug),
-		})
-	case "codex":
-		return codexadapter.New(codexadapter.Config{
-			Model:             selection.Model,
-			Runtime:           runtime,
-			Pricing:           pricing,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(opts.debug),
-		})
-	case "openrouter":
-		if !found {
-			return nil, fmt.Errorf("openrouter model %q was not found in modeldb; use an exact OpenRouter model id, for example --model openrouter/anthropic/claude-sonnet-4.6", selection.Model)
-		}
-		if !modelcatalog.SupportsAPI(modelSpec, "openai-responses") {
-			return nil, fmt.Errorf("openrouter model %q does not expose OpenAI Responses in modeldb", selection.Model)
-		}
-		reasoningEffort, reasoningSummary := openRouterReasoningDefaults(modelSpec)
-		return openrouteradapter.New(openrouteradapter.Config{
-			Model:             selection.Model,
-			Pricing:           pricing,
-			ReasoningEffort:   reasoningEffort,
-			ReasoningSummary:  reasoningSummary,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(opts.debug),
-		})
-	case "anthropic":
-		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
-			return nil, err
-		}
-		return anthropicadapter.New(anthropicadapter.Config{
-			Model:           selection.Model,
-			Pricing:         pricing,
-			MaxOutputTokens: maxOutputTokens(modelSpec),
-			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-			Redactor:        debugRedactor(opts.debug),
-		})
-	case "minimax":
-		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
-			return nil, err
-		}
-		return minimaxadapter.New(minimaxadapter.Config{
-			Model:           selection.Model,
-			Pricing:         pricing,
-			MaxOutputTokens: maxOutputTokens(modelSpec),
-			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-			Redactor:        debugRedactor(opts.debug),
-		})
-	default:
-		return nil, fmt.Errorf("unknown provider %q", selection.Provider)
-	}
-}
-
-func requireMessagesModel(provider, model string, modelSpec corellm.ModelSpec, found bool) error {
-	if !found {
-		return fmt.Errorf("%s model %q was not found in modeldb", provider, model)
-	}
-	if !modelcatalog.SupportsAPI(modelSpec, "anthropic-messages") {
-		return fmt.Errorf("%s model %q does not expose Anthropic Messages in modeldb", provider, model)
-	}
-	return nil
-}
-
-func maxOutputTokens(modelSpec corellm.ModelSpec) int {
-	if modelSpec.MaxOutputTokens > 0 && modelSpec.MaxOutputTokens < int64(^uint(0)>>1) {
-		return int(modelSpec.MaxOutputTokens)
-	}
-	return 0
-}
-
-func openRouterReasoningDefaults(modelSpec corellm.ModelSpec) (string, string) {
-	effort := firstSupportedCSV(modelSpec.Annotations["modeldb.openai_responses.reasoning_efforts"], "minimal", "low", "medium", "high")
-	summary := firstSupportedCSV(modelSpec.Annotations["modeldb.openai_responses.reasoning_summaries"], "auto", "concise", "detailed")
-	return effort, summary
-}
-
-func firstSupportedCSV(csv string, preferred ...string) string {
-	values := map[string]bool{}
-	for _, value := range strings.Split(csv, ",") {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			values[value] = true
-		}
-	}
-	for _, value := range preferred {
-		if values[value] {
-			return value
-		}
-	}
-	return ""
 }
 
 type localSandbox struct {
@@ -1952,29 +1359,4 @@ type localACL struct{}
 
 func (localACL) Authorize(operation.Context, operation.Spec, operation.Value) error {
 	return nil
-}
-
-func coderCommandRisk(root string) operationruntime.CommandRiskClassifier {
-	secretPrefixes := []string{
-		filepath.Join(root, ".env"),
-		filepath.Join(root, ".git", "config"),
-		filepath.Join(root, ".git", "credentials"),
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		secretPrefixes = append(secretPrefixes,
-			filepath.Join(home, ".ssh"),
-			filepath.Join(home, ".aws"),
-			filepath.Join(home, ".config", "gh"),
-		)
-	}
-	return cmdriskadapter.New(cmdriskadapter.Config{
-		WorkingDirectory:        root,
-		WorkspacePathPrefixes:   []string{root},
-		SecretPathPrefixes:      secretPrefixes,
-		SensitivePathPrefixes:   []string{filepath.Join(root, ".git")},
-		Sandboxed:               false,
-		Disposable:              false,
-		Interactive:             false,
-		NetworkApprovalAsMedium: true,
-	})
 }

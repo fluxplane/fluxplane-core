@@ -1,0 +1,50 @@
+package coder
+
+import (
+	"testing"
+
+	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/skillplugin"
+	"github.com/fluxplane/agentruntime/runtime/system"
+)
+
+func TestBundleComposes(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	composition, err := app.Compose(app.Config{
+		Bundles: []resource.ContributionBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composition.AgentSpecs) != 3 {
+		t.Fatalf("agent specs len = %d, want 3", len(composition.AgentSpecs))
+	}
+	if got := composition.AgentSpecs[0].Policy.MaxSteps; got != 50 {
+		t.Fatalf("max steps = %d, want 50", got)
+	}
+	if got := composition.AgentSpecs[0].Policy.MaxContinuations; got != 3 {
+		t.Fatalf("max continuations = %d, want 3", got)
+	}
+	if len(composition.OperationSpecs) != 43 {
+		t.Fatalf("operation specs len = %d, want 43", len(composition.OperationSpecs))
+	}
+	session := composition.SessionSpecs[0]
+	if len(session.Delegation.Commands) == 0 {
+		t.Fatal("delegation commands len = 0, want child command caps")
+	}
+	worker := composition.AgentSpecs[1]
+	if len(worker.Commands) == 0 {
+		t.Fatal("worker commands len = 0, want command-projected tools")
+	}
+	if len(worker.Operations) != 0 {
+		t.Fatalf("worker operations len = %d, want command-only tools", len(worker.Operations))
+	}
+}
