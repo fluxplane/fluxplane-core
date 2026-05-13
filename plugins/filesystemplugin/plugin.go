@@ -286,6 +286,16 @@ func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
 		if maxBytes <= 0 || maxBytes > maxReadBytes {
 			maxBytes = maxReadBytes
 		}
+		if req.StartLine > 0 || req.EndLine > 0 {
+			data, firstLine, truncated, resolved, err := ws.ReadFileLines(ctx, req.Path, req.StartLine, req.EndLine, maxBytes)
+			if err != nil {
+				return operation.Failed("file_read_failed", err.Error(), nil)
+			}
+			content := string(data)
+			text := renderFileRange(resolved, content, firstLine, req.LineNumbers, truncated)
+			recordUsage(ctx, FileReadOp, resolved.Rel, usage.DirectionRead, float64(len(data)))
+			return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"path": resolved.Rel, "content": content, "truncated": truncated}})
+		}
 		data, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxBytes)
 		if err != nil {
 			return operation.Failed("file_read_failed", err.Error(), nil)
@@ -627,6 +637,35 @@ func renderFile(resolved system.ResolvedPath, content string, start, end int, li
 			out = append(out, fmt.Sprintf("%6d  %s", i, lines[i-1]))
 		} else {
 			out = append(out, lines[i-1])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func renderFileRange(resolved system.ResolvedPath, content string, firstLine int, lineNumbers, truncated bool) string {
+	if firstLine <= 0 {
+		firstLine = 1
+	}
+	lines := []string{}
+	if content != "" {
+		lines = strings.Split(content, "\n")
+	}
+	endLine := firstLine
+	if len(lines) > 0 {
+		endLine = firstLine + len(lines) - 1
+	}
+	header := fmt.Sprintf("[file: %s, lines: %d-%d", displayPath(resolved), firstLine, endLine)
+	if truncated {
+		header += ", truncated"
+	}
+	header += "]"
+	out := []string{header}
+	for i, line := range lines {
+		lineNo := firstLine + i
+		if lineNumbers {
+			out = append(out, fmt.Sprintf("%6d  %s", lineNo, line))
+		} else {
+			out = append(out, line)
 		}
 	}
 	return strings.Join(out, "\n")

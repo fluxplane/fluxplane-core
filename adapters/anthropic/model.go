@@ -1,0 +1,52 @@
+// Package anthropic adapts Anthropic's Messages API to agentsdk.
+package anthropic
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/fluxplane/agentruntime/adapters/anthropicmessages"
+	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
+)
+
+const DefaultBaseURL = "https://api.anthropic.com"
+
+// Config configures an Anthropic Messages model.
+type Config struct {
+	Model           string
+	APIKey          string
+	BaseURL         string
+	MaxOutputTokens int
+	PromptCache     bool
+	Pricing         []corellm.PricingSpec
+	Redactor        adapterllm.Redactor
+}
+
+// New returns an Anthropic-backed Messages model.
+func New(cfg Config) (*anthropicmessages.Model, error) {
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("anthropic: ANTHROPIC_API_KEY is not set")
+	}
+	baseURL := strings.TrimSpace(cfg.BaseURL)
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
+	}
+	return anthropicmessages.New(anthropicmessages.Config{
+		Model:           cfg.Model,
+		APIKey:          apiKey,
+		BaseURL:         baseURL,
+		ProviderName:    "anthropic",
+		APIName:         "anthropic.messages",
+		AuthHeader:      "x-api-key",
+		MaxOutputTokens: cfg.MaxOutputTokens,
+		PromptCache:     cfg.PromptCache,
+		Pricing:         cfg.Pricing,
+		Redactor:        cfg.Redactor,
+	})
+}

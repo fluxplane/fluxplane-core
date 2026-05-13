@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/usage"
@@ -59,11 +60,81 @@ func TestResolveModelSelectionParsesProviderPrefix(t *testing.T) {
 	if got.Provider != "codex" || got.Model != "gpt-5.5" {
 		t.Fatalf("selection = %#v, want codex/gpt-5.5", got)
 	}
+	got = resolveModelSelection(coderOptions{provider: "openai", model: "anthropic/claude-haiku-4-5-20251001"})
+	if got.Provider != "anthropic" || got.Model != "claude-haiku-4-5-20251001" {
+		t.Fatalf("selection = %#v, want anthropic/claude-haiku-4-5-20251001", got)
+	}
+	got = resolveModelSelection(coderOptions{provider: "openai", model: "minimax/MiniMax-M2.7"})
+	if got.Provider != "minimax" || got.Model != "MiniMax-M2.7" {
+		t.Fatalf("selection = %#v, want minimax/MiniMax-M2.7", got)
+	}
+}
+
+func TestResolveModelSelectionKeepsOpenRouterSlashModel(t *testing.T) {
+	got := resolveModelSelection(coderOptions{provider: "openai", model: "openrouter/anthropic/claude-sonnet-4.6"})
+	if got.Provider != "openrouter" || got.Model != "anthropic/claude-sonnet-4.6" {
+		t.Fatalf("selection = %#v, want openrouter/anthropic/claude-sonnet-4.6", got)
+	}
+	got = resolveModelSelection(coderOptions{provider: "openrouter", model: "anthropic/claude-sonnet-4.6"})
+	if got.Provider != "openrouter" || got.Model != "anthropic/claude-sonnet-4.6" {
+		t.Fatalf("selection = %#v, want explicit openrouter provider", got)
+	}
 }
 
 func TestCoderDefaultModel(t *testing.T) {
 	if coder.DefaultModel != "gpt-5.5" {
 		t.Fatalf("DefaultModel = %q, want gpt-5.5", coder.DefaultModel)
+	}
+}
+
+func TestNewCoderModelRejectsUnknownOpenRouterModel(t *testing.T) {
+	_, err := newCoderModel(modelSelection{Provider: "openrouter", Model: "gpt-5.5"}, coderOptions{})
+	if err == nil || !strings.Contains(err.Error(), "exact OpenRouter model id") {
+		t.Fatalf("error = %v, want exact OpenRouter model id", err)
+	}
+}
+
+func TestNewCoderModelSupportsOpenRouterResponsesModel(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	model, err := newCoderModel(modelSelection{Provider: "openrouter", Model: "anthropic/claude-sonnet-4.6"}, coderOptions{})
+	if err != nil {
+		t.Fatalf("newCoderModel: %v", err)
+	}
+	if model == nil {
+		t.Fatalf("model is nil")
+	}
+}
+
+func TestNewCoderModelSupportsAnthropicMessagesModels(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	model, err := newCoderModel(modelSelection{Provider: "anthropic", Model: "claude-haiku-4-5-20251001"}, coderOptions{})
+	if err != nil {
+		t.Fatalf("newCoderModel anthropic: %v", err)
+	}
+	if model == nil {
+		t.Fatal("anthropic model is nil")
+	}
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	model, err = newCoderModel(modelSelection{Provider: "minimax", Model: "MiniMax-M2.7"}, coderOptions{})
+	if err != nil {
+		t.Fatalf("newCoderModel minimax: %v", err)
+	}
+	if model == nil {
+		t.Fatal("minimax model is nil")
+	}
+}
+
+func TestOpenRouterReasoningDefaultsPreferMinimalAndAuto(t *testing.T) {
+	_, modelSpec, ok := modelcatalog.Find("openrouter", "moonshotai/kimi-k2-thinking")
+	if !ok {
+		t.Fatal("openrouter moonshotai/kimi-k2-thinking missing from modeldb")
+	}
+	effort, summary := openRouterReasoningDefaults(modelSpec)
+	if effort != "minimal" {
+		t.Fatalf("effort = %q, want minimal", effort)
+	}
+	if summary != "auto" {
+		t.Fatalf("summary = %q, want auto", summary)
 	}
 }
 

@@ -141,20 +141,29 @@ go run ./cmd/agentsdk coder --debug "Run go test for the focused package."
 go run ./cmd/agentsdk coder --usage "Reply with one sentence."
 go run ./cmd/agentsdk coder --model codex/gpt-5.5 repl
 go run ./cmd/agentsdk coder --provider codex --model gpt-5.5 "Summarize the current diff."
+go run ./cmd/agentsdk coder --model openrouter/anthropic/claude-sonnet-4.6 "Reply with one sentence."
+go run ./cmd/agentsdk coder --model anthropic/claude-haiku-4-5-20251001 "Reply with one sentence."
+go run ./cmd/agentsdk coder --model minimax/MiniMax-M2.7 "Reply with one sentence."
 go run ./cmd/agentsdk coder repl
 ```
 
 The command defaults to `openai/gpt-5.5`. OpenAI uses `OPENAI_API_KEY` through
 the OpenAI SDK. Codex uses the local Codex OAuth file at `~/.codex/auth.json`
-or `CODEX_AUTH_PATH`. Normal output streams assistant markdown and reasoning
-summaries in the terminal. `--usage` prints grouped session totals with
-human-readable token, network, and estimated cost lines after each prompt.
-`--debug` renders runtime events as highlighted JSON markdown fences.
+or `CODEX_AUTH_PATH`. OpenRouter uses `OPENROUTER_API_KEY` and exact modeldb
+model IDs, for example `openrouter/anthropic/claude-sonnet-4.6`. Anthropic
+uses `ANTHROPIC_API_KEY` against the Messages API. MiniMax uses
+`MINIMAX_API_KEY` against its Anthropic-compatible Messages endpoint. Normal
+output streams assistant markdown and reasoning summaries in the terminal.
+`--usage` prints grouped session totals with human-readable token, network, and
+estimated cost lines after each prompt. `--debug` renders runtime events as
+highlighted JSON markdown fences.
 
 OpenAI-compatible providers use automatic best-effort Responses settings:
 WebSocket-preferred transport intent, max prompt caching, reasoning encrypted
 content for replay, and provider continuation when available. These are runtime
-provider settings, not CLI-specific flags.
+provider settings, not CLI-specific flags. OpenRouter runs through the same
+Responses adapter with stateless replay continuation and provider-neutral cache
+request fields by default.
 
 ## Resource Apps
 

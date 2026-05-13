@@ -70,6 +70,33 @@ func TestHostWorkspaceCopyFileCopiesCompleteFile(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceReadFileLinesPastInitialWindow(t *testing.T) {
+	root := t.TempDir()
+	var content bytes.Buffer
+	for i := 1; i <= 6000; i++ {
+		if i == 5500 {
+			content.WriteString("target\n")
+			continue
+		}
+		content.WriteString("padding padding padding padding\n")
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), content.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sys, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	data, firstLine, truncated, resolved, err := sys.Workspace().ReadFileLines(context.Background(), "large.txt", 5500, 5500, 1024)
+	if err != nil {
+		t.Fatalf("ReadFileLines: %v", err)
+	}
+	if resolved.Rel != "large.txt" || firstLine != 5500 || truncated || string(data) != "target\n" {
+		t.Fatalf("resolved=%#v firstLine=%d truncated=%v data=%q", resolved, firstLine, truncated, data)
+	}
+}
+
 func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T) {
 	root := t.TempDir()
 	data := []byte("source")

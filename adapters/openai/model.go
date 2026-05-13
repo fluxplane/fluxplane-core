@@ -56,6 +56,13 @@ type Config struct {
 	// Pricing enriches emitted LLM usage records with estimated cost.
 	Pricing []corellm.PricingSpec
 
+	// ReasoningEffort sets Responses reasoning.effort when the provider/model
+	// supports it.
+	ReasoningEffort string
+
+	// ReasoningSummary sets Responses reasoning.summary. Empty defaults to auto.
+	ReasoningSummary string
+
 	// Store controls OpenAI response storage. The adapter sends this explicitly
 	// and defaults to false.
 	Store bool
@@ -81,6 +88,8 @@ type Model struct {
 	api               string
 	runtime           ResponsesRuntimeConfig
 	pricing           []corellm.PricingSpec
+	reasoningEffort   string
+	reasoningSummary  string
 	store             bool
 	parallelToolCalls bool
 	redactor          adapterllm.Redactor
@@ -109,6 +118,8 @@ func New(cfg Config) (*Model, error) {
 		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
 		runtime:           runtime,
 		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
+		reasoningSummary:  firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
 		store:             store,
 		parallelToolCalls: cfg.ParallelToolCalls,
 		redactor:          cfg.Redactor,
@@ -181,6 +192,7 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
 	provider := m.providerIdentity(m.modelName(req))
+	m.emitBufferedStreamContent(final, &streamState, emit)
 	out, err := responseFromOpenAI(final, tools, provider, m.store, m.pricing)
 	if err != nil {
 		return llmagent.Response{}, err
@@ -201,10 +213,13 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		Store:             openai.Bool(m.store),
 		ParallelToolCalls: openai.Bool(m.parallelToolCalls),
 		Reasoning: shared.ReasoningParam{
-			Summary: shared.ReasoningSummaryAuto,
+			Summary: shared.ReasoningSummary(m.reasoningSummary),
 		},
 	}
-	if m.runtime.Cache != ResponsesCacheOff {
+	if m.reasoningEffort != "" {
+		params.Reasoning.Effort = shared.ReasoningEffort(m.reasoningEffort)
+	}
+	if m.runtime.Cache == ResponsesCacheMax {
 		params.PromptCacheKey = openai.String(promptCacheKey(m.provider, model, req))
 		params.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
 		params.Include = append(params.Include, responses.ResponseIncludableReasoningEncryptedContent)
@@ -537,6 +552,8 @@ type openAIStreamState struct {
 	outputPhases       map[int]string
 	completedToolCalls map[int]bool
 	contentDeltas      map[int]*strings.Builder
+	unphasedDeltas     map[int]*strings.Builder
+	flushedUnphased    map[int]bool
 }
 
 func (s *openAIStreamState) ensure() {
@@ -554,6 +571,12 @@ func (s *openAIStreamState) ensure() {
 	}
 	if s.contentDeltas == nil {
 		s.contentDeltas = map[int]*strings.Builder{}
+	}
+	if s.unphasedDeltas == nil {
+		s.unphasedDeltas = map[int]*strings.Builder{}
+	}
+	if s.flushedUnphased == nil {
+		s.flushedUnphased = map[int]bool{}
 	}
 }
 
@@ -585,6 +608,62 @@ func (s *openAIStreamState) appendContent(index int, text string) {
 		s.contentDeltas[index] = builder
 	}
 	builder.WriteString(text)
+}
+
+func (s *openAIStreamState) appendUnphased(index int, text string) {
+	if s == nil || text == "" {
+		return
+	}
+	s.ensure()
+	builder := s.unphasedDeltas[index]
+	if builder == nil {
+		builder = &strings.Builder{}
+		s.unphasedDeltas[index] = builder
+	}
+	builder.WriteString(text)
+}
+
+func (s *openAIStreamState) flushUnphased(index int, kind adapterllm.StreamKind) []adapterllm.StreamEvent {
+	if s == nil {
+		return nil
+	}
+	s.ensure()
+	if s.flushedUnphased[index] {
+		return nil
+	}
+	builder := s.unphasedDeltas[index]
+	if builder == nil || builder.Len() == 0 {
+		return nil
+	}
+	text := builder.String()
+	s.flushedUnphased[index] = true
+	if kind == adapterllm.StreamContentDelta {
+		s.appendContent(index, text)
+		return []adapterllm.StreamEvent{{Kind: adapterllm.StreamContentDelta, Text: text, Index: index}}
+	}
+	return []adapterllm.StreamEvent{{
+		Kind:        adapterllm.StreamThinkingDelta,
+		Text:        text,
+		Index:       index,
+		Sensitivity: "internal",
+	}}
+}
+
+func (s *openAIStreamState) flushAllUnphased(kind adapterllm.StreamKind) []adapterllm.StreamEvent {
+	if s == nil || len(s.unphasedDeltas) == 0 {
+		return nil
+	}
+	var maxIndex int
+	for index := range s.unphasedDeltas {
+		if index > maxIndex {
+			maxIndex = index
+		}
+	}
+	var out []adapterllm.StreamEvent
+	for index := 0; index <= maxIndex; index++ {
+		out = append(out, s.flushUnphased(index, kind)...)
+	}
+	return out
 }
 
 func (s *openAIStreamState) finalContent() string {
@@ -632,20 +711,25 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 	switch evt.Type {
 	case "response.output_text.delta":
 		delta := evt.AsResponseOutputTextDelta()
-		if state.phase(int(delta.OutputIndex)) == "commentary" {
+		switch state.phase(int(delta.OutputIndex)) {
+		case "commentary":
 			return []adapterllm.StreamEvent{{
 				Kind:        adapterllm.StreamThinkingDelta,
 				Text:        delta.Delta,
 				Index:       int(delta.OutputIndex),
 				Sensitivity: "internal",
 			}}
+		case "final_answer":
+			state.appendContent(int(delta.OutputIndex), delta.Delta)
+			return []adapterllm.StreamEvent{{
+				Kind:  adapterllm.StreamContentDelta,
+				Text:  delta.Delta,
+				Index: int(delta.OutputIndex),
+			}}
+		default:
+			state.appendUnphased(int(delta.OutputIndex), delta.Delta)
+			return nil
 		}
-		state.appendContent(int(delta.OutputIndex), delta.Delta)
-		return []adapterllm.StreamEvent{{
-			Kind:  adapterllm.StreamContentDelta,
-			Text:  delta.Delta,
-			Index: int(delta.OutputIndex),
-		}}
 	case "response.reasoning_text.delta":
 		return []adapterllm.StreamEvent{{
 			Kind:        adapterllm.StreamThinkingDelta,
@@ -677,6 +761,16 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 	case "response.output_item.done":
 		done := evt.AsResponseOutputItemDone()
 		state.setPhase(int(done.OutputIndex), done.Item)
+		if done.Item.Type == "message" {
+			switch state.phase(int(done.OutputIndex)) {
+			case "commentary":
+				return state.flushUnphased(int(done.OutputIndex), adapterllm.StreamThinkingDelta)
+			case "final_answer":
+				return state.flushUnphased(int(done.OutputIndex), adapterllm.StreamContentDelta)
+			default:
+				return nil
+			}
+		}
 		if done.Item.Type != "function_call" || state.completedToolCalls[int(done.OutputIndex)] {
 			return nil
 		}
@@ -685,14 +779,16 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			name = state.toolNames[int(done.OutputIndex)]
 		}
 		state.completedToolCalls[int(done.OutputIndex)] = true
-		return []adapterllm.StreamEvent{{
+		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
+		events = append(events, adapterllm.StreamEvent{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
 			ToolCallID: firstNonEmpty(done.Item.CallID, done.Item.ID),
 			Index:      int(done.OutputIndex),
 			Arguments:  done.Item.Arguments.OfString,
 			Final:      true,
-		}}
+		})
+		return events
 	case "response.function_call_arguments.delta":
 		delta := evt.AsResponseFunctionCallArgumentsDelta()
 		return []adapterllm.StreamEvent{{
@@ -712,16 +808,36 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			name = state.toolNames[int(done.OutputIndex)]
 		}
 		state.completedToolCalls[int(done.OutputIndex)] = true
-		return []adapterllm.StreamEvent{{
+		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
+		events = append(events, adapterllm.StreamEvent{
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
 			ToolCallID: done.ItemID,
 			Index:      int(done.OutputIndex),
 			Arguments:  done.Arguments,
 			Final:      true,
-		}}
+		})
+		return events
 	default:
 		return nil
+	}
+}
+
+func (m *Model) emitBufferedStreamContent(final responses.Response, state *openAIStreamState, emit llmagent.StreamFunc) {
+	if state == nil || emit == nil {
+		return
+	}
+	kind := adapterllm.StreamContentDelta
+	for _, item := range final.Output {
+		if item.Type == "function_call" {
+			kind = adapterllm.StreamThinkingDelta
+			break
+		}
+	}
+	for _, normalized := range state.flushAllUnphased(kind) {
+		if runtimeEvent, ok := m.redactor.ToRuntimeStream(normalized); ok {
+			emit(runtimeEvent)
+		}
 	}
 }
 

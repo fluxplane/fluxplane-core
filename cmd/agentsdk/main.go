@@ -11,15 +11,19 @@ import (
 	"strings"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	anthropicadapter "github.com/fluxplane/agentruntime/adapters/anthropic"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
 	cmdriskadapter "github.com/fluxplane/agentruntime/adapters/cmdrisk"
 	codexadapter "github.com/fluxplane/agentruntime/adapters/codex"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
+	minimaxadapter "github.com/fluxplane/agentruntime/adapters/minimax"
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
+	openrouteradapter "github.com/fluxplane/agentruntime/adapters/openrouter"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/channel"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coreusage "github.com/fluxplane/agentruntime/core/usage"
@@ -366,8 +370,10 @@ func resolveModelSelection(opts coderOptions) modelSelection {
 	}
 	model := strings.TrimSpace(opts.model)
 	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
-		provider = before
-		model = after
+		if knownCLIProvider(before) && provider == "openai" {
+			provider = before
+			model = after
+		}
 	}
 	if model == "" {
 		model = coder.DefaultModel
@@ -375,8 +381,17 @@ func resolveModelSelection(opts coderOptions) modelSelection {
 	return modelSelection{Provider: provider, Model: model}
 }
 
+func knownCLIProvider(provider string) bool {
+	switch provider {
+	case "openai", "codex", "openrouter", "anthropic", "minimax":
+		return true
+	default:
+		return false
+	}
+}
+
 func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model, error) {
-	_, modelSpec, _ := modelcatalog.Find(selection.Provider, selection.Model)
+	_, modelSpec, found := modelcatalog.Find(selection.Provider, selection.Model)
 	pricing := modelSpec.Pricing
 	runtime := openaiadapter.DefaultResponsesRuntimeConfig()
 	switch selection.Provider {
@@ -396,9 +411,86 @@ func newCoderModel(selection modelSelection, opts coderOptions) (llmagent.Model,
 			ParallelToolCalls: true,
 			Redactor:          debugRedactor(opts.debug),
 		})
+	case "openrouter":
+		if !found {
+			return nil, fmt.Errorf("openrouter model %q was not found in modeldb; use an exact OpenRouter model id, for example --model openrouter/anthropic/claude-sonnet-4.6", selection.Model)
+		}
+		if !modelcatalog.SupportsAPI(modelSpec, "openai-responses") {
+			return nil, fmt.Errorf("openrouter model %q does not expose OpenAI Responses in modeldb", selection.Model)
+		}
+		reasoningEffort, reasoningSummary := openRouterReasoningDefaults(modelSpec)
+		return openrouteradapter.New(openrouteradapter.Config{
+			Model:             selection.Model,
+			Pricing:           pricing,
+			ReasoningEffort:   reasoningEffort,
+			ReasoningSummary:  reasoningSummary,
+			ParallelToolCalls: true,
+			Redactor:          debugRedactor(opts.debug),
+		})
+	case "anthropic":
+		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
+			return nil, err
+		}
+		return anthropicadapter.New(anthropicadapter.Config{
+			Model:           selection.Model,
+			Pricing:         pricing,
+			MaxOutputTokens: maxOutputTokens(modelSpec),
+			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
+			Redactor:        debugRedactor(opts.debug),
+		})
+	case "minimax":
+		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
+			return nil, err
+		}
+		return minimaxadapter.New(minimaxadapter.Config{
+			Model:           selection.Model,
+			Pricing:         pricing,
+			MaxOutputTokens: maxOutputTokens(modelSpec),
+			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
+			Redactor:        debugRedactor(opts.debug),
+		})
 	default:
 		return nil, fmt.Errorf("unknown provider %q", selection.Provider)
 	}
+}
+
+func requireMessagesModel(provider, model string, modelSpec corellm.ModelSpec, found bool) error {
+	if !found {
+		return fmt.Errorf("%s model %q was not found in modeldb", provider, model)
+	}
+	if !modelcatalog.SupportsAPI(modelSpec, "anthropic-messages") {
+		return fmt.Errorf("%s model %q does not expose Anthropic Messages in modeldb", provider, model)
+	}
+	return nil
+}
+
+func maxOutputTokens(modelSpec corellm.ModelSpec) int {
+	if modelSpec.MaxOutputTokens > 0 && modelSpec.MaxOutputTokens < int64(^uint(0)>>1) {
+		return int(modelSpec.MaxOutputTokens)
+	}
+	return 0
+}
+
+func openRouterReasoningDefaults(modelSpec corellm.ModelSpec) (string, string) {
+	effort := firstSupportedCSV(modelSpec.Annotations["modeldb.openai_responses.reasoning_efforts"], "minimal", "low", "medium", "high")
+	summary := firstSupportedCSV(modelSpec.Annotations["modeldb.openai_responses.reasoning_summaries"], "auto", "concise", "detailed")
+	return effort, summary
+}
+
+func firstSupportedCSV(csv string, preferred ...string) string {
+	values := map[string]bool{}
+	for _, value := range strings.Split(csv, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			values[value] = true
+		}
+	}
+	for _, value := range preferred {
+		if values[value] {
+			return value
+		}
+	}
+	return ""
 }
 
 type localSandbox struct {

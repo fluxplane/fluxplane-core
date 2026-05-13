@@ -659,6 +659,15 @@ Implemented and green:
   continuation, prompt caching, and future Responses-compatible providers.
 - `adapters/codex`: Codex Responses provider wrapper using the Codex backend
   URL and local Codex OAuth file (`~/.codex/auth.json` or `CODEX_AUTH_PATH`).
+- `adapters/openrouter`: OpenRouter Responses provider wrapper using
+  `OPENROUTER_API_KEY`, exact modeldb model IDs, stateless replay
+  continuation, and provider-neutral cache request fields.
+- `adapters/anthropicmessages`: generic Anthropic-compatible Messages API
+  adapter with HTTP/SSE streaming, tool use, replay continuation, usage, and
+  modeldb pricing/capability metadata.
+- `adapters/anthropic` and `adapters/minimax`: thin provider wrappers for
+  Anthropic API-key Messages and MiniMax's Anthropic-compatible Messages
+  endpoint.
 - `adapters/modelcatalog`: bridge from `github.com/codewandler/modeldb` into
   `core/llm` provider/model/pricing/capability specs.
 - `runtime/operation`: pre-execution safety gate/envelope shape for sandbox,
@@ -748,9 +757,11 @@ Important contract decisions from this slice:
 
 Anthropic provider migration notes:
 
-- Anthropic API should use the Messages API with API-key auth and modeldb
-  metadata for `anthropic-messages` support, pricing, caching, thinking, and
-  tool capabilities.
+- Anthropic API now uses the generic Messages adapter with API-key auth and
+  modeldb metadata for `anthropic-messages` support, pricing, caching,
+  thinking, and tool capabilities.
+- MiniMax is wired through the same generic Messages adapter against its
+  Anthropic-compatible endpoint.
 - Claude Code should be a separate provider mode using local Claude OAuth
   credentials, Claude Code CLI-compatible headers/preflight behavior, system
   cache-control, and context-management request shape. It must act like Claude
@@ -776,11 +787,11 @@ Still intentionally incomplete:
   narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
   agent instantiation through configured sessions. It does not execute prompt
   commands, execute workflow commands, or activate skills yet.
-- The first live provider adapters are OpenAI Responses and Codex Responses.
-  They are still narrow: no complete WebSocket transport implementation in the
-  native OpenAI SDK path, retry policy, conversation compaction, durable usage
-  aggregation, budget enforcement, Anthropic API adapter, or Claude Code
-  provider yet.
+- The first live provider adapters are OpenAI Responses, Codex Responses,
+  OpenRouter Responses, Anthropic Messages, and MiniMax Messages. They are
+  still narrow: no complete WebSocket transport implementation in the native
+  OpenAI SDK path, retry policy, conversation compaction, durable usage
+  aggregation, budget enforcement, or Claude Code provider yet.
 - Configured sessions can instantiate manifest-declared LLM agents when the
   host provides `LLMModel`, `LLMModelResolver`, or the devclient `-openai`
   path. Model routing policy beyond that first adapter is still open.
@@ -966,7 +977,9 @@ Parity should be reached in small slices:
    function calls into operation requests, applies shared Responses runtime
    config for caching/continuation, and is reachable from
    `apps/devclient -openai`. Done: `adapters/codex` wraps the Codex Responses
-   backend using local Codex OAuth credentials. The existing devclient also has an app-injected
+   backend using local Codex OAuth credentials, and `adapters/openrouter`
+   reuses the shared Responses adapter for OpenRouter models exposed through
+   modeldb. The existing devclient also has an app-injected
    `-synthetic-tool` operation for proving OpenAI tool-call continuation
    without adding a separate example app.
 
@@ -991,11 +1004,12 @@ Parity should be reached in small slices:
    should describe model capabilities and pricing so cost evaluation is data
    driven. Done initially: `core/usage` defines generic usage records,
    `core/llm` defines LLM provider/model/pricing/capability specs,
-  `runtime/usage` evaluates and enriches estimated costs from pricing specs,
-  `adapters/modelcatalog` hydrates specs from `github.com/codewandler/modeldb`,
-  `core/usage` includes session accumulation, and `adapters/openai` emits LLM
-  token usage from Responses usage. Schedule Anthropic API and Claude Code in
-  this provider expansion path.
+   `runtime/usage` evaluates and enriches estimated costs from pricing specs,
+   `adapters/modelcatalog` hydrates specs from `github.com/codewandler/modeldb`,
+   `core/usage` includes session accumulation, `adapters/openai` emits LLM
+   token usage from Responses usage, and `adapters/openrouter` reuses the
+   Responses adapter with OpenRouter auth and modeldb validation. Schedule
+   Anthropic API and Claude Code in this provider expansion path.
 
 10. **Phase 8: Local CLI Capability Plugin**
    Migrate shell/filesystem/git/search tools through adapters and plugins with
@@ -1008,8 +1022,8 @@ Parity should be reached in small slices:
    input/output JSON Schemas from typed Go structs; standard operations emit
    usage events for IO boundaries; HTML responses use the same
    html-to-markdown library as the old implementation. The terminal coder app
-  now renders operation begin/end, process output, grouped usage totals, and
-  clarify prompts through `adapters/terminalui`.
+   now renders operation begin/end, process output, grouped usage totals, and
+   clarify prompts through `adapters/terminalui`.
    Still planned: overlay workspace commit/rollback, stronger approval UX,
    richer web search, durable process ownership, and real sandbox backends such
    as Docker profiles, bubblewrap, or Firecracker.

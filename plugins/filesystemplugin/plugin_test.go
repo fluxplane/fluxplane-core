@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/event"
@@ -56,6 +57,43 @@ func TestFileReadReturnsRenderedTextAndUsage(t *testing.T) {
 	}
 	if !sawUsage {
 		t.Fatal("usage.Recorded event not emitted")
+	}
+}
+
+func TestFileReadLineRangeBeyondDefaultReadWindow(t *testing.T) {
+	root := t.TempDir()
+	var content strings.Builder
+	for i := 1; i <= 9000; i++ {
+		if i == 8500 {
+			content.WriteString("target line\n")
+			continue
+		}
+		content.WriteString("padding padding padding padding padding\n")
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(content.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+	op := filesystemOperation(t, root, FileReadOp)
+
+	result := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
+		"path":         "large.txt",
+		"start_line":   8500,
+		"end_line":     8500,
+		"line_numbers": true,
+	})
+	if result.IsError() {
+		t.Fatalf("result error = %#v", result.Error)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want rendered", result.Output)
+	}
+	text := rendered.ModelText()
+	if !strings.Contains(text, "8500  target line") {
+		t.Fatalf("text = %q, want requested line", text)
+	}
+	if strings.Contains(text, "truncated") {
+		t.Fatalf("text = %q, did not want truncated", text)
 	}
 }
 

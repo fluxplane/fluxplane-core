@@ -10,6 +10,10 @@
   and estimated cost lines after each prompt.
 - Shared usage cost enrichment from model pricing for OpenAI-compatible
   providers.
+- OpenRouter Responses provider support via `OPENROUTER_API_KEY` and
+  `--model openrouter/<model-id>`.
+- Generic Anthropic-compatible Messages adapter with Anthropic API and MiniMax
+  provider wrappers for `--model anthropic/<model>` and `--model minimax/<model>`.
 
 ## 0.3.0
 
