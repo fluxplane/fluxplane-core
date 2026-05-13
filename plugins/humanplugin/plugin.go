@@ -61,6 +61,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Output:      spec.Output,
 			Policy:      policy.InvocationPolicy{AllowedCallers: []policy.CallerKind{policy.CallerAgent}, RequiredTrust: policy.TrustVerified},
 		}},
+		EventTypes: []event.Event{ClarificationRequested{}, ClarificationCompleted{}},
 	}, nil
 }
 

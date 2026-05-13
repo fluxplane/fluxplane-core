@@ -2,12 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -59,6 +61,41 @@ func TestComposeRejectsCommandTargetingUnknownOperation(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Compose error is nil, want unknown operation error")
+	}
+}
+
+func TestComposeBuildsEventRegistryFromPluginContributions(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: "event-plugin"}},
+		}},
+		Plugins: []pluginhost.Plugin{eventPlugin{}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if composition.EventRegistry == nil {
+		t.Fatal("event registry is nil")
+	}
+	decoded, ok, err := composition.EventRegistry.TryDecode(testPluginEvent{}.EventName(), json.RawMessage(`{"value":"ok"}`))
+	if err != nil {
+		t.Fatalf("TryDecode: %v", err)
+	}
+	if !ok {
+		t.Fatal("plugin event was not registered")
+	}
+	got, ok := decoded.(testPluginEvent)
+	if !ok || got.Value != "ok" {
+		t.Fatalf("decoded = %#v, want testPluginEvent ok", decoded)
+	}
+}
+
+func TestNewEventRegistryRejectsDuplicateEventNames(t *testing.T) {
+	_, err := NewEventRegistry(EventRegistryConfig{
+		EventTypes: []coreevent.Event{testPluginEvent{}, testPluginEvent{}},
+	})
+	if err == nil {
+		t.Fatal("NewEventRegistry error is nil, want duplicate event name")
 	}
 }
 
@@ -488,6 +525,24 @@ type echoPlugin struct{}
 
 func (echoPlugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: "echo-plugin"}
+}
+
+type testPluginEvent struct {
+	Value string `json:"value"`
+}
+
+func (testPluginEvent) EventName() coreevent.Name { return "test.plugin.event" }
+
+type eventPlugin struct{}
+
+func (eventPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: "event-plugin"}
+}
+
+func (eventPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{
+		EventTypes: []coreevent.Event{testPluginEvent{}},
+	}, nil
 }
 
 func (echoPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {

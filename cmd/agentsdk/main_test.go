@@ -494,7 +494,7 @@ func TestOpenRouterReasoningDefaultsPreferMinimalAndAuto(t *testing.T) {
 	}
 }
 
-func TestUsageFromEventParsesTypedAndMapPayloads(t *testing.T) {
+func TestUsageFromEventParsesTypedPayload(t *testing.T) {
 	typed := usage.Recorded{
 		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
 		Measurements: []usage.Measurement{{
@@ -503,24 +503,15 @@ func TestUsageFromEventParsesTypedAndMapPayloads(t *testing.T) {
 			Unit:     usage.UnitToken,
 		}},
 	}
-	for _, evt := range []agentruntime.Event{
-		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}},
-		{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{
-			"subject": map[string]any{"kind": "llm", "provider": "openai", "name": "gpt-test"},
-			"measurements": []any{map[string]any{
-				"metric":   "llm.input_tokens",
-				"quantity": float64(12),
-				"unit":     "token",
-			}},
-		}}},
-	} {
-		got, ok := usageFromEvent(evt)
-		if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
-			t.Fatalf("usageFromEvent = %#v, %v", got, ok)
-		}
+	got, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: typed}})
+	if !ok || got.Subject.Provider != "openai" || len(got.Measurements) != 1 {
+		t.Fatalf("usageFromEvent = %#v, %v", got, ok)
 	}
 	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: event.Name("other")}}); ok {
 		t.Fatalf("usageFromEvent accepted non-usage event")
+	}
+	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{}}}); ok {
+		t.Fatalf("usageFromEvent accepted untyped usage payload")
 	}
 }
 

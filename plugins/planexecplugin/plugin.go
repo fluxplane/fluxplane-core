@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -68,6 +69,19 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 		Sessions: []coresession.Spec{
 			{Name: WorkerSession, Agent: agent.Ref{Name: WorkerAgent}, Metadata: map[string]string{"role": "subagent_worker"}},
 			{Name: ExplorerSession, Agent: agent.Ref{Name: ExplorerAgent}, Metadata: map[string]string{"role": "subagent_explorer"}},
+		},
+		EventTypes: []event.Event{
+			PlanCreated{},
+			PlanRevised{},
+			PlanExecutionStarted{},
+			StepDispatched{},
+			StepProgressed{},
+			StepCompleted{},
+			StepFailed{},
+			StepCancelled{},
+			PlanCompleted{},
+			PlanFailed{},
+			PlanCancelled{},
 		},
 	}, nil
 }

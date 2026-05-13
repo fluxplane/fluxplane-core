@@ -27,6 +27,7 @@ const (
 	ansiYellow = "\x1b[33m"
 	ansiGreen  = "\x1b[32m"
 	ansiRed    = "\x1b[31m"
+	ansiDim    = "\x1b[2m"
 )
 
 // Renderer renders client events for humans.

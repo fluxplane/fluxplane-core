@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,21 +219,20 @@ func TestClientRoundTripsRuntimeUsageAndStreamingEvents(t *testing.T) {
 		}
 		switch event.Runtime.Name {
 		case usage.EventRecordedName:
-			payload, ok := event.Runtime.Payload.(map[string]any)
+			payload, ok := event.Runtime.Payload.(usage.Recorded)
 			if !ok {
-				t.Fatalf("usage payload = %T, want map", event.Runtime.Payload)
+				t.Fatalf("usage payload = %T, want usage.Recorded", event.Runtime.Payload)
 			}
-			if payload["source"] != "test-runtime" {
+			if payload.Source != "test-runtime" {
 				t.Fatalf("usage payload = %#v", payload)
 			}
 			sawUsage = true
 		case llmagent.EventModelStreamedName:
-			payload, ok := event.Runtime.Payload.(map[string]any)
+			payload, ok := event.Runtime.Payload.(llmagent.ModelStreamed)
 			if !ok {
-				t.Fatalf("stream payload = %T, want map", event.Runtime.Payload)
+				t.Fatalf("stream payload = %T, want llmagent.ModelStreamed", event.Runtime.Payload)
 			}
-			stream, ok := payload["event"].(map[string]any)
-			if !ok || stream["kind"] != string(llmagent.StreamContentDelta) || stream["text"] != "agent:" {
+			if payload.Event.Kind != llmagent.StreamContentDelta || payload.Event.Text != "agent:" {
 				t.Fatalf("stream payload = %#v", payload)
 			}
 			sawStream = true
@@ -240,6 +240,43 @@ func TestClientRoundTripsRuntimeUsageAndStreamingEvents(t *testing.T) {
 	}
 	if !sawUsage || !sawStream {
 		t.Fatalf("saw usage=%v stream=%v in events %#v", sawUsage, sawStream, events)
+	}
+}
+
+func TestClientDecodeEventUsesRegistryAndLeavesUnknownPayloadRaw(t *testing.T) {
+	client := &Client{registry: testEventRegistry(t)}
+	knownRaw, err := json.Marshal(clientapi.Event{
+		Kind:    clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: usage.Recorded{Source: "test-runtime"}},
+	})
+	if err != nil {
+		t.Fatalf("Marshal known event: %v", err)
+	}
+	known, err := client.decodeEvent(knownRaw)
+	if err != nil {
+		t.Fatalf("decodeEvent known: %v", err)
+	}
+	if _, ok := known.Runtime.Payload.(usage.Recorded); !ok {
+		t.Fatalf("known payload = %T, want usage.Recorded", known.Runtime.Payload)
+	}
+
+	unknownRaw, err := json.Marshal(clientapi.Event{
+		Kind:    clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{Name: coreevent.Name("custom.event"), Payload: map[string]any{"value": "ok"}},
+	})
+	if err != nil {
+		t.Fatalf("Marshal unknown event: %v", err)
+	}
+	unknown, err := client.decodeEvent(unknownRaw)
+	if err != nil {
+		t.Fatalf("decodeEvent unknown: %v", err)
+	}
+	payload, ok := unknown.Runtime.Payload.(json.RawMessage)
+	if !ok {
+		t.Fatalf("unknown payload = %T, want json.RawMessage", unknown.Runtime.Payload)
+	}
+	if string(payload) != `{"value":"ok"}` {
+		t.Fatalf("unknown payload = %s", payload)
 	}
 }
 
@@ -253,7 +290,7 @@ func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(server)
 	t.Cleanup(httpServer.Close)
-	client, err := NewClient(ClientConfig{BaseURL: httpServer.URL, HTTPClient: httpServer.Client()})
+	client, err := NewClient(ClientConfig{BaseURL: httpServer.URL, HTTPClient: httpServer.Client(), Events: testEventRegistry(t)})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -285,6 +322,61 @@ func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	}
 	if len(events) == 0 || events[len(events)-1].Kind != clientapi.EventRunCompleted {
 		t.Fatalf("last event = %#v, want run.completed", events[len(events)-1])
+	}
+}
+
+func TestClientReadsLargeSSEEventWithoutScannerLimit(t *testing.T) {
+	largeText := strings.Repeat("x", 2<<20)
+	raw, err := json.Marshal(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{
+				Event: llmagent.StreamEvent{Kind: llmagent.StreamContentDelta, Text: largeText},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal event: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", raw)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client(), Events: testEventRegistry(t)})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Second)
+	defer cancelCtx()
+	events, cancel, _, err := client.openEventStream(ctx, "thread-1", clientapi.EventOptions{Buffer: 1})
+	if err != nil {
+		t.Fatalf("openEventStream: %v", err)
+	}
+	defer cancel()
+
+	select {
+	case event, ok := <-events:
+		if !ok {
+			t.Fatal("event stream closed before large event")
+		}
+		payload, ok := event.Runtime.Payload.(llmagent.ModelStreamed)
+		if !ok {
+			t.Fatalf("payload = %T, want llmagent.ModelStreamed", event.Runtime.Payload)
+		}
+		if payload.Event.Text != largeText {
+			t.Fatalf("payload text len = %d, want %d", len(payload.Event.Text), len(largeText))
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for large event")
 	}
 }
 
@@ -660,12 +752,11 @@ func countStreamContentDeltas(events []clientapi.Event) int {
 		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil || event.Runtime.Name != llmagent.EventModelStreamedName {
 			continue
 		}
-		payload, ok := event.Runtime.Payload.(map[string]any)
+		payload, ok := event.Runtime.Payload.(llmagent.ModelStreamed)
 		if !ok {
 			continue
 		}
-		stream, ok := payload["event"].(map[string]any)
-		if ok && stream["kind"] == string(llmagent.StreamContentDelta) {
+		if payload.Event.Kind == llmagent.StreamContentDelta {
 			count++
 		}
 	}
@@ -674,15 +765,21 @@ func countStreamContentDeltas(events []clientapi.Event) int {
 
 func runtimeCallID(t *testing.T, event clientapi.Event) operation.CallID {
 	t.Helper()
-	payload, ok := event.Runtime.Payload.(map[string]any)
-	if !ok {
-		t.Fatalf("runtime payload = %T, want map", event.Runtime.Payload)
+	switch payload := event.Runtime.Payload.(type) {
+	case operation.OperationStarted:
+		return payload.CallID
+	case operation.OperationCompleted:
+		return payload.CallID
+	case operation.OperationFailed:
+		return payload.CallID
+	case operation.OperationRejected:
+		return payload.CallID
+	case operation.OperationCanceled:
+		return payload.CallID
+	default:
+		t.Fatalf("runtime payload = %T, want operation event", event.Runtime.Payload)
 	}
-	callID, ok := payload["call_id"].(string)
-	if !ok || callID == "" {
-		t.Fatalf("runtime payload call_id = %#v", payload["call_id"])
-	}
-	return operation.CallID(callID)
+	return ""
 }
 
 type stubEvent struct{}
@@ -702,11 +799,33 @@ func testRemoteClient(t *testing.T) *Client {
 	}
 	httpServer := httptest.NewServer(server)
 	t.Cleanup(httpServer.Close)
-	client, err := NewClient(ClientConfig{BaseURL: httpServer.URL, HTTPClient: httpServer.Client()})
+	client, err := NewClient(ClientConfig{BaseURL: httpServer.URL, HTTPClient: httpServer.Client(), Events: testEventRegistry(t)})
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
 	return client
+}
+
+func testEventRegistry(t *testing.T) *coreevent.Registry {
+	t.Helper()
+	registry := coreevent.NewRegistry()
+	for _, sample := range []coreevent.Event{
+		operation.OperationStarted{},
+		operation.OperationCompleted{},
+		operation.OperationFailed{},
+		operation.OperationRejected{},
+		operation.OperationCanceled{},
+		usage.Recorded{},
+		llmagent.ModelRequested{},
+		llmagent.ModelStreamed{},
+		llmagent.ModelCompleted{},
+		llmagent.ModelFailed{},
+	} {
+		if err := registry.Register(sample); err != nil {
+			t.Fatalf("register event %s: %v", sample.EventName(), err)
+		}
+	}
+	return registry
 }
 
 func testRuntime(t *testing.T) *agentruntime.Service {

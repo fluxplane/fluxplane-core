@@ -1,0 +1,76 @@
+package app
+
+import (
+	"fmt"
+
+	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/usage"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/system"
+)
+
+// EventRegistryConfig describes event payload types visible to an app.
+type EventRegistryConfig struct {
+	Bundles    []resource.ContributionBundle
+	EventTypes []event.Event
+}
+
+// NewEventRegistry builds a decoder registry for runtime event payloads.
+func NewEventRegistry(cfg EventRegistryConfig) (*event.Registry, error) {
+	registry := event.NewRegistry()
+	for _, sample := range defaultEventTypes() {
+		if err := registerEventType(registry, sample); err != nil {
+			return nil, err
+		}
+	}
+	for _, sample := range cfg.EventTypes {
+		if err := registerEventType(registry, sample); err != nil {
+			return nil, err
+		}
+	}
+	for _, bundle := range cfg.Bundles {
+		for _, sample := range bundle.EventTypes {
+			if err := registerEventType(registry, sample); err != nil {
+				return nil, fmt.Errorf("app: event type from %s: %w", sourceLabel(bundle.Source), err)
+			}
+		}
+	}
+	return registry, nil
+}
+
+func registerEventType(registry *event.Registry, sample event.Event) error {
+	if sample == nil {
+		return fmt.Errorf("app: event type sample is nil")
+	}
+	if err := registry.Register(sample); err != nil {
+		return fmt.Errorf("app: register event type %q: %w", sample.EventName(), err)
+	}
+	return nil
+}
+
+func defaultEventTypes() []event.Event {
+	return []event.Event{
+		operation.OperationStarted{},
+		operation.OperationCompleted{},
+		operation.OperationFailed{},
+		operation.OperationRejected{},
+		operation.OperationCanceled{},
+		usage.Recorded{},
+		llmagent.ModelRequested{},
+		llmagent.ModelStreamed{},
+		llmagent.ModelCompleted{},
+		llmagent.ModelFailed{},
+		system.ProcessEvent{Kind: "started"},
+		system.ProcessEvent{Kind: "output"},
+		system.ProcessEvent{Kind: "exited"},
+		subagent.SpawnRequested{},
+		subagent.Started{},
+		subagent.Progressed{},
+		subagent.Completed{},
+		subagent.Failed{},
+		subagent.Cancelled{},
+	}
+}
