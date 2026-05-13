@@ -20,6 +20,8 @@ func TestBuildAppContribution(t *testing.T) {
 	agentSpec := BuildAgent("main").
 		AsLLMAgent("gpt-test").
 		WithSystem("Be useful.").
+		WithMaxSteps(50).
+		WithMaxContinuations(3).
 		WithOperation("lookup").
 		Build()
 
@@ -36,6 +38,9 @@ func TestBuildAppContribution(t *testing.T) {
 	}
 	if len(bundle.Agents) != 1 || bundle.Agents[0].Driver.Kind != "llmagent" {
 		t.Fatalf("agents = %#v, want one llmagent", bundle.Agents)
+	}
+	if bundle.Agents[0].Policy.MaxSteps != 50 || bundle.Agents[0].Policy.MaxContinuations != 3 {
+		t.Fatalf("policy = %#v, want max_steps 50 and max_continuations 3", bundle.Agents[0].Policy)
 	}
 	if len(bundle.Commands) != 1 || bundle.Commands[0].Path.String() != "/lookup" {
 		t.Fatalf("commands = %#v, want /lookup", bundle.Commands)

@@ -82,6 +82,11 @@ type SessionSummary struct {
 // RunID identifies one submitted interaction.
 type RunID string
 
+// DefaultRunEventBuffer is the standard per-run live event buffer used by
+// channel transports. It is sized for model streaming bursts without making
+// subscriber queues unbounded.
+const DefaultRunEventBuffer = 1024
+
 // SubmissionKind classifies what is being sent to a session.
 type SubmissionKind string
 

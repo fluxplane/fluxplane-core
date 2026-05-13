@@ -9,6 +9,13 @@ agentsdk connect jira --instance jira
 agentsdk serve examples/slack-bot
 ```
 
+In another terminal, connect to the local direct channel declared by the app:
+
+```bash
+agentsdk remote --app examples/slack-bot
+agentsdk remote --app examples/slack-bot --input "hello from local"
+```
+
 The `slack-bot` connector instance supplies the bot token and Socket Mode app token.
 The Slack channel itself uses native Slack APIs rather than connector operation
 execution.

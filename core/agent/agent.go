@@ -63,7 +63,11 @@ type AgencyProfile struct {
 
 // Policy describes generic runtime boundaries for an agent.
 type Policy struct {
-	MaxSteps         int            `json:"max_steps,omitempty"`
+	// MaxSteps limits inner agent/model decision calls in one turn. Tool
+	// executions do not count directly; the model call that requests them does.
+	MaxSteps int `json:"max_steps,omitempty"`
+	// MaxContinuations limits outer follow-up turns after a terminal response
+	// when a stop condition asks the runtime to continue.
 	MaxContinuations int            `json:"max_continuations,omitempty"`
 	AllowedDecisions []DecisionKind `json:"allowed_decisions,omitempty"`
 }

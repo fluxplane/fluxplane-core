@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	"github.com/fluxplane/agentruntime/apps/coder"
+	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -54,8 +58,150 @@ func TestRootCommandHasServeAndConnect(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	if !strings.Contains(got, "serve") || !strings.Contains(got, "connect") {
-		t.Fatalf("commands = %s, want serve and connect", got)
+	for _, want := range []string{"serve", "connect", "remote"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("commands = %s, want %s", got, want)
+		}
+	}
+}
+
+func TestRemoteHelpIncludesTargetAndRenderingFlags(t *testing.T) {
+	cmd := newRootCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"remote", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"--app", "--url", "--socket", "--local", "--session", "--conversation", "--input", "--debug", "--usage"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestResolveRemoteTargetRequiresExactlyOneTarget(t *testing.T) {
+	_, err := resolveRemoteTarget(context.Background(), remoteOptions{session: defaultRemoteSession})
+	if err == nil || !strings.Contains(err.Error(), "specify one target") {
+		t.Fatalf("missing target error = %v, want specify one target", err)
+	}
+	_, err = resolveRemoteTarget(context.Background(), remoteOptions{url: "http://127.0.0.1:8787", local: true, session: defaultRemoteSession})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("conflicting target error = %v, want mutually exclusive", err)
+	}
+}
+
+func TestResolveRemoteTargetLocalUsesDefaultSocket(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	target, err := resolveRemoteTarget(context.Background(), remoteOptions{local: true, session: defaultRemoteSession})
+	if err != nil {
+		t.Fatalf("resolveRemoteTarget: %v", err)
+	}
+	if target.baseURL != "http://unix" {
+		t.Fatalf("baseURL = %q, want http://unix", target.baseURL)
+	}
+	want := filepath.Join(runtimeDir, defaultRemoteSocket)
+	if target.socket != want {
+		t.Fatalf("socket = %q, want %q", target.socket, want)
+	}
+	if target.session != defaultRemoteSession {
+		t.Fatalf("session = %q, want default", target.session)
+	}
+}
+
+func TestResolveRemoteAppTargetUsesDirectChannelListener(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	appDir := t.TempDir()
+	data := []byte(`
+kind: app
+name: remote-test
+daemon:
+  listeners:
+    - name: control
+      type: http
+      addr: agentsdk-local.sock
+      auth:
+        mode: local_socket
+  channels:
+    - name: local
+      type: direct
+      listener: control
+      session: custom-session
+---
+kind: session
+name: custom-session
+agent: echo
+---
+kind: agent
+name: echo
+`)
+	if err := os.WriteFile(filepath.Join(appDir, "agentsdk.app.yaml"), data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	target, err := resolveRemoteTarget(context.Background(), remoteOptions{appDir: appDir, session: defaultRemoteSession})
+	if err != nil {
+		t.Fatalf("resolveRemoteTarget: %v", err)
+	}
+	if target.baseURL != "http://unix" {
+		t.Fatalf("baseURL = %q, want http://unix", target.baseURL)
+	}
+	if target.socket != filepath.Join(runtimeDir, "agentsdk-local.sock") {
+		t.Fatalf("socket = %q", target.socket)
+	}
+	if target.session != "custom-session" {
+		t.Fatalf("session = %q, want custom-session", target.session)
+	}
+}
+
+func TestResolveRemoteAppTargetReportsAmbiguousDirectChannels(t *testing.T) {
+	appDir := t.TempDir()
+	data := []byte(`
+kind: app
+name: remote-test
+daemon:
+  listeners:
+    - name: a
+      type: http
+      addr: a.sock
+      auth: {mode: local_socket}
+    - name: b
+      type: http
+      addr: b.sock
+      auth: {mode: local_socket}
+  channels:
+    - name: local-a
+      type: direct
+      listener: a
+      session: a-session
+    - name: local-b
+      type: direct
+      listener: b
+      session: b-session
+---
+kind: session
+name: a-session
+agent: echo
+---
+kind: session
+name: b-session
+agent: echo
+---
+kind: agent
+name: echo
+`)
+	if err := os.WriteFile(filepath.Join(appDir, "agentsdk.app.yaml"), data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := resolveRemoteTarget(context.Background(), remoteOptions{appDir: appDir, session: defaultRemoteSession})
+	if err == nil || !strings.Contains(err.Error(), "multiple direct channels") || !strings.Contains(err.Error(), "local-a") || !strings.Contains(err.Error(), "local-b") {
+		t.Fatalf("resolveRemoteTarget error = %v, want ambiguous channels", err)
 	}
 }
 
@@ -175,6 +321,46 @@ func TestServeListenerRequiresTCPAuthAndEnforcesBearer(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != "ok" {
 		t.Fatalf("authorized response = %d %q, want 200 ok", rr.Code, rr.Body.String())
+	}
+}
+
+func TestListenServeRemovesStaleUnixSocketFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agentsdk-local.sock")
+	stale, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("Listen stale socket: %v", err)
+	}
+	if err := stale.Close(); err != nil {
+		t.Fatalf("Close stale socket: %v", err)
+	}
+
+	ln, display, cleanup, err := listenServe(path)
+	if err != nil {
+		t.Fatalf("listenServe: %v", err)
+	}
+	if display != "unix:"+path {
+		t.Fatalf("display = %q, want unix path", display)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatalf("Close listener: %v", err)
+	}
+	cleanup()
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("socket exists after cleanup: %v", err)
+	}
+}
+
+func TestListenServeRefusesLiveUnixSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agentsdk-local.sock")
+	live, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("Listen live socket: %v", err)
+	}
+	defer func() { _ = live.Close() }()
+
+	_, _, _, err = listenServe(path)
+	if err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("listenServe error = %v, want already in use", err)
 	}
 }
 
@@ -347,5 +533,22 @@ func TestResultErrorReportsFailedInput(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "model_failed: boom") {
 		t.Fatalf("err = %v, want model_failed", err)
+	}
+}
+
+func TestRenderTerminalOutboundRendersMarkdown(t *testing.T) {
+	var out bytes.Buffer
+	renderTerminalOutbound(&out, agentruntime.Result{
+		Outbound: &channel.Outbound{
+			Message: &channel.Message{Content: "**Hi** `there`"},
+		},
+	})
+
+	got := out.String()
+	if !strings.Contains(got, "Hi") || !strings.Contains(got, "there") {
+		t.Fatalf("out = %q, want rendered final outbound", got)
+	}
+	if strings.Contains(got, "**Hi**") || strings.Contains(got, "`there`") {
+		t.Fatalf("out = %q, want markdown rendered without source markers", got)
 	}
 }

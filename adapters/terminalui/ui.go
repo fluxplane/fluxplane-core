@@ -22,7 +22,6 @@ import (
 
 const (
 	ansiReset  = "\x1b[0m"
-	ansiDim    = "\x1b[2m"
 	ansiCyan   = "\x1b[36m"
 	ansiYellow = "\x1b[33m"
 	ansiGreen  = "\x1b[32m"
@@ -38,15 +37,10 @@ type Renderer struct {
 	mu     sync.Mutex
 	starts map[operation.CallID]time.Time
 
-	content  *mdterminal.LiveRenderer
-	thinking *mdterminal.LiveRenderer
-	debug    *mdterminal.LiveRenderer
-
-	contentBuffer strings.Builder
-	contentBlock  bool
+	content *mdterminal.LiveRenderer
+	debug   *mdterminal.LiveRenderer
 
 	streamedContent bool
-	inThinking      bool
 }
 
 // NewRenderer returns a terminal event renderer.
@@ -57,7 +51,6 @@ func NewRenderer(out, err io.Writer, showUsage bool) *Renderer {
 		ShowUsage: showUsage,
 		starts:    map[operation.CallID]time.Time{},
 		content:   newMarkdownRenderer(out),
-		thinking:  newMarkdownRenderer(err),
 		debug:     newMarkdownRenderer(err),
 	}
 }
@@ -116,6 +109,7 @@ func (r *Renderer) Finish() {
 	r.flushContent()
 	if r.debug != nil {
 		_ = r.debug.Flush()
+		r.debug = newMarkdownRenderer(r.Err)
 	}
 }
 
@@ -132,7 +126,7 @@ func (r *Renderer) RenderDebug(event clientapi.Event) {
 	if r == nil || r.debug == nil {
 		return
 	}
-	data, err := json.MarshalIndent(event, "", "  ")
+	data, err := json.MarshalIndent(redactedDebugEvent(event), "", "  ")
 	if err != nil {
 		data = []byte(fmt.Sprintf("%#v", event))
 	}
@@ -200,26 +194,11 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
 	switch event.Kind {
 	case llmagent.StreamThinkingDelta:
-		if event.Text == "" {
-			return
-		}
-		if !r.inThinking {
-			r.flushContent()
-			_, _ = fmt.Fprint(r.Err, ansiDim)
-			r.inThinking = true
-		}
-		if r.thinking != nil {
-			_, _ = r.thinking.Write([]byte(event.Text))
-			_ = r.thinking.Flush()
-		}
+		return
 	case llmagent.StreamContentDelta:
 		if event.Text == "" {
 			return
 		}
-		if r.inThinking {
-			r.flushThinking()
-		}
-		r.streamedContent = true
 		r.writeContentDelta(event.Text)
 	case llmagent.StreamToolCallDelta:
 		if event.Tool != "" && event.Final {
@@ -249,39 +228,10 @@ func (r *Renderer) flushContent() {
 	if r == nil {
 		return
 	}
-	if r.inThinking {
-		r.flushThinking()
-	}
-	if r.contentBlock && strings.TrimSpace(r.contentBuffer.String()) != "" {
-		renderer := newMarkdownRenderer(r.out())
-		_, _ = renderer.Write([]byte(r.contentBuffer.String()))
-		_, _ = renderer.Write([]byte("\n"))
-		_ = renderer.Flush()
-		r.content = newMarkdownRenderer(r.out())
-		r.contentBuffer.Reset()
-		r.contentBlock = false
-		return
-	}
-	if r.content != nil && r.contentBuffer.Len() > 0 {
-		_, _ = r.content.Write([]byte("\n"))
+	if r.content != nil {
 		_ = r.content.Flush()
 		r.content = newMarkdownRenderer(r.out())
 	}
-	r.contentBuffer.Reset()
-	r.contentBlock = false
-}
-
-func (r *Renderer) flushThinking() {
-	if r == nil || !r.inThinking {
-		return
-	}
-	if r.thinking != nil {
-		_, _ = r.thinking.Write([]byte("\n"))
-		_ = r.thinking.Flush()
-	}
-	_, _ = fmt.Fprintf(r.Err, "%s\n", ansiReset)
-	r.thinking = newMarkdownRenderer(r.Err)
-	r.inThinking = false
 }
 
 func newMarkdownRenderer(w io.Writer) *mdterminal.LiveRenderer {
@@ -302,40 +252,9 @@ func (r *Renderer) writeContentDelta(text string) {
 	if r.content == nil {
 		r.content = newMarkdownRenderer(r.out())
 	}
-	r.contentBuffer.WriteString(text)
-	if !r.contentBlock && shouldBufferBlockMarkdown(r.contentBuffer.String()) {
-		r.contentBlock = true
+	if _, err := r.content.Write([]byte(text)); err == nil {
+		r.streamedContent = true
 	}
-	if r.contentBlock {
-		return
-	}
-	_, _ = r.content.Write([]byte(text))
-	_ = r.content.Flush()
-}
-
-func shouldBufferBlockMarkdown(text string) bool {
-	return hasBlockMarkdownMarker(strings.TrimLeft(text, " \t\r\n")) || strings.Contains(text, "\n```") ||
-		strings.Contains(text, "\n#") || strings.Contains(text, "\n- ") || strings.Contains(text, "\n* ") ||
-		strings.Contains(text, "\n+ ") || strings.Contains(text, "\n> ") || strings.Contains(text, "\n|")
-}
-
-func hasBlockMarkdownMarker(text string) bool {
-	switch {
-	case strings.HasPrefix(text, "#"),
-		strings.HasPrefix(text, "- "),
-		strings.HasPrefix(text, "* "),
-		strings.HasPrefix(text, "+ "),
-		strings.HasPrefix(text, "```"),
-		strings.HasPrefix(text, "> "),
-		strings.HasPrefix(text, "|"):
-		return true
-	}
-	for i := 0; i < len(text); i++ {
-		if text[i] < '0' || text[i] > '9' {
-			return i > 0 && i+1 < len(text) && (text[i] == '.' || text[i] == ')') && text[i+1] == ' '
-		}
-	}
-	return false
 }
 
 func (r *Renderer) out() io.Writer {
@@ -343,6 +262,59 @@ func (r *Renderer) out() io.Writer {
 		return io.Discard
 	}
 	return r.Out
+}
+
+// RenderMarkdown renders one complete Markdown document to w.
+func RenderMarkdown(w io.Writer, text string) error {
+	renderer := newMarkdownRenderer(w)
+	if _, err := renderer.Write([]byte(text)); err != nil {
+		return err
+	}
+	return renderer.Flush()
+}
+
+func redactedDebugEvent(event clientapi.Event) clientapi.Event {
+	if event.Runtime == nil || event.Runtime.Name != llmagent.EventModelStreamedName {
+		return event
+	}
+	out := event
+	runtimeEvent := *event.Runtime
+	out.Runtime = &runtimeEvent
+	switch payload := event.Runtime.Payload.(type) {
+	case llmagent.ModelStreamed:
+		if payload.Event.Kind == llmagent.StreamThinkingDelta && payload.Event.Text != "" {
+			payload.Event.Redaction = fmt.Sprintf("thinking_delta:%d_bytes", len(payload.Event.Text))
+			payload.Event.Text = ""
+			runtimeEvent.Payload = payload
+		}
+	case map[string]any:
+		runtimeEvent.Payload = redactedModelStreamMap(payload)
+	}
+	return out
+}
+
+func redactedModelStreamMap(payload map[string]any) map[string]any {
+	out := make(map[string]any, len(payload))
+	for key, value := range payload {
+		out[key] = value
+	}
+	raw, ok := payload["event"].(map[string]any)
+	if !ok {
+		return out
+	}
+	kind, _ := raw["kind"].(string)
+	text, _ := raw["text"].(string)
+	if kind != string(llmagent.StreamThinkingDelta) || text == "" {
+		return out
+	}
+	streamEvent := make(map[string]any, len(raw)+1)
+	for key, value := range raw {
+		streamEvent[key] = value
+	}
+	streamEvent["text"] = ""
+	streamEvent["redaction"] = fmt.Sprintf("thinking_delta:%d_bytes", len(text))
+	out["event"] = streamEvent
+	return out
 }
 
 func field(value any, name string) string {

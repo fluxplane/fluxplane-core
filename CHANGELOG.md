@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- `agentsdk remote` for opening local or URL-backed daemon sessions, including
+  app-manifest listener discovery and Unix-socket HTTP/SSE connections.
+
+### Changed
+
+- Clarified LLM loop budgets: `max_steps` now limits inner tool-loop model
+  decisions, while `max_continuations` only caps stop-condition-driven outer
+  follow-up turns.
+- `agentsdk coder` and `agentsdk remote` now share the same terminal turn
+  rendering path for streamed model events and final markdown fallback.
+
+### Fixed
+
+- Terminal assistant streaming now writes deltas directly through the live
+  markdown renderer without duplicating final output or leaking thinking text.
+- Remote channel event delivery now uses bounded lossless buffering so streamed
+  model output is not dropped during bursty runs.
+
 ## 0.5.0
 
 ### Added

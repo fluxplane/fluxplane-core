@@ -161,6 +161,7 @@ agent: slack_bot
 kind: agent
 name: slack_bot
 model: openai/gpt-5.5
+max_steps: 50
 max_continuations: 50
 tools: [channel_send]
 context: [datasource.catalog]
@@ -184,6 +185,9 @@ system: |
 	}
 	if file.Bundle.Agents[0].Policy.MaxContinuations != 50 {
 		t.Fatalf("max continuations = %d, want 50", file.Bundle.Agents[0].Policy.MaxContinuations)
+	}
+	if file.Bundle.Agents[0].Policy.MaxSteps != 50 {
+		t.Fatalf("max steps = %d, want 50", file.Bundle.Agents[0].Policy.MaxSteps)
 	}
 	if len(file.Bundle.Agents[0].Datasources) != 2 || file.Bundle.Agents[0].Datasources[0].Name != "slack-bot" {
 		t.Fatalf("agent datasources = %#v", file.Bundle.Agents[0].Datasources)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -49,6 +51,57 @@ func TestClientSendsInputThroughHTTPAndSSE(t *testing.T) {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 	assertRemoteRunEvent(t, run, clientapi.EventInputCompleted)
+}
+
+func TestClientSendsBearerToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("authorization = %q, want bearer token", r.Header.Get("Authorization"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]clientapi.SessionSummary{})
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client(), BearerToken: "test-token"})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := client.ListSessions(context.Background(), clientapi.ListSessionsRequest{}); err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+}
+
+func TestClientUsesUnixSocketTransport(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "agentsdk.sock")
+	ln, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Listen unix: %v", err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sessions" {
+			t.Fatalf("path = %q, want /sessions", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]clientapi.SessionSummary{})
+	})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = server.Serve(ln)
+	}()
+	t.Cleanup(func() {
+		_ = server.Shutdown(context.Background())
+		<-done
+	})
+
+	client, err := NewClient(ClientConfig{BaseURL: "http://unix", UnixSocket: socketPath})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	if _, err := client.ListSessions(context.Background(), clientapi.ListSessionsRequest{}); err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
 }
 
 func TestClientSendsCommandThroughHTTPAndSSE(t *testing.T) {
@@ -187,6 +240,51 @@ func TestClientRoundTripsRuntimeUsageAndStreamingEvents(t *testing.T) {
 	}
 	if !sawUsage || !sawStream {
 		t.Fatalf("saw usage=%v stream=%v in events %#v", sawUsage, sawStream, events)
+	}
+}
+
+func TestClientReceivesLargeStreamingBurst(t *testing.T) {
+	ctx := context.Background()
+	const total = clientapi.DefaultRunEventBuffer + 64
+	service := testRuntimeWithAgent(t, streamingBurstAgent{count: total})
+	server, err := NewServer(ServerConfig{Client: service})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	httpServer := httptest.NewServer(server)
+	t.Cleanup(httpServer.Close)
+	client, err := NewClient(ClientConfig{BaseURL: httpServer.URL, HTTPClient: httpServer.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-streaming-burst"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	eventsDone := make(chan []clientapi.Event, 1)
+	go func() {
+		eventsDone <- drainRunEvents(run)
+	}()
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	var events []clientapi.Event
+	select {
+	case events = <-eventsDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining run events")
+	}
+	if got := countStreamContentDeltas(events); got != total {
+		t.Fatalf("stream deltas = %d, want %d", got, total)
+	}
+	if len(events) == 0 || events[len(events)-1].Kind != clientapi.EventRunCompleted {
+		t.Fatalf("last event = %#v, want run.completed", events[len(events)-1])
 	}
 }
 
@@ -411,6 +509,60 @@ func TestRunWaitReturnsSubmitErrorWithRunIdentity(t *testing.T) {
 	}
 }
 
+func TestRunHandleRequestsLargeEventBuffer(t *testing.T) {
+	bufferSeen := make(chan string, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, r *http.Request) {
+		bufferSeen <- r.URL.Query().Get("buffer")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`event: run.completed
+data: {"kind":"run.completed","run_id":"run_1"}
+
+`))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	mux.HandleFunc("POST /sessions/thread-1/submit", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(clientapi.Result{
+			RunID: "run_1",
+			Session: clientapi.SessionInfo{
+				Thread: openedThread("thread-1"),
+			},
+			Submission: clientapi.Submission{ID: "run_1", Kind: clientapi.SubmissionInput},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	sessionHandle := &Session{client: client, info: clientapi.SessionInfo{Thread: openedThread("thread-1")}}
+	run, err := sessionHandle.Submit(context.Background(), clientapi.Submission{
+		ID:    "run_1",
+		Kind:  clientapi.SubmissionInput,
+		Input: &clientapi.Input{Text: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(context.Background()); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	select {
+	case got := <-bufferSeen:
+		if got != "1024" {
+			t.Fatalf("buffer = %q, want 1024", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event stream request")
+	}
+}
+
 func TestRunWaitFailsWhenSSEClosesBeforeTerminalEvent(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
@@ -502,6 +654,24 @@ func drainRunEvents(run clientapi.RunHandle) []clientapi.Event {
 	return events
 }
 
+func countStreamContentDeltas(events []clientapi.Event) int {
+	var count int
+	for _, event := range events {
+		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil || event.Runtime.Name != llmagent.EventModelStreamedName {
+			continue
+		}
+		payload, ok := event.Runtime.Payload.(map[string]any)
+		if !ok {
+			continue
+		}
+		stream, ok := payload["event"].(map[string]any)
+		if ok && stream["kind"] == string(llmagent.StreamContentDelta) {
+			count++
+		}
+	}
+	return count
+}
+
 func runtimeCallID(t *testing.T, event clientapi.Event) operation.CallID {
 	t.Helper()
 	payload, ok := event.Runtime.Payload.(map[string]any)
@@ -541,6 +711,11 @@ func testRemoteClient(t *testing.T) *Client {
 
 func testRuntime(t *testing.T) *agentruntime.Service {
 	t.Helper()
+	return testRuntimeWithAgent(t, remoteEchoAgent{})
+}
+
+func testRuntimeWithAgent(t *testing.T, runtimeAgent agent.Agent) *agentruntime.Service {
+	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
@@ -564,7 +739,7 @@ func testRuntime(t *testing.T) *agentruntime.Service {
 	}
 
 	service, err := agentruntime.New(agentruntime.Config{
-		Agent:      remoteEchoAgent{},
+		Agent:      runtimeAgent,
 		Commands:   commands,
 		Operations: ops,
 		Channel:    channel.Ref{Name: "http"},
@@ -622,6 +797,34 @@ func (remoteEchoAgent) Step(ctx agent.Context, input agent.StepInput) agent.Step
 		Decision: agent.Decision{
 			Kind:    agent.DecisionMessage,
 			Message: &agent.Message{Content: content},
+		},
+	}
+}
+
+type streamingBurstAgent struct {
+	count int
+}
+
+func (a streamingBurstAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "streaming-burst"}
+}
+
+func (a streamingBurstAgent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
+	for i := 0; i < a.count; i++ {
+		ctx.Events().Emit(llmagent.ModelStreamed{
+			Agent: "streaming-burst",
+			Model: "fake-model",
+			Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamContentDelta,
+				Text: "x",
+			},
+		})
+	}
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "done"},
 		},
 	}
 }

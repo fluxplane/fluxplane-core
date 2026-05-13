@@ -82,6 +82,7 @@ func newRootCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newCoderCommand())
 	cmd.AddCommand(newServeCommand())
+	cmd.AddCommand(newRemoteCommand())
 	cmd.AddCommand(newConnectCommand())
 	return cmd
 }
@@ -113,6 +114,57 @@ type connectOptions struct {
 	instance       string
 	fields         []string
 	info           bool
+}
+
+const (
+	defaultRemoteSession      = "slack-main"
+	defaultRemoteConversation = "agentsdk-remote"
+	defaultRemoteSocket       = "agentsdk-local.sock"
+)
+
+type remoteOptions struct {
+	appDir          string
+	url             string
+	socket          string
+	local           bool
+	session         string
+	sessionExplicit bool
+	conversation    string
+	input           string
+	debug           bool
+	usage           bool
+}
+
+type remoteTarget struct {
+	baseURL     string
+	socket      string
+	bearerToken string
+	session     string
+}
+
+func newRemoteCommand() *cobra.Command {
+	var opts remoteOptions
+	opts.session = defaultRemoteSession
+	opts.conversation = defaultRemoteConversation
+	cmd := &cobra.Command{
+		Use:   "remote",
+		Short: "Connect to a running agentsdk daemon session",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			opts.sessionExplicit = cmd.Flags().Changed("session")
+			return runRemote(cmd.Context(), opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.appDir, "app", "", "app directory to read daemon listener config from")
+	cmd.Flags().StringVar(&opts.url, "url", "", "HTTP/SSE daemon listener URL")
+	cmd.Flags().StringVar(&opts.socket, "socket", "", "Unix socket path or socket name")
+	cmd.Flags().BoolVar(&opts.local, "local", false, "connect to the default local Unix socket")
+	cmd.Flags().StringVar(&opts.session, "session", defaultRemoteSession, "configured session name to open")
+	cmd.Flags().StringVar(&opts.conversation, "conversation", defaultRemoteConversation, "remote conversation id")
+	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
+	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
+	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	return cmd
 }
 
 func newConnectCommand() *cobra.Command {
@@ -931,12 +983,13 @@ func startServeListeners(ctx context.Context, listeners []appconfig.ListenerDoc,
 			}
 			mux.Handle("/", channelServer)
 		}
-		ln, display, err := listenServe(listenerDoc.Addr)
+		ln, display, cleanup, err := listenServe(listenerDoc.Addr)
 		if err != nil {
 			return err
 		}
 		handler, err := serveListenerHandler(listenerDoc, mux)
 		if err != nil {
+			cleanup()
 			return err
 		}
 		server := &http.Server{Handler: handler}
@@ -945,10 +998,12 @@ func startServeListeners(ctx context.Context, listeners []appconfig.ListenerDoc,
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = server.Shutdown(shutdownCtx)
+			cleanup()
 		}()
 		go func() {
 			if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				_, _ = fmt.Fprintf(os.Stderr, "listener %s failed: %v\n", listenerDoc.Name, err)
+				cleanup()
 			}
 		}()
 		_, _ = fmt.Fprintf(os.Stderr, "listener %s on %s\n", listenerDoc.Name, display)
@@ -1021,25 +1076,289 @@ func serveAddrIsTCP(addr string) bool {
 	return !strings.HasSuffix(addr, ".sock")
 }
 
-func listenServe(addr string) (net.Listener, string, error) {
+func listenServe(addr string) (net.Listener, string, func(), error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
 	if strings.HasSuffix(addr, ".sock") {
-		path := addr
-		if !strings.ContainsRune(addr, filepath.Separator) {
-			base := os.Getenv("XDG_RUNTIME_DIR")
-			if base == "" {
-				base = os.TempDir()
-			}
-			path = filepath.Join(base, addr)
+		path := resolveServeSocketPath(addr)
+		if err := prepareServeSocketPath(path); err != nil {
+			return nil, "", func() {}, err
 		}
 		ln, err := net.Listen("unix", path)
-		return ln, "unix:" + path, err
+		if err != nil {
+			return nil, "", func() {}, err
+		}
+		cleanup := func() { _ = os.Remove(path) }
+		return ln, "unix:" + path, cleanup, nil
 	}
 	ln, err := net.Listen("tcp", addr)
-	return ln, "http://" + addr, err
+	return ln, "http://" + addr, func() {}, err
+}
+
+func prepareServeSocketPath(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("serve: inspect unix socket %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("serve: unix socket path %s already exists and is not a socket", path)
+	}
+	conn, dialErr := net.DialTimeout("unix", path, 100*time.Millisecond)
+	if dialErr == nil {
+		_ = conn.Close()
+		return fmt.Errorf("serve: unix socket %s is already in use", path)
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("serve: remove stale unix socket %s: %w", path, err)
+	}
+	return nil
+}
+
+func runRemote(ctx context.Context, opts remoteOptions) error {
+	session, err := openRemoteSession(ctx, opts)
+	if err != nil {
+		return err
+	}
+	tracker := coreusage.NewTracker()
+	if strings.TrimSpace(opts.input) != "" {
+		return sendRemotePrompt(ctx, session, opts, opts.input, tracker)
+	}
+	_, _ = fmt.Fprintln(os.Stderr, "agentsdk remote. Type /exit or /quit to stop.")
+	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		_, _ = fmt.Fprint(os.Stdout, "remote> ")
+		if !scanner.Scan() {
+			break
+		}
+		prompt := strings.TrimSpace(scanner.Text())
+		switch prompt {
+		case "":
+			continue
+		case "/exit", "/quit":
+			return nil
+		}
+		if err := sendRemotePrompt(ctx, session, opts, prompt, tracker); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
+	}
+	return scanner.Err()
+}
+
+func openRemoteSession(ctx context.Context, opts remoteOptions) (agentruntime.Session, error) {
+	target, err := resolveRemoteTarget(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
+		BaseURL:     target.baseURL,
+		UnixSocket:  target.socket,
+		BearerToken: target.bearerToken,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sessionName := firstNonEmptyString(target.session, opts.session, defaultRemoteSession)
+	conversation := strings.TrimSpace(opts.conversation)
+	if conversation == "" {
+		conversation = defaultRemoteConversation
+	}
+	return client.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
+		Conversation: channel.ConversationRef{ID: conversation},
+	})
+}
+
+func resolveRemoteTarget(ctx context.Context, opts remoteOptions) (remoteTarget, error) {
+	var modes []string
+	if strings.TrimSpace(opts.appDir) != "" {
+		modes = append(modes, "--app")
+	}
+	if strings.TrimSpace(opts.url) != "" {
+		modes = append(modes, "--url")
+	}
+	if strings.TrimSpace(opts.socket) != "" {
+		modes = append(modes, "--socket")
+	}
+	if opts.local {
+		modes = append(modes, "--local")
+	}
+	if len(modes) == 0 {
+		return remoteTarget{}, fmt.Errorf("remote: specify one target with --app, --url, --socket, or --local")
+	}
+	if len(modes) > 1 {
+		return remoteTarget{}, fmt.Errorf("remote: target flags are mutually exclusive: %s", strings.Join(modes, ", "))
+	}
+	switch modes[0] {
+	case "--app":
+		return resolveRemoteAppTarget(ctx, opts)
+	case "--url":
+		return remoteTarget{baseURL: strings.TrimRight(strings.TrimSpace(opts.url), "/"), session: opts.session}, nil
+	case "--socket":
+		return remoteTarget{baseURL: "http://unix", socket: resolveRemoteSocketPath(opts.socket), session: opts.session}, nil
+	case "--local":
+		return remoteTarget{baseURL: "http://unix", socket: resolveRemoteSocketPath(defaultRemoteSocket), session: opts.session}, nil
+	default:
+		return remoteTarget{}, fmt.Errorf("remote: unsupported target %s", modes[0])
+	}
+}
+
+func resolveRemoteAppTarget(ctx context.Context, opts remoteOptions) (remoteTarget, error) {
+	cfgFile, err := appconfig.LoadDirFile(ctx, opts.appDir)
+	if err != nil {
+		return remoteTarget{}, err
+	}
+	if err := cfgFile.Validate(); err != nil {
+		return remoteTarget{}, err
+	}
+	ch, sessionName, err := selectRemoteDirectChannel(cfgFile.Daemon.Channels, opts.session, opts.sessionExplicit)
+	if err != nil {
+		return remoteTarget{}, err
+	}
+	listener, err := remoteListenerByName(cfgFile.Daemon.Listeners, ch.Listener)
+	if err != nil {
+		return remoteTarget{}, err
+	}
+	target, err := remoteTargetFromListener(listener)
+	if err != nil {
+		return remoteTarget{}, err
+	}
+	target.session = sessionName
+	return target, nil
+}
+
+func selectRemoteDirectChannel(channels []appconfig.ChannelDoc, sessionName string, sessionExplicit bool) (appconfig.ChannelDoc, string, error) {
+	var direct []appconfig.ChannelDoc
+	for _, ch := range channels {
+		if ch.Type == "direct" {
+			direct = append(direct, ch)
+		}
+	}
+	if len(direct) == 0 {
+		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: app has no direct daemon channel")
+	}
+	var matching []appconfig.ChannelDoc
+	for _, ch := range direct {
+		if remoteChannelSession(ch) == sessionName {
+			matching = append(matching, ch)
+		}
+	}
+	if len(matching) == 1 {
+		ch := matching[0]
+		return ch, remoteChannelSession(ch), nil
+	}
+	if len(matching) > 1 {
+		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: multiple direct channels match session %q: %s", sessionName, remoteChannelList(matching))
+	}
+	if sessionExplicit {
+		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: no direct channel matches session %q (available: %s)", sessionName, remoteChannelList(direct))
+	}
+	if len(direct) == 1 {
+		ch := direct[0]
+		return ch, remoteChannelSession(ch), nil
+	}
+	return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: multiple direct channels are available; pass --session (available: %s)", remoteChannelList(direct))
+}
+
+func remoteChannelSession(ch appconfig.ChannelDoc) string {
+	if strings.TrimSpace(ch.Session) != "" {
+		return strings.TrimSpace(ch.Session)
+	}
+	return strings.TrimSpace(ch.Name)
+}
+
+func remoteChannelList(channels []appconfig.ChannelDoc) string {
+	var parts []string
+	for _, ch := range channels {
+		parts = append(parts, fmt.Sprintf("%s session=%s listener=%s", ch.Name, remoteChannelSession(ch), ch.Listener))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, "; ")
+}
+
+func remoteListenerByName(listeners []appconfig.ListenerDoc, name string) (appconfig.ListenerDoc, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return appconfig.ListenerDoc{}, fmt.Errorf("remote: direct channel listener is empty")
+	}
+	for _, listener := range listeners {
+		if listener.Name == name {
+			return listener, nil
+		}
+	}
+	return appconfig.ListenerDoc{}, fmt.Errorf("remote: listener %q not found", name)
+}
+
+func remoteTargetFromListener(listener appconfig.ListenerDoc) (remoteTarget, error) {
+	if listener.Type != "http" {
+		return remoteTarget{}, fmt.Errorf("remote: listener %q uses unsupported type %q", listener.Name, listener.Type)
+	}
+	addr := strings.TrimSpace(listener.Addr)
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	mode := strings.ToLower(strings.TrimSpace(authString(listener.Auth, "mode")))
+	var token string
+	switch mode {
+	case "":
+		if serveAddrIsTCP(addr) {
+			return remoteTarget{}, fmt.Errorf("remote: listener %q uses TCP addr %q and requires auth", listener.Name, addr)
+		}
+	case "local_socket":
+		if serveAddrIsTCP(addr) {
+			return remoteTarget{}, fmt.Errorf("remote: listener %q auth mode local_socket requires a unix socket addr", listener.Name)
+		}
+	case "bearer", "token":
+		token = authString(listener.Auth, "token")
+		if token == "" {
+			if env := authString(listener.Auth, "env"); env != "" {
+				token = os.Getenv(env)
+			}
+		}
+		if token == "" {
+			return remoteTarget{}, fmt.Errorf("remote: listener %q bearer auth token is empty", listener.Name)
+		}
+	default:
+		return remoteTarget{}, fmt.Errorf("remote: listener %q unsupported auth mode %q", listener.Name, mode)
+	}
+	if serveAddrIsTCP(addr) {
+		if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
+			return remoteTarget{baseURL: strings.TrimRight(addr, "/"), bearerToken: token}, nil
+		}
+		return remoteTarget{baseURL: "http://" + addr, bearerToken: token}, nil
+	}
+	return remoteTarget{baseURL: "http://unix", socket: resolveServeSocketPath(addr), bearerToken: token}, nil
+}
+
+func resolveServeSocketPath(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if !strings.ContainsRune(addr, filepath.Separator) {
+		base := os.Getenv("XDG_RUNTIME_DIR")
+		if base == "" {
+			base = os.TempDir()
+		}
+		return filepath.Join(base, addr)
+	}
+	return addr
+}
+
+func resolveRemoteSocketPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if filepath.IsAbs(raw) || strings.ContainsRune(raw, filepath.Separator) {
+		return raw
+	}
+	return resolveServeSocketPath(raw)
+}
+
+func sendRemotePrompt(ctx context.Context, session agentruntime.Session, opts remoteOptions, prompt string, tracker *coreusage.Tracker) error {
+	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
+		Debug: opts.debug,
+		Usage: opts.usage,
+	}, tracker)
 }
 
 func runCoder(ctx context.Context, opts coderOptions, prompt string) error {
@@ -1172,27 +1491,36 @@ func coderBundle(provider, model string) agentruntime.ResourceBundle {
 }
 
 func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts coderOptions, prompt string, tracker *coreusage.Tracker) error {
+	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
+		Debug: opts.debug,
+		Usage: opts.usage,
+	}, tracker)
+}
+
+type terminalTurnOptions struct {
+	Debug bool
+	Usage bool
+}
+
+type terminalRenderResult struct {
+	Streamed bool
+}
+
+func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
 	run, err := session.SendInput(ctx, agentruntime.Input{Text: prompt})
 	if err != nil {
 		return err
 	}
-	var eventsDone <-chan renderResult
-	if opts.debug {
-		eventsDone = printEvents(run.Events(), tracker)
-	} else {
-		eventsDone = renderEvents(run.Events(), tracker)
-	}
+	eventsDone := renderTerminalEvents(run.Events(), tracker, opts.Debug)
 	result, err := run.Wait(ctx)
-	eventResult := renderResult{}
-	streamed := false
+	eventResult := terminalRenderResult{}
 	if eventsDone != nil {
 		eventResult = <-eventsDone
-		streamed = eventResult.Streamed
 	}
-	if !streamed && result.Outbound != nil && result.Outbound.Message != nil {
-		_, _ = fmt.Fprintln(os.Stdout, result.Outbound.Message.Content)
+	if !eventResult.Streamed {
+		renderTerminalOutbound(os.Stdout, result)
 	}
-	if opts.usage && tracker != nil {
+	if opts.Usage && tracker != nil {
 		terminalui.RenderUsageSnapshot(os.Stderr, tracker.Snapshot())
 	}
 	if err != nil {
@@ -1217,36 +1545,33 @@ func resultError(result agentruntime.Result) error {
 	return nil
 }
 
-type renderResult struct {
-	Streamed bool
+func renderTerminalOutbound(out io.Writer, result agentruntime.Result) {
+	if out == nil {
+		out = io.Discard
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil {
+		return
+	}
+	content := fmt.Sprint(result.Outbound.Message.Content)
+	if content == "" {
+		return
+	}
+	_ = terminalui.RenderMarkdown(out, content)
 }
 
-func printEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker) <-chan renderResult {
-	done := make(chan renderResult, 1)
+func renderTerminalEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker, debug bool) <-chan terminalRenderResult {
+	done := make(chan terminalRenderResult, 1)
 	go func() {
 		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
 		for event := range events {
 			trackUsageEvent(tracker, event)
-			renderer.RenderDebug(event)
+			if debug {
+				renderer.RenderDebug(event)
+			}
 			renderer.Render(event)
 		}
 		renderer.Finish()
-		done <- renderResult{Streamed: renderer.HasStreamedContent()}
-		close(done)
-	}()
-	return done
-}
-
-func renderEvents(events <-chan agentruntime.Event, tracker *coreusage.Tracker) <-chan renderResult {
-	done := make(chan renderResult, 1)
-	go func() {
-		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
-		for event := range events {
-			trackUsageEvent(tracker, event)
-			renderer.Render(event)
-		}
-		renderer.Finish()
-		done <- renderResult{Streamed: renderer.HasStreamedContent()}
+		done <- terminalRenderResult{Streamed: renderer.HasStreamedContent()}
 		close(done)
 	}()
 	return done

@@ -225,7 +225,7 @@ func newRunHandle(session clientapi.SessionInfo, submission clientapi.Submission
 		id:         submission.ID,
 		session:    session,
 		submission: submission,
-		events:     make(chan clientapi.Event, 16),
+		events:     make(chan clientapi.Event, clientapi.DefaultRunEventBuffer),
 		done:       make(chan struct{}),
 	}
 }
@@ -264,20 +264,26 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 	defer close(r.events)
 	defer close(r.done)
 
-	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 256})
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: clientapi.DefaultRunEventBuffer})
 	if err != nil {
 		r.fail(info, err)
 		return
 	}
-	defer cancel()
 	forwardDone := make(chan struct{})
 	go func() {
 		defer close(forwardDone)
 		r.forwardRunEvents(events)
 	}()
 	defer func() {
+		select {
+		case <-forwardDone:
+		case <-time.After(time.Second):
+		}
 		cancel()
-		<-forwardDone
+		select {
+		case <-forwardDone:
+		case <-time.After(time.Second):
+		}
 	}()
 
 	switch r.submission.Kind {

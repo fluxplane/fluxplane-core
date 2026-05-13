@@ -219,8 +219,9 @@ func (s *Service) HandleSessionInbound(ctx context.Context, info SessionInfo, in
 	}
 }
 
-// Subscribe returns semantic events produced by a session thread. Slow
-// subscribers may drop events; durable replay belongs to event/thread stores.
+// Subscribe returns semantic events produced by a session thread. Active
+// subscribers are lossless and apply backpressure instead of silently dropping
+// events; durable replay belongs to event/thread stores.
 func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
 	if opts.Buffer < 0 {
 		opts.Buffer = 0
@@ -234,7 +235,8 @@ func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts cl
 	if err != nil {
 		return nil, nil, err
 	}
-	ch := make(chan clientapi.Event, opts.Buffer+len(replayed))
+	sub := newSubscriber(opts.Buffer+len(replayed), opts.Buffer)
+	ch := sub.ch
 	for _, event := range replayed {
 		ch <- event
 	}
@@ -247,26 +249,34 @@ func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts cl
 	}
 	id := s.nextSub
 	s.nextSub++
-	sub := &subscriber{ch: ch}
 	s.subscribers[threadID][id] = sub
 	s.mu.Unlock()
 
+	var once sync.Once
 	cancel := func() {
-		var removed *subscriber
-		s.mu.Lock()
-		if subs := s.subscribers[threadID]; subs != nil {
-			if existing, ok := subs[id]; ok {
-				delete(subs, id)
-				removed = existing
+		once.Do(func() {
+			var removed *subscriber
+			s.mu.Lock()
+			if subs := s.subscribers[threadID]; subs != nil {
+				if existing, ok := subs[id]; ok {
+					delete(subs, id)
+					removed = existing
+				}
+				if len(subs) == 0 {
+					delete(s.subscribers, threadID)
+				}
 			}
-			if len(subs) == 0 {
-				delete(s.subscribers, threadID)
+			s.mu.Unlock()
+			if removed != nil {
+				removed.close()
 			}
-		}
-		s.mu.Unlock()
-		if removed != nil {
-			removed.close()
-		}
+		})
+	}
+	if ctx != nil {
+		go func() {
+			<-ctx.Done()
+			cancel()
+		}()
 	}
 	return ch, cancel, nil
 }
@@ -612,23 +622,51 @@ func liveSessionEvent(info clientapi.SessionInfo, runID clientapi.RunID, payload
 }
 
 type subscriber struct {
-	mu     sync.Mutex
-	ch     chan clientapi.Event
-	closed bool
+	ch   chan clientapi.Event
+	in   chan clientapi.Event
+	done chan struct{}
+	once sync.Once
+}
+
+func newSubscriber(outBuffer, queueBuffer int) *subscriber {
+	if outBuffer < 0 {
+		outBuffer = 0
+	}
+	if queueBuffer < 0 {
+		queueBuffer = 0
+	}
+	s := &subscriber{
+		ch:   make(chan clientapi.Event, outBuffer),
+		in:   make(chan clientapi.Event, queueBuffer),
+		done: make(chan struct{}),
+	}
+	go s.run()
+	return s
+}
+
+func (s *subscriber) run() {
+	defer close(s.ch)
+	for {
+		select {
+		case <-s.done:
+			return
+		case event := <-s.in:
+			select {
+			case s.ch <- event:
+			case <-s.done:
+				return
+			}
+		}
+	}
 }
 
 func (s *subscriber) send(event clientapi.Event) {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
 	select {
-	case s.ch <- event:
-	default:
+	case s.in <- event:
+	case <-s.done:
 	}
 }
 
@@ -636,13 +674,9 @@ func (s *subscriber) close() {
 	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	s.closed = true
-	close(s.ch)
+	s.once.Do(func() {
+		close(s.done)
+	})
 }
 
 func (s *Service) replayEvents(ctx context.Context, threadID corethread.ID, opts clientapi.EventOptions) ([]clientapi.Event, error) {

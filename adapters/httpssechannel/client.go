@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -27,12 +28,16 @@ var _ clientapi.ChannelClient = (*Client)(nil)
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	headers    http.Header
 }
 
 // ClientConfig configures a remote HTTP/SSE channel client.
 type ClientConfig struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL     string
+	HTTPClient  *http.Client
+	UnixSocket  string
+	BearerToken string
+	Headers     http.Header
 }
 
 // NewClient returns a remote HTTP/SSE channel client.
@@ -45,7 +50,22 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return &Client{baseURL: baseURL, httpClient: httpClient}, nil
+	if cfg.UnixSocket != "" {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, "unix", cfg.UnixSocket)
+		}
+		httpClient = &http.Client{Transport: transport}
+	}
+	headers := cfg.Headers.Clone()
+	if headers == nil {
+		headers = http.Header{}
+	}
+	if strings.TrimSpace(cfg.BearerToken) != "" {
+		headers.Set("Authorization", "Bearer "+strings.TrimSpace(cfg.BearerToken))
+	}
+	return &Client{baseURL: baseURL, httpClient: httpClient, headers: headers}, nil
 }
 
 func (c *Client) Open(ctx context.Context, req clientapi.OpenRequest) (clientapi.SessionHandle, error) {
@@ -197,7 +217,7 @@ func newRunHandle(client *Client, session clientapi.SessionInfo, submission clie
 		id:         submission.ID,
 		session:    session,
 		submission: submission,
-		events:     make(chan clientapi.Event, 16),
+		events:     make(chan clientapi.Event, clientapi.DefaultRunEventBuffer),
 		done:       make(chan struct{}),
 	}
 }
@@ -244,7 +264,7 @@ func (r *runHandle) execute(ctx context.Context) {
 	defer close(r.done)
 
 	session, submission := r.snapshot()
-	events, cancel, streamErrs, err := r.client.openEventStream(ctx, session.Thread.ID, clientapi.EventOptions{Buffer: 16})
+	events, cancel, streamErrs, err := r.client.openEventStream(ctx, session.Thread.ID, clientapi.EventOptions{Buffer: clientapi.DefaultRunEventBuffer})
 	if err != nil {
 		r.setResult(clientapi.Result{RunID: r.id, Session: session, Submission: submission}, err)
 		close(r.events)
@@ -379,7 +399,7 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 	}
 
 	reqCtx, cancelCtx := context.WithCancel(ctx)
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, c.baseURL+path, nil)
+	req, err := c.newRequest(reqCtx, http.MethodGet, path, nil)
 	if err != nil {
 		cancelCtx()
 		return nil, nil, nil, err
@@ -457,7 +477,7 @@ func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	req, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -467,12 +487,25 @@ func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
 	return c.doJSON(req, out)
+}
+
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	for key, values := range c.headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+	return req, nil
 }
 
 func (c *Client) doJSON(req *http.Request, out any) error {

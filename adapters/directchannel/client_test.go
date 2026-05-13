@@ -14,6 +14,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -260,6 +261,41 @@ func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
 	}
 }
 
+func TestClientReceivesLargeStreamingBurst(t *testing.T) {
+	ctx := context.Background()
+	const total = clientapi.DefaultRunEventBuffer + 64
+	client := testClientWithAgent(t, directStreamingBurstAgent{count: total})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-streaming-burst"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	if err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	eventsDone := make(chan []clientapi.Event, 1)
+	go func() {
+		eventsDone <- drainRunEvents(run)
+	}()
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	var events []clientapi.Event
+	select {
+	case events = <-eventsDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out draining run events")
+	}
+	if got := countDirectStreamContentDeltas(events); got != total {
+		t.Fatalf("stream deltas = %d, want %d", got, total)
+	}
+	if len(events) == 0 || events[len(events)-1].Kind != clientapi.EventRunCompleted {
+		t.Fatalf("last event = %#v, want run.completed", events[len(events)-1])
+	}
+}
+
 func testClient(t *testing.T) *Client {
 	t.Helper()
 	return testClientWithAgent(t, fixedAgent{result: agent.StepResult{
@@ -327,6 +363,56 @@ func (a fixedAgent) Spec() agent.Spec {
 
 func (a fixedAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
 	return a.result
+}
+
+type directStreamingBurstAgent struct {
+	count int
+}
+
+func (a directStreamingBurstAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "streaming-burst"}
+}
+
+func (a directStreamingBurstAgent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
+	for i := 0; i < a.count; i++ {
+		ctx.Events().Emit(llmagent.ModelStreamed{
+			Agent: "streaming-burst",
+			Model: "fake-model",
+			Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamContentDelta,
+				Text: "x",
+			},
+		})
+	}
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "done"},
+		},
+	}
+}
+
+func drainRunEvents(run clientapi.RunHandle) []clientapi.Event {
+	var events []clientapi.Event
+	for event := range run.Events() {
+		events = append(events, event)
+	}
+	return events
+}
+
+func countDirectStreamContentDeltas(events []clientapi.Event) int {
+	var count int
+	for _, event := range events {
+		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil {
+			continue
+		}
+		streamed, ok := event.Runtime.Payload.(llmagent.ModelStreamed)
+		if ok && streamed.Event.Kind == llmagent.StreamContentDelta {
+			count++
+		}
+	}
+	return count
 }
 
 type blockingAgent struct {

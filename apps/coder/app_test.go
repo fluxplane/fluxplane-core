@@ -25,6 +25,12 @@ func TestBundleComposes(t *testing.T) {
 	if len(composition.AgentSpecs) != 1 {
 		t.Fatalf("agent specs len = %d, want 1", len(composition.AgentSpecs))
 	}
+	if got := composition.AgentSpecs[0].Policy.MaxSteps; got != 50 {
+		t.Fatalf("max steps = %d, want 50", got)
+	}
+	if got := composition.AgentSpecs[0].Policy.MaxContinuations; got != 3 {
+		t.Fatalf("max continuations = %d, want 3", got)
+	}
 	if len(composition.OperationSpecs) != 38 {
 		t.Fatalf("operation specs len = %d, want 38", len(composition.OperationSpecs))
 	}

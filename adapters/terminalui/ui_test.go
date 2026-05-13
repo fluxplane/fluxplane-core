@@ -35,21 +35,27 @@ func TestRendererStreamsMarkdownContent(t *testing.T) {
 	}
 }
 
-func TestRendererStreamsContentBeforeFinish(t *testing.T) {
+func TestRendererStreamsAllContentDeltas(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
-	renderer.Render(clientapi.Event{
-		Kind: clientapi.EventRuntimeEmitted,
-		Runtime: &clientapi.RuntimeEvent{
-			Name: llmagent.EventModelStreamedName,
-			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
-				Kind: llmagent.StreamContentDelta,
-				Text: "hello",
-			}},
-		},
-	})
-	if !strings.Contains(out.String(), "hello") {
-		t.Fatalf("out before Finish = %q, want streamed content", out.String())
+	for _, text := range []string{"Hi", ", I", " can", " help."} {
+		renderer.Render(clientapi.Event{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name: llmagent.EventModelStreamedName,
+				Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+					Kind: llmagent.StreamContentDelta,
+					Text: text,
+				}},
+			},
+		})
+	}
+	renderer.Finish()
+	got := out.String()
+	for _, want := range []string{"Hi", ", I", " can", " help."} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("out = %q, want streamed delta %q", got, want)
+		}
 	}
 }
 
@@ -76,7 +82,7 @@ func TestRendererFlushesMarkdownListWithoutTrailingNewline(t *testing.T) {
 	}
 }
 
-func TestRendererBuffersBlockMarkdownHeadingUntilFlush(t *testing.T) {
+func TestRendererStreamsBlockMarkdown(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
 	for _, text := range []string{"## README", " summary\n\n- **item**"} {
@@ -90,9 +96,6 @@ func TestRendererBuffersBlockMarkdownHeadingUntilFlush(t *testing.T) {
 				}},
 			},
 		})
-	}
-	if got := out.String(); got != "" {
-		t.Fatalf("out before Finish = %q, want buffered block markdown", got)
 	}
 	renderer.Finish()
 	got := out.String()
@@ -125,7 +128,7 @@ func TestRendererDoesNotReplayContentDeltas(t *testing.T) {
 	}
 }
 
-func TestRendererRendersThinkingAsMarkdown(t *testing.T) {
+func TestRendererIgnoresThinkingDeltas(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
 	renderer.Render(clientapi.Event{
@@ -139,12 +142,8 @@ func TestRendererRendersThinkingAsMarkdown(t *testing.T) {
 		},
 	})
 	renderer.Finish()
-	got := err.String()
-	if !strings.Contains(got, "checking") || !strings.Contains(got, "state") {
-		t.Fatalf("thinking output = %q, want rendered text", got)
-	}
-	if strings.Contains(got, "**checking**") || strings.Contains(got, "`state`") {
-		t.Fatalf("thinking output = %q, want markdown rendered without source markers", got)
+	if got := out.String() + err.String(); got != "" {
+		t.Fatalf("thinking output = %q, want empty", got)
 	}
 }
 
@@ -154,6 +153,42 @@ func TestRendererRendersDebugAsMarkdownFence(t *testing.T) {
 	renderer.RenderDebug(clientapi.Event{Kind: clientapi.EventRunCompleted})
 	if got := err.String(); !strings.Contains(got, "run.completed") {
 		t.Fatalf("debug output = %q, want event JSON", got)
+	}
+}
+
+func TestRendererDebugRedactsThinkingText(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.RenderDebug(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamThinkingDelta,
+				Text: "secret chain of thought",
+			}},
+		},
+	})
+	got := err.String()
+	if strings.Contains(got, "secret") || strings.Contains(got, "chain") {
+		t.Fatalf("debug output leaked thinking text: %q", got)
+	}
+	if !strings.Contains(got, "thinking_delta") || !strings.Contains(got, "redaction") {
+		t.Fatalf("debug output = %q, want redacted thinking metadata", got)
+	}
+}
+
+func TestRenderMarkdownRendersMarkdown(t *testing.T) {
+	var out bytes.Buffer
+	if err := RenderMarkdown(&out, "**hello** `world`"); err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "hello") || !strings.Contains(got, "world") {
+		t.Fatalf("out = %q, want rendered markdown", got)
+	}
+	if strings.Contains(got, "**hello**") || strings.Contains(got, "`world`") {
+		t.Fatalf("out = %q, want rendered markdown without source markers", got)
 	}
 }
 

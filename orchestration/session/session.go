@@ -43,7 +43,10 @@ type Session struct {
 	Thread            corethread.Ref
 }
 
-const defaultLLMContinuations = 20
+const (
+	defaultLLMMaxSteps      = 50
+	defaultLLMContinuations = 3
+)
 
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
@@ -267,61 +270,147 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		Content:  inbound.Message.Content,
 		Metadata: inputObservationMetadata(inbound),
 	}}
-	continuations := 0
-	maxContinuations := s.maxContinuations()
 	var (
 		state   agent.StateRef
 		effects []environment.EffectResult
 		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
 	)
-	for {
-		transcript, err := s.transcriptForPending(ctx, pending, localTranscript, localContinuation)
-		if err != nil {
-			return inputFailed("conversation_projection_failed", err.Error(), nil)
+	for continuation := 0; ; continuation++ {
+		inner := s.runInnerTurn(ctx, innerTurnInput{
+			Inbound:            inbound,
+			BaseContext:        baseCtx,
+			History:            history,
+			Events:             events,
+			ConversationErr:    &conversationErr,
+			LocalTranscript:    &localTranscript,
+			LocalContinuation:  &localContinuation,
+			Pending:            pending,
+			Observations:       observations,
+			State:              state,
+			Effects:            effects,
+			MaxSteps:           s.maxSteps(),
+			FailOnStepLimit:    s.failOnStepLimit(),
+			ProviderIdentity:   s.providerIdentity(),
+			ConversationTurnID: inbound.ID,
+		})
+		if inner.Result.Status != "" {
+			return inner.Result
 		}
-		agentCtx := agentContext{Context: llmagent.ContextWithTranscript(baseCtx, &transcript), events: events}
+		state = inner.State
+		effects = inner.Effects
+		if !s.shouldContinueAfterTerminal(continuation, inner.AgentResult) {
+			return s.applyTerminalAgentDecision(ctx, inbound, inner.AgentResult, effects)
+		}
+		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), "Continue.")}
+		observations = []environment.Observation{{
+			Source:  "session",
+			Kind:    "session.continuation",
+			Content: "Continue.",
+			Metadata: map[string]any{
+				"continuation": continuation + 1,
+			},
+		}}
+	}
+}
+
+type innerTurnInput struct {
+	Inbound            channel.Inbound
+	BaseContext        context.Context
+	History            []corecontext.Block
+	Events             event.Sink
+	ConversationErr    *error
+	LocalTranscript    *[]coreconversation.Item
+	LocalContinuation  **coreconversation.ContinuationHandle
+	Pending            []coreconversation.Item
+	Observations       []environment.Observation
+	State              agent.StateRef
+	Effects            []environment.EffectResult
+	MaxSteps           int
+	FailOnStepLimit    bool
+	ProviderIdentity   coreconversation.ProviderIdentity
+	ConversationTurnID string
+}
+
+type innerTurnResult struct {
+	Result      InputResult
+	AgentResult agent.StepResult
+	State       agent.StateRef
+	Effects     []environment.EffectResult
+}
+
+func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnResult {
+	pending := append([]coreconversation.Item(nil), in.Pending...)
+	observations := append([]environment.Observation(nil), in.Observations...)
+	state := in.State
+	effects := append([]environment.EffectResult(nil), in.Effects...)
+	maxSteps := in.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = 1
+	}
+	for step := 0; step < maxSteps; step++ {
+		transcript, err := s.transcriptForPending(ctx, pending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
+		if err != nil {
+			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
+		}
+		agentCtx := agentContext{Context: llmagent.ContextWithTranscript(in.BaseContext, &transcript), events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
 			Observations: observations,
-			Context:      history,
+			Context:      in.History,
 			State:        state,
 		})
-		if conversationErr != nil {
-			return inputFailed("conversation_append_failed", conversationErr.Error(), nil)
+		if in.ConversationErr != nil && *in.ConversationErr != nil {
+			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
-		if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: inbound.ID, Result: agentResult}); err != nil {
-			return inputFailed("thread_append_failed", err.Error(), nil)
+		if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if agentResult.Status != agent.StatusOK {
-			if err := s.persistRepairTranscriptItems(ctx, inbound.ID, s.providerIdentity(), pending, &localTranscript); err != nil {
-				return inputFailed("conversation_repair_failed", err.Error(), nil)
+			if err := s.persistRepairTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_repair_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
-			return InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}
+			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if !stateRefIsZero(agentResult.State.Ref) {
 			state = agentResult.State.Ref
 		}
 		if agentResult.Decision.Kind != agent.DecisionOperation {
-			return s.applyTerminalAgentDecision(ctx, inbound, agentResult, effects)
+			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if len(agentResult.Decision.Operations) == 0 {
-			return InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}
+			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects}
 		}
-		var toolResults []coreconversation.Item
-		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, inbound, len(effects), agentResult.Decision.Operations)
+		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations)
 		if err != nil {
-			return inputFailed("thread_append_failed", err.Error(), nil)
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		effects = append(effects, batch...)
-		if continuations >= maxContinuations {
-			if err := s.persistRepairTranscriptItems(ctx, inbound.ID, s.providerIdentity(), toolResults, &localTranscript); err != nil {
-				return inputFailed("conversation_repair_failed", err.Error(), nil)
+		if step == maxSteps-1 {
+			if err := s.persistRepairTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_repair_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
-			return s.operationLimitResult(ctx, inbound, agentResult, effects)
+			if !in.FailOnStepLimit {
+				return innerTurnResult{Result: s.operationBoundaryResult(ctx, in.Inbound, agentResult, effects), AgentResult: agentResult, State: state, Effects: effects}
+			}
+			return innerTurnResult{Result: s.stepLimitResult(ctx, in.Inbound, agentResult, effects), AgentResult: agentResult, State: state, Effects: effects}
 		}
-		continuations++
 		observations = append(observations, observationsForEffects(batch)...)
 		pending = toolResults
 	}
+	return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Effects: effects, Error: &CommandError{Code: "step_limit_exceeded", Message: "agent reached max_steps"}}, State: state, Effects: effects}
+}
+
+func derefItems(items *[]coreconversation.Item) []coreconversation.Item {
+	if items == nil {
+		return nil
+	}
+	return *items
+}
+
+func derefHandle(handle **coreconversation.ContinuationHandle) *coreconversation.ContinuationHandle {
+	if handle == nil {
+		return nil
+	}
+	return *handle
 }
 
 func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
@@ -741,18 +830,30 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 	return effects, toolResults, nil
 }
 
-func (s Session) operationLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
+func (s Session) stepLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
+	return s.operationBoundaryResult(ctx, inbound, agentResult, effects, &CommandError{Code: "step_limit_exceeded", Message: "agent reached max_steps"})
+}
+
+func (s Session) operationBoundaryResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult, limitErr ...*CommandError) InputResult {
 	effect := lastEffect(effects)
+	var err *CommandError
+	if len(limitErr) > 0 {
+		err = limitErr[0]
+	}
 	if effect == nil {
-		return InputResult{Status: InputStatusFailed, Agent: agentResult, Error: &CommandError{Code: "continuation_limit_exceeded", Message: "agent reached operation continuation limit"}}
+		status := InputStatusOK
+		if err != nil {
+			status = InputStatusFailed
+		}
+		return InputResult{Status: status, Agent: agentResult, Error: err}
 	}
 	message := outboundMessageForOperationResult(effect.Result)
 	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
 		return inputFailed("thread_append_failed", err.Error(), nil)
 	}
-	status := InputStatusFailed
-	if s.maxContinuations() == 0 && !effect.Result.IsError() {
-		status = InputStatusOK
+	status := InputStatusOK
+	if err != nil {
+		status = InputStatusFailed
 	}
 	outbound := channel.Outbound{
 		Channel:      inbound.Channel,
@@ -766,8 +867,30 @@ func (s Session) operationLimitResult(ctx context.Context, inbound channel.Inbou
 		Effect:   effect,
 		Effects:  effects,
 		Outbound: &outbound,
-		Error:    continuationLimitError(status),
+		Error:    err,
 	}
+}
+
+func (s Session) maxSteps() int {
+	if s.Agent == nil {
+		return defaultLLMMaxSteps
+	}
+	spec := s.Agent.Spec()
+	if spec.Policy.MaxSteps > 0 {
+		return spec.Policy.MaxSteps
+	}
+	if spec.Driver.Kind == llmagent.DriverKind {
+		return defaultLLMMaxSteps
+	}
+	return 1
+}
+
+func (s Session) failOnStepLimit() bool {
+	if s.Agent == nil {
+		return true
+	}
+	spec := s.Agent.Spec()
+	return spec.Driver.Kind == llmagent.DriverKind || spec.Policy.MaxSteps > 0
 }
 
 func (s Session) maxContinuations() int {
@@ -778,13 +901,35 @@ func (s Session) maxContinuations() int {
 	if spec.Policy.MaxContinuations > 0 {
 		return spec.Policy.MaxContinuations
 	}
-	if spec.Policy.MaxSteps > 1 {
-		return spec.Policy.MaxSteps - 1
-	}
-	if spec.Driver.Kind == "llmagent" {
+	if spec.Driver.Kind == llmagent.DriverKind {
 		return defaultLLMContinuations
 	}
 	return 0
+}
+
+func (s Session) shouldContinueAfterTerminal(completed int, agentResult agent.StepResult) bool {
+	if agentResult.Status != agent.StatusOK {
+		return false
+	}
+	spec := s.Agent.Spec()
+	if !stopConditionRequestsContinuation(spec.Stop, completed) {
+		return false
+	}
+	return completed < s.maxContinuations()
+}
+
+func stopConditionRequestsContinuation(stop agent.StopConditionSpec, completed int) bool {
+	switch strings.TrimSpace(stop.Type) {
+	case "max-continuations":
+		return stop.Max <= 0 || completed < stop.Max
+	case "or", "and":
+		for _, condition := range stop.Conditions {
+			if stopConditionRequestsContinuation(condition, completed) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func observationsForEffects(effects []environment.EffectResult) []environment.Observation {
@@ -808,13 +953,6 @@ func lastEffect(effects []environment.EffectResult) *environment.EffectResult {
 		return nil
 	}
 	return &effects[len(effects)-1]
-}
-
-func continuationLimitError(status InputStatus) *CommandError {
-	if status == InputStatusOK {
-		return nil
-	}
-	return &CommandError{Code: "continuation_limit_exceeded", Message: "agent reached operation continuation limit"}
 }
 
 func stateRefIsZero(r agent.StateRef) bool {

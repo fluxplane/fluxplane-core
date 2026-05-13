@@ -987,8 +987,9 @@ Parity should be reached in small slices:
    Feed operation results back into LLM turns until the agent emits a message,
    completion, wait, or policy stop. Keep the continuation loop in runtime or
    orchestration, not in provider adapters. Done initially for session input:
-   LLM agents receive operation results as follow-up observations through a
-   bounded continuation loop.
+   LLM agents receive operation results as follow-up observations through an
+   inner loop bounded by `max_steps`. A separate `max_continuations` cap applies
+   only to stop-condition-driven follow-up turns after a terminal response.
 
 9. **Phase 7: Product CLI and Coder App**
    Add a thin `cmd/agentsdk` Cobra entrypoint over first-party app

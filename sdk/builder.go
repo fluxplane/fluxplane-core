@@ -220,8 +220,18 @@ func (b *AgentBuilder) WithMaxOutputTokens(tokens int) *AgentBuilder {
 	return b
 }
 
-// WithMaxContinuations sets the runtime continuation budget for operation
-// follow-up turns.
+// WithMaxSteps sets the inner turn budget for agent/model decision calls. Tool
+// executions do not count directly; the decision that requests them does.
+func (b *AgentBuilder) WithMaxSteps(max int) *AgentBuilder {
+	if b == nil {
+		return b
+	}
+	b.spec.Policy.MaxSteps = max
+	return b
+}
+
+// WithMaxContinuations sets the outer follow-up budget used after a terminal
+// turn when a stop condition asks the runtime to continue.
 func (b *AgentBuilder) WithMaxContinuations(max int) *AgentBuilder {
 	if b == nil {
 		return b

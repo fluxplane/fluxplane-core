@@ -27,7 +27,8 @@ func Bundle() resource.ContributionBundle {
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
 		AsLLMAgent(DefaultModel).
 		WithMaxOutputTokens(4096).
-		WithMaxContinuations(150).
+		WithMaxSteps(50).
+		WithMaxContinuations(3).
 		WithAgency(agent.AgencyProfile{
 			Autonomy: agent.AutonomyGoalDriven,
 			Reactive: true,

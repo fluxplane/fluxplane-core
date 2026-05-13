@@ -29,8 +29,8 @@ The current executable slice supports:
 - safe-by-default tool projection for LLM-visible commands and operations;
 - configured-session instantiation of manifest-declared LLM agents when a host
   provides a model implementation;
-- bounded LLM-agent operation continuation, so tool/operation results can feed
-  the next model turn;
+- bounded LLM-agent turns: `max_steps` limits the inner tool loop, while
+  `max_continuations` caps stop-condition-driven follow-up turns;
 - provider-neutral LLM adapter helpers for messages, tools, streaming,
   redaction, and fake provider tests;
 - OpenAI Responses API adapter using `openai-go/v3`, including streaming

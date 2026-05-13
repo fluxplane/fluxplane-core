@@ -313,6 +313,74 @@ func TestSubscribeCancelDoesNotRacePublish(t *testing.T) {
 	wg.Wait()
 }
 
+func TestSubscribeDoesNotDropBurstEvents(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-1"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 1})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+
+	const total = 64
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		for i := 0; i < total; i++ {
+			service.publish(info.Thread.ID, clientapi.Event{
+				Kind:  clientapi.EventRuntimeEmitted,
+				RunID: clientapi.RunID("run"),
+			})
+		}
+	}()
+
+	deadline := time.After(time.Second)
+	for i := 0; i < total; i++ {
+		select {
+		case _, ok := <-events:
+			if !ok {
+				t.Fatalf("events closed after %d events, want %d", i, total)
+			}
+		case <-deadline:
+			t.Fatalf("timed out after %d events, want %d", i, total)
+		}
+	}
+	select {
+	case <-published:
+	case <-deadline:
+		t.Fatal("publisher did not finish")
+	}
+}
+
+func TestSubscriberCloseUnblocksBlockedSend(t *testing.T) {
+	sub := newSubscriber(0, 0)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sub.send(clientapi.Event{Kind: clientapi.EventRuntimeEmitted})
+		sub.send(clientapi.Event{Kind: clientapi.EventRunCompleted})
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("send finished before subscriber close; want blocked send")
+	case <-time.After(20 * time.Millisecond):
+	}
+	sub.close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("close did not unblock sender")
+	}
+}
+
 func TestOpenSessionAppliesConfiguredSessionDefaults(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)

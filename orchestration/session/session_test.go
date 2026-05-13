@@ -456,7 +456,7 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 }
 
-func TestExecuteInboundInputPersistsToolResultBeforeContinuationLimit(t *testing.T) {
+func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
 	if err != nil {
@@ -496,7 +496,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeContinuationLimit(t *testing
 		Name:      "coder",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
-		Policy:    agent.Policy{MaxContinuations: 1},
+		Policy:    agent.Policy{MaxSteps: 2, MaxContinuations: 99},
 	}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
@@ -505,7 +505,10 @@ func TestExecuteInboundInputPersistsToolResultBeforeContinuationLimit(t *testing
 
 	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
 	if result.Status != InputStatusFailed {
-		t.Fatalf("status = %q, want failed after continuation limit: %#v", result.Status, result)
+		t.Fatalf("status = %q, want failed after step limit: %#v", result.Status, result)
+	}
+	if result.Error == nil || result.Error.Code != "step_limit_exceeded" {
+		t.Fatalf("error = %#v, want step_limit_exceeded", result.Error)
 	}
 	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-limit-repair"})
 	if err != nil {
@@ -574,13 +577,16 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 	}
 }
 
-func TestMaxContinuationsUsesLLMDefaultAndExplicitOverride(t *testing.T) {
+func TestStepAndContinuationLimitsUseLLMDefaultsAndExplicitOverrides(t *testing.T) {
 	defaultSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
 		Name:   "main",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
 	}}}
-	if got := defaultSession.maxContinuations(); got != 20 {
-		t.Fatalf("default maxContinuations = %d, want 20", got)
+	if got := defaultSession.maxSteps(); got != 50 {
+		t.Fatalf("default maxSteps = %d, want 50", got)
+	}
+	if got := defaultSession.maxContinuations(); got != 3 {
+		t.Fatalf("default maxContinuations = %d, want 3", got)
 	}
 
 	overrideSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
@@ -591,8 +597,115 @@ func TestMaxContinuationsUsesLLMDefaultAndExplicitOverride(t *testing.T) {
 			MaxContinuations: 50,
 		},
 	}}}
+	if got := overrideSession.maxSteps(); got != 8 {
+		t.Fatalf("override maxSteps = %d, want 8", got)
+	}
 	if got := overrideSession.maxContinuations(); got != 50 {
 		t.Fatalf("override maxContinuations = %d, want 50", got)
+	}
+}
+
+func TestExecuteInboundInputMaxContinuationsDoesNotLimitInnerToolLoop(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		calls++
+		if calls <= 2 {
+			callID := "call_1"
+			if calls == 2 {
+				callID = "call_2"
+			}
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: callID, ProviderCallID: callID}},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: []coreconversation.Item{
+						{Provider: provider, Kind: coreconversation.ItemOutput, CallID: callID, Name: "lookup", Native: json.RawMessage(`{"type":"function_call","name":"lookup","arguments":"{}"}`)},
+					},
+				},
+			}, nil
+		}
+		return llmagent.Response{Message: &agent.Message{Content: "done"}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+		Policy:    agent.Policy{MaxSteps: 3, MaxContinuations: 0},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor()}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup twice"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+}
+
+func TestExecuteInboundInputNoStopConditionDoesNotOuterContinue(t *testing.T) {
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "main",
+			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+			Policy: agent.Policy{MaxSteps: 50, MaxContinuations: 3},
+		},
+		results: []agent.StepResult{
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}}},
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "continued"}}},
+		},
+	}
+	s := Session{Agent: agentRuntime}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(agentRuntime.inputs) != 1 {
+		t.Fatalf("steps = %d, want 1", len(agentRuntime.inputs))
+	}
+}
+
+func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testing.T) {
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "main",
+			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+			Policy: agent.Policy{MaxSteps: 50, MaxContinuations: 2},
+			Stop:   agent.StopConditionSpec{Type: "max-continuations", Max: 5},
+		},
+		results: []agent.StepResult{
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "first"}}},
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "second"}}},
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "third"}}},
+		},
+	}
+	s := Session{Agent: agentRuntime}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(agentRuntime.inputs) != 3 {
+		t.Fatalf("steps = %d, want first turn plus two continuations", len(agentRuntime.inputs))
+	}
+	if agentRuntime.inputs[1].Observations[0].Kind != "session.continuation" {
+		t.Fatalf("second observations = %#v, want continuation", agentRuntime.inputs[1].Observations)
+	}
+	if result.Outbound == nil || result.Outbound.Message.Content != "third" {
+		t.Fatalf("outbound = %#v, want final continuation message", result.Outbound)
 	}
 }
 

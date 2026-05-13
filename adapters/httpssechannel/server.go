@@ -1,11 +1,13 @@
 package httpssechannel
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -117,12 +119,39 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	drained := drainSubmittedRunEvents(r.Context(), run.Events())
 	result, err := run.Wait(r.Context())
+	waitDrain(drained)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func drainSubmittedRunEvents(ctx context.Context, events <-chan clientapi.Event) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-events:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+	return done
+}
+
+func waitDrain(done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
