@@ -2,11 +2,28 @@
 
 ## Unreleased
 
+## 0.7.0
+
+### Added
+
+- `agentsdk run [path]` for running local app distributions from app manifests
+  or `.agents` directories, with REPL and `--input` one-shot modes.
+- Distribution describe rendering for metadata and bundled resources, including
+  detailed bundled agent descriptions.
+- A standalone `cmd/coder` entrypoint built from the `apps/coder`
+  distribution.
+- Architecture documentation describing the rewrite layers, package
+  responsibilities, common flows, and boundary checks.
+
 ### Changed
 
-- Reduced `cmd/agentsdk` to a thin executable launcher by moving product
-  assembly into `apps/agentsdk`, connector auth CLI behavior into
-  `adapters/connectors/cli`, and run/serve command wiring into `apps/launch`.
+- Local distribution run and serve now share launch/runtime assembly through
+  `apps/launch` and focused `adapters/distribution/*` packages.
+- Remote session targeting and terminal execution moved out of `cmd/agentsdk`
+  into `adapters/distribution/remote`.
+- `cmd/agentsdk` is now a thin executable launcher; product assembly lives in
+  `apps/agentsdk`, connector auth CLI behavior in `adapters/connectors/cli`,
+  and run/serve command wiring in `apps/launch`.
 
 ## 0.6.0
 
