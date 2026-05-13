@@ -3,6 +3,7 @@ package connectorplugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,6 +20,8 @@ type DatasourceAction struct {
 	QueryParam     string
 	LimitParam     string
 	IDParam        string
+	CursorParam    string
+	NextCursorPath string
 	ResultPath     string
 	LocalFilter    bool
 	QueryValue     func(string) string
@@ -28,6 +31,23 @@ type DatasourceAction struct {
 	URLFields      []string
 	IDFields       []string
 	MetadataFields map[string][]string
+	Relations      []DatasourceRelationAction
+	MaxPages       int
+}
+
+// DatasourceRelationAction maps one entity relationship to a connector operation.
+type DatasourceRelationAction struct {
+	Name           string
+	Description    string
+	TargetEntity   coredatasource.EntityType
+	Operation      string
+	IDParam        string
+	LimitParam     string
+	CursorParam    string
+	ResultPath     string
+	NextCursorPath string
+	Exact          bool
+	ParamDefaults  map[string]any
 }
 
 // NewDatasourceProvider returns a connector-backed datasource provider.
@@ -47,7 +67,11 @@ func NewDatasourceProvider(executor Executor, actions []DatasourceAction) coreda
 		if action.IDParam == "" {
 			action.IDParam = "id"
 		}
+		if action.CursorParam == "" {
+			action.CursorParam = "cursor"
+		}
 		action.Entity.Capabilities = action.capabilities()
+		action.Entity.Relations = append(action.Entity.Relations, action.relationSpecs()...)
 		index[action.Entity.Type] = action
 		entityIndex[action.Entity.Type] = action.Entity
 	}
@@ -61,6 +85,28 @@ func (a DatasourceAction) capabilities() []coredatasource.EntityCapability {
 	}
 	if a.GetOp != "" {
 		out = append(out, coredatasource.EntityCapabilityGet)
+	}
+	if len(a.Relations) > 0 {
+		out = append(out, coredatasource.EntityCapabilityRelation)
+	}
+	return out
+}
+
+func (a DatasourceAction) relationSpecs() []coredatasource.RelationSpec {
+	out := make([]coredatasource.RelationSpec, 0, len(a.Relations))
+	seen := map[string]bool{}
+	for _, relation := range a.Relations {
+		name := strings.TrimSpace(relation.Name)
+		if name == "" || relation.TargetEntity == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, coredatasource.RelationSpec{
+			Name:         name,
+			Description:  relation.Description,
+			TargetEntity: relation.TargetEntity,
+			Exact:        relation.Exact,
+		})
 	}
 	return out
 }
@@ -146,17 +192,10 @@ func (a connectorAccessor) Search(ctx context.Context, req coredatasource.Search
 			params[action.LimitParam] = 200
 		}
 	}
-	result, err := a.executor.ExecWithInstance(ctx, a.spec.Connector, action.SearchOp, "", params)
+	records, err := a.searchRecords(ctx, action, req.Entity, params, strings.TrimSpace(req.Query) != "")
 	if err != nil {
 		return coredatasource.SearchResult{}, err
 	}
-	if result.Status != "" && result.Status != connectoroperation.StatusOK {
-		return coredatasource.SearchResult{}, connectorResultError(result)
-	}
-	if result.Error != nil {
-		return coredatasource.SearchResult{}, result.Error
-	}
-	records := a.records(action, req.Entity, result.Data)
 	if action.LocalFilter && strings.TrimSpace(req.Query) != "" {
 		records = filterRecords(records, req.Query)
 		if req.Limit > 0 && len(records) > req.Limit {
@@ -169,6 +208,23 @@ func (a connectorAccessor) Search(ctx context.Context, req coredatasource.Search
 		Records:    records,
 		Total:      len(records),
 	}, nil
+}
+
+const defaultMaxDatasourcePages = 10
+
+func (a connectorAccessor) searchRecords(ctx context.Context, action DatasourceAction, entity coredatasource.EntityType, params map[string]any, filtering bool) ([]coredatasource.Record, error) {
+	if !action.LocalFilter || !filtering || strings.TrimSpace(action.NextCursorPath) == "" {
+		result, err := a.exec(ctx, action.SearchOp, params)
+		if err != nil {
+			return nil, err
+		}
+		return a.records(action, entity, result.Data), nil
+	}
+	records, err := a.listRecords(ctx, action, entity, params)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func filterRecords(records []coredatasource.Record, query string) []coredatasource.Record {
@@ -198,21 +254,180 @@ func (a connectorAccessor) Get(ctx context.Context, req coredatasource.GetReques
 		return coredatasource.Record{}, fmt.Errorf("datasource %q entity %q does not support get", a.spec.Name, req.Entity)
 	}
 	params := map[string]any{action.IDParam: req.ID}
-	result, err := a.executor.ExecWithInstance(ctx, a.spec.Connector, action.GetOp, "", params)
+	result, err := a.exec(ctx, action.GetOp, params)
 	if err != nil {
 		return coredatasource.Record{}, err
-	}
-	if result.Status != "" && result.Status != connectoroperation.StatusOK {
-		return coredatasource.Record{}, connectorResultError(result)
-	}
-	if result.Error != nil {
-		return coredatasource.Record{}, result.Error
 	}
 	records := a.records(action, req.Entity, result.Data)
 	if len(records) == 0 {
 		return coredatasource.Record{}, coredatasource.ErrNotFound
 	}
 	return records[0], nil
+}
+
+func (a connectorAccessor) BatchGet(ctx context.Context, req coredatasource.BatchGetRequest) (coredatasource.BatchGetResult, error) {
+	action, ok := a.actions[req.Entity]
+	if !ok {
+		return coredatasource.BatchGetResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
+	}
+	ids := cleanedIDs(req.IDs)
+	out := coredatasource.BatchGetResult{Datasource: a.spec.Name, Entity: req.Entity}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	found := map[string]coredatasource.Record{}
+	if action.SearchOp != "" && action.QueryParam == "-" {
+		records, err := a.listRecords(ctx, action, req.Entity, map[string]any{})
+		if err != nil {
+			return coredatasource.BatchGetResult{}, err
+		}
+		for _, record := range records {
+			if record.ID != "" {
+				found[record.ID] = record
+			}
+		}
+	}
+	for _, id := range ids {
+		if record, ok := found[id]; ok {
+			out.Records = append(out.Records, record)
+			continue
+		}
+		if action.GetOp == "" {
+			out.Errors = append(out.Errors, coredatasource.BatchGetError{ID: id, Message: "record not found"})
+			continue
+		}
+		record, err := a.Get(ctx, coredatasource.GetRequest{Entity: req.Entity, ID: id})
+		if errors.Is(err, coredatasource.ErrNotFound) {
+			out.Errors = append(out.Errors, coredatasource.BatchGetError{ID: id, Message: err.Error()})
+			continue
+		}
+		if err != nil {
+			out.Errors = append(out.Errors, coredatasource.BatchGetError{ID: id, Message: err.Error()})
+			continue
+		}
+		out.Records = append(out.Records, record)
+	}
+	return out, nil
+}
+
+func (a connectorAccessor) Relation(ctx context.Context, req coredatasource.RelationRequest) (coredatasource.RelationResult, error) {
+	action, ok := a.actions[req.Entity]
+	if !ok {
+		return coredatasource.RelationResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
+	}
+	relation, ok := relationAction(action.Relations, req.Relation)
+	if !ok {
+		return coredatasource.RelationResult{}, fmt.Errorf("datasource %q entity %q does not expose relation %q", a.spec.Name, req.Entity, req.Relation)
+	}
+	ids, rawRecords, nextCursor, err := a.fetchRelation(ctx, action, relation, req)
+	if err != nil {
+		return coredatasource.RelationResult{}, err
+	}
+	records := rawRecords
+	if len(ids) > 0 {
+		batch, err := a.BatchGet(ctx, coredatasource.BatchGetRequest{Entity: relation.TargetEntity, IDs: ids})
+		if err != nil {
+			return coredatasource.RelationResult{}, err
+		}
+		records = append(records, recordsForIDs(ids, batch.Records, a.spec.Name, relation.TargetEntity)...)
+	}
+	return coredatasource.RelationResult{
+		Datasource:   a.spec.Name,
+		Entity:       req.Entity,
+		ID:           req.ID,
+		Relation:     relation.Name,
+		TargetEntity: relation.TargetEntity,
+		Records:      records,
+		Total:        len(records),
+		NextCursor:   nextCursor,
+		Complete:     nextCursor == "",
+		Exact:        relation.Exact,
+	}, nil
+}
+
+func (a connectorAccessor) fetchRelation(ctx context.Context, source DatasourceAction, relation DatasourceRelationAction, req coredatasource.RelationRequest) ([]string, []coredatasource.Record, string, error) {
+	maxPages := source.MaxPages
+	if maxPages <= 0 {
+		maxPages = defaultMaxDatasourcePages
+	}
+	if strings.TrimSpace(req.Cursor) != "" {
+		maxPages = 1
+	}
+	params := copyMap(relation.ParamDefaults)
+	params[firstNonEmpty(relation.IDParam, source.IDParam, "id")] = req.ID
+	if req.Limit > 0 {
+		params[firstNonEmpty(relation.LimitParam, "limit")] = req.Limit
+	}
+	if strings.TrimSpace(req.Cursor) != "" {
+		params[firstNonEmpty(relation.CursorParam, "cursor")] = strings.TrimSpace(req.Cursor)
+	}
+	var ids []string
+	var records []coredatasource.Record
+	var nextCursor string
+	for page := 0; page < maxPages; page++ {
+		result, err := a.exec(ctx, relation.Operation, params)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		pageIDs, pageRecords := relationRecords(result.Data, relation.ResultPath, a.spec.Name, relation.TargetEntity)
+		ids = append(ids, pageIDs...)
+		records = append(records, pageRecords...)
+		nextCursor = strings.TrimSpace(firstStringFromAny(result.Data, relation.NextCursorPath))
+		if req.Limit > 0 && len(ids)+len(records) >= req.Limit {
+			ids = trimStrings(ids, req.Limit)
+			records = trimRecords(records, req.Limit-len(ids))
+			break
+		}
+		if nextCursor == "" {
+			break
+		}
+		params[firstNonEmpty(relation.CursorParam, "cursor")] = nextCursor
+	}
+	return ids, records, nextCursor, nil
+}
+
+func (a connectorAccessor) listRecords(ctx context.Context, action DatasourceAction, entity coredatasource.EntityType, params map[string]any) ([]coredatasource.Record, error) {
+	maxPages := action.MaxPages
+	if maxPages <= 0 {
+		maxPages = defaultMaxDatasourcePages
+	}
+	pageParams := copyMap(action.ParamDefaults)
+	for key, value := range params {
+		pageParams[key] = value
+	}
+	if action.LimitParam != "" {
+		if _, ok := pageParams[action.LimitParam]; !ok {
+			pageParams[action.LimitParam] = 200
+		}
+	}
+	var records []coredatasource.Record
+	for page := 0; page < maxPages; page++ {
+		result, err := a.exec(ctx, action.SearchOp, pageParams)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, a.records(action, entity, result.Data)...)
+		cursor := strings.TrimSpace(firstStringFromAny(result.Data, action.NextCursorPath))
+		if cursor == "" {
+			break
+		}
+		pageParams[action.CursorParam] = cursor
+	}
+	return records, nil
+}
+
+func (a connectorAccessor) exec(ctx context.Context, op string, params map[string]any) (connectoroperation.Result, error) {
+	result, err := a.executor.ExecWithInstance(ctx, a.spec.Connector, op, "", params)
+	if err != nil {
+		return connectoroperation.Result{}, err
+	}
+	if result.Status != "" && result.Status != connectoroperation.StatusOK {
+		return connectoroperation.Result{}, connectorResultError(result)
+	}
+	if result.Error != nil {
+		return connectoroperation.Result{}, result.Error
+	}
+	return result, nil
 }
 
 func connectorResultError(result connectoroperation.Result) error {
@@ -304,7 +519,7 @@ func lookupAny(value any, path string) (any, bool) {
 
 func candidateValues(data any) []any {
 	if m, ok := asMap(data); ok {
-		for _, key := range []string{"records", "items", "data", "values", "matches", "projects", "issues", "users", "members", "messages"} {
+		for _, key := range []string{"records", "items", "data", "values", "matches", "projects", "issues", "users", "members", "messages", "channels", "user", "channel"} {
 			if value, exists := m[key]; exists {
 				if nested, ok := asMap(value); ok {
 					return candidateValues(nested)
@@ -392,4 +607,160 @@ func stringMetadata(m map[string]any, fields map[string][]string) map[string]str
 		return nil
 	}
 	return out
+}
+
+func relationAction(relations []DatasourceRelationAction, name string) (DatasourceRelationAction, bool) {
+	name = strings.TrimSpace(name)
+	for _, relation := range relations {
+		if relation.Name == name && relation.Operation != "" && relation.TargetEntity != "" {
+			return relation, true
+		}
+	}
+	return DatasourceRelationAction{}, false
+}
+
+func relationRecords(data any, path string, datasource coredatasource.Name, entity coredatasource.EntityType) ([]string, []coredatasource.Record) {
+	value := data
+	if strings.TrimSpace(path) != "" {
+		if nested, ok := lookupAny(data, path); ok {
+			value = nested
+		} else {
+			return nil, nil
+		}
+	}
+	var ids []string
+	var records []coredatasource.Record
+	for _, item := range listValues(value) {
+		switch v := item.(type) {
+		case string:
+			if id := strings.TrimSpace(v); id != "" {
+				ids = append(ids, id)
+			}
+		default:
+			if m, ok := asMap(v); ok {
+				record := coredatasource.Record{
+					ID:         firstString(m, "id", "user", "iid", "key"),
+					Datasource: datasource,
+					Entity:     entity,
+					Title:      firstString(m, "name", "real_name", "title"),
+					Content:    firstString(m, "description", "text", "content", "snippet"),
+					URL:        firstString(m, "web_url", "url", "permalink"),
+					Metadata:   stringMetadata(m, nil),
+					Raw:        m,
+				}
+				if record.ID != "" {
+					records = append(records, record)
+				}
+			}
+		}
+	}
+	return ids, records
+}
+
+func recordsForIDs(ids []string, records []coredatasource.Record, datasource coredatasource.Name, entity coredatasource.EntityType) []coredatasource.Record {
+	byID := map[string]coredatasource.Record{}
+	for _, record := range records {
+		if record.ID != "" {
+			byID[record.ID] = record
+		}
+	}
+	out := make([]coredatasource.Record, 0, len(ids))
+	for _, id := range ids {
+		if record, ok := byID[id]; ok {
+			out = append(out, record)
+			continue
+		}
+		out = append(out, coredatasource.Record{
+			ID:         id,
+			Datasource: datasource,
+			Entity:     entity,
+			Title:      id,
+		})
+	}
+	return out
+}
+
+func listValues(value any) []any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []any:
+		return v
+	case []string:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	case []map[string]any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	default:
+		return []any{v}
+	}
+}
+
+func cleanedIDs(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func trimStrings(values []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func trimRecords(values []coredatasource.Record, limit int) []coredatasource.Record {
+	if limit <= 0 {
+		return nil
+	}
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func copyMap(in map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func firstStringFromAny(value any, path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	nested, ok := lookupAny(value, path)
+	if !ok {
+		return ""
+	}
+	text := strings.TrimSpace(fmt.Sprint(nested))
+	if text == "" || text == "<nil>" {
+		return ""
+	}
+	return text
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }

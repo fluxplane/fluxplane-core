@@ -11,9 +11,10 @@ import (
 )
 
 type memoryAccessor struct {
-	spec    coredatasource.Spec
-	entity  coredatasource.EntitySpec
-	records []coredatasource.Record
+	spec           coredatasource.Spec
+	entity         coredatasource.EntitySpec
+	records        []coredatasource.Record
+	relationResult coredatasource.RelationResult
 }
 
 func (a memoryAccessor) Spec() coredatasource.Spec { return a.spec }
@@ -38,6 +39,33 @@ func (a memoryAccessor) Get(_ context.Context, req coredatasource.GetRequest) (c
 		}
 	}
 	return coredatasource.Record{}, coredatasource.ErrNotFound
+}
+
+func (a memoryAccessor) BatchGet(_ context.Context, req coredatasource.BatchGetRequest) (coredatasource.BatchGetResult, error) {
+	out := coredatasource.BatchGetResult{Datasource: a.spec.Name, Entity: req.Entity}
+	for _, id := range req.IDs {
+		found := false
+		for _, record := range a.records {
+			if record.ID == id {
+				out.Records = append(out.Records, record)
+				found = true
+				break
+			}
+		}
+		if !found {
+			out.Errors = append(out.Errors, coredatasource.BatchGetError{ID: id, Message: coredatasource.ErrNotFound.Error()})
+		}
+	}
+	return out, nil
+}
+
+func (a memoryAccessor) Relation(_ context.Context, req coredatasource.RelationRequest) (coredatasource.RelationResult, error) {
+	out := a.relationResult
+	out.Datasource = a.spec.Name
+	out.Entity = req.Entity
+	out.ID = req.ID
+	out.Relation = req.Relation
+	return out, nil
 }
 
 func TestSearchSelectsEntitiesWithoutDatasourceInput(t *testing.T) {
@@ -147,6 +175,93 @@ func TestSearchEnforcesAgentDatasourceAccess(t *testing.T) {
 	}
 }
 
+func TestRelationReturnsExactRelatedRecords(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.channel"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type: "slack.channel",
+				Relations: []coredatasource.RelationSpec{{
+					Name:         "members",
+					TargetEntity: "slack.user",
+					Exact:        true,
+				}},
+			},
+			relationResult: coredatasource.RelationResult{
+				TargetEntity: "slack.user",
+				Records: []coredatasource.Record{{
+					ID:         "U1",
+					Datasource: "slack",
+					Entity:     "slack.user",
+					Title:      "Alice",
+				}},
+				Complete: true,
+				Exact:    true,
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"slack"}}), nil)
+	result := New(registry).relation(ctx, relationInput{Datasource: "slack", Entity: "slack.channel", ID: "C1", Relation: "members"})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	rendered := result.Output.(operation.Rendered)
+	out := rendered.Data.(relationOutput)
+	if !out.Result.Exact || !out.Result.Complete || len(out.Result.Records) != 1 {
+		t.Fatalf("relation output = %#v, want exact complete record", out.Result)
+	}
+	if !strings.Contains(rendered.Text, "exact") || !strings.Contains(rendered.Text, "complete") {
+		t.Fatalf("text = %q, want exact/complete labels", rendered.Text)
+	}
+}
+
+func TestRelationEnforcesDatasourceAccess(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.channel"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "slack.channel", Relations: []coredatasource.RelationSpec{{
+				Name:         "members",
+				TargetEntity: "slack.user",
+			}}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	result := New(registry).relation(operation.NewContext(context.Background(), nil), relationInput{Datasource: "slack", Entity: "slack.channel", ID: "C1", Relation: "members"})
+	if result.Status != operation.StatusFailed || result.Error == nil || result.Error.Code != "datasource_relation_denied" {
+		t.Fatalf("result = %#v, want access denied", result)
+	}
+}
+
+func TestBatchGetPreservesRequestedIDsAndReportsMisses(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.user"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "slack.user"},
+			records: []coredatasource.Record{
+				{ID: "U2", Datasource: "slack", Entity: "slack.user", Title: "Bob"},
+				{ID: "U1", Datasource: "slack", Entity: "slack.user", Title: "Alice"},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"slack"}}), nil)
+	result := New(registry).batchGet(ctx, batchGetInput{Datasource: "slack", Entity: "slack.user", IDs: []string{"U1", "missing", "U2"}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(batchGetOutput)
+	if len(out.Result.Records) != 2 || out.Result.Records[0].ID != "U1" || out.Result.Records[1].ID != "U2" || len(out.Result.Errors) != 1 {
+		t.Fatalf("batch output = %#v, want ordered hits and one miss", out.Result)
+	}
+}
+
 func TestCatalogProviderListsOnlyAllowedDatasources(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{
@@ -199,6 +314,37 @@ func TestCatalogProviderListsEntityCapabilities(t *testing.T) {
 	}
 	if !strings.Contains(blocks[0].Metadata["datasources"], `"capabilities":["search"]`) {
 		t.Fatalf("metadata = %#v, want search capability", blocks[0].Metadata)
+	}
+}
+
+func TestCatalogProviderListsRelations(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.channel"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type: "slack.channel",
+				Relations: []coredatasource.RelationSpec{{
+					Name:         "members",
+					TargetEntity: "slack.user",
+					Exact:        true,
+				}},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	blocks, err := (catalogProvider{registry: registry}).Build(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"slack"},
+	}), corecontext.Request{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "relation") || !strings.Contains(blocks[0].Content, "members->slack.user exact") {
+		t.Fatalf("blocks = %#v, want relation catalog entry", blocks)
+	}
+	if !strings.Contains(blocks[0].Metadata["datasources"], `"relations":[{"name":"members","target_entity":"slack.user","exact":true`) {
+		t.Fatalf("metadata = %#v, want relation metadata", blocks[0].Metadata)
 	}
 }
 

@@ -39,6 +39,33 @@ func TestRegistryRejectsDuplicateDatasource(t *testing.T) {
 	}
 }
 
+func TestEntityValidateRejectsInvalidRelations(t *testing.T) {
+	tests := []EntitySpec{
+		{Type: "team.group", Relations: []RelationSpec{{TargetEntity: "team.user"}}},
+		{Type: "team.group", Relations: []RelationSpec{{Name: "members"}}},
+		{Type: "team.group", Relations: []RelationSpec{{Name: "members", TargetEntity: "team.user"}, {Name: "members", TargetEntity: "team.user"}}},
+	}
+	for _, spec := range tests {
+		if err := spec.Validate(); err == nil {
+			t.Fatalf("Validate(%#v) error is nil, want error", spec)
+		}
+	}
+}
+
+func TestEntityValidateAcceptsRelation(t *testing.T) {
+	spec := EntitySpec{
+		Type: "team.group",
+		Relations: []RelationSpec{{
+			Name:         "members",
+			TargetEntity: "team.user",
+			Exact:        true,
+		}},
+	}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestAccessPolicyContextRoundTrip(t *testing.T) {
 	ctx := ContextWithAccessPolicy(context.Background(), AccessPolicy{Datasources: []Name{"docs"}})
 	policy, ok := AccessPolicyFromContext(ctx)

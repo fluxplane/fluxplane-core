@@ -22,6 +22,8 @@ const (
 	Name                = "datasource"
 	SearchOperation     = "datasource_search"
 	GetOperation        = "datasource_get"
+	RelationOperation   = "datasource_relation"
+	BatchGetOperation   = "datasource_batch_get"
 	ContextProvider     = "datasource.catalog"
 	DetectedProvider    = "datasource.detected"
 	defaultSearchLimit  = 10
@@ -48,7 +50,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec()},
-		Operations:       []operation.Spec{searchSpec(), getSpec()},
+		Operations:       []operation.Spec{searchSpec(), getSpec(), relationSpec(), batchGetSpec()},
 	}, nil
 }
 
@@ -56,6 +58,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	return []operation.Operation{
 		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search),
 		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get),
+		operationruntime.NewTypedResult[relationInput, operation.Rendered](relationSpec(), p.relation),
+		operationruntime.NewTypedResult[batchGetInput, operation.Rendered](batchGetSpec(), p.batchGet),
 	}, nil
 }
 
@@ -105,6 +109,32 @@ func getSpec() operation.Spec {
 	})
 }
 
+func relationSpec() operation.Spec {
+	return operationruntime.WithTypedContract[relationInput, operation.Rendered](operation.Spec{
+		Ref:         operation.Ref{Name: RelationOperation},
+		Description: "Retrieve exact related datasource records, such as Slack channel members.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectFilesystem, operation.EffectReadExternal},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func batchGetSpec() operation.Spec {
+	return operationruntime.WithTypedContract[batchGetInput, operation.Rendered](operation.Spec{
+		Ref:         operation.Ref{Name: BatchGetOperation},
+		Description: "Retrieve multiple records from one configured datasource entity by id.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectFilesystem, operation.EffectReadExternal},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
 type searchInput struct {
 	Queries  []string `json:"queries,omitempty" jsonschema:"description=Search queries to run. Use one or more short text queries."`
 	Query    string   `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
@@ -118,6 +148,21 @@ type getInput struct {
 	ID         string `json:"id" jsonschema:"description=Record id to retrieve.,required"`
 }
 
+type relationInput struct {
+	Datasource string `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
+	Entity     string `json:"entity" jsonschema:"description=Source entity type, such as slack.channel.,required"`
+	ID         string `json:"id" jsonschema:"description=Source record id.,required"`
+	Relation   string `json:"relation" jsonschema:"description=Relation name, such as members.,required"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"description=Maximum related records to return for one page."`
+	Cursor     string `json:"cursor,omitempty" jsonschema:"description=Pagination cursor from a previous relation call."`
+}
+
+type batchGetInput struct {
+	Datasource string   `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
+	Entity     string   `json:"entity" jsonschema:"description=Entity type to retrieve from, such as slack.user.,required"`
+	IDs        []string `json:"ids,omitempty" jsonschema:"description=Record ids to retrieve."`
+}
+
 type searchOutput struct {
 	Results []coredatasource.SearchResult `json:"results,omitempty"`
 	Errors  []sourceError                 `json:"errors,omitempty"`
@@ -125,6 +170,14 @@ type searchOutput struct {
 
 type getOutput struct {
 	Record coredatasource.Record `json:"record,omitempty"`
+}
+
+type relationOutput struct {
+	Result coredatasource.RelationResult `json:"result,omitempty"`
+}
+
+type batchGetOutput struct {
+	Result coredatasource.BatchGetResult `json:"result,omitempty"`
 }
 
 type sourceError struct {
@@ -247,6 +300,101 @@ func (p Plugin) get(ctx operation.Context, input getInput) operation.Result {
 	}
 	out := getOutput{Record: p.withRecordLinksForRecord(ctx, record)}
 	return operation.OK(operation.Rendered{Text: renderRecord(out.Record), Data: out})
+}
+
+func (p Plugin) relation(ctx operation.Context, input relationInput) operation.Result {
+	if p.registry == nil {
+		return operation.Failed("datasource_registry_missing", "datasource registry is nil", nil)
+	}
+	name := coredatasource.Name(strings.TrimSpace(input.Datasource))
+	entity := coredatasource.EntityType(strings.TrimSpace(input.Entity))
+	relation := strings.TrimSpace(input.Relation)
+	id := strings.TrimSpace(input.ID)
+	if name == "" || entity == "" || id == "" || relation == "" {
+		return operation.Failed("invalid_datasource_relation_input", "datasource, entity, id, and relation are required", nil)
+	}
+	if err := allowed(ctx, name); err != nil {
+		return operation.Failed("datasource_relation_denied", err.Error(), nil)
+	}
+	accessor, ok := p.registry.Get(name)
+	if !ok {
+		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
+	}
+	if !accessorHasEntity(accessor, entity) {
+		return operation.Failed("datasource_entity_mismatch", "datasource entity does not match requested entity", map[string]any{
+			"datasource": name,
+			"entity":     entity,
+		})
+	}
+	entitySpec, ok := accessorEntity(accessor, entity)
+	if ok && !entityHasRelation(entitySpec, relation) {
+		return operation.Failed("datasource_relation_unsupported", fmt.Sprintf("datasource %q entity %q does not expose relation %q", name, entity, relation), nil)
+	}
+	relationer, ok := accessor.(coredatasource.Relationer)
+	if !ok {
+		return operation.Failed("datasource_relation_unsupported", fmt.Sprintf("datasource %q does not support relations", name), nil)
+	}
+	result, err := relationer.Relation(ctx, coredatasource.RelationRequest{
+		Entity:   entity,
+		ID:       id,
+		Relation: relation,
+		Limit:    input.Limit,
+		Cursor:   strings.TrimSpace(input.Cursor),
+	})
+	if err != nil {
+		return operation.Failed("datasource_relation_failed", err.Error(), nil)
+	}
+	out := relationOutput{Result: result}
+	return operation.OK(operation.Rendered{Text: renderRelation(result), Data: out})
+}
+
+func (p Plugin) batchGet(ctx operation.Context, input batchGetInput) operation.Result {
+	if p.registry == nil {
+		return operation.Failed("datasource_registry_missing", "datasource registry is nil", nil)
+	}
+	name := coredatasource.Name(strings.TrimSpace(input.Datasource))
+	entity := coredatasource.EntityType(strings.TrimSpace(input.Entity))
+	ids := cleaned(input.IDs)
+	if name == "" || entity == "" || len(ids) == 0 {
+		return operation.Failed("invalid_datasource_batch_get_input", "datasource, entity, and ids are required", nil)
+	}
+	if err := allowed(ctx, name); err != nil {
+		return operation.Failed("datasource_batch_get_denied", err.Error(), nil)
+	}
+	accessor, ok := p.registry.Get(name)
+	if !ok {
+		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
+	}
+	if !accessorHasEntity(accessor, entity) {
+		return operation.Failed("datasource_entity_mismatch", "datasource entity does not match requested entity", map[string]any{
+			"datasource": name,
+			"entity":     entity,
+		})
+	}
+	var result coredatasource.BatchGetResult
+	if batchGetter, ok := accessor.(coredatasource.BatchGetter); ok {
+		var err error
+		result, err = batchGetter.BatchGet(ctx, coredatasource.BatchGetRequest{Entity: entity, IDs: ids})
+		if err != nil {
+			return operation.Failed("datasource_batch_get_failed", err.Error(), nil)
+		}
+	} else {
+		getter, ok := accessor.(coredatasource.Getter)
+		if !ok {
+			return operation.Failed("datasource_batch_get_unsupported", fmt.Sprintf("datasource %q does not support get", name), nil)
+		}
+		result = coredatasource.BatchGetResult{Datasource: name, Entity: entity}
+		for _, id := range ids {
+			record, err := getter.Get(ctx, coredatasource.GetRequest{Entity: entity, ID: id})
+			if err != nil {
+				result.Errors = append(result.Errors, coredatasource.BatchGetError{ID: id, Message: err.Error()})
+				continue
+			}
+			result.Records = append(result.Records, record)
+		}
+	}
+	out := batchGetOutput{Result: result}
+	return operation.OK(operation.Rendered{Text: renderBatchGet(result), Data: out})
 }
 
 func (p Plugin) withRecordLinks(ctx context.Context, out searchOutput) searchOutput {
@@ -376,6 +524,9 @@ func entitySupports(accessor coredatasource.Accessor, entity coredatasource.Enti
 	case coredatasource.EntityCapabilityGet:
 		_, ok := accessor.(coredatasource.Getter)
 		return ok
+	case coredatasource.EntityCapabilityRelation:
+		_, ok := accessor.(coredatasource.Relationer)
+		return ok && len(entity.Relations) > 0
 	default:
 		return false
 	}
@@ -383,12 +534,22 @@ func entitySupports(accessor coredatasource.Accessor, entity coredatasource.Enti
 
 func entityCapabilities(accessor coredatasource.Accessor, entity coredatasource.EntitySpec) []coredatasource.EntityCapability {
 	var out []coredatasource.EntityCapability
-	for _, capability := range []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet} {
+	for _, capability := range []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet, coredatasource.EntityCapabilityRelation} {
 		if entitySupports(accessor, entity, capability) {
 			out = append(out, capability)
 		}
 	}
 	return out
+}
+
+func entityHasRelation(entity coredatasource.EntitySpec, name string) bool {
+	name = strings.TrimSpace(name)
+	for _, relation := range entity.Relations {
+		if relation.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func countEntityTypes(targets []searchTarget) int {
@@ -602,6 +763,53 @@ func renderRecord(record coredatasource.Record) string {
 	return strings.Join(parts, "\n")
 }
 
+func renderRelation(result coredatasource.RelationResult) string {
+	var parts []string
+	mode := "inferred"
+	if result.Exact {
+		mode = "exact"
+	}
+	status := "partial"
+	if result.Complete {
+		status = "complete"
+	}
+	header := fmt.Sprintf("%s %s %s for %s %s from %s: %s, %s", result.Entity, result.ID, result.Relation, result.TargetEntity, plural(len(result.Records), "record"), result.Datasource, mode, status)
+	parts = append(parts, header)
+	for _, record := range result.Records {
+		line := "- " + record.ID
+		if record.Title != "" && record.Title != record.ID {
+			line += " - " + record.Title
+		}
+		if record.URL != "" {
+			line += " (" + record.URL + ")"
+		}
+		parts = append(parts, line)
+	}
+	if result.NextCursor != "" {
+		parts = append(parts, "next_cursor: "+result.NextCursor)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func renderBatchGet(result coredatasource.BatchGetResult) string {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("%s from %s: %s", result.Entity, result.Datasource, plural(len(result.Records), "record")))
+	for _, record := range result.Records {
+		line := "- " + record.ID
+		if record.Title != "" && record.Title != record.ID {
+			line += " - " + record.Title
+		}
+		lines = append(lines, line)
+	}
+	if len(result.Errors) > 0 {
+		lines = append(lines, "Errors:")
+		for _, err := range result.Errors {
+			lines = append(lines, "- "+err.ID+": "+err.Message)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func renderRefsInline(refs []coredatasource.RecordRef) string {
 	values := make([]string, 0, len(refs))
 	for _, ref := range refs {
@@ -661,7 +869,7 @@ func (p catalogProvider) Build(ctx context.Context, _ corecontext.Request) ([]co
 			for _, capability := range entityCapabilities(accessor, entity) {
 				capabilities = append(capabilities, string(capability))
 			}
-			entry.Entities = append(entry.Entities, catalogEntity{Type: string(entity.Type), Description: entity.Description, Capabilities: capabilities})
+			entry.Entities = append(entry.Entities, catalogEntity{Type: string(entity.Type), Description: entity.Description, Capabilities: capabilities, Relations: catalogRelations(entity.Relations)})
 		}
 		if len(entry.Entities) == 0 {
 			continue
@@ -700,9 +908,30 @@ type catalogDatasource struct {
 }
 
 type catalogEntity struct {
-	Type         string   `json:"type"`
-	Description  string   `json:"description,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	Type         string            `json:"type"`
+	Description  string            `json:"description,omitempty"`
+	Capabilities []string          `json:"capabilities,omitempty"`
+	Relations    []catalogRelation `json:"relations,omitempty"`
+}
+
+type catalogRelation struct {
+	Name         string `json:"name"`
+	TargetEntity string `json:"target_entity"`
+	Exact        bool   `json:"exact,omitempty"`
+	Description  string `json:"description,omitempty"`
+}
+
+func catalogRelations(relations []coredatasource.RelationSpec) []catalogRelation {
+	out := make([]catalogRelation, 0, len(relations))
+	for _, relation := range relations {
+		out = append(out, catalogRelation{
+			Name:         relation.Name,
+			TargetEntity: string(relation.TargetEntity),
+			Exact:        relation.Exact,
+			Description:  relation.Description,
+		})
+	}
+	return out
 }
 
 func renderCatalogLine(entry catalogDatasource) string {
@@ -711,6 +940,17 @@ func renderCatalogLine(entry catalogDatasource) string {
 		label := entity.Type
 		if len(entity.Capabilities) > 0 {
 			label += " [" + strings.Join(entity.Capabilities, ",") + "]"
+		}
+		if len(entity.Relations) > 0 {
+			var relations []string
+			for _, relation := range entity.Relations {
+				relationLabel := relation.Name + "->" + relation.TargetEntity
+				if relation.Exact {
+					relationLabel += " exact"
+				}
+				relations = append(relations, relationLabel)
+			}
+			label += " relations[" + strings.Join(relations, ",") + "]"
 		}
 		if entity.Description != "" {
 			entities = append(entities, label+" - "+entity.Description)
