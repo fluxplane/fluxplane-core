@@ -3,14 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"net"
-	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,42 +17,25 @@ import (
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
-	"github.com/fluxplane/agentruntime/adapters/connectauth"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
+	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
-	agentsdkapp "github.com/fluxplane/agentruntime/apps/agentsdk"
 	"github.com/fluxplane/agentruntime/apps/coder"
-	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/channel"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coreusage "github.com/fluxplane/agentruntime/core/usage"
-	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/app"
-	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
-	"github.com/fluxplane/agentruntime/orchestration/daemon"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
-	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/spf13/cobra"
 )
 
@@ -139,7 +117,7 @@ func runLocalDistribution(ctx context.Context, loader runLoader, opts runOptions
 	if strings.TrimSpace(opts.session) == "" && loaded.Distribution.Spec.DefaultSession.Name == "" {
 		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
 	}
-	loaded = agentsdkapp.AttachLocalRuntime(loaded)
+	loaded = launch.AttachLocalRuntime(loaded)
 	return distcli.Run(ctx, loaded.Distribution, distcli.RunOptions{
 		Session:      opts.session,
 		Conversation: opts.conversation,
@@ -162,7 +140,11 @@ func newServeCommand() *cobra.Command {
 		Short: "Run an app daemon",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(cmd.Context(), opts, args[0])
+			return launch.Serve(cmd.Context(), launch.Options{
+				AppDir:   args[0],
+				Debug:    opts.debug,
+				AuthPath: opts.authPath,
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print daemon startup details")
@@ -685,308 +667,6 @@ func printConnectInfo(out io.Writer, def *connectorsdefinition.Definition) {
 	}
 }
 
-func runServe(ctx context.Context, opts serveOptions, appDir string) error {
-	configureServeLogging(opts.debug)
-	cfgFile, err := appconfig.LoadDirFile(ctx, appDir)
-	if err != nil {
-		return err
-	}
-	if err := cfgFile.Validate(); err != nil {
-		return err
-	}
-	root, err := filepath.Abs(appDir)
-	if err != nil {
-		return err
-	}
-	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
-	if err != nil {
-		return err
-	}
-	dispatcher := slackplugin.NewDispatcher()
-	connectorEngine, connectorInstances, err := serveConnectorEngine(ctx, opts, cfgFile.Connectors)
-	if err != nil {
-		return err
-	}
-	if connectorEngine != nil {
-		defer func() { _ = connectorEngine.Close() }()
-	}
-	slackPlugin := slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name))
-	gitlabPlugin := gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name))
-	jiraPlugin := jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name))
-	basePlugins := []pluginhost.Plugin{
-		slackPlugin,
-		gitlabPlugin,
-		jiraPlugin,
-		planexecplugin.New(),
-		skillplugin.New(),
-		textplugin.New(),
-		webplugin.New(hostSystem),
-	}
-	bundle := cfgFile.Bundle
-	plugins := basePlugins
-	if bundleHasPlugin(bundle, skillplugin.Name) && !hasDatasource(bundle, skillplugin.DatasourceName) {
-		bundle.Datasources = append(bundle.Datasources, skillplugin.DatasourceSpec())
-	}
-	if len(bundle.Datasources) > 0 {
-		registry, err := serveDatasourceRegistry(ctx, bundle, basePlugins, root)
-		if err != nil {
-			return err
-		}
-		plugins = append(plugins, datasourceplugin.New(registry))
-		if !bundleHasPlugin(bundle, datasourceplugin.Name) {
-			bundle.Plugins = append(bundle.Plugins, resource.PluginRef{Name: datasourceplugin.Name})
-		}
-	}
-	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{bundle},
-		Plugins: plugins,
-		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
-			Sandbox:   localSandbox{Root: root},
-			ACL:       localACL{},
-			AllowPure: true,
-		})),
-	})
-	if err != nil {
-		return err
-	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
-		LLMModelResolver: serveModelResolver{debug: opts.debug},
-		LLMStreamPolicy:  coder.DebugStreamPolicy(opts.debug),
-		ToolProjection: agentruntime.ToolProjectionConfig{
-			AllowSideEffects:      true,
-			MaxRisk:               operation.RiskMedium,
-			IncludeBareOperations: true,
-		},
-		Channel: channel.Ref{Name: "local"},
-		Caller: policy.Caller{
-			Kind: policy.CallerUser,
-			Principal: policy.Principal{
-				Kind: "user",
-				ID:   "agentsdk",
-				Name: "agentsdk",
-			},
-		},
-		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-	})
-	if err != nil {
-		return err
-	}
-	channels, err := serveChannels(ctx, cfgFile.Daemon.Channels, opts, dispatcher)
-	if err != nil {
-		return err
-	}
-	host, err := daemon.New(daemon.Config{
-		Client:         service,
-		SessionCatalog: composition.SessionCatalog,
-		Channels:       channels,
-	})
-	if err != nil {
-		return err
-	}
-	if err := startServeListeners(ctx, cfgFile.Daemon.Listeners, cfgFile.Daemon.Channels, service, host); err != nil {
-		return err
-	}
-	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
-	defer stop()
-	if opts.debug {
-		_, _ = fmt.Fprintf(os.Stderr, "agentsdk serve loaded %s\n", cfgFile.Path)
-	}
-	if len(channels) == 0 {
-		<-runCtx.Done()
-		return nil
-	}
-	for _, ch := range channels {
-		if ch != nil && ch.Name() != "" {
-			_, _ = fmt.Fprintf(os.Stderr, "channel %s starting\n", ch.Name())
-		}
-	}
-	if err := host.RunChannels(runCtx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
-	return nil
-}
-
-type serveModelResolver struct {
-	debug bool
-}
-
-func (r serveModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	selection := coder.ResolveModelSelection("openai", spec.Inference.Model)
-	return coder.NewModel(selection, r.debug)
-}
-
-func serveConnectorEngine(ctx context.Context, opts serveOptions, docs map[string]appconfig.ConnectorDoc) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
-	if len(docs) == 0 {
-		return nil, nil, nil
-	}
-	engine, providers, err := newConnectEngine(ctx, opts.authPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	knownProviders := map[string]bool{}
-	for _, provider := range providers {
-		knownProviders[provider] = true
-	}
-	names := make([]string, 0, len(docs))
-	for name := range docs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	instances := make([]connectorplugin.Instance, 0, len(names))
-	for _, instanceID := range names {
-		doc := docs[instanceID]
-		kind := strings.TrimSpace(doc.Kind)
-		if kind == "" {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("serve: connector instance %q kind is empty", instanceID)
-		}
-		if !knownProviders[kind] {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("serve: connector instance %q uses unknown provider %q (available: %s)", instanceID, kind, strings.Join(providers, ", "))
-		}
-		stored, err := engine.Instances.Load(ctx, instanceID)
-		if err != nil {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("serve: load connector instance %q: %w", instanceID, err)
-		}
-		if stored.Connector != kind {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("serve: connector instance %q has kind %q, want %q", instanceID, stored.Connector, kind)
-		}
-		if err := engine.ConnectInstance(ctx, instanceID); err != nil {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("serve: connect %s connector instance %q: %w", kind, instanceID, err)
-		}
-		instances = append(instances, connectorplugin.Instance{ID: instanceID, Kind: kind})
-	}
-	return engine, instances, nil
-}
-
-func serveDatasourceRegistry(ctx context.Context, bundle resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
-	host, err := pluginhost.New(plugins...)
-	if err != nil {
-		return nil, err
-	}
-	refs := make([]resource.PluginRef, 0, len(bundle.Plugins))
-	for _, ref := range bundle.Plugins {
-		if ref.Name != datasourceplugin.Name {
-			refs = append(refs, ref)
-		}
-	}
-	resolved, err := host.Resolve(ctx, refs...)
-	if err != nil {
-		return nil, err
-	}
-	var providers []coredatasource.Provider
-	for _, contribution := range resolved.DatasourceProviders {
-		providers = append(providers, contribution.Provider)
-	}
-	providers = append(providers, datasourceplugin.NewFilesystemProvider(os.DirFS(root)))
-	return datasourceplugin.BuildRegistry(ctx, bundle.Datasources, providers)
-}
-
-func bundleHasPlugin(bundle resource.ContributionBundle, name string) bool {
-	for _, ref := range bundle.Plugins {
-		if ref.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
-func hasDatasource(bundle resource.ContributionBundle, name string) bool {
-	for _, spec := range bundle.Datasources {
-		if string(spec.Name) == name {
-			return true
-		}
-	}
-	return false
-}
-
-func connectorInstancesForKind(instances []connectorplugin.Instance, kind string) []connectorplugin.Instance {
-	var out []connectorplugin.Instance
-	for _, instance := range instances {
-		if instance.Kind == kind {
-			out = append(out, instance)
-		}
-	}
-	return out
-}
-
-func serveChannels(ctx context.Context, docs []appconfig.ChannelDoc, opts serveOptions, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
-	var out []channelruntime.Channel
-	store := connectauth.NewStore(opts.authPath)
-	for _, doc := range docs {
-		switch doc.Type {
-		case "direct":
-			continue
-		case "slack":
-			creds, err := store.LoadSlack(ctx, doc.Connector)
-			if err != nil {
-				return nil, err
-			}
-			sessionName := doc.Session
-			if sessionName == "" {
-				sessionName = doc.Name
-			}
-			ch, err := slackplugin.NewChannel(slackplugin.ChannelConfig{
-				Name:       doc.Name,
-				Session:    agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
-				BotToken:   creds.BotToken,
-				UserToken:  creds.UserToken,
-				AppToken:   creds.AppToken,
-				BotUserID:  creds.BotUserID,
-				TeamID:     creds.TeamID,
-				Debug:      opts.debug,
-				Access:     slackAccess(doc.Access),
-				Dispatcher: dispatcher,
-			})
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, ch)
-		default:
-			return nil, fmt.Errorf("serve: unsupported channel type %q", doc.Type)
-		}
-	}
-	return out, nil
-}
-
-func configureServeLogging(debug bool) {
-	level := slog.LevelInfo
-	if debug {
-		level = slog.LevelDebug
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
-}
-
-func slackAccess(doc appconfig.AccessDoc) slackplugin.AccessPolicy {
-	return slackplugin.AccessPolicy{
-		Mode:             doc.Mode,
-		AllowUsers:       append([]string(nil), doc.AllowUsers...),
-		DenyUsers:        append([]string(nil), doc.DenyUsers...),
-		AllowChannels:    append([]string(nil), doc.AllowChannels...),
-		DenyChannels:     append([]string(nil), doc.DenyChannels...),
-		AllowKinds:       append([]string(nil), doc.AllowKinds...),
-		DefaultTrust:     userTrust(doc.DefaultTrust),
-		Operators:        append([]string(nil), doc.Operators...),
-		InternalUsers:    append([]string(nil), doc.InternalUsers...),
-		InternalChannels: append([]string(nil), doc.InternalChannels...),
-		Sharing:          firstNonEmptyString(doc.Sharing, "strict"),
-	}
-}
-
-func userTrust(raw string) user.TrustLevel {
-	switch strings.TrimSpace(raw) {
-	case "operator":
-		return user.TrustOperator
-	case "internal":
-		return user.TrustInternal
-	default:
-		return user.TrustPublic
-	}
-}
-
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -994,166 +674,6 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func startServeListeners(ctx context.Context, listeners []appconfig.ListenerDoc, channels []appconfig.ChannelDoc, client agentruntime.ChannelClient, host *daemon.Host) error {
-	needsDirect := map[string]bool{}
-	for _, ch := range channels {
-		if ch.Type == "direct" && ch.Listener != "" {
-			needsDirect[ch.Listener] = true
-		}
-	}
-	for _, listenerDoc := range listeners {
-		if listenerDoc.Type != "http" {
-			return fmt.Errorf("serve: unsupported listener type %q", listenerDoc.Type)
-		}
-		mux := http.NewServeMux()
-		controlServer, err := httpcontrol.NewServer(httpcontrol.ServerConfig{Host: host})
-		if err != nil {
-			return err
-		}
-		mux.Handle("/control/", http.StripPrefix("/control", controlServer))
-		if needsDirect[listenerDoc.Name] {
-			channelServer, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: client})
-			if err != nil {
-				return err
-			}
-			mux.Handle("/", channelServer)
-		}
-		ln, display, cleanup, err := listenServe(listenerDoc.Addr)
-		if err != nil {
-			return err
-		}
-		handler, err := serveListenerHandler(listenerDoc, mux)
-		if err != nil {
-			cleanup()
-			return err
-		}
-		server := &http.Server{Handler: handler}
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdownCtx)
-			cleanup()
-		}()
-		go func() {
-			if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				_, _ = fmt.Fprintf(os.Stderr, "listener %s failed: %v\n", listenerDoc.Name, err)
-				cleanup()
-			}
-		}()
-		_, _ = fmt.Fprintf(os.Stderr, "listener %s on %s\n", listenerDoc.Name, display)
-	}
-	return nil
-}
-
-func serveListenerHandler(listener appconfig.ListenerDoc, next http.Handler) (http.Handler, error) {
-	mode := strings.ToLower(strings.TrimSpace(authString(listener.Auth, "mode")))
-	if mode == "" {
-		if serveAddrIsTCP(listener.Addr) {
-			return nil, fmt.Errorf("serve: listener %q uses TCP addr %q and requires auth", listener.Name, listener.Addr)
-		}
-		return next, nil
-	}
-	switch mode {
-	case "local_socket":
-		if serveAddrIsTCP(listener.Addr) {
-			return nil, fmt.Errorf("serve: listener %q auth mode local_socket requires a unix socket addr", listener.Name)
-		}
-		return next, nil
-	case "bearer", "token":
-		token := authString(listener.Auth, "token")
-		if token == "" {
-			if env := authString(listener.Auth, "env"); env != "" {
-				token = os.Getenv(env)
-			}
-		}
-		if token == "" {
-			return nil, fmt.Errorf("serve: listener %q bearer auth token is empty", listener.Name)
-		}
-		return bearerAuthHandler(token, next), nil
-	default:
-		return nil, fmt.Errorf("serve: listener %q unsupported auth mode %q", listener.Name, mode)
-	}
-}
-
-func bearerAuthHandler(token string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer "+token {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="agentsdk"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func authString(auth map[string]any, key string) string {
-	if len(auth) == 0 {
-		return ""
-	}
-	value, ok := auth[key]
-	if !ok {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	default:
-		return strings.TrimSpace(fmt.Sprint(typed))
-	}
-}
-
-func serveAddrIsTCP(addr string) bool {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return true
-	}
-	return !strings.HasSuffix(addr, ".sock")
-}
-
-func listenServe(addr string) (net.Listener, string, func(), error) {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		addr = "127.0.0.1:8080"
-	}
-	if strings.HasSuffix(addr, ".sock") {
-		path := resolveServeSocketPath(addr)
-		if err := prepareServeSocketPath(path); err != nil {
-			return nil, "", func() {}, err
-		}
-		ln, err := net.Listen("unix", path)
-		if err != nil {
-			return nil, "", func() {}, err
-		}
-		cleanup := func() { _ = os.Remove(path) }
-		return ln, "unix:" + path, cleanup, nil
-	}
-	ln, err := net.Listen("tcp", addr)
-	return ln, "http://" + addr, func() {}, err
-}
-
-func prepareServeSocketPath(path string) error {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("serve: inspect unix socket %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSocket == 0 {
-		return fmt.Errorf("serve: unix socket path %s already exists and is not a socket", path)
-	}
-	conn, dialErr := net.DialTimeout("unix", path, 100*time.Millisecond)
-	if dialErr == nil {
-		_ = conn.Close()
-		return fmt.Errorf("serve: unix socket %s is already in use", path)
-	}
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("serve: remove stale unix socket %s: %w", path, err)
-	}
-	return nil
 }
 
 func runRemote(ctx context.Context, opts remoteOptions) error {
@@ -1353,21 +873,21 @@ func remoteTargetFromListener(listener appconfig.ListenerDoc) (remoteTarget, err
 	if addr == "" {
 		addr = "127.0.0.1:8080"
 	}
-	mode := strings.ToLower(strings.TrimSpace(authString(listener.Auth, "mode")))
+	mode := strings.ToLower(strings.TrimSpace(distserve.AuthString(listener.Auth, "mode")))
 	var token string
 	switch mode {
 	case "":
-		if serveAddrIsTCP(addr) {
+		if distserve.AddrIsTCP(addr) {
 			return remoteTarget{}, fmt.Errorf("remote: listener %q uses TCP addr %q and requires auth", listener.Name, addr)
 		}
 	case "local_socket":
-		if serveAddrIsTCP(addr) {
+		if distserve.AddrIsTCP(addr) {
 			return remoteTarget{}, fmt.Errorf("remote: listener %q auth mode local_socket requires a unix socket addr", listener.Name)
 		}
 	case "bearer", "token":
-		token = authString(listener.Auth, "token")
+		token = distserve.AuthString(listener.Auth, "token")
 		if token == "" {
-			if env := authString(listener.Auth, "env"); env != "" {
+			if env := distserve.AuthString(listener.Auth, "env"); env != "" {
 				token = os.Getenv(env)
 			}
 		}
@@ -1377,25 +897,13 @@ func remoteTargetFromListener(listener appconfig.ListenerDoc) (remoteTarget, err
 	default:
 		return remoteTarget{}, fmt.Errorf("remote: listener %q unsupported auth mode %q", listener.Name, mode)
 	}
-	if serveAddrIsTCP(addr) {
+	if distserve.AddrIsTCP(addr) {
 		if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
 			return remoteTarget{baseURL: strings.TrimRight(addr, "/"), bearerToken: token}, nil
 		}
 		return remoteTarget{baseURL: "http://" + addr, bearerToken: token}, nil
 	}
-	return remoteTarget{baseURL: "http://unix", socket: resolveServeSocketPath(addr), bearerToken: token}, nil
-}
-
-func resolveServeSocketPath(addr string) string {
-	addr = strings.TrimSpace(addr)
-	if !strings.ContainsRune(addr, filepath.Separator) {
-		base := os.Getenv("XDG_RUNTIME_DIR")
-		if base == "" {
-			base = os.TempDir()
-		}
-		return filepath.Join(base, addr)
-	}
-	return addr
+	return remoteTarget{baseURL: "http://unix", socket: distserve.ResolveSocketPath(addr), bearerToken: token}, nil
 }
 
 func resolveRemoteSocketPath(raw string) string {
@@ -1403,7 +911,7 @@ func resolveRemoteSocketPath(raw string) string {
 	if filepath.IsAbs(raw) || strings.ContainsRune(raw, filepath.Separator) {
 		return raw
 	}
-	return resolveServeSocketPath(raw)
+	return distserve.ResolveSocketPath(raw)
 }
 
 func terminalEventRegistry() (*coreevent.Registry, error) {
@@ -1412,22 +920,4 @@ func terminalEventRegistry() (*coreevent.Registry, error) {
 		return nil, err
 	}
 	return registry, nil
-}
-
-type localSandbox struct {
-	Root string
-}
-
-func (s localSandbox) Check(_ operation.Context, spec operation.Spec, input operation.Value) error {
-	if spec.Semantics.Effects.Has(operation.EffectProcess) {
-		_ = input
-		_ = s.Root
-	}
-	return nil
-}
-
-type localACL struct{}
-
-func (localACL) Authorize(operation.Context, operation.Spec, operation.Value) error {
-	return nil
 }

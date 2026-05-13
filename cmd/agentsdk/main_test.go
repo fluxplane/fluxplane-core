@@ -4,11 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +12,6 @@ import (
 
 	"github.com/codewandler/connectors/connector"
 	"github.com/codewandler/connectors/credential"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -25,7 +20,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 )
 
 func TestRootCommandHasServeAndConnect(t *testing.T) {
@@ -335,110 +329,6 @@ func TestRegisteredConnectorProvidersIncludeGitLabAndJira(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("providers = %#v, want %s", providers, strings.Trim(want, ","))
 		}
-	}
-}
-
-func TestServeListenerRequiresTCPAuthAndEnforcesBearer(t *testing.T) {
-	_, err := serveListenerHandler(appconfig.ListenerDoc{Name: "control", Type: "http", Addr: "127.0.0.1:0"}, http.NewServeMux())
-	if err == nil || !strings.Contains(err.Error(), "requires auth") {
-		t.Fatalf("serveListenerHandler error = %v, want requires auth", err)
-	}
-
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("ok"))
-	})
-	handler, err := serveListenerHandler(appconfig.ListenerDoc{
-		Name: "control",
-		Type: "http",
-		Addr: "127.0.0.1:0",
-		Auth: map[string]any{"mode": "bearer", "token": "secret"},
-	}, next)
-	if err != nil {
-		t.Fatalf("serveListenerHandler bearer: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized code = %d, want 401", rr.Code)
-	}
-	req = httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	rr = httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK || strings.TrimSpace(rr.Body.String()) != "ok" {
-		t.Fatalf("authorized response = %d %q, want 200 ok", rr.Code, rr.Body.String())
-	}
-}
-
-func TestListenServeRemovesStaleUnixSocketFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agentsdk-local.sock")
-	stale, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatalf("Listen stale socket: %v", err)
-	}
-	if err := stale.Close(); err != nil {
-		t.Fatalf("Close stale socket: %v", err)
-	}
-
-	ln, display, cleanup, err := listenServe(path)
-	if err != nil {
-		t.Fatalf("listenServe: %v", err)
-	}
-	if display != "unix:"+path {
-		t.Fatalf("display = %q, want unix path", display)
-	}
-	if err := ln.Close(); err != nil {
-		t.Fatalf("Close listener: %v", err)
-	}
-	cleanup()
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("socket exists after cleanup: %v", err)
-	}
-}
-
-func TestListenServeRefusesLiveUnixSocket(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agentsdk-local.sock")
-	live, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatalf("Listen live socket: %v", err)
-	}
-	defer func() { _ = live.Close() }()
-
-	_, _, _, err = listenServe(path)
-	if err == nil || !strings.Contains(err.Error(), "already in use") {
-		t.Fatalf("listenServe error = %v, want already in use", err)
-	}
-}
-
-func TestServeChannelsUsesEmptySlackConnectorFallback(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	instances := credential.NewInstanceStore(filepath.Join(dir, "instances"))
-	credentials := credential.NewFileStore(filepath.Join(dir, "credentials"))
-	if err := instances.Save(ctx, credential.Instance{
-		ID:        "workspace-prod",
-		Connector: "slack",
-	}); err != nil {
-		t.Fatalf("Save instance: %v", err)
-	}
-	if err := credentials.Save(ctx, "workspace-prod", connector.Credentials{
-		Auth:   connector.AuthState{Kind: connector.AuthToken, Token: "xoxb-test"},
-		Fields: map[string]string{"app_token": "xapp-test"},
-	}); err != nil {
-		t.Fatalf("Save credentials: %v", err)
-	}
-
-	channels, err := serveChannels(ctx, []appconfig.ChannelDoc{{
-		Name:    "slack-main",
-		Type:    "slack",
-		Session: "slack-main",
-	}}, serveOptions{authPath: dir}, slackplugin.NewDispatcher())
-	if err != nil {
-		t.Fatalf("serveChannels: %v", err)
-	}
-	if len(channels) != 1 {
-		t.Fatalf("channels len = %d, want 1", len(channels))
 	}
 }
 

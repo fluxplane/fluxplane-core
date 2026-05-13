@@ -1,4 +1,4 @@
-package agentsdk
+package launch
 
 import (
 	"context"
@@ -10,11 +10,11 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
-	"github.com/fluxplane/agentruntime/apps/coder"
-	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -31,25 +31,42 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-// AttachLocalRuntime gives a filesystem-loaded distribution the concrete
-// local session opener used by the agentsdk CLI.
+type LocalRuntimeConfig struct {
+	Root                string
+	Spec                coredistribution.Spec
+	Bundles             []resource.ContributionBundle
+	Plugins             func(system.System) []pluginhost.Plugin
+	ToolProjection      agentruntime.ToolProjectionConfig
+	AllowPrivateNetwork bool
+}
+
+// AttachLocalRuntime gives a loaded distribution the concrete local session
+// opener used by distribution run surfaces.
 func AttachLocalRuntime(loaded distribution.Loaded) distribution.Loaded {
 	if !needsLocalRuntimeOpener(loaded.Distribution.Runtime) {
 		return loaded
 	}
-	loaded.Distribution.Runtime = localruntime.Runtime{
-		DefaultSession:      loaded.Distribution.Spec.DefaultSession,
-		DefaultConversation: loaded.Distribution.Spec.DefaultConversation,
+	loaded.Distribution.Runtime = NewLocalRuntime(LocalRuntimeConfig{
+		Root:                loaded.Root,
+		Spec:                loaded.Distribution.Spec,
+		Bundles:             loaded.Distribution.Bundles,
+		AllowPrivateNetwork: true,
+	})
+	return loaded
+}
+
+func NewLocalRuntime(cfg LocalRuntimeConfig) distribution.Runtime {
+	return localruntime.Runtime{
+		DefaultSession:      cfg.Spec.DefaultSession,
+		DefaultConversation: cfg.Spec.DefaultConversation,
 		Open: func(ctx context.Context, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
-			return openLocalSession(ctx, loaded, req)
+			return openLocalSession(ctx, cfg, req)
 		},
 	}
-	return loaded
 }
 
 func needsLocalRuntimeOpener(runtime distribution.Runtime) bool {
@@ -62,8 +79,8 @@ func needsLocalRuntimeOpener(runtime distribution.Runtime) bool {
 	return false
 }
 
-func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
-	root := loaded.Root
+func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
+	root := cfg.Root
 	if strings.TrimSpace(root) == "" {
 		root = "."
 	}
@@ -71,7 +88,7 @@ func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distr
 	if err != nil {
 		return nil, err
 	}
-	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: cfg.AllowPrivateNetwork})
 	if err != nil {
 		return nil, err
 	}
@@ -83,9 +100,12 @@ func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distr
 		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
 	}
 
-	bundles := cloneBundles(loaded.Distribution.Bundles)
+	bundles := cloneBundles(cfg.Bundles)
 	ensureSkillDatasource(bundles)
 	plugins := basePlugins(hostSystem)
+	if cfg.Plugins != nil {
+		plugins = cfg.Plugins(hostSystem)
+	}
 	if hasAnyDatasource(bundles) {
 		registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 		if err != nil {
@@ -101,7 +121,7 @@ func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distr
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:        localSandbox{Root: root},
 			ACL:            localACL{},
-			CommandRisk:    coder.CommandRisk(root),
+			CommandRisk:    distrun.CommandRisk(root),
 			MaxCommandRisk: operation.RiskMedium,
 			AllowPure:      true,
 		})),
@@ -110,18 +130,18 @@ func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distr
 		return nil, err
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
-		LLMModelResolver: modelResolver{
-			provider:     req.Provider,
-			model:        req.Model,
-			defaultModel: loaded.Distribution.Spec.DefaultModel.Model,
-			debug:        req.Debug,
+		LLMModelResolver: distrun.ModelResolver{
+			Provider:     req.Provider,
+			Model:        req.Model,
+			DefaultModel: cfg.Spec.DefaultModel.Model,
+			Debug:        req.Debug,
 		},
-		LLMStreamPolicy: coder.DebugStreamPolicy(req.Debug),
-		ToolProjection: agentruntime.ToolProjectionConfig{
+		LLMStreamPolicy: distrun.DebugStreamPolicy(req.Debug),
+		ToolProjection: firstToolProjection(cfg.ToolProjection, agentruntime.ToolProjectionConfig{
 			AllowSideEffects:      true,
 			MaxRisk:               operation.RiskMedium,
 			IncludeBareOperations: true,
-		},
+		}),
 		Channel: channel.Ref{Name: "local"},
 		Caller: policy.Caller{
 			Kind: policy.CallerUser,
@@ -142,16 +162,16 @@ func openLocalSession(ctx context.Context, loaded distribution.Loaded, req distr
 	})
 }
 
-type modelResolver struct {
-	provider     string
-	model        string
-	defaultModel string
-	debug        bool
-}
-
-func (r modelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	selection := coder.ResolveModelSelection(firstNonEmptyString(r.provider, "openai"), firstNonEmptyString(r.model, spec.Inference.Model, r.defaultModel))
-	return coder.NewModel(selection, r.debug)
+func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agentruntime.ToolProjectionConfig {
+	if value.AllowSideEffects ||
+		value.MaxRisk != "" ||
+		value.IncludeBareOperations ||
+		value.PreferCommandProjection ||
+		len(value.Commands) > 0 ||
+		len(value.Operations) > 0 {
+		return value
+	}
+	return fallback
 }
 
 func basePlugins(hostSystem system.System) []pluginhost.Plugin {

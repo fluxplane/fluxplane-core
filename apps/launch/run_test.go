@@ -1,4 +1,4 @@
-package agentsdk
+package launch
 
 import (
 	"context"
