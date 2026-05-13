@@ -15,19 +15,13 @@ import (
 	connectorsdefinition "github.com/codewandler/connectors/definition"
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
-	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/channel"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/resource"
-	coreusage "github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -180,13 +174,6 @@ type remoteOptions struct {
 	usage           bool
 }
 
-type remoteTarget struct {
-	baseURL     string
-	socket      string
-	bearerToken string
-	session     string
-}
-
 func newRemoteCommand() *cobra.Command {
 	var opts remoteOptions
 	opts.session = defaultRemoteSession
@@ -210,6 +197,32 @@ func newRemoteCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	return cmd
+}
+
+func runRemote(ctx context.Context, opts remoteOptions) error {
+	events, err := terminalEventRegistry()
+	if err != nil {
+		return err
+	}
+	return distremote.Run(ctx, distremote.Options{
+		AppDir:              opts.appDir,
+		URL:                 opts.url,
+		Socket:              opts.socket,
+		Local:               opts.local,
+		Session:             opts.session,
+		SessionExplicit:     opts.sessionExplicit,
+		Conversation:        opts.conversation,
+		Input:               opts.input,
+		Debug:               opts.debug,
+		Usage:               opts.usage,
+		DefaultSession:      defaultRemoteSession,
+		DefaultConversation: defaultRemoteConversation,
+		DefaultSocket:       defaultRemoteSocket,
+		Events:              events,
+		In:                  os.Stdin,
+		Out:                 os.Stdout,
+		Err:                 os.Stderr,
+	})
 }
 
 func newConnectCommand() *cobra.Command {
@@ -665,253 +678,6 @@ func printConnectInfo(out io.Writer, def *connectorsdefinition.Definition) {
 	if len(groups) > 0 {
 		_, _ = fmt.Fprintf(out, "Groups: %s\n", strings.Join(groups, ", "))
 	}
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func runRemote(ctx context.Context, opts remoteOptions) error {
-	session, err := openRemoteSession(ctx, opts)
-	if err != nil {
-		return err
-	}
-	tracker := coreusage.NewTracker()
-	if strings.TrimSpace(opts.input) != "" {
-		return terminalui.RunTurn(ctx, session, opts.input, terminalui.TurnOptions{
-			Debug: opts.debug,
-			Usage: opts.usage,
-			Out:   os.Stdout,
-			Err:   os.Stderr,
-		}, tracker)
-	}
-	_, _ = fmt.Fprintln(os.Stderr, "agentsdk remote. Type /exit or /quit to stop.")
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		_, _ = fmt.Fprint(os.Stdout, "remote> ")
-		if !scanner.Scan() {
-			break
-		}
-		prompt := strings.TrimSpace(scanner.Text())
-		switch prompt {
-		case "":
-			continue
-		case "/exit", "/quit":
-			return nil
-		}
-		if err := terminalui.RunTurn(ctx, session, prompt, terminalui.TurnOptions{
-			Debug: opts.debug,
-			Usage: opts.usage,
-			Out:   os.Stdout,
-			Err:   os.Stderr,
-		}, tracker); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		}
-	}
-	return scanner.Err()
-}
-
-func openRemoteSession(ctx context.Context, opts remoteOptions) (agentruntime.Session, error) {
-	target, err := resolveRemoteTarget(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-	events, err := terminalEventRegistry()
-	if err != nil {
-		return nil, err
-	}
-	client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
-		BaseURL:     target.baseURL,
-		UnixSocket:  target.socket,
-		BearerToken: target.bearerToken,
-		Events:      events,
-	})
-	if err != nil {
-		return nil, err
-	}
-	sessionName := firstNonEmptyString(target.session, opts.session, defaultRemoteSession)
-	conversation := strings.TrimSpace(opts.conversation)
-	if conversation == "" {
-		conversation = defaultRemoteConversation
-	}
-	return client.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
-		Conversation: channel.ConversationRef{ID: conversation},
-	})
-}
-
-func resolveRemoteTarget(ctx context.Context, opts remoteOptions) (remoteTarget, error) {
-	var modes []string
-	if strings.TrimSpace(opts.appDir) != "" {
-		modes = append(modes, "--app")
-	}
-	if strings.TrimSpace(opts.url) != "" {
-		modes = append(modes, "--url")
-	}
-	if strings.TrimSpace(opts.socket) != "" {
-		modes = append(modes, "--socket")
-	}
-	if opts.local {
-		modes = append(modes, "--local")
-	}
-	if len(modes) == 0 {
-		return remoteTarget{}, fmt.Errorf("remote: specify one target with --app, --url, --socket, or --local")
-	}
-	if len(modes) > 1 {
-		return remoteTarget{}, fmt.Errorf("remote: target flags are mutually exclusive: %s", strings.Join(modes, ", "))
-	}
-	switch modes[0] {
-	case "--app":
-		return resolveRemoteAppTarget(ctx, opts)
-	case "--url":
-		return remoteTarget{baseURL: strings.TrimRight(strings.TrimSpace(opts.url), "/"), session: opts.session}, nil
-	case "--socket":
-		return remoteTarget{baseURL: "http://unix", socket: resolveRemoteSocketPath(opts.socket), session: opts.session}, nil
-	case "--local":
-		return remoteTarget{baseURL: "http://unix", socket: resolveRemoteSocketPath(defaultRemoteSocket), session: opts.session}, nil
-	default:
-		return remoteTarget{}, fmt.Errorf("remote: unsupported target %s", modes[0])
-	}
-}
-
-func resolveRemoteAppTarget(ctx context.Context, opts remoteOptions) (remoteTarget, error) {
-	cfgFile, err := appconfig.LoadDirFile(ctx, opts.appDir)
-	if err != nil {
-		return remoteTarget{}, err
-	}
-	if err := cfgFile.Validate(); err != nil {
-		return remoteTarget{}, err
-	}
-	ch, sessionName, err := selectRemoteDirectChannel(cfgFile.Daemon.Channels, opts.session, opts.sessionExplicit)
-	if err != nil {
-		return remoteTarget{}, err
-	}
-	listener, err := remoteListenerByName(cfgFile.Daemon.Listeners, ch.Listener)
-	if err != nil {
-		return remoteTarget{}, err
-	}
-	target, err := remoteTargetFromListener(listener)
-	if err != nil {
-		return remoteTarget{}, err
-	}
-	target.session = sessionName
-	return target, nil
-}
-
-func selectRemoteDirectChannel(channels []appconfig.ChannelDoc, sessionName string, sessionExplicit bool) (appconfig.ChannelDoc, string, error) {
-	var direct []appconfig.ChannelDoc
-	for _, ch := range channels {
-		if ch.Type == "direct" {
-			direct = append(direct, ch)
-		}
-	}
-	if len(direct) == 0 {
-		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: app has no direct daemon channel")
-	}
-	var matching []appconfig.ChannelDoc
-	for _, ch := range direct {
-		if remoteChannelSession(ch) == sessionName {
-			matching = append(matching, ch)
-		}
-	}
-	if len(matching) == 1 {
-		ch := matching[0]
-		return ch, remoteChannelSession(ch), nil
-	}
-	if len(matching) > 1 {
-		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: multiple direct channels match session %q: %s", sessionName, remoteChannelList(matching))
-	}
-	if sessionExplicit {
-		return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: no direct channel matches session %q (available: %s)", sessionName, remoteChannelList(direct))
-	}
-	if len(direct) == 1 {
-		ch := direct[0]
-		return ch, remoteChannelSession(ch), nil
-	}
-	return appconfig.ChannelDoc{}, "", fmt.Errorf("remote: multiple direct channels are available; pass --session (available: %s)", remoteChannelList(direct))
-}
-
-func remoteChannelSession(ch appconfig.ChannelDoc) string {
-	if strings.TrimSpace(ch.Session) != "" {
-		return strings.TrimSpace(ch.Session)
-	}
-	return strings.TrimSpace(ch.Name)
-}
-
-func remoteChannelList(channels []appconfig.ChannelDoc) string {
-	var parts []string
-	for _, ch := range channels {
-		parts = append(parts, fmt.Sprintf("%s session=%s listener=%s", ch.Name, remoteChannelSession(ch), ch.Listener))
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, "; ")
-}
-
-func remoteListenerByName(listeners []appconfig.ListenerDoc, name string) (appconfig.ListenerDoc, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return appconfig.ListenerDoc{}, fmt.Errorf("remote: direct channel listener is empty")
-	}
-	for _, listener := range listeners {
-		if listener.Name == name {
-			return listener, nil
-		}
-	}
-	return appconfig.ListenerDoc{}, fmt.Errorf("remote: listener %q not found", name)
-}
-
-func remoteTargetFromListener(listener appconfig.ListenerDoc) (remoteTarget, error) {
-	if listener.Type != "http" {
-		return remoteTarget{}, fmt.Errorf("remote: listener %q uses unsupported type %q", listener.Name, listener.Type)
-	}
-	addr := strings.TrimSpace(listener.Addr)
-	if addr == "" {
-		addr = "127.0.0.1:8080"
-	}
-	mode := strings.ToLower(strings.TrimSpace(distserve.AuthString(listener.Auth, "mode")))
-	var token string
-	switch mode {
-	case "":
-		if distserve.AddrIsTCP(addr) {
-			return remoteTarget{}, fmt.Errorf("remote: listener %q uses TCP addr %q and requires auth", listener.Name, addr)
-		}
-	case "local_socket":
-		if distserve.AddrIsTCP(addr) {
-			return remoteTarget{}, fmt.Errorf("remote: listener %q auth mode local_socket requires a unix socket addr", listener.Name)
-		}
-	case "bearer", "token":
-		token = distserve.AuthString(listener.Auth, "token")
-		if token == "" {
-			if env := distserve.AuthString(listener.Auth, "env"); env != "" {
-				token = os.Getenv(env)
-			}
-		}
-		if token == "" {
-			return remoteTarget{}, fmt.Errorf("remote: listener %q bearer auth token is empty", listener.Name)
-		}
-	default:
-		return remoteTarget{}, fmt.Errorf("remote: listener %q unsupported auth mode %q", listener.Name, mode)
-	}
-	if distserve.AddrIsTCP(addr) {
-		if strings.HasPrefix(addr, "http://") || strings.HasPrefix(addr, "https://") {
-			return remoteTarget{baseURL: strings.TrimRight(addr, "/"), bearerToken: token}, nil
-		}
-		return remoteTarget{baseURL: "http://" + addr, bearerToken: token}, nil
-	}
-	return remoteTarget{baseURL: "http://unix", socket: distserve.ResolveSocketPath(addr), bearerToken: token}, nil
-}
-
-func resolveRemoteSocketPath(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if filepath.IsAbs(raw) || strings.ContainsRune(raw, filepath.Separator) {
-		return raw
-	}
-	return distserve.ResolveSocketPath(raw)
 }
 
 func terminalEventRegistry() (*coreevent.Registry, error) {
