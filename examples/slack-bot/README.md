@@ -21,10 +21,13 @@ The Slack channel itself uses native Slack APIs rather than connector operation
 execution.
 
 The configured datasources expose Slack users, channels, and messages, GitLab
-projects, Jira issues and projects, and local markdown/text files through
-`datasource_search`, `datasource_get`, `datasource_relation`, and
-`datasource_batch_get`. Use `datasource_relation` for exact Slack channel
-membership; message search only supports observed or inferred participants.
+projects, Jira issues and projects, local markdown/text files, and public web
+search results through `datasource_search`; record retrieval uses
+`datasource_get` or `datasource_batch_get` where the entity supports it. Use
+`datasource_relation` for exact Slack channel membership; message search only
+supports observed or inferred participants.
+Web search is exposed only as the `web.search_result` datasource entity; the
+agent does not get the direct `web_request` tool in this example.
 
 Slack app requirements:
 

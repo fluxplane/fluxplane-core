@@ -13,6 +13,8 @@
 - Terminal and Slack rendering hooks for sub-agent and plan progress events.
 - Generic datasource relationship and batch-get operations, with exact Slack
   channel membership via `slack.channel` `members -> slack.user`.
+- Web search datasource provider with `web.search_result` records, wired into
+  `examples/slack-bot` without exposing the direct `web_request` tool.
 
 ### Changed
 
