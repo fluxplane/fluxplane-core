@@ -35,9 +35,9 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 	}
 	defer cancel()
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 sawSessionOutbound:
 }
 
-func TestSessionSendInputReturnsRunHandle(t *testing.T) {
+func TestSessionSubmitInputReturnsRunHandle(t *testing.T) {
 	ctx := context.Background()
 	client := testClient(t)
 	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
@@ -99,9 +99,9 @@ func TestSessionSendInputReturnsRunHandle(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "ping"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("ping"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -146,9 +146,9 @@ func TestRunEventsForwardWhileInputIsExecuting(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "ping"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("ping"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	select {
 	case <-started:
@@ -180,9 +180,9 @@ func TestSessionEventsCanReplayFromThreadStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -245,9 +245,9 @@ func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
 		t.Fatalf("Resume: %v", err)
 	}
 
-	run, err := resumed.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := resumed.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -271,9 +271,9 @@ func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	eventsDone := make(chan []clientapi.Event, 1)
 	go func() {

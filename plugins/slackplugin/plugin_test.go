@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	connectoroperation "github.com/codewandler/connectors/operation"
-	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -295,8 +294,8 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	if session.submission.Trust.Kind != policy.TrustInvocation || session.submission.Trust.Level != policy.TrustPrivileged {
 		t.Fatalf("trust = %#v, want privileged invocation", session.submission.Trust)
 	}
-	if session.sendInputCalled {
-		t.Fatal("handleInbound used SendInput, want Submit with caller/trust")
+	if session.submission.Kind != clientapi.SubmissionInput || session.submission.Input == nil {
+		t.Fatalf("submission = %#v, want input submission", session.submission)
 	}
 }
 
@@ -726,9 +725,8 @@ func (c capturingClient) ListSessions(context.Context, clientapi.ListSessionsReq
 }
 
 type capturingSession struct {
-	submission      clientapi.Submission
-	sendInputCalled bool
-	eventOptions    clientapi.EventOptions
+	submission   clientapi.Submission
+	eventOptions clientapi.EventOptions
 }
 
 func (s *capturingSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
@@ -736,15 +734,6 @@ func (s *capturingSession) Info() clientapi.SessionInfo { return clientapi.Sessi
 func (s *capturingSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
 	s.submission = submission
 	return capturingRun{submission: submission}, nil
-}
-
-func (s *capturingSession) SendCommand(context.Context, command.Invocation) (clientapi.RunHandle, error) {
-	return nil, nil
-}
-
-func (s *capturingSession) SendInput(context.Context, clientapi.Input) (clientapi.RunHandle, error) {
-	s.sendInputCalled = true
-	return nil, nil
 }
 
 func (s *capturingSession) Events(_ context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {

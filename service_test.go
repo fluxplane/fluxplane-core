@@ -24,7 +24,7 @@ import (
 	llmagentruntime "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
-func TestServiceSendInputThroughTopLevelAPI(t *testing.T) {
+func TestServiceSubmitInputThroughTopLevelAPI(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
@@ -34,9 +34,9 @@ func TestServiceSendInputThroughTopLevelAPI(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, agentruntime.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestServiceSendInputThroughTopLevelAPI(t *testing.T) {
 	assertRunEvent(t, run, agentruntime.EventInputCompleted)
 }
 
-func TestServiceSendCommandThroughTopLevelAPI(t *testing.T) {
+func TestServiceSubmitCommandThroughTopLevelAPI(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
@@ -61,12 +61,12 @@ func TestServiceSendCommandThroughTopLevelAPI(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"echo"},
 		Input: "hello",
-	})
+	}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -160,9 +160,9 @@ func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -211,9 +211,9 @@ func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -254,9 +254,9 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"foo", "run"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"foo", "run"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand foo/run: %v", err)
+		t.Fatalf("Submit foo/run: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -270,9 +270,9 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 		t.Fatalf("plugin = %q, want foo", content["plugin"])
 	}
 
-	run, err = sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"run"}, Input: "hello"})
+	run, err = sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"run"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand run: %v", err)
+		t.Fatalf("Submit run: %v", err)
 	}
 	result, err = run.Wait(ctx)
 	if err != nil {
@@ -320,9 +320,9 @@ func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, agentruntime.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -393,9 +393,9 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, agentruntime.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {

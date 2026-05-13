@@ -57,14 +57,12 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	submission := agentruntime.Submission{}
+	submission := agentruntime.NewSubmission()
 	switch cfg.mode {
 	case "command":
-		submission.Kind = agentruntime.SubmissionCommand
-		submission.Command = &command.Invocation{Path: cfg.commandPath, Input: cfg.text}
+		submission = submission.WithCommand(command.Invocation{Path: cfg.commandPath, Input: cfg.text})
 	case "input":
-		submission.Kind = agentruntime.SubmissionInput
-		submission.Input = &agentruntime.Input{Text: cfg.text}
+		submission = submission.WithText(cfg.text)
 	default:
 		return fmt.Errorf("unknown mode %q", cfg.mode)
 	}

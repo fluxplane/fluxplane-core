@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/policy"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
@@ -144,22 +143,6 @@ func (s *Session) Submit(ctx context.Context, submission clientapi.Submission) (
 	run := newRunHandle(s.info, submission)
 	go run.execute(ctx, s.client.service, s.info)
 	return run, nil
-}
-
-// SendCommand submits a command.
-func (s *Session) SendCommand(ctx context.Context, invocation command.Invocation) (clientapi.RunHandle, error) {
-	return s.Submit(ctx, clientapi.Submission{
-		Kind:    clientapi.SubmissionCommand,
-		Command: &invocation,
-	})
-}
-
-// SendInput submits conversational input.
-func (s *Session) SendInput(ctx context.Context, input clientapi.Input) (clientapi.RunHandle, error) {
-	return s.Submit(ctx, clientapi.Submission{
-		Kind:  clientapi.SubmissionInput,
-		Input: &input,
-	})
 }
 
 // Events subscribes to session-level outbound events.

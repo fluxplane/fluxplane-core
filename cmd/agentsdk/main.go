@@ -1135,7 +1135,10 @@ func runRemote(ctx context.Context, opts remoteOptions) error {
 	}
 	tracker := coreusage.NewTracker()
 	if strings.TrimSpace(opts.input) != "" {
-		return sendRemotePrompt(ctx, session, opts, opts.input, tracker)
+		return sendInput(ctx, session, opts.input, terminalTurnOptions{
+			Debug: opts.debug,
+			Usage: opts.usage,
+		}, tracker)
 	}
 	_, _ = fmt.Fprintln(os.Stderr, "agentsdk remote. Type /exit or /quit to stop.")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -1151,7 +1154,10 @@ func runRemote(ctx context.Context, opts remoteOptions) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := sendRemotePrompt(ctx, session, opts, prompt, tracker); err != nil {
+		if err := sendInput(ctx, session, prompt, terminalTurnOptions{
+			Debug: opts.debug,
+			Usage: opts.usage,
+		}, tracker); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	}
@@ -1368,27 +1374,15 @@ func resolveRemoteSocketPath(raw string) string {
 	return resolveServeSocketPath(raw)
 }
 
-func sendRemotePrompt(ctx context.Context, session agentruntime.Session, opts remoteOptions, prompt string, tracker *coreusage.Tracker) error {
-	if invocation, ok, err := terminalContextCommand(prompt); err != nil {
-		return err
-	} else if ok {
-		return runTerminalCommand(ctx, session, invocation, terminalTurnOptions{
-			Debug: opts.debug,
-			Usage: opts.usage,
-		}, tracker)
-	}
-	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
-		Debug: opts.debug,
-		Usage: opts.usage,
-	}, tracker)
-}
-
 func runCoder(ctx context.Context, opts coderOptions, prompt string) error {
 	session, err := openCoderSession(ctx, opts)
 	if err != nil {
 		return err
 	}
-	return sendCoderPrompt(ctx, session, opts, prompt, coreusage.NewTracker())
+	return sendInput(ctx, session, prompt, terminalTurnOptions{
+		Debug: opts.debug,
+		Usage: opts.usage,
+	}, coreusage.NewTracker())
 }
 
 func runCoderREPL(ctx context.Context, opts coderOptions) error {
@@ -1411,7 +1405,10 @@ func runCoderREPL(ctx context.Context, opts coderOptions) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := sendCoderPrompt(ctx, session, opts, prompt, tracker); err != nil {
+		if err := sendInput(ctx, session, prompt, terminalTurnOptions{
+			Debug: opts.debug,
+			Usage: opts.usage,
+		}, tracker); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	}
@@ -1520,19 +1517,13 @@ func coderBundle(provider, model string) agentruntime.ResourceBundle {
 	return bundle
 }
 
-func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts coderOptions, prompt string, tracker *coreusage.Tracker) error {
-	if invocation, ok, err := terminalContextCommand(prompt); err != nil {
+func sendInput(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
+	if invocation, ok, err := corecommand.ParseSlash(prompt); err != nil {
 		return err
 	} else if ok {
-		return runTerminalCommand(ctx, session, invocation, terminalTurnOptions{
-			Debug: opts.debug,
-			Usage: opts.usage,
-		}, tracker)
+		return runTerminalCommand(ctx, session, invocation, opts, tracker)
 	}
-	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
-		Debug: opts.debug,
-		Usage: opts.usage,
-	}, tracker)
+	return runTerminalPrompt(ctx, session, prompt, opts, tracker)
 }
 
 type terminalTurnOptions struct {
@@ -1547,7 +1538,7 @@ type terminalRenderResult struct {
 }
 
 func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
-	run, err := session.SendInput(ctx, agentruntime.Input{Text: prompt})
+	run, err := session.Submit(ctx, agentruntime.NewSubmission().WithText(prompt))
 	if err != nil {
 		return err
 	}
@@ -1574,7 +1565,7 @@ func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt
 }
 
 func runTerminalCommand(ctx context.Context, session agentruntime.Session, invocation corecommand.Invocation, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
-	run, err := session.SendCommand(ctx, invocation)
+	run, err := session.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
 	if err != nil {
 		return err
 	}
@@ -1591,34 +1582,6 @@ func runTerminalCommand(ctx context.Context, session agentruntime.Session, invoc
 		return err
 	}
 	return resultError(result)
-}
-
-func terminalContextCommand(prompt string) (corecommand.Invocation, bool, error) {
-	prompt = strings.TrimSpace(prompt)
-	if prompt != "/context" && !strings.HasPrefix(prompt, "/context ") {
-		return corecommand.Invocation{}, false, nil
-	}
-	args := strings.Fields(strings.TrimSpace(strings.TrimPrefix(prompt, "/context")))
-	input := map[string]any{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--fresh":
-			input["fresh"] = true
-		case "--key":
-			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return corecommand.Invocation{}, false, errors.New("/context --key requires a provider name")
-			}
-			i++
-			input["key"] = args[i]
-		default:
-			return corecommand.Invocation{}, false, fmt.Errorf("unknown /context argument %q", args[i])
-		}
-	}
-	var commandInput any
-	if len(input) > 0 {
-		commandInput = input
-	}
-	return corecommand.Invocation{Path: corecommand.Path{"context"}, Input: commandInput}, true, nil
 }
 
 func resultError(result agentruntime.Result) error {

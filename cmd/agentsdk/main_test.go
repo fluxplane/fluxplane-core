@@ -76,42 +76,6 @@ func TestCoderCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 }
 
-func TestTerminalContextCommandParsesFreshAndKey(t *testing.T) {
-	invocation, ok, err := terminalContextCommand("/context --fresh --key skills")
-	if err != nil {
-		t.Fatalf("terminalContextCommand: %v", err)
-	}
-	if !ok {
-		t.Fatal("terminalContextCommand ok = false, want true")
-	}
-	if invocation.Path.String() != "/context" {
-		t.Fatalf("path = %q, want /context", invocation.Path.String())
-	}
-	input, ok := invocation.Input.(map[string]any)
-	if !ok {
-		t.Fatalf("input = %T, want map", invocation.Input)
-	}
-	if input["fresh"] != true || input["key"] != "skills" {
-		t.Fatalf("input = %#v, want fresh skills", input)
-	}
-}
-
-func TestTerminalContextCommandRejectsUnknownFlag(t *testing.T) {
-	if _, _, err := terminalContextCommand("/context --bogus"); err == nil {
-		t.Fatal("terminalContextCommand error = nil, want unknown flag")
-	}
-}
-
-func TestTerminalContextCommandIgnoresOtherSlashPrompts(t *testing.T) {
-	invocation, ok, err := terminalContextCommand("/review this")
-	if err != nil {
-		t.Fatalf("terminalContextCommand: %v", err)
-	}
-	if ok || invocation.Path.String() != "" {
-		t.Fatalf("invocation = %#v ok=%v, want ignored", invocation, ok)
-	}
-}
-
 func TestCoderCompositionContextCommandRendersAgentsMD(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -149,12 +113,12 @@ func TestCoderCompositionContextCommandRendersAgentsMD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendCommand(ctx, corecommand.Invocation{
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(corecommand.Invocation{
 		Path:  corecommand.Path{"context"},
 		Input: map[string]any{"fresh": true, "key": codingplugin.AgentsContextProvider},
-	})
+	}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {

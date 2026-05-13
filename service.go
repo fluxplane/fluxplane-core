@@ -79,6 +79,11 @@ const (
 	EventRunFailed          = clientapi.EventRunFailed
 )
 
+// NewSubmission returns an empty fluent submission value.
+func NewSubmission() Submission {
+	return clientapi.NewSubmission()
+}
+
 // Config assembles the default in-process runtime. Nil registries and stores
 // are replaced with empty in-memory defaults; nil Agent is preserved so command
 // only runtimes do not need to provide one. OperationExecutor is safe to leave
@@ -194,7 +199,7 @@ func (s subagentSession) Info() subagent.SessionInfo {
 }
 
 func (s subagentSession) SendInput(ctx context.Context, input subagent.Input) (subagent.Run, error) {
-	run, err := s.session.SendInput(ctx, Input{Text: input.Text, Metadata: input.Metadata})
+	run, err := s.session.Submit(ctx, NewSubmission().WithInput(Input{Text: input.Text, Metadata: input.Metadata}))
 	if err != nil {
 		return nil, err
 	}

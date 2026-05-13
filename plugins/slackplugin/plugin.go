@@ -746,14 +746,12 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		TeamID:      msg.TeamID,
 	})
 	trust := c.access.TrustFor(msg)
-	run, err := session.Submit(turnCtx, clientapi.Submission{
-		Kind: clientapi.SubmissionInput,
-		Input: &clientapi.Input{
+	run, err := session.Submit(turnCtx, clientapi.NewSubmission().
+		WithInput(clientapi.Input{
 			Content: slackInputContent(msg, trust, c.access.Sharing),
-		},
-		Caller: slackCaller(c.name, msg),
-		Trust:  slackPolicyTrust(trust),
-	})
+		}).
+		WithCaller(slackCaller(c.name, msg)).
+		WithTrust(slackPolicyTrust(trust)))
 	if err != nil {
 		return err
 	}

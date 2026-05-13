@@ -37,9 +37,9 @@ func TestClientSendsInputThroughHTTPAndSSE(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -115,12 +115,12 @@ func TestClientSendsCommandThroughHTTPAndSSE(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"echo"},
 		Input: "hello",
-	})
+	}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -145,12 +145,12 @@ func TestClientRoundTripsOperationLifecycleWithCallIDs(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"echo"},
 		Input: "hello",
-	})
+	}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -203,9 +203,9 @@ func TestClientRoundTripsRuntimeUsageAndStreamingEvents(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -300,9 +300,9 @@ func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendInput(ctx, clientapi.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	eventsDone := make(chan []clientapi.Event, 1)
 	go func() {
@@ -475,9 +475,9 @@ func TestClientListsResumesAndReplaysSessionEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -554,9 +554,9 @@ func TestResumedSessionSubmitUsesResumedThread(t *testing.T) {
 		t.Fatalf("Resume: %v", err)
 	}
 
-	run, err := resumed.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := resumed.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	result, err := run.Wait(ctx)
 	if err != nil {
@@ -580,9 +580,9 @@ func TestRunHandleAdoptsServerNormalizedSubmission(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.SendCommand(ctx, command.Invocation{Path: command.Path{"echo"}, Input: "hello"})
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
-		t.Fatalf("SendCommand: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
@@ -629,9 +629,9 @@ func TestRunWaitReturnsSSEDecodeError(t *testing.T) {
 			Thread: openedThread("thread-1"),
 		},
 	}
-	run, err := sessionHandle.SendInput(context.Background(), clientapi.Input{Text: "hello"})
+	run, err := sessionHandle.Submit(context.Background(), clientapi.NewSubmission().WithText("hello"))
 	if err != nil {
-		t.Fatalf("SendInput: %v", err)
+		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(context.Background()); err == nil {
 		t.Fatal("Wait error is nil, want SSE decode error")

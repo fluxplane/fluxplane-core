@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/command"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -139,20 +138,6 @@ func (s *Session) Submit(ctx context.Context, submission clientapi.Submission) (
 	run := newRunHandle(s.client, s.info, submission)
 	go run.execute(ctx)
 	return run, nil
-}
-
-func (s *Session) SendCommand(ctx context.Context, invocation command.Invocation) (clientapi.RunHandle, error) {
-	return s.Submit(ctx, clientapi.Submission{
-		Kind:    clientapi.SubmissionCommand,
-		Command: &invocation,
-	})
-}
-
-func (s *Session) SendInput(ctx context.Context, input clientapi.Input) (clientapi.RunHandle, error) {
-	return s.Submit(ctx, clientapi.Submission{
-		Kind:  clientapi.SubmissionInput,
-		Input: &input,
-	})
 }
 
 func (s *Session) Events(ctx context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {

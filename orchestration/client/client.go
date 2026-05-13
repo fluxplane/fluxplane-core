@@ -26,8 +26,6 @@ type ChannelClient interface {
 type SessionHandle interface {
 	Info() SessionInfo
 	Submit(context.Context, Submission) (RunHandle, error)
-	SendCommand(context.Context, command.Invocation) (RunHandle, error)
-	SendInput(context.Context, Input) (RunHandle, error)
 	Events(context.Context, EventOptions) (<-chan Event, func(), error)
 	OnEvent(context.Context, func(Event)) (func(), error)
 	Close(context.Context) error
@@ -109,6 +107,79 @@ type Submission struct {
 	Caller   policy.Caller       `json:"caller,omitempty"`
 	Trust    policy.Trust        `json:"trust,omitempty"`
 	Metadata map[string]any      `json:"metadata,omitempty"`
+}
+
+// NewSubmission returns an empty fluent submission value.
+func NewSubmission() Submission {
+	return Submission{}
+}
+
+// WithText configures the submission as conversational text input.
+func (s Submission) WithText(text string) Submission {
+	return s.WithInput(Input{Text: text})
+}
+
+// WithInput configures the submission as conversational input.
+func (s Submission) WithInput(input Input) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionInput
+	s.Input = &input
+	return s
+}
+
+// WithCommand configures the submission as a command invocation.
+func (s Submission) WithCommand(invocation command.Invocation) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionCommand
+	s.Command = &invocation
+	return s
+}
+
+// WithEvent configures the submission as a domain event.
+func (s Submission) WithEvent(ev event.Event) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionEvent
+	s.Event = ev
+	return s
+}
+
+// WithSignal configures the submission as a structured signal.
+func (s Submission) WithSignal(signal Signal) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionSignal
+	s.Signal = &signal
+	return s
+}
+
+// WithID sets the client-visible run ID for the submission.
+func (s Submission) WithID(id RunID) Submission {
+	s.ID = id
+	return s
+}
+
+// WithCaller sets caller identity metadata for the submission.
+func (s Submission) WithCaller(caller policy.Caller) Submission {
+	s.Caller = caller
+	return s
+}
+
+// WithTrust sets caller trust metadata for the submission.
+func (s Submission) WithTrust(trust policy.Trust) Submission {
+	s.Trust = trust
+	return s
+}
+
+// WithMetadata sets submission metadata.
+func (s Submission) WithMetadata(metadata map[string]any) Submission {
+	s.Metadata = metadata
+	return s
+}
+
+func (s *Submission) clearPayload() {
+	s.Input = nil
+	s.Command = nil
+	s.Event = nil
+	s.Signal = nil
 }
 
 // Input is a conversational/user input payload.
