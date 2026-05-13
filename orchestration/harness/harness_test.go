@@ -550,6 +550,68 @@ func TestOpenSessionProfilesSeparateSameConversation(t *testing.T) {
 	}
 }
 
+func TestEffectiveProfileRestrictsChildCommands(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	if err := service.operations.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "secret"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})); err != nil {
+		t.Fatalf("register secret operation: %v", err)
+	}
+	if err := service.commands.Register(command.Spec{
+		Path: command.Path{"secret"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "secret"},
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register secret command: %v", err)
+	}
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Profile: coresession.Spec{
+			Name:     "worker",
+			Commands: []command.Path{{"echo"}},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "child"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+
+	allowed, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:      "run-allowed",
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:    channel.InboundCommand,
+		Command: &command.Invocation{Path: command.Path{"echo"}, Input: "ok"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound allowed: %v", err)
+	}
+	if allowed.Command.Status != session.CommandStatusOK {
+		t.Fatalf("allowed status = %s, error = %+v", allowed.Command.Status, allowed.Command.Error)
+	}
+
+	denied, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:      "run-denied",
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:    channel.InboundCommand,
+		Command: &command.Invocation{Path: command.Path{"secret"}, Input: "no"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound denied: %v", err)
+	}
+	if denied.Command.Status != session.CommandStatusFailed || denied.Command.Error == nil || denied.Command.Error.Code != "command_not_found" {
+		t.Fatalf("denied command = %#v, want command_not_found failure", denied.Command)
+	}
+}
+
 func testService(t *testing.T) (*Service, corethread.Store) {
 	t.Helper()
 	ops := operation.NewRegistry()

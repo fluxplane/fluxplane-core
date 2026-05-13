@@ -3,6 +3,7 @@ package coder
 
 import (
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/sdk"
@@ -72,6 +73,11 @@ func Bundle() resource.ContributionBundle {
 				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
+				Commands: []command.Path{
+					{"filesystem", "dir_list"}, {"filesystem", "dir_tree"}, {"filesystem", "file_read"}, {"filesystem", "file_patch"},
+					{"filesystem", "grep"}, {"filesystem", "glob"}, {"git", "status"}, {"git", "diff"},
+					{"shell", "shell_exec"}, {"code", "code_execute"}, {"web", "web_request"},
+				},
 			},
 		}).
 		Build()

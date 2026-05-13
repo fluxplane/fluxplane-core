@@ -48,9 +48,9 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 				System:      "You are a focused worker agent. Complete the assigned task within scope and summarize exactly what you changed or found. If blocked, report the blocker clearly.",
 				Driver:      agent.DriverSpec{Kind: "llmagent"},
 				Policy:      agent.Policy{MaxSteps: 50, MaxContinuations: 3},
-				Operations: []operation.Ref{
+				Commands: []agent.CommandRef{
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_patch"},
-					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"},
+					{Name: "grep"}, {Name: "glob"}, {Name: "status"}, {Name: "diff"},
 					{Name: "shell_exec"}, {Name: "code_execute"},
 				},
 			},
@@ -60,9 +60,9 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 				System:      "You are a read-only exploration worker. Inspect the requested context and report concise findings with file paths when relevant. Do not modify files.",
 				Driver:      agent.DriverSpec{Kind: "llmagent"},
 				Policy:      agent.Policy{MaxSteps: 30, MaxContinuations: 3},
-				Operations: []operation.Ref{
+				Commands: []agent.CommandRef{
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "grep"}, {Name: "glob"},
-					{Name: "git_status"}, {Name: "git_diff"}, {Name: "web_request"},
+					{Name: "status"}, {Name: "diff"}, {Name: "web_request"},
 				},
 			},
 		},

@@ -20,10 +20,17 @@ import (
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/usage"
+	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
+	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
@@ -48,6 +55,36 @@ func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
 	}
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
+	}
+}
+
+func TestCoderToolProjectionIncludesPlanExecOperations(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{coder.Bundle()},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	cfg := coderToolProjectionConfig()
+	cfg.Commands = composition.CommandCatalog
+	cfg.Operations = composition.OperationCatalog
+	cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
+	cfg.Trust = policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified}
+
+	projected := toolprojection.Project(cfg)
+	names := map[string]bool{}
+	for _, spec := range projected.Tools {
+		names[string(spec.Name)] = true
+	}
+	for _, want := range []string{"plan", "delegate"} {
+		if !names[want] {
+			t.Fatalf("projected tool names missing %q: %#v", want, names)
+		}
 	}
 }
 

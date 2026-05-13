@@ -65,6 +65,7 @@ func (c *Client) Open(ctx context.Context, req clientapi.OpenRequest) (clientapi
 	}
 	info, err := c.service.OpenSession(ctx, harness.OpenSessionRequest{
 		Session:      req.Session,
+		Profile:      req.Profile,
 		Channel:      c.channel,
 		Conversation: req.Conversation,
 		ThreadID:     req.ThreadID,

@@ -33,6 +33,7 @@ import (
 // after the core loop is stable.
 type Session struct {
 	Agent             agent.Agent
+	Profile           coresession.Spec
 	Commands          *command.Registry
 	Operations        *operation.Registry
 	Resolver          *resource.Resolver
@@ -971,6 +972,11 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if inbound.Kind != channel.InboundCommand || inbound.Command == nil {
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
 	}
+	if s.Profile.Commands != nil && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
+		return commandFailed("command_not_found", "command not found", map[string]any{
+			"path": inbound.Command.Path.String(),
+		})
+	}
 	if err := s.appendThreadEvents(ctx, coresession.CommandReceived{
 		RunID:        inbound.ID,
 		Command:      *inbound.Command,
@@ -1059,6 +1065,19 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 			},
 		}
 	}
+}
+
+func commandPathAllowed(allowed []command.Path, path command.Path) bool {
+	key := path.String()
+	if key == "" {
+		return false
+	}
+	for _, candidate := range allowed {
+		if candidate.String() == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Session) resolveCommandBinding(path command.Path) (CommandBinding, bool, error) {

@@ -174,6 +174,7 @@ type subagentClient struct {
 func (c subagentClient) Open(ctx context.Context, req subagent.OpenRequest) (subagent.Session, error) {
 	session, err := c.client.Open(ctx, OpenRequest{
 		Session:      req.Session,
+		Profile:      req.Profile,
 		Conversation: req.Conversation,
 		Metadata:     req.Metadata,
 	})

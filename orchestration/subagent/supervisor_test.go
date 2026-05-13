@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 )
@@ -111,6 +113,44 @@ func TestSupervisorCapacityCountsPreparedSpawns(t *testing.T) {
 	}
 }
 
+func TestSupervisorNarrowsChildProfileWithDelegationPolicy(t *testing.T) {
+	client := &recordingClient{result: "done"}
+	resolver := ProfileResolverFunc(func(context.Context, coresession.Ref) (coresession.Spec, error) {
+		return coresession.Spec{
+			Name:  "worker",
+			Agent: agent.Ref{Name: "worker-agent"},
+			Context: []corecontext.ProviderRef{
+				{Name: "docs"},
+				{Name: "repo"},
+			},
+			Commands: []command.Path{
+				{"safe"},
+				{"danger"},
+			},
+		}, nil
+	})
+	supervisor := New(Config{Client: client, ResolveProfile: resolver})
+
+	if _, err := supervisor.Prepare(context.Background(), SpawnRequest{
+		Profile: coresession.Ref{Name: "worker"},
+		Task:    "do it",
+		Policy: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+			Context:         []corecontext.ProviderRef{{Name: "docs"}},
+			Commands:        []command.Path{{"safe"}},
+		},
+	}); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	if len(client.profile.Context) != 1 || client.profile.Context[0].Name != "docs" {
+		t.Fatalf("context = %#v, want docs only", client.profile.Context)
+	}
+	if len(client.profile.Commands) != 1 || client.profile.Commands[0].String() != "/safe" {
+		t.Fatalf("commands = %#v, want /safe only", client.profile.Commands)
+	}
+}
+
 type fakeClient struct {
 	result string
 }
@@ -148,4 +188,14 @@ func (r fakeRun) Events() <-chan RunEvent {
 
 func (r fakeRun) Wait(context.Context) (RunResult, error) {
 	return RunResult{Text: r.result}, nil
+}
+
+type recordingClient struct {
+	result  string
+	profile coresession.Spec
+}
+
+func (c *recordingClient) Open(_ context.Context, req OpenRequest) (Session, error) {
+	c.profile = req.Profile
+	return fakeSession{result: c.result}, nil
 }

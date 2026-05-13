@@ -1443,11 +1443,8 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		LLMModel:        model,
 		LLMStreamPolicy: debugStreamPolicy(opts.debug),
-		ToolProjection: agentruntime.ToolProjectionConfig{
-			AllowSideEffects: true,
-			MaxRisk:          operation.RiskMedium,
-		},
-		Channel: channel.Ref{Name: "local"},
+		ToolProjection:  coderToolProjectionConfig(),
+		Channel:         channel.Ref{Name: "local"},
 		Caller: policy.Caller{
 			Kind: policy.CallerUser,
 			Principal: policy.Principal{
@@ -1472,6 +1469,15 @@ func openCoderSession(ctx context.Context, opts coderOptions) (agentruntime.Sess
 		return nil, err
 	}
 	return session, nil
+}
+
+func coderToolProjectionConfig() agentruntime.ToolProjectionConfig {
+	return agentruntime.ToolProjectionConfig{
+		AllowSideEffects:        true,
+		MaxRisk:                 operation.RiskMedium,
+		IncludeBareOperations:   true,
+		PreferCommandProjection: true,
+	}
 }
 
 func coderBundle(provider, model string) agentruntime.ResourceBundle {

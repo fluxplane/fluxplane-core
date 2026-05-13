@@ -62,6 +62,7 @@ type Service struct {
 	bindMu      sync.Mutex
 	mu          sync.Mutex
 	bindings    map[bindingKey]corethread.Ref
+	profiles    map[corethread.ID]coresession.Spec
 	subscribers map[corethread.ID]map[int]*subscriber
 	nextSub     int
 }
@@ -82,6 +83,7 @@ func New(cfg Config) *Service {
 		threadStore:       cfg.ThreadStore,
 		subagents:         cfg.Subagents,
 		bindings:          map[bindingKey]corethread.Ref{},
+		profiles:          map[corethread.ID]coresession.Spec{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
 	}
 }
@@ -101,6 +103,7 @@ func (s *Service) SetSubagentSupervisor(supervisor *subagent.Supervisor) {
 // OpenSessionRequest describes an explicit channel/session binding request.
 type OpenSessionRequest struct {
 	Session      coresession.Ref
+	Profile      coresession.Spec
 	Channel      channel.Ref
 	Conversation channel.ConversationRef
 	ThreadID     corethread.ID
@@ -138,6 +141,9 @@ func (s *Service) OpenSession(ctx context.Context, req OpenSessionRequest) (Sess
 	ref, resumed, err := s.resolveThread(ctx, req)
 	if err != nil {
 		return SessionInfo{}, err
+	}
+	if req.Profile.Name != "" {
+		s.bindProfile(ref.ID, req.Profile)
 	}
 	return SessionInfo{
 		Session:      req.Session,
@@ -310,8 +316,10 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 	if err != nil {
 		return InboundResult{Session: info}, err
 	}
+	profile, _, _ := s.profileForInfo(info)
 	exec := session.Session{
 		Agent:             agentRuntime,
+		Profile:           profile,
 		Commands:          s.commands,
 		Operations:        s.operations,
 		Resolver:          s.resolver,
@@ -356,8 +364,10 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Session:    toClientSessionInfo(info),
 		Submission: submissionForInbound(normalizedSubmissionCommand, runID, inbound),
 	})
+	profile, _, _ := s.profileForInfo(info)
 	exec := session.Session{
 		Agent:             s.agent,
+		Profile:           profile,
 		Commands:          s.commands,
 		Operations:        s.operations,
 		Resolver:          s.resolver,
@@ -399,11 +409,14 @@ func (s *Service) agentForSession(ctx context.Context, info SessionInfo) (agent.
 	if s == nil || s.agentProvider == nil || info.Session.Name == "" {
 		return s.agent, nil
 	}
-	binding, err := s.sessionCatalog.Resolve(string(info.Session.Name))
+	spec, ok, err := s.profileForInfo(info)
 	if err != nil {
 		return nil, fmt.Errorf("harness: resolve session agent for %q: %w", info.Session.Name, err)
 	}
-	return s.agentProvider.AgentForSession(ctx, binding.Spec)
+	if !ok {
+		return s.agent, nil
+	}
+	return s.agentProvider.AgentForSession(ctx, spec)
 }
 
 func (s *Service) currentSubagents() *subagent.Supervisor {
@@ -416,14 +429,11 @@ func (s *Service) currentSubagents() *subagent.Supervisor {
 }
 
 func (s *Service) delegationForInfo(info SessionInfo) coresession.DelegationPolicy {
-	if s == nil || info.Session.Name == "" {
+	spec, ok, _ := s.profileForInfo(info)
+	if !ok {
 		return coresession.DelegationPolicy{}
 	}
-	binding, err := s.sessionCatalog.Resolve(string(info.Session.Name))
-	if err != nil {
-		return coresession.DelegationPolicy{}
-	}
-	return binding.Spec.Delegation
+	return spec.Delegation
 }
 
 func commandOutbound(inbound channel.Inbound, result session.CommandResult) *channel.Outbound {
@@ -503,6 +513,12 @@ func normalizeSessionInfo(info SessionInfo, inbound channel.Inbound) SessionInfo
 }
 
 func (s *Service) applySessionSpec(req OpenSessionRequest) (OpenSessionRequest, error) {
+	if req.Profile.Name != "" {
+		if req.Session.Name == "" {
+			req.Session = coresession.Ref{Name: req.Profile.Name}
+		}
+		return applyProfileDefaults(req, req.Profile), nil
+	}
 	if req.Session.Name == "" {
 		return req, nil
 	}
@@ -512,6 +528,11 @@ func (s *Service) applySessionSpec(req OpenSessionRequest) (OpenSessionRequest, 
 	}
 	spec := binding.Spec
 	req.Session = coresession.Ref{Name: coresession.Name(binding.ID.Address())}
+	req.Profile = spec
+	return applyProfileDefaults(req, spec), nil
+}
+
+func applyProfileDefaults(req OpenSessionRequest, spec coresession.Spec) OpenSessionRequest {
 	if req.Channel.Name == "" {
 		req.Channel = spec.Channel
 	}
@@ -525,7 +546,41 @@ func (s *Service) applySessionSpec(req OpenSessionRequest) (OpenSessionRequest, 
 		}
 		req.Metadata = merged
 	}
-	return req, nil
+	return req
+}
+
+func (s *Service) bindProfile(threadID corethread.ID, spec coresession.Spec) {
+	if s == nil || threadID == "" || spec.Name == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.profiles == nil {
+		s.profiles = map[corethread.ID]coresession.Spec{}
+	}
+	s.profiles[threadID] = spec
+	s.mu.Unlock()
+}
+
+func (s *Service) profileForInfo(info SessionInfo) (coresession.Spec, bool, error) {
+	if s == nil {
+		return coresession.Spec{}, false, nil
+	}
+	if info.Thread.ID != "" {
+		s.mu.Lock()
+		spec, ok := s.profiles[info.Thread.ID]
+		s.mu.Unlock()
+		if ok {
+			return spec, true, nil
+		}
+	}
+	if info.Session.Name == "" {
+		return coresession.Spec{}, false, nil
+	}
+	binding, err := s.sessionCatalog.Resolve(string(info.Session.Name))
+	if err != nil {
+		return coresession.Spec{}, false, err
+	}
+	return binding.Spec, true, nil
 }
 
 func (s *Service) resolveThread(ctx context.Context, req OpenSessionRequest) (corethread.Ref, bool, error) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -82,11 +83,15 @@ func (f *Factory) AgentForSession(ctx context.Context, spec coresession.Spec) (a
 	if spec.Agent.Name == "" {
 		return nil, fmt.Errorf("agentfactory: session %q agent ref is empty", spec.Name)
 	}
-	return f.Build(ctx, spec.Agent)
+	return f.build(ctx, spec.Agent, spec)
 }
 
 // Build resolves ref and builds a runnable agent.
 func (f *Factory) Build(ctx context.Context, ref agent.Ref) (agent.Agent, error) {
+	return f.build(ctx, ref, coresession.Spec{})
+}
+
+func (f *Factory) build(ctx context.Context, ref agent.Ref, profile coresession.Spec) (agent.Agent, error) {
 	if f == nil {
 		return nil, fmt.Errorf("agentfactory: factory is nil")
 	}
@@ -106,7 +111,7 @@ func (f *Factory) Build(ctx context.Context, ref agent.Ref) (agent.Agent, error)
 	}
 	switch binding.Spec.Driver.Kind {
 	case "", llmagent.DriverKind:
-		return f.buildLLMAgent(ctx, binding.Spec)
+		return f.buildLLMAgent(ctx, applySessionProfile(binding.Spec, profile))
 	default:
 		return nil, fmt.Errorf("agentfactory: unsupported agent driver kind %q", binding.Spec.Driver.Kind)
 	}
@@ -161,7 +166,7 @@ func (f *Factory) projectTools() toolprojection.Result {
 }
 
 func filterTools(spec agent.Spec, tools []tool.Spec) []tool.Spec {
-	if len(spec.Tools) == 0 && len(spec.Commands) == 0 && len(spec.Operations) == 0 {
+	if len(spec.Tools) == 0 && spec.Commands == nil && len(spec.Operations) == 0 {
 		return tools
 	}
 	allowedTools := map[string]struct{}{}
@@ -215,7 +220,7 @@ func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) [
 	if len(providers) == 0 {
 		return nil
 	}
-	if len(spec.Context) == 0 {
+	if spec.Context == nil {
 		return append([]corecontext.Provider(nil), providers...)
 	}
 	allowed := map[corecontext.ProviderName]struct{}{}
@@ -234,6 +239,94 @@ func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) [
 		}
 	}
 	return out
+}
+
+func applySessionProfile(spec agent.Spec, profile coresession.Spec) agent.Spec {
+	if profile.Context != nil {
+		spec.Context = narrowAgentContext(spec.Context, profile.Context)
+	}
+	if profile.Commands != nil {
+		spec.Commands = narrowAgentCommands(spec.Commands, profile.Commands)
+	}
+	return spec
+}
+
+func narrowAgentContext(base []corecontext.ProviderRef, caps []corecontext.ProviderRef) []corecontext.ProviderRef {
+	if base == nil {
+		return append([]corecontext.ProviderRef(nil), caps...)
+	}
+	allowed := map[corecontext.ProviderName]struct{}{}
+	for _, ref := range caps {
+		if ref.Name != "" {
+			allowed[ref.Name] = struct{}{}
+		}
+	}
+	out := make([]corecontext.ProviderRef, 0, len(base))
+	for _, ref := range base {
+		if _, ok := allowed[ref.Name]; ok {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func narrowAgentCommands(base []agent.CommandRef, caps []command.Path) []agent.CommandRef {
+	if base == nil {
+		out := make([]agent.CommandRef, 0, len(caps))
+		for _, path := range caps {
+			if ref := commandPathRef(path); ref != "" {
+				out = append(out, agent.CommandRef{Name: ref})
+			}
+		}
+		return out
+	}
+	allowed := map[string]struct{}{}
+	for _, path := range caps {
+		if ref := commandPathRef(path); ref != "" {
+			allowed[ref] = struct{}{}
+		}
+		if display := path.String(); display != "" {
+			allowed[display] = struct{}{}
+		}
+	}
+	out := make([]agent.CommandRef, 0, len(base))
+	for _, ref := range base {
+		if commandRefAllowed(ref.Name, allowed) {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func commandRefAllowed(ref string, allowed map[string]struct{}) bool {
+	if _, ok := allowed[ref]; ok {
+		return true
+	}
+	for candidate := range allowed {
+		if refMatches(candidate, ref) || refMatches(ref, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandPathRef(path command.Path) string {
+	if len(path) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(path))
+	for _, part := range path {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return strings.Join(parts[:len(parts)-1], ":") + ":" + parts[len(parts)-1]
 }
 
 func refMatches(ref, address string) bool {

@@ -47,6 +47,7 @@ type RunHandle interface {
 // OpenRequest opens or creates a session for a channel conversation.
 type OpenRequest struct {
 	Session      coresession.Ref         `json:"session,omitempty"`
+	Profile      coresession.Spec        `json:"profile,omitempty"`
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	ThreadID     corethread.ID           `json:"thread_id,omitempty"`
 	Metadata     map[string]string       `json:"metadata,omitempty"`

@@ -35,4 +35,15 @@ func TestBundleComposes(t *testing.T) {
 	if len(composition.OperationSpecs) != 40 {
 		t.Fatalf("operation specs len = %d, want 40", len(composition.OperationSpecs))
 	}
+	session := composition.SessionSpecs[0]
+	if len(session.Delegation.Commands) == 0 {
+		t.Fatal("delegation commands len = 0, want child command caps")
+	}
+	worker := composition.AgentSpecs[1]
+	if len(worker.Commands) == 0 {
+		t.Fatal("worker commands len = 0, want command-projected tools")
+	}
+	if len(worker.Operations) != 0 {
+		t.Fatalf("worker operations len = %d, want command-only tools", len(worker.Operations))
+	}
 }

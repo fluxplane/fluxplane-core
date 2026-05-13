@@ -11,6 +11,8 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -60,6 +62,7 @@ func (f ProfileResolverFunc) ResolveProfile(ctx context.Context, ref coresession
 
 type OpenRequest struct {
 	Session      coresession.Ref
+	Profile      coresession.Spec
 	Conversation channel.ConversationRef
 	Metadata     map[string]string
 }
@@ -184,10 +187,15 @@ func (s *Supervisor) Prepare(ctx context.Context, req SpawnRequest) (PreparedSpa
 	if err := authorizeProfile(req.Policy, profile); err != nil {
 		return PreparedSpawn{}, err
 	}
-	agentRef, err := s.authorizeAgent(ctx, req.Policy, profile)
+	profileSpec, profileResolved, err := s.resolveProfileSpec(ctx, req.Policy, profile)
 	if err != nil {
 		return PreparedSpawn{}, err
 	}
+	agentRef, err := authorizeAgent(req.Policy, profile, profileSpec, profileResolved)
+	if err != nil {
+		return PreparedSpawn{}, err
+	}
+	effectiveProfile := narrowProfile(profileSpec, profile, req.Policy, profileResolved)
 	if req.ID == "" {
 		req.ID = ID(newID("subagent_"))
 	}
@@ -230,6 +238,7 @@ func (s *Supervisor) Prepare(ctx context.Context, req SpawnRequest) (PreparedSpa
 	emit(req.Events, SpawnRequested{Causation: causation(ent.handle), Task: req.Task})
 	session, err := s.client.Open(runCtx, OpenRequest{
 		Session:      profile,
+		Profile:      effectiveProfile,
 		Conversation: channel.ConversationRef{ID: string(req.ID)},
 		Metadata: map[string]string{
 			"parent_thread_id": string(req.ParentThreadID),
@@ -448,19 +457,23 @@ func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.R
 	return fmt.Errorf("subagent: profile %q is not allowed", profile.Name)
 }
 
-func (s *Supervisor) authorizeAgent(ctx context.Context, policy coresession.DelegationPolicy, profile coresession.Ref) (agent.Ref, error) {
-	if len(policy.AllowedAgents) == 0 && s.resolveProfile == nil {
-		return agent.Ref{}, nil
-	}
+func (s *Supervisor) resolveProfileSpec(ctx context.Context, policy coresession.DelegationPolicy, profile coresession.Ref) (coresession.Spec, bool, error) {
 	if s.resolveProfile == nil {
-		return agent.Ref{}, fmt.Errorf("subagent: delegation policy allows agents but no profile resolver is configured")
+		if len(policy.AllowedAgents) > 0 || len(policy.Context) > 0 || len(policy.Commands) > 0 {
+			return coresession.Spec{}, false, fmt.Errorf("subagent: profile resolver is required for delegated profile policy")
+		}
+		return coresession.Spec{}, false, nil
 	}
 	spec, err := s.resolveProfile.ResolveProfile(ctx, profile)
 	if err != nil {
-		if len(policy.AllowedAgents) == 0 {
-			return agent.Ref{}, nil
-		}
-		return agent.Ref{}, fmt.Errorf("subagent: resolve profile %q: %w", profile.Name, err)
+		return coresession.Spec{}, false, fmt.Errorf("subagent: resolve profile %q: %w", profile.Name, err)
+	}
+	return spec, true, nil
+}
+
+func authorizeAgent(policy coresession.DelegationPolicy, profile coresession.Ref, spec coresession.Spec, resolved bool) (agent.Ref, error) {
+	if len(policy.AllowedAgents) == 0 && !resolved {
+		return agent.Ref{}, nil
 	}
 	if len(policy.AllowedAgents) == 0 {
 		return spec.Agent, nil
@@ -474,6 +487,80 @@ func (s *Supervisor) authorizeAgent(ctx context.Context, policy coresession.Dele
 		}
 	}
 	return agent.Ref{}, fmt.Errorf("subagent: agent %q for profile %q is not allowed", spec.Agent.Name, profile.Name)
+}
+
+func narrowProfile(spec coresession.Spec, profile coresession.Ref, policy coresession.DelegationPolicy, resolved bool) coresession.Spec {
+	if !resolved {
+		spec = coresession.Spec{Name: profile.Name}
+	}
+	if spec.Name == "" {
+		spec.Name = profile.Name
+	}
+	spec.Context = narrowContextRefs(spec.Context, policy.Context)
+	spec.Commands = narrowCommandPaths(spec.Commands, policy.Commands)
+	return spec
+}
+
+func narrowContextRefs(base, policy []corecontext.ProviderRef) []corecontext.ProviderRef {
+	if len(policy) == 0 {
+		return append([]corecontext.ProviderRef(nil), base...)
+	}
+	if len(base) == 0 {
+		return append([]corecontext.ProviderRef(nil), policy...)
+	}
+	allowed := map[corecontext.ProviderName]struct{}{}
+	for _, ref := range policy {
+		if ref.Name != "" {
+			allowed[ref.Name] = struct{}{}
+		}
+	}
+	out := make([]corecontext.ProviderRef, 0, len(base))
+	for _, ref := range base {
+		if _, ok := allowed[ref.Name]; ok {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func narrowCommandPaths(base, policy []command.Path) []command.Path {
+	if len(policy) == 0 {
+		return cloneCommandPaths(base)
+	}
+	if len(base) == 0 {
+		return cloneCommandPaths(policy)
+	}
+	allowed := map[string]struct{}{}
+	for _, path := range policy {
+		if key := path.String(); key != "" {
+			allowed[key] = struct{}{}
+		}
+	}
+	out := make([]command.Path, 0, len(base))
+	for _, path := range base {
+		if _, ok := allowed[path.String()]; ok {
+			out = append(out, cloneCommandPath(path))
+		}
+	}
+	return out
+}
+
+func cloneCommandPaths(paths []command.Path) []command.Path {
+	if paths == nil {
+		return nil
+	}
+	out := make([]command.Path, len(paths))
+	for i, path := range paths {
+		out[i] = cloneCommandPath(path)
+	}
+	return out
+}
+
+func cloneCommandPath(path command.Path) command.Path {
+	if path == nil {
+		return nil
+	}
+	return append(command.Path(nil), path...)
 }
 
 func (s *Supervisor) effectiveLimit(policy coresession.DelegationPolicy) int {
