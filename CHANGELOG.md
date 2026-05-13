@@ -6,12 +6,16 @@
 
 - `agentsdk init [path]` creates a minimal secure local app manifest with a
   default no-tool agent, default session, and Unix-socket direct channel.
+- The repository root now includes a minimal local `agentsdk.app.yaml` manifest
+  for direct dogfooding.
 
 ### Changed
 
 - Uninitialized local `run` and `serve` paths now fail with guidance to run
   `agentsdk init` instead of silently starting an empty daemon or reporting a
   missing default session.
+- `agentsdk run` and `agentsdk serve` now default to the current directory when
+  no path argument is provided.
 - Local distribution loading now exposes the generated `default` session when
   an app manifest declares `default_agent` without an explicit default session.
 
