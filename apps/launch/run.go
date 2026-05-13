@@ -191,7 +191,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
+	var semanticIndex interface{ Close() error }
 	closeRuntime := func() {
+		if semanticIndex != nil {
+			_ = semanticIndex.Close()
+		}
 		if connectorEngine != nil {
 			_ = connectorEngine.Close()
 		}
@@ -215,7 +219,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			closeRuntime()
 			return Runtime{}, err
 		}
-		plugins = append(plugins, datasourceplugin.New(registry))
+		index, err := newSemanticIndex(root, bundles, "", "", "")
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+		semanticIndex = index
+		plugins = append(plugins, datasourceplugin.NewWithSemantic(registry, index))
 		ensurePluginRef(bundles, datasourceplugin.Name)
 	}
 	composition, err := app.Compose(app.Config{

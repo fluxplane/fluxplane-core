@@ -140,6 +140,11 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 			TitleFields:    []string{"real_name", "profile.real_name", "profile.display_name", "name"},
 			TextFields:     []string{"name", "team_id", "profile.email", "profile.title"},
 			URLFields:      []string{"profile.image_original"},
+			Corpus: connectorplugin.CorpusPolicy{
+				TitleFields:   []string{"real_name", "profile.real_name", "profile.display_name", "name"},
+				BodyFields:    []string{"name", "profile.title"},
+				ExcludeFields: []string{"email"},
+			},
 			MetadataFields: map[string][]string{
 				"team_id":      {"team_id"},
 				"is_bot":       {"is_bot"},
@@ -166,6 +171,10 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 			IDFields:    []string{"id"},
 			TitleFields: []string{"name", "name_normalized"},
 			TextFields:  []string{"topic.value", "purpose.value"},
+			Corpus: connectorplugin.CorpusPolicy{
+				TitleFields: []string{"name", "name_normalized"},
+				BodyFields:  []string{"topic.value", "purpose.value"},
+			},
 			MetadataFields: map[string][]string{
 				"channel_id":  {"id"},
 				"topic":       {"topic.value"},
@@ -201,6 +210,15 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 			TitleFields: []string{"channel.name", "username", "user"},
 			TextFields:  []string{"text"},
 			URLFields:   []string{"permalink"},
+			Corpus: connectorplugin.CorpusPolicy{
+				TitleFields: []string{"channel.name", "username", "user"},
+				BodyFields:  []string{"text"},
+				MetadataFields: map[string][]string{
+					"channel_id": {"channel.id", "channel_id"},
+					"user":       {"user", "username"},
+					"timestamp":  {"ts"},
+				},
+			},
 			MetadataFields: map[string][]string{
 				"channel_id": {"channel.id", "channel_id"},
 				"channel":    {"channel.name", "channel"},

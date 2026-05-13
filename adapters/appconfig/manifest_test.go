@@ -118,6 +118,67 @@ plugins:
 	}
 }
 
+func TestDecodeManifestLoadsSemanticSearchConfig(t *testing.T) {
+	data := []byte(`
+kind: app
+name: engineer
+semantic_search:
+  enabled: true
+  embeddings:
+    provider: openai
+    model: text-embedding-3-large
+  store:
+    kind: json
+    path: .agents/index/datasources.json
+  defaults:
+    chunking:
+      strategy: markdown_or_text
+      target_tokens: 900
+      overlap_tokens: 120
+    retrieval:
+      mode: hybrid
+      limit: 8
+      min_score: 0.3
+datasources:
+  - name: local-docs
+    kind: filesystem
+    entities: [file.document]
+    semantic:
+      enabled: true
+      entities:
+        file.document:
+          corpus:
+            title_fields: [title]
+            body_fields: [content]
+            metadata_fields: [path]
+          incremental:
+            updated_at_field: updated_at
+`)
+
+	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
+	if err != nil {
+		t.Fatalf("DecodeManifest: %v", err)
+	}
+	app := bundle.Apps[0]
+	if !app.SemanticSearch.Enabled || app.SemanticSearch.Embeddings.Model != "text-embedding-3-large" {
+		t.Fatalf("semantic search = %#v, want enabled embedding model", app.SemanticSearch)
+	}
+	if app.SemanticSearch.Defaults.Chunking.TargetTokens != 900 || app.SemanticSearch.Defaults.Retrieval.Mode != "hybrid" {
+		t.Fatalf("semantic defaults = %#v", app.SemanticSearch.Defaults)
+	}
+	ds := bundle.Datasources[0]
+	if !ds.Semantic.Enabled {
+		t.Fatalf("datasource semantic = %#v, want enabled", ds.Semantic)
+	}
+	entity := ds.Semantic.Entities["file.document"]
+	if len(entity.Corpus.BodyFields) != 1 || entity.Corpus.BodyFields[0] != "content" {
+		t.Fatalf("entity corpus = %#v, want body content", entity.Corpus)
+	}
+	if entity.Incremental.UpdatedAtField != "updated_at" {
+		t.Fatalf("incremental = %#v, want updated_at", entity.Incremental)
+	}
+}
+
 func TestDecodeFileLoadsRewriteNativeSlackManifest(t *testing.T) {
 	data := []byte(`
 kind: app

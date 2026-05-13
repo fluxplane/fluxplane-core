@@ -44,6 +44,7 @@ func NewCommand() *cobra.Command {
 		Events:              mustTerminalEventRegistry(),
 	}))
 	cmd.AddCommand(connectcli.NewCommand(connectorPluginRegistry))
+	cmd.AddCommand(newDatasourceCommand())
 	cmd.AddCommand(newDiscoverCommand())
 	return cmd
 }

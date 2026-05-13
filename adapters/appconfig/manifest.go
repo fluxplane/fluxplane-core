@@ -220,17 +220,18 @@ type kindDoc struct {
 
 // Manifest is the app manifest file shape accepted by this adapter.
 type Manifest struct {
-	Kind         string                  `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name         coreapp.Name            `json:"name,omitempty" yaml:"name,omitempty"`
-	Description  string                  `json:"description,omitempty" yaml:"description,omitempty"`
-	DefaultAgent agentRef                `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
-	Sources      []sourceSpec            `json:"sources,omitempty" yaml:"sources,omitempty"`
-	Discovery    discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
-	ModelPolicy  modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
-	Plugins      []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
-	Datasources  []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
-	Daemon       DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
-	Connectors   map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+	Kind           string                  `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name           coreapp.Name            `json:"name,omitempty" yaml:"name,omitempty"`
+	Description    string                  `json:"description,omitempty" yaml:"description,omitempty"`
+	DefaultAgent   agentRef                `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
+	Sources        []sourceSpec            `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Discovery      discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
+	ModelPolicy    modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
+	SemanticSearch semanticSearchDoc       `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
+	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
 }
 
 // DatasourceDoc declares one configured datasource instance.
@@ -244,6 +245,7 @@ type DatasourceDoc struct {
 	Path        string            `json:"path,omitempty" yaml:"path,omitempty"`
 	Include     []string          `json:"include,omitempty" yaml:"include,omitempty"`
 	Config      map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+	Semantic    semanticDoc       `json:"semantic,omitempty" yaml:"semantic,omitempty"`
 }
 
 func (d DatasourceDoc) Spec() coredatasource.Spec {
@@ -281,7 +283,96 @@ func (d DatasourceDoc) Spec() coredatasource.Spec {
 		Connector:   strings.TrimSpace(d.Connector),
 		Kind:        datasourceKind(d),
 		Config:      cfg,
+		Semantic:    d.Semantic.Spec(),
 	}
+}
+
+type semanticDoc struct {
+	Enabled  bool                         `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Entities map[string]entitySemanticDoc `json:"entities,omitempty" yaml:"entities,omitempty"`
+}
+
+func (d semanticDoc) Spec() coredatasource.SemanticSpec {
+	out := coredatasource.SemanticSpec{Enabled: d.Enabled}
+	if len(d.Entities) > 0 {
+		out.Entities = map[coredatasource.EntityType]coredatasource.EntitySemantic{}
+		for name, entity := range d.Entities {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			out.Entities[coredatasource.EntityType(name)] = entity.Spec()
+		}
+	}
+	return out
+}
+
+type entitySemanticDoc struct {
+	Corpus      corpusDoc      `json:"corpus,omitempty" yaml:"corpus,omitempty"`
+	Chunking    chunkingDoc    `json:"chunking,omitempty" yaml:"chunking,omitempty"`
+	Retrieval   retrievalDoc   `json:"retrieval,omitempty" yaml:"retrieval,omitempty"`
+	Incremental incrementalDoc `json:"incremental,omitempty" yaml:"incremental,omitempty"`
+}
+
+func (d entitySemanticDoc) Spec() coredatasource.EntitySemantic {
+	return coredatasource.EntitySemantic{
+		Corpus:      d.Corpus.Spec(),
+		Chunking:    d.Chunking.Spec(),
+		Retrieval:   d.Retrieval.Spec(),
+		Incremental: d.Incremental.Spec(),
+	}
+}
+
+type corpusDoc struct {
+	TitleFields    []string `json:"title_fields,omitempty" yaml:"title_fields,omitempty"`
+	BodyFields     []string `json:"body_fields,omitempty" yaml:"body_fields,omitempty"`
+	MetadataFields []string `json:"metadata_fields,omitempty" yaml:"metadata_fields,omitempty"`
+	ExcludeFields  []string `json:"exclude_fields,omitempty" yaml:"exclude_fields,omitempty"`
+}
+
+func (d corpusDoc) Spec() coredatasource.CorpusSpec {
+	return coredatasource.CorpusSpec{
+		TitleFields:    cleaned(d.TitleFields),
+		BodyFields:     cleaned(d.BodyFields),
+		MetadataFields: cleaned(d.MetadataFields),
+		ExcludeFields:  cleaned(d.ExcludeFields),
+	}
+}
+
+type chunkingDoc struct {
+	Strategy      string `json:"strategy,omitempty" yaml:"strategy,omitempty"`
+	TargetTokens  int    `json:"target_tokens,omitempty" yaml:"target_tokens,omitempty"`
+	OverlapTokens int    `json:"overlap_tokens,omitempty" yaml:"overlap_tokens,omitempty"`
+}
+
+func (d chunkingDoc) Spec() coredatasource.ChunkingSpec {
+	return coredatasource.ChunkingSpec{
+		Strategy:      strings.TrimSpace(d.Strategy),
+		TargetTokens:  d.TargetTokens,
+		OverlapTokens: d.OverlapTokens,
+	}
+}
+
+type retrievalDoc struct {
+	Mode     string  `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Limit    int     `json:"limit,omitempty" yaml:"limit,omitempty"`
+	MinScore float64 `json:"min_score,omitempty" yaml:"min_score,omitempty"`
+}
+
+func (d retrievalDoc) Spec() coredatasource.RetrievalSpec {
+	return coredatasource.RetrievalSpec{
+		Mode:     strings.TrimSpace(d.Mode),
+		Limit:    d.Limit,
+		MinScore: d.MinScore,
+	}
+}
+
+type incrementalDoc struct {
+	UpdatedAtField string `json:"updated_at_field,omitempty" yaml:"updated_at_field,omitempty"`
+}
+
+func (d incrementalDoc) Spec() coredatasource.IncrementalSpec {
+	return coredatasource.IncrementalSpec{UpdatedAtField: strings.TrimSpace(d.UpdatedAtField)}
 }
 
 func datasourceKind(d DatasourceDoc) string {
@@ -449,11 +540,12 @@ func documentKind(node yaml.Node) string {
 // Spec converts the manifest file shape to the pure app model.
 func (m Manifest) Spec() coreapp.Spec {
 	spec := coreapp.Spec{
-		Name:         m.Name,
-		Description:  m.Description,
-		DefaultAgent: agent.Ref(m.DefaultAgent),
-		Discovery:    m.Discovery.Spec(),
-		Model:        m.ModelPolicy.Spec(),
+		Name:           m.Name,
+		Description:    m.Description,
+		DefaultAgent:   agent.Ref(m.DefaultAgent),
+		Discovery:      m.Discovery.Spec(),
+		Model:          m.ModelPolicy.Spec(),
+		SemanticSearch: m.SemanticSearch.Spec(),
 	}
 	for _, source := range m.Sources {
 		spec.Sources = append(spec.Sources, coreapp.SourceSpec(source))
@@ -462,6 +554,54 @@ func (m Manifest) Spec() coreapp.Spec {
 		spec.Plugins = append(spec.Plugins, coreapp.PluginRef(plugin))
 	}
 	return spec
+}
+
+type semanticSearchDoc struct {
+	Enabled    bool                `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Embeddings embeddingDoc        `json:"embeddings,omitempty" yaml:"embeddings,omitempty"`
+	Store      semanticStoreDoc    `json:"store,omitempty" yaml:"store,omitempty"`
+	Defaults   semanticDefaultsDoc `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+}
+
+func (d semanticSearchDoc) Spec() coreapp.SemanticSearchSpec {
+	return coreapp.SemanticSearchSpec{
+		Enabled: d.Enabled,
+		Embeddings: coreapp.EmbeddingSpec{
+			Provider: strings.TrimSpace(d.Embeddings.Provider),
+			Model:    strings.TrimSpace(d.Embeddings.Model),
+		},
+		Store: coreapp.SemanticStoreSpec{
+			Kind: strings.TrimSpace(d.Store.Kind),
+			Path: strings.TrimSpace(d.Store.Path),
+		},
+		Defaults: coreapp.SemanticDefaults{
+			Chunking: coreapp.SemanticChunkingSpec{
+				Strategy:      strings.TrimSpace(d.Defaults.Chunking.Strategy),
+				TargetTokens:  d.Defaults.Chunking.TargetTokens,
+				OverlapTokens: d.Defaults.Chunking.OverlapTokens,
+			},
+			Retrieval: coreapp.SemanticRetrievalSpec{
+				Mode:     strings.TrimSpace(d.Defaults.Retrieval.Mode),
+				Limit:    d.Defaults.Retrieval.Limit,
+				MinScore: d.Defaults.Retrieval.MinScore,
+			},
+		},
+	}
+}
+
+type embeddingDoc struct {
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model    string `json:"model,omitempty" yaml:"model,omitempty"`
+}
+
+type semanticStoreDoc struct {
+	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
+}
+
+type semanticDefaultsDoc struct {
+	Chunking  chunkingDoc  `json:"chunking,omitempty" yaml:"chunking,omitempty"`
+	Retrieval retrievalDoc `json:"retrieval,omitempty" yaml:"retrieval,omitempty"`
 }
 
 type discovery struct {
@@ -631,6 +771,16 @@ func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func cleaned(values []string) []string {
+	var out []string
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
 	}
 	return out
 }
