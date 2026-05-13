@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,5 +66,23 @@ func TestValidateServeLaunchRequiresEntryPointForManifest(t *testing.T) {
 	}, "sample")
 	if err == nil || !strings.Contains(err.Error(), "no daemon listeners or channels") {
 		t.Fatalf("validateServeLaunch error = %v, want no daemon listeners or channels", err)
+	}
+}
+
+func TestServeCommandDefaultsPathToCurrentDirectory(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs(nil)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.AppDir != "." {
+		t.Fatalf("app dir = %q, want .", got.AppDir)
 	}
 }

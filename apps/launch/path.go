@@ -85,9 +85,13 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [path]",
 		Short: "Run a local app distribution",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return RunPathWithLoader(cmd.Context(), loader, args[0], RunPathOptions{
+			path := "."
+			if len(args) > 0 {
+				path = args[0]
+			}
+			return RunPathWithLoader(cmd.Context(), loader, path, RunPathOptions{
 				Session:      opts.session,
 				Conversation: opts.conversation,
 				Provider:     opts.provider,

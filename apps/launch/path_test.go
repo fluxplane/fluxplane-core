@@ -113,6 +113,34 @@ func TestRunCommandHelpIncludesConnectorPath(t *testing.T) {
 	}
 }
 
+func TestRunCommandDefaultsPathToCurrentDirectory(t *testing.T) {
+	var gotPath string
+	loader := func(_ context.Context, path string) (distribution.Loaded, error) {
+		gotPath = path
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec: coredistribution.Spec{
+					Name:           "sample",
+					DefaultSession: coresession.Ref{Name: "main"},
+				},
+				Runtime: &fakeRunRuntime{},
+			},
+		}, nil
+	}
+	cmd := NewRunCommandWithLoader(loader)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--input", "hello"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if gotPath != "." {
+		t.Fatalf("path = %q, want .", gotPath)
+	}
+}
+
 type fakeRunRuntime struct {
 	request distribution.OpenRequest
 	session *fakeRunSession

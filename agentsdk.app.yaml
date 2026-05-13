@@ -1,0 +1,27 @@
+kind: app
+name: "agentsdk"
+description: Minimal local agentsdk app.
+default_agent: default
+daemon:
+  listeners:
+    - name: local
+      type: http
+      addr: "agentsdk-rewrite.sock"
+      auth:
+        mode: local_socket
+  channels:
+    - name: local
+      type: direct
+      listener: local
+      session: default
+      access:
+        mode: open
+---
+kind: session
+name: default
+agent: default
+---
+kind: agent
+name: default
+system: |
+  You are a helpful assistant for this local agentsdk app.

@@ -1,21 +1,38 @@
 package launch
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 type serveCommandOptions struct {
 	debug    bool
 	authPath string
 }
 
+type ServeRunner func(context.Context, Options) error
+
 func NewServeCommand() *cobra.Command {
+	return NewServeCommandWithRunner(Serve)
+}
+
+func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
+	if runner == nil {
+		runner = Serve
+	}
 	var opts serveCommandOptions
 	cmd := &cobra.Command{
 		Use:   "serve [app-dir]",
 		Short: "Run an app daemon",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return Serve(cmd.Context(), Options{
-				AppDir:   args[0],
+			path := "."
+			if len(args) > 0 {
+				path = args[0]
+			}
+			return runner(cmd.Context(), Options{
+				AppDir:   path,
 				Debug:    opts.debug,
 				AuthPath: opts.authPath,
 			})
