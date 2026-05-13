@@ -51,9 +51,52 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
 	}
+	hasDescribe := false
 	for _, child := range cmd.Commands() {
 		if child.Name() == "repl" {
 			t.Fatalf("coder command has repl subcommand, want coder to be the repl entrypoint")
+		}
+		if child.Name() == "describe" {
+			hasDescribe = true
+		}
+	}
+	if !hasDescribe {
+		t.Fatalf("coder command missing describe subcommand")
+	}
+}
+
+func TestDescribeCommandRendersStaticCoderDistribution(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"describe", "-o", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{`"distribution"`, `"name": "coder"`, `"apps"`, `"sessions"`, `"agents"`, `"plugins"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("describe output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestDescribeAgentCommandRendersStaticCoderAgent(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"describe", "agent", AgentName, "-o", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{`"agent"`, `"name": "coder"`, `"operations"`, `"sessions"`, `"apps"`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("describe agent output missing %q:\n%s", want, text)
 		}
 	}
 }

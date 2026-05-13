@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -37,6 +38,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	cmd.AddCommand(newDescribeCommand(dist))
 	return cmd
 }
 
@@ -105,6 +107,53 @@ func terminalOptions(opts options) terminalui.TurnOptions {
 		Out:   os.Stdout,
 		Err:   os.Stderr,
 	}
+}
+
+func newDescribeCommand(dist distribution.Distribution) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "describe",
+		Short: "Describe distribution metadata and bundled resources",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			switch output {
+			case "", "tree", "pretty":
+				return distdescribe.RenderTree(cmd.OutOrStdout(), dist)
+			case "json":
+				return distdescribe.RenderJSON(cmd.OutOrStdout(), dist)
+			case "yaml":
+				return distdescribe.RenderYAML(cmd.OutOrStdout(), dist)
+			default:
+				return fmt.Errorf("describe: unsupported output %q", output)
+			}
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "tree", "Output format: tree|json|yaml")
+	cmd.AddCommand(newDescribeAgentCommand(dist))
+	return cmd
+}
+
+func newDescribeAgentCommand(dist distribution.Distribution) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "agent <name-or-ref>",
+		Short: "Describe a bundled agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch output {
+			case "", "tree", "pretty":
+				return distdescribe.RenderAgentTree(cmd.OutOrStdout(), dist, args[0])
+			case "json":
+				return distdescribe.RenderAgentJSON(cmd.OutOrStdout(), dist, args[0])
+			case "yaml":
+				return distdescribe.RenderAgentYAML(cmd.OutOrStdout(), dist, args[0])
+			default:
+				return fmt.Errorf("describe agent: unsupported output %q", output)
+			}
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "tree", "Output format: tree|json|yaml")
+	return cmd
 }
 
 func shortDescription(dist distribution.Distribution) string {
