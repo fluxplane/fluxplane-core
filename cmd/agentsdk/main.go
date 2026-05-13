@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -1512,7 +1513,9 @@ type terminalTurnOptions struct {
 }
 
 type terminalRenderResult struct {
-	Streamed bool
+	Streamed    bool
+	ActivePlans map[string]bool
+	SeenRuntime map[string]bool
 }
 
 func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt string, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
@@ -1525,6 +1528,10 @@ func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt
 	eventResult := terminalRenderResult{}
 	if eventsDone != nil {
 		eventResult = <-eventsDone
+	}
+	if len(eventResult.ActivePlans) > 0 {
+		followResult := followTerminalBackgroundPlans(ctx, session, eventResult, tracker, opts.Debug)
+		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
 	}
 	if !eventResult.Streamed {
 		renderTerminalOutbound(os.Stdout, result)
@@ -1572,18 +1579,140 @@ func renderTerminalEvents(events <-chan agentruntime.Event, tracker *coreusage.T
 	done := make(chan terminalRenderResult, 1)
 	go func() {
 		renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
+		result := terminalRenderResult{ActivePlans: map[string]bool{}, SeenRuntime: map[string]bool{}}
 		for event := range events {
 			trackUsageEvent(tracker, event)
+			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
 			if debug {
 				renderer.RenderDebug(event)
 			}
 			renderer.Render(event)
 		}
 		renderer.Finish()
-		done <- terminalRenderResult{Streamed: renderer.HasStreamedContent()}
+		result.Streamed = renderer.HasStreamedContent()
+		done <- result
 		close(done)
 	}()
 	return done
+}
+
+func followTerminalBackgroundPlans(ctx context.Context, session agentruntime.Session, initial terminalRenderResult, tracker *coreusage.Tracker, debug bool) terminalRenderResult {
+	if session == nil || len(initial.ActivePlans) == 0 {
+		return terminalRenderResult{}
+	}
+	events, cancel, err := session.Events(ctx, agentruntime.EventOptions{Buffer: 64, Replay: true})
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "background plan events unavailable: %v\n", err)
+		return terminalRenderResult{}
+	}
+	defer cancel()
+	renderer := terminalui.NewRenderer(os.Stdout, os.Stderr, false)
+	result := terminalRenderResult{ActivePlans: cloneBoolMap(initial.ActivePlans), SeenRuntime: cloneBoolMap(initial.SeenRuntime)}
+	for len(result.ActivePlans) > 0 {
+		select {
+		case <-ctx.Done():
+			renderer.Finish()
+			return result
+		case event, ok := <-events:
+			if !ok {
+				renderer.Finish()
+				return result
+			}
+			if !isPlanRuntimeEvent(event) && !isSubagentRuntimeEvent(event) {
+				continue
+			}
+			key := runtimeEventKey(event)
+			if key != "" && result.SeenRuntime[key] {
+				continue
+			}
+			trackUsageEvent(tracker, event)
+			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
+			if debug {
+				renderer.RenderDebug(event)
+			}
+			renderer.Render(event)
+		}
+	}
+	renderer.Finish()
+	result.Streamed = renderer.HasStreamedContent()
+	return result
+}
+
+func trackPlanRuntimeEvent(event agentruntime.Event, active map[string]bool, seen map[string]bool) {
+	if event.Runtime == nil {
+		return
+	}
+	if key := runtimeEventKey(event); key != "" && seen != nil {
+		seen[key] = true
+	}
+	planID := runtimePlanID(event)
+	if planID == "" || active == nil {
+		return
+	}
+	switch string(event.Runtime.Name) {
+	case "plan.execution_started":
+		active[planID] = true
+	case "plan.completed", "plan.failed", "plan.cancelled":
+		delete(active, planID)
+	}
+}
+
+func runtimePlanID(event agentruntime.Event) string {
+	if event.Runtime == nil {
+		return ""
+	}
+	payload := runtimePayloadMap(event.Runtime.Payload)
+	if value, ok := payload["plan_id"].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func isPlanRuntimeEvent(event agentruntime.Event) bool {
+	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "plan.")
+}
+
+func isSubagentRuntimeEvent(event agentruntime.Event) bool {
+	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "subagent.")
+}
+
+func runtimeEventKey(event agentruntime.Event) string {
+	if event.Runtime == nil {
+		return ""
+	}
+	raw, err := json.Marshal(event.Runtime.Payload)
+	if err != nil {
+		return string(event.Runtime.Name)
+	}
+	return string(event.Runtime.Name) + ":" + string(raw)
+}
+
+func runtimePayloadMap(payload any) map[string]any {
+	switch typed := payload.(type) {
+	case map[string]any:
+		return typed
+	default:
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil
+		}
+		return out
+	}
+}
+
+func cloneBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return map[string]bool{}
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func trackUsageEvent(tracker *coreusage.Tracker, event agentruntime.Event) {

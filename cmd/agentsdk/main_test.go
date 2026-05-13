@@ -83,6 +83,35 @@ func TestRemoteHelpIncludesTargetAndRenderingFlags(t *testing.T) {
 	}
 }
 
+func TestTrackPlanRuntimeEventTracksActivePlansAndSeenKeys(t *testing.T) {
+	active := map[string]bool{}
+	seen := map[string]bool{}
+	started := agentruntime.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    "plan.execution_started",
+			Payload: map[string]any{"plan_id": "plan_1"},
+		},
+	}
+	trackPlanRuntimeEvent(started, active, seen)
+	if !active["plan_1"] {
+		t.Fatalf("active = %#v, want plan_1 active", active)
+	}
+	if key := runtimeEventKey(started); key == "" || !seen[key] {
+		t.Fatalf("seen missing runtime key %q: %#v", key, seen)
+	}
+	trackPlanRuntimeEvent(agentruntime.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    "plan.completed",
+			Payload: map[string]any{"plan_id": "plan_1"},
+		},
+	}, active, seen)
+	if active["plan_1"] {
+		t.Fatalf("active = %#v, want plan_1 removed", active)
+	}
+}
+
 func TestResolveRemoteTargetRequiresExactlyOneTarget(t *testing.T) {
 	_, err := resolveRemoteTarget(context.Background(), remoteOptions{session: defaultRemoteSession})
 	if err == nil || !strings.Contains(err.Error(), "specify one target") {

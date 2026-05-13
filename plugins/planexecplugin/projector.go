@@ -82,9 +82,15 @@ func projectPlan(records []runtimeRecord) (PlanState, int) {
 			}
 			state.Phase = PhaseExecuting
 			state.Error = ""
-			state.Steps = make(map[string]StepExec, len(state.Spec.Steps))
+			if state.Steps == nil {
+				state.Steps = make(map[string]StepExec, len(state.Spec.Steps))
+			}
 			for _, step := range state.Spec.Steps {
-				state.Steps[step.ID] = StepExec{Status: StepStatusWaiting, Profile: step.Profile}
+				exec := state.Steps[step.ID]
+				if exec.Status != StepStatusCompleted {
+					exec = StepExec{Status: StepStatusWaiting, Profile: step.Profile}
+				}
+				state.Steps[step.ID] = exec
 			}
 		case EventStepDispatched:
 			var payload StepDispatched

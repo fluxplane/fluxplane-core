@@ -801,9 +801,9 @@ Still intentionally incomplete:
   provider adapter, or approval UX yet.
 - A first child-session supervisor and `plugins/planexec` implementation now
   exist. `delegate` handles ad-hoc sub-agent tasks and `plan` executes a DAG
-  synchronously through supervised child sessions so terminal and Slack adapters
-  can render progress during the parent run. Durable replay/checkpointing of
-  plan state remains future work.
+  through supervised child sessions. Plan state is replayed from persisted
+  `plan.*`/`subagent.*` events; `plan execute` starts background execution and
+  `plan wait` blocks when synchronous completion is needed.
 - Event subscription authorization is noted but not implemented beyond the
   current policy/trust/sensitivity model foundations.
 
@@ -875,10 +875,11 @@ Recommended order:
 
 4. **Sub-Agent Supervisor Hardening**
    The first worker execution slice exists: capacity limits, cancellation,
-   progress callbacks/events, prepare-then-start dispatch, and parent/child
-   causation. Next, make plan state durable/replayable, tighten context and
-   command narrowing for child profiles, and add richer recovery for background
-   child runs that outlive the parent turn.
+   progress callbacks/events, prepare-then-start dispatch, parent/child
+   causation, durable plan projection, and background plan following in terminal
+   and Slack. Next, tighten context and command narrowing for child profiles,
+   move worker/explorer profiles into resources, and add richer child-run
+   reattachment after process restart.
 
 5. **Operation Safety Runtime**
    Initial `codewandler/cmdrisk` integration, shell hardening, and HTTP target

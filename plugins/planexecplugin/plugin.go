@@ -24,9 +24,10 @@ const (
 )
 
 type Plugin struct {
-	mu   sync.Mutex
-	plan PlanState
-	seq  int
+	mu      sync.Mutex
+	plan    PlanState
+	seq     int
+	runners map[runnerKey]*planRunner
 }
 
 var _ pluginhost.Plugin = (*Plugin)(nil)
