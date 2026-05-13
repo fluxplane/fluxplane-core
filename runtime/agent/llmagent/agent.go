@@ -111,6 +111,15 @@ func (a *Agent) DriverSpec() corellmagent.Spec {
 	return a.driver
 }
 
+// ContextProviders returns the providers configured for session-level context
+// materialization.
+func (a *Agent) ContextProviders() []corecontext.Provider {
+	if a == nil {
+		return nil
+	}
+	return append([]corecontext.Provider(nil), a.contextProviders...)
+}
+
 // Step advances one LLM-backed agent turn.
 func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
 	if a == nil {
@@ -128,11 +137,13 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 		return failed("context_canceled", err.Error(), nil)
 	}
 
-	dynamicContext, err := a.buildContext(base)
-	if err != nil {
-		return failed("context_provider_failed", err.Error(), nil)
+	if !contextMaterializedFromContext(base) {
+		dynamicContext, err := a.buildContext(base)
+		if err != nil {
+			return failed("context_provider_failed", err.Error(), nil)
+		}
+		input.Context = append(dynamicContext, input.Context...)
 	}
-	input.Context = append(dynamicContext, input.Context...)
 	req := a.request(ctx, input)
 	provider := a.providerName(req)
 	emit(ctx, ModelRequested{Agent: a.spec.Name, Provider: provider, Model: modelName(req)})

@@ -7,6 +7,7 @@ import (
 )
 
 type transcriptContextKey struct{}
+type contextMaterializedKey struct{}
 
 // ContextWithTranscript attaches a provider transcript projection to ctx.
 func ContextWithTranscript(ctx context.Context, transcript *coreconversation.Transcript) context.Context {
@@ -25,4 +26,21 @@ func transcriptFromContext(ctx context.Context) *coreconversation.Transcript {
 	}
 	transcript, _ := ctx.Value(transcriptContextKey{}).(*coreconversation.Transcript)
 	return transcript
+}
+
+// ContextWithMaterializedContext marks ctx as already carrying session-rendered
+// provider context.
+func ContextWithMaterializedContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, contextMaterializedKey{}, true)
+}
+
+func contextMaterializedFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(contextMaterializedKey{}).(bool)
+	return value
 }

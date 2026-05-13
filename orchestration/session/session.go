@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
@@ -54,6 +56,24 @@ const (
 	defaultLLMMaxSteps      = 50
 	defaultLLMContinuations = 3
 )
+
+var contextCommandSpec = command.Spec{
+	Path:        command.Path{"context"},
+	Description: "Preview context that would be sent to the LLM.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustVerified,
+	},
+}
+
+var errContextProviderNotFound = errors.New("context provider not found")
+
+// IsContextCommandPath reports whether path targets the built-in context
+// preview command.
+func IsContextCommandPath(path command.Path) bool {
+	return len(path) == 1 && strings.TrimSpace(path[0]) == "context"
+}
 
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
@@ -273,6 +293,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	var conversationErr error
 	var localTranscript []coreconversation.Item
 	var localContinuation *coreconversation.ContinuationHandle
+	var localContextRecords map[corecontext.ProviderName]corecontext.ProviderRenderRecord
 	events := s.conversationEventSink(ctx, inbound.ID, &conversationErr, &localTranscript, &localContinuation)
 	observations := []environment.Observation{{
 		Source:   "channel",
@@ -287,21 +308,22 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 	)
 	for continuation := 0; ; continuation++ {
 		inner := s.runInnerTurn(ctx, innerTurnInput{
-			Inbound:            inbound,
-			BaseContext:        baseCtx,
-			History:            history,
-			Events:             events,
-			ConversationErr:    &conversationErr,
-			LocalTranscript:    &localTranscript,
-			LocalContinuation:  &localContinuation,
-			Pending:            pending,
-			Observations:       observations,
-			State:              state,
-			Effects:            effects,
-			MaxSteps:           s.maxSteps(),
-			FailOnStepLimit:    s.failOnStepLimit(),
-			ProviderIdentity:   s.providerIdentity(),
-			ConversationTurnID: inbound.ID,
+			Inbound:             inbound,
+			BaseContext:         baseCtx,
+			History:             history,
+			Events:              events,
+			ConversationErr:     &conversationErr,
+			LocalTranscript:     &localTranscript,
+			LocalContinuation:   &localContinuation,
+			LocalContextRecords: &localContextRecords,
+			Pending:             pending,
+			Observations:        observations,
+			State:               state,
+			Effects:             effects,
+			MaxSteps:            s.maxSteps(),
+			FailOnStepLimit:     s.failOnStepLimit(),
+			ProviderIdentity:    s.providerIdentity(),
+			ConversationTurnID:  inbound.ID,
 		})
 		if inner.Result.Status != "" {
 			return inner.Result
@@ -324,21 +346,22 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 }
 
 type innerTurnInput struct {
-	Inbound            channel.Inbound
-	BaseContext        context.Context
-	History            []corecontext.Block
-	Events             event.Sink
-	ConversationErr    *error
-	LocalTranscript    *[]coreconversation.Item
-	LocalContinuation  **coreconversation.ContinuationHandle
-	Pending            []coreconversation.Item
-	Observations       []environment.Observation
-	State              agent.StateRef
-	Effects            []environment.EffectResult
-	MaxSteps           int
-	FailOnStepLimit    bool
-	ProviderIdentity   coreconversation.ProviderIdentity
-	ConversationTurnID string
+	Inbound             channel.Inbound
+	BaseContext         context.Context
+	History             []corecontext.Block
+	Events              event.Sink
+	ConversationErr     *error
+	LocalTranscript     *[]coreconversation.Item
+	LocalContinuation   **coreconversation.ContinuationHandle
+	LocalContextRecords *map[corecontext.ProviderName]corecontext.ProviderRenderRecord
+	Pending             []coreconversation.Item
+	Observations        []environment.Observation
+	State               agent.StateRef
+	Effects             []environment.EffectResult
+	MaxSteps            int
+	FailOnStepLimit     bool
+	ProviderIdentity    coreconversation.ProviderIdentity
+	ConversationTurnID  string
 }
 
 type innerTurnResult struct {
@@ -358,11 +381,16 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		maxSteps = 1
 	}
 	for step := 0; step < maxSteps; step++ {
-		transcript, err := s.transcriptForPending(ctx, pending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
+		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations)
+		if err != nil {
+			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects}
+		}
+		transcript, err := s.transcriptForPending(ctx, projectedPending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
 		}
-		agentCtx := agentContext{Context: llmagent.ContextWithTranscript(in.BaseContext, &transcript), events: in.Events}
+		modelCtx := llmagent.ContextWithMaterializedContext(llmagent.ContextWithTranscript(in.BaseContext, &transcript))
+		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
 			Observations: observations,
 			Context:      in.History,
@@ -379,6 +407,9 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 				return innerTurnResult{Result: inputFailed("conversation_repair_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
 			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects}
+		}
+		if err := s.commitContextRender(ctx, contextResult, in.LocalContextRecords); err != nil {
+			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if !stateRefIsZero(agentResult.State.Ref) {
 			state = agentResult.State.Ref
@@ -454,6 +485,369 @@ func hasToolResultTranscriptItems(items []coreconversation.Item) bool {
 		}
 	}
 	return false
+}
+
+type contextProviderAgent interface {
+	ContextProviders() []corecontext.Provider
+}
+
+type contextPreviewInput struct {
+	Fresh bool   `json:"fresh,omitempty"`
+	Key   string `json:"key,omitempty"`
+}
+
+type contextPreviewData struct {
+	Mode      string   `json:"mode"`
+	Key       string   `json:"key,omitempty"`
+	Providers []string `json:"providers,omitempty"`
+	System    string   `json:"system,omitempty"`
+	Developer string   `json:"developer,omitempty"`
+	User      string   `json:"user,omitempty"`
+}
+
+func (s Session) previewContext(ctx context.Context, input contextPreviewInput) (contextPreviewData, error) {
+	providers := s.contextProviders()
+	if len(providers) == 0 {
+		mode := "diff"
+		if input.Fresh {
+			mode = "fresh"
+		}
+		return contextPreviewData{Mode: mode}, nil
+	}
+	key := strings.TrimSpace(input.Key)
+	providerNames := sortedProviderNames(providers)
+	if key != "" {
+		var filtered []corecontext.Provider
+		for _, provider := range providers {
+			if provider == nil {
+				continue
+			}
+			if string(provider.Spec().Name) == key {
+				filtered = append(filtered, provider)
+			}
+		}
+		if len(filtered) == 0 {
+			mode := "diff"
+			if input.Fresh {
+				mode = "fresh"
+			}
+			return contextPreviewData{Mode: mode, Key: key, Providers: providerNames}, fmt.Errorf("%w: %q", errContextProviderNotFound, key)
+		}
+		providers = filtered
+	}
+	var previous map[corecontext.ProviderName]corecontext.ProviderRenderRecord
+	if !input.Fresh {
+		var err error
+		previous, err = s.loadContextRenderRecords(ctx)
+		if err != nil {
+			return contextPreviewData{}, err
+		}
+	}
+	materializer := contextruntime.NewMaterializer(providers, previous)
+	result, err := materializer.Build(s.contextProviderContext(ctx, nil), corecontext.BuildRequest{
+		ThreadID: string(s.Thread.ID),
+		BranchID: string(s.Thread.BranchID),
+		TurnID:   s.RunID,
+		Reason:   corecontext.RenderTurn,
+		Previous: previous,
+	})
+	if err != nil {
+		return contextPreviewData{}, err
+	}
+	mode := "diff"
+	if input.Fresh {
+		mode = "fresh"
+	}
+	data := contextPreviewData{Mode: mode, Key: key, Providers: providerNames}
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementSystem); ok {
+		data.System = text
+	}
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementDeveloper); ok {
+		data.Developer = text
+	}
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementUser); ok {
+		data.User = text
+	}
+	return data, nil
+}
+
+func sortedProviderNames(providers []corecontext.Provider) []string {
+	names := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		name := strings.TrimSpace(string(provider.Spec().Name))
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation) (corecontext.BuildResult, []coreconversation.Item, error) {
+	providers := s.contextProviders()
+	if len(providers) == 0 {
+		return corecontext.BuildResult{}, append([]coreconversation.Item(nil), pending...), nil
+	}
+	records, err := s.contextRenderRecords(ctx, in.LocalContextRecords)
+	if err != nil {
+		return corecontext.BuildResult{}, nil, err
+	}
+	renderCtx := s.contextProviderContext(in.BaseContext, observations)
+	materializer := contextruntime.NewMaterializer(providers, records)
+	result, err := materializer.Build(renderCtx, corecontext.BuildRequest{
+		ThreadID: string(s.Thread.ID),
+		BranchID: string(s.Thread.BranchID),
+		TurnID:   in.ConversationTurnID,
+		Reason:   contextRenderReason(pending, observations),
+		Previous: records,
+	})
+	if err != nil {
+		return corecontext.BuildResult{}, nil, err
+	}
+	return result, contextPendingItems(in.ProviderIdentity, pending, result), nil
+}
+
+func (s Session) contextProviders() []corecontext.Provider {
+	carrier, ok := s.Agent.(contextProviderAgent)
+	if !ok || carrier == nil {
+		return nil
+	}
+	return carrier.ContextProviders()
+}
+
+func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation) context.Context {
+	ctx = ensureContext(ctx)
+	ctx = coredatasource.ContextWithDetectionInput(ctx, detectionInputFromObservations(observations))
+	if s.Agent == nil {
+		return ctx
+	}
+	spec := s.Agent.Spec()
+	names := make([]coredatasource.Name, 0, len(spec.Datasources))
+	for _, ref := range spec.Datasources {
+		if ref.Name != "" {
+			names = append(names, ref.Name)
+		}
+	}
+	return coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
+}
+
+func detectionInputFromObservations(observations []environment.Observation) coredatasource.DetectionInput {
+	var sources []coredatasource.DetectionSource
+	for i, observation := range observations {
+		text := contextValueText(observation.Content)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		sources = append(sources, coredatasource.DetectionSource{
+			ID:       fmt.Sprintf("observation-%d", i),
+			Kind:     observation.Kind,
+			Text:     text,
+			Metadata: observationStringMetadata(observation.Metadata),
+		})
+	}
+	return coredatasource.DetectionInput{Sources: sources}
+}
+
+func observationStringMetadata(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range values {
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" && text != "<nil>" {
+			out[key] = text
+		}
+	}
+	return out
+}
+
+func contextRenderReason(pending []coreconversation.Item, observations []environment.Observation) corecontext.RenderReason {
+	for _, item := range pending {
+		if item.Kind == coreconversation.ItemToolResult {
+			return corecontext.RenderToolFollowup
+		}
+	}
+	for _, observation := range observations {
+		if observation.Kind == "session.continuation" {
+			return corecontext.RenderContinuation
+		}
+	}
+	return corecontext.RenderTurn
+}
+
+func (s Session) contextRenderRecords(ctx context.Context, local *map[corecontext.ProviderName]corecontext.ProviderRenderRecord) (map[corecontext.ProviderName]corecontext.ProviderRenderRecord, error) {
+	if local != nil && *local != nil {
+		return cloneContextRecords(*local), nil
+	}
+	records, err := s.loadContextRenderRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if local != nil {
+		*local = cloneContextRecords(records)
+	}
+	return records, nil
+}
+
+func (s Session) loadContextRenderRecords(ctx context.Context) (map[corecontext.ProviderName]corecontext.ProviderRenderRecord, error) {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return nil, nil
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	var out map[corecontext.ProviderName]corecontext.ProviderRenderRecord
+	for _, record := range records {
+		switch payload := record.Event.Payload.(type) {
+		case corecontext.RenderCommitted:
+			out = cloneContextRecords(payload.Records)
+		case *corecontext.RenderCommitted:
+			if payload != nil {
+				out = cloneContextRecords(payload.Records)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s Session) commitContextRender(ctx context.Context, result corecontext.BuildResult, local *map[corecontext.ProviderName]corecontext.ProviderRenderRecord) error {
+	if len(result.Records) == 0 {
+		return nil
+	}
+	if local != nil {
+		*local = cloneContextRecords(result.Records)
+	}
+	if result.EmptyDiff() {
+		return nil
+	}
+	events := make([]event.Event, 0, len(result.Added)+len(result.Updated)+len(result.Removed)+1)
+	for _, block := range append(append([]corecontext.Block(nil), result.Added...), result.Updated...) {
+		events = append(events, corecontext.BlockRecorded{
+			TurnID:      result.TurnID,
+			Provider:    block.Provider,
+			Block:       block,
+			Fingerprint: contextruntime.BlockFingerprint(block),
+		})
+	}
+	for _, removed := range result.Removed {
+		events = append(events, corecontext.BlockRemovedRecorded{TurnID: result.TurnID, Removed: removed})
+	}
+	events = append(events, corecontext.RenderCommitted{
+		TurnID:  result.TurnID,
+		Records: cloneContextRecords(result.Records),
+	})
+	return s.appendThreadEvents(ctx, events...)
+}
+
+func contextPendingItems(provider coreconversation.ProviderIdentity, pending []coreconversation.Item, result corecontext.BuildResult) []coreconversation.Item {
+	out := append([]coreconversation.Item(nil), pending...)
+	if result.EmptyDiff() {
+		return out
+	}
+	var prefix []coreconversation.Item
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementSystem); ok {
+		prefix = append(prefix, contextTranscriptItem(provider, "system", text))
+	}
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementDeveloper); ok {
+		prefix = append(prefix, contextTranscriptItem(provider, "developer", text))
+	}
+	if len(prefix) > 0 {
+		out = append(prefix, out...)
+	}
+	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementUser); ok {
+		out = addUserContextDiff(provider, out, text)
+	}
+	return out
+}
+
+func contextTranscriptItem(provider coreconversation.ProviderIdentity, role, content string) coreconversation.Item {
+	return coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemInput,
+		Role:     role,
+		Content:  content,
+		Metadata: map[string]string{"context": "diff"},
+	}
+}
+
+func addUserContextDiff(provider coreconversation.ProviderIdentity, items []coreconversation.Item, diff string) []coreconversation.Item {
+	out := append([]coreconversation.Item(nil), items...)
+	for i, item := range out {
+		if item.Kind == coreconversation.ItemInput && strings.TrimSpace(item.Role) == "user" {
+			item.Content = prependContextDiff(diff, item.Content)
+			item.Metadata = cloneMetadata(item.Metadata)
+			item.Metadata["context"] = "diff"
+			out[i] = item
+			return out
+		}
+	}
+	return append(out, contextTranscriptItem(provider, "user", diff))
+}
+
+func prependContextDiff(diff string, content any) string {
+	body := contextValueText(content)
+	if strings.TrimSpace(body) == "" {
+		return diff
+	}
+	return strings.TrimSpace(diff) + "\n\n" + body
+}
+
+func contextValueText(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(data)
+	}
+}
+
+func cloneMetadata(values map[string]string) map[string]string {
+	if values == nil {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(values)+1)
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneContextRecords(records map[corecontext.ProviderName]corecontext.ProviderRenderRecord) map[corecontext.ProviderName]corecontext.ProviderRenderRecord {
+	if records == nil {
+		return nil
+	}
+	out := make(map[corecontext.ProviderName]corecontext.ProviderRenderRecord, len(records))
+	for key, record := range records {
+		copied := record
+		if record.Blocks != nil {
+			copied.Blocks = make(map[string]corecontext.RenderedBlockRecord, len(record.Blocks))
+			for blockID, block := range record.Blocks {
+				copied.Blocks[blockID] = block
+			}
+		}
+		out[key] = copied
+	}
+	return out
 }
 
 func (s Session) transcriptForPending(ctx context.Context, pending, localItems []coreconversation.Item, localHandle *coreconversation.ContinuationHandle) (coreconversation.Transcript, error) {
@@ -977,7 +1371,8 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if inbound.Kind != channel.InboundCommand || inbound.Command == nil {
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
 	}
-	if s.Profile.Commands != nil && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
+	isContextCommand := IsContextCommandPath(inbound.Command.Path)
+	if s.Profile.Commands != nil && !isContextCommand && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
 		return commandFailed("command_not_found", "command not found", map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
@@ -991,6 +1386,9 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		Trust:        inbound.Trust,
 	}); err != nil {
 		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	if isContextCommand {
+		return s.executeContextCommand(ctx, inbound)
 	}
 	if s.Commands == nil && len(s.CommandCatalog) == 0 {
 		return commandFailed("command_registry_missing", "command registry is nil", nil)
@@ -1070,6 +1468,147 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 			},
 		}
 	}
+}
+
+func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
+	spec := contextCommandSpec
+	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
+	switch evaluation.Decision {
+	case policy.DecisionDeny:
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
+	case policy.DecisionApprovalRequired:
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
+	}
+	input, err := parseContextPreviewInput(inbound.Command.Input)
+	if err != nil {
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: "invalid_context_command_input", Message: err.Error()},
+		}
+	}
+	preview, err := s.previewContext(ctx, input)
+	if err != nil {
+		details := map[string]any{}
+		if len(preview.Providers) > 0 {
+			details["providers"] = preview.Providers
+		}
+		code := "context_preview_failed"
+		if errors.Is(err, errContextProviderNotFound) {
+			code = "context_provider_not_found"
+		}
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: code, Message: err.Error(), Details: details},
+		}
+	}
+	text := renderContextPreview(preview)
+	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: channel.Message{Content: text},
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	return CommandResult{
+		Status: CommandStatusOK,
+		Spec:   spec,
+		Policy: evaluation,
+		Effect: &environment.EffectResult{Result: operation.OK(text)},
+	}
+}
+
+func parseContextPreviewInput(value any) (contextPreviewInput, error) {
+	if value == nil {
+		return contextPreviewInput{}, nil
+	}
+	switch typed := value.(type) {
+	case contextPreviewInput:
+		return typed, nil
+	case *contextPreviewInput:
+		if typed == nil {
+			return contextPreviewInput{}, nil
+		}
+		return *typed, nil
+	case string:
+		return parseContextPreviewArgs(strings.Fields(typed))
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return contextPreviewInput{}, err
+	}
+	var input contextPreviewInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return contextPreviewInput{}, err
+	}
+	input.Key = strings.TrimSpace(input.Key)
+	return input, nil
+}
+
+func parseContextPreviewArgs(args []string) (contextPreviewInput, error) {
+	var input contextPreviewInput
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--fresh":
+			input.Fresh = true
+		case "--key":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return contextPreviewInput{}, fmt.Errorf("--key requires a provider name")
+			}
+			i++
+			input.Key = args[i]
+		default:
+			return contextPreviewInput{}, fmt.Errorf("unknown /context argument %q", args[i])
+		}
+	}
+	input.Key = strings.TrimSpace(input.Key)
+	return input, nil
+}
+
+func renderContextPreview(preview contextPreviewData) string {
+	if preview.Mode == "" {
+		preview.Mode = "diff"
+	}
+	var b strings.Builder
+	b.WriteString("Context preview")
+	if preview.Key != "" {
+		b.WriteString(" for ")
+		b.WriteString(preview.Key)
+	}
+	b.WriteString(" (")
+	b.WriteString(preview.Mode)
+	b.WriteString(")\n\n")
+	wrote := false
+	for _, section := range []struct {
+		title string
+		text  string
+	}{
+		{title: "system", text: preview.System},
+		{title: "developer", text: preview.Developer},
+		{title: "user", text: preview.User},
+	} {
+		if strings.TrimSpace(section.text) == "" {
+			continue
+		}
+		wrote = true
+		b.WriteString("## ")
+		b.WriteString(section.title)
+		b.WriteString("\n\n```xml\n")
+		b.WriteString(strings.TrimSpace(section.text))
+		b.WriteString("\n```\n\n")
+	}
+	if !wrote {
+		if len(preview.Providers) == 0 {
+			b.WriteString("No context providers are configured.\n")
+		} else {
+			b.WriteString("No context changes would be sent.\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func commandPathAllowed(allowed []command.Path, path command.Path) bool {

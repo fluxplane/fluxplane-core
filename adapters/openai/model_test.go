@@ -45,6 +45,30 @@ func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {
 	}
 }
 
+func TestTranscriptSystemContextItemUsesInputRoleSystem(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses"}
+	item := coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemInput,
+		Role:     "system",
+		Content:  "<system-context>rules</system-context>",
+	}
+	param, recorded, err := inputItemFromTranscriptItem(provider, item)
+	if err != nil {
+		t.Fatalf("inputItemFromTranscriptItem: %v", err)
+	}
+	if recorded.Role != "system" {
+		t.Fatalf("recorded role = %q, want system", recorded.Role)
+	}
+	data, err := json.Marshal(param)
+	if err != nil {
+		t.Fatalf("marshal param: %v", err)
+	}
+	if !strings.Contains(string(data), `"role":"system"`) || strings.Contains(string(data), `"instructions"`) {
+		t.Fatalf("param JSON = %s, want transcript input role system", data)
+	}
+}
+
 func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 	model, err := New(Config{Model: "gpt-5.5"})
 	if err != nil {

@@ -8,12 +8,36 @@ import (
 	"strings"
 	"testing"
 
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coretool "github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/usage"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
+
+func TestTranscriptSystemContextItemMapsToSystemBlocks(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "anthropic", API: "anthropic.messages"}
+	item := coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemInput,
+		Role:     "system",
+		Content:  "<system-context>rules</system-context>",
+	}
+	messages, system, recorded, err := messagesFromTranscript(provider, []coreconversation.Item{item})
+	if err != nil {
+		t.Fatalf("messagesFromTranscript: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("messages = %#v, want no user/assistant messages", messages)
+	}
+	if len(system) != 1 || system[0].Text != "<system-context>rules</system-context>" {
+		t.Fatalf("system = %#v, want context system block", system)
+	}
+	if len(recorded) != 1 || recorded[0].Role != "system" {
+		t.Fatalf("recorded = %#v, want system item", recorded)
+	}
+}
 
 func TestStreamTextAndUsage(t *testing.T) {
 	var gotReq messageRequest

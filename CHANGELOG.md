@@ -15,6 +15,13 @@
   channel membership via `slack.channel` `members -> slack.user`.
 - Web search datasource provider with `web.search_result` records, wired into
   `examples/slack-bot` without exposing the direct `web_request` tool.
+- Change-only context provider materialization with provider/block fingerprints,
+  placement-aware system/developer/user rendering, and committed render-state
+  events.
+- Built-in `/context` session command for previewing context that would be sent
+  to the LLM, including `--fresh` and provider `--key` filtering.
+- `agents.md` coding context provider that renders workspace `AGENTS.md` into
+  system-scoped model context.
 
 ### Changed
 
@@ -28,6 +35,10 @@
 - Slack datasource channel/user discovery now paginates before local filtering,
   and `examples/slack-bot` prefers exact membership relations over inferred
   message participation.
+- `agentsdk coder` now opens the REPL by default; use `--input` for one-shot
+  turns.
+- Slack run rendering now uses a generic working status and streams markdown
+  through chunk-based appends.
 
 ### Fixed
 
@@ -35,6 +46,11 @@
   markdown renderer without duplicating final output or leaking thinking text.
 - Remote channel event delivery now uses bounded lossless buffering so streamed
   model output is not dropped during bursty runs.
+- Context rendering now omits unchanged provider blocks after a successful
+  render commit, reloads prior render records across sessions, and uses current
+  tool-followup observations.
+- Slack status updates no longer expose operation details and are cleared before
+  content streaming starts.
 
 ## 0.5.0
 

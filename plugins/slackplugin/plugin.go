@@ -758,7 +758,7 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		return err
 	}
 	observer := newRunObserver(c, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID})
-	observer.setStatus(turnCtx, "is thinking...")
+	observer.setStatus(turnCtx, slackWorkingStatus)
 	eventsDone := observer.Observe(run.Events())
 	result, err := run.Wait(turnCtx)
 	summary := <-eventsDone

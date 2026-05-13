@@ -2,12 +2,16 @@ package harness
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -612,6 +616,54 @@ func TestEffectiveProfileRestrictsChildCommands(t *testing.T) {
 	}
 }
 
+func TestHandleInboundContextCommandUsesAgentProvider(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	provider := harnessContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "provider context"}},
+	}
+	service := New(Config{
+		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
+			return harnessContextAgent{providers: []corecontext.Provider{provider}}, nil
+		}),
+		ThreadStore: threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session: coresession.Ref{Name: "coder"},
+		Profile: coresession.Spec{
+			Name:  "coder",
+			Agent: coreagent.Ref{Name: "coder"},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-context"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-context",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-context"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"context"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("status = %s, error = %#v", result.Command.Status, result.Command.Error)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || !strings.Contains(fmt.Sprint(result.Outbound.Message.Content), "provider context") {
+		t.Fatalf("outbound = %#v, want provider context", result.Outbound)
+	}
+}
+
 func testService(t *testing.T) (*Service, corethread.Store) {
 	t.Helper()
 	ops := operation.NewRegistry()
@@ -653,3 +705,36 @@ type testPlanRuntimeEvent struct {
 }
 
 func (testPlanRuntimeEvent) EventName() coreevent.Name { return "plan.test" }
+
+type harnessAgentProviderFunc func(context.Context, coresession.Spec) (coreagent.Agent, error)
+
+func (f harnessAgentProviderFunc) AgentForSession(ctx context.Context, spec coresession.Spec) (coreagent.Agent, error) {
+	return f(ctx, spec)
+}
+
+type harnessContextAgent struct {
+	providers []corecontext.Provider
+}
+
+func (a harnessContextAgent) Spec() coreagent.Spec {
+	return coreagent.Spec{Name: "coder"}
+}
+
+func (a harnessContextAgent) Step(coreagent.Context, coreagent.StepInput) coreagent.StepResult {
+	return coreagent.StepResult{Status: coreagent.StatusOK, Decision: coreagent.Decision{Kind: coreagent.DecisionWait}}
+}
+
+func (a harnessContextAgent) ContextProviders() []corecontext.Provider {
+	return append([]corecontext.Provider(nil), a.providers...)
+}
+
+type harnessContextProvider struct {
+	spec   corecontext.ProviderSpec
+	blocks []corecontext.Block
+}
+
+func (p harnessContextProvider) Spec() corecontext.ProviderSpec { return p.spec }
+
+func (p harnessContextProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {
+	return append([]corecontext.Block(nil), p.blocks...), nil
+}

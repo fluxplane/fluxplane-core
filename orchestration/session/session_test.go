@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -453,6 +456,463 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 2 {
 		t.Fatalf("stored events = %#v, want two transcript append events", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputRendersContextOnlyWhenChanged(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-diff"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	providerID := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{
+			ID:      "docs/current",
+			Content: "project rules",
+		}},
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Provider: providerID, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{
+			Message: &agent.Message{Content: "ok"},
+			Transcript: coreconversation.Transcript{
+				Provider: providerID,
+				Items:    items,
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-diff"}}
+
+	first := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}})
+	if first.Status != InputStatusOK {
+		t.Fatalf("first status = %q: %#v", first.Status, first)
+	}
+	second := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "second"}})
+	if second.Status != InputStatusOK {
+		t.Fatalf("second status = %q: %#v", second.Status, second)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if len(transcripts[0].NewItems) != 1 || !strings.Contains(valueText(transcripts[0].NewItems[0].Content), "<system-context>") {
+		t.Fatalf("first new items = %#v, want context-prefixed user input", transcripts[0].NewItems)
+	}
+	if len(transcripts[1].NewItems) != 1 || strings.Contains(valueText(transcripts[1].NewItems[0].Content), "<system-context>") {
+		t.Fatalf("second new items = %#v, want unchanged context omitted", transcripts[1].NewItems)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-context-diff"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, corecontext.EventRenderCommitted) != 1 {
+		t.Fatalf("context render commits = %d, want 1", countEvent(stored.Events, corecontext.EventRenderCommitted))
+	}
+}
+
+func TestExecuteInboundInputRendersSystemPlacementAsSystemTranscriptItem(t *testing.T) {
+	ctx := context.Background()
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "agents_md", DefaultPlacement: corecontext.PlacementSystem},
+		blocks: []corecontext.Block{{
+			ID:      "agents_md/root",
+			Content: "AGENTS.md rules",
+		}},
+	}
+	var got coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		got = *req.Transcript
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:   "coder",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+	}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent}
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-system", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(got.NewItems) != 2 {
+		t.Fatalf("new items = %#v, want system context plus user input", got.NewItems)
+	}
+	if got.NewItems[0].Role != "system" || !strings.Contains(valueText(got.NewItems[0].Content), "AGENTS.md rules") {
+		t.Fatalf("first new item = %#v, want system context", got.NewItems[0])
+	}
+	if got.NewItems[1].Role != "user" || strings.Contains(valueText(got.NewItems[1].Content), "<system-context>") {
+		t.Fatalf("second new item = %#v, want plain user input", got.NewItems[1])
+	}
+}
+
+func TestExecuteInboundInputRendersDeveloperPlacementAsDeveloperTranscriptItem(t *testing.T) {
+	ctx := context.Background()
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "developer_notes", DefaultPlacement: corecontext.PlacementDeveloper},
+		blocks: []corecontext.Block{{
+			ID:      "developer_notes/current",
+			Content: "developer scoped rules",
+		}},
+	}
+	var got coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		got = *req.Transcript
+		return llmagent.Response{
+			Message:    &agent.Message{Content: "ok"},
+			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{Agent: runtimeAgent}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-dev", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(got.NewItems) != 2 {
+		t.Fatalf("new items = %#v, want developer context plus user input", got.NewItems)
+	}
+	if got.NewItems[0].Role != "developer" || !strings.Contains(valueText(got.NewItems[0].Content), "developer scoped rules") {
+		t.Fatalf("first new item = %#v, want developer context", got.NewItems[0])
+	}
+	if got.NewItems[1].Role != "user" || strings.Contains(valueText(got.NewItems[1].Content), "<system-context>") {
+		t.Fatalf("second new item = %#v, want plain user input", got.NewItems[1])
+	}
+}
+
+func TestExecuteInboundInputPersistsContextUpdatesAndRemovals(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-events"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules v1"}},
+	}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-events"}}
+	if result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}}); result.Status != InputStatusOK {
+		t.Fatalf("first status = %q: %#v", result.Status, result)
+	}
+	contextProvider.blocks[0].Content = "rules v2"
+	if result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "second"}}); result.Status != InputStatusOK {
+		t.Fatalf("second status = %q: %#v", result.Status, result)
+	}
+	contextProvider.blocks = nil
+	if result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-3", Kind: channel.InboundMessage, Message: &channel.Message{Content: "third"}}); result.Status != InputStatusOK {
+		t.Fatalf("third status = %q: %#v", result.Status, result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-context-events"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := countEvent(stored.Events, corecontext.EventBlockRecorded); got != 2 {
+		t.Fatalf("block recorded events = %d, want add and update", got)
+	}
+	if got := countEvent(stored.Events, corecontext.EventBlockRemoved); got != 1 {
+		t.Fatalf("block removed events = %d, want one removal", got)
+	}
+	if got := countEvent(stored.Events, corecontext.EventRenderCommitted); got != 3 {
+		t.Fatalf("render committed events = %d, want 3 changed renders", got)
+	}
+}
+
+func TestExecuteInboundInputDoesNotCommitContextWhenModelFails(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-fail"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules"}},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.ModelFunc(func(context.Context, llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{}, errors.New("model down")
+	}), llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-fail"}}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusFailed {
+		t.Fatalf("status = %q, want failed: %#v", result.Status, result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-context-fail"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := countEvent(stored.Events, corecontext.EventRenderCommitted); got != 0 {
+		t.Fatalf("render committed events = %d, want none", got)
+	}
+}
+
+func TestExecuteInboundInputLoadsPriorContextRecordsAcrossSessionInstances(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-resume"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules"}},
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		transcripts = append(transcripts, *req.Transcript)
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
+	})
+	firstAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new first agent: %v", err)
+	}
+	if result := (Session{Agent: firstAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-resume"}}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}}); result.Status != InputStatusOK {
+		t.Fatalf("first status = %q: %#v", result.Status, result)
+	}
+	secondAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new second agent: %v", err)
+	}
+	if result := (Session{Agent: secondAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-resume"}}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "second"}}); result.Status != InputStatusOK {
+		t.Fatalf("second status = %q: %#v", result.Status, result)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if !strings.Contains(valueText(transcripts[0].NewItems[0].Content), "<system-context>") {
+		t.Fatalf("first new items = %#v, want context", transcripts[0].NewItems)
+	}
+	if strings.Contains(valueText(transcripts[1].NewItems[0].Content), "<system-context>") {
+		t.Fatalf("second new items = %#v, want prior records to suppress context", transcripts[1].NewItems)
+	}
+}
+
+func TestExecuteInboundInputContextRecordsAreBranchScoped(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-branches"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "main rules"}},
+	}
+	var mainTranscripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript != nil {
+			mainTranscripts = append(mainTranscripts, *req.Transcript)
+		}
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: items}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new agent: %v", err)
+	}
+	mainSession := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-branches", BranchID: corethread.MainBranch}}
+	if result := mainSession.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-main-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "main"}}); result.Status != InputStatusOK {
+		t.Fatalf("main first status = %q: %#v", result.Status, result)
+	}
+	if _, err := threadStore.Fork(ctx, corethread.ForkParams{ID: "thread-context-branches", FromBranchID: corethread.MainBranch, ToBranchID: "feature"}); err != nil {
+		t.Fatalf("fork: %v", err)
+	}
+	contextProvider.blocks[0].Content = "feature rules"
+	featureSession := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-branches", BranchID: "feature"}}
+	if result := featureSession.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-feature", Kind: channel.InboundMessage, Message: &channel.Message{Content: "feature"}}); result.Status != InputStatusOK {
+		t.Fatalf("feature status = %q: %#v", result.Status, result)
+	}
+	contextProvider.blocks[0].Content = "main rules"
+	if result := mainSession.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-main-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "main again"}}); result.Status != InputStatusOK {
+		t.Fatalf("main second status = %q: %#v", result.Status, result)
+	}
+	if len(mainTranscripts) != 3 {
+		t.Fatalf("transcripts len = %d, want 3", len(mainTranscripts))
+	}
+	if strings.Contains(valueText(mainTranscripts[2].NewItems[0].Content), "<system-context>") {
+		t.Fatalf("main second new items = %#v, want feature branch context not to leak", mainTranscripts[2].NewItems)
+	}
+}
+
+func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var detected []int
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "detect"},
+		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+			input, _ := coredatasource.DetectionInputFromContext(ctx)
+			detected = append(detected, len(input.Sources))
+			return []corecontext.Block{{ID: "detect/current", Content: fmt.Sprintf("sources:%d", len(input.Sources))}}, nil
+		},
+	}
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		calls++
+		if calls == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+			}, nil
+		}
+		return llmagent.Response{
+			Message:    &agent.Message{Content: "done"},
+			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Policy: agent.Policy{MaxSteps: 2}}, model, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor()}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(detected) != 2 {
+		t.Fatalf("detected calls = %v, want two context builds", detected)
+	}
+	if detected[1] <= detected[0] {
+		t.Fatalf("detected sources = %v, want tool followup to include updated observations", detected)
+	}
+}
+
+func TestExecuteInboundCommandContextPreviewIsDryRun(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-command"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "docs"},
+		blocks: []corecontext.Block{{ID: "docs/current", Content: "rules"}},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-command"}}
+	inbound := channel.Inbound{
+		ID:      "cmd-1",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"context"}},
+	}
+	first := s.ExecuteInboundCommand(ctx, inbound)
+	if first.Status != CommandStatusOK || first.Effect == nil || !strings.Contains(fmt.Sprint(first.Effect.Result.Output), "<system-context>") {
+		t.Fatalf("first context command = %#v, want rendered context", first)
+	}
+	second := s.ExecuteInboundCommand(ctx, inbound)
+	if second.Status != CommandStatusOK || second.Effect == nil || !strings.Contains(fmt.Sprint(second.Effect.Result.Output), "<system-context>") {
+		t.Fatalf("second context command = %#v, want dry-run to render again", second)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-context-command"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := countEvent(stored.Events, corecontext.EventRenderCommitted); got != 0 {
+		t.Fatalf("render committed events = %d, want none for dry-run", got)
+	}
+}
+
+func TestExecuteInboundCommandContextPreviewFreshAndKey(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-context-command-key"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	docs := &scriptedContextProvider{spec: corecontext.ProviderSpec{Name: "docs"}, blocks: []corecontext.Block{{ID: "docs/current", Content: "docs rules"}}}
+	skills := &scriptedContextProvider{spec: corecontext.ProviderSpec{Name: "skills"}, blocks: []corecontext.Block{{ID: "skills/current", Content: "skill rules"}}}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, model, llmagent.WithContextProviders(docs, skills))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-context-command-key"}}
+	if result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "commit"}}); result.Status != InputStatusOK {
+		t.Fatalf("input status = %q: %#v", result.Status, result)
+	}
+	cmd := channel.Inbound{
+		ID:      "cmd-1",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"context"}, Input: map[string]any{"fresh": true, "key": "skills"}},
+	}
+	result := s.ExecuteInboundCommand(ctx, cmd)
+	if result.Status != CommandStatusOK || result.Effect == nil {
+		t.Fatalf("context command = %#v, want ok", result)
+	}
+	output := fmt.Sprint(result.Effect.Result.Output)
+	if !strings.Contains(output, "skill rules") || strings.Contains(output, "docs rules") {
+		t.Fatalf("output = %q, want only skills provider", output)
+	}
+	cmd.Command.Input = map[string]any{"key": "missing"}
+	missing := s.ExecuteInboundCommand(ctx, cmd)
+	if missing.Status != CommandStatusFailed || missing.Error == nil || missing.Error.Code != "context_provider_not_found" {
+		t.Fatalf("missing provider result = %#v, want context_provider_not_found", missing)
 	}
 }
 
@@ -975,6 +1435,21 @@ func (a *sequenceAgent) Step(_ agent.Context, input agent.StepInput) agent.StepR
 		return a.results[len(a.inputs)-1]
 	}
 	return agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}}
+}
+
+type scriptedContextProvider struct {
+	spec   corecontext.ProviderSpec
+	blocks []corecontext.Block
+	build  func(context.Context, corecontext.Request) ([]corecontext.Block, error)
+}
+
+func (p *scriptedContextProvider) Spec() corecontext.ProviderSpec { return p.spec }
+
+func (p *scriptedContextProvider) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+	if p.build != nil {
+		return p.build(ctx, req)
+	}
+	return append([]corecontext.Block(nil), p.blocks...), nil
 }
 
 func requestedCallIDs(events []event.Event) []operation.CallID {

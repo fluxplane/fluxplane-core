@@ -22,6 +22,7 @@ const (
 	streamFlushInterval = 300 * time.Millisecond
 	statusMinInterval   = 800 * time.Millisecond
 	slackAppendRetries  = 2
+	slackWorkingStatus  = "is working..."
 )
 
 type runSummary struct {
@@ -169,8 +170,7 @@ func (o *runObserver) handleOperationRequested(event clientapi.Event) {
 	o.mu.Unlock()
 	name := event.Operation.Operation.String()
 	slog.Info("slack run tool start", "channel", o.channel.name, "run", event.RunID, "tool", name, "input", compactValue(event.Operation.Input, 320))
-	title := toolLabel(name)
-	o.setStatus(context.Background(), "is "+title+"...")
+	o.setStatus(context.Background(), slackWorkingStatus)
 }
 
 func (o *runObserver) handleOperationCompleted(event clientapi.Event) {
@@ -190,7 +190,6 @@ func (o *runObserver) handleOperationCompleted(event clientapi.Event) {
 		attrs = append(attrs, "error", event.Operation.Result.Error.Message)
 	}
 	slog.Info("slack run tool end", attrs...)
-	o.setStatus(context.Background(), "is thinking...")
 }
 
 func (o *runObserver) handleRuntime(event clientapi.Event) {
@@ -204,7 +203,7 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 	switch payload := event.Runtime.Payload.(type) {
 	case llmagent.ModelRequested:
 		slog.Info("slack run model start", "channel", o.channel.name, "run", event.RunID, "provider", payload.Provider, "model", payload.Model)
-		o.setStatus(context.Background(), "is thinking...")
+		o.setStatus(context.Background(), slackWorkingStatus)
 	case llmagent.ModelCompleted:
 		slog.Info("slack run model end", "channel", o.channel.name, "run", event.RunID, "provider", payload.Provider, "model", payload.Model, "decision", payload.Decision)
 	case llmagent.ModelFailed:
@@ -404,7 +403,7 @@ func (o *runObserver) handleModelStream(runID clientapi.RunID, event llmagent.St
 	case llmagent.StreamToolCallDelta:
 		if event.Final {
 			slog.Info("slack run model tool call", "channel", o.channel.name, "run", runID, "tool", event.Tool)
-			o.setStatus(context.Background(), "is "+toolLabel(string(event.Tool))+"...")
+			o.setStatus(context.Background(), slackWorkingStatus)
 		} else if o.channel.debug && strings.TrimSpace(event.Text) != "" {
 			slog.Debug("slack run tool args delta", "channel", o.channel.name, "run", runID, "tool", event.Tool, "args", compactText(event.Text, 240))
 		}
@@ -490,6 +489,7 @@ func (o *runObserver) startStream(ctx context.Context) error {
 	if o.channel == nil || o.channel.api == nil {
 		return fmt.Errorf("slack api is nil")
 	}
+	o.setStatus(ctx, "")
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	options := []slack.MsgOption{
@@ -519,7 +519,7 @@ func (o *runObserver) startStream(ctx context.Context) error {
 }
 
 func (o *runObserver) appendMarkdown(ctx context.Context, text string) error {
-	return o.appendStream(ctx, slack.MsgOptionMarkdownText(text))
+	return o.appendChunks(ctx, slack.NewMarkdownTextChunk(text))
 }
 
 func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCardStatus, details, output string) {
@@ -619,6 +619,10 @@ func (o *runObserver) setStatus(ctx context.Context, status string) {
 	}
 	now := time.Now()
 	o.mu.Lock()
+	if status != "" && o.streamed {
+		o.mu.Unlock()
+		return
+	}
 	if status == o.status {
 		o.mu.Unlock()
 		return
@@ -668,38 +672,6 @@ func slackResultError(result clientapi.Result) error {
 		return fmt.Errorf("command failed: %s", result.Command.Status)
 	}
 	return nil
-}
-
-func toolLabel(name string) string {
-	switch name {
-	case "channel_send":
-		return "sending a message"
-	case "datasource_search":
-		return "searching datasources"
-	case "datasource_get":
-		return "reading a datasource record"
-	case "slack_search", "slack_bot_search":
-		return "searching Slack"
-	case "gitlab_project_search":
-		return "searching GitLab projects"
-	case "jira_issue_search":
-		return "searching Jira issues"
-	case "web_request":
-		return "reading the web"
-	default:
-		switch {
-		case strings.Contains(name, "slack") && strings.Contains(name, "search"):
-			return "searching Slack"
-		case strings.Contains(name, "gitlab") && strings.Contains(name, "search"):
-			return "searching GitLab"
-		case strings.Contains(name, "jira") && strings.Contains(name, "search"):
-			return "searching Jira"
-		case strings.Contains(name, "search"):
-			return "searching"
-		default:
-			return "using " + name
-		}
-	}
 }
 
 func compactValue(value any, max int) string {

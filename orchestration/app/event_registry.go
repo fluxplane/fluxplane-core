@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -59,6 +60,9 @@ func defaultEventTypes() []event.Event {
 		operation.OperationFailed{},
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
+		corecontext.BlockRecorded{},
+		corecontext.BlockRemovedRecorded{},
+		corecontext.RenderCommitted{},
 		usage.Recorded{},
 		skill.SkillActivated{},
 		skill.SkillReferenceActivated{},

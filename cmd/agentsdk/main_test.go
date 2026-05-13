@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/channel"
+	corecommand "github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/usage"
@@ -33,31 +35,140 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-func TestCoderCommandHasREPLAndUsageFlag(t *testing.T) {
+func TestCoderCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	cmd := newRootCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"coder", "repl", "--help"})
+	cmd.SetArgs([]string{"coder", "--help"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
 	if !strings.Contains(help, "interactive session") {
-		t.Fatalf("help = %q, want repl help", help)
+		t.Fatalf("help = %q, want interactive help", help)
+	}
+	if !strings.Contains(help, "--input") {
+		t.Fatalf("help = %q, want input flag", help)
 	}
 	if !strings.Contains(help, "--usage") {
-		t.Fatalf("help = %q, want inherited usage flag", help)
+		t.Fatalf("help = %q, want usage flag", help)
 	}
 	if !strings.Contains(help, "--provider") {
-		t.Fatalf("help = %q, want inherited provider flag", help)
+		t.Fatalf("help = %q, want provider flag", help)
 	}
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
+	}
+	coderCmd, _, err := cmd.Find([]string{"coder"})
+	if err != nil {
+		t.Fatalf("Find coder: %v", err)
+	}
+	for _, child := range coderCmd.Commands() {
+		if child.Name() == "repl" {
+			t.Fatalf("coder command has repl subcommand, want coder to be the repl entrypoint")
+		}
+	}
+}
+
+func TestTerminalContextCommandParsesFreshAndKey(t *testing.T) {
+	invocation, ok, err := terminalContextCommand("/context --fresh --key skills")
+	if err != nil {
+		t.Fatalf("terminalContextCommand: %v", err)
+	}
+	if !ok {
+		t.Fatal("terminalContextCommand ok = false, want true")
+	}
+	if invocation.Path.String() != "/context" {
+		t.Fatalf("path = %q, want /context", invocation.Path.String())
+	}
+	input, ok := invocation.Input.(map[string]any)
+	if !ok {
+		t.Fatalf("input = %T, want map", invocation.Input)
+	}
+	if input["fresh"] != true || input["key"] != "skills" {
+		t.Fatalf("input = %#v, want fresh skills", input)
+	}
+}
+
+func TestTerminalContextCommandRejectsUnknownFlag(t *testing.T) {
+	if _, _, err := terminalContextCommand("/context --bogus"); err == nil {
+		t.Fatal("terminalContextCommand error = nil, want unknown flag")
+	}
+}
+
+func TestTerminalContextCommandIgnoresOtherSlashPrompts(t *testing.T) {
+	invocation, ok, err := terminalContextCommand("/review this")
+	if err != nil {
+		t.Fatalf("terminalContextCommand: %v", err)
+	}
+	if ok || invocation.Path.String() != "" {
+		t.Fatalf("invocation = %#v ok=%v, want ignored", invocation, ok)
+	}
+}
+
+func TestCoderCompositionContextCommandRendersAgentsMD(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent Rules\n\nUse system context.\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{coder.Bundle()},
+		Plugins: []pluginhost.Plugin{
+			codingplugin.New(sys),
+			planexecplugin.New(),
+			skillplugin.New(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel: llmagent.StaticModel{Response: llmagent.MessageResponse("ok")},
+		Channel:  channel.Ref{Name: "local"},
+		Caller:   policy.Caller{Kind: policy.CallerUser},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: coder.SessionName},
+		Conversation: channel.ConversationRef{ID: "context-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.SendCommand(ctx, corecommand.Invocation{
+		Path:  corecommand.Path{"context"},
+		Input: map[string]any{"fresh": true, "key": codingplugin.AgentsContextProvider},
+	})
+	if err != nil {
+		t.Fatalf("SendCommand: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Command == nil || result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("command result = %#v", result.Command)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil {
+		t.Fatalf("outbound = %#v, want context output", result.Outbound)
+	}
+	output := result.Outbound.Message.Content
+	if !strings.Contains(fmt.Sprint(output), "Use system context.") || !strings.Contains(fmt.Sprint(output), "## system") {
+		t.Fatalf("output = %q, want AGENTS.md system context", output)
 	}
 }
 

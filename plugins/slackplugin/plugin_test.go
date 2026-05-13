@@ -348,10 +348,13 @@ func TestRunObserverOperationEventsUseStatusNotTaskCards(t *testing.T) {
 	if strings.Contains(joined, "chat.startStream") || strings.Contains(joined, "task_update") {
 		t.Fatalf("operation status created task stream: %s", joined)
 	}
-	for _, want := range []string{"assistant.threads.setStatus", "searching+datasources"} {
+	for _, want := range []string{"assistant.threads.setStatus", "is+working..."} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("requests = %s\nmissing %q", joined, want)
 		}
+	}
+	if strings.Contains(joined, "searching+datasources") || strings.Contains(joined, "reading+a+datasource+record") {
+		t.Fatalf("operation details leaked into Slack status: %s", joined)
 	}
 	if strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
 		t.Fatalf("requests leaked thinking text: %s", joined)
@@ -382,12 +385,12 @@ func TestRunObserverStreamsRepeatedContentDeltas(t *testing.T) {
 	}
 	observer.Finish(context.Background(), "haha")
 
-	markdown := joinSlackMarkdown(requests)
+	markdown := joinSlackMarkdownChunks(requests)
 	if !strings.Contains(markdown, "haha") {
 		t.Fatalf("markdown = %s\nwant repeated deltas preserved as haha", markdown)
 	}
-	if strings.Contains(joinSlackRequests(requests), "chunks=") {
-		t.Fatalf("markdown stream used chunks: %s", joinSlackRequests(requests))
+	if strings.Contains(markdown, `"type":"task_update"`) {
+		t.Fatalf("markdown stream used task chunks: %s", joinSlackRequests(requests))
 	}
 }
 
@@ -466,16 +469,19 @@ func TestRunObserverKeepsMarkdownAndTaskStreamParametersSeparate(t *testing.T) {
 		if markdown != "" && chunks != "" {
 			t.Fatalf("append request mixed markdown_text and chunks: %#v", request.values)
 		}
-		if markdown != "" {
+		if strings.Contains(chunks, `"type":"markdown_text"`) {
 			sawMarkdownAppend = true
-			if markdown != "**Summary**\n- item one\n" {
-				t.Fatalf("markdown_text = %q, want raw markdown preserved", markdown)
+			if strings.Contains(chunks, `"type":"task_update"`) {
+				t.Fatalf("markdown append mixed in task chunks: %s", chunks)
+			}
+			if !strings.Contains(chunks, `**Summary**\n- item one\n`) {
+				t.Fatalf("markdown chunks = %q, want raw markdown preserved", chunks)
 			}
 		}
-		if chunks != "" {
+		if strings.Contains(chunks, `"type":"task_update"`) {
 			sawTaskAppend = true
-			if !strings.Contains(chunks, `"type":"task_update"`) {
-				t.Fatalf("chunks = %s, want task_update", chunks)
+			if strings.Contains(chunks, `"type":"markdown_text"`) {
+				t.Fatalf("task append mixed in markdown chunks: %s", chunks)
 			}
 		}
 	}
@@ -513,9 +519,44 @@ func TestRunObserverRequeuesFailedMarkdownAppend(t *testing.T) {
 	if appendAttempts != 2 {
 		t.Fatalf("append attempts = %d, want 2", appendAttempts)
 	}
-	markdown := joinSlackMarkdown(requests)
+	markdown := joinSlackMarkdownChunks(requests)
 	if !strings.Contains(markdown, "recover me") {
 		t.Fatalf("markdown = %s\nwant requeued markdown append", markdown)
+	}
+}
+
+func TestRunObserverClearsStatusBeforeStreamingContent(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.setStatus(context.Background(), slackWorkingStatus)
+	observer.Append("Final answer")
+	if err := observer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	observer.Finish(context.Background(), "Final answer")
+
+	statusSetIndex, statusClearIndex, streamStartIndex := -1, -1, -1
+	for i, request := range *requests {
+		switch request.path {
+		case "/assistant.threads.setStatus":
+			if request.values.Get("status") == slackWorkingStatus {
+				statusSetIndex = i
+			}
+			if _, ok := request.values["status"]; ok && request.values.Get("status") == "" {
+				statusClearIndex = i
+			}
+		case "/chat.startStream":
+			streamStartIndex = i
+		}
+	}
+	if statusSetIndex < 0 || statusClearIndex < 0 || streamStartIndex < 0 {
+		t.Fatalf("requests = %s\nwant status set, status clear, and stream start", joinSlackRequests(requests))
+	}
+	if statusSetIndex >= statusClearIndex || statusClearIndex >= streamStartIndex {
+		t.Fatalf("request order = %s\nwant status cleared before stream start", joinSlackRequests(requests))
 	}
 }
 
@@ -630,14 +671,15 @@ func joinSlackChunks(requests *[]capturedSlackRequest) string {
 	return strings.Join(chunks, "\n")
 }
 
-func joinSlackMarkdown(requests *[]capturedSlackRequest) string {
-	var markdown []string
+func joinSlackMarkdownChunks(requests *[]capturedSlackRequest) string {
+	var chunks []string
 	for _, request := range *requests {
-		if text := request.values.Get("markdown_text"); text != "" {
-			markdown = append(markdown, text)
+		chunk := request.values.Get("chunks")
+		if strings.Contains(chunk, `"type":"markdown_text"`) {
+			chunks = append(chunks, chunk)
 		}
 	}
-	return strings.Join(markdown, "\n")
+	return strings.Join(chunks, "\n")
 }
 
 type fakePoster struct {

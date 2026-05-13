@@ -39,6 +39,7 @@ import (
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
+	corecommand "github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
@@ -630,6 +631,7 @@ func printConnectInfo(out io.Writer, def *connectorsdefinition.Definition) {
 type coderOptions struct {
 	provider string
 	model    string
+	input    string
 	debug    bool
 	usage    bool
 }
@@ -637,34 +639,22 @@ type coderOptions struct {
 func newCoderCommand() *cobra.Command {
 	var opts coderOptions
 	cmd := &cobra.Command{
-		Use:   "coder [prompt]",
-		Short: "Run the first-party coding agent",
-		Args:  cobra.ArbitraryArgs,
+		Use:   "coder",
+		Short: "Run coder in an interactive session",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			prompt := strings.TrimSpace(strings.Join(args, " "))
-			if prompt == "" {
-				return errors.New("prompt is empty")
+			if strings.TrimSpace(opts.input) != "" {
+				return runCoder(cmd.Context(), opts, opts.input)
 			}
-			return runCoder(cmd.Context(), opts, prompt)
+			return runCoderREPL(cmd.Context(), opts)
 		},
 	}
 	cmd.PersistentFlags().StringVar(&opts.provider, "provider", "openai", "model provider")
 	cmd.PersistentFlags().StringVar(&opts.model, "model", coder.DefaultModel, "model name or provider/model")
+	cmd.PersistentFlags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
-	cmd.AddCommand(newCoderReplCommand(&opts))
 	return cmd
-}
-
-func newCoderReplCommand(opts *coderOptions) *cobra.Command {
-	return &cobra.Command{
-		Use:   "repl",
-		Short: "Run coder in an interactive session",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runCoderREPL(cmd.Context(), *opts)
-		},
-	}
 }
 
 func runServe(ctx context.Context, opts serveOptions, appDir string) error {
@@ -1379,6 +1369,14 @@ func resolveRemoteSocketPath(raw string) string {
 }
 
 func sendRemotePrompt(ctx context.Context, session agentruntime.Session, opts remoteOptions, prompt string, tracker *coreusage.Tracker) error {
+	if invocation, ok, err := terminalContextCommand(prompt); err != nil {
+		return err
+	} else if ok {
+		return runTerminalCommand(ctx, session, invocation, terminalTurnOptions{
+			Debug: opts.debug,
+			Usage: opts.usage,
+		}, tracker)
+	}
 	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
 		Debug: opts.debug,
 		Usage: opts.usage,
@@ -1523,6 +1521,14 @@ func coderBundle(provider, model string) agentruntime.ResourceBundle {
 }
 
 func sendCoderPrompt(ctx context.Context, session agentruntime.Session, opts coderOptions, prompt string, tracker *coreusage.Tracker) error {
+	if invocation, ok, err := terminalContextCommand(prompt); err != nil {
+		return err
+	} else if ok {
+		return runTerminalCommand(ctx, session, invocation, terminalTurnOptions{
+			Debug: opts.debug,
+			Usage: opts.usage,
+		}, tracker)
+	}
 	return runTerminalPrompt(ctx, session, prompt, terminalTurnOptions{
 		Debug: opts.debug,
 		Usage: opts.usage,
@@ -1565,6 +1571,54 @@ func runTerminalPrompt(ctx context.Context, session agentruntime.Session, prompt
 		return err
 	}
 	return resultError(result)
+}
+
+func runTerminalCommand(ctx context.Context, session agentruntime.Session, invocation corecommand.Invocation, opts terminalTurnOptions, tracker *coreusage.Tracker) error {
+	run, err := session.SendCommand(ctx, invocation)
+	if err != nil {
+		return err
+	}
+	eventsDone := renderTerminalEvents(run.Events(), tracker, opts.Debug)
+	result, err := run.Wait(ctx)
+	if eventsDone != nil {
+		<-eventsDone
+	}
+	renderTerminalOutbound(os.Stdout, result)
+	if opts.Usage && tracker != nil {
+		terminalui.RenderUsageSnapshot(os.Stderr, tracker.Snapshot())
+	}
+	if err != nil {
+		return err
+	}
+	return resultError(result)
+}
+
+func terminalContextCommand(prompt string) (corecommand.Invocation, bool, error) {
+	prompt = strings.TrimSpace(prompt)
+	if prompt != "/context" && !strings.HasPrefix(prompt, "/context ") {
+		return corecommand.Invocation{}, false, nil
+	}
+	args := strings.Fields(strings.TrimSpace(strings.TrimPrefix(prompt, "/context")))
+	input := map[string]any{}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--fresh":
+			input["fresh"] = true
+		case "--key":
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return corecommand.Invocation{}, false, errors.New("/context --key requires a provider name")
+			}
+			i++
+			input["key"] = args[i]
+		default:
+			return corecommand.Invocation{}, false, fmt.Errorf("unknown /context argument %q", args[i])
+		}
+	}
+	var commandInput any
+	if len(input) > 0 {
+		commandInput = input
+	}
+	return corecommand.Invocation{Path: corecommand.Path{"context"}, Input: commandInput}, true, nil
 }
 
 func resultError(result agentruntime.Result) error {
