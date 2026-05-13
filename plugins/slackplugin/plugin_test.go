@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -216,19 +217,12 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	}
 }
 
-func TestRunObserverStreamsTaskUpdatesWithoutThinkingText(t *testing.T) {
-	var requests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requests = append(requests, r.URL.Path+" "+string(body))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"999.0001"}`))
-	}))
+func TestRunObserverOperationEventsUseStatusNotTaskCards(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
 	defer server.Close()
 
 	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
 	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api, debug: true}, Target{ChannelID: "C1", ThreadTS: "111.222"})
-	observer.ensureStarted(context.Background())
 	observer.Handle(clientapi.Event{
 		Kind:  clientapi.EventOperationRequested,
 		RunID: "run-1",
@@ -265,16 +259,150 @@ func TestRunObserverStreamsTaskUpdatesWithoutThinkingText(t *testing.T) {
 			},
 		},
 	})
-	observer.Finish(context.Background())
+	observer.Finish(context.Background(), "")
 
-	joined := strings.Join(requests, "\n")
-	for _, want := range []string{"chat.startStream", "task_update", "Working+on+it", "searching+datasources", "2+results", "chat.stopStream"} {
+	joined := joinSlackRequests(requests)
+	if strings.Contains(joined, "chat.startStream") || strings.Contains(joined, "task_update") {
+		t.Fatalf("operation status created task stream: %s", joined)
+	}
+	for _, want := range []string{"assistant.threads.setStatus", "searching+datasources"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("requests = %s\nmissing %q", joined, want)
 		}
 	}
 	if strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
 		t.Fatalf("requests leaked thinking text: %s", joined)
+	}
+}
+
+func TestRunObserverStreamsRepeatedContentDeltas(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	for i := 0; i < 2; i++ {
+		observer.Handle(clientapi.Event{
+			Kind:  clientapi.EventRuntimeEmitted,
+			RunID: "run-1",
+			Runtime: &clientapi.RuntimeEvent{
+				Name: llmagent.EventModelStreamedName,
+				Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+					Kind: llmagent.StreamContentDelta,
+					Text: "ha",
+				}},
+			},
+		})
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	observer.Finish(context.Background(), "haha")
+
+	chunks := joinSlackChunks(requests)
+	if !strings.Contains(chunks, `"text":"haha"`) {
+		t.Fatalf("chunks = %s\nwant repeated deltas preserved as haha", chunks)
+	}
+}
+
+func TestRunObserverPlanEventsUseTaskCards(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Handle(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: planexecplugin.EventPlanCreated,
+			Payload: planexecplugin.PlanCreated{
+				PlanID: "plan_1",
+				Spec: planexecplugin.PlanSpec{
+					Title:       "Investigate issue",
+					Description: "Read the trace",
+					Steps:       []planexecplugin.StepSpec{{ID: "step_1", Title: "Check logs"}},
+				},
+			},
+		},
+	})
+	observer.Handle(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepProgressed,
+			Payload: planexecplugin.StepProgressed{PlanID: "plan_1", StepID: "step_1", Message: "reading"},
+		},
+	})
+	observer.Finish(context.Background(), "done")
+
+	joined := joinSlackRequests(requests)
+	chunks := joinSlackChunks(requests)
+	for _, want := range []string{"chat.startStream", "task_update", "Investigate+issue", "chat.stopStream", "markdown_text=done"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("requests = %s\nmissing %q", joined, want)
+		}
+	}
+	for _, want := range []string{`"details":"Read the trace"`, `"details":"reading"`} {
+		if !strings.Contains(chunks, want) {
+			t.Fatalf("chunks = %s\nmissing %q", chunks, want)
+		}
+	}
+}
+
+func TestRunObserverRequeuesFailedMarkdownAppend(t *testing.T) {
+	appendAttempts := 0
+	server, requests := slackCaptureServer(t, func(w http.ResponseWriter, r *http.Request, _ string) bool {
+		if r.URL.Path == "/chat.appendStream" {
+			appendAttempts++
+			if appendAttempts == 1 {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok":false,"error":"temporary_failure"}`))
+				return true
+			}
+		}
+		return false
+	})
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Append("recover me")
+	if err := observer.Flush(); err == nil {
+		t.Fatal("first Flush succeeded, want append failure")
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatalf("second Flush: %v", err)
+	}
+	observer.Finish(context.Background(), "recover me")
+
+	if appendAttempts != 2 {
+		t.Fatalf("append attempts = %d, want 2", appendAttempts)
+	}
+	chunks := joinSlackChunks(requests)
+	if !strings.Contains(chunks, `"text":"recover me"`) {
+		t.Fatalf("chunks = %s\nwant requeued markdown append", chunks)
+	}
+}
+
+func TestRunObserverFinalizesMissingMarkdownSuffix(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Append("hello")
+	if err := observer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	observer.Finish(context.Background(), "hello world")
+
+	var stop url.Values
+	for _, req := range *requests {
+		if req.path == "/chat.stopStream" {
+			stop = req.values
+		}
+	}
+	if got := stop.Get("markdown_text"); got != " world" {
+		t.Fatalf("stop markdown_text = %q, want missing suffix", got)
 	}
 }
 
@@ -302,6 +430,68 @@ func TestRunObserverTracksBackgroundPlanLifecycle(t *testing.T) {
 	if summary.ActivePlans["plan_1"] {
 		t.Fatalf("active plans = %#v, want plan_1 removed", summary.ActivePlans)
 	}
+}
+
+func TestRunObserverFollowsBackgroundPlansAfterObservedCursor(t *testing.T) {
+	observer := newRunObserver(&SlackChannel{name: "slack-main"}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Handle(clientapi.Event{
+		Kind:   clientapi.EventRuntimeEmitted,
+		Cursor: clientapi.EventCursor{Sequence: 7},
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventPlanExecutionStarted,
+			Payload: planexecplugin.PlanExecutionStarted{PlanID: "plan_1"},
+		},
+	})
+	session := &capturingSession{}
+
+	observer.FollowPlans(context.Background(), session, map[string]bool{"plan_1": true})
+
+	if got := session.eventOptions.After.Sequence; got != 7 {
+		t.Fatalf("follow plan after sequence = %d, want 7", got)
+	}
+	if !session.eventOptions.Replay {
+		t.Fatal("follow plan did not request replay")
+	}
+}
+
+func slackCaptureServer(t *testing.T, intercept func(http.ResponseWriter, *http.Request, string) bool) (*httptest.Server, *[]capturedSlackRequest) {
+	t.Helper()
+	var requests []capturedSlackRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if intercept != nil && intercept(w, r, string(body)) {
+			return
+		}
+		values, _ := url.ParseQuery(string(body))
+		requests = append(requests, capturedSlackRequest{path: r.URL.Path, body: string(body), values: values})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"999.0001"}`))
+	}))
+	return server, &requests
+}
+
+type capturedSlackRequest struct {
+	path   string
+	body   string
+	values url.Values
+}
+
+func joinSlackRequests(requests *[]capturedSlackRequest) string {
+	var lines []string
+	for _, request := range *requests {
+		lines = append(lines, request.path+" "+request.body)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func joinSlackChunks(requests *[]capturedSlackRequest) string {
+	var chunks []string
+	for _, request := range *requests {
+		if chunk := request.values.Get("chunks"); chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+	return strings.Join(chunks, "\n")
 }
 
 type fakePoster struct {
@@ -335,6 +525,7 @@ func (c capturingClient) ListSessions(context.Context, clientapi.ListSessionsReq
 type capturingSession struct {
 	submission      clientapi.Submission
 	sendInputCalled bool
+	eventOptions    clientapi.EventOptions
 }
 
 func (s *capturingSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
@@ -353,7 +544,8 @@ func (s *capturingSession) SendInput(context.Context, clientapi.Input) (clientap
 	return nil, nil
 }
 
-func (s *capturingSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+func (s *capturingSession) Events(_ context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	s.eventOptions = opts
 	ch := make(chan clientapi.Event)
 	close(ch)
 	return ch, func() {}, nil

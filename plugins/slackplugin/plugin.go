@@ -722,26 +722,25 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		return err
 	}
 	observer := newRunObserver(c, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID})
-	observer.ensureStarted(turnCtx)
 	observer.setStatus(turnCtx, "is thinking...")
 	eventsDone := observer.Observe(run.Events())
 	result, err := run.Wait(turnCtx)
 	summary := <-eventsDone
 	observerFinished := false
-	finishObserver := func() {
+	finishObserver := func(finalMarkdown string) {
 		if observerFinished {
 			return
 		}
-		observer.Finish(turnCtx)
+		observer.Finish(turnCtx, finalMarkdown)
 		observerFinished = true
 	}
 	if err != nil {
-		finishObserver()
+		finishObserver("")
 		_ = c.postError(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, err)
 		return err
 	}
 	if inputErr := slackResultError(result); inputErr != nil {
-		finishObserver()
+		finishObserver("")
 		_ = c.postError(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, inputErr)
 		return inputErr
 	}
@@ -752,14 +751,10 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		text := fmt.Sprint(result.Outbound.Message.Content)
 		if strings.TrimSpace(text) != "" {
 			if summary.Streamed {
-				if !summary.ContentStreamed {
-					observer.Append(text)
-					observer.Flush()
-				}
-				finishObserver()
+				finishObserver(text)
 				slog.Info("slack channel reply streamed", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
 			} else {
-				finishObserver()
+				finishObserver("")
 				_, err = c.dispatcher.Post(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, text)
 			}
 		}
@@ -768,7 +763,7 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		return err
 	}
 	if result.Outbound == nil || result.Outbound.Message == nil || strings.TrimSpace(fmt.Sprint(result.Outbound.Message.Content)) == "" {
-		finishObserver()
+		finishObserver("")
 		if summary.Streamed {
 			slog.Info("slack channel run completed with streamed content", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
 			return nil
@@ -777,7 +772,7 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		return nil
 	}
 	if !summary.Streamed {
-		finishObserver()
+		finishObserver("")
 	}
 	slog.Info("slack channel reply posted", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
 	return err

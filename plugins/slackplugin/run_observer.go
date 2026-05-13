@@ -21,6 +21,7 @@ import (
 const (
 	streamFlushInterval = 300 * time.Millisecond
 	statusMinInterval   = 800 * time.Millisecond
+	slackAppendRetries  = 2
 )
 
 type runSummary struct {
@@ -30,6 +31,7 @@ type runSummary struct {
 	Streamed        bool
 	ContentStreamed bool
 	ActivePlans     map[string]bool
+	LastCursor      clientapi.EventCursor
 }
 
 type runObserver struct {
@@ -41,15 +43,14 @@ type runObserver struct {
 	streamed   bool
 	streamFail bool
 	buffer     strings.Builder
+	appended   strings.Builder
 	timer      *time.Timer
 
 	status        string
 	statusUpdated time.Time
-	taskSeq       int
-	taskByCallID  map[operation.CallID]string
 	summary       runSummary
 	activePlans   map[string]bool
-	seenRuntime   map[string]bool
+	appendFailed  bool
 }
 
 func newRunObserver(channel *SlackChannel, target Target) *runObserver {
@@ -62,7 +63,7 @@ func (o *runObserver) Observe(events <-chan clientapi.Event) <-chan runSummary {
 		for event := range events {
 			o.Handle(event)
 		}
-		o.Flush()
+		_ = o.Flush()
 		o.mu.Lock()
 		o.summary.Streamed = o.streamed
 		o.summary.ActivePlans = cloneBoolMap(o.activePlans)
@@ -80,6 +81,9 @@ func (o *runObserver) Handle(event clientapi.Event) {
 	}
 	o.mu.Lock()
 	o.summary.Events++
+	if event.Cursor.Sequence != 0 {
+		o.summary.LastCursor = event.Cursor
+	}
 	o.mu.Unlock()
 	switch event.Kind {
 	case clientapi.EventOperationRequested:
@@ -87,9 +91,6 @@ func (o *runObserver) Handle(event clientapi.Event) {
 	case clientapi.EventOperationCompleted:
 		o.handleOperationCompleted(event)
 	case clientapi.EventRuntimeEmitted:
-		if o.skipSeenRuntime(event) {
-			return
-		}
 		o.handleRuntime(event)
 	case clientapi.EventRunCompleted:
 		slog.Info("slack run completed", "channel", o.channel.name, "run", event.RunID)
@@ -110,7 +111,8 @@ func (o *runObserver) FollowPlans(ctx context.Context, session clientapi.Session
 		o.activePlans[planID] = true
 	}
 	o.mu.Unlock()
-	events, cancel, err := session.Events(ctx, clientapi.EventOptions{Buffer: 64, Replay: true})
+	after := o.snapshotSummary().LastCursor
+	events, cancel, err := session.Events(ctx, clientapi.EventOptions{Buffer: 64, Replay: true, After: after})
 	if err != nil {
 		slog.Warn("slack background plan events unavailable", "channel", o.channel.name, "error", err)
 		return runSummary{}
@@ -136,7 +138,7 @@ func (o *runObserver) FollowPlans(ctx context.Context, session clientapi.Session
 			o.Handle(event)
 		}
 	}
-	o.Flush()
+	_ = o.Flush()
 	return o.snapshotSummary()
 }
 
@@ -148,11 +150,11 @@ func (o *runObserver) snapshotSummary() runSummary {
 	return o.summary
 }
 
-func (o *runObserver) Finish(ctx context.Context) {
-	o.Flush()
+func (o *runObserver) Finish(ctx context.Context, finalMarkdown string) {
+	flushErr := o.Flush()
 	if o.started() {
-		if err := o.stopStream(ctx); err != nil {
-			slog.Debug("slack stream stop failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
+		if err := o.stopStream(ctx, o.finalMarkdownPatch(finalMarkdown, flushErr)); err != nil {
+			slog.Warn("slack stream stop failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
 		}
 	}
 	o.setStatus(ctx, "")
@@ -168,7 +170,6 @@ func (o *runObserver) handleOperationRequested(event clientapi.Event) {
 	name := event.Operation.Operation.String()
 	slog.Info("slack run tool start", "channel", o.channel.name, "run", event.RunID, "tool", name, "input", compactValue(event.Operation.Input, 320))
 	title := toolLabel(name)
-	o.appendTaskUpdate(o.operationTaskID(event.Operation.CallID), title, slack.TaskCardStatusInProgress, "")
 	o.setStatus(context.Background(), "is "+title+"...")
 }
 
@@ -189,14 +190,6 @@ func (o *runObserver) handleOperationCompleted(event clientapi.Event) {
 		attrs = append(attrs, "error", event.Operation.Result.Error.Message)
 	}
 	slog.Info("slack run tool end", attrs...)
-	title := toolLabel(name)
-	if taskID := o.operationTaskID(event.Operation.CallID); taskID != "" {
-		if status == operation.StatusOK {
-			o.appendTaskUpdate(taskID, title, slack.TaskCardStatusComplete, operationSummary(event.Operation.Result))
-		} else {
-			o.appendTaskUpdate(taskID, title, slack.TaskCardStatusError, operationSummary(event.Operation.Result))
-		}
-	}
 	o.setStatus(context.Background(), "is thinking...")
 }
 
@@ -223,25 +216,25 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 	case planexecplugin.StepDispatched:
 		o.handlePlanStepDispatched(payload)
 	case planexecplugin.StepProgressed:
-		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusInProgress, payload.Message)
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusInProgress, payload.Message, "")
 	case planexecplugin.StepCompleted:
-		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusComplete, payload.Output)
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusComplete, "", payload.Output)
 	case planexecplugin.StepFailed:
-		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusError, payload.Error)
+		o.appendTaskUpdate(planTaskID(payload.PlanID, payload.StepID), "Step "+payload.StepID, slack.TaskCardStatusError, "", payload.Error)
 	case planexecplugin.PlanCompleted:
-		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan completed", slack.TaskCardStatusComplete, payload.Summary)
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan completed", slack.TaskCardStatusComplete, "", payload.Summary)
 	case planexecplugin.PlanFailed:
-		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan failed", slack.TaskCardStatusError, payload.Reason)
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan failed", slack.TaskCardStatusError, "", payload.Reason)
 	case planexecplugin.PlanCancelled:
-		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan cancelled", slack.TaskCardStatusError, payload.Reason)
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan cancelled", slack.TaskCardStatusError, "", payload.Reason)
 	case subagent.Started:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusInProgress, payload.Task)
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusInProgress, payload.Task, "")
 	case subagent.Completed:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusComplete, payload.Output)
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusComplete, "", payload.Output)
 	case subagent.Failed:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, payload.Error)
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, "", payload.Error)
 	case subagent.Cancelled:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, payload.Reason)
+		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, "", payload.Reason)
 	case map[string]any:
 		o.handleRuntimeMap(event, payload)
 	}
@@ -276,54 +269,34 @@ func (o *runObserver) handleRuntimeMap(event clientapi.Event, payload map[string
 	case string(planexecplugin.EventStepProgressed):
 		var typed planexecplugin.StepProgressed
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusInProgress, typed.Message)
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusInProgress, typed.Message, "")
 		}
 	case string(planexecplugin.EventStepCompleted):
 		var typed planexecplugin.StepCompleted
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusComplete, typed.Output)
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusComplete, "", typed.Output)
 		}
 	case string(planexecplugin.EventStepFailed):
 		var typed planexecplugin.StepFailed
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusError, typed.Error)
+			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusError, "", typed.Error)
 		}
 	case string(planexecplugin.EventPlanCompleted):
 		var typed planexecplugin.PlanCompleted
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan completed", slack.TaskCardStatusComplete, typed.Summary)
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan completed", slack.TaskCardStatusComplete, "", typed.Summary)
 		}
 	case string(planexecplugin.EventPlanFailed):
 		var typed planexecplugin.PlanFailed
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan failed", slack.TaskCardStatusError, typed.Reason)
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan failed", slack.TaskCardStatusError, "", typed.Reason)
 		}
 	case string(planexecplugin.EventPlanCancelled):
 		var typed planexecplugin.PlanCancelled
 		if decodeRuntimeMap(payload, &typed) == nil {
-			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan cancelled", slack.TaskCardStatusError, typed.Reason)
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan cancelled", slack.TaskCardStatusError, "", typed.Reason)
 		}
 	}
-}
-
-func (o *runObserver) skipSeenRuntime(event clientapi.Event) bool {
-	if event.Runtime == nil {
-		return false
-	}
-	key := runtimeEventKey(event)
-	if key == "" {
-		return false
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.seenRuntime == nil {
-		o.seenRuntime = map[string]bool{}
-	}
-	if o.seenRuntime[key] {
-		return true
-	}
-	o.seenRuntime[key] = true
-	return false
 }
 
 func (o *runObserver) trackPlanRuntime(event clientapi.Event) {
@@ -355,17 +328,6 @@ func runtimePlanID(event clientapi.Event) string {
 	return ""
 }
 
-func runtimeEventKey(event clientapi.Event) string {
-	if event.Runtime == nil {
-		return ""
-	}
-	raw, err := json.Marshal(event.Runtime.Payload)
-	if err != nil {
-		return string(event.Runtime.Name)
-	}
-	return string(event.Runtime.Name) + ":" + string(raw)
-}
-
 func runtimePayloadMap(payload any) map[string]any {
 	switch typed := payload.(type) {
 	case map[string]any:
@@ -395,9 +357,9 @@ func cloneBoolMap(in map[string]bool) map[string]bool {
 }
 
 func (o *runObserver) handlePlanCreated(event planexecplugin.PlanCreated) {
-	o.appendTaskUpdate("plan:"+event.PlanID, event.Spec.Title, slack.TaskCardStatusInProgress, event.Spec.Description)
+	o.appendTaskUpdate("plan:"+event.PlanID, event.Spec.Title, slack.TaskCardStatusInProgress, event.Spec.Description, "")
 	for _, step := range event.Spec.Steps {
-		o.appendTaskUpdate(planTaskID(event.PlanID, step.ID), step.Title, slack.TaskCardStatusPending, "")
+		o.appendTaskUpdate(planTaskID(event.PlanID, step.ID), step.Title, slack.TaskCardStatusPending, "", "")
 	}
 }
 
@@ -410,7 +372,7 @@ func (o *runObserver) handlePlanStepDispatched(event planexecplugin.StepDispatch
 	if event.WorkerID != "" {
 		detail = strings.TrimSpace(detail + " " + string(event.WorkerID))
 	}
-	o.appendTaskUpdate(planTaskID(event.PlanID, event.StepID), title, slack.TaskCardStatusInProgress, detail)
+	o.appendTaskUpdate(planTaskID(event.PlanID, event.StepID), title, slack.TaskCardStatusInProgress, detail, "")
 }
 
 func decodeRuntimeMap(payload map[string]any, out any) error {
@@ -460,14 +422,14 @@ func (o *runObserver) Append(text string) {
 	o.buffer.WriteString(text)
 	o.summary.ContentStreamed = true
 	if o.timer == nil {
-		o.timer = time.AfterFunc(streamFlushInterval, o.Flush)
+		o.timer = time.AfterFunc(streamFlushInterval, func() { _ = o.Flush() })
 	}
 	o.mu.Unlock()
 }
 
-func (o *runObserver) Flush() {
+func (o *runObserver) Flush() error {
 	if o == nil {
-		return
+		return nil
 	}
 	o.mu.Lock()
 	if o.timer != nil {
@@ -478,11 +440,23 @@ func (o *runObserver) Flush() {
 	o.buffer.Reset()
 	o.mu.Unlock()
 	if strings.TrimSpace(text) == "" {
-		return
+		return nil
 	}
 	if err := o.appendMarkdown(context.Background(), text); err != nil {
-		slog.Debug("slack stream append failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
+		o.mu.Lock()
+		var restored strings.Builder
+		restored.WriteString(text)
+		restored.WriteString(o.buffer.String())
+		o.buffer = restored
+		o.appendFailed = true
+		o.mu.Unlock()
+		slog.Warn("slack stream append failed; buffered text will be retried", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
+		return err
 	}
+	o.mu.Lock()
+	o.appended.WriteString(text)
+	o.mu.Unlock()
+	return nil
 }
 
 func (o *runObserver) ensureStarted(ctx context.Context) bool {
@@ -521,7 +495,6 @@ func (o *runObserver) startStream(ctx context.Context) error {
 	options := []slack.MsgOption{
 		slack.MsgOptionStartStream(),
 		slack.MsgOptionTS(o.target.ThreadTS),
-		slack.MsgOptionChunks(workingTaskChunk()),
 	}
 	if o.target.TeamID != "" {
 		options = append(options, slack.MsgOptionRecipientTeamID(o.target.TeamID))
@@ -549,7 +522,7 @@ func (o *runObserver) appendMarkdown(ctx context.Context, text string) error {
 	return o.appendChunks(ctx, slack.NewMarkdownTextChunk(text))
 }
 
-func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCardStatus, output string) {
+func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCardStatus, details, output string) {
 	if taskID == "" || title == "" || o == nil {
 		return
 	}
@@ -558,9 +531,13 @@ func (o *runObserver) appendTaskUpdate(taskID, title string, status slack.TaskCa
 	}
 	chunk := slack.NewTaskUpdateChunk(taskID, title)
 	chunk.Status = status
+	chunk.Details = compactText(details, 240)
 	chunk.Output = compactText(output, 240)
 	if err := o.appendChunks(context.Background(), chunk); err != nil {
-		slog.Debug("slack task update append failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
+		o.mu.Lock()
+		o.appendFailed = true
+		o.mu.Unlock()
+		slog.Warn("slack task update append failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "error", err)
 	}
 }
 
@@ -573,14 +550,31 @@ func (o *runObserver) appendChunks(ctx context.Context, chunks ...slack.StreamCh
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, _, err := o.channel.api.PostMessageContext(ctx, o.target.ChannelID,
-		slack.MsgOptionAppendStream(ts),
-		slack.MsgOptionChunks(chunks...),
-	)
+	var err error
+	for attempt := 0; attempt <= slackAppendRetries; attempt++ {
+		_, _, err = o.channel.api.PostMessageContext(ctx, o.target.ChannelID,
+			slack.MsgOptionAppendStream(ts),
+			slack.MsgOptionChunks(chunks...),
+		)
+		if err == nil {
+			return nil
+		}
+		if rateLimited, ok := err.(*slack.RateLimitedError); ok && rateLimited.RetryAfter > 0 && attempt < slackAppendRetries {
+			timer := time.NewTimer(rateLimited.RetryAfter)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+			continue
+		}
+		break
+	}
 	return err
 }
 
-func (o *runObserver) stopStream(ctx context.Context) error {
+func (o *runObserver) stopStream(ctx context.Context, markdown string) error {
 	o.mu.Lock()
 	ts := o.streamTS
 	o.mu.Unlock()
@@ -589,8 +583,32 @@ func (o *runObserver) stopStream(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	_, _, err := o.channel.api.PostMessageContext(ctx, o.target.ChannelID, slack.MsgOptionStopStream(ts))
+	options := []slack.MsgOption{slack.MsgOptionStopStream(ts)}
+	if strings.TrimSpace(markdown) != "" {
+		options = append(options, slack.MsgOptionMarkdownText(markdown))
+	}
+	_, _, err := o.channel.api.PostMessageContext(ctx, o.target.ChannelID, options...)
 	return err
+}
+
+func (o *runObserver) finalMarkdownPatch(finalMarkdown string, flushErr error) string {
+	if strings.TrimSpace(finalMarkdown) == "" {
+		return ""
+	}
+	o.mu.Lock()
+	appended := o.appended.String()
+	failed := o.appendFailed || flushErr != nil
+	o.mu.Unlock()
+	if appended == "" {
+		return finalMarkdown
+	}
+	if strings.HasPrefix(finalMarkdown, appended) {
+		return finalMarkdown[len(appended):]
+	}
+	if failed {
+		return "\n\n" + finalMarkdown
+	}
+	return ""
 }
 
 func (o *runObserver) setStatus(ctx context.Context, status string) {
@@ -620,124 +638,6 @@ func (o *runObserver) setStatus(ctx context.Context, status string) {
 	if err != nil {
 		slog.Debug("slack setStatus failed", "channel", o.channel.name, "slack_channel", o.target.ChannelID, "thread_ts", o.target.ThreadTS, "status", status, "error", err)
 	}
-}
-
-func (o *runObserver) operationTaskID(callID operation.CallID) string {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.taskByCallID == nil {
-		o.taskByCallID = map[operation.CallID]string{}
-	}
-	if callID != "" {
-		if taskID := o.taskByCallID[callID]; taskID != "" {
-			return taskID
-		}
-	}
-	o.taskSeq++
-	taskID := fmt.Sprintf("operation-%d", o.taskSeq)
-	if callID != "" {
-		o.taskByCallID[callID] = taskID
-	}
-	return taskID
-}
-
-func workingTaskChunk() slack.TaskUpdateChunk {
-	chunk := slack.NewTaskUpdateChunk("run", "Working on it")
-	chunk.Status = slack.TaskCardStatusInProgress
-	return chunk
-}
-
-func operationSummary(result *operation.Result) string {
-	if result == nil {
-		return ""
-	}
-	if result.Status != "" && result.Status != operation.StatusOK {
-		if result.Error != nil {
-			if result.Error.Message != "" {
-				return "failed: " + result.Error.Message
-			}
-			if result.Error.Code != "" {
-				return "failed: " + result.Error.Code
-			}
-		}
-		return "failed: " + string(result.Status)
-	}
-	if count := recordCount(result.Output); count >= 0 {
-		return plural(count, "result")
-	}
-	if renderable, ok := result.Output.(operation.ModelRenderable); ok {
-		text := firstLine(renderable.ModelText())
-		if text != "" {
-			return text
-		}
-	}
-	return "done"
-}
-
-func recordCount(value any) int {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return -1
-	}
-	var decoded any
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return -1
-	}
-	count, found := countRecordArrays(decoded)
-	if !found {
-		return -1
-	}
-	return count
-}
-
-func countRecordArrays(value any) (int, bool) {
-	switch v := value.(type) {
-	case map[string]any:
-		total := 0
-		found := false
-		for key, child := range v {
-			if key == "records" {
-				if records, ok := child.([]any); ok {
-					total += len(records)
-					found = true
-					continue
-				}
-			}
-			if childCount, childFound := countRecordArrays(child); childFound {
-				total += childCount
-				found = true
-			}
-		}
-		return total, found
-	case []any:
-		total := 0
-		found := false
-		for _, child := range v {
-			if childCount, childFound := countRecordArrays(child); childFound {
-				total += childCount
-				found = true
-			}
-		}
-		return total, found
-	default:
-		return 0, false
-	}
-}
-
-func firstLine(text string) string {
-	for _, line := range strings.Split(text, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return compactText(line, 240)
-		}
-	}
-	return ""
-}
-
-func plural(count int, singular string) string {
-	if count == 1 {
-		return "1 " + singular
-	}
-	return fmt.Sprintf("%d %ss", count, singular)
 }
 
 func (c *SlackChannel) postError(ctx context.Context, target Target, err error) error {
