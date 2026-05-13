@@ -19,6 +19,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/spf13/cobra"
 )
 
 type Options struct {
@@ -46,6 +47,69 @@ type Target struct {
 	Socket      string
 	BearerToken string
 	Session     string
+}
+
+type CommandOptions struct {
+	DefaultSession      string
+	DefaultConversation string
+	DefaultSocket       string
+	Events              *coreevent.Registry
+}
+
+type commandState struct {
+	appDir          string
+	url             string
+	socket          string
+	local           bool
+	session         string
+	sessionExplicit bool
+	conversation    string
+	input           string
+	debug           bool
+	usage           bool
+}
+
+func NewCommand(opts CommandOptions) *cobra.Command {
+	var state commandState
+	state.session = opts.DefaultSession
+	state.conversation = opts.DefaultConversation
+	cmd := &cobra.Command{
+		Use:   "remote",
+		Short: "Connect to a running agentsdk daemon session",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			state.sessionExplicit = cmd.Flags().Changed("session")
+			return Run(cmd.Context(), Options{
+				AppDir:              state.appDir,
+				URL:                 state.url,
+				Socket:              state.socket,
+				Local:               state.local,
+				Session:             state.session,
+				SessionExplicit:     state.sessionExplicit,
+				Conversation:        state.conversation,
+				Input:               state.input,
+				Debug:               state.debug,
+				Usage:               state.usage,
+				DefaultSession:      opts.DefaultSession,
+				DefaultConversation: opts.DefaultConversation,
+				DefaultSocket:       opts.DefaultSocket,
+				Events:              opts.Events,
+				In:                  cmd.InOrStdin(),
+				Out:                 cmd.OutOrStdout(),
+				Err:                 cmd.ErrOrStderr(),
+			})
+		},
+	}
+	cmd.Flags().StringVar(&state.appDir, "app", "", "app directory to read daemon listener config from")
+	cmd.Flags().StringVar(&state.url, "url", "", "HTTP/SSE daemon listener URL")
+	cmd.Flags().StringVar(&state.socket, "socket", "", "Unix socket path or socket name")
+	cmd.Flags().BoolVar(&state.local, "local", false, "connect to the default local Unix socket")
+	cmd.Flags().StringVar(&state.session, "session", opts.DefaultSession, "configured session name to open")
+	cmd.Flags().StringVar(&state.conversation, "conversation", opts.DefaultConversation, "remote conversation id")
+	cmd.Flags().StringVar(&state.input, "input", "", "send one input and exit instead of opening a REPL")
+	cmd.Flags().BoolVar(&state.debug, "debug", false, "print run events as highlighted JSON markdown")
+	cmd.Flags().BoolVar(&state.usage, "usage", false, "print usage events after each response")
+	return cmd
 }
 
 func Run(ctx context.Context, opts Options) error {

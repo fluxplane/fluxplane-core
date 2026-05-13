@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Reduced `cmd/agentsdk` to a thin executable launcher by moving product
+  assembly into `apps/agentsdk`, connector auth CLI behavior into
+  `adapters/connectors/cli`, and run/serve command wiring into `apps/launch`.
+
 ## 0.6.0
 
 ### Added
