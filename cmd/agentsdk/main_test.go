@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 )
 
@@ -541,6 +543,29 @@ func TestUsageFromEventParsesTypedPayload(t *testing.T) {
 	}
 	if _, ok := usageFromEvent(agentruntime.Event{Runtime: &clientapi.RuntimeEvent{Name: usage.EventRecordedName, Payload: map[string]any{}}}); ok {
 		t.Fatalf("usageFromEvent accepted untyped usage payload")
+	}
+}
+
+func TestTerminalEventRegistryDecodesPluginCatalogEvents(t *testing.T) {
+	registry, err := terminalEventRegistry()
+	if err != nil {
+		t.Fatalf("terminalEventRegistry: %v", err)
+	}
+	for _, sample := range eventcatalog.All() {
+		raw, err := json.Marshal(sample)
+		if err != nil {
+			t.Fatalf("Marshal %s: %v", sample.EventName(), err)
+		}
+		decoded, ok, err := registry.TryDecode(sample.EventName(), raw)
+		if err != nil {
+			t.Fatalf("TryDecode %s: %v", sample.EventName(), err)
+		}
+		if !ok {
+			t.Fatalf("event %s was not registered", sample.EventName())
+		}
+		if decoded.EventName() != sample.EventName() {
+			t.Fatalf("decoded event name = %s, want %s", decoded.EventName(), sample.EventName())
+		}
 	}
 }
 

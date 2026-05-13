@@ -177,24 +177,6 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case subagent.Failed:
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate failed:%s %s %s\n", ansiRed, ansiReset, payload.WorkerID, payload.Error)
-	case map[string]any:
-		if string(event.Runtime.Name) == string(llmagent.EventModelStreamedName) {
-			r.renderModelStreamFromMap(payload)
-			return
-		}
-		if string(event.Runtime.Name) == "human.clarification.requested" {
-			return
-		}
-		if string(event.Runtime.Name) == "human.clarification.completed" {
-			_, _ = fmt.Fprintf(out, "clarify answer: %s\n", compact(payload["answer"], 320))
-			return
-		}
-		if r.ShowUsage && event.Runtime.Name == usage.EventRecordedName {
-			if recorded, ok := usageRecordedFromMap(payload); ok {
-				RenderUsageSnapshot(out, usage.NewSnapshot(recorded))
-			}
-		}
-		r.renderSubagentMap(out, event, payload)
 	default:
 		r.flushContent()
 		if string(event.Runtime.Name) == "human.clarification.requested" {
@@ -222,78 +204,61 @@ func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bo
 	switch name {
 	case "plan.created":
 		var typed terminalPlanCreated
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.renderPlanCreated(out, typed)
 			return true
 		}
 	case "plan.step.dispatched":
 		var typed terminalPlanStepDispatched
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan step:%s %s %s[%s]%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Profile, ansiReset)
 			return true
 		}
 	case "plan.step.progressed":
 		var typed terminalPlanStepProgressed
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan progress:%s %s %s%s%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Message, ansiReset)
 			return true
 		}
 	case "plan.step.completed":
 		var typed terminalPlanStepCompleted
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan done:%s %s %s\n", ansiGreen, ansiReset, typed.StepID, compact(typed.Output, 160))
 			return true
 		}
 	case "plan.step.failed":
 		var typed terminalPlanStepFailed
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan failed:%s %s %s\n", ansiRed, ansiReset, typed.StepID, typed.Error)
 			return true
 		}
 	case "plan.completed":
 		var typed terminalPlanCompleted
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan completed:%s %s\n", ansiGreen, ansiReset, typed.Summary)
 			return true
 		}
 	case "plan.failed":
 		var typed terminalPlanFailed
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan failed:%s %s\n", ansiRed, ansiReset, typed.Reason)
 			return true
 		}
 	case "plan.cancelled":
 		var typed terminalPlanCancelled
-		if decodeAny(payload, &typed) == nil {
+		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan cancelled:%s %s\n", ansiYellow, ansiReset, typed.Reason)
 			return true
 		}
 	}
 	return false
-}
-
-func (r *Renderer) renderSubagentMap(out io.Writer, event clientapi.Event, payload map[string]any) {
-	switch string(event.Runtime.Name) {
-	case string(subagent.EventStarted):
-		var typed subagent.Started
-		if decodeMap(payload, &typed) == nil {
-			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, typed.WorkerID, ansiDim, typed.Profile.Name, ansiReset)
-		}
-	case string(subagent.EventCompleted):
-		var typed subagent.Completed
-		if decodeMap(payload, &typed) == nil {
-			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, typed.WorkerID, compact(typed.Output, 160))
-		}
-	}
 }
 
 type terminalPlanCreated struct {
@@ -344,15 +309,11 @@ type terminalPlanCancelled struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-func decodeAny(payload any, out any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
+func decodeTypedPayload(payload any, out any) error {
+	switch payload.(type) {
+	case json.RawMessage, map[string]any, []byte:
+		return fmt.Errorf("terminalui: untyped runtime payload")
 	}
-	return json.Unmarshal(data, out)
-}
-
-func decodeMap(payload map[string]any, out any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -375,22 +336,6 @@ func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
 			_, _ = fmt.Fprintf(r.Err, "%stool call:%s %s\n", ansiYellow, ansiReset, event.Tool)
 		}
 	}
-}
-
-func (r *Renderer) renderModelStreamFromMap(payload map[string]any) {
-	raw, ok := payload["event"]
-	if !ok {
-		return
-	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return
-	}
-	var event llmagent.StreamEvent
-	if err := json.Unmarshal(data, &event); err != nil {
-		return
-	}
-	r.renderModelStream(event)
 }
 
 func (r *Renderer) flushContent() {
@@ -449,40 +394,13 @@ func redactedDebugEvent(event clientapi.Event) clientapi.Event {
 	out := event
 	runtimeEvent := *event.Runtime
 	out.Runtime = &runtimeEvent
-	switch payload := event.Runtime.Payload.(type) {
-	case llmagent.ModelStreamed:
+	if payload, ok := event.Runtime.Payload.(llmagent.ModelStreamed); ok {
 		if payload.Event.Kind == llmagent.StreamThinkingDelta && payload.Event.Text != "" {
 			payload.Event.Redaction = fmt.Sprintf("thinking_delta:%d_bytes", len(payload.Event.Text))
 			payload.Event.Text = ""
 			runtimeEvent.Payload = payload
 		}
-	case map[string]any:
-		runtimeEvent.Payload = redactedModelStreamMap(payload)
 	}
-	return out
-}
-
-func redactedModelStreamMap(payload map[string]any) map[string]any {
-	out := make(map[string]any, len(payload))
-	for key, value := range payload {
-		out[key] = value
-	}
-	raw, ok := payload["event"].(map[string]any)
-	if !ok {
-		return out
-	}
-	kind, _ := raw["kind"].(string)
-	text, _ := raw["text"].(string)
-	if kind != string(llmagent.StreamThinkingDelta) || text == "" {
-		return out
-	}
-	streamEvent := make(map[string]any, len(raw)+1)
-	for key, value := range raw {
-		streamEvent[key] = value
-	}
-	streamEvent["text"] = ""
-	streamEvent["redaction"] = fmt.Sprintf("thinking_delta:%d_bytes", len(text))
-	out["event"] = streamEvent
 	return out
 }
 
@@ -584,18 +502,6 @@ func RenderUsageSnapshot(w io.Writer, snapshot usage.Snapshot) {
 			}
 		}
 	}
-}
-
-func usageRecordedFromMap(payload map[string]any) (usage.Recorded, bool) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return usage.Recorded{}, false
-	}
-	var recorded usage.Recorded
-	if err := json.Unmarshal(data, &recorded); err != nil || recorded.Empty() {
-		return usage.Recorded{}, false
-	}
-	return recorded, true
 }
 
 func subjectIcon(kind usage.SubjectKind) string {

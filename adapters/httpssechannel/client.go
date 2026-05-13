@@ -429,21 +429,34 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 		defer close(out)
 		defer close(errs)
 		defer func() { _ = resp.Body.Close() }()
-		reader := bufio.NewReader(resp.Body)
+		reader := bufio.NewReaderSize(resp.Body, 64*1024)
 		var data strings.Builder
+		var line []byte
 		for {
-			line, err := reader.ReadString('\n')
+			fragment, err := reader.ReadSlice('\n')
+			if len(fragment) > 0 {
+				if len(line)+len(fragment) > maxSSEEventBytes {
+					sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: SSE line exceeds %d bytes", maxSSEEventBytes))
+					return
+				}
+				line = append(line, fragment...)
+			}
+			if err == bufio.ErrBufferFull {
+				continue
+			}
 			if err != nil && err != io.EOF {
 				if reqCtx.Err() == nil {
 					sendStreamError(reqCtx, errs, fmt.Errorf("httpssechannel: read SSE stream: %w", err))
 				}
 				return
 			}
-			if line != "" {
-				if processErr := c.processSSELine(reqCtx, out, &data, strings.TrimRight(line, "\r\n")); processErr != nil {
+			if len(line) > 0 {
+				trimmed := bytes.TrimRight(line, "\r\n")
+				if processErr := c.processSSELine(reqCtx, out, &data, trimmed); processErr != nil {
 					sendStreamError(reqCtx, errs, processErr)
 					return
 				}
+				line = line[:0]
 			}
 			if err == io.EOF {
 				if data.Len() > 0 {
@@ -463,17 +476,17 @@ func (c *Client) openEventStream(ctx context.Context, threadID corethread.ID, op
 	return out, cancel, errs, nil
 }
 
-func (c *Client) processSSELine(ctx context.Context, out chan<- clientapi.Event, data *strings.Builder, line string) error {
-	if line == "" {
+func (c *Client) processSSELine(ctx context.Context, out chan<- clientapi.Event, data *strings.Builder, line []byte) error {
+	if len(line) == 0 {
 		if data.Len() == 0 {
 			return nil
 		}
 		return c.flushSSEEvent(ctx, out, data)
 	}
-	if !strings.HasPrefix(line, "data:") {
+	chunk, ok := sseDataFragment(line)
+	if !ok {
 		return nil
 	}
-	chunk := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	nextLen := data.Len() + len(chunk)
 	if data.Len() > 0 {
 		nextLen++
@@ -484,8 +497,19 @@ func (c *Client) processSSELine(ctx context.Context, out chan<- clientapi.Event,
 	if data.Len() > 0 {
 		data.WriteByte('\n')
 	}
-	data.WriteString(chunk)
+	_, _ = data.Write(chunk)
 	return nil
+}
+
+func sseDataFragment(line []byte) ([]byte, bool) {
+	if !bytes.HasPrefix(line, []byte("data:")) {
+		return nil, false
+	}
+	chunk := line[len("data:"):]
+	if len(chunk) > 0 && chunk[0] == ' ' {
+		chunk = chunk[1:]
+	}
+	return chunk, true
 }
 
 func (c *Client) flushSSEEvent(ctx context.Context, out chan<- clientapi.Event, data *strings.Builder) error {

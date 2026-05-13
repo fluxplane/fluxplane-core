@@ -55,8 +55,8 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/humanplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
@@ -1736,29 +1736,11 @@ func usageFromEvent(event agentruntime.Event) (coreusage.Recorded, bool) {
 }
 
 func terminalEventRegistry() (*coreevent.Registry, error) {
-	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: terminalEventTypes()})
+	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
 	if err != nil {
 		return nil, err
 	}
 	return registry, nil
-}
-
-func terminalEventTypes() []coreevent.Event {
-	return []coreevent.Event{
-		humanplugin.ClarificationRequested{},
-		humanplugin.ClarificationCompleted{},
-		planexecplugin.PlanCreated{},
-		planexecplugin.PlanRevised{},
-		planexecplugin.PlanExecutionStarted{},
-		planexecplugin.StepDispatched{},
-		planexecplugin.StepProgressed{},
-		planexecplugin.StepCompleted{},
-		planexecplugin.StepFailed{},
-		planexecplugin.StepCancelled{},
-		planexecplugin.PlanCompleted{},
-		planexecplugin.PlanFailed{},
-		planexecplugin.PlanCancelled{},
-	}
 }
 
 func workspaceRoot() (string, error) {

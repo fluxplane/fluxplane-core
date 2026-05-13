@@ -380,6 +380,92 @@ func TestClientReadsLargeSSEEventWithoutScannerLimit(t *testing.T) {
 	}
 }
 
+func TestClientRejectsOversizedSSEEvent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", strings.Repeat("x", maxSSEEventBytes+1))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Second)
+	defer cancelCtx()
+	_, cancel, errs, err := client.openEventStream(ctx, "thread-1", clientapi.EventOptions{Buffer: 1})
+	if err != nil {
+		t.Fatalf("openEventStream: %v", err)
+	}
+	defer cancel()
+
+	select {
+	case err := <-errs:
+		if err == nil || !strings.Contains(err.Error(), "exceeds") {
+			t.Fatalf("stream error = %v, want exceeds cap", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for oversized event error")
+	}
+}
+
+func TestClientReadsMultilineSSEEvent(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("event: ignored\n"))
+		_, _ = w.Write([]byte(": comment\n"))
+		_, _ = w.Write([]byte("data: {\"kind\":\"run.completed\",\n"))
+		_, _ = w.Write([]byte("data: \"run_id\":\"run_1\"}\n\n"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client, err := NewClient(ClientConfig{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	ctx, cancelCtx := context.WithTimeout(context.Background(), time.Second)
+	defer cancelCtx()
+	events, cancel, _, err := client.openEventStream(ctx, "thread-1", clientapi.EventOptions{Buffer: 1})
+	if err != nil {
+		t.Fatalf("openEventStream: %v", err)
+	}
+	defer cancel()
+
+	select {
+	case event := <-events:
+		if event.Kind != clientapi.EventRunCompleted || event.RunID != "run_1" {
+			t.Fatalf("event = %#v, want run.completed run_1", event)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for multiline event")
+	}
+}
+
+func TestSSEDataFragmentPreservesMeaningfulWhitespace(t *testing.T) {
+	chunk, ok := sseDataFragment([]byte(`data:  {"text":" keep "} `))
+	if !ok {
+		t.Fatal("sseDataFragment ok = false")
+	}
+	if got, want := string(chunk), ` {"text":" keep "} `; got != want {
+		t.Fatalf("chunk = %q, want %q", got, want)
+	}
+	if _, ok := sseDataFragment([]byte("event: message")); ok {
+		t.Fatal("non-data field parsed as data")
+	}
+}
+
 func TestClientListsResumesAndReplaysSessionEvents(t *testing.T) {
 	ctx := context.Background()
 	client := testRemoteClient(t)

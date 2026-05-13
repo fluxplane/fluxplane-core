@@ -7,6 +7,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
@@ -144,6 +145,54 @@ func TestRendererIgnoresThinkingDeltas(t *testing.T) {
 	renderer.Finish()
 	if got := out.String() + err.String(); got != "" {
 		t.Fatalf("thinking output = %q, want empty", got)
+	}
+}
+
+func TestRendererIgnoresUntypedRuntimeStreamPayload(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: map[string]any{
+				"event": map[string]any{
+					"kind": string(llmagent.StreamContentDelta),
+					"text": "hello",
+				},
+			},
+		},
+	})
+	renderer.Finish()
+	if got := out.String() + err.String(); got != "" {
+		t.Fatalf("untyped runtime output = %q, want empty", got)
+	}
+}
+
+func TestRendererRendersTypedPlanPayloadAndIgnoresUntypedPlanPayload(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepProgressed,
+			Payload: planexecplugin.StepProgressed{StepID: "step_1", Message: "working"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepProgressed,
+			Payload: map[string]any{"step_id": "step_2", "message": "ignored"},
+		},
+	})
+	renderer.Finish()
+	got := out.String() + err.String()
+	if !strings.Contains(got, "step_1") || !strings.Contains(got, "working") {
+		t.Fatalf("plan output = %q, want typed plan progress", got)
+	}
+	if strings.Contains(got, "step_2") || strings.Contains(got, "ignored") {
+		t.Fatalf("plan output = %q, want untyped plan payload ignored", got)
 	}
 }
 
