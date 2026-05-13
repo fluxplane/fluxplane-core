@@ -53,6 +53,57 @@ func TestRendererStreamsContentBeforeFinish(t *testing.T) {
 	}
 }
 
+func TestRendererFlushesMarkdownListWithoutTrailingNewline(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamContentDelta,
+				Text: "- **two**",
+			}},
+		},
+	})
+	renderer.Finish()
+	got := out.String()
+	if !strings.Contains(got, "two") {
+		t.Fatalf("out = %q, want rendered list text", got)
+	}
+	if strings.Contains(got, "**two**") {
+		t.Fatalf("out = %q, want rendered markdown without bold markers", got)
+	}
+}
+
+func TestRendererBuffersBlockMarkdownHeadingUntilFlush(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	for _, text := range []string{"## README", " summary\n\n- **item**"} {
+		renderer.Render(clientapi.Event{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name: llmagent.EventModelStreamedName,
+				Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+					Kind: llmagent.StreamContentDelta,
+					Text: text,
+				}},
+			},
+		})
+	}
+	if got := out.String(); got != "" {
+		t.Fatalf("out before Finish = %q, want buffered block markdown", got)
+	}
+	renderer.Finish()
+	got := out.String()
+	if !strings.Contains(got, "README summary") || !strings.Contains(got, "item") {
+		t.Fatalf("out = %q, want rendered heading and list", got)
+	}
+	if strings.Contains(got, "## README") || strings.Contains(got, "**item**") {
+		t.Fatalf("out = %q, want rendered markdown without source markers", got)
+	}
+}
+
 func TestRendererDoesNotReplayContentDeltas(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
@@ -113,6 +164,7 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test", ID: "resp_1"},
 		Measurements: []usage.Measurement{
 			{Metric: usage.MetricLLMInputTokens, Quantity: 2109, Unit: usage.UnitToken, Direction: usage.DirectionInput},
+			{Metric: usage.MetricLLMInputTokens, Quantity: 128, Unit: usage.UnitToken, Direction: usage.DirectionInput, Dimensions: map[string]string{"cache_creation": "true"}},
 			{Metric: usage.MetricLLMCachedTokens, Quantity: 1536, Unit: usage.UnitToken, Direction: usage.DirectionCached},
 			{Metric: usage.MetricLLMOutputTokens, Quantity: 11, Unit: usage.UnitToken, Direction: usage.DirectionOutput},
 			{Metric: usage.MetricCost, Quantity: 0.0031, Unit: usage.UnitCurrency, Dimensions: map[string]string{"currency": "USD", "estimated": "true"}},
@@ -132,6 +184,7 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		"Total usage",
 		"openai/gpt-test",
 		"input tokens 2,109",
+		"cache write tokens 128",
 		"cached input tokens 1,536",
 		"output tokens 11",
 		"estimated cost $0.0031",

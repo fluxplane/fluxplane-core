@@ -2,6 +2,7 @@
 package system
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -105,6 +106,7 @@ type Workspace interface {
 	ResolveExisting(string) (ResolvedPath, error)
 	ResolveCreate(string) (ResolvedPath, error)
 	ReadFile(context.Context, string, int64) ([]byte, bool, ResolvedPath, error)
+	ReadFileLines(context.Context, string, int, int, int64) ([]byte, int, bool, ResolvedPath, error)
 	WriteFile(context.Context, string, []byte, os.FileMode, bool) (ResolvedPath, error)
 	CopyFile(context.Context, string, string, bool) (ResolvedPath, ResolvedPath, int64, error)
 	MoveFile(context.Context, string, string, bool) (ResolvedPath, ResolvedPath, int64, error)
@@ -247,6 +249,68 @@ func (w *HostWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) 
 		data = data[:maxBytes]
 	}
 	return data, truncated, resolved, nil
+}
+
+// ReadFileLines reads a bounded 1-indexed line window from a workspace file.
+func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(raw)
+	if err != nil {
+		return nil, 0, false, ResolvedPath{}, err
+	}
+	info, err := os.Stat(resolved.Abs)
+	if err != nil {
+		return nil, 0, false, ResolvedPath{}, err
+	}
+	if info.IsDir() {
+		return nil, 0, false, ResolvedPath{}, fmt.Errorf("path is a directory")
+	}
+	file, err := os.Open(resolved.Abs)
+	if err != nil {
+		return nil, 0, false, ResolvedPath{}, err
+	}
+	defer func() { _ = file.Close() }()
+	if maxBytes <= 0 {
+		maxBytes = info.Size()
+	}
+	if start <= 0 {
+		start = 1
+	}
+	if end > 0 && end < start {
+		end = start
+	}
+	reader := bufio.NewReader(file)
+	var out bytes.Buffer
+	var written int64
+	lineNo := 1
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, false, ResolvedPath{}, err
+		}
+		line, err := reader.ReadString('\n')
+		if lineNo >= start && (end <= 0 || lineNo <= end) {
+			remaining := maxBytes - written
+			if remaining <= 0 {
+				return out.Bytes(), start, true, resolved, nil
+			}
+			if int64(len(line)) > remaining {
+				out.WriteString(line[:int(remaining)])
+				return out.Bytes(), start, true, resolved, nil
+			}
+			out.WriteString(line)
+			written += int64(len(line))
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, 0, false, ResolvedPath{}, err
+		}
+		if end > 0 && lineNo >= end {
+			break
+		}
+		lineNo++
+	}
+	return out.Bytes(), start, false, resolved, nil
 }
 
 // WriteFile writes a file, optionally refusing to overwrite existing paths.

@@ -42,6 +42,9 @@ type Renderer struct {
 	thinking *mdterminal.LiveRenderer
 	debug    *mdterminal.LiveRenderer
 
+	contentBuffer strings.Builder
+	contentBlock  bool
+
 	streamedContent bool
 	inThinking      bool
 }
@@ -249,10 +252,23 @@ func (r *Renderer) flushContent() {
 	if r.inThinking {
 		r.flushThinking()
 	}
-	if r.content != nil {
+	if r.contentBlock && strings.TrimSpace(r.contentBuffer.String()) != "" {
+		renderer := newMarkdownRenderer(r.out())
+		_, _ = renderer.Write([]byte(r.contentBuffer.String()))
+		_, _ = renderer.Write([]byte("\n"))
+		_ = renderer.Flush()
+		r.content = newMarkdownRenderer(r.out())
+		r.contentBuffer.Reset()
+		r.contentBlock = false
+		return
+	}
+	if r.content != nil && r.contentBuffer.Len() > 0 {
+		_, _ = r.content.Write([]byte("\n"))
 		_ = r.content.Flush()
 		r.content = newMarkdownRenderer(r.out())
 	}
+	r.contentBuffer.Reset()
+	r.contentBlock = false
 }
 
 func (r *Renderer) flushThinking() {
@@ -260,6 +276,7 @@ func (r *Renderer) flushThinking() {
 		return
 	}
 	if r.thinking != nil {
+		_, _ = r.thinking.Write([]byte("\n"))
 		_ = r.thinking.Flush()
 	}
 	_, _ = fmt.Fprintf(r.Err, "%s\n", ansiReset)
@@ -285,8 +302,40 @@ func (r *Renderer) writeContentDelta(text string) {
 	if r.content == nil {
 		r.content = newMarkdownRenderer(r.out())
 	}
+	r.contentBuffer.WriteString(text)
+	if !r.contentBlock && shouldBufferBlockMarkdown(r.contentBuffer.String()) {
+		r.contentBlock = true
+	}
+	if r.contentBlock {
+		return
+	}
 	_, _ = r.content.Write([]byte(text))
 	_ = r.content.Flush()
+}
+
+func shouldBufferBlockMarkdown(text string) bool {
+	return hasBlockMarkdownMarker(strings.TrimLeft(text, " \t\r\n")) || strings.Contains(text, "\n```") ||
+		strings.Contains(text, "\n#") || strings.Contains(text, "\n- ") || strings.Contains(text, "\n* ") ||
+		strings.Contains(text, "\n+ ") || strings.Contains(text, "\n> ") || strings.Contains(text, "\n|")
+}
+
+func hasBlockMarkdownMarker(text string) bool {
+	switch {
+	case strings.HasPrefix(text, "#"),
+		strings.HasPrefix(text, "- "),
+		strings.HasPrefix(text, "* "),
+		strings.HasPrefix(text, "+ "),
+		strings.HasPrefix(text, "```"),
+		strings.HasPrefix(text, "> "),
+		strings.HasPrefix(text, "|"):
+		return true
+	}
+	for i := 0; i < len(text); i++ {
+		if text[i] < '0' || text[i] > '9' {
+			return i > 0 && i+1 < len(text) && (text[i] == '.' || text[i] == ')') && text[i+1] == ' '
+		}
+	}
+	return false
 }
 
 func (r *Renderer) out() io.Writer {
@@ -444,6 +493,9 @@ func subjectLabel(subject usage.Subject) string {
 func measurementLine(measurement usage.Measurement) string {
 	switch measurement.Metric {
 	case usage.MetricLLMInputTokens:
+		if measurement.Dimensions != nil && measurement.Dimensions["cache_creation"] == "true" {
+			return "↥ cache write tokens " + formatHumanNumber(measurement.Quantity)
+		}
 		return "↑ input tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMCachedTokens:
 		return "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)

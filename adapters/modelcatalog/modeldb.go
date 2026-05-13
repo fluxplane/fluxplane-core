@@ -69,6 +69,21 @@ func Find(providerName, modelName string) (corellm.ProviderSpec, corellm.ModelSp
 	return corellm.ProviderSpec{}, corellm.ModelSpec{}, false
 }
 
+// SupportsAPI reports whether a catalog model exposes the named modeldb API
+// type, for example "openai-responses".
+func SupportsAPI(model corellm.ModelSpec, apiType string) bool {
+	apiType = strings.TrimSpace(apiType)
+	if apiType == "" {
+		return false
+	}
+	for _, value := range strings.Split(model.Annotations["modeldb.api_types"], ",") {
+		if strings.TrimSpace(value) == apiType {
+			return true
+		}
+	}
+	return false
+}
+
 func provider(providers map[string]*corellm.ProviderSpec, name string) *corellm.ProviderSpec {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -92,6 +107,12 @@ func modelSpec(model modeldb.ModelRecord, offering modeldb.Offering) corellm.Mod
 			limits.MaxOutput = offering.LimitsOverride.MaxOutput
 		}
 	}
+	annotations := map[string]string{
+		"modeldb.model_key": modeldb.LineID(model.Key),
+		"modeldb.api_types": strings.Join(apiTypes(offering.Exposures), ","),
+	}
+	addOpenAIResponsesAnnotations(annotations, offering.Exposures)
+	addAnthropicMessagesAnnotations(annotations, offering.Exposures)
 	return corellm.ModelSpec{
 		Ref: corellm.ModelRef{
 			Provider: corellm.ProviderName(offering.ServiceID),
@@ -105,11 +126,52 @@ func modelSpec(model modeldb.ModelRecord, offering modeldb.Offering) corellm.Mod
 		MaxOutputTokens:  int64(limits.MaxOutput),
 		Capabilities:     capabilities(model.Capabilities, offering.Exposures),
 		Pricing:          pricing(firstPricing(offering.Pricing, model.ReferencePricing)),
-		Annotations: map[string]string{
-			"modeldb.model_key": modeldb.LineID(model.Key),
-			"modeldb.api_types": strings.Join(apiTypes(offering.Exposures), ","),
-		},
+		Annotations:      annotations,
 	}
+}
+
+func addAnthropicMessagesAnnotations(annotations map[string]string, exposures []modeldb.OfferingExposure) {
+	for _, exposure := range exposures {
+		if exposure.APIType != modeldb.APITypeAnthropicMessages {
+			continue
+		}
+		if values := sortedValues(exposure.ParameterValues[string(modeldb.ParamReasoningEffort)]); len(values) > 0 {
+			annotations["modeldb.anthropic_messages.reasoning_efforts"] = strings.Join(values, ",")
+		}
+		if values := sortedValues(exposure.ParameterValues[string(modeldb.ParamThinkingMode)]); len(values) > 0 {
+			annotations["modeldb.anthropic_messages.thinking_modes"] = strings.Join(values, ",")
+		}
+		if exposure.SupportsParameter(modeldb.ParamCacheControl) || exposure.SupportsParameter(modeldb.ParamBlockCacheControl) || exposure.SupportsParameter(modeldb.ParamTopLevelCacheControl) {
+			annotations["modeldb.anthropic_messages.cache_control"] = "true"
+		}
+		return
+	}
+}
+
+func addOpenAIResponsesAnnotations(annotations map[string]string, exposures []modeldb.OfferingExposure) {
+	for _, exposure := range exposures {
+		if exposure.APIType != modeldb.APITypeOpenAIResponses {
+			continue
+		}
+		if values := sortedValues(exposure.ParameterValues[string(modeldb.ParamReasoningEffort)]); len(values) > 0 {
+			annotations["modeldb.openai_responses.reasoning_efforts"] = strings.Join(values, ",")
+		}
+		if values := sortedValues(exposure.ParameterValues[string(modeldb.ParamReasoningSummary)]); len(values) > 0 {
+			annotations["modeldb.openai_responses.reasoning_summaries"] = strings.Join(values, ",")
+		}
+		return
+	}
+}
+
+func sortedValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, strings.TrimSpace(value))
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func modalities(values []string) []corellm.Modality {

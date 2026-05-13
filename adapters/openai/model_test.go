@@ -66,6 +66,57 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 	}
 }
 
+func TestResponseParamsCacheAutoIsProviderNeutral(t *testing.T) {
+	model, err := New(Config{
+		Model: "gpt-5.5",
+		Runtime: ResponsesRuntimeConfig{
+			Cache:        ResponsesCacheAuto,
+			Continuation: ResponsesContinuationReplay,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	for _, notWant := range []string{`"prompt_cache_key"`, `"prompt_cache_retention"`, `"reasoning.encrypted_content"`, `"store":true`} {
+		if strings.Contains(json, notWant) {
+			t.Fatalf("params json = %s, did not want %s", json, notWant)
+		}
+	}
+	if !strings.Contains(json, `"store":false`) {
+		t.Fatalf("params json = %s, want explicit store false", json)
+	}
+}
+
+func TestResponseParamsAppliesReasoningEffort(t *testing.T) {
+	model, err := New(Config{Model: "gpt-5.5", ReasoningEffort: "minimal", ReasoningSummary: "concise"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, _, err := model.responseParams(llmagent.Request{Agent: agent.Spec{Name: "coder"}, Goal: "hello"})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	for _, want := range []string{`"effort":"minimal"`, `"summary":"concise"`} {
+		if !strings.Contains(json, want) {
+			t.Fatalf("params json = %s, want %s", json, want)
+		}
+	}
+}
+
 func TestResponseParamsRejectsMissingModel(t *testing.T) {
 	model, err := New(Config{})
 	if err != nil {
@@ -324,6 +375,53 @@ func TestStreamEventsTreatCommentaryPhaseTextAsThinking(t *testing.T) {
 	}
 	if got := state.finalContent(); got != "" {
 		t.Fatalf("finalContent = %q, want commentary excluded", got)
+	}
+}
+
+func TestStreamEventsBufferUnphasedTextUntilOutcome(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{}
+	delta := mustStreamEvent(t, `{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Inspecting repo"}`)
+	if events := model.streamEvents(delta, state); len(events) != 0 {
+		t.Fatalf("delta events = %#v, want buffered", events)
+	}
+	flushed := state.flushAllUnphased(adapterllm.StreamContentDelta)
+	if len(flushed) != 1 || flushed[0].Kind != adapterllm.StreamContentDelta || flushed[0].Text != "Inspecting repo" {
+		t.Fatalf("flushed = %#v, want content", flushed)
+	}
+}
+
+func TestStreamEventsFlushUnphasedTextAsThinkingBeforeTool(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{}
+	delta := mustStreamEvent(t, `{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"Inspecting repo"}`)
+	if events := model.streamEvents(delta, state); len(events) != 0 {
+		t.Fatalf("delta events = %#v, want buffered", events)
+	}
+	done := mustStreamEvent(t, `{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"inspect","arguments":"{\"path\":\"README.md\"}"}}`)
+	events := model.streamEvents(done, state)
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want thinking plus tool", events)
+	}
+	if events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "Inspecting repo" {
+		t.Fatalf("events[0] = %#v, want thinking", events[0])
+	}
+	if events[1].Kind != adapterllm.StreamToolCallDone || events[1].Tool != "inspect" {
+		t.Fatalf("events[1] = %#v, want tool done", events[1])
+	}
+}
+
+func TestStreamEventsFlushUnphasedTextWhenMessagePhaseArrivesLate(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{}
+	delta := mustStreamEvent(t, `{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"done"}`)
+	if events := model.streamEvents(delta, state); len(events) != 0 {
+		t.Fatalf("delta events = %#v, want buffered", events)
+	}
+	done := mustStreamEvent(t, `{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"done"}]}}`)
+	events := model.streamEvents(done, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamContentDelta || events[0].Text != "done" {
+		t.Fatalf("events = %#v, want content", events)
 	}
 }
 
