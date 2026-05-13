@@ -266,6 +266,10 @@ func commandString(spec operation.Spec, input operation.Value) string {
 				return "git status --short --branch"
 			case "git_diff":
 				return "git diff"
+			case "git_add":
+				return "git add"
+			case "git_commit":
+				return "git -c core.hooksPath=/dev/null commit --no-verify --no-gpg-sign"
 			case "code_execute":
 				return "docker run --rm --network none <scratch-code>"
 			}
@@ -282,7 +286,7 @@ func commandString(spec operation.Spec, input operation.Value) string {
 
 func hasCommandIntent(spec operation.Spec, input operation.Value) bool {
 	switch spec.Ref.Name {
-	case "shell_exec", "process_start", "git_status", "git_diff", "code_execute":
+	case "shell_exec", "process_start", "git_status", "git_diff", "git_add", "git_commit", "code_execute":
 		return true
 	}
 	if stringField(input, "command") != "" {

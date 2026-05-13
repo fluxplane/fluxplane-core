@@ -46,7 +46,7 @@ func Bundle() resource.ContributionBundle {
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
 			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",
 			"browser_hover", "browser_back", "browser_forward", "browser_pdf", "browser_close",
-			"git_status", "git_diff",
+			"git_status", "git_diff", "git_add", "git_commit",
 			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
 			"code_execute",
 			"clarify",
@@ -77,7 +77,7 @@ func Bundle() resource.ContributionBundle {
 				DefaultTimeout:  "10m",
 				Commands: []command.Path{
 					{"filesystem", "dir_list"}, {"filesystem", "dir_tree"}, {"filesystem", "file_read"}, {"filesystem", "file_patch"},
-					{"filesystem", "grep"}, {"filesystem", "glob"}, {"git", "status"}, {"git", "diff"},
+					{"filesystem", "grep"}, {"filesystem", "glob"}, {"git", "status"}, {"git", "diff"}, {"git", "add"}, {"git", "commit"},
 					{"shell", "shell_exec"}, {"code", "code_execute"}, {"web", "web_request"},
 				},
 			},

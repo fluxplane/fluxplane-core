@@ -116,6 +116,36 @@ func TestClassifierFallsBackToDeclaredRiskForBrowserSessionOperation(t *testing.
 	}
 }
 
+func TestClassifierAssessesNativeGitWriteOperations(t *testing.T) {
+	for _, name := range []string{"git_add", "git_commit"} {
+		t.Run(name, func(t *testing.T) {
+			var emitted event.Event
+			ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
+				emitted = evt
+			}))
+			classifier := New(Config{WorkingDirectory: t.TempDir()})
+			spec := operation.Spec{
+				Ref: operation.Ref{Name: operation.Name(name)},
+				Semantics: operation.Semantics{
+					Effects: operation.EffectSet{operation.EffectProcess},
+					Risk:    operation.RiskMedium,
+				},
+			}
+
+			if _, err := classifier.Classify(ctx, spec, map[string]any{}); err != nil {
+				t.Fatalf("Classify: %v", err)
+			}
+			assessed, ok := emitted.(Assessed)
+			if !ok {
+				t.Fatalf("emitted = %#v, want Assessed", emitted)
+			}
+			if string(assessed.Operation.Name) != name || assessed.Action == "" || assessed.Action == "declared_risk" {
+				t.Fatalf("assessment = %#v, want command assessment", assessed)
+			}
+		})
+	}
+}
+
 func TestClassifierShellExecEmptyCommandIsHighRisk(t *testing.T) {
 	classifier := New(Config{WorkingDirectory: t.TempDir()})
 	spec := operation.Spec{
