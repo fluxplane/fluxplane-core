@@ -34,9 +34,10 @@ const (
 type EntityCapability string
 
 const (
-	EntityCapabilitySearch   EntityCapability = "search"
-	EntityCapabilityGet      EntityCapability = "get"
-	EntityCapabilityRelation EntityCapability = "relation"
+	EntityCapabilitySearch         EntityCapability = "search"
+	EntityCapabilityGet            EntityCapability = "get"
+	EntityCapabilityRelation       EntityCapability = "relation"
+	EntityCapabilitySemanticSearch EntityCapability = "semantic_search"
 )
 
 // DetectorKind classifies one local, provider-neutral reference detector.
@@ -61,6 +62,7 @@ type Spec struct {
 	Connector   string            `json:"connector,omitempty"`
 	Kind        string            `json:"kind,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
+	Semantic    SemanticSpec      `json:"semantic,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
@@ -90,7 +92,53 @@ func (s Spec) Validate() error {
 			return fmt.Errorf("datasource: config contains an empty key")
 		}
 	}
+	for entity := range s.Semantic.Entities {
+		if strings.TrimSpace(string(entity)) == "" {
+			return fmt.Errorf("datasource: semantic entity is empty")
+		}
+	}
 	return nil
+}
+
+// SemanticSpec configures semantic indexing for one datasource.
+type SemanticSpec struct {
+	Enabled  bool                          `json:"enabled,omitempty"`
+	Entities map[EntityType]EntitySemantic `json:"entities,omitempty"`
+}
+
+// EntitySemantic configures semantic indexing for one datasource entity.
+type EntitySemantic struct {
+	Corpus      CorpusSpec      `json:"corpus,omitempty"`
+	Chunking    ChunkingSpec    `json:"chunking,omitempty"`
+	Retrieval   RetrievalSpec   `json:"retrieval,omitempty"`
+	Incremental IncrementalSpec `json:"incremental,omitempty"`
+}
+
+// CorpusSpec describes which provider fields enter semantic corpus text.
+type CorpusSpec struct {
+	TitleFields    []string `json:"title_fields,omitempty"`
+	BodyFields     []string `json:"body_fields,omitempty"`
+	MetadataFields []string `json:"metadata_fields,omitempty"`
+	ExcludeFields  []string `json:"exclude_fields,omitempty"`
+}
+
+// ChunkingSpec configures runtime chunk planning for semantic corpus text.
+type ChunkingSpec struct {
+	Strategy      string `json:"strategy,omitempty"`
+	TargetTokens  int    `json:"target_tokens,omitempty"`
+	OverlapTokens int    `json:"overlap_tokens,omitempty"`
+}
+
+// RetrievalSpec configures semantic retrieval defaults.
+type RetrievalSpec struct {
+	Mode     string  `json:"mode,omitempty"`
+	Limit    int     `json:"limit,omitempty"`
+	MinScore float64 `json:"min_score,omitempty"`
+}
+
+// IncrementalSpec configures provider hints for incremental indexing.
+type IncrementalSpec struct {
+	UpdatedAtField string `json:"updated_at_field,omitempty"`
 }
 
 // EntitySpec describes the fields and capabilities of one entity type.
@@ -198,6 +246,44 @@ type SearchRequest struct {
 	Query   string            `json:"query,omitempty"`
 	Limit   int               `json:"limit,omitempty"`
 	Filters map[string]string `json:"filters,omitempty"`
+}
+
+// CorpusRequest requests indexable corpus documents for one entity.
+type CorpusRequest struct {
+	Entity EntityType `json:"entity,omitempty"`
+	Cursor string     `json:"cursor,omitempty"`
+	Limit  int        `json:"limit,omitempty"`
+}
+
+// CorpusPage is one page of indexable datasource corpus documents.
+type CorpusPage struct {
+	Documents  []CorpusDocument `json:"documents,omitempty"`
+	Tombstones []RecordRef      `json:"tombstones,omitempty"`
+	NextCursor string           `json:"next_cursor,omitempty"`
+	Complete   bool             `json:"complete,omitempty"`
+}
+
+// CorpusDocument is the provider-controlled text and metadata indexed for one record.
+type CorpusDocument struct {
+	Ref         RecordRef         `json:"ref"`
+	Title       string            `json:"title,omitempty"`
+	Body        string            `json:"body,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	UpdatedAt   string            `json:"updated_at,omitempty"`
+	Fingerprint string            `json:"fingerprint,omitempty"`
+	Chunks      []CorpusChunk     `json:"chunks,omitempty"`
+}
+
+// CorpusChunk is a provider-supplied natural chunk within a corpus document.
+type CorpusChunk struct {
+	ID       string            `json:"id,omitempty"`
+	Title    string            `json:"title,omitempty"`
+	Text     string            `json:"text,omitempty"`
+	Ordinal  int               `json:"ordinal,omitempty"`
+	Start    int               `json:"start,omitempty"`
+	End      int               `json:"end,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // GetRequest describes one provider record lookup.
@@ -323,6 +409,11 @@ type BatchGetter interface {
 // Relationer is implemented by accessors that support provider-backed relationships.
 type Relationer interface {
 	Relation(context.Context, RelationRequest) (RelationResult, error)
+}
+
+// CorpusProvider is implemented by accessors that expose semantic index corpus.
+type CorpusProvider interface {
+	Corpus(context.Context, CorpusRequest) (CorpusPage, error)
 }
 
 // Provider materializes datasource accessors for supported specs.

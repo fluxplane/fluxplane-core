@@ -85,6 +85,15 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 			TitleFields: []string{"summary", "fields.summary", "key"},
 			TextFields:  []string{"description", "fields.description"},
 			URLFields:   []string{"self", "url", "web_url"},
+			Corpus: connectorplugin.CorpusPolicy{
+				TitleFields: []string{"summary", "fields.summary", "key"},
+				BodyFields:  []string{"description", "fields.description"},
+				MetadataFields: map[string][]string{
+					"status":   {"fields.status.name", "status"},
+					"assignee": {"fields.assignee.displayName", "assignee.displayName", "assignee"},
+					"project":  {"fields.project.key", "project.key", "project"},
+				},
+			},
 			MetadataFields: map[string][]string{
 				"status":       {"fields.status.name", "status"},
 				"assignee":     {"fields.assignee.displayName", "assignee.displayName", "assignee"},
@@ -105,6 +114,10 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 			TitleFields: []string{"name", "key"},
 			TextFields:  []string{"description", "projectTypeKey"},
 			URLFields:   []string{"self"},
+			Corpus: connectorplugin.CorpusPolicy{
+				TitleFields: []string{"name", "key"},
+				BodyFields:  []string{"description", "projectTypeKey"},
+			},
 			MetadataFields: map[string][]string{
 				"project_type": {"projectTypeKey", "project_type_key"},
 				"lead":         {"lead.displayName", "lead.name", "lead"},

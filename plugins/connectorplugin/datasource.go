@@ -2,6 +2,8 @@ package connectorplugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,9 +33,18 @@ type DatasourceAction struct {
 	URLFields       []string
 	IDFields        []string
 	MetadataFields  map[string][]string
+	Corpus          CorpusPolicy
 	RecordTransform func(coredatasource.Record) coredatasource.Record
 	Relations       []DatasourceRelationAction
 	MaxPages        int
+}
+
+// CorpusPolicy maps connector records into semantic index corpus text.
+type CorpusPolicy struct {
+	TitleFields    []string
+	BodyFields     []string
+	MetadataFields map[string][]string
+	ExcludeFields  []string
 }
 
 // DatasourceRelationAction maps one entity relationship to a connector operation.
@@ -89,6 +100,9 @@ func (a DatasourceAction) capabilities() []coredatasource.EntityCapability {
 	}
 	if len(a.Relations) > 0 {
 		out = append(out, coredatasource.EntityCapabilityRelation)
+	}
+	if a.SearchOp != "" {
+		out = append(out, coredatasource.EntityCapabilitySemanticSearch)
 	}
 	return out
 }
@@ -346,6 +360,38 @@ func (a connectorAccessor) Relation(ctx context.Context, req coredatasource.Rela
 	}, nil
 }
 
+func (a connectorAccessor) Corpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	action, ok := a.actions[req.Entity]
+	if !ok {
+		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
+	}
+	if action.SearchOp == "" {
+		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q entity %q does not support corpus enumeration", a.spec.Name, req.Entity)
+	}
+	params := map[string]any{}
+	for key, value := range action.ParamDefaults {
+		params[key] = value
+	}
+	if action.QueryParam != "" && action.QueryParam != "-" {
+		params[action.QueryParam] = ""
+	}
+	if req.Limit > 0 {
+		params[action.LimitParam] = req.Limit
+	}
+	records, err := a.searchRecords(ctx, action, req.Entity, params, false)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	docs := make([]coredatasource.CorpusDocument, 0, len(records))
+	for _, record := range records {
+		if record.ID == "" {
+			continue
+		}
+		docs = append(docs, action.corpusDocument(record))
+	}
+	return coredatasource.CorpusPage{Documents: docs, Complete: true}, nil
+}
+
 func (a connectorAccessor) fetchRelation(ctx context.Context, source DatasourceAction, relation DatasourceRelationAction, req coredatasource.RelationRequest) ([]string, []coredatasource.Record, string, error) {
 	maxPages := source.MaxPages
 	if maxPages <= 0 {
@@ -465,6 +511,52 @@ func (a connectorAccessor) record(action DatasourceAction, entity coredatasource
 		record = action.RecordTransform(record)
 	}
 	return record
+}
+
+func (a DatasourceAction) corpusDocument(record coredatasource.Record) coredatasource.CorpusDocument {
+	policy := a.Corpus
+	title := firstNonEmpty(record.Title, firstStringFromRaw(record.Raw, policy.TitleFields...), firstStringFromRaw(record.Raw, a.TitleFields...))
+	body := strings.Join(cleanStrings(
+		firstStringFromRaw(record.Raw, policy.BodyFields...),
+		record.Content,
+	), "\n\n")
+	if strings.TrimSpace(body) == "" {
+		body = record.Content
+	}
+	metadata := cloneStringMap(record.Metadata)
+	for key, paths := range policy.MetadataFields {
+		if value := firstStringFromRaw(record.Raw, paths...); value != "" {
+			if metadata == nil {
+				metadata = map[string]string{}
+			}
+			metadata[key] = value
+		}
+	}
+	for _, key := range policy.ExcludeFields {
+		delete(metadata, key)
+	}
+	data, _ := json.Marshal(struct {
+		ID       string
+		Title    string
+		Body     string
+		URL      string
+		Metadata map[string]string
+		Raw      any
+	}{record.ID, title, body, record.URL, metadata, record.Raw})
+	sum := sha256.Sum256(data)
+	return coredatasource.CorpusDocument{
+		Ref: coredatasource.RecordRef{
+			Datasource: record.Datasource,
+			Entity:     record.Entity,
+			ID:         record.ID,
+			URL:        record.URL,
+		},
+		Title:       title,
+		Body:        body,
+		URL:         record.URL,
+		Metadata:    metadata,
+		Fingerprint: hex.EncodeToString(sum[:]),
+	}
 }
 
 func flattenRecords(data any, paths ...string) []map[string]any {
@@ -761,6 +853,14 @@ func firstStringFromAny(value any, path string) string {
 	return text
 }
 
+func firstStringFromRaw(value any, paths ...string) string {
+	m, ok := asMap(value)
+	if !ok {
+		return ""
+	}
+	return firstString(m, paths...)
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -768,4 +868,25 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func cleanStrings(values ...string) []string {
+	var out []string
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

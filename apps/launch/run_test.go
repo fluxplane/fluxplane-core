@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
+	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -130,6 +131,31 @@ func hasOperationSpec(runtime Runtime, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestSemanticEmbedderDefaultsToAxon(t *testing.T) {
+	embedder, model, err := semanticEmbedder("", "")
+	if err != nil {
+		t.Fatalf("semanticEmbedder: %v", err)
+	}
+	defer func() {
+		if closer, ok := embedder.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}()
+	if !strings.HasPrefix(model, embedaxon.ProviderName+"/") {
+		t.Fatalf("model = %q, want axon provider prefix", model)
+	}
+}
+
+func TestSemanticEmbedderSupportsExplicitHashProvider(t *testing.T) {
+	_, model, err := semanticEmbedder("hash", "")
+	if err != nil {
+		t.Fatalf("semanticEmbedder hash: %v", err)
+	}
+	if model != "local/hash-embedding" {
+		t.Fatalf("model = %q, want local/hash-embedding", model)
+	}
 }
 
 type fakeRuntime struct{}

@@ -2,6 +2,8 @@ package datasourceplugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"path"
@@ -33,7 +35,7 @@ type filesystemProvider struct {
 
 func (p filesystemProvider) Entities() []coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[FileDocument](FileDocumentEntity, "Local markdown and text documents.")
-	entity.Capabilities = []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet}
+	entity.Capabilities = []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet, coredatasource.EntityCapabilitySemanticSearch}
 	entity.Detectors = []coredatasource.DetectorSpec{{
 		Name:          "file_document_path",
 		Kind:          coredatasource.DetectorRegex,
@@ -144,6 +146,38 @@ func (a *filesystemAccessor) Get(_ context.Context, req coredatasource.GetReques
 	return record, nil
 }
 
+func (a *filesystemAccessor) Corpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	if req.Entity != FileDocumentEntity {
+		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
+	}
+	limit := req.Limit
+	var docs []coredatasource.CorpusDocument
+	err := fs.WalkDir(a.root, a.base, func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if entry.IsDir() || !a.included(name) {
+			return nil
+		}
+		doc, err := a.readCorpusDocument(name)
+		if err != nil {
+			return nil
+		}
+		docs = append(docs, doc)
+		if limit > 0 && len(docs) >= limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	return coredatasource.CorpusPage{Documents: docs, Complete: true}, nil
+}
+
 func (a *filesystemAccessor) included(name string) bool {
 	base := path.Base(name)
 	for _, pattern := range a.include {
@@ -177,6 +211,33 @@ func (a *filesystemAccessor) readRecord(name string) (coredatasource.Record, err
 		Title:      title,
 		Content:    truncate(body, 1200),
 		Metadata:   meta,
+	}, nil
+}
+
+func (a *filesystemAccessor) readCorpusDocument(name string) (coredatasource.CorpusDocument, error) {
+	data, err := fs.ReadFile(a.root, name)
+	if err != nil {
+		return coredatasource.CorpusDocument{}, err
+	}
+	meta, body := splitFrontmatter(string(data))
+	title := meta["title"]
+	if title == "" {
+		title = firstMarkdownHeading(body)
+	}
+	if title == "" {
+		title = path.Base(name)
+	}
+	sum := sha256.Sum256(data)
+	return coredatasource.CorpusDocument{
+		Ref: coredatasource.RecordRef{
+			Datasource: a.spec.Name,
+			Entity:     FileDocumentEntity,
+			ID:         name,
+		},
+		Title:       title,
+		Body:        body,
+		Metadata:    meta,
+		Fingerprint: hex.EncodeToString(sum[:]),
 	}, nil
 }
 

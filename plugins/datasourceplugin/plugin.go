@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -33,6 +34,7 @@ const (
 
 type Plugin struct {
 	registry *coredatasource.Registry
+	index    *semantic.Index
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -41,6 +43,10 @@ var _ pluginhost.ContextProviderContributor = Plugin{}
 
 func New(registry *coredatasource.Registry) Plugin {
 	return Plugin{registry: registry}
+}
+
+func NewWithSemantic(registry *coredatasource.Registry, index *semantic.Index) Plugin {
+	return Plugin{registry: registry, index: index}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -64,7 +70,7 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 }
 
 func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
-	return []corecontext.Provider{catalogProvider(p), detectedProvider(p)}, nil
+	return []corecontext.Provider{catalogProvider{registry: p.registry}, detectedProvider{registry: p.registry}}, nil
 }
 
 func contextSpec() corecontext.ProviderSpec {
@@ -140,6 +146,8 @@ type searchInput struct {
 	Query    string   `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
 	Entities []string `json:"entities,omitempty" jsonschema:"description=Optional entity type filters such as gitlab.project, jira.issue, or jira.*."`
 	Limit    int      `json:"limit,omitempty" jsonschema:"description=Maximum records per datasource per query. Defaults to 10."`
+	Mode     string   `json:"mode,omitempty" jsonschema:"description=Search mode: auto, lexical, semantic, or hybrid. Defaults to auto."`
+	MinScore float64  `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
 }
 
 type getInput struct {
@@ -205,6 +213,17 @@ func (p Plugin) search(ctx operation.Context, input searchInput) operation.Resul
 	if err != nil {
 		return operation.Failed("datasource_search_denied", err.Error(), nil)
 	}
+	mode := searchMode(input.Mode)
+	if mode == "semantic" {
+		out := p.withRecordLinks(ctx, p.runSemanticSearches(ctx, targets, queries, limit, input.MinScore))
+		return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
+	}
+	if mode == "hybrid" || (mode == "auto" && p.hasIndexedSemanticTargets(ctx, targets)) {
+		lexical := p.runSearches(ctx, targets, queries, limit)
+		semanticOut := p.runSemanticSearches(ctx, targets, queries, limit, input.MinScore)
+		out := p.withRecordLinks(ctx, mergeSearchOutputs(lexical, semanticOut, limit))
+		return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
+	}
 	out := p.withRecordLinks(ctx, p.runSearches(ctx, targets, queries, limit))
 	return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
 }
@@ -258,6 +277,44 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 			continue
 		}
 		out.Results = append(out.Results, result.result)
+	}
+	return out
+}
+
+func (p Plugin) runSemanticSearches(ctx operation.Context, targets []searchTarget, queries []string, limit int, minScore float64) searchOutput {
+	if p.index == nil {
+		return searchOutput{Errors: []sourceError{{Message: "semantic index is not configured"}}}
+	}
+	datasources, entities := semanticFilters(targets)
+	var out searchOutput
+	byResult := map[string]int{}
+	for _, query := range queries {
+		result, err := p.index.Search(ctx, semantic.SearchRequest{
+			Query:       query,
+			Datasources: datasources,
+			Entities:    entities,
+			Limit:       limit,
+			MinScore:    minScore,
+		})
+		if err != nil {
+			out.Errors = append(out.Errors, sourceError{Message: err.Error()})
+			continue
+		}
+		for _, hit := range result.Hits {
+			record := semantic.RecordFromHit(hit)
+			key := string(record.Datasource) + "\x00" + string(record.Entity)
+			idx, ok := byResult[key]
+			if !ok {
+				idx = len(out.Results)
+				byResult[key] = idx
+				out.Results = append(out.Results, coredatasource.SearchResult{
+					Datasource: record.Datasource,
+					Entity:     record.Entity,
+				})
+			}
+			out.Results[idx].Records = append(out.Results[idx].Records, record)
+			out.Results[idx].Total = len(out.Results[idx].Records)
+		}
 	}
 	return out
 }
@@ -578,6 +635,111 @@ func validEntityFilters(targets []searchTarget) []string {
 		out = append(out, wildcard)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func semanticFilters(targets []searchTarget) ([]coredatasource.Name, []coredatasource.EntityType) {
+	seenSources := map[coredatasource.Name]bool{}
+	seenEntities := map[coredatasource.EntityType]bool{}
+	var datasources []coredatasource.Name
+	var entities []coredatasource.EntityType
+	for _, target := range targets {
+		if !entityDeclares(target.Entity, coredatasource.EntityCapabilitySemanticSearch) {
+			continue
+		}
+		name := target.Accessor.Spec().Name
+		if !seenSources[name] {
+			seenSources[name] = true
+			datasources = append(datasources, name)
+		}
+		if !seenEntities[target.Entity.Type] {
+			seenEntities[target.Entity.Type] = true
+			entities = append(entities, target.Entity.Type)
+		}
+	}
+	return datasources, entities
+}
+
+func hasSemanticTargets(targets []searchTarget) bool {
+	for _, target := range targets {
+		if entityDeclares(target.Entity, coredatasource.EntityCapabilitySemanticSearch) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p Plugin) hasIndexedSemanticTargets(ctx context.Context, targets []searchTarget) bool {
+	if p.index == nil || !hasSemanticTargets(targets) {
+		return false
+	}
+	datasources, entities := semanticFilters(targets)
+	for _, datasource := range datasources {
+		for _, entity := range entities {
+			status, err := p.index.Status(ctx, semantic.StatusRequest{Datasource: datasource, Entity: entity})
+			if err == nil && len(status.Documents) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func entityDeclares(entity coredatasource.EntitySpec, capability coredatasource.EntityCapability) bool {
+	for _, candidate := range entity.Capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func searchMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return "auto"
+	case "lexical", "keyword", "provider":
+		return "lexical"
+	case "semantic", "vector":
+		return "semantic"
+	case "hybrid":
+		return "hybrid"
+	default:
+		return "auto"
+	}
+}
+
+func mergeSearchOutputs(a, b searchOutput, limit int) searchOutput {
+	out := searchOutput{Errors: append(append([]sourceError(nil), a.Errors...), b.Errors...)}
+	byResult := map[string]int{}
+	seenRecords := map[string]bool{}
+	appendResult := func(result coredatasource.SearchResult) {
+		key := string(result.Datasource) + "\x00" + string(result.Entity)
+		idx, ok := byResult[key]
+		if !ok {
+			idx = len(out.Results)
+			byResult[key] = idx
+			out.Results = append(out.Results, coredatasource.SearchResult{Datasource: result.Datasource, Entity: result.Entity})
+		}
+		for _, record := range result.Records {
+			recordKey := key + "\x00" + record.ID
+			if seenRecords[recordKey] {
+				continue
+			}
+			if limit > 0 && len(out.Results[idx].Records) >= limit {
+				continue
+			}
+			seenRecords[recordKey] = true
+			out.Results[idx].Records = append(out.Results[idx].Records, record)
+			out.Results[idx].Total = len(out.Results[idx].Records)
+		}
+	}
+	for _, result := range a.Results {
+		appendResult(result)
+	}
+	for _, result := range b.Results {
+		appendResult(result)
+	}
 	return out
 }
 

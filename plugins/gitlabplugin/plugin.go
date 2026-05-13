@@ -72,6 +72,15 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 		TitleFields: []string{"path_with_namespace", "name"},
 		TextFields:  []string{"description"},
 		URLFields:   []string{"web_url"},
+		Corpus: connectorplugin.CorpusPolicy{
+			TitleFields: []string{"path_with_namespace", "name"},
+			BodyFields:  []string{"description"},
+			MetadataFields: map[string][]string{
+				"visibility":     {"visibility"},
+				"default_branch": {"default_branch"},
+				"namespace":      {"namespace.full_path", "namespace.name"},
+			},
+		},
 		MetadataFields: map[string][]string{
 			"visibility":     {"visibility"},
 			"default_branch": {"default_branch"},

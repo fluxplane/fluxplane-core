@@ -42,6 +42,46 @@ type ModelPolicy struct {
 	Annotations   map[string]string `json:"annotations,omitempty"`
 }
 
+// SemanticSearchSpec describes app-level semantic datasource indexing defaults.
+type SemanticSearchSpec struct {
+	Enabled    bool              `json:"enabled,omitempty"`
+	Embeddings EmbeddingSpec     `json:"embeddings,omitempty"`
+	Store      SemanticStoreSpec `json:"store,omitempty"`
+	Defaults   SemanticDefaults  `json:"defaults,omitempty"`
+}
+
+// EmbeddingSpec declares the embedding provider/model requested by the app.
+type EmbeddingSpec struct {
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+// SemanticStoreSpec declares where semantic index state is stored.
+type SemanticStoreSpec struct {
+	Kind string `json:"kind,omitempty"`
+	Path string `json:"path,omitempty"`
+}
+
+// SemanticDefaults declares default chunking and retrieval behavior.
+type SemanticDefaults struct {
+	Chunking  SemanticChunkingSpec  `json:"chunking,omitempty"`
+	Retrieval SemanticRetrievalSpec `json:"retrieval,omitempty"`
+}
+
+// SemanticChunkingSpec configures default semantic chunk planning.
+type SemanticChunkingSpec struct {
+	Strategy      string `json:"strategy,omitempty"`
+	TargetTokens  int    `json:"target_tokens,omitempty"`
+	OverlapTokens int    `json:"overlap_tokens,omitempty"`
+}
+
+// SemanticRetrievalSpec configures default semantic retrieval behavior.
+type SemanticRetrievalSpec struct {
+	Mode     string  `json:"mode,omitempty"`
+	Limit    int     `json:"limit,omitempty"`
+	MinScore float64 `json:"min_score,omitempty"`
+}
+
 // PluginRef identifies a requested plugin in an app manifest. Plugin
 // instantiation belongs outside core.
 type PluginRef struct {
@@ -52,15 +92,16 @@ type PluginRef struct {
 // Spec is an inert application manifest. It can be authored by config files,
 // embedded apps, or tests, and later composed by orchestration.
 type Spec struct {
-	Name           Name              `json:"name,omitempty"`
-	Description    string            `json:"description,omitempty"`
-	DefaultAgent   agent.Ref         `json:"default_agent,omitempty"`
-	DefaultSession coresession.Ref   `json:"default_session,omitempty"`
-	Sources        []SourceSpec      `json:"sources,omitempty"`
-	Discovery      DiscoveryPolicy   `json:"discovery,omitempty"`
-	Model          ModelPolicy       `json:"model,omitempty"`
-	Plugins        []PluginRef       `json:"plugins,omitempty"`
-	Annotations    map[string]string `json:"annotations,omitempty"`
+	Name           Name               `json:"name,omitempty"`
+	Description    string             `json:"description,omitempty"`
+	DefaultAgent   agent.Ref          `json:"default_agent,omitempty"`
+	DefaultSession coresession.Ref    `json:"default_session,omitempty"`
+	Sources        []SourceSpec       `json:"sources,omitempty"`
+	Discovery      DiscoveryPolicy    `json:"discovery,omitempty"`
+	Model          ModelPolicy        `json:"model,omitempty"`
+	SemanticSearch SemanticSearchSpec `json:"semantic_search,omitempty"`
+	Plugins        []PluginRef        `json:"plugins,omitempty"`
+	Annotations    map[string]string  `json:"annotations,omitempty"`
 }
 
 // Validate checks the manifest is structurally useful without resolving refs.
