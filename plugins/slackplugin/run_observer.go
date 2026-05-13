@@ -29,6 +29,7 @@ type runSummary struct {
 	OperationEvents int
 	Streamed        bool
 	ContentStreamed bool
+	ActivePlans     map[string]bool
 }
 
 type runObserver struct {
@@ -47,6 +48,8 @@ type runObserver struct {
 	taskSeq       int
 	taskByCallID  map[operation.CallID]string
 	summary       runSummary
+	activePlans   map[string]bool
+	seenRuntime   map[string]bool
 }
 
 func newRunObserver(channel *SlackChannel, target Target) *runObserver {
@@ -62,6 +65,7 @@ func (o *runObserver) Observe(events <-chan clientapi.Event) <-chan runSummary {
 		o.Flush()
 		o.mu.Lock()
 		o.summary.Streamed = o.streamed
+		o.summary.ActivePlans = cloneBoolMap(o.activePlans)
 		summary := o.summary
 		o.mu.Unlock()
 		done <- summary
@@ -83,12 +87,65 @@ func (o *runObserver) Handle(event clientapi.Event) {
 	case clientapi.EventOperationCompleted:
 		o.handleOperationCompleted(event)
 	case clientapi.EventRuntimeEmitted:
+		if o.skipSeenRuntime(event) {
+			return
+		}
 		o.handleRuntime(event)
 	case clientapi.EventRunCompleted:
 		slog.Info("slack run completed", "channel", o.channel.name, "run", event.RunID)
 	case clientapi.EventRunFailed:
 		slog.Warn("slack run failed", "channel", o.channel.name, "run", event.RunID, "error", event.Error)
 	}
+}
+
+func (o *runObserver) FollowPlans(ctx context.Context, session clientapi.SessionHandle, active map[string]bool) runSummary {
+	if o == nil || session == nil || len(active) == 0 {
+		return runSummary{}
+	}
+	o.mu.Lock()
+	if o.activePlans == nil {
+		o.activePlans = map[string]bool{}
+	}
+	for planID := range active {
+		o.activePlans[planID] = true
+	}
+	o.mu.Unlock()
+	events, cancel, err := session.Events(ctx, clientapi.EventOptions{Buffer: 64, Replay: true})
+	if err != nil {
+		slog.Warn("slack background plan events unavailable", "channel", o.channel.name, "error", err)
+		return runSummary{}
+	}
+	defer cancel()
+	for {
+		o.mu.Lock()
+		remaining := len(o.activePlans)
+		o.mu.Unlock()
+		if remaining == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return o.snapshotSummary()
+		case event, ok := <-events:
+			if !ok {
+				return o.snapshotSummary()
+			}
+			if event.Runtime == nil || (!strings.HasPrefix(string(event.Runtime.Name), "plan.") && !strings.HasPrefix(string(event.Runtime.Name), "subagent.")) {
+				continue
+			}
+			o.Handle(event)
+		}
+	}
+	o.Flush()
+	return o.snapshotSummary()
+}
+
+func (o *runObserver) snapshotSummary() runSummary {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.summary.Streamed = o.streamed
+	o.summary.ActivePlans = cloneBoolMap(o.activePlans)
+	return o.summary
 }
 
 func (o *runObserver) Finish(ctx context.Context) {
@@ -147,6 +204,7 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 	if event.Runtime == nil {
 		return
 	}
+	o.trackPlanRuntime(event)
 	o.mu.Lock()
 	o.summary.ModelEvents++
 	o.mu.Unlock()
@@ -174,6 +232,8 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan completed", slack.TaskCardStatusComplete, payload.Summary)
 	case planexecplugin.PlanFailed:
 		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan failed", slack.TaskCardStatusError, payload.Reason)
+	case planexecplugin.PlanCancelled:
+		o.appendTaskUpdate("plan:"+payload.PlanID, "Plan cancelled", slack.TaskCardStatusError, payload.Reason)
 	case subagent.Started:
 		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusInProgress, payload.Task)
 	case subagent.Completed:
@@ -228,7 +288,110 @@ func (o *runObserver) handleRuntimeMap(event clientapi.Event, payload map[string
 		if decodeRuntimeMap(payload, &typed) == nil {
 			o.appendTaskUpdate(planTaskID(typed.PlanID, typed.StepID), "Step "+typed.StepID, slack.TaskCardStatusError, typed.Error)
 		}
+	case string(planexecplugin.EventPlanCompleted):
+		var typed planexecplugin.PlanCompleted
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan completed", slack.TaskCardStatusComplete, typed.Summary)
+		}
+	case string(planexecplugin.EventPlanFailed):
+		var typed planexecplugin.PlanFailed
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan failed", slack.TaskCardStatusError, typed.Reason)
+		}
+	case string(planexecplugin.EventPlanCancelled):
+		var typed planexecplugin.PlanCancelled
+		if decodeRuntimeMap(payload, &typed) == nil {
+			o.appendTaskUpdate("plan:"+typed.PlanID, "Plan cancelled", slack.TaskCardStatusError, typed.Reason)
+		}
 	}
+}
+
+func (o *runObserver) skipSeenRuntime(event clientapi.Event) bool {
+	if event.Runtime == nil {
+		return false
+	}
+	key := runtimeEventKey(event)
+	if key == "" {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.seenRuntime == nil {
+		o.seenRuntime = map[string]bool{}
+	}
+	if o.seenRuntime[key] {
+		return true
+	}
+	o.seenRuntime[key] = true
+	return false
+}
+
+func (o *runObserver) trackPlanRuntime(event clientapi.Event) {
+	planID := runtimePlanID(event)
+	if planID == "" {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.activePlans == nil {
+		o.activePlans = map[string]bool{}
+	}
+	switch string(event.Runtime.Name) {
+	case string(planexecplugin.EventPlanExecutionStarted):
+		o.activePlans[planID] = true
+	case string(planexecplugin.EventPlanCompleted), string(planexecplugin.EventPlanFailed), string(planexecplugin.EventPlanCancelled):
+		delete(o.activePlans, planID)
+	}
+}
+
+func runtimePlanID(event clientapi.Event) string {
+	if event.Runtime == nil {
+		return ""
+	}
+	payload := runtimePayloadMap(event.Runtime.Payload)
+	if value, ok := payload["plan_id"].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func runtimeEventKey(event clientapi.Event) string {
+	if event.Runtime == nil {
+		return ""
+	}
+	raw, err := json.Marshal(event.Runtime.Payload)
+	if err != nil {
+		return string(event.Runtime.Name)
+	}
+	return string(event.Runtime.Name) + ":" + string(raw)
+}
+
+func runtimePayloadMap(payload any) map[string]any {
+	switch typed := payload.(type) {
+	case map[string]any:
+		return typed
+	default:
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return nil
+		}
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return nil
+		}
+		return out
+	}
+}
+
+func cloneBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return map[string]bool{}
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func (o *runObserver) handlePlanCreated(event planexecplugin.PlanCreated) {

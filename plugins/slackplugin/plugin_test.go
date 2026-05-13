@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -254,6 +255,32 @@ func TestRunObserverStreamsTaskUpdatesWithoutThinkingText(t *testing.T) {
 	}
 	if strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
 		t.Fatalf("requests leaked thinking text: %s", joined)
+	}
+}
+
+func TestRunObserverTracksBackgroundPlanLifecycle(t *testing.T) {
+	observer := newRunObserver(&SlackChannel{name: "slack-main"}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Handle(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventPlanExecutionStarted,
+			Payload: planexecplugin.PlanExecutionStarted{PlanID: "plan_1"},
+		},
+	})
+	summary := observer.snapshotSummary()
+	if !summary.ActivePlans["plan_1"] {
+		t.Fatalf("active plans = %#v, want plan_1", summary.ActivePlans)
+	}
+	observer.Handle(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventPlanCompleted,
+			Payload: planexecplugin.PlanCompleted{PlanID: "plan_1"},
+		},
+	})
+	summary = observer.snapshotSummary()
+	if summary.ActivePlans["plan_1"] {
+		t.Fatalf("active plans = %#v, want plan_1 removed", summary.ActivePlans)
 	}
 }
 

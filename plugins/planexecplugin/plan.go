@@ -17,7 +17,7 @@ type planInput struct {
 }
 
 type planAction struct {
-	Action      string     `json:"action" jsonschema:"required,enum=create,enum=revise,enum=execute,enum=status,enum=step_output,enum=cancel"`
+	Action      string     `json:"action" jsonschema:"required,enum=create,enum=revise,enum=execute,enum=wait,enum=status,enum=step_output,enum=cancel"`
 	Title       string     `json:"title,omitempty"`
 	Description string     `json:"description,omitempty"`
 	Steps       []StepSpec `json:"steps,omitempty"`
@@ -48,6 +48,8 @@ func (p *Plugin) applyPlanAction(ctx operation.Context, action planAction) opera
 		return p.revisePlan(ctx, action)
 	case "execute":
 		return p.executePlan(ctx)
+	case "wait":
+		return p.waitPlan(ctx)
 	case "status":
 		return rendered("Plan status.", p.stateForContext(ctx))
 	case "step_output":
@@ -66,7 +68,7 @@ func (p *Plugin) createPlan(ctx operation.Context, action planAction) operation.
 	}
 	current := p.stateForContext(ctx)
 	p.mu.Lock()
-	if current.ID != "" && current.Phase != PhaseCompleted && current.Phase != PhaseFailed && current.Phase != PhaseCancelled {
+	if current.ID != "" && current.Phase != PhaseCompleted && current.Phase != PhaseFailed && current.Phase != PhaseCancelled && current.Phase != PhaseInterrupted {
 		p.mu.Unlock()
 		return operation.Failed("plan_exists", "a plan already exists; use revise, status, execute, cancel, or wait for completion", nil)
 	}
@@ -115,19 +117,30 @@ func (p *Plugin) executePlan(ctx operation.Context) operation.Result {
 		p.mu.Unlock()
 		return operation.Failed("plan_missing", "no plan exists", nil)
 	}
-	if p.plan.Phase != PhaseDrafting {
+	if p.plan.Phase != PhaseDrafting && p.plan.Phase != PhaseInterrupted {
 		p.mu.Unlock()
-		return operation.Failed("plan_not_drafting", "plan must be in drafting phase to execute", map[string]any{"phase": p.plan.Phase})
+		return operation.Failed("plan_not_executable", "plan must be drafting or interrupted to execute", map[string]any{"phase": p.plan.Phase})
 	}
 	p.plan.Phase = PhaseExecuting
-	p.plan.Steps = make(map[string]StepExec, len(p.plan.Spec.Steps))
+	if p.plan.Steps == nil {
+		p.plan.Steps = make(map[string]StepExec, len(p.plan.Spec.Steps))
+	}
 	for _, step := range p.plan.Spec.Steps {
-		p.plan.Steps[step.ID] = StepExec{Status: StepStatusWaiting, Profile: step.Profile}
+		exec := p.plan.Steps[step.ID]
+		if exec.Status != StepStatusCompleted {
+			exec = StepExec{Status: StepStatusWaiting, Profile: step.Profile}
+		}
+		p.plan.Steps[step.ID] = exec
 	}
 	state := cloneState(p.plan)
 	p.mu.Unlock()
 	emitEvent(ctx, PlanExecutionStarted{PlanID: state.ID})
-	return p.runPlan(ctx, scope, state.ID)
+	runner, started := p.startRunner(ctx, scope, state.ID)
+	if !started {
+		return operation.Failed("plan_already_running", "plan is already executing", map[string]any{"plan_id": state.ID})
+	}
+	_ = runner
+	return rendered("Plan execution started.", p.state())
 }
 
 func (p *Plugin) runPlan(ctx operation.Context, scope subagent.Scope, planID string) operation.Result {
@@ -180,6 +193,29 @@ func (p *Plugin) runPlan(ctx operation.Context, scope subagent.Scope, planID str
 			return operation.Canceled(ctx.Err().Error())
 		}
 	}
+}
+
+func (p *Plugin) waitPlan(ctx operation.Context) operation.Result {
+	scope, ok := subagent.ScopeFromContext(ctx)
+	if !ok {
+		return operation.Failed("plan_executor_unavailable", "sub-agent supervisor is not available in this session", nil)
+	}
+	state := p.stateForContext(ctx)
+	if state.ID == "" {
+		return operation.Failed("plan_missing", "no plan exists", nil)
+	}
+	switch state.Phase {
+	case PhaseCompleted, PhaseFailed, PhaseCancelled, PhaseInterrupted:
+		return rendered("Plan status.", state)
+	}
+	if err := p.waitRunner(ctx, scope, state.ID); err != nil {
+		return operation.Failed("plan_wait_failed", err.Error(), map[string]any{"plan_id": state.ID})
+	}
+	state = p.stateForContext(ctx)
+	if state.Phase == PhaseFailed {
+		return operation.Failed("plan_failed", firstNonEmpty(state.Error, "one or more steps failed"), map[string]any{"plan": state})
+	}
+	return rendered("Plan completed.", state)
 }
 
 type stepResult struct {
@@ -376,6 +412,7 @@ func (p *Plugin) cancelPlan(ctx operation.Context, reason string) operation.Resu
 	scope, _ := subagent.ScopeFromContext(ctx)
 	p.cancelActiveSteps(ctx, scope, state, reason)
 	p.finishPlan(ctx, PhaseCancelled, reason)
+	p.cancelRunner(scope, state.ID)
 	return rendered("Plan cancelled.", p.state())
 }
 
@@ -407,6 +444,10 @@ func (p *Plugin) stateForContext(ctx operation.Context) PlanState {
 	state, seq := projectPlan(records)
 	if state.ID == "" {
 		return p.state()
+	}
+	if state.Phase == PhaseExecuting && !p.isRunning(scope, state.ID) {
+		state.Phase = PhaseInterrupted
+		state.Error = "plan execution interrupted; run execute to resume incomplete steps"
 	}
 	p.mu.Lock()
 	if seq > p.seq {

@@ -27,6 +27,7 @@ const (
 	ansiYellow = "\x1b[33m"
 	ansiGreen  = "\x1b[32m"
 	ansiRed    = "\x1b[31m"
+	ansiDim    = "\x1b[2m"
 )
 
 // Renderer renders client events for humans.
@@ -267,6 +268,13 @@ func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bo
 			_, _ = fmt.Fprintf(out, "%splan failed:%s %s\n", ansiRed, ansiReset, typed.Reason)
 			return true
 		}
+	case "plan.cancelled":
+		var typed terminalPlanCancelled
+		if decodeAny(payload, &typed) == nil {
+			r.flushContent()
+			_, _ = fmt.Fprintf(out, "%splan cancelled:%s %s\n", ansiYellow, ansiReset, typed.Reason)
+			return true
+		}
 	}
 	return false
 }
@@ -329,6 +337,10 @@ type terminalPlanCompleted struct {
 }
 
 type terminalPlanFailed struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type terminalPlanCancelled struct {
 	Reason string `json:"reason,omitempty"`
 }
 

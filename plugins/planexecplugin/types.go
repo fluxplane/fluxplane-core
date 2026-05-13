@@ -5,11 +5,12 @@ import "time"
 type PlanPhase string
 
 const (
-	PhaseDrafting  PlanPhase = "drafting"
-	PhaseExecuting PlanPhase = "executing"
-	PhaseCompleted PlanPhase = "completed"
-	PhaseFailed    PlanPhase = "failed"
-	PhaseCancelled PlanPhase = "cancelled"
+	PhaseDrafting    PlanPhase = "drafting"
+	PhaseExecuting   PlanPhase = "executing"
+	PhaseCompleted   PlanPhase = "completed"
+	PhaseFailed      PlanPhase = "failed"
+	PhaseCancelled   PlanPhase = "cancelled"
+	PhaseInterrupted PlanPhase = "interrupted"
 )
 
 type StepStatus string

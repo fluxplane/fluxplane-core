@@ -44,6 +44,7 @@ func TestPlanExecuteDispatchesDAGSteps(t *testing.T) {
 			{ID: "patch", Title: "Patch", DependsOn: []string{"inspect"}, Profile: "worker"},
 		}},
 		{Action: "execute"},
+		{Action: "wait"},
 	}})
 	if result.IsError() {
 		t.Fatalf("plan failed: %#v", result.Error)
@@ -79,6 +80,7 @@ func TestPlanStatusReplaysPersistedEventsWithFreshPlugin(t *testing.T) {
 	result := plugin.planOperation(ctx, planInput{Actions: []planAction{
 		{Action: "create", Title: "Replay", Steps: []StepSpec{{ID: "one", Title: "One", Profile: "worker"}}},
 		{Action: "execute"},
+		{Action: "wait"},
 	}})
 	if result.IsError() {
 		t.Fatalf("plan execute failed: %#v", result.Error)
@@ -93,6 +95,92 @@ func TestPlanStatusReplaysPersistedEventsWithFreshPlugin(t *testing.T) {
 	state := rendered.Data.(PlanState)
 	if state.Phase != PhaseCompleted || state.Steps["one"].Output != "worker done" {
 		t.Fatalf("projected state = %#v, want completed output", state)
+	}
+}
+
+func TestPlanExecuteReturnsBeforeBlockingStepFinishes(t *testing.T) {
+	store, threadID := testThreadStore(t)
+	client := newBlockingPlanClient()
+	ctx, _ := persistentOperationContextWithClient(t, store, threadID, client)
+	plugin := New()
+	create := plugin.planOperation(ctx, planInput{Actions: []planAction{
+		{Action: "create", Title: "Background", Steps: []StepSpec{{ID: "run", Title: "Run", Profile: "worker"}}},
+	}})
+	if create.IsError() {
+		t.Fatalf("plan create failed: %#v", create.Error)
+	}
+	resultCh := make(chan operation.Result, 1)
+	go func() {
+		resultCh <- plugin.planOperation(ctx, planInput{Actions: []planAction{{Action: "execute"}}})
+	}()
+	select {
+	case result := <-resultCh:
+		if result.IsError() {
+			t.Fatalf("execute failed: %#v", result.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("execute did not return while worker was blocked")
+	}
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start")
+	}
+	state := plugin.state()
+	if state.Phase != PhaseExecuting {
+		t.Fatalf("phase = %s, want executing", state.Phase)
+	}
+	client.finish()
+	wait := plugin.planOperation(ctx, planInput{Actions: []planAction{{Action: "wait"}}})
+	if wait.IsError() {
+		t.Fatalf("wait failed: %#v", wait.Error)
+	}
+}
+
+func TestPlanStatusReportsInterruptedWithoutActiveRunner(t *testing.T) {
+	store, threadID := testThreadStore(t)
+	sink := persistentSink(t, store, threadID)
+	spec := PlanSpec{Title: "Interrupted", Steps: []StepSpec{{ID: "run", Title: "Run", Profile: "worker"}}}
+	sink.Emit(PlanCreated{PlanID: "plan_1", Spec: spec})
+	sink.Emit(PlanExecutionStarted{PlanID: "plan_1"})
+	sink.Emit(StepDispatched{PlanID: "plan_1", StepID: "run", WorkerID: "plan_1:run", Profile: "worker"})
+
+	ctx, _ := persistentOperationContext(t, store, threadID, "unused")
+	status := New().planOperation(ctx, planInput{Actions: []planAction{{Action: "status"}}})
+	if status.IsError() {
+		t.Fatalf("status failed: %#v", status.Error)
+	}
+	state := status.Output.(operation.Rendered).Data.(PlanState)
+	if state.Phase != PhaseInterrupted {
+		t.Fatalf("phase = %s, want interrupted", state.Phase)
+	}
+}
+
+func TestPlanExecuteResumesInterruptedIncompleteSteps(t *testing.T) {
+	store, threadID := testThreadStore(t)
+	sink := persistentSink(t, store, threadID)
+	spec := PlanSpec{Title: "Resume", Steps: []StepSpec{
+		{ID: "done", Title: "Done", Profile: "worker"},
+		{ID: "run", Title: "Run", DependsOn: []string{"done"}, Profile: "worker"},
+	}}
+	sink.Emit(PlanCreated{PlanID: "plan_1", Spec: spec})
+	sink.Emit(PlanExecutionStarted{PlanID: "plan_1"})
+	sink.Emit(StepDispatched{PlanID: "plan_1", StepID: "done", WorkerID: "plan_1:done", Profile: "worker"})
+	sink.Emit(StepCompleted{PlanID: "plan_1", StepID: "done", Output: "already done"})
+	sink.Emit(StepDispatched{PlanID: "plan_1", StepID: "run", WorkerID: "plan_1:run", Profile: "worker"})
+
+	ctx, _ := persistentOperationContext(t, store, threadID, "resumed")
+	plugin := New()
+	result := plugin.planOperation(ctx, planInput{Actions: []planAction{{Action: "execute"}, {Action: "wait"}}})
+	if result.IsError() {
+		t.Fatalf("resume execute failed: %#v", result.Error)
+	}
+	state := plugin.stateForContext(ctx)
+	if state.Phase != PhaseCompleted {
+		t.Fatalf("phase = %s, want completed", state.Phase)
+	}
+	if state.Steps["done"].Output != "already done" || state.Steps["run"].Output != "resumed" {
+		t.Fatalf("steps = %#v, want completed resume outputs", state.Steps)
 	}
 }
 
