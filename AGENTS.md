@@ -17,6 +17,9 @@ Do not put migration decision logs in this file.
   `feat: short summary`, blank line, then a short body explaining what changed
   and why. Use the appropriate type (`feat`, `fix`, `docs`, `test`, `chore`,
   `refactor`, and so on).
+- Before committing user-visible changes, documentation changes, removals, or
+  release-affecting work, update `CHANGELOG.md` in the same commit unless the
+  user explicitly says to skip it.
 - The generated architecture render directory `.agents/architecture/` is
   ignored. Regenerate it when needed.
 - This is a pre-1.0 rewrite. Do not add backward-compatibility shims,
