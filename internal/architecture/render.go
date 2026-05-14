@@ -34,6 +34,13 @@ func RenderText(report Report) string {
 		}
 	}
 
+	if len(report.Summary.ScorePenalties) > 0 {
+		fmt.Fprintln(&out, "\nScore penalties:")
+		for _, penalty := range report.Summary.ScorePenalties {
+			fmt.Fprintf(&out, "  -%-3d %-18s %s\n", penalty.Penalty, penalty.Kind, penaltyLabel(report.ModulePath, penalty))
+		}
+	}
+
 	fmt.Fprintln(&out, "\nHighest fan-out:")
 	for _, pkg := range topFanOut(report.Packages, 8) {
 		fmt.Fprintf(&out, "  %-55s %d\n", short(report.ModulePath, pkg.ImportPath), pkg.FanOut)
@@ -93,6 +100,24 @@ func RenderMermaid(report Report) string {
 		}
 	}
 	return out.String()
+}
+
+func penaltyLabel(modulePath string, penalty ScorePenalty) string {
+	var parts []string
+	if penalty.Package != "" {
+		parts = append(parts, short(modulePath, penalty.Package))
+	} else if penalty.Layer != "" {
+		parts = append(parts, string(penalty.Layer))
+	}
+	if penalty.Threshold > 0 {
+		parts = append(parts, fmt.Sprintf("count=%d threshold=%d", penalty.Count, penalty.Threshold))
+	} else if penalty.Count > 0 {
+		parts = append(parts, fmt.Sprintf("count=%d", penalty.Count))
+	}
+	if penalty.Reason != "" {
+		parts = append(parts, penalty.Reason)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func topFanOut(pkgs []PackageReport, limit int) []PackageReport {

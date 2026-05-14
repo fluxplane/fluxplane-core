@@ -22,9 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
@@ -90,7 +88,7 @@ type OperationCatalog map[string]OperationBinding
 // ToolSetBinding binds a projected tool set to its canonical resource identity.
 type ToolSetBinding struct {
 	ID   resource.ResourceID `json:"id"`
-	Spec tool.Set            `json:"spec"`
+	Spec any                 `json:"spec"`
 }
 
 // ToolSetCatalog binds canonical tool set resource IDs to tool set specs.
@@ -1763,11 +1761,8 @@ func (s Session) replaySkillEvents(ctx context.Context) error {
 				continue
 			}
 		}
-		switch runtimeEvent.Name {
-		case coreskill.EventSkillActivated, coreskill.EventSkillReferenceActivated:
-			if err := state.ApplyEvent(runtimeEvent.Payload); err != nil {
-				return err
-			}
+		if err := state.ApplyNamedEvent(runtimeEvent.Name, runtimeEvent.Payload); err != nil {
+			return err
 		}
 	}
 	return nil

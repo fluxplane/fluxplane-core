@@ -229,6 +229,56 @@ func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
 	}
 }
 
+func TestResponseParamsCompactsLargeReplayToolResult(t *testing.T) {
+	model, err := New(Config{
+		Model:         "gpt-test",
+		ProviderName:  "codex",
+		ContextTokens: 512,
+		Runtime:       ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	large := strings.Repeat("large diff line\n", 2000)
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder"},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_patch",
+				Content: large,
+				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
+			}},
+			NewItems: []coreconversation.Item{{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_patch",
+				Content: large,
+				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if strings.Contains(string(raw), "large diff line") {
+		t.Fatalf("params json still contains large tool output")
+	}
+	if !strings.Contains(string(raw), "file_patch result omitted") {
+		t.Fatalf("params json = %s, want compact tool result", raw)
+	}
+	if len(sent) != 1 || len(sent[0].Native) == 0 || strings.Contains(string(sent[0].Native), "large diff line") {
+		t.Fatalf("sent = %#v, want compact native tool result", sent)
+	}
+}
+
 func TestResponseParamsReplaysPlainAssistantOutput(t *testing.T) {
 	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
 	if err != nil {

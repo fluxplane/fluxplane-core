@@ -43,15 +43,27 @@ type Report struct {
 }
 
 type Summary struct {
-	Score               int `json:"score"`
-	PackageCount        int `json:"package_count"`
-	InternalEdgeCount   int `json:"internal_edge_count"`
-	ViolationCount      int `json:"violation_count"`
-	CrossLayerEdges     int `json:"cross_layer_edges"`
-	SameLayerEdges      int `json:"same_layer_edges"`
-	RuntimeSiblingEdges int `json:"runtime_sibling_edges"`
-	MaxFanIn            int `json:"max_fan_in"`
-	MaxFanOut           int `json:"max_fan_out"`
+	Score               int            `json:"score"`
+	PackageCount        int            `json:"package_count"`
+	InternalEdgeCount   int            `json:"internal_edge_count"`
+	ViolationCount      int            `json:"violation_count"`
+	CrossLayerEdges     int            `json:"cross_layer_edges"`
+	SameLayerEdges      int            `json:"same_layer_edges"`
+	RuntimeSiblingEdges int            `json:"runtime_sibling_edges"`
+	MaxFanIn            int            `json:"max_fan_in"`
+	MaxFanOut           int            `json:"max_fan_out"`
+	ScorePenalties      []ScorePenalty `json:"score_penalties,omitempty"`
+}
+
+// ScorePenalty explains one contribution to the architecture score penalty.
+type ScorePenalty struct {
+	Kind      string `json:"kind"`
+	Package   string `json:"package,omitempty"`
+	Layer     Layer  `json:"layer,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	Threshold int    `json:"threshold,omitempty"`
+	Penalty   int    `json:"penalty"`
+	Reason    string `json:"reason"`
 }
 
 type LayerSummary struct {
@@ -321,19 +333,52 @@ func summarize(pkgs []PackageReport, edges []Edge, violations []Violation) Summa
 		}
 	}
 
-	penalty := summary.ViolationCount*25 + summary.RuntimeSiblingEdges*2
+	var penalties []ScorePenalty
+	penalty := 0
+	if summary.ViolationCount > 0 {
+		amount := summary.ViolationCount * 25
+		penalty += amount
+		penalties = append(penalties, ScorePenalty{
+			Kind:    "violation",
+			Count:   summary.ViolationCount,
+			Penalty: amount,
+			Reason:  "boundary violations are hard architecture failures",
+		})
+	}
+	if summary.RuntimeSiblingEdges > 0 {
+		amount := summary.RuntimeSiblingEdges * 2
+		penalty += amount
+		penalties = append(penalties, ScorePenalty{
+			Kind:    "runtime_sibling",
+			Layer:   LayerRuntime,
+			Count:   summary.RuntimeSiblingEdges,
+			Penalty: amount,
+			Reason:  "runtime sibling imports usually indicate unclear execution composition",
+		})
+	}
 	for _, pkg := range pkgs {
 		if pkg.Layer != LayerCore && pkg.Layer != LayerRuntime && pkg.Layer != LayerOrchestration {
 			continue
 		}
 		if pkg.FanOut > 12 {
-			penalty += (pkg.FanOut - 12) * 2
+			amount := (pkg.FanOut - 12) * 2
+			penalty += amount
+			penalties = append(penalties, ScorePenalty{
+				Kind:      "fan_out",
+				Package:   pkg.ImportPath,
+				Layer:     pkg.Layer,
+				Count:     pkg.FanOut,
+				Threshold: 12,
+				Penalty:   amount,
+				Reason:    "high fan-out in inner/use-case layers suggests splitting or moving composition outward",
+			})
 		}
 	}
 	summary.Score = 100 - penalty
 	if summary.Score < 0 {
 		summary.Score = 0
 	}
+	summary.ScorePenalties = penalties
 	return summary
 }
 

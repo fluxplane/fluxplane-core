@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -78,11 +80,10 @@ func (r *Renderer) Render(event clientapi.Event) {
 		r.mu.Lock()
 		r.starts[event.Operation.CallID] = time.Now()
 		r.mu.Unlock()
-		_, _ = fmt.Fprintf(out, "%stool start:%s %s%s", ansiYellow, ansiReset, ansiCyan, event.Operation.Operation.String())
+		_, _ = fmt.Fprintf(out, "%s●%s %s\n", ansiCyan, ansiReset, event.Operation.Operation.String())
 		if summary := operationStartSummary(*event.Operation); summary != "" {
-			_, _ = fmt.Fprintf(out, " %s", summary)
+			_, _ = fmt.Fprintf(out, "  ↳ %s\n", summary)
 		}
-		_, _ = fmt.Fprintf(out, "%s\n", ansiReset)
 	case clientapi.EventOperationCompleted:
 		r.flushContent()
 		if event.Operation == nil || event.Operation.Result == nil {
@@ -93,17 +94,21 @@ func (r *Renderer) Render(event clientapi.Event) {
 		if status == "" {
 			status = operation.StatusOK
 		}
+		marker := "✓"
 		color := ansiGreen
 		if event.Operation.Result.Error != nil || status != operation.StatusOK {
+			marker = "✕"
 			color = ansiRed
 		}
-		_, _ = fmt.Fprintf(out, "%stool end:%s %s status=%s duration=%s", color, ansiReset, event.Operation.Operation.String(), status, duration.Round(time.Millisecond))
+		_, _ = fmt.Fprintf(out, "  %s%s%s ", color, marker, ansiReset)
 		if event.Operation.Result.Error != nil {
-			_, _ = fmt.Fprintf(out, " error=%s", event.Operation.Result.Error.Message)
+			_, _ = fmt.Fprint(out, failureSummary(status, event.Operation.Result.Error))
 		} else if summary := resultSummary(*event.Operation.Result); summary != "" {
-			_, _ = fmt.Fprintf(out, " %s", summary)
+			_, _ = fmt.Fprint(out, summary)
+		} else {
+			_, _ = fmt.Fprintf(out, "status=%s", status)
 		}
-		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, " %sduration=%s%s\n", ansiDim, duration.Round(time.Millisecond), ansiReset)
 	case clientapi.EventRuntimeEmitted:
 		r.renderRuntime(out, event)
 	}
@@ -605,18 +610,67 @@ func renderProcessEvent(out io.Writer, event system.ProcessEvent) {
 func resultSummary(result operation.Result) string {
 	switch value := result.Output.(type) {
 	case operation.Rendered:
-		if value.Text != "" {
-			return compact(value.Text, 240)
+		if summary := dataSummary(value.Data); summary != "" && len(value.ModelText()) > 240 {
+			return summary
 		}
-		return compact(value.Data, 240)
+		if text := strings.TrimSpace(value.ModelText()); text != "" {
+			return compact(text, 240)
+		}
+		if summary := dataSummary(value.Data); summary != "" {
+			return summary
+		}
+		return paramSummary(value.Data, 240)
 	case map[string]any:
 		if text, ok := value["text"].(string); ok && text != "" {
 			return compact(text, 240)
 		}
-		return compact(value, 240)
+		if summary := dataSummary(value); summary != "" {
+			return summary
+		}
+		return paramSummary(value, 240)
 	default:
 		return compact(value, 240)
 	}
+}
+
+func failureSummary(status operation.Status, err *operation.Error) string {
+	if err == nil {
+		return string(status)
+	}
+	parts := []string{}
+	if status != "" {
+		parts = append(parts, string(status))
+	}
+	if err.Code != "" && err.Code != string(status) {
+		parts = append(parts, "code="+terminalValue(err.Code))
+	}
+	if err.Message != "" {
+		parts = append(parts, "reason="+terminalValue(err.Message))
+	}
+	if details := paramSummary(err.Details, 120); details != "" {
+		parts = append(parts, details)
+	}
+	return strings.Join(parts, " ")
+}
+
+func dataSummary(value any) string {
+	data, ok := valueAsMap(value)
+	if !ok || len(data) == 0 {
+		return ""
+	}
+	keys := []string{"path", "bytes", "asset", "url", "process_id", "status", "status_code", "truncated"}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		found, ok := data[key]
+		if !ok || emptySummaryValue(found) {
+			continue
+		}
+		parts = append(parts, key+"="+terminalValue(found))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return compact(strings.Join(parts, " "), 240)
 }
 
 type terminalPlanInput struct {
@@ -632,12 +686,12 @@ type terminalPlanAction struct {
 
 func operationStartSummary(event clientapi.OperationEvent) string {
 	if event.Operation.String() != "plan" {
-		return compact(event.Input, 320)
+		return paramSummary(event.Input, 320)
 	}
 	var input terminalPlanInput
 	data, err := json.Marshal(event.Input)
 	if err != nil || json.Unmarshal(data, &input) != nil || len(input.Actions) == 0 {
-		return compact(event.Input, 320)
+		return paramSummary(event.Input, 320)
 	}
 	if len(input.Actions) > 1 {
 		actions := make([]string, 0, len(input.Actions))
@@ -649,12 +703,12 @@ func operationStartSummary(event clientapi.OperationEvent) string {
 		if len(actions) > 0 {
 			return strings.Join(actions, "+")
 		}
-		return compact(event.Input, 320)
+		return paramSummary(event.Input, 320)
 	}
 	action := input.Actions[0]
 	switch action.Action {
 	case "create":
-		return fmt.Sprintf("create (%d steps)", len(action.Steps))
+		return fmt.Sprintf("create %d steps", len(action.Steps))
 	case "execute":
 		return "execute"
 	case "wait":
@@ -672,7 +726,7 @@ func operationStartSummary(event clientapi.OperationEvent) string {
 		if action.Action != "" {
 			return action.Action
 		}
-		return compact(event.Input, 320)
+		return paramSummary(event.Input, 320)
 	}
 }
 
@@ -700,6 +754,119 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func paramSummary(value any, limit int) string {
+	if emptySummaryValue(value) {
+		return ""
+	}
+	if data, ok := valueAsMap(value); ok {
+		keys := make([]string, 0, len(data))
+		for key, item := range data {
+			if strings.TrimSpace(key) == "" || emptySummaryValue(item) {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			parts = append(parts, key+"="+terminalValue(data[key]))
+		}
+		return compact(strings.Join(parts, " "), limit)
+	}
+	return compact(terminalValue(value), limit)
+}
+
+func valueAsMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false
+	case map[string]any:
+		return typed, true
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return nil, false
+	}
+	return decoded, true
+}
+
+func terminalValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return quoteTerminalString(typed)
+	case json.RawMessage:
+		return compactJSON(typed)
+	case []byte:
+		return quoteTerminalString(string(typed))
+	case fmt.Stringer:
+		return quoteTerminalString(typed.String())
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return quoteTerminalString(fmt.Sprint(typed))
+		}
+		return compactJSON(data)
+	}
+}
+
+func quoteTerminalString(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return `""`
+	}
+	if strings.ContainsAny(value, " \t\n\r\"'=") {
+		data, err := json.Marshal(value)
+		if err == nil {
+			return string(data)
+		}
+	}
+	return value
+}
+
+func compactJSON(data []byte) string {
+	var decoded any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return quoteTerminalString(string(data))
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return quoteTerminalString(string(data))
+	}
+	return string(encoded)
+}
+
+func emptySummaryValue(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case []byte:
+		return len(typed) == 0
+	case json.RawMessage:
+		return len(typed) == 0
+	case []any:
+		return len(typed) == 0
+	case map[string]any:
+		return len(typed) == 0
+	default:
+		return false
+	}
 }
 
 func compact(value any, limit int) string {
@@ -737,7 +904,7 @@ func RenderUsageSnapshot(w io.Writer, snapshot usage.Snapshot) {
 		}
 		_, _ = fmt.Fprintf(w, "%s %s%s%s\n", subjectIcon(subject.Subject.Kind), ansiCyan, subjectLabel(subject.Subject), ansiReset)
 		for _, measurement := range subject.Totals {
-			if line := measurementLine(measurement); line != "" {
+			if line := measurementLine(subject.Subject, subject.Totals, measurement); line != "" {
 				_, _ = fmt.Fprintf(w, "  %s\n", line)
 			}
 		}
@@ -777,7 +944,7 @@ func subjectLabel(subject usage.Subject) string {
 	return "usage"
 }
 
-func measurementLine(measurement usage.Measurement) string {
+func measurementLine(subject usage.Subject, totals []usage.Measurement, measurement usage.Measurement) string {
 	switch measurement.Metric {
 	case usage.MetricLLMInputTokens:
 		if measurement.Dimensions != nil && measurement.Dimensions["cache_creation"] == "true" {
@@ -785,7 +952,11 @@ func measurementLine(measurement usage.Measurement) string {
 		}
 		return "↑ input tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMCachedTokens:
-		return "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
+		line := "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
+		if rate, ok := cacheRate(subject, totals, measurement); ok {
+			line += " | cached " + formatPercent(rate)
+		}
+		return line
 	case usage.MetricLLMOutputTokens:
 		return "↓ output tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMReasoningTokens:
@@ -805,6 +976,29 @@ func measurementLine(measurement usage.Measurement) string {
 	default:
 		return string(measurement.Metric) + " " + formatHumanQuantity(measurement)
 	}
+}
+
+func cacheRate(subject usage.Subject, totals []usage.Measurement, cached usage.Measurement) (float64, bool) {
+	if subject.Kind != usage.SubjectLLM || cached.Quantity <= 0 {
+		return 0, false
+	}
+	var input float64
+	for _, measurement := range totals {
+		if measurement.Metric == usage.MetricLLMInputTokens && measurement.Dimensions["cache_creation"] != "true" {
+			input += measurement.Quantity
+		}
+	}
+	if input <= 0 {
+		return 0, false
+	}
+	rate := cached.Quantity / input * 100
+	if rate < 0 {
+		rate = 0
+	}
+	if rate > 100 {
+		rate = 100
+	}
+	return rate, true
 }
 
 func networkBytesLine(measurement usage.Measurement) string {
@@ -878,6 +1072,10 @@ func formatCost(measurement usage.Measurement) string {
 	default:
 		return prefix + strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", quantity), "0"), ".")
 	}
+}
+
+func formatPercent(quantity float64) string {
+	return formatHumanNumber(math.Round(quantity)) + "%"
 }
 
 func formatDurationQuantity(quantity float64, unit usage.Unit) string {

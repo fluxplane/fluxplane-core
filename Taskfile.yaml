@@ -107,6 +107,27 @@ tasks:
     cmds:
       - go test -timeout=30s ./...
 
+  quality:metrics:
+    desc: Print non-blocking code quality metrics for refactoring guidance.
+    cmds:
+      - mkdir -p .cache/quality
+      - go test -timeout=30s -coverprofile=.cache/quality/coverage.out ./...
+      - go tool cover -func=.cache/quality/coverage.out | tail -n 1
+      - |
+        if command -v gocyclo >/dev/null 2>&1; then
+          printf '\nTop cyclomatic complexity:\n'
+          gocyclo -top 20 -ignore '(^|/)\.cache/|(^|/)bin/' .
+        else
+          printf '\nSkipping gocyclo: not installed. Run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest\n'
+        fi
+      - |
+        if command -v gocognit >/dev/null 2>&1; then
+          printf '\nTop cognitive complexity:\n'
+          gocognit -top 20 .
+        else
+          printf '\nSkipping gocognit: not installed. Run: go install github.com/uudashr/gocognit/cmd/gocognit@latest\n'
+        fi
+
   arch:check:
     desc: Fail on architecture import-direction violations.
     cmds:

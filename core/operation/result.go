@@ -35,12 +35,18 @@ type ModelRenderable interface {
 // Text is intended for LLM transcripts and compact terminal summaries; Data is
 // the structured machine-readable payload for clients and renderers.
 type Rendered struct {
-	Text string `json:"text,omitempty"`
-	Data Value  `json:"data,omitempty"`
+	Text  string `json:"text,omitempty"`
+	Model string `json:"model,omitempty"`
+	Data  Value  `json:"data,omitempty"`
 }
 
 // ModelText returns the LLM-facing rendering.
-func (r Rendered) ModelText() string { return r.Text }
+func (r Rendered) ModelText() string {
+	if r.Model != "" {
+		return r.Model
+	}
+	return r.Text
+}
 
 // OK returns a successful result.
 func OK(output Value) Result {

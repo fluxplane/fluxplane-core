@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `claudecode` as a Claude Code-compatible LLM provider using local
   Claude OAuth credentials and Claude Code request headers/preflight behavior.
+- Non-blocking `task quality:metrics` reports coverage plus optional
+  cyclomatic and cognitive complexity hotspots for refactoring guidance.
+
+### Fixed
+
+- OpenAI image generation no longer sends unsupported `response_format` for
+  `gpt-image-1` and can consume URL image responses.
+
+### Changed
+
+- Improved architecture score by moving pure event codec helpers into core and
+  removing unused runtime pass-through fields from app composition.
+- Architecture reports now include score penalty explanations so improvement
+  targets are visible without reading the scoring code.
 
 ## [0.12.0] - 2026-05-14
 

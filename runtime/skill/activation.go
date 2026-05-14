@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/fluxplane/agentruntime/core/event"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 )
 
@@ -186,6 +187,16 @@ func (s *ActivationState) ActiveReferences(skillName string) []coreskill.Referen
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
+}
+
+// ApplyNamedEvent replays a persisted skill runtime event by event name.
+func (s *ActivationState) ApplyNamedEvent(name event.Name, payload any) error {
+	switch name {
+	case coreskill.EventSkillActivated, coreskill.EventSkillReferenceActivated:
+		return s.ApplyEvent(payload)
+	default:
+		return nil
+	}
 }
 
 // ApplyEvent replays a persisted skill activation event.

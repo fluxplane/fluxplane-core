@@ -201,6 +201,37 @@ func TestFilePatchRejectsFileLargerThanWriteLimitUnchanged(t *testing.T) {
 	}
 }
 
+func TestFilePatchKeepsFullDiffOutOfModelText(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "note.txt"), []byte("one\ntwo\nthree\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	op := filesystemOperation(t, root, FilePatchOp)
+
+	result := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
+		"path": "note.txt",
+		"old":  "two",
+		"new":  "changed",
+	})
+	if result.IsError() {
+		t.Fatalf("result error = %#v", result.Error)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "--- note.txt") || !strings.Contains(rendered.Text, "+one\nchanged\nthree") {
+		t.Fatalf("text = %q, want full diff", rendered.Text)
+	}
+	if strings.Contains(rendered.ModelText(), "--- note.txt") || strings.Contains(rendered.ModelText(), "+one\nchanged\nthree") {
+		t.Fatalf("model text = %q, did not want full diff", rendered.ModelText())
+	}
+	data, ok := rendered.Data.(map[string]any)
+	if !ok || !strings.Contains(data["diff"].(string), "+one\nchanged\nthree") {
+		t.Fatalf("data = %#v, want full diff", rendered.Data)
+	}
+}
+
 func filesystemOperation(t *testing.T, root string, name string) operation.Operation {
 	t.Helper()
 	sys, err := system.NewHost(system.Config{Root: root})
