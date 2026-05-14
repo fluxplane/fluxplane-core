@@ -15,10 +15,11 @@ import (
 
 // TurnOptions configures terminal execution/rendering for one submitted turn.
 type TurnOptions struct {
-	Debug bool
-	Usage bool
-	Out   io.Writer
-	Err   io.Writer
+	Debug     bool
+	Usage     bool
+	Reasoning ReasoningDisplay
+	Out       io.Writer
+	Err       io.Writer
 }
 
 type turnRenderResult struct {
@@ -116,6 +117,7 @@ func renderTurnEvents(events <-chan clientapi.Event, tracker *usage.Tracker, opt
 	done := make(chan turnRenderResult, 1)
 	go func() {
 		renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
+		renderer.Reasoning = opts.Reasoning
 		result := turnRenderResult{ActivePlans: map[string]bool{}, SeenRuntime: map[string]bool{}}
 		for event := range events {
 			trackUsageEvent(tracker, event)
@@ -144,6 +146,7 @@ func followBackgroundPlans(ctx context.Context, session clientapi.SessionHandle,
 	}
 	defer cancel()
 	renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
+	renderer.Reasoning = opts.Reasoning
 	result := turnRenderResult{ActivePlans: cloneBoolMap(initial.ActivePlans), SeenRuntime: cloneBoolMap(initial.SeenRuntime)}
 	for len(result.ActivePlans) > 0 {
 		select {

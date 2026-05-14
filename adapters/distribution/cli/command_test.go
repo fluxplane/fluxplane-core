@@ -206,6 +206,35 @@ func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
 	}
 }
 
+func TestRunREPLHandlesUIReasoningLocally(t *testing.T) {
+	session := &captureSession{}
+	runtime := &sessionRuntime{session: session}
+	var out, errOut bytes.Buffer
+
+	err := Run(context.Background(), distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	}, RunOptions{
+		In:  strings.NewReader("/ui:reasoning on\n/exit\n"),
+		Out: &out,
+		Err: &errOut,
+	})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if session.submits != 0 {
+		t.Fatalf("submits = %d, want local UI command not submitted", session.submits)
+	}
+	if !strings.Contains(errOut.String(), "ui: reasoning on") {
+		t.Fatalf("err = %q, want UI status", errOut.String())
+	}
+}
+
 func TestCommandRejectsInvalidEffort(t *testing.T) {
 	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "coder"}})
 	cmd.SetOut(&bytes.Buffer{})
@@ -228,3 +257,34 @@ func (r *captureRuntime) OpenSession(_ context.Context, req distribution.OpenReq
 	r.request = req
 	return nil, errStopOpen
 }
+
+type sessionRuntime struct {
+	session clientapi.SessionHandle
+}
+
+func (r *sessionRuntime) OpenSession(context.Context, distribution.OpenRequest) (clientapi.SessionHandle, error) {
+	return r.session, nil
+}
+
+type captureSession struct {
+	submits int
+}
+
+func (s *captureSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
+
+func (s *captureSession) Submit(context.Context, clientapi.Submission) (clientapi.RunHandle, error) {
+	s.submits++
+	return nil, errors.New("unexpected submit")
+}
+
+func (s *captureSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch, func() {}, nil
+}
+
+func (s *captureSession) OnEvent(context.Context, func(clientapi.Event)) (func(), error) {
+	return func() {}, nil
+}
+
+func (s *captureSession) Close(context.Context) error { return nil }

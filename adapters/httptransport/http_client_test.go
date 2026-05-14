@@ -72,7 +72,7 @@ func TestDecompressingTransportDecodesSupportedEncodings(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			got, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
@@ -155,7 +155,7 @@ func zstdEncode(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	if _, err := w.Write(data); err != nil {
-		w.Close()
+		_ = w.Close()
 		return nil, err
 	}
 	if err := w.Close(); err != nil {

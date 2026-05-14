@@ -172,7 +172,7 @@ func TestRendererDoesNotReplayContentDeltas(t *testing.T) {
 	}
 }
 
-func TestRendererIgnoresThinkingDeltas(t *testing.T) {
+func TestRendererHidesThinkingDeltasByDefault(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
 	renderer.Render(clientapi.Event{
@@ -188,6 +188,51 @@ func TestRendererIgnoresThinkingDeltas(t *testing.T) {
 	renderer.Finish()
 	if got := out.String() + err.String(); got != "" {
 		t.Fatalf("thinking output = %q, want empty", got)
+	}
+}
+
+func TestRendererShowsThinkingDeltasWhenEnabled(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Reasoning = ReasoningDisplayOn
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamThinkingDelta,
+				Text: "checking state",
+			}},
+		},
+	})
+	renderer.Finish()
+	got := err.String()
+	if !strings.Contains(got, "reasoning") || !strings.Contains(got, "checking state") {
+		t.Fatalf("thinking output = %q, want reasoning block", got)
+	}
+	if strings.Contains(got, "raw reasoning") {
+		t.Fatalf("thinking output = %q, want non-raw label", got)
+	}
+}
+
+func TestRendererShowsRawThinkingLabel(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Reasoning = ReasoningDisplayRaw
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamThinkingDelta,
+				Text: "internal trace",
+			}},
+		},
+	})
+	renderer.Finish()
+	got := err.String()
+	if !strings.Contains(got, "raw reasoning") || !strings.Contains(got, "internal trace") {
+		t.Fatalf("thinking output = %q, want raw reasoning block", got)
 	}
 }
 

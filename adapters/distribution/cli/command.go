@@ -127,6 +127,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		name = dist.Spec.Name
 	}
 	tracker := usage.NewTracker()
+	uiState := terminalui.UIState{}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
 	_, _ = fmt.Fprintf(errOut, "agentsdk %s repl. Type /exit or /quit to stop.\n", name)
@@ -143,7 +144,13 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts), tracker); err != nil {
+		if handled, err := terminalui.HandleUICommand(prompt, &uiState, errOut); handled {
+			if err != nil {
+				_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+			}
+			continue
+		}
+		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
@@ -171,12 +178,17 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 	})
 }
 
-func terminalOptions(opts RunOptions) terminalui.TurnOptions {
+func terminalOptions(opts RunOptions, states ...terminalui.UIState) terminalui.TurnOptions {
+	var state terminalui.UIState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	return terminalui.TurnOptions{
-		Debug: opts.Debug,
-		Usage: opts.Usage,
-		Out:   writerOr(opts.Out, os.Stdout),
-		Err:   writerOr(opts.Err, os.Stderr),
+		Debug:     opts.Debug,
+		Usage:     opts.Usage,
+		Reasoning: state.Reasoning,
+		Out:       writerOr(opts.Out, os.Stdout),
+		Err:       writerOr(opts.Err, os.Stderr),
 	}
 }
 

@@ -123,6 +123,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
+	uiState := terminalui.UIState{}
 	_, _ = fmt.Fprintln(errOut, "agentsdk remote. Type /exit or /quit to stop.")
 	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
@@ -137,7 +138,13 @@ func Run(ctx context.Context, opts Options) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts), tracker); err != nil {
+		if handled, err := terminalui.HandleUICommand(prompt, &uiState, errOut); handled {
+			if err != nil {
+				_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+			}
+			continue
+		}
+		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
@@ -338,12 +345,17 @@ func ResolveSocketPath(raw string) string {
 	return distserve.ResolveSocketPath(raw)
 }
 
-func terminalOptions(opts Options) terminalui.TurnOptions {
+func terminalOptions(opts Options, states ...terminalui.UIState) terminalui.TurnOptions {
+	var state terminalui.UIState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	return terminalui.TurnOptions{
-		Debug: opts.Debug,
-		Usage: opts.Usage,
-		Out:   writerOr(opts.Out, os.Stdout),
-		Err:   writerOr(opts.Err, os.Stderr),
+		Debug:     opts.Debug,
+		Usage:     opts.Usage,
+		Reasoning: state.Reasoning,
+		Out:       writerOr(opts.Out, os.Stdout),
+		Err:       writerOr(opts.Err, os.Stderr),
 	}
 }
 

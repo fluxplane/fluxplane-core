@@ -38,6 +38,7 @@ type Renderer struct {
 	Out       io.Writer
 	Err       io.Writer
 	ShowUsage bool
+	Reasoning ReasoningDisplay
 
 	mu     sync.Mutex
 	starts map[operation.CallID]time.Time
@@ -47,6 +48,7 @@ type Renderer struct {
 	debug   *mdterminal.LiveRenderer
 
 	streamedContent bool
+	reasoningOpen   bool
 }
 
 // NewRenderer returns a terminal event renderer.
@@ -117,6 +119,7 @@ func (r *Renderer) Render(event clientapi.Event) {
 // Finish flushes streaming markdown state.
 func (r *Renderer) Finish() {
 	r.flushContent()
+	r.flushReasoning()
 	if r.debug != nil {
 		_ = r.debug.Flush()
 		r.debug = newMarkdownRenderer(r.Err)
@@ -486,7 +489,7 @@ func decodeTypedPayload(payload any, out any) error {
 func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
 	switch event.Kind {
 	case llmagent.StreamThinkingDelta:
-		return
+		r.writeReasoningDelta(event)
 	case llmagent.StreamContentDelta:
 		if event.Text == "" {
 			return
@@ -501,6 +504,14 @@ func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {
 }
 
 func (r *Renderer) flushContent() {
+	if r == nil {
+		return
+	}
+	r.flushReasoning()
+	r.flushMarkdownContent()
+}
+
+func (r *Renderer) flushMarkdownContent() {
 	if r == nil {
 		return
 	}
@@ -525,12 +536,48 @@ func markdownRendererOptions() []mdterminal.RendererOption {
 }
 
 func (r *Renderer) writeContentDelta(text string) {
+	r.flushReasoning()
 	if r.content == nil {
 		r.content = newMarkdownRenderer(r.out())
 	}
 	if _, err := r.content.Write([]byte(text)); err == nil {
 		r.streamedContent = true
 	}
+}
+
+func (r *Renderer) writeReasoningDelta(event llmagent.StreamEvent) {
+	if r == nil || r.Reasoning == "" || r.Reasoning == ReasoningDisplayOff || event.Text == "" {
+		return
+	}
+	r.flushMarkdownContent()
+	out := r.Err
+	if out == nil {
+		out = io.Discard
+	}
+	if !r.reasoningOpen {
+		label := "◇ reasoning"
+		if r.Reasoning == ReasoningDisplayRaw {
+			label = "◇ raw reasoning"
+		}
+		_, _ = fmt.Fprintf(out, "%s%s%s\n", ansiDim, label, ansiReset)
+		r.reasoningOpen = true
+	}
+	_, _ = fmt.Fprintf(out, "%s%s%s", ansiDim, event.Text, ansiReset)
+	if event.Final {
+		r.flushReasoning()
+	}
+}
+
+func (r *Renderer) flushReasoning() {
+	if r == nil || !r.reasoningOpen {
+		return
+	}
+	out := r.Err
+	if out == nil {
+		out = io.Discard
+	}
+	_, _ = fmt.Fprintln(out)
+	r.reasoningOpen = false
 }
 
 func (r *Renderer) out() io.Writer {
