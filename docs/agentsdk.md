@@ -157,7 +157,13 @@ task hooks:install
 ```
 
 The pre-commit hook checks staged secrets and whitespace. The pre-push hook runs
-the full security scan and `task verify`.
+the full security scan, `task verify`, and the cross-platform binary build.
+
+Build release-style local binaries into the ignored `bin/` directory:
+
+```bash
+task build
+```
 
 For publishing hygiene, run the repository security scan:
 

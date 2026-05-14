@@ -46,7 +46,8 @@ task hooks:install
 ```
 
 The tracked pre-commit hook runs the staged security scan and staged whitespace
-check. The tracked pre-push hook runs the full security scan and `task verify`.
+check. The tracked pre-push hook runs the full security scan, `task verify`,
+and the cross-platform binary build.
 
 Do not run the old repository root CI for rewrite work unless explicitly
 asked.

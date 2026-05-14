@@ -1,2 +1,4 @@
 .agents/architecture/
 **/.agents/index/
+/bin/
+/.cache/

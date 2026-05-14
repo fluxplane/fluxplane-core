@@ -1,8 +1,8 @@
 version: "3"
 
 env:
-  GOCACHE: /tmp/go-cache
-  GOLANGCI_LINT_CACHE: /tmp/golangci-lint-cache
+  GOCACHE: "{{.TASKFILE_DIR}}/.cache/go-build"
+  GOLANGCI_LINT_CACHE: "{{.TASKFILE_DIR}}/.cache/golangci-lint"
 
 tasks:
   default:
@@ -20,6 +20,36 @@ tasks:
     desc: Configure this clone to use the tracked Git hooks.
     cmds:
       - git config core.hooksPath .githooks
+
+  build:
+    desc: Cross-compile agentsdk and coder binaries into bin/.
+    env:
+      GOTMPDIR: "{{.TASKFILE_DIR}}/.cache/go-tmp"
+    cmds:
+      - mkdir -p bin .cache/go-build .cache/go-tmp
+      - |
+        set -euo pipefail
+        targets="
+        linux/amd64
+        linux/arm64
+        darwin/amd64
+        darwin/arm64
+        windows/amd64
+        windows/arm64
+        "
+        for target in $targets; do
+          goos="${target%/*}"
+          goarch="${target#*/}"
+          ext=""
+          if [ "$goos" = "windows" ]; then
+            ext=".exe"
+          fi
+          for app in agentsdk coder; do
+            out="bin/${app}_${goos}_${goarch}${ext}"
+            printf 'build: %s\n' "$out"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$out" "./cmd/$app"
+          done
+        done
 
   index:
     desc: Build or update the root app semantic index for local markdown docs.

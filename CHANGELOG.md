@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tracked Git hooks can now be installed with `task hooks:install`; pre-commit
   checks staged secrets and whitespace, while pre-push runs the full security
   scan and `task verify`.
+- `task build` now cross-compiles `agentsdk` and `coder` for Linux, macOS, and
+  Windows on amd64 and arm64 into ignored `bin/` outputs; tracked pre-push hooks
+  run this build after verification.
+- Task-managed Go build and lint caches now live under ignored `.cache/` so
+  cross-compilation does not fill `/tmp`.
 
 ## [0.8.0] - 2026-05-14
 
