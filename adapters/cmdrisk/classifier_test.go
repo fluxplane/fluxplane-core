@@ -32,6 +32,32 @@ func TestClassifierRejectsDestructiveProcessIntent(t *testing.T) {
 	}
 }
 
+func TestClassifierDoesNotRequireApprovalForGitStatusProcessIntent(t *testing.T) {
+	root := t.TempDir()
+	classifier := New(Config{
+		WorkingDirectory:      root,
+		WorkspacePathPrefixes: []string{root},
+		SensitivePathPrefixes: []string{root + "/.git"},
+	})
+	spec := operation.Spec{
+		Ref: operation.Ref{Name: "status"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal},
+			Risk:    operation.RiskLow,
+		},
+	}
+
+	risk, err := classifier.Classify(operation.NewContext(context.Background(), event.Discard()), spec, operation.IntentSet{
+		Operations: []operation.IntentOperation{processIntent("git", "status", "--short", "--branch")},
+	})
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	if risk.RequiresApproval || risk.Level == operation.RiskHigh || risk.Level == operation.RiskCritical {
+		t.Fatalf("risk = %#v, want non-approval low/medium risk", risk)
+	}
+}
+
 func TestClassifierEmitsAssessmentEventForURLIntent(t *testing.T) {
 	var emitted event.Event
 	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {

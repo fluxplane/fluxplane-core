@@ -77,6 +77,36 @@ func TestAddIntentIncludesIndexAndPaths(t *testing.T) {
 	}
 }
 
+func TestStatusIntentIsProcessOnly(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[StatusOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), statusInput{})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if len(intents.Operations) != 1 {
+		t.Fatalf("intents = %#v, want process-only status intent", intents)
+	}
+	target, ok := intents.Operations[0].Target.(operation.ProcessTarget)
+	if !ok || target.Command != "git" {
+		t.Fatalf("target = %#v, want git process target", intents.Operations[0].Target)
+	}
+}
+
+func TestDiffIntentDoesNotForceGitDirectoryTarget(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[DiffOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), diffInput{})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if hasAnyPathIntent(intents, ".git") {
+		t.Fatalf("intents = %#v, diff must not force .git sensitive path target", intents)
+	}
+}
+
 func TestCommitRejectsEmptyMessage(t *testing.T) {
 	ops := testGitOperations(t, t.TempDir())
 	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{})

@@ -124,7 +124,6 @@ type commitInput struct {
 func statusIntent(operation.Context, statusInput) (operation.IntentSet, error) {
 	return operation.IntentSet{Operations: []operation.IntentOperation{
 		processIntent("git", "status", "--short", "--branch"),
-		pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, ".git"),
 	}}, nil
 }
 
@@ -142,7 +141,6 @@ func diffIntent(_ operation.Context, req diffInput) (operation.IntentSet, error)
 	}
 	ops := []operation.IntentOperation{
 		processIntent("git", args...),
-		pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, ".git"),
 	}
 	for _, path := range req.Paths {
 		ops = append(ops, pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, path))
