@@ -18,6 +18,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -56,6 +57,7 @@ type Composition struct {
 	LLMProviderCatalog   LLMProviderCatalog
 	WorkflowCatalog      WorkflowCatalog
 	OperationSetCatalog  OperationSetCatalog
+	ToolSetCatalog       session.ToolSetCatalog
 	CommandCatalog       session.CommandCatalog
 	OperationCatalog     session.OperationCatalog
 	SessionCatalog       session.SessionCatalog
@@ -67,6 +69,7 @@ type Composition struct {
 	LLMProviderSpecs     []corellm.ProviderSpec
 	WorkflowSpecs        []workflow.Spec
 	OperationSets        []operation.Set
+	ToolSets             []tool.Set
 	OperationSpecs       []operation.Spec
 	SessionSpecs         []coresession.Spec
 	OperationExecutor    operationruntime.Executor
@@ -136,6 +139,11 @@ func Compose(cfg Config) (Composition, error) {
 	operationSetCatalog, operationSets, operationSetDiagnostic, err := collectOperationSets(bundles, index)
 	if err != nil {
 		diagnostics = append(diagnostics, operationSetDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	toolSetCatalog, toolSets, toolSetDiagnostic, err := collectToolSets(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, toolSetDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
 
@@ -238,6 +246,7 @@ func Compose(cfg Config) (Composition, error) {
 		LLMProviderCatalog:   llmProviderCatalog,
 		WorkflowCatalog:      workflowCatalog,
 		OperationSetCatalog:  operationSetCatalog,
+		ToolSetCatalog:       toolSetCatalog,
 		CommandCatalog:       commandCatalog,
 		OperationCatalog:     operationCatalog,
 		SessionCatalog:       sessionCatalog,
@@ -249,6 +258,7 @@ func Compose(cfg Config) (Composition, error) {
 		LLMProviderSpecs:     llmProviderSpecs,
 		WorkflowSpecs:        workflowSpecs,
 		OperationSets:        operationSets,
+		ToolSets:             toolSets,
 		OperationSpecs:       operationSpecs,
 		SessionSpecs:         sessionSpecs,
 		OperationExecutor:    cfg.OperationExecutor,
@@ -393,6 +403,27 @@ func collectOperationSets(bundles []resource.ContributionBundle, index *resource
 		func(spec operation.Set) error { return spec.Validate() },
 	)
 	return OperationSetCatalog(catalog), specs, diag, err
+}
+
+func collectToolSets(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (session.ToolSetCatalog, []tool.Set, resource.Diagnostic, error) {
+	catalog := session.ToolSetCatalog{}
+	var specs []tool.Set
+	for _, bundle := range bundles {
+		for _, spec := range bundle.ToolSets {
+			if err := spec.Validate(); err != nil {
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			id := resource.DeriveResourceID(bundle.Source, "tool_set", spec.Name)
+			index.Add(id)
+			if _, exists := catalog[id.Address()]; exists {
+				err := fmt.Errorf("duplicate tool_set resource %q", id.Address())
+				return nil, nil, diagnostic(bundle.Source, err), err
+			}
+			catalog[id.Address()] = session.ToolSetBinding{ID: id, Spec: spec}
+			specs = append(specs, spec)
+		}
+	}
+	return catalog, specs, resource.Diagnostic{}, nil
 }
 
 func collectSessions(

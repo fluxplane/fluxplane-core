@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- First-party `plugins/imageplugin` with `image_generate`, `image_understand`,
+  and `image_providers` operations, plus an opt-in single `image` action tool
+  projection.
+- `coder` now enables the image plugin by default and exposes the single
+  `image` action tool for generation, understanding, and provider inspection.
+
 ### Changed
 
 - Agent worktree instructions now remind agents to update `CHANGELOG.md` for
@@ -20,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run this build after verification.
 - Task-managed Go build and lint caches now live under ignored `.cache/` so
   cross-compilation does not fill `/tmp`.
+- Tool projection and provider adapters now support dispatch-backed action
+  tools without modeling tool sets as invocation targets.
+- Image plugin operation and action-tool schemas now derive from typed
+  operation contracts instead of hand-written JSON Schema.
 
 ## [0.8.0] - 2026-05-14
 

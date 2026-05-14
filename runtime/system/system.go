@@ -32,6 +32,7 @@ type System interface {
 	Process() ProcessManager
 	Browser() BrowserManager
 	Clarifier() Clarifier
+	Environment() Environment
 }
 
 // Config configures the host-backed system implementation.
@@ -49,6 +50,7 @@ type Host struct {
 	process   *HostProcess
 	browser   BrowserManager
 	clarifier Clarifier
+	env       Environment
 }
 
 // NewHost returns a host-backed system rooted at cfg.Root.
@@ -76,6 +78,7 @@ func NewHost(cfg Config) (*Host, error) {
 		process:   NewHostProcess(workspace),
 		browser:   cfg.Browser,
 		clarifier: cfg.Clarifier,
+		env:       HostEnvironment{},
 	}, nil
 }
 
@@ -94,11 +97,25 @@ func (h *Host) Browser() BrowserManager { return h.browser }
 // Clarifier returns the configured human-input boundary, when one is available.
 func (h *Host) Clarifier() Clarifier { return h.clarifier }
 
+// Environment returns the host environment boundary.
+func (h *Host) Environment() Environment { return h.env }
+
 // SetBrowser installs a browser manager after host construction.
 func (h *Host) SetBrowser(browser BrowserManager) { h.browser = browser }
 
 // SetClarifier installs a human input boundary after host construction.
 func (h *Host) SetClarifier(clarifier Clarifier) { h.clarifier = clarifier }
+
+// Environment is a read-only boundary for host environment variables.
+type Environment interface {
+	Getenv(string) string
+}
+
+// HostEnvironment implements Environment using os.Getenv.
+type HostEnvironment struct{}
+
+// Getenv returns the host environment variable value for key.
+func (HostEnvironment) Getenv(key string) string { return os.Getenv(key) }
 
 // Workspace is a root-confined filesystem boundary.
 type Workspace interface {

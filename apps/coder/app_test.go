@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -112,6 +113,11 @@ func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
 		SkillsPlugin,
 		"datasources",
 		"skills",
+		ImagePlugin,
+		"image_generate",
+		"image_understand",
+		"image_providers",
+		"tool sets",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("describe tree output missing %q:\n%s", want, text)
@@ -156,6 +162,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 			codingplugin.New(sys),
 			planexecplugin.New(),
 			skillplugin.New(),
+			imageplugin.New(sys),
 		},
 	})
 	if err != nil {
@@ -207,7 +214,7 @@ func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New()},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New(), imageplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -215,6 +222,7 @@ func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	cfg := ToolProjectionConfig()
 	cfg.Commands = composition.CommandCatalog
 	cfg.Operations = composition.OperationCatalog
+	cfg.ToolSets = composition.ToolSetCatalog
 	cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
 	cfg.Trust = policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified}
 
@@ -223,9 +231,14 @@ func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	for _, spec := range projected.Tools {
 		names[string(spec.Name)] = true
 	}
-	for _, want := range []string{"plan", "delegate"} {
+	for _, want := range []string{"plan", "delegate", "image"} {
 		if !names[want] {
 			t.Fatalf("projected tool names missing %q: %#v", want, names)
+		}
+	}
+	for _, unwanted := range []string{"image_generate", "image_understand", "image_providers"} {
+		if names[unwanted] {
+			t.Fatalf("projected tool names include %q, want single image action tool: %#v", unwanted, names)
 		}
 	}
 }

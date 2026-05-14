@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/workflow"
 )
 
@@ -30,6 +31,7 @@ type Output struct {
 	Commands         []corecommand.Spec         `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Workflows        []workflow.Spec            `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	OperationSets    []operation.Set            `json:"operation_sets,omitempty" yaml:"operation_sets,omitempty"`
+	ToolSets         []tool.Set                 `json:"tool_sets,omitempty" yaml:"tool_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
@@ -60,6 +62,7 @@ func NewOutput(bundles []resource.ContributionBundle, diagnostics []resource.Dia
 		out.Commands = append(out.Commands, bundle.Commands...)
 		out.Workflows = append(out.Workflows, bundle.Workflows...)
 		out.OperationSets = append(out.OperationSets, bundle.OperationSets...)
+		out.ToolSets = append(out.ToolSets, bundle.ToolSets...)
 		out.Operations = append(out.Operations, bundle.Operations...)
 		out.Datasources = append(out.Datasources, bundle.Datasources...)
 		out.LLMProviders = append(out.LLMProviders, bundle.LLMProviders...)
@@ -98,6 +101,9 @@ func ResourceIDs(bundles []resource.ContributionBundle) []resource.ResourceID {
 		}
 		for _, spec := range bundle.OperationSets {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "operation_set", spec.Name))
+		}
+		for _, spec := range bundle.ToolSets {
+			ids = append(ids, resource.DeriveResourceID(bundle.Source, "tool_set", spec.Name))
 		}
 		for _, spec := range bundle.Operations {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "operation", spec.Ref.String()))
@@ -218,6 +224,9 @@ func renderResources(out *treeWriter, bundles []resource.ContributionBundle, ids
 				if kind == "operation_set" {
 					renderOperationSetRefs(out, bundles, key, name, i == len(names)-1)
 				}
+				if kind == "tool_set" {
+					renderToolSetRefs(out, bundles, key, name, i == len(names)-1)
+				}
 				if kind == "skill" {
 					renderSkillRefs(out, bundles, name, i == len(names)-1)
 				}
@@ -304,6 +313,7 @@ func contributionKinds() []string {
 		"command",
 		"workflow",
 		"operation_set",
+		"tool_set",
 		"operation",
 		"datasource",
 		"llm_provider",
@@ -368,6 +378,45 @@ func renderOperationSetRefs(out *treeWriter, bundles []resource.ContributionBund
 			connector = "└── "
 		}
 		out.printf("%s%s%s\n", indent, connector, ref)
+	}
+}
+
+func renderToolSetRefs(out *treeWriter, bundles []resource.ContributionBundle, key resourceGroupKey, name string, last bool) {
+	indent := "│   │   "
+	if last {
+		indent = "│       "
+	}
+	for _, bundle := range bundles {
+		if bundleGroupKey(bundle) != key {
+			continue
+		}
+		for _, spec := range bundle.ToolSets {
+			if spec.Name != name {
+				continue
+			}
+			if spec.Action != nil {
+				out.printf("%stool: %s\n", indent, spec.Action.Tool)
+				var actions []string
+				for _, c := range spec.Action.Cases {
+					if c.Action != "" {
+						actions = append(actions, c.Action)
+					}
+				}
+				sort.Strings(actions)
+				if len(actions) > 0 {
+					out.printf("%sactions: %s\n", indent, strings.Join(actions, ", "))
+				}
+				return
+			}
+			var tools []string
+			for _, ref := range spec.Tools {
+				tools = append(tools, string(ref))
+			}
+			sort.Strings(tools)
+			if len(tools) > 0 {
+				out.printf("%stools: %s\n", indent, strings.Join(tools, ", "))
+			}
+		}
 	}
 }
 
@@ -515,6 +564,8 @@ func pluralKind(kind string) string {
 		return "datasources"
 	case "llm_provider":
 		return "llm providers"
+	case "tool_set":
+		return "tool sets"
 	default:
 		return kind + "s"
 	}

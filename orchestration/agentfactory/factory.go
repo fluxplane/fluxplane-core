@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -46,6 +47,7 @@ type Config struct {
 	Resolver         *resource.Resolver
 	CommandCatalog   session.CommandCatalog
 	OperationCatalog session.OperationCatalog
+	ToolSetCatalog   session.ToolSetCatalog
 	ContextProviders []corecontext.Provider
 	Model            llmagent.Model
 	ModelResolver    ModelResolver
@@ -60,6 +62,7 @@ type Factory struct {
 	resolver         *resource.Resolver
 	commandCatalog   session.CommandCatalog
 	operationCatalog session.OperationCatalog
+	toolSetCatalog   session.ToolSetCatalog
 	contextProviders []corecontext.Provider
 	model            llmagent.Model
 	modelResolver    ModelResolver
@@ -75,6 +78,7 @@ func New(cfg Config) *Factory {
 		resolver:         cfg.Resolver,
 		commandCatalog:   cfg.CommandCatalog,
 		operationCatalog: cfg.OperationCatalog,
+		toolSetCatalog:   cfg.ToolSetCatalog,
 		contextProviders: append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		model:            cfg.Model,
 		modelResolver:    cfg.ModelResolver,
@@ -248,6 +252,7 @@ func (f *Factory) projectTools() toolprojection.Result {
 	cfg := f.projection
 	cfg.Commands = f.commandCatalog
 	cfg.Operations = f.operationCatalog
+	cfg.ToolSets = f.toolSetCatalog
 	if cfg.Caller.Kind == "" {
 		cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
 	}
@@ -303,12 +308,30 @@ func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[st
 	if _, ok := operations[projected.Target.Operation.Name]; ok {
 		return true
 	}
+	if dispatchAllowedByOperations(projected.Dispatch, operations) {
+		return true
+	}
 	for ref := range operations {
 		if refMatches(string(ref), projected.Annotations["operation_id"]) {
 			return true
 		}
 	}
 	return false
+}
+
+func dispatchAllowedByOperations(dispatch *tool.Dispatch, operations map[operation.Name]struct{}) bool {
+	if dispatch == nil || len(dispatch.Cases) == 0 || len(operations) == 0 {
+		return false
+	}
+	for _, candidate := range dispatch.Cases {
+		if candidate.Target.Kind != invocation.TargetOperation || candidate.Target.Operation.Name == "" {
+			return false
+		}
+		if _, ok := operations[candidate.Target.Operation.Name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) []corecontext.Provider {

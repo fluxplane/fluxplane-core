@@ -24,6 +24,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
@@ -85,6 +86,15 @@ type OperationBinding struct {
 // OperationCatalog binds canonical operation resource IDs to executable
 // implementations.
 type OperationCatalog map[string]OperationBinding
+
+// ToolSetBinding binds a projected tool set to its canonical resource identity.
+type ToolSetBinding struct {
+	ID   resource.ResourceID `json:"id"`
+	Spec tool.Set            `json:"spec"`
+}
+
+// ToolSetCatalog binds canonical tool set resource IDs to tool set specs.
+type ToolSetCatalog map[string]ToolSetBinding
 
 // CommandBinding binds a command contribution to its resolved target.
 type CommandBinding struct {

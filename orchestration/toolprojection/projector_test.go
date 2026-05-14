@@ -8,6 +8,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/resourceaddr"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
@@ -53,8 +55,8 @@ func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
 	if result.Tools[0].Target.Kind != invocation.TargetOperation {
 		t.Fatalf("target kind = %q, want operation", result.Tools[0].Target.Kind)
 	}
-	if !result.Tools[0].TargetID.Equal(opID) {
-		t.Fatalf("target id = %s, want %s", result.Tools[0].TargetID.Address(), opID.Address())
+	if result.Tools[0].TargetID != resourceaddr.Address(opID.Address()) {
+		t.Fatalf("target id = %s, want %s", result.Tools[0].TargetID, opID.Address())
 	}
 }
 
@@ -164,5 +166,65 @@ func TestProjectRejectsUnboundOperationCommand(t *testing.T) {
 	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Reason != "operation_not_bound" {
 		t.Fatalf("diagnostics = %#v, want operation_not_bound", result.Diagnostics)
+	}
+}
+
+func TestProjectActionToolSetProjectsSingleToolAndCoversOperations(t *testing.T) {
+	generate := operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "image_generate"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectNetwork, operation.EffectCreate},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(operation.Context, operation.Value) operation.Result { return operation.OK(nil) })
+	info := operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "image_providers"},
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNone},
+			Risk:        operation.RiskLow,
+		},
+	}, func(operation.Context, operation.Value) operation.Result { return operation.OK(nil) })
+	namespace := resource.NewNamespace("plugins/image")
+	generateID := resource.ResourceID{Kind: "operation", Origin: "embedded", Namespace: namespace, Name: "image_generate"}
+	infoID := resource.ResourceID{Kind: "operation", Origin: "embedded", Namespace: namespace, Name: "image_providers"}
+	setID := resource.ResourceID{Kind: "tool_set", Origin: "embedded", Namespace: namespace, Name: "image"}
+
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			generateID.Address(): {ID: generateID, Operation: generate},
+			infoID.Address():     {ID: infoID, Operation: info},
+		},
+		ToolSets: session.ToolSetCatalog{
+			setID.Address(): {
+				ID: setID,
+				Spec: tool.Set{
+					Name: "image",
+					Action: &tool.ActionProjection{
+						Tool:        "image",
+						ActionField: "action",
+						Cases: []tool.ActionCase{
+							{Action: "generate", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_generate"}}},
+							{Action: "info", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_providers"}}},
+						},
+					},
+				},
+			},
+		},
+		IncludeBareOperations: true,
+		AllowSideEffects:      true,
+		MaxRisk:               operation.RiskMedium,
+		Caller:                policy.Caller{Kind: policy.CallerAgent},
+		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 1 {
+		t.Fatalf("tools len = %d, want one action tool: %#v", len(result.Tools), result.Diagnostics)
+	}
+	if result.Tools[0].Name != "image" || result.Tools[0].Target.Kind != "" {
+		t.Fatalf("tool = %#v, want dispatch-only image tool", result.Tools[0])
+	}
+	if result.Tools[0].Dispatch == nil || len(result.Tools[0].Dispatch.Cases) != 2 {
+		t.Fatalf("dispatch = %#v, want two cases", result.Tools[0].Dispatch)
 	}
 }

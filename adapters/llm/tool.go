@@ -6,19 +6,20 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/resourceaddr"
 	"github.com/fluxplane/agentruntime/core/tool"
 )
 
 // ToolSpec is a provider-facing tool descriptor with enough metadata to map a
 // provider tool call back to a canonical projected tool.
 type ToolSpec struct {
-	Name        tool.Name           `json:"name"`
-	Description string              `json:"description,omitempty"`
-	InputSchema operation.Schema    `json:"input_schema,omitempty"`
-	Target      invocation.Target   `json:"target"`
-	TargetID    resource.ResourceID `json:"target_id,omitempty"`
-	Source      tool.Spec           `json:"source,omitempty"`
+	Name        tool.Name            `json:"name"`
+	Description string               `json:"description,omitempty"`
+	InputSchema operation.Schema     `json:"input_schema,omitempty"`
+	Target      invocation.Target    `json:"target"`
+	TargetID    resourceaddr.Address `json:"target_id,omitempty"`
+	Dispatch    *tool.Dispatch       `json:"dispatch,omitempty"`
+	Source      tool.Spec            `json:"source,omitempty"`
 }
 
 // ToolFromCore converts a projected core tool descriptor into the
@@ -33,6 +34,7 @@ func ToolFromCore(spec tool.Spec) (ToolSpec, error) {
 		InputSchema: spec.Input.Schema,
 		Target:      spec.Target,
 		TargetID:    spec.TargetID,
+		Dispatch:    spec.Dispatch,
 		Source:      spec,
 	}, nil
 }

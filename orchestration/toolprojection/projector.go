@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/resourceaddr"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 )
@@ -20,6 +21,7 @@ var invalidToolName = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 type Config struct {
 	Operations              session.OperationCatalog
 	Commands                session.CommandCatalog
+	ToolSets                session.ToolSetCatalog
 	Caller                  policy.Caller
 	Trust                   policy.Trust
 	AllowSideEffects        bool
@@ -54,6 +56,7 @@ func Project(cfg Config) Result {
 	}
 	out := Result{}
 	usedNames := map[string]int{}
+	coveredOperations := map[string]struct{}{}
 
 	commandKeys := sortedCommandKeys(cfg.Commands)
 	for _, key := range commandKeys {
@@ -67,6 +70,23 @@ func Project(cfg Config) Result {
 		out.Tools = append(out.Tools, projected)
 	}
 
+	toolSetKeys := sortedToolSetKeys(cfg.ToolSets)
+	for _, key := range toolSetKeys {
+		binding := cfg.ToolSets[key]
+		projected, covered, ok, reason := projectToolSet(cfg, binding)
+		if !ok {
+			out.Diagnostics = append(out.Diagnostics, Diagnostic{Resource: binding.ID, Reason: reason})
+			continue
+		}
+		projected.Name = uniqueName(projected.Name, usedNames)
+		out.Tools = append(out.Tools, projected)
+		for _, id := range covered {
+			if !id.IsZero() {
+				coveredOperations[id.Address()] = struct{}{}
+			}
+		}
+	}
+
 	if !cfg.IncludeBareOperations {
 		return out
 	}
@@ -74,6 +94,9 @@ func Project(cfg Config) Result {
 	for _, key := range operationKeys {
 		binding := cfg.Operations[key]
 		if cfg.PreferCommandProjection && operationCovered(out.Tools, binding.ID) {
+			continue
+		}
+		if _, ok := coveredOperations[binding.ID.Address()]; ok {
 			continue
 		}
 		projected, ok, reason := projectOperation(cfg, binding)
@@ -85,6 +108,62 @@ func Project(cfg Config) Result {
 		out.Tools = append(out.Tools, projected)
 	}
 	return out
+}
+
+func projectToolSet(cfg Config, binding session.ToolSetBinding) (tool.Spec, []resource.ResourceID, bool, string) {
+	spec := binding.Spec
+	if spec.Action == nil {
+		return tool.Spec{}, nil, false, "tool_set_has_no_action_projection"
+	}
+	if err := spec.Action.Validate(); err != nil {
+		return tool.Spec{}, nil, false, err.Error()
+	}
+	semantics := operation.Semantics{}
+	var covered []resource.ResourceID
+	dispatch := &tool.Dispatch{
+		ActionField: spec.Action.ActionField,
+		Cases:       make([]tool.DispatchCase, 0, len(spec.Action.Cases)),
+	}
+	for _, actionCase := range spec.Action.Cases {
+		target := actionCase.Target
+		if target.Kind != invocation.TargetOperation {
+			return tool.Spec{}, nil, false, "tool_set_action_target_not_operation"
+		}
+		if target.Operation.Name == "" {
+			return tool.Spec{}, nil, false, "tool_set_action_operation_empty"
+		}
+		operationBinding, err := cfg.Operations.Resolve(target.Operation.String(), binding.ID)
+		if err != nil {
+			return tool.Spec{}, nil, false, "operation_not_bound"
+		}
+		opSemantics := operationBinding.Operation.Spec().Semantics
+		if ok, reason := safeToProject(cfg, opSemantics); !ok {
+			return tool.Spec{}, nil, false, reason
+		}
+		semantics = mergeSemantics(semantics, opSemantics)
+		covered = append(covered, operationBinding.ID)
+		dispatch.Cases = append(dispatch.Cases, tool.DispatchCase{
+			Action: actionCase.Action,
+			Target: target,
+		})
+	}
+	description := spec.Action.Description
+	if description == "" {
+		description = spec.Description
+	}
+	return tool.Spec{
+		Name:        spec.Action.Tool,
+		Description: description,
+		TargetID:    resourceaddr.Address(binding.ID.Address()),
+		Input:       spec.Action.Input,
+		Output:      spec.Action.Output,
+		Semantics:   semantics,
+		Dispatch:    dispatch,
+		Annotations: map[string]string{
+			"projection":  "tool_set_action",
+			"tool_set_id": binding.ID.Address(),
+		},
+	}, covered, true, ""
 }
 
 func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool, string) {
@@ -117,7 +196,7 @@ func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool
 		Name:        tool.Name(toolName(binding.ID)),
 		Description: spec.Description,
 		Target:      spec.Target,
-		TargetID:    firstResourceID(binding.TargetID, binding.OperationID),
+		TargetID:    resourceaddr.Address(firstResourceID(binding.TargetID, binding.OperationID).Address()),
 		Input:       spec.Input,
 		Output:      spec.Output,
 		Semantics:   semantics,
@@ -128,13 +207,13 @@ func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool
 		},
 	}
 	if !projected.TargetID.IsZero() {
-		projected.Annotations["target_id"] = projected.TargetID.Address()
+		projected.Annotations["target_id"] = projected.TargetID.String()
 	}
 	if !binding.OperationID.IsZero() {
 		projected.Annotations["operation_id"] = binding.OperationID.Address()
 	}
 	if projected.TargetID.IsZero() {
-		projected.TargetID = binding.ID
+		projected.TargetID = resourceaddr.Address(binding.ID.Address())
 	}
 	return projected, true, ""
 }
@@ -151,7 +230,7 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 			Kind:      invocation.TargetOperation,
 			Operation: spec.Ref,
 		},
-		TargetID:  binding.ID,
+		TargetID:  resourceaddr.Address(binding.ID.Address()),
 		Input:     spec.Input,
 		Output:    spec.Output,
 		Semantics: spec.Semantics,
@@ -173,6 +252,55 @@ func safeToProject(cfg Config, semantics operation.Semantics) (bool, string) {
 		return false, "approval_required"
 	}
 	return true, ""
+}
+
+func mergeSemantics(a, b operation.Semantics) operation.Semantics {
+	return operation.Semantics{
+		Determinism: mergeDeterminism(a.Determinism, b.Determinism),
+		Effects:     mergeEffects(a.Effects, b.Effects),
+		Idempotency: mergeIdempotency(a.Idempotency, b.Idempotency),
+		Risk:        maxRisk(a.Risk, b.Risk),
+	}
+}
+
+func mergeDeterminism(a, b operation.Determinism) operation.Determinism {
+	if a == "" {
+		return b
+	}
+	if b == "" || a == b {
+		return a
+	}
+	return operation.DeterminismNonDeterministic
+}
+
+func mergeIdempotency(a, b operation.Idempotency) operation.Idempotency {
+	if a == "" {
+		return b
+	}
+	if b == "" || a == b {
+		return a
+	}
+	return operation.IdempotencyUnknown
+}
+
+func mergeEffects(a, b operation.EffectSet) operation.EffectSet {
+	seen := map[operation.Effect]struct{}{}
+	var out operation.EffectSet
+	for _, effect := range append(append(operation.EffectSet(nil), a...), b...) {
+		if _, ok := seen[effect]; ok {
+			continue
+		}
+		seen[effect] = struct{}{}
+		out = append(out, effect)
+	}
+	return out
+}
+
+func maxRisk(a, b operation.RiskLevel) operation.RiskLevel {
+	if riskRank(a) >= riskRank(b) {
+		return a
+	}
+	return b
 }
 
 func requiresApproval(semantics operation.Semantics) bool {
@@ -220,6 +348,15 @@ func sortedOperationKeys(catalog session.OperationCatalog) []string {
 	return keys
 }
 
+func sortedToolSetKeys(catalog session.ToolSetCatalog) []string {
+	keys := make([]string, 0, len(catalog))
+	for key := range catalog {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func firstResourceID(ids ...resource.ResourceID) resource.ResourceID {
 	for _, id := range ids {
 		if !id.IsZero() {
@@ -234,7 +371,7 @@ func operationCovered(tools []tool.Spec, id resource.ResourceID) bool {
 		return false
 	}
 	for _, projected := range tools {
-		if projected.TargetID.Equal(id) {
+		if projected.TargetID == resourceaddr.Address(id.Address()) {
 			return true
 		}
 	}

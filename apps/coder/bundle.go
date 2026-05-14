@@ -16,6 +16,7 @@ const (
 	CodingPlugin     = "coding"
 	PlanExecPlugin   = "planexec"
 	SkillsPlugin     = "skills"
+	ImagePlugin      = "image"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 )
@@ -51,6 +52,7 @@ func Bundle() resource.ContributionBundle {
 			"code_execute",
 			"clarify",
 			"delegate", "plan", "skill",
+			"image_generate", "image_understand", "image_providers",
 		).
 		Build()
 
@@ -65,6 +67,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: CodingPlugin}).
 		WithPlugin(resource.PluginRef{Name: PlanExecPlugin}).
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
+		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
 			Name:        SessionName,

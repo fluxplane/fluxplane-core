@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -124,22 +125,72 @@ func (a *ToolCallAssembler) operationRequest(call pendingToolCall) (agent.Operat
 	if !ok {
 		return agent.OperationRequest{}, fmt.Errorf("llm: unknown tool %q", call.name)
 	}
-	if spec.Target.Kind != invocation.TargetOperation {
-		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q target kind %q is not operation", call.name, spec.Target.Kind)
-	}
-	if spec.Target.Operation.Name == "" {
-		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q operation ref is empty", call.name)
-	}
 	input, err := decodeArguments(call.input)
 	if err != nil {
 		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q arguments: %w", call.name, err)
 	}
+	target, err := operationTarget(spec, input)
+	if err != nil {
+		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q: %w", call.name, err)
+	}
+	if target.Operation.Name == "" {
+		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q operation ref is empty", call.name)
+	}
 	return agent.OperationRequest{
-		Operation:        spec.Target.Operation,
+		Operation:        target.Operation,
 		Input:            input,
 		ProviderCallID:   call.id,
 		ProviderCallType: call.callType,
 	}, nil
+}
+
+func operationTarget(spec ToolSpec, input operation.Value) (invocation.Target, error) {
+	if spec.Dispatch != nil {
+		return dispatchTarget(spec.Dispatch, input)
+	}
+	if spec.Target.Kind == invocation.TargetOperation {
+		return spec.Target, nil
+	}
+	return invocation.Target{}, fmt.Errorf("target kind %q is not operation", spec.Target.Kind)
+}
+
+func dispatchTarget(dispatch *tool.Dispatch, input operation.Value) (invocation.Target, error) {
+	actionField := strings.TrimSpace(dispatch.ActionField)
+	if actionField == "" {
+		return invocation.Target{}, fmt.Errorf("tool dispatch action field is empty")
+	}
+	inputMap, ok := input.(map[string]any)
+	if !ok {
+		return invocation.Target{}, fmt.Errorf("tool input must be an object with %q", actionField)
+	}
+	action, ok := inputMap[actionField].(string)
+	action = strings.TrimSpace(action)
+	if !ok || action == "" {
+		return invocation.Target{}, fmt.Errorf("tool action %q is required; available actions: %s", actionField, strings.Join(dispatchActions(dispatch), ", "))
+	}
+	for _, candidate := range dispatch.Cases {
+		if candidate.Action == action {
+			if candidate.Target.Kind != invocation.TargetOperation {
+				return invocation.Target{}, fmt.Errorf("tool action %q target kind %q is not operation", action, candidate.Target.Kind)
+			}
+			return candidate.Target, nil
+		}
+	}
+	return invocation.Target{}, fmt.Errorf("unknown action %q; available actions: %s", action, strings.Join(dispatchActions(dispatch), ", "))
+}
+
+func dispatchActions(dispatch *tool.Dispatch) []string {
+	if dispatch == nil {
+		return nil
+	}
+	actions := make([]string, 0, len(dispatch.Cases))
+	for _, candidate := range dispatch.Cases {
+		if candidate.Action != "" {
+			actions = append(actions, candidate.Action)
+		}
+	}
+	sort.Strings(actions)
+	return actions
 }
 
 func decodeArguments(raw string) (operation.Value, error) {

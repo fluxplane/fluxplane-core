@@ -7,7 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/resourceaddr"
 )
 
 // Name identifies a model-facing tool projection.
@@ -18,11 +18,12 @@ type Spec struct {
 	Name        Name                    `json:"name"`
 	Description string                  `json:"description,omitempty"`
 	Target      invocation.Target       `json:"target"`
-	TargetID    resource.ResourceID     `json:"target_id,omitempty"`
+	TargetID    resourceaddr.Address    `json:"target_id,omitempty"`
 	Input       operation.Type          `json:"input,omitempty"`
 	Output      operation.Type          `json:"output,omitempty"`
 	Semantics   operation.Semantics     `json:"semantics,omitempty"`
 	Policy      policy.InvocationPolicy `json:"policy,omitempty"`
+	Dispatch    *Dispatch               `json:"dispatch,omitempty"`
 	Annotations map[string]string       `json:"annotations,omitempty"`
 }
 
@@ -32,7 +33,7 @@ func (s Spec) Validate() error {
 	if strings.TrimSpace(string(s.Name)) == "" {
 		return fmt.Errorf("tool: spec name is empty")
 	}
-	if s.Target.Kind == "" {
+	if s.Target.Kind == "" && s.Dispatch == nil {
 		return fmt.Errorf("tool: target kind is empty")
 	}
 	return nil

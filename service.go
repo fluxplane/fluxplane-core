@@ -254,6 +254,7 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 			Resolver:         composition.Resolver,
 			CommandCatalog:   composition.CommandCatalog,
 			OperationCatalog: composition.OperationCatalog,
+			ToolSetCatalog:   composition.ToolSetCatalog,
 			ContextProviders: composition.ContextProviderImpls,
 			Model:            cfg.LLMModel,
 			ModelResolver:    cfg.LLMModelResolver,

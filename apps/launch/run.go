@@ -30,6 +30,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
+	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
@@ -301,6 +302,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		openaiplugin.New(),
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
 		gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name)),
+		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
 		planexecplugin.New(),
 		skillplugin.New(),
@@ -551,6 +553,7 @@ func cloneBundles(bundles []resource.ContributionBundle) []resource.Contribution
 		out[i].Apps = append(out[i].Apps[:0:0], bundle.Apps...)
 		out[i].Agents = append(out[i].Agents[:0:0], bundle.Agents...)
 		out[i].OperationSets = append(out[i].OperationSets[:0:0], bundle.OperationSets...)
+		out[i].ToolSets = append(out[i].ToolSets[:0:0], bundle.ToolSets...)
 		out[i].Operations = append(out[i].Operations[:0:0], bundle.Operations...)
 		out[i].Commands = append(out[i].Commands[:0:0], bundle.Commands...)
 		out[i].Datasources = append(out[i].Datasources[:0:0], bundle.Datasources...)

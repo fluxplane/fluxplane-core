@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -73,6 +74,53 @@ func TestToolCallAssemblerRejectsNonOperationTool(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Apply error is nil, want non-operation target error")
+	}
+}
+
+func TestToolCallAssemblerDispatchesActionToolSet(t *testing.T) {
+	assembler := NewToolCallAssembler([]ToolSpec{{
+		Name: "image",
+		Dispatch: &tool.Dispatch{
+			ActionField: "action",
+			Cases: []tool.DispatchCase{
+				{Action: "generate", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_generate"}}},
+				{Action: "understand", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_understand"}}},
+			},
+		},
+	}})
+	completed, err := assembler.Apply(StreamEvent{
+		Kind:      StreamToolCallDone,
+		Tool:      "image",
+		Arguments: `{"action":"understand","images":["screen.png"]}`,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(completed) != 1 || completed[0].Operation.Name != "image_understand" {
+		t.Fatalf("completed = %#v, want image_understand", completed)
+	}
+}
+
+func TestToolCallAssemblerReportsAvailableActions(t *testing.T) {
+	assembler := NewToolCallAssembler([]ToolSpec{{
+		Name: "image",
+		Dispatch: &tool.Dispatch{
+			ActionField: "action",
+			Cases: []tool.DispatchCase{
+				{Action: "generate", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_generate"}}},
+			},
+		},
+	}})
+	_, err := assembler.Apply(StreamEvent{
+		Kind:      StreamToolCallDone,
+		Tool:      "image",
+		Arguments: `{"action":"missing"}`,
+	})
+	if err == nil {
+		t.Fatal("Apply error is nil, want unknown action")
+	}
+	if got := err.Error(); got == "" || !strings.Contains(got, "available actions: generate") {
+		t.Fatalf("error = %q, want available actions", got)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/tool"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
@@ -77,6 +78,57 @@ func TestFactoryRespectsAgentToolNarrowing(t *testing.T) {
 	}
 	if len(request.Tools) != 0 {
 		t.Fatalf("tools len = %d, want 0: %#v", len(request.Tools), request.Tools)
+	}
+}
+
+func TestFilterToolsAllowsDispatchToolWhenAllCasesTargetAllowedOperations(t *testing.T) {
+	imageTool := tool.Spec{
+		Name: "image",
+		Dispatch: &tool.Dispatch{
+			ActionField: "action",
+			Cases: []tool.DispatchCase{
+				{Action: "generate", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_generate"}}},
+				{Action: "understand", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_understand"}}},
+				{Action: "info", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_providers"}}},
+			},
+		},
+	}
+	spec := agent.Spec{
+		Name: "main",
+		Operations: []operation.Ref{
+			{Name: "image_generate"},
+			{Name: "image_understand"},
+			{Name: "image_providers"},
+		},
+	}
+
+	filtered := filterTools(spec, []tool.Spec{imageTool})
+
+	if len(filtered) != 1 || filtered[0].Name != "image" {
+		t.Fatalf("filtered tools = %#v, want image action tool", filtered)
+	}
+}
+
+func TestFilterToolsRejectsDispatchToolWhenAnyCaseIsNotAllowed(t *testing.T) {
+	imageTool := tool.Spec{
+		Name: "image",
+		Dispatch: &tool.Dispatch{
+			ActionField: "action",
+			Cases: []tool.DispatchCase{
+				{Action: "generate", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_generate"}}},
+				{Action: "understand", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "image_understand"}}},
+			},
+		},
+	}
+	spec := agent.Spec{
+		Name:       "main",
+		Operations: []operation.Ref{{Name: "image_generate"}},
+	}
+
+	filtered := filterTools(spec, []tool.Spec{imageTool})
+
+	if len(filtered) != 0 {
+		t.Fatalf("filtered tools = %#v, want action tool rejected", filtered)
 	}
 }
 
