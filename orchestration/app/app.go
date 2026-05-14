@@ -17,7 +17,6 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -35,8 +34,6 @@ type Config struct {
 	Plugins           []pluginhost.Plugin
 	Bundles           []resource.ContributionBundle
 	OperationExecutor operationruntime.Executor
-	Events            event.Sink
-	ThreadStore       corethread.Store
 }
 
 // Composition is executable runtime configuration assembled from resources and
@@ -73,8 +70,6 @@ type Composition struct {
 	OperationSpecs       []operation.Spec
 	SessionSpecs         []coresession.Spec
 	OperationExecutor    operationruntime.Executor
-	Events               event.Sink
-	ThreadStore          corethread.Store
 	EventRegistry        *event.Registry
 	Bundles              []resource.ContributionBundle
 	Diagnostics          []resource.Diagnostic
@@ -262,8 +257,6 @@ func Compose(cfg Config) (Composition, error) {
 		OperationSpecs:       operationSpecs,
 		SessionSpecs:         sessionSpecs,
 		OperationExecutor:    cfg.OperationExecutor,
-		Events:               cfg.Events,
-		ThreadStore:          cfg.ThreadStore,
 		EventRegistry:        eventRegistry,
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,

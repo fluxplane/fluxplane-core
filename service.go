@@ -283,12 +283,6 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor
 	}
-	if cfg.Events == nil {
-		cfg.Events = composition.Events
-	}
-	if cfg.ThreadStore == nil {
-		cfg.ThreadStore = composition.ThreadStore
-	}
 	return New(cfg)
 }
 
