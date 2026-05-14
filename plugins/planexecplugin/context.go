@@ -55,6 +55,8 @@ func (p contextProvider) render(ctx context.Context) string {
 	} else if profiles := profileNames(scope.Policy.AllowedProfiles); len(profiles) > 0 {
 		lines = append(lines, "- delegation profiles: "+strings.Join(profiles, ", "))
 		lines = append(lines, "- use delegate with profile set to one of: "+strings.Join(profiles, ", "))
+		lines = append(lines, "- delegate spawn timeout is worker lifetime and is capped by policy max "+delegateMaxTimeout(scope.Policy))
+		lines = append(lines, "- delegate result timeout only controls how long the parent waits; it does not extend worker lifetime")
 	} else {
 		lines = append(lines, "- delegation: unavailable; no profiles are allowed")
 	}
@@ -63,6 +65,13 @@ func (p contextProvider) render(ctx context.Context) string {
 		lines = append(lines, renderPlanContext(state)...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func delegateMaxTimeout(policy coresession.DelegationPolicy) string {
+	if strings.TrimSpace(policy.DefaultTimeout) != "" {
+		return strings.TrimSpace(policy.DefaultTimeout)
+	}
+	return "10m"
 }
 
 func profileNames(profiles []coresession.Ref) []string {

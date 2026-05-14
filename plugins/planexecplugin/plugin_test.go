@@ -62,6 +62,64 @@ func TestDelegateSpawnFailureReturnsAllowedProfiles(t *testing.T) {
 	}
 }
 
+func TestDelegateSpawnUsesPolicyTimeoutWhenOmitted(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+		DefaultTimeout:  "10m",
+	})
+
+	result := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "worker", Task: "do it"})
+	if result.IsError() {
+		t.Fatalf("spawn failed: %#v", result.Error)
+	}
+	handle := renderedHandle(t, result)
+	if handle.RequestedTimeout != "" || handle.EffectiveTimeout != "10m0s" || handle.MaxTimeout != "10m0s" || handle.TimeoutClamped {
+		t.Fatalf("handle timeout fields = %#v, want policy max without clamp", handle)
+	}
+}
+
+func TestDelegateSpawnUsesLowerRequestedTimeout(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+		DefaultTimeout:  "10m",
+	})
+
+	result := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "worker", Task: "do it", Timeout: "5m"})
+	if result.IsError() {
+		t.Fatalf("spawn failed: %#v", result.Error)
+	}
+	handle := renderedHandle(t, result)
+	if handle.RequestedTimeout != "5m0s" || handle.EffectiveTimeout != "5m0s" || handle.MaxTimeout != "10m0s" || handle.TimeoutClamped {
+		t.Fatalf("handle timeout fields = %#v, want lower requested timeout without clamp", handle)
+	}
+}
+
+func TestDelegateSpawnClampsTimeoutAbovePolicyMax(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+		DefaultTimeout:  "10m",
+	})
+
+	result := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "worker", Task: "do it", Timeout: "30m"})
+	if result.IsError() {
+		t.Fatalf("spawn failed: %#v", result.Error)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want operation.Rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "Timeout clamped to 10m0s.") {
+		t.Fatalf("rendered text = %q, want clamp note", rendered.Text)
+	}
+	handle := renderedHandle(t, result)
+	if handle.RequestedTimeout != "30m0s" || handle.EffectiveTimeout != "10m0s" || handle.MaxTimeout != "10m0s" || !handle.TimeoutClamped {
+		t.Fatalf("handle timeout fields = %#v, want clamped timeout", handle)
+	}
+}
+
 func TestDelegateResultWaitsForCompletion(t *testing.T) {
 	plugin := New()
 	ctx := scopedOperationContext(t, "worker done")
@@ -124,10 +182,28 @@ func TestDelegateResultReportsRunningWithoutFailing(t *testing.T) {
 	client.finish()
 }
 
+func TestDelegateResultRendersTerminalFailureStatus(t *testing.T) {
+	failed := renderDelegateResult(subagent.Result{
+		Handle: subagent.Handle{Status: subagent.StatusFailed, Error: "context deadline exceeded"},
+		Error:  "context deadline exceeded",
+	})
+	if failed != "Sub-agent failed: context deadline exceeded" {
+		t.Fatalf("failed result = %q, want explicit failed text", failed)
+	}
+	cancelled := renderDelegateResult(subagent.Result{
+		Handle: subagent.Handle{Status: subagent.StatusCancelled, Error: "cancelled by delegate operation"},
+		Error:  "cancelled by delegate operation",
+	})
+	if cancelled != "Sub-agent cancelled: cancelled by delegate operation" {
+		t.Fatalf("cancelled result = %q, want explicit cancelled text", cancelled)
+	}
+}
+
 func TestContextProviderRendersDelegationProfiles(t *testing.T) {
 	provider := contextProvider{plugin: New()}
 	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
 		AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
+		DefaultTimeout:  "10m",
 	})
 
 	blocks, err := provider.Build(ctx, corecontext.Request{})
@@ -141,6 +217,8 @@ func TestContextProviderRendersDelegationProfiles(t *testing.T) {
 	for _, want := range []string{
 		"delegation profiles: explorer, worker",
 		"use delegate with profile set to one of: explorer, worker",
+		"delegate spawn timeout is worker lifetime and is capped by policy max 10m",
+		"delegate result timeout only controls how long the parent waits; it does not extend worker lifetime",
 		"plan: none",
 	} {
 		if !strings.Contains(content, want) {

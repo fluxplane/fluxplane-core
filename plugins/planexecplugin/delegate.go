@@ -53,7 +53,7 @@ func (p *Plugin) delegateResult(ctx operation.Context, scope subagent.Scope, inp
 	}
 	id := subagent.ID(input.WorkerID)
 	if result, err := scope.Supervisor.Result(id); err == nil {
-		return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+		return rendered(renderDelegateResult(result), result)
 	}
 	timeout, err := parseDuration(input.Timeout)
 	if err != nil {
@@ -69,7 +69,7 @@ func (p *Plugin) delegateResult(ctx operation.Context, scope subagent.Scope, inp
 			result, waitErr := scope.Supervisor.Wait(waitCtx, id)
 			cancel()
 			if waitErr == nil {
-				return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+				return rendered(renderDelegateResult(result), result)
 			}
 			if !errors.Is(waitErr, context.DeadlineExceeded) && !errors.Is(waitErr, context.Canceled) {
 				return operation.Failed("delegate_result_failed", waitErr.Error(), nil)
@@ -81,7 +81,7 @@ func (p *Plugin) delegateResult(ctx operation.Context, scope subagent.Scope, inp
 		return rendered(string(worker.Status), subagent.Result{Handle: worker, Output: worker.Output, Error: worker.Error})
 	}
 	result := subagent.Result{Handle: worker, Output: worker.Output, Error: worker.Error}
-	return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+	return rendered(renderDelegateResult(result), result)
 }
 
 func (p *Plugin) delegateWorkers(ctx operation.Context, scope subagent.Scope) []subagent.Handle {
@@ -129,7 +129,26 @@ func (p *Plugin) delegateSpawn(ctx operation.Context, scope subagent.Scope, inpu
 	if err != nil {
 		return operation.Failed("delegate_spawn_failed", err.Error(), delegateSpawnFailureDetails(input, scope.Policy))
 	}
-	return rendered(fmt.Sprintf("Spawned %s using %s.", handle.ID, handle.Profile.Name), handle)
+	return rendered(renderDelegateSpawn(handle), handle)
+}
+
+func renderDelegateSpawn(handle subagent.Handle) string {
+	text := fmt.Sprintf("Spawned %s using %s.", handle.ID, handle.Profile.Name)
+	if handle.TimeoutClamped && handle.MaxTimeout != "" {
+		text += " Timeout clamped to " + handle.MaxTimeout + "."
+	}
+	return text
+}
+
+func renderDelegateResult(result subagent.Result) string {
+	switch result.Handle.Status {
+	case subagent.StatusFailed:
+		return "Sub-agent failed: " + firstNonEmpty(result.Error, result.Handle.Error, "unknown error")
+	case subagent.StatusCancelled:
+		return "Sub-agent cancelled: " + firstNonEmpty(result.Error, result.Handle.Error, "cancelled")
+	default:
+		return firstNonEmpty(result.Output, result.Error, "done")
+	}
 }
 
 func delegateSpawnFailureDetails(input delegateInput, policy coresession.DelegationPolicy) map[string]any {

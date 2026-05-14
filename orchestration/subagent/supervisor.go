@@ -114,23 +114,27 @@ type SpawnRequest struct {
 
 // Handle is a snapshot of one child task.
 type Handle struct {
-	ID            ID                `json:"id"`
-	Status        Status            `json:"status"`
-	Profile       coresession.Ref   `json:"profile,omitempty"`
-	Agent         agent.Ref         `json:"agent,omitempty"`
-	Task          string            `json:"task,omitempty"`
-	TaskID        string            `json:"task_id,omitempty"`
-	ParentThread  corethread.ID     `json:"parent_thread_id,omitempty"`
-	ParentRunID   string            `json:"parent_run_id,omitempty"`
-	ParentCallID  operation.CallID  `json:"parent_call_id,omitempty"`
-	ChildThreadID corethread.ID     `json:"child_thread_id,omitempty"`
-	ChildRunID    string            `json:"child_run_id,omitempty"`
-	StartedAt     time.Time         `json:"started_at,omitempty"`
-	DoneAt        time.Time         `json:"done_at,omitempty"`
-	Output        string            `json:"output,omitempty"`
-	Error         string            `json:"error,omitempty"`
-	Progress      string            `json:"progress,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	ID               ID                `json:"id"`
+	Status           Status            `json:"status"`
+	Profile          coresession.Ref   `json:"profile,omitempty"`
+	Agent            agent.Ref         `json:"agent,omitempty"`
+	Task             string            `json:"task,omitempty"`
+	TaskID           string            `json:"task_id,omitempty"`
+	ParentThread     corethread.ID     `json:"parent_thread_id,omitempty"`
+	ParentRunID      string            `json:"parent_run_id,omitempty"`
+	ParentCallID     operation.CallID  `json:"parent_call_id,omitempty"`
+	ChildThreadID    corethread.ID     `json:"child_thread_id,omitempty"`
+	ChildRunID       string            `json:"child_run_id,omitempty"`
+	StartedAt        time.Time         `json:"started_at,omitempty"`
+	DoneAt           time.Time         `json:"done_at,omitempty"`
+	Output           string            `json:"output,omitempty"`
+	Error            string            `json:"error,omitempty"`
+	Progress         string            `json:"progress,omitempty"`
+	RequestedTimeout string            `json:"requested_timeout,omitempty"`
+	EffectiveTimeout string            `json:"effective_timeout,omitempty"`
+	MaxTimeout       string            `json:"max_timeout,omitempty"`
+	TimeoutClamped   bool              `json:"timeout_clamped,omitempty"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
 }
 
 // PreparedSpawn reserves capacity and opens the child session. Start begins
@@ -199,25 +203,23 @@ func (s *Supervisor) Prepare(ctx context.Context, req SpawnRequest) (PreparedSpa
 	if req.ID == "" {
 		req.ID = ID(newID("subagent_"))
 	}
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = parsePolicyTimeout(req.Policy.DefaultTimeout)
-	}
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
-	runCtx, cancel := context.WithTimeout(ensureContext(ctx), timeout)
+	timeout := resolveTimeout(req.Timeout, req.Policy)
+	runCtx, cancel := context.WithTimeout(ensureContext(ctx), timeout.Effective)
 	handle := Handle{
-		ID:           req.ID,
-		Status:       StatusPrepared,
-		Profile:      profile,
-		Agent:        agentRef,
-		Task:         req.Task,
-		TaskID:       req.TaskID,
-		ParentThread: req.ParentThreadID,
-		ParentRunID:  req.ParentRunID,
-		ParentCallID: req.ParentCallID,
-		Metadata:     cloneStringMap(req.Metadata),
+		ID:               req.ID,
+		Status:           StatusPrepared,
+		Profile:          profile,
+		Agent:            agentRef,
+		Task:             req.Task,
+		TaskID:           req.TaskID,
+		ParentThread:     req.ParentThreadID,
+		ParentRunID:      req.ParentRunID,
+		ParentCallID:     req.ParentCallID,
+		RequestedTimeout: durationString(timeout.Requested),
+		EffectiveTimeout: durationString(timeout.Effective),
+		MaxTimeout:       durationString(timeout.Max),
+		TimeoutClamped:   timeout.Clamped,
+		Metadata:         cloneStringMap(req.Metadata),
 	}
 	ent := &entry{handle: handle, cancel: cancel, done: make(chan struct{})}
 
@@ -710,6 +712,37 @@ func parsePolicyTimeout(value string) time.Duration {
 	}
 	d, _ := time.ParseDuration(value)
 	return d
+}
+
+type resolvedTimeout struct {
+	Requested time.Duration
+	Effective time.Duration
+	Max       time.Duration
+	Clamped   bool
+}
+
+func resolveTimeout(requested time.Duration, policy coresession.DelegationPolicy) resolvedTimeout {
+	max := parsePolicyTimeout(policy.DefaultTimeout)
+	if max <= 0 {
+		max = 10 * time.Minute
+	}
+	effective := max
+	clamped := false
+	if requested > 0 {
+		effective = requested
+		if requested > max {
+			effective = max
+			clamped = true
+		}
+	}
+	return resolvedTimeout{Requested: requested, Effective: effective, Max: max, Clamped: clamped}
+}
+
+func durationString(value time.Duration) string {
+	if value <= 0 {
+		return ""
+	}
+	return value.String()
 }
 
 func cloneHandle(h Handle) Handle {

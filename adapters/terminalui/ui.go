@@ -38,6 +38,7 @@ type Renderer struct {
 
 	mu     sync.Mutex
 	starts map[operation.CallID]time.Time
+	plans  map[string]*terminalPlanView
 
 	content *mdterminal.LiveRenderer
 	debug   *mdterminal.LiveRenderer
@@ -52,6 +53,7 @@ func NewRenderer(out, err io.Writer, showUsage bool) *Renderer {
 		Err:       err,
 		ShowUsage: showUsage,
 		starts:    map[operation.CallID]time.Time{},
+		plans:     map[string]*terminalPlanView{},
 		content:   newMarkdownRenderer(out),
 		debug:     newMarkdownRenderer(err),
 	}
@@ -76,7 +78,7 @@ func (r *Renderer) Render(event clientapi.Event) {
 		r.starts[event.Operation.CallID] = time.Now()
 		r.mu.Unlock()
 		_, _ = fmt.Fprintf(out, "%stool start:%s %s%s", ansiYellow, ansiReset, ansiCyan, event.Operation.Operation.String())
-		if summary := compact(event.Operation.Input, 320); summary != "" {
+		if summary := operationStartSummary(*event.Operation); summary != "" {
 			_, _ = fmt.Fprintf(out, " %s", summary)
 		}
 		_, _ = fmt.Fprintf(out, "%s\n", ansiReset)
@@ -169,12 +171,21 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
 		}
 	case subagent.Started:
+		if isPlanWorkerID(string(payload.WorkerID)) {
+			return
+		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, payload.WorkerID, ansiDim, payload.Profile.Name, ansiReset)
 	case subagent.Completed:
+		if isPlanWorkerID(string(payload.WorkerID)) {
+			return
+		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, payload.WorkerID, compact(payload.Output, 160))
 	case subagent.Failed:
+		if isPlanWorkerID(string(payload.WorkerID)) {
+			return
+		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate failed:%s %s %s\n", ansiRed, ansiReset, payload.WorkerID, payload.Error)
 	default:
@@ -190,14 +201,8 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 
 func (r *Renderer) renderPlanCreated(out io.Writer, payload terminalPlanCreated) {
 	r.flushContent()
-	_, _ = fmt.Fprintf(out, "\n%splan:%s %s %s(%d steps)%s\n", ansiCyan, ansiReset, payload.Spec.Title, ansiDim, len(payload.Spec.Steps), ansiReset)
-	for _, step := range payload.Spec.Steps {
-		profile := step.Profile
-		if profile == "" {
-			profile = "worker"
-		}
-		_, _ = fmt.Fprintf(out, "  %s◌%s %s %s[%s]%s\n", ansiDim, ansiReset, step.Title, ansiDim, profile, ansiReset)
-	}
+	r.storePlan(payload)
+	r.renderPlan(out, payload.PlanID)
 }
 
 func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bool {
@@ -212,12 +217,16 @@ func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bo
 		var typed terminalPlanStepDispatched
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan step:%s %s %s[%s]%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Profile, ansiReset)
+			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepRunning, "", typed.Profile)
+			r.renderPlan(out, typed.PlanID)
 			return true
 		}
 	case "plan.step.progressed":
 		var typed terminalPlanStepProgressed
 		if decodeTypedPayload(payload, &typed) == nil {
+			if ignorePlanProgress(typed.Message) {
+				return true
+			}
 			r.flushContent()
 			_, _ = fmt.Fprintf(out, "%splan progress:%s %s %s%s%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Message, ansiReset)
 			return true
@@ -226,14 +235,24 @@ func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bo
 		var typed terminalPlanStepCompleted
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan done:%s %s %s\n", ansiGreen, ansiReset, typed.StepID, compact(typed.Output, 160))
+			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepCompleted, typed.Output, "")
+			r.renderPlan(out, typed.PlanID)
 			return true
 		}
 	case "plan.step.failed":
 		var typed terminalPlanStepFailed
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan failed:%s %s %s\n", ansiRed, ansiReset, typed.StepID, typed.Error)
+			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepFailed, typed.Error, "")
+			r.renderPlan(out, typed.PlanID)
+			return true
+		}
+	case "plan.step.cancelled":
+		var typed terminalPlanStepCancelled
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepCancelled, typed.Reason, "")
+			r.renderPlan(out, typed.PlanID)
 			return true
 		}
 	case "plan.completed":
@@ -278,35 +297,172 @@ type terminalStepSpec struct {
 }
 
 type terminalPlanStepDispatched struct {
+	PlanID  string `json:"plan_id,omitempty"`
 	StepID  string `json:"step_id"`
+	Title   string `json:"title,omitempty"`
 	Profile string `json:"profile,omitempty"`
 }
 
 type terminalPlanStepProgressed struct {
+	PlanID  string `json:"plan_id,omitempty"`
 	StepID  string `json:"step_id"`
 	Message string `json:"message,omitempty"`
 }
 
 type terminalPlanStepCompleted struct {
+	PlanID string `json:"plan_id,omitempty"`
 	StepID string `json:"step_id"`
 	Output string `json:"output,omitempty"`
 }
 
 type terminalPlanStepFailed struct {
+	PlanID string `json:"plan_id,omitempty"`
 	StepID string `json:"step_id"`
 	Error  string `json:"error,omitempty"`
 }
 
+type terminalPlanStepCancelled struct {
+	PlanID string `json:"plan_id,omitempty"`
+	StepID string `json:"step_id"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type terminalPlanCompleted struct {
+	PlanID  string `json:"plan_id,omitempty"`
 	Summary string `json:"summary,omitempty"`
 }
 
 type terminalPlanFailed struct {
+	PlanID string `json:"plan_id,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
 
 type terminalPlanCancelled struct {
+	PlanID string `json:"plan_id,omitempty"`
 	Reason string `json:"reason,omitempty"`
+}
+
+type terminalStepStatus string
+
+const (
+	terminalStepWaiting   terminalStepStatus = "waiting"
+	terminalStepRunning   terminalStepStatus = "running"
+	terminalStepCompleted terminalStepStatus = "completed"
+	terminalStepFailed    terminalStepStatus = "failed"
+	terminalStepCancelled terminalStepStatus = "cancelled"
+)
+
+type terminalPlanView struct {
+	ID    string
+	Title string
+	Steps []terminalStepView
+}
+
+type terminalStepView struct {
+	ID      string
+	Title   string
+	Profile string
+	Status  terminalStepStatus
+	Detail  string
+}
+
+func (r *Renderer) storePlan(payload terminalPlanCreated) {
+	if payload.PlanID == "" {
+		payload.PlanID = "plan"
+	}
+	view := &terminalPlanView{ID: payload.PlanID, Title: payload.Spec.Title, Steps: make([]terminalStepView, 0, len(payload.Spec.Steps))}
+	for _, step := range payload.Spec.Steps {
+		view.Steps = append(view.Steps, terminalStepView{
+			ID:      step.ID,
+			Title:   firstNonEmptyString(step.Title, step.ID),
+			Profile: firstNonEmptyString(step.Profile, "worker"),
+			Status:  terminalStepWaiting,
+		})
+	}
+	r.mu.Lock()
+	r.plans[payload.PlanID] = view
+	r.mu.Unlock()
+}
+
+func (r *Renderer) updatePlanStep(planID, stepID string, status terminalStepStatus, detail, profile string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	view := r.planLocked(planID)
+	if view == nil {
+		return
+	}
+	for i := range view.Steps {
+		if view.Steps[i].ID != stepID {
+			continue
+		}
+		view.Steps[i].Status = status
+		view.Steps[i].Detail = detail
+		if profile != "" {
+			view.Steps[i].Profile = profile
+		}
+		return
+	}
+	view.Steps = append(view.Steps, terminalStepView{
+		ID:      stepID,
+		Title:   stepID,
+		Profile: firstNonEmptyString(profile, "worker"),
+		Status:  status,
+		Detail:  detail,
+	})
+}
+
+func (r *Renderer) renderPlan(out io.Writer, planID string) {
+	r.mu.Lock()
+	view := cloneTerminalPlanView(r.planLocked(planID))
+	r.mu.Unlock()
+	if view == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\n%splan:%s %s %s(%d steps)%s\n", ansiCyan, ansiReset, view.Title, ansiDim, len(view.Steps), ansiReset)
+	for _, step := range view.Steps {
+		_, _ = fmt.Fprintf(out, "  %s %s %s[%s]%s", terminalStepMarker(step.Status), step.Title, ansiDim, firstNonEmptyString(step.Profile, "worker"), ansiReset)
+		if step.Detail != "" && step.Status != terminalStepCompleted {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(step.Detail, 120), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+	}
+}
+
+func (r *Renderer) planLocked(planID string) *terminalPlanView {
+	if len(r.plans) == 0 {
+		return nil
+	}
+	if planID != "" {
+		return r.plans[planID]
+	}
+	for _, view := range r.plans {
+		return view
+	}
+	return nil
+}
+
+func cloneTerminalPlanView(in *terminalPlanView) *terminalPlanView {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Steps = append([]terminalStepView(nil), in.Steps...)
+	return &out
+}
+
+func terminalStepMarker(status terminalStepStatus) string {
+	switch status {
+	case terminalStepRunning:
+		return ansiCyan + "●" + ansiReset
+	case terminalStepCompleted:
+		return ansiGreen + "●" + ansiReset
+	case terminalStepFailed:
+		return ansiRed + "✕" + ansiReset
+	case terminalStepCancelled:
+		return ansiYellow + "–" + ansiReset
+	default:
+		return ansiDim + "◌" + ansiReset
+	}
 }
 
 func decodeTypedPayload(payload any, out any) error {
@@ -460,6 +616,89 @@ func resultSummary(result operation.Result) string {
 	default:
 		return compact(value, 240)
 	}
+}
+
+type terminalPlanInput struct {
+	Actions []terminalPlanAction `json:"actions,omitempty"`
+}
+
+type terminalPlanAction struct {
+	Action  string             `json:"action,omitempty"`
+	Steps   []terminalStepSpec `json:"steps,omitempty"`
+	Timeout string             `json:"timeout,omitempty"`
+	StepID  string             `json:"step_id,omitempty"`
+}
+
+func operationStartSummary(event clientapi.OperationEvent) string {
+	if event.Operation.String() != "plan" {
+		return compact(event.Input, 320)
+	}
+	var input terminalPlanInput
+	data, err := json.Marshal(event.Input)
+	if err != nil || json.Unmarshal(data, &input) != nil || len(input.Actions) == 0 {
+		return compact(event.Input, 320)
+	}
+	if len(input.Actions) > 1 {
+		actions := make([]string, 0, len(input.Actions))
+		for _, action := range input.Actions {
+			if action.Action != "" {
+				actions = append(actions, action.Action)
+			}
+		}
+		if len(actions) > 0 {
+			return strings.Join(actions, "+")
+		}
+		return compact(event.Input, 320)
+	}
+	action := input.Actions[0]
+	switch action.Action {
+	case "create":
+		return fmt.Sprintf("create (%d steps)", len(action.Steps))
+	case "execute":
+		return "execute"
+	case "wait":
+		if strings.TrimSpace(action.Timeout) != "" {
+			return "wait " + strings.TrimSpace(action.Timeout)
+		}
+		return "wait"
+	case "status":
+		return "status"
+	case "step_output":
+		return "step_output " + strings.TrimSpace(action.StepID)
+	case "cancel":
+		return "cancel"
+	default:
+		if action.Action != "" {
+			return action.Action
+		}
+		return compact(event.Input, 320)
+	}
+}
+
+func ignorePlanProgress(message string) bool {
+	switch strings.TrimSpace(message) {
+	case "llmagent.model_streamed",
+		"llmagent.model_completed",
+		"usage.recorded",
+		"conversation.items.appended",
+		"conversation.continuation.stored":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPlanWorkerID(id string) bool {
+	return strings.HasPrefix(id, "plan_") && strings.Contains(id, ":")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func compact(value any, limit int) string {

@@ -5,8 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/operation"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
@@ -193,6 +196,129 @@ func TestRendererRendersTypedPlanPayloadAndIgnoresUntypedPlanPayload(t *testing.
 	}
 	if strings.Contains(got, "step_2") || strings.Contains(got, "ignored") {
 		t.Fatalf("plan output = %q, want untyped plan payload ignored", got)
+	}
+}
+
+func TestRendererSummarizesPlanToolStart(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationRequested,
+		Operation: &clientapi.OperationEvent{
+			Operation: operation.Ref{Name: "plan"},
+			Input: map[string]any{"actions": []map[string]any{{
+				"action": "create",
+				"steps":  []map[string]any{{"id": "one"}, {"id": "two"}},
+			}}},
+		},
+	})
+
+	got := err.String()
+	if !strings.Contains(got, "tool start:") || !strings.Contains(got, "plan create (2 steps)") {
+		t.Fatalf("tool start = %q, want summarized plan create", got)
+	}
+	if strings.Contains(got, `"actions"`) {
+		t.Fatalf("tool start = %q, want no raw JSON actions", got)
+	}
+}
+
+func TestRendererFiltersNoisyPlanProgress(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepProgressed,
+			Payload: planexecplugin.StepProgressed{StepID: "step_1", Message: "llmagent.model_streamed"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepProgressed,
+			Payload: planexecplugin.StepProgressed{StepID: "step_1", Message: "completed file_read"},
+		},
+	})
+	renderer.Finish()
+
+	got := out.String() + err.String()
+	if strings.Contains(got, "llmagent.model_streamed") {
+		t.Fatalf("plan progress = %q, want noisy model progress filtered", got)
+	}
+	if !strings.Contains(got, "completed file_read") {
+		t.Fatalf("plan progress = %q, want operation progress retained", got)
+	}
+}
+
+func TestRendererRerendersPlanWithStatusMarkers(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: planexecplugin.EventPlanCreated,
+			Payload: planexecplugin.PlanCreated{
+				PlanID: "plan_1",
+				Spec: planexecplugin.PlanSpec{Title: "T", Steps: []planexecplugin.StepSpec{
+					{ID: "one", Title: "One", Profile: "explorer"},
+					{ID: "two", Title: "Two", Profile: "worker"},
+				}},
+			},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepDispatched,
+			Payload: planexecplugin.StepDispatched{PlanID: "plan_1", StepID: "one", Profile: "explorer"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    planexecplugin.EventStepCompleted,
+			Payload: planexecplugin.StepCompleted{PlanID: "plan_1", StepID: "one", Output: "done"},
+		},
+	})
+	renderer.Finish()
+
+	got := out.String() + err.String()
+	if strings.Count(got, "plan:") != 3 {
+		t.Fatalf("plan output = %q, want create, dispatched, and completed renders", got)
+	}
+	if !strings.Contains(got, ansiGreen+"●"+ansiReset+" One") {
+		t.Fatalf("plan output = %q, want completed green marker for One", got)
+	}
+	if !strings.Contains(got, ansiDim+"◌"+ansiReset+" Two") {
+		t.Fatalf("plan output = %q, want waiting marker for Two", got)
+	}
+}
+
+func TestRendererSuppressesPlanOwnedDelegateNoise(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    subagent.EventStarted,
+			Payload: subagent.Started{Causation: subagent.Causation{WorkerID: "plan_1:step_1", Profile: coresession.Ref{Name: "worker"}}},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    subagent.EventCompleted,
+			Payload: subagent.Completed{Causation: subagent.Causation{WorkerID: "manual_1"}, Output: "done"},
+		},
+	})
+	renderer.Finish()
+
+	got := out.String() + err.String()
+	if strings.Contains(got, "plan_1:step_1") {
+		t.Fatalf("delegate output = %q, want plan-owned worker suppressed", got)
+	}
+	if !strings.Contains(got, "delegate done:") || !strings.Contains(got, "manual_1") {
+		t.Fatalf("delegate output = %q, want manual delegate rendered", got)
 	}
 }
 

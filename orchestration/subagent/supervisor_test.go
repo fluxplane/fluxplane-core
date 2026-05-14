@@ -118,6 +118,50 @@ func TestSupervisorCapacityCountsPreparedSpawns(t *testing.T) {
 	}
 }
 
+func TestSupervisorClampsRequestedTimeoutToPolicyMax(t *testing.T) {
+	supervisor := New(Config{Client: fakeClient{result: "done"}})
+	handle, err := supervisor.Spawn(context.Background(), SpawnRequest{
+		Profile: coresession.Ref{Name: "worker"},
+		Task:    "do it",
+		Timeout: 30 * time.Minute,
+		Policy: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+			DefaultTimeout:  "10m",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if !handle.TimeoutClamped {
+		t.Fatal("timeout clamped = false, want true")
+	}
+	if handle.RequestedTimeout != "30m0s" || handle.EffectiveTimeout != "10m0s" || handle.MaxTimeout != "10m0s" {
+		t.Fatalf("timeouts = requested %q effective %q max %q, want 30m/10m/10m", handle.RequestedTimeout, handle.EffectiveTimeout, handle.MaxTimeout)
+	}
+}
+
+func TestSupervisorAllowsRequestedTimeoutBelowPolicyMax(t *testing.T) {
+	supervisor := New(Config{Client: fakeClient{result: "done"}})
+	handle, err := supervisor.Spawn(context.Background(), SpawnRequest{
+		Profile: coresession.Ref{Name: "worker"},
+		Task:    "do it",
+		Timeout: 5 * time.Minute,
+		Policy: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+			DefaultTimeout:  "10m",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if handle.TimeoutClamped {
+		t.Fatal("timeout clamped = true, want false")
+	}
+	if handle.RequestedTimeout != "5m0s" || handle.EffectiveTimeout != "5m0s" || handle.MaxTimeout != "10m0s" {
+		t.Fatalf("timeouts = requested %q effective %q max %q, want 5m/5m/10m", handle.RequestedTimeout, handle.EffectiveTimeout, handle.MaxTimeout)
+	}
+}
+
 func TestSupervisorNarrowsChildProfileWithDelegationPolicy(t *testing.T) {
 	client := &recordingClient{result: "done"}
 	resolver := ProfileResolverFunc(func(context.Context, coresession.Ref) (coresession.Spec, error) {
