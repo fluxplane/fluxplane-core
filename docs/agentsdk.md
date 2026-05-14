@@ -87,6 +87,18 @@ agentsdk run . --model anthropic/claude-haiku-4-5-20251001
 agentsdk run . --model minimax/MiniMax-M2.7
 ```
 
+Control provider reasoning behavior for local runs:
+
+```bash
+agentsdk run . --thinking auto
+agentsdk run . --thinking on --effort high
+agentsdk run . --thinking off
+```
+
+`--thinking` accepts `auto`, `on`, or `off`. `--effort` accepts `low`,
+`medium`, `high`, or `max`; unsupported provider/model combinations fail with a
+clear error.
+
 List available providers and models:
 
 ```bash

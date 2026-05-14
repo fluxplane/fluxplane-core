@@ -133,6 +133,9 @@ description: Evaluate architecture.
 	if main.Inference.MaxOutputTokens != 16000 || main.Inference.Temperature != 0.2 {
 		t.Fatalf("main inference = %#v", main.Inference)
 	}
+	if main.Inference.Thinking != "enabled" || main.Inference.ReasoningEffort != "high" {
+		t.Fatalf("main reasoning = %#v, want thinking enabled effort high", main.Inference)
+	}
 	if main.Policy.MaxSteps != 100 {
 		t.Fatalf("main max steps = %d", main.Policy.MaxSteps)
 	}

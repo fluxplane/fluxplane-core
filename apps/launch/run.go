@@ -67,6 +67,10 @@ type RuntimeOptions struct {
 	AuthPath            string
 	Provider            string
 	Model               string
+	Thinking            string
+	ThinkingSet         bool
+	Effort              string
+	EffortSet           bool
 	Debug               bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
@@ -133,6 +137,10 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		AuthPath:            cfg.AuthPath,
 		Provider:            req.Provider,
 		Model:               req.Model,
+		Thinking:            req.Thinking,
+		ThinkingSet:         req.ThinkingSet,
+		Effort:              req.Effort,
+		EffortSet:           req.EffortSet,
 		Debug:               req.Debug,
 		Plugins:             cfg.Plugins,
 		ToolProjection:      cfg.ToolProjection,
@@ -250,6 +258,10 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		LLMModelResolver: distrun.ModelResolver{
 			Provider:        opts.Provider,
 			Model:           opts.Model,
+			Thinking:        opts.Thinking,
+			ThinkingSet:     opts.ThinkingSet,
+			Effort:          opts.Effort,
+			EffortSet:       opts.EffortSet,
 			DefaultProvider: opts.Spec.DefaultModel.Provider,
 			DefaultModel:    opts.Spec.DefaultModel.Model,
 			Debug:           opts.Debug,

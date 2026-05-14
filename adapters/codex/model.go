@@ -25,6 +25,8 @@ type Config struct {
 	HTTPClient        *http.Client
 	Runtime           openaiadapter.ResponsesRuntimeConfig
 	Pricing           []corellm.PricingSpec
+	ReasoningEffort   string
+	ReasoningSummary  string
 }
 
 // New returns a Codex-backed Responses model.
@@ -64,6 +66,8 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 		APIKey:            "codex-auth-via-middleware",
 		Runtime:           runtime,
 		Pricing:           cfg.Pricing,
+		ReasoningEffort:   cfg.ReasoningEffort,
+		ReasoningSummary:  cfg.ReasoningSummary,
 		ParallelToolCalls: cfg.ParallelToolCalls,
 		Redactor:          cfg.Redactor,
 		RequestOptions: []option.RequestOption{

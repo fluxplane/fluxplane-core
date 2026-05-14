@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 	"github.com/fluxplane/agentruntime/adapters/openrouter"
+	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
@@ -28,7 +29,13 @@ var (
 	}
 )
 
-type modelFactory func(corellm.ModelSpec, bool) (llmagent.Model, error)
+type modelFactory func(corellm.ModelSpec, ModelOptions) (llmagent.Model, error)
+
+// ModelOptions configures runtime model construction for one resolved model.
+type ModelOptions struct {
+	Debug     bool
+	Reasoning ReasoningConfig
+}
 
 // ModelProvider binds an inert provider catalog entry to a runtime adapter.
 type ModelProvider struct {
@@ -110,6 +117,19 @@ func (r ModelRegistry) ResolveModelSelection(provider, model string) ModelSelect
 }
 
 func (r ModelRegistry) NewModel(selection ModelSelection, debug bool) (llmagent.Model, error) {
+	if _, modelSpec, ok := r.ModelSpec(selection.Provider, selection.Model); ok {
+		reasoning, err := ResolveReasoning(selection.Provider, modelSpec, agent.InferenceSpec{}, ReasoningOverrides{})
+		if err != nil {
+			return nil, err
+		}
+		return r.NewModelWithOptions(selection, ModelOptions{Debug: debug, Reasoning: reasoning})
+	}
+	return r.NewModelWithOptions(selection, ModelOptions{Debug: debug})
+}
+
+// NewModelWithOptions constructs a provider model with explicit runtime
+// options.
+func (r ModelRegistry) NewModelWithOptions(selection ModelSelection, opts ModelOptions) (llmagent.Model, error) {
 	provider, ok := r.catalog.Provider(selection.Provider)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider %q; available providers: %s", selection.Provider, strings.Join(r.providerNames(), ", "))
@@ -126,7 +146,7 @@ func (r ModelRegistry) NewModel(selection ModelSelection, debug bool) (llmagent.
 	if factory == nil {
 		return nil, fmt.Errorf("provider %q is in the model catalog but has no runtime adapter", provider.Name)
 	}
-	return factory(modelSpec, debug)
+	return factory(modelSpec, opts)
 }
 
 func (r ModelRegistry) ModelSpec(providerName, modelName string) (corellm.ProviderSpec, corellm.ModelSpec, bool) {
@@ -209,42 +229,45 @@ func defaultModelProviders() ([]ModelProvider, error) {
 	}, nil
 }
 
-func newOpenAIModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, error) {
+func newOpenAIModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	return openaiadapter.New(openaiadapter.Config{
 		Model:             string(modelSpec.Ref.Name),
 		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
+		ReasoningEffort:   opts.Reasoning.Effort,
+		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),
 		ParallelToolCalls: true,
-		Redactor:          debugRedactor(debug),
+		Redactor:          debugRedactor(opts.Debug),
 	})
 }
 
-func newCodexModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, error) {
+func newCodexModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	return codex.New(codex.Config{
 		Model:             string(modelSpec.Ref.Name),
 		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
+		ReasoningEffort:   opts.Reasoning.Effort,
+		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),
 		ParallelToolCalls: true,
-		Redactor:          debugRedactor(debug),
+		Redactor:          debugRedactor(opts.Debug),
 	})
 }
 
-func newOpenRouterModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, error) {
+func newOpenRouterModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	if !modelcatalog.SupportsAPI(modelSpec, string(modeldb.APITypeOpenAIResponses)) {
 		return nil, fmt.Errorf("openrouter model %q does not expose OpenAI Responses in modeldb", modelSpec.Ref.Name)
 	}
-	reasoningEffort, reasoningSummary := OpenRouterReasoningDefaults(modelSpec)
 	return openrouter.New(openrouter.Config{
 		Model:             string(modelSpec.Ref.Name),
 		Pricing:           modelSpec.Pricing,
-		ReasoningEffort:   reasoningEffort,
-		ReasoningSummary:  reasoningSummary,
+		ReasoningEffort:   opts.Reasoning.Effort,
+		ReasoningSummary:  opts.Reasoning.Summary,
 		ParallelToolCalls: true,
-		Redactor:          debugRedactor(debug),
+		Redactor:          debugRedactor(opts.Debug),
 	})
 }
 
-func newAnthropicModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, error) {
+func newAnthropicModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	if err := requireMessagesModel("anthropic", modelSpec); err != nil {
 		return nil, err
 	}
@@ -253,11 +276,13 @@ func newAnthropicModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model,
 		Pricing:         modelSpec.Pricing,
 		MaxOutputTokens: maxOutputTokens(modelSpec),
 		PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-		Redactor:        debugRedactor(debug),
+		Thinking:        opts.Reasoning.Thinking,
+		ReasoningEffort: opts.Reasoning.Effort,
+		Redactor:        debugRedactor(opts.Debug),
 	})
 }
 
-func newMinimaxModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, error) {
+func newMinimaxModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	if err := requireMessagesModel("minimax", modelSpec); err != nil {
 		return nil, err
 	}
@@ -266,6 +291,8 @@ func newMinimaxModel(modelSpec corellm.ModelSpec, debug bool) (llmagent.Model, e
 		Pricing:         modelSpec.Pricing,
 		MaxOutputTokens: maxOutputTokens(modelSpec),
 		PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-		Redactor:        debugRedactor(debug),
+		Thinking:        opts.Reasoning.Thinking,
+		ReasoningEffort: opts.Reasoning.Effort,
+		Redactor:        debugRedactor(opts.Debug),
 	})
 }

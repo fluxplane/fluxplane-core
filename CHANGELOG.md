@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projection.
 - `coder` now enables the image plugin by default and exposes the single
   `image` action tool for generation, understanding, and provider inspection.
+- `agentsdk run` and `coder` now accept `--thinking auto|on|off` and
+  `--effort low|medium|high|max` to control provider reasoning behavior for
+  local runs.
 
 ### Changed
 
@@ -34,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-compilation does not fill `/tmp`.
 - Tool projection and provider adapters now support dispatch-backed action
   tools without modeling tool sets as invocation targets.
+
+### Fixed
+
+- Reasoning flag resolution no longer forces an implicit `medium` effort for
+  thinking-only requests, and explicit `--effort` values are validated and
+  propagated in auto mode.
 - Image plugin operation and action-tool schemas now derive from typed
   operation contracts instead of hand-written JSON Schema.
 - Command-risk approvals now route through the runtime approval gate, and

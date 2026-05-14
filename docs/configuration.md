@@ -102,6 +102,11 @@ Common fields are `name`, `description`, `model`, `max_tokens`, `max_steps`,
 `max_continuations`, `thinking`, `effort`, `tools`, `context`, `datasources`,
 `skills`, and `system`.
 
+`thinking` accepts `auto`, `on`, `off`, and the agentdir-friendly alias
+`enabled`. At runtime `enabled` is normalized to `on`. `effort` accepts `low`,
+`medium`, `high`, or `max` when the selected provider/model exposes that
+reasoning effort.
+
 ### Sessions
 
 Session documents name an executable profile and bind it to an agent.

@@ -8,6 +8,7 @@ import (
 
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,10 @@ type RunPathOptions struct {
 	Conversation string
 	Provider     string
 	Model        string
+	Thinking     string
+	ThinkingSet  bool
+	Effort       string
+	EffortSet    bool
 	Input        string
 	Debug        bool
 	Usage        bool
@@ -55,6 +60,10 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		Conversation: opts.Conversation,
 		Provider:     opts.Provider,
 		Model:        opts.Model,
+		Thinking:     opts.Thinking,
+		ThinkingSet:  opts.ThinkingSet,
+		Effort:       opts.Effort,
+		EffortSet:    opts.EffortSet,
 		Input:        opts.Input,
 		Debug:        opts.Debug,
 		Usage:        opts.Usage,
@@ -70,6 +79,8 @@ type runCommandOptions struct {
 	conversation string
 	provider     string
 	model        string
+	thinking     string
+	effort       string
 	input        string
 	debug        bool
 	usage        bool
@@ -81,12 +92,15 @@ func NewRunCommand() *cobra.Command {
 }
 
 func NewRunCommandWithLoader(loader Loader) *cobra.Command {
-	var opts runCommandOptions
+	opts := runCommandOptions{thinking: "auto"}
 	cmd := &cobra.Command{
 		Use:   "run [path]",
 		Short: "Run a local app distribution",
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
+				return err
+			}
 			path := "."
 			if len(args) > 0 {
 				path = args[0]
@@ -96,6 +110,10 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Conversation: opts.conversation,
 				Provider:     opts.provider,
 				Model:        opts.model,
+				Thinking:     opts.thinking,
+				ThinkingSet:  cmd.Flags().Changed("thinking"),
+				Effort:       opts.effort,
+				EffortSet:    cmd.Flags().Changed("effort"),
 				Input:        opts.input,
 				Debug:        opts.debug,
 				Usage:        opts.usage,
@@ -110,6 +128,8 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().StringVar(&opts.conversation, "conversation", "", "conversation id")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider")
 	cmd.Flags().StringVar(&opts.model, "model", "", "model name or provider/model")
+	cmd.Flags().StringVar(&opts.thinking, "thinking", opts.thinking, "thinking mode: auto|on|off")
+	cmd.Flags().StringVar(&opts.effort, "effort", opts.effort, "reasoning effort: low|medium|high|max")
 	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")

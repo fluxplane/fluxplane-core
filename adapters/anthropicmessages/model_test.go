@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/agent"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -146,6 +147,51 @@ func TestStreamToolUseReturnsOperationAndTranscript(t *testing.T) {
 	}
 	if len(resp.Transcript.Items) != 1 || !strings.Contains(string(resp.Transcript.Items[0].Native), "tool_use") {
 		t.Fatalf("transcript = %#v", resp.Transcript)
+	}
+}
+
+func TestMessageRequestAppliesThinkingOverride(t *testing.T) {
+	model, err := New(Config{
+		Model:           "claude-test",
+		APIKey:          "test-key",
+		BaseURL:         "http://example.test",
+		Thinking:        "on",
+		ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	wire, _, _, err := model.messageRequest(llmagent.Request{Goal: "think"}, false)
+	if err != nil {
+		t.Fatalf("messageRequest: %v", err)
+	}
+	if wire.Thinking == nil || wire.Thinking.Type != "enabled" || wire.Effort != "high" {
+		t.Fatalf("request = %#v, want thinking enabled with high effort", wire)
+	}
+}
+
+func TestMessageRequestOffOverrideSuppressesAgentThinking(t *testing.T) {
+	model, err := New(Config{
+		Model:    "claude-test",
+		APIKey:   "test-key",
+		BaseURL:  "http://example.test",
+		Thinking: "off",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	wire, _, _, err := model.messageRequest(llmagent.Request{
+		Goal: "think",
+		Agent: agent.Spec{Inference: agent.InferenceSpec{
+			Thinking:        "enabled",
+			ReasoningEffort: "high",
+		}},
+	}, false)
+	if err != nil {
+		t.Fatalf("messageRequest: %v", err)
+	}
+	if wire.Thinking != nil || wire.Effort != "" {
+		t.Fatalf("request = %#v, want no thinking", wire)
 	}
 }
 

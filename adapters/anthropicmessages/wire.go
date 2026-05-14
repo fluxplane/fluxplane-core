@@ -18,6 +18,7 @@ type messageRequest struct {
 	Stream      bool             `json:"stream,omitempty"`
 	Temperature *float64         `json:"temperature,omitempty"`
 	Thinking    *thinkingConfig  `json:"thinking,omitempty"`
+	Effort      string           `json:"reasoning_effort,omitempty"`
 }
 
 type thinkingConfig struct {
@@ -131,4 +132,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeThinking(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on", "enabled":
+		return "on"
+	case "off":
+		return "off"
+	default:
+		return "auto"
+	}
 }

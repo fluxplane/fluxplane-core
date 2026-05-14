@@ -86,6 +86,18 @@ coder --model anthropic/claude-haiku-4-5-20251001
 coder --model minimax/MiniMax-M2.7
 ```
 
+Control provider reasoning behavior:
+
+```bash
+coder --thinking auto
+coder --thinking on --effort high
+coder --thinking off
+```
+
+`--thinking` accepts `auto`, `on`, or `off`. `--effort` accepts `low`,
+`medium`, `high`, or `max`; unsupported provider/model combinations fail with a
+clear error.
+
 Provider credentials are read from the provider-specific environment or local
 auth files:
 

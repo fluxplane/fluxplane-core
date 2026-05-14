@@ -27,27 +27,37 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	opts := options{
 		provider: dist.Spec.DefaultModel.Provider,
 		model:    dist.Spec.DefaultModel.Model,
+		thinking: "auto",
 	}
 	cmd := &cobra.Command{
 		Use:   dist.Spec.Name,
 		Short: shortDescription(dist),
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
+				return err
+			}
 			return Run(cmd.Context(), dist, RunOptions{
-				Provider: opts.provider,
-				Model:    opts.model,
-				Input:    opts.input,
-				Debug:    opts.debug,
-				Usage:    opts.usage,
-				Prompt:   dist.Spec.Name,
-				In:       os.Stdin,
-				Out:      os.Stdout,
-				Err:      os.Stderr,
+				Provider:    opts.provider,
+				Model:       opts.model,
+				Thinking:    opts.thinking,
+				ThinkingSet: cmd.Flags().Changed("thinking"),
+				Effort:      opts.effort,
+				EffortSet:   cmd.Flags().Changed("effort"),
+				Input:       opts.input,
+				Debug:       opts.debug,
+				Usage:       opts.usage,
+				Prompt:      dist.Spec.Name,
+				In:          os.Stdin,
+				Out:         os.Stdout,
+				Err:         os.Stderr,
 			})
 		},
 	}
 	cmd.PersistentFlags().StringVar(&opts.provider, "provider", opts.provider, "model provider")
 	cmd.PersistentFlags().StringVar(&opts.model, "model", opts.model, "model name or provider/model")
+	cmd.PersistentFlags().StringVar(&opts.thinking, "thinking", opts.thinking, "thinking mode: auto|on|off")
+	cmd.PersistentFlags().StringVar(&opts.effort, "effort", opts.effort, "reasoning effort: low|medium|high|max")
 	cmd.PersistentFlags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
@@ -59,6 +69,8 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 type options struct {
 	provider string
 	model    string
+	thinking string
+	effort   string
 	input    string
 	debug    bool
 	usage    bool
@@ -70,6 +82,10 @@ type RunOptions struct {
 	Conversation string
 	Provider     string
 	Model        string
+	Thinking     string
+	ThinkingSet  bool
+	Effort       string
+	EffortSet    bool
 	Input        string
 	Debug        bool
 	Usage        bool
@@ -142,6 +158,10 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 		Conversation: channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
 		Provider:     opts.Provider,
 		Model:        opts.Model,
+		Thinking:     opts.Thinking,
+		ThinkingSet:  opts.ThinkingSet,
+		Effort:       opts.Effort,
+		EffortSet:    opts.EffortSet,
 		Debug:        opts.Debug,
 	})
 }

@@ -2,13 +2,18 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 )
 
@@ -130,4 +135,73 @@ func TestModelsCommandRejectsUnsupportedOutput(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `models: unsupported output "xml"`) {
 		t.Fatalf("Execute error = %v, want unsupported output", err)
 	}
+}
+
+func TestCommandPropagatesReasoningFlags(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommand(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--thinking", "on", "--effort", "high"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	if runtime.request.Thinking != "on" || !runtime.request.ThinkingSet || runtime.request.Effort != "high" || !runtime.request.EffortSet {
+		t.Fatalf("request = %#v, want reasoning flags", runtime.request)
+	}
+}
+
+func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommand(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	if runtime.request.Effort != "" || runtime.request.EffortSet {
+		t.Fatalf("request = %#v, want no default effort", runtime.request)
+	}
+}
+
+func TestCommandRejectsInvalidEffort(t *testing.T) {
+	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "coder"}})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--effort", "extreme"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `invalid --effort "extreme"`) {
+		t.Fatalf("Execute error = %v, want invalid effort", err)
+	}
+}
+
+var errStopOpen = errors.New("stop open")
+
+type captureRuntime struct {
+	request distribution.OpenRequest
+}
+
+func (r *captureRuntime) OpenSession(_ context.Context, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
+	r.request = req
+	return nil, errStopOpen
 }
