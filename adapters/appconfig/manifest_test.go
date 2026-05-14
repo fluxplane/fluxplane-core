@@ -179,6 +179,70 @@ datasources:
 	}
 }
 
+func TestDecodeFileLoadsDistributionBuildConfig(t *testing.T) {
+	data := []byte(`
+kind: app
+name: engineer
+distribution:
+  name: engineer-cli
+  title: Engineer CLI
+  description: Built engineer distribution.
+  author: Fluxplane
+  version: 1.2.3
+  default_session: main
+  default_conversation: engineer-local
+  default_model:
+    provider: openai
+    model: gpt-5.5
+    use_case: coding
+  surfaces:
+    cli: true
+    one_shot: true
+    serve: true
+  build:
+    assets:
+      - agentsdk.app.yaml
+      - .agents/**
+      - docs/**/*.md
+    docker: {}
+  metadata:
+    tier: local
+  commands:
+    - name: ask
+      description: Ask the engineer agent.
+`)
+
+	file, err := DecodeFile("agentsdk.app.yaml", data)
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	spec := file.Distribution
+	if spec.Name != "engineer-cli" || spec.Title != "Engineer CLI" || spec.Version != "1.2.3" {
+		t.Fatalf("distribution metadata = %#v", spec)
+	}
+	if spec.DefaultSession.Name != "main" || spec.DefaultConversation.ID != "engineer-local" {
+		t.Fatalf("distribution defaults = %#v", spec)
+	}
+	if spec.DefaultModel.Provider != "openai" || spec.DefaultModel.Model != "gpt-5.5" || spec.DefaultModel.UseCase != "coding" {
+		t.Fatalf("default model = %#v", spec.DefaultModel)
+	}
+	if !spec.Surfaces.CLI || !spec.Surfaces.OneShot || !spec.Surfaces.Serve {
+		t.Fatalf("surfaces = %#v", spec.Surfaces)
+	}
+	if len(spec.Build.Assets) != 3 || spec.Build.Assets[2] != "docs/**/*.md" {
+		t.Fatalf("build assets = %#v", spec.Build.Assets)
+	}
+	if spec.Build.Docker == nil {
+		t.Fatalf("docker build config is nil, want configured empty docker target")
+	}
+	if spec.Metadata["tier"] != "local" {
+		t.Fatalf("metadata = %#v", spec.Metadata)
+	}
+	if len(spec.Commands) != 1 || spec.Commands[0].Name != "ask" {
+		t.Fatalf("commands = %#v", spec.Commands)
+	}
+}
+
 func TestDecodeFileLoadsRewriteNativeSlackManifest(t *testing.T) {
 	data := []byte(`
 kind: app

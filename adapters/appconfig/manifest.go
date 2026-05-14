@@ -232,10 +232,122 @@ type Manifest struct {
 	Discovery      discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 	ModelPolicy    modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
 	SemanticSearch semanticSearchDoc       `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
+	Distribution   distributionDoc         `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+type distributionDoc struct {
+	Name                string                   `json:"name,omitempty" yaml:"name,omitempty"`
+	Title               string                   `json:"title,omitempty" yaml:"title,omitempty"`
+	Description         string                   `json:"description,omitempty" yaml:"description,omitempty"`
+	Author              string                   `json:"author,omitempty" yaml:"author,omitempty"`
+	Version             string                   `json:"version,omitempty" yaml:"version,omitempty"`
+	DefaultSession      string                   `json:"default_session,omitempty" yaml:"default_session,omitempty"`
+	DefaultConversation string                   `json:"default_conversation,omitempty" yaml:"default_conversation,omitempty"`
+	DefaultModel        modelDefaultDoc          `json:"default_model,omitempty" yaml:"default_model,omitempty"`
+	Surfaces            surfacesDoc              `json:"surfaces,omitempty" yaml:"surfaces,omitempty"`
+	Build               buildDoc                 `json:"build,omitempty" yaml:"build,omitempty"`
+	Commands            []distributionCommandDoc `json:"commands,omitempty" yaml:"commands,omitempty"`
+	Metadata            map[string]string        `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+func (d distributionDoc) Spec() coredistribution.Spec {
+	spec := coredistribution.Spec{
+		Name:                strings.TrimSpace(d.Name),
+		Title:               strings.TrimSpace(d.Title),
+		Description:         strings.TrimSpace(d.Description),
+		Author:              strings.TrimSpace(d.Author),
+		Version:             strings.TrimSpace(d.Version),
+		DefaultSession:      coresession.Ref{Name: coresession.Name(strings.TrimSpace(d.DefaultSession))},
+		DefaultConversation: channel.ConversationRef{ID: strings.TrimSpace(d.DefaultConversation)},
+		DefaultModel: coredistribution.ModelDefault{
+			Provider: strings.TrimSpace(d.DefaultModel.Provider),
+			Model:    strings.TrimSpace(d.DefaultModel.Model),
+			UseCase:  strings.TrimSpace(d.DefaultModel.UseCase),
+		},
+		Surfaces: coredistribution.Surfaces{
+			CLI:      d.Surfaces.CLI,
+			REPL:     d.Surfaces.REPL,
+			OneShot:  d.Surfaces.OneShot,
+			Serve:    d.Surfaces.Serve,
+			Deploy:   d.Surfaces.Deploy,
+			Validate: d.Surfaces.Validate,
+			Status:   d.Surfaces.Status,
+			Discover: d.Surfaces.Discover,
+		},
+		Build: coredistribution.BuildSpec{
+			Assets: cleaned(d.Build.Assets),
+		},
+		Metadata: cloneStringMap(d.Metadata),
+	}
+	if d.Build.Docker != nil {
+		spec.Build.Docker = d.Build.Docker.Spec()
+	}
+	for _, command := range d.Commands {
+		name := strings.TrimSpace(command.Name)
+		if name == "" {
+			continue
+		}
+		spec.Commands = append(spec.Commands, coredistribution.Command{
+			Name:        name,
+			Description: strings.TrimSpace(command.Description),
+			Metadata:    cloneStringMap(command.Metadata),
+		})
+	}
+	return spec
+}
+
+type modelDefaultDoc struct {
+	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model    string `json:"model,omitempty" yaml:"model,omitempty"`
+	UseCase  string `json:"use_case,omitempty" yaml:"use_case,omitempty"`
+}
+
+type surfacesDoc struct {
+	CLI      bool `json:"cli,omitempty" yaml:"cli,omitempty"`
+	REPL     bool `json:"repl,omitempty" yaml:"repl,omitempty"`
+	OneShot  bool `json:"one_shot,omitempty" yaml:"one_shot,omitempty"`
+	Serve    bool `json:"serve,omitempty" yaml:"serve,omitempty"`
+	Deploy   bool `json:"deploy,omitempty" yaml:"deploy,omitempty"`
+	Validate bool `json:"validate,omitempty" yaml:"validate,omitempty"`
+	Status   bool `json:"status,omitempty" yaml:"status,omitempty"`
+	Discover bool `json:"discover,omitempty" yaml:"discover,omitempty"`
+}
+
+type buildDoc struct {
+	Assets []string        `json:"assets,omitempty" yaml:"assets,omitempty"`
+	Docker *dockerBuildDoc `json:"docker,omitempty" yaml:"docker,omitempty"`
+}
+
+type dockerBuildDoc struct {
+	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
+	Tags        []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Dockerfile  string            `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+	Context     string            `json:"context,omitempty" yaml:"context,omitempty"`
+	Platforms   []string          `json:"platforms,omitempty" yaml:"platforms,omitempty"`
+	BuildArgs   map[string]string `json:"build_args,omitempty" yaml:"build_args,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d dockerBuildDoc) Spec() *coredistribution.DockerBuildSpec {
+	return &coredistribution.DockerBuildSpec{
+		Image:       strings.TrimSpace(d.Image),
+		Tags:        cleaned(d.Tags),
+		Dockerfile:  strings.TrimSpace(d.Dockerfile),
+		Context:     strings.TrimSpace(d.Context),
+		Platforms:   cleaned(d.Platforms),
+		BuildArgs:   cloneStringMap(d.BuildArgs),
+		Annotations: cloneStringMap(d.Annotations),
+	}
+}
+
+type distributionCommandDoc struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
 // DatasourceDoc declares one configured datasource instance.

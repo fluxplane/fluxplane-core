@@ -35,6 +35,7 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 	}
 	root = filepath.Clean(root)
 	loaded := distribution.Loaded{Root: root}
+	var distributionConfig coredistribution.Spec
 	cfgFile, hasConfig, err := loadAppConfig(ctx, root)
 	if err != nil {
 		return distribution.Loaded{}, err
@@ -44,6 +45,7 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 			return distribution.Loaded{}, err
 		}
 		loaded.Manifest = cfgFile.Path
+		distributionConfig = cfgFile.Distribution
 		loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, cfgFile.Bundle)
 		loaded.Launch = launchConfig(cfgFile)
 		for _, app := range cfgFile.Bundle.Apps {
@@ -68,11 +70,62 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 		loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, bundle)
 	}
 	loaded.Distribution.Spec = specFor(root, loaded.Distribution.Bundles)
+	loaded.Distribution.Spec = mergeDistributionSpec(loaded.Distribution.Spec, distributionConfig)
 	loaded.Distribution.Runtime = localruntime.Runtime{
 		DefaultSession:      loaded.Distribution.Spec.DefaultSession,
 		DefaultConversation: loaded.Distribution.Spec.DefaultConversation,
 	}
 	return loaded, nil
+}
+
+func mergeDistributionSpec(base, override coredistribution.Spec) coredistribution.Spec {
+	if override.Name != "" {
+		base.Name = override.Name
+	}
+	if override.Title != "" {
+		base.Title = override.Title
+	}
+	if override.Description != "" {
+		base.Description = override.Description
+	}
+	if override.Author != "" {
+		base.Author = override.Author
+	}
+	if override.Version != "" {
+		base.Version = override.Version
+	}
+	if override.DefaultSession.Name != "" {
+		base.DefaultSession = override.DefaultSession
+	}
+	if override.DefaultConversation.ID != "" {
+		base.DefaultConversation = override.DefaultConversation
+	}
+	if override.DefaultModel.Provider != "" {
+		base.DefaultModel.Provider = override.DefaultModel.Provider
+	}
+	if override.DefaultModel.Model != "" {
+		base.DefaultModel.Model = override.DefaultModel.Model
+	}
+	if override.DefaultModel.UseCase != "" {
+		base.DefaultModel.UseCase = override.DefaultModel.UseCase
+	}
+	if hasSurfaceOverride(override.Surfaces) {
+		base.Surfaces = override.Surfaces
+	}
+	if len(override.Build.Assets) > 0 || override.Build.Docker != nil {
+		base.Build = override.Build
+	}
+	if len(override.Commands) > 0 {
+		base.Commands = append([]coredistribution.Command(nil), override.Commands...)
+	}
+	if len(override.Metadata) > 0 {
+		base.Metadata = cloneStringMap(override.Metadata)
+	}
+	return base
+}
+
+func hasSurfaceOverride(s coredistribution.Surfaces) bool {
+	return s.CLI || s.REPL || s.OneShot || s.Serve || s.Deploy || s.Validate || s.Status || s.Discover
 }
 
 func loadAppConfig(ctx context.Context, root string) (appconfig.File, bool, error) {
@@ -274,6 +327,17 @@ func cloneMap(input map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
 	for key, value := range input {
 		out[key] = value
 	}

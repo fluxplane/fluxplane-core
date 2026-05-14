@@ -73,6 +73,62 @@ name: assistant
 	}
 }
 
+func TestLoadOverlaysDistributionManifestMetadata(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, `
+kind: app
+name: sample
+description: Sample app.
+default_agent: assistant
+model_policy:
+  provider: openai
+  model: app-model
+distribution:
+  name: sample-built
+  title: Sample Built
+  version: 2.0.0
+  default_model:
+    model: dist-model
+  surfaces:
+    cli: true
+    one_shot: true
+  build:
+    assets:
+      - agentsdk.app.yaml
+      - docs/**/*.md
+    docker:
+      image: sample-built
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+
+	loaded, err := Load(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	spec := loaded.Distribution.Spec
+	if spec.Name != "sample-built" || spec.Title != "Sample Built" || spec.Version != "2.0.0" {
+		t.Fatalf("distribution metadata = %#v", spec)
+	}
+	if spec.DefaultSession.Name != "default" {
+		t.Fatalf("default session = %q, want generated default", spec.DefaultSession.Name)
+	}
+	if spec.DefaultModel.Provider != "openai" || spec.DefaultModel.Model != "dist-model" {
+		t.Fatalf("default model = %#v, want provider from app and model from distribution", spec.DefaultModel)
+	}
+	if !spec.Surfaces.CLI || !spec.Surfaces.OneShot || spec.Surfaces.Serve {
+		t.Fatalf("surfaces = %#v", spec.Surfaces)
+	}
+	if len(spec.Build.Assets) != 2 || spec.Build.Assets[1] != "docs/**/*.md" {
+		t.Fatalf("build assets = %#v", spec.Build.Assets)
+	}
+	if spec.Build.Docker == nil || spec.Build.Docker.Image != "sample-built" || len(spec.Build.Docker.Tags) != 1 {
+		t.Fatalf("docker build = %#v", spec.Build.Docker)
+	}
+}
+
 func TestLoadUsesPathNameAndReportsNoDefaultSessionWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
 	loaded, err := Load(context.Background(), dir)

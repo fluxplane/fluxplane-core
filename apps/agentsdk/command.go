@@ -35,6 +35,7 @@ func NewCommand() *cobra.Command {
 	}
 	cmd.AddCommand(coder.NewCommand())
 	cmd.AddCommand(newInitCommand())
+	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(launch.NewRunCommand())
 	cmd.AddCommand(launch.NewServeCommand())
 	cmd.AddCommand(distremote.NewCommand(distremote.CommandOptions{

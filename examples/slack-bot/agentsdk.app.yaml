@@ -2,6 +2,17 @@ kind: app
 name: slack-bot
 description: Minimal Slack daemon app for the rewrite runtime.
 default_agent: slack_bot
+distribution:
+  name: slack-bot
+  title: Slack Bot
+  build:
+    assets:
+      - agentsdk.app.yaml
+      - README.md
+      - knowledge/**/*
+    docker:
+      image: slack-bot
+      tags: [latest]
 
 plugins:
   - name: slack

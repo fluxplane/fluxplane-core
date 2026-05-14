@@ -182,6 +182,12 @@ func renderDistribution(out *treeWriter, spec coredistribution.Spec) {
 	if surfaces := surfaceNames(spec.Surfaces); len(surfaces) > 0 {
 		line(out, "surfaces", strings.Join(surfaces, ", "))
 	}
+	if len(spec.Build.Assets) > 0 {
+		line(out, "build assets", strings.Join(spec.Build.Assets, ", "))
+	}
+	if spec.Build.Docker != nil {
+		line(out, "docker", dockerBuildLabel(*spec.Build.Docker))
+	}
 	if len(spec.Commands) > 0 {
 		var names []string
 		for _, command := range spec.Commands {
@@ -190,6 +196,29 @@ func renderDistribution(out *treeWriter, spec coredistribution.Spec) {
 		sort.Strings(names)
 		line(out, "commands", strings.Join(names, ", "))
 	}
+}
+
+func dockerBuildLabel(spec coredistribution.DockerBuildSpec) string {
+	var parts []string
+	if spec.Image != "" {
+		parts = append(parts, "image "+spec.Image)
+	}
+	if len(spec.Tags) > 0 {
+		parts = append(parts, "tags "+strings.Join(spec.Tags, ","))
+	}
+	if spec.Dockerfile != "" {
+		parts = append(parts, "dockerfile "+spec.Dockerfile)
+	}
+	if spec.Context != "" {
+		parts = append(parts, "context "+spec.Context)
+	}
+	if len(spec.Platforms) > 0 {
+		parts = append(parts, "platforms "+strings.Join(spec.Platforms, ","))
+	}
+	if len(parts) == 0 {
+		return "enabled"
+	}
+	return strings.Join(parts, "; ")
 }
 
 func renderAgentDetail(out *treeWriter, desc AgentOutput) {

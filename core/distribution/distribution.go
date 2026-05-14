@@ -19,7 +19,7 @@ type Spec struct {
 	DefaultConversation channel.ConversationRef `json:"default_conversation,omitempty"`
 	DefaultModel        ModelDefault            `json:"default_model,omitempty"`
 	Surfaces            Surfaces                `json:"surfaces,omitempty"`
-	Build               BuildSpec              `json:"build,omitempty"`
+	Build               BuildSpec               `json:"build,omitempty"`
 	Commands            []Command               `json:"commands,omitempty"`
 	Metadata            map[string]string       `json:"metadata,omitempty"`
 }

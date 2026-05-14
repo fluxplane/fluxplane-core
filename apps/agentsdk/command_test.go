@@ -19,7 +19,7 @@ func TestRootCommandHasExpectedCommands(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "init", "run", "serve", "connect", "remote", "discover"} {
+	for _, want := range []string{"coder", "init", "build", "run", "serve", "connect", "remote", "discover"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}
@@ -118,6 +118,37 @@ func TestRunHelpIncludesLaunchFlags(t *testing.T) {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
+	}
+}
+
+func TestBuildHelpIncludesDockerFlags(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"build", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"build [app-dir]", "--docker", "--tag", "--platform", "--push", "--dry-run", "--connectors-path"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestBuildRequiresDockerFlag(t *testing.T) {
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"build", "."})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "only Docker builds are supported") {
+		t.Fatalf("Execute error = %v, want docker-only error", err)
 	}
 }
 

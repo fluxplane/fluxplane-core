@@ -2,6 +2,17 @@ kind: app
 name: "agentsdk"
 description: Local agentsdk app with searchable repository documentation.
 default_agent: default
+distribution:
+  name: agentsdk
+  title: AgentSDK
+  build:
+    assets:
+      - agentsdk.app.yaml
+      - docs/**/*.md
+      - README.md
+      - AGENTS.md
+      - CHANGELOG.md
+    docker: {}
 semantic_search:
   enabled: true
   embeddings:
