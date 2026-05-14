@@ -16,6 +16,11 @@ tasks:
       - go install ./cmd/agentsdk
       - go install ./cmd/coder
 
+  hooks:install:
+    desc: Configure this clone to use the tracked Git hooks.
+    cmds:
+      - git config core.hooksPath .githooks
+
   index:
     desc: Build or update the root app semantic index for local markdown docs.
     cmds:

@@ -150,6 +150,15 @@ For runtime development, use the repository-local quality gate:
 task verify
 ```
 
+Install the tracked Git hooks once per clone:
+
+```bash
+task hooks:install
+```
+
+The pre-commit hook checks staged secrets and whitespace. The pre-push hook runs
+the full security scan and `task verify`.
+
 For publishing hygiene, run the repository security scan:
 
 ```bash

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Agent worktree instructions now remind agents to update `CHANGELOG.md` for
+  user-visible, documentation, removal, or release-affecting changes before
+  committing.
+- Tracked Git hooks can now be installed with `task hooks:install`; pre-commit
+  checks staged secrets and whitespace, while pre-push runs the full security
+  scan and `task verify`.
+
 ## [0.8.0] - 2026-05-14
 
 ### Added

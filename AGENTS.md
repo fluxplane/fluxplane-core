@@ -39,6 +39,15 @@ task verify
 `task verify` runs formatting checks, module consistency checks, whitespace
 checks, `go vet`, `golangci-lint`, tests, and the architecture import check.
 
+New clones should enable the tracked Git hooks:
+
+```bash
+task hooks:install
+```
+
+The tracked pre-commit hook runs the staged security scan and staged whitespace
+check. The tracked pre-push hook runs the full security scan and `task verify`.
+
 Do not run the old repository root CI for rewrite work unless explicitly
 asked.
 
