@@ -14,6 +14,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -45,7 +46,12 @@ func TestRenderTreeShowsMetadataAndAllStaticResourceKinds(t *testing.T) {
 		"datasources",
 		"skills",
 		"context_providers",
+		"event_types",
 		"plugins",
+		"test.event",
+		"lookup-set",
+		"lookup",
+		"standalone",
 		"references: references/guide.md",
 		"Diagnostics:",
 		"test diagnostic",
@@ -69,17 +75,18 @@ func TestRenderJSONIncludesAllStaticResourceGroups(t *testing.T) {
 		t.Fatalf("distribution name = %q, want testdist", decoded.Distribution.Name)
 	}
 	assertLen(t, "sources", len(decoded.Sources), 1)
-	assertLen(t, "resources", len(decoded.Resources), 11)
+	assertLen(t, "resources", len(decoded.Resources), 13)
 	assertLen(t, "apps", len(decoded.Apps), 1)
 	assertLen(t, "sessions", len(decoded.Sessions), 1)
 	assertLen(t, "agents", len(decoded.Agents), 1)
 	assertLen(t, "commands", len(decoded.Commands), 1)
 	assertLen(t, "workflows", len(decoded.Workflows), 1)
 	assertLen(t, "operation_sets", len(decoded.OperationSets), 1)
-	assertLen(t, "operations", len(decoded.Operations), 1)
+	assertLen(t, "operations", len(decoded.Operations), 2)
 	assertLen(t, "datasources", len(decoded.Datasources), 1)
 	assertLen(t, "skills", len(decoded.Skills), 1)
 	assertLen(t, "context_providers", len(decoded.ContextProviders), 1)
+	assertLen(t, "event_types", len(decoded.EventTypes), 1)
 	assertLen(t, "plugins", len(decoded.Plugins), 1)
 	assertLen(t, "diagnostics", len(decoded.Diagnostics), 1)
 }
@@ -234,6 +241,8 @@ func testDistribution() distribution.Distribution {
 			}},
 			Operations: []operation.Spec{{
 				Ref: operation.Ref{Name: "lookup"},
+			}, {
+				Ref: operation.Ref{Name: "standalone"},
 			}},
 			Datasources: []coredatasource.Spec{{
 				Name:     "docs",
@@ -249,6 +258,7 @@ func testDistribution() distribution.Distribution {
 			ContextProviders: []corecontext.ProviderSpec{{
 				Name: "workspace",
 			}},
+			EventTypes: []coreevent.Event{testEvent{}},
 			Plugins: []resource.PluginRef{{
 				Name: "testplugin",
 			}},
@@ -259,3 +269,7 @@ func testDistribution() distribution.Distribution {
 		}},
 	}
 }
+
+type testEvent struct{}
+
+func (testEvent) EventName() coreevent.Name { return "test.event" }

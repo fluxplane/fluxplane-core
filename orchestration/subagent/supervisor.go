@@ -459,7 +459,7 @@ func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.R
 
 func (s *Supervisor) resolveProfileSpec(ctx context.Context, policy coresession.DelegationPolicy, profile coresession.Ref) (coresession.Spec, bool, error) {
 	if s.resolveProfile == nil {
-		if len(policy.AllowedAgents) > 0 || len(policy.Context) > 0 || len(policy.Commands) > 0 {
+		if len(policy.AllowedAgents) > 0 || len(policy.Context) > 0 || len(policy.Commands) > 0 || len(policy.Operations) > 0 {
 			return coresession.Spec{}, false, fmt.Errorf("subagent: profile resolver is required for delegated profile policy")
 		}
 		return coresession.Spec{}, false, nil
@@ -498,6 +498,7 @@ func narrowProfile(spec coresession.Spec, profile coresession.Ref, policy corese
 	}
 	spec.Context = narrowContextRefs(spec.Context, policy.Context)
 	spec.Commands = narrowCommandPaths(spec.Commands, policy.Commands)
+	spec.Operations = narrowOperationRefs(spec.Operations, policy.Operations)
 	return spec
 }
 
@@ -561,6 +562,35 @@ func cloneCommandPath(path command.Path) command.Path {
 		return nil
 	}
 	return append(command.Path(nil), path...)
+}
+
+func narrowOperationRefs(base, policy []operation.Ref) []operation.Ref {
+	if len(policy) == 0 {
+		return cloneOperationRefs(base)
+	}
+	if len(base) == 0 {
+		return cloneOperationRefs(policy)
+	}
+	allowed := map[operation.Name]struct{}{}
+	for _, ref := range policy {
+		if ref.Name != "" {
+			allowed[ref.Name] = struct{}{}
+		}
+	}
+	out := make([]operation.Ref, 0, len(base))
+	for _, ref := range base {
+		if _, ok := allowed[ref.Name]; ok {
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func cloneOperationRefs(refs []operation.Ref) []operation.Ref {
+	if refs == nil {
+		return nil
+	}
+	return append([]operation.Ref(nil), refs...)
 }
 
 func (s *Supervisor) effectiveLimit(policy coresession.DelegationPolicy) int {

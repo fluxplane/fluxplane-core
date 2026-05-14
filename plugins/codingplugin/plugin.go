@@ -34,6 +34,10 @@ var _ pluginhost.ContextProviderContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
 func New(sys system.System) Plugin {
+	var clarifier system.Clarifier
+	if sys != nil {
+		clarifier = sys.Clarifier()
+	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
 		filesystemplugin.New(sys),
 		webplugin.New(sys),
@@ -41,7 +45,7 @@ func New(sys system.System) Plugin {
 		gitplugin.New(sys),
 		shellplugin.New(sys),
 		codeplugin.New(sys),
-		humanplugin.New(sys.Clarifier()),
+		humanplugin.New(clarifier),
 	}}
 }
 

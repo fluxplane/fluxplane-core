@@ -343,6 +343,9 @@ func applySessionProfile(spec agent.Spec, profile coresession.Spec) agent.Spec {
 	if profile.Commands != nil {
 		spec.Commands = narrowAgentCommands(spec.Commands, profile.Commands)
 	}
+	if profile.Operations != nil {
+		spec.Operations = narrowAgentOperations(spec.Operations, profile.Operations)
+	}
 	return spec
 }
 
@@ -403,6 +406,25 @@ func commandRefAllowed(ref string, allowed map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+func narrowAgentOperations(base []operation.Ref, caps []operation.Ref) []operation.Ref {
+	if base == nil {
+		return append([]operation.Ref(nil), caps...)
+	}
+	allowed := map[operation.Name]struct{}{}
+	for _, ref := range caps {
+		if ref.Name != "" {
+			allowed[ref.Name] = struct{}{}
+		}
+	}
+	out := make([]operation.Ref, 0, len(base))
+	for _, ref := range base {
+		if _, ok := allowed[ref.Name]; ok {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func commandPathRef(path command.Path) string {

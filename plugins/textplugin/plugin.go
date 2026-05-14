@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 )
@@ -27,8 +24,8 @@ func New() Plugin { return Plugin{} }
 
 // Config configures the text plugin contribution.
 type Config struct {
-	// Commands selects the operations exposed as commands. Empty means all.
-	Commands []string `json:"commands,omitempty"`
+	// Operations selects the operations contributed by this plugin. Empty means all.
+	Operations []string `json:"operations,omitempty"`
 }
 
 type textOperation struct {
@@ -47,11 +44,11 @@ var operations = []textOperation{
 func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{
 		Name:        Name,
-		Description: "Pure text transformation operations and commands.",
+		Description: "Pure text transformation operations.",
 	}
 }
 
-// Contributions returns command and operation specs.
+// Contributions returns operation specs.
 func (Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	selected, err := selectedOperations(ctx.Ref)
 	if err != nil {
@@ -61,20 +58,6 @@ func (Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource
 	for _, op := range selected {
 		spec := op.spec()
 		bundle.Operations = append(bundle.Operations, spec)
-		bundle.Commands = append(bundle.Commands, command.Spec{
-			Path:        command.Path{Name, op.key},
-			Description: op.description,
-			Target: invocation.Target{
-				Kind:      invocation.TargetOperation,
-				Operation: spec.Ref,
-			},
-			Input:  spec.Input,
-			Output: spec.Output,
-			Policy: policy.InvocationPolicy{
-				AllowedCallers: []policy.CallerKind{policy.CallerUser},
-				RequiredTrust:  policy.TrustVerified,
-			},
-		})
 	}
 	return bundle, nil
 }
@@ -104,7 +87,7 @@ func selectedOperations(ref resource.PluginRef) ([]textOperation, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(cfg.Commands) == 0 {
+	if len(cfg.Operations) == 0 {
 		return append([]textOperation(nil), operations...), nil
 	}
 	index := make(map[string]textOperation, len(operations)*2)
@@ -112,13 +95,13 @@ func selectedOperations(ref resource.PluginRef) ([]textOperation, error) {
 		index[op.key] = op
 		index[string(op.ref().Name)] = op
 	}
-	selected := make([]textOperation, 0, len(cfg.Commands))
+	selected := make([]textOperation, 0, len(cfg.Operations))
 	seen := map[string]struct{}{}
-	for _, raw := range cfg.Commands {
+	for _, raw := range cfg.Operations {
 		key := strings.TrimSpace(raw)
 		op, ok := index[key]
 		if !ok {
-			return nil, fmt.Errorf("textplugin: unknown command %q", raw)
+			return nil, fmt.Errorf("textplugin: unknown operation %q", raw)
 		}
 		if _, exists := seen[op.key]; exists {
 			continue
@@ -134,7 +117,7 @@ func decodeConfig(raw map[string]any) (Config, error) {
 		return Config{}, nil
 	}
 	for key := range raw {
-		if key != "commands" {
+		if key != "operations" {
 			return Config{}, fmt.Errorf("textplugin: unknown config key %q", key)
 		}
 	}

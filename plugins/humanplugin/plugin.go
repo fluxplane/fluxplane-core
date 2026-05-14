@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -53,15 +50,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Human input operations.", Operations: []operation.Ref{spec.Ref}}},
 		Operations:    []operation.Spec{spec},
-		Commands: []command.Spec{{
-			Path:        command.Path{Name, ClarifyOp},
-			Description: spec.Description,
-			Target:      invocation.Target{Kind: invocation.TargetOperation, Operation: spec.Ref},
-			Input:       spec.Input,
-			Output:      spec.Output,
-			Policy:      policy.InvocationPolicy{AllowedCallers: []policy.CallerKind{policy.CallerAgent}, RequiredTrust: policy.TrustVerified},
-		}},
-		EventTypes: []event.Event{ClarificationRequested{}, ClarificationCompleted{}},
+		EventTypes:    []event.Event{ClarificationRequested{}, ClarificationCompleted{}},
 	}, nil
 }
 

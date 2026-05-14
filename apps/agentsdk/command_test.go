@@ -200,6 +200,62 @@ func TestDiscoverCommandRendersSkillReferences(t *testing.T) {
 	}
 }
 
+func TestDiscoverCommandRendersStaticPluginContributions(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "agentsdk.app.yaml", `kind: app
+name: plugin-discovery
+default_agent: main
+plugins:
+  - name: web
+datasources:
+  - name: docs
+    kind: filesystem
+    entities: [file.document]
+---
+kind: session
+name: main
+agent: main
+---
+kind: agent
+name: main
+tools: [web_request, datasource_search]
+context: [datasource.catalog]
+datasources: [docs]
+`)
+
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"discover", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+	text := out.String()
+	for _, want := range []string{
+		"agents",
+		"tools: web_request, datasource_search",
+		"datasources",
+		"docs",
+		"plugins",
+		"web",
+		"datasource (implicit)",
+		"Plugin contributions:",
+		"operations",
+		"web_request",
+		"context_providers",
+		"datasource.catalog",
+		"datasource.detected",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("discover output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "contributes:") {
+		t.Fatalf("discover output contains nested contribution summary:\n%s", text)
+	}
+}
+
 func writeTestFile(t *testing.T, root, rel, data string) {
 	t.Helper()
 	path := filepath.Join(root, rel)

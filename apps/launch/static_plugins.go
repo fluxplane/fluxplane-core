@@ -1,0 +1,178 @@
+package launch
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
+	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/runtime/system"
+)
+
+// StaticPluginOptions configures plugin contribution materialization for
+// inspection-only surfaces such as describe and discover.
+type StaticPluginOptions struct {
+	Bundles []resource.ContributionBundle
+	Launch  distribution.LaunchConfig
+	Plugins func(system.System) []pluginhost.Plugin
+}
+
+// StaticPluginResult is the inspection-only contribution set resolved from
+// declared and implicit plugin refs.
+type StaticPluginResult struct {
+	Bundles         []resource.ContributionBundle
+	Diagnostics     []resource.Diagnostic
+	ImplicitPlugins map[string]bool
+}
+
+// BundlesWithStaticPluginContributions returns bundles plus static
+// contribution bundles from declared plugins. It never asks plugins for
+// executable runtime implementations.
+func BundlesWithStaticPluginContributions(ctx context.Context, opts StaticPluginOptions) ([]resource.ContributionBundle, []resource.Diagnostic) {
+	result := StaticPluginView(ctx, opts)
+	return result.Bundles, result.Diagnostics
+}
+
+// StaticPluginView returns bundles, diagnostics, and presentation metadata for
+// static plugin contribution inspection.
+func StaticPluginView(ctx context.Context, opts StaticPluginOptions) StaticPluginResult {
+	bundles, implicit := staticPluginBaseBundles(opts.Bundles)
+	pluginBundles, diagnostics := staticPluginContributions(ctx, bundles, opts)
+	bundles = append(bundles, pluginBundles...)
+	return StaticPluginResult{Bundles: bundles, Diagnostics: diagnostics, ImplicitPlugins: implicit}
+}
+
+// StaticPluginContributions resolves declared plugin refs to inert resource
+// contribution bundles for inspection.
+func StaticPluginContributions(ctx context.Context, opts StaticPluginOptions) ([]resource.ContributionBundle, []resource.Diagnostic) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	bundles, _ := staticPluginBaseBundles(opts.Bundles)
+	return staticPluginContributions(ctx, bundles, opts)
+}
+
+func staticPluginBaseBundles(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, map[string]bool) {
+	out := cloneBundles(bundles)
+	implicit := map[string]bool{}
+	if hasAnyDatasource(out) && !bundleHasPlugin(out, datasourceplugin.Name) {
+		ensurePluginRef(out, datasourceplugin.Name)
+		implicit[datasourceplugin.Name] = true
+	}
+	return out, implicit
+}
+
+func staticPluginContributions(ctx context.Context, bundles []resource.ContributionBundle, opts StaticPluginOptions) ([]resource.ContributionBundle, []resource.Diagnostic) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	available := availableStaticPlugins(opts)
+	byName, err := pluginsByName(available)
+	if err != nil {
+		return nil, []resource.Diagnostic{staticPluginDiagnostic(err)}
+	}
+	var out []resource.ContributionBundle
+	for _, ref := range staticPluginRefs(bundles) {
+		plugin, ok := byName[ref.Name]
+		if !ok {
+			err := fmt.Errorf("plugin %q is not available", ref.Name)
+			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+		}
+		bundle, err := plugin.Contributions(ctx, pluginhost.Context{Ref: ref})
+		if err != nil {
+			err := fmt.Errorf("plugin %q contributions: %w", ref.Name, err)
+			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+		}
+		if bundle.Source.ID == "" {
+			bundle.Source = staticPluginSource(ref)
+		}
+		out = append(out, bundle)
+	}
+	return out, nil
+}
+
+func staticPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
+	seen := map[string]bool{}
+	var out []resource.PluginRef
+	for _, bundle := range bundles {
+		for _, ref := range bundle.Plugins {
+			if ref.Name == "" || seen[ref.Name] {
+				continue
+			}
+			seen[ref.Name] = true
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
+	if opts.Plugins != nil {
+		return opts.Plugins(nil)
+	}
+	instances := connectorInstancesFromLaunch(opts.Launch.Connectors)
+	plugins := availablePlugins(nil, nil, instances, nil)
+	if hasAnyDatasource(opts.Bundles) {
+		plugins = append(plugins, datasourceplugin.New(nil))
+	}
+	return plugins
+}
+
+func connectorInstancesFromLaunch(connectors map[string]distribution.Connector) []connectorplugin.Instance {
+	names := make([]string, 0, len(connectors))
+	for name := range connectors {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]connectorplugin.Instance, 0, len(names))
+	for _, name := range names {
+		kind := strings.TrimSpace(connectors[name].Kind)
+		if kind == "" {
+			continue
+		}
+		out = append(out, connectorplugin.Instance{ID: name, Kind: kind})
+	}
+	return out
+}
+
+func pluginsByName(plugins []pluginhost.Plugin) (map[string]pluginhost.Plugin, error) {
+	out := map[string]pluginhost.Plugin{}
+	for _, plugin := range plugins {
+		if plugin == nil {
+			continue
+		}
+		name := strings.TrimSpace(plugin.Manifest().Name)
+		if name == "" {
+			return nil, fmt.Errorf("plugin name is empty")
+		}
+		out[name] = plugin
+	}
+	return out, nil
+}
+
+func staticPluginSource(ref resource.PluginRef) resource.SourceRef {
+	return resource.SourceRef{
+		ID:        "plugin:" + ref.Name,
+		Ecosystem: "embedded",
+		Scope:     resource.ScopeEmbedded,
+		Location:  "plugins/" + ref.Name,
+		Ref:       ref.Name,
+		Trust: policy.Trust{
+			Kind:  policy.TrustSource,
+			Level: policy.TrustVerified,
+		},
+	}
+}
+
+func staticPluginDiagnostic(err error) resource.Diagnostic {
+	return resource.Diagnostic{
+		Severity: resource.SeverityWarning,
+		Message:  "resolve static plugin contributions: " + err.Error(),
+	}
+}

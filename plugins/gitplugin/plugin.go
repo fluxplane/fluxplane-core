@@ -6,10 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -46,12 +43,6 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Git repository operations.", Operations: operationRefs(specs)}},
 		Operations:    specs,
-		Commands: []command.Spec{
-			commandFor(specs[0], command.Path{Name, "status"}),
-			commandFor(specs[1], command.Path{Name, "diff"}),
-			commandFor(specs[2], command.Path{Name, "add"}),
-			commandFor(specs[3], command.Path{Name, "commit"}),
-		},
 	}, nil
 }
 
@@ -136,17 +127,6 @@ func operationRefs(specs []operation.Spec) []operation.Ref {
 		refs = append(refs, spec.Ref)
 	}
 	return refs
-}
-
-func commandFor(spec operation.Spec, path command.Path) command.Spec {
-	return command.Spec{
-		Path:        path,
-		Description: spec.Description,
-		Target:      invocation.Target{Kind: invocation.TargetOperation, Operation: spec.Ref},
-		Input:       spec.Input,
-		Output:      spec.Output,
-		Policy:      policy.InvocationPolicy{AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerAgent}, RequiredTrust: policy.TrustVerified},
-	}
 }
 
 func (p Plugin) status() operationruntime.TypedResultHandler[statusInput, map[string]any] {

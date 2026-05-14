@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 )
 
@@ -127,6 +128,10 @@ func TestSupervisorNarrowsChildProfileWithDelegationPolicy(t *testing.T) {
 				{"safe"},
 				{"danger"},
 			},
+			Operations: []operation.Ref{
+				{Name: "read"},
+				{Name: "write"},
+			},
 		}, nil
 	})
 	supervisor := New(Config{Client: client, ResolveProfile: resolver})
@@ -138,6 +143,7 @@ func TestSupervisorNarrowsChildProfileWithDelegationPolicy(t *testing.T) {
 			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
 			Context:         []corecontext.ProviderRef{{Name: "docs"}},
 			Commands:        []command.Path{{"safe"}},
+			Operations:      []operation.Ref{{Name: "read"}},
 		},
 	}); err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -148,6 +154,9 @@ func TestSupervisorNarrowsChildProfileWithDelegationPolicy(t *testing.T) {
 	}
 	if len(client.profile.Commands) != 1 || client.profile.Commands[0].String() != "/safe" {
 		t.Fatalf("commands = %#v, want /safe only", client.profile.Commands)
+	}
+	if len(client.profile.Operations) != 1 || client.profile.Operations[0].Name != "read" {
+		t.Fatalf("operations = %#v, want read only", client.profile.Operations)
 	}
 }
 

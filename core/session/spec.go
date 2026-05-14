@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 )
 
@@ -29,6 +30,7 @@ type DelegationPolicy struct {
 	DefaultTimeout  string                    `json:"default_timeout,omitempty"`
 	Context         []corecontext.ProviderRef `json:"context,omitempty"`
 	Commands        []command.Path            `json:"commands,omitempty"`
+	Operations      []operation.Ref           `json:"operations,omitempty"`
 	Policy          policy.InvocationPolicy   `json:"policy,omitempty"`
 	Annotations     map[string]string         `json:"annotations,omitempty"`
 }
@@ -43,6 +45,7 @@ type Spec struct {
 	Conversation channel.ConversationRef   `json:"conversation,omitempty"`
 	Context      []corecontext.ProviderRef `json:"context,omitempty"`
 	Commands     []command.Path            `json:"commands,omitempty"`
+	Operations   []operation.Ref           `json:"operations,omitempty"`
 	Policy       policy.InvocationPolicy   `json:"policy,omitempty"`
 	Delegation   DelegationPolicy          `json:"delegation,omitempty"`
 	Metadata     map[string]string         `json:"metadata,omitempty"`
@@ -58,6 +61,16 @@ func (s Spec) Validate() error {
 	for i, path := range s.Commands {
 		if path.String() == "" {
 			return fmt.Errorf("session: command[%d] path is empty", i)
+		}
+	}
+	for i, ref := range s.Operations {
+		if ref.Name == "" {
+			return fmt.Errorf("session: operation[%d] ref is empty", i)
+		}
+	}
+	for i, ref := range s.Delegation.Operations {
+		if ref.Name == "" {
+			return fmt.Errorf("session: delegation operation[%d] ref is empty", i)
 		}
 	}
 	for i, profile := range s.Delegation.AllowedProfiles {

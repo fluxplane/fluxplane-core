@@ -11,9 +11,10 @@ tasks:
       - task --list
 
   install:
-    desc: Install the agentsdk binary from cmd/agentsdk on this machine.
+    desc: Install the agentsdk and coder binaries on this machine.
     cmds:
       - go install ./cmd/agentsdk
+      - go install ./cmd/coder
 
   index:
     desc: Build or update the root app semantic index for local markdown docs.

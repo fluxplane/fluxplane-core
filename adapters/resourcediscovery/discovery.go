@@ -17,9 +17,10 @@ import (
 
 // Result is the set of resource bundles discovered from a local root.
 type Result struct {
-	Root        string                        `json:"root"`
-	Bundles     []resource.ContributionBundle `json:"bundles"`
-	Diagnostics []resource.Diagnostic         `json:"diagnostics,omitempty"`
+	Root            string                        `json:"root"`
+	Bundles         []resource.ContributionBundle `json:"bundles"`
+	Diagnostics     []resource.Diagnostic         `json:"diagnostics,omitempty"`
+	ImplicitPlugins map[string]bool               `json:"implicit_plugins,omitempty"`
 }
 
 // Discover loads app config, root .agents resources, local app sources, and

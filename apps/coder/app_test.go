@@ -82,6 +82,46 @@ func TestDescribeCommandRendersStaticCoderDistribution(t *testing.T) {
 	}
 }
 
+func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"describe"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{
+		"plugins",
+		CodingPlugin,
+		"Plugin contributions:",
+		"context_providers",
+		"agents.md",
+		"operations",
+		"operation_sets",
+		"browser",
+		"code",
+		"filesystem",
+		"file_create",
+		PlanExecPlugin,
+		"agents",
+		"explorer",
+		"worker",
+		SkillsPlugin,
+		"datasources",
+		"skills",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("describe tree output missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "contributes:") {
+		t.Fatalf("describe tree output contains nested contribution summary:\n%s", text)
+	}
+}
+
 func TestDescribeAgentCommandRendersStaticCoderAgent(t *testing.T) {
 	cmd := NewCommand()
 	out := bytes.Buffer{}

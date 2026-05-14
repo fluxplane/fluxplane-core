@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -25,10 +24,8 @@ func TestContributionsIncludeGitOperations(t *testing.T) {
 			t.Fatalf("operation %q missing from contributions", name)
 		}
 	}
-	for _, path := range []command.Path{{Name, "status"}, {Name, "diff"}, {Name, "add"}, {Name, "commit"}} {
-		if !hasCommand(bundle.Commands, path) {
-			t.Fatalf("command %q missing from contributions", path.String())
-		}
+	if len(bundle.Commands) != 0 {
+		t.Fatalf("commands len = %d, want 0", len(bundle.Commands))
 	}
 	if len(bundle.OperationSets) != 1 {
 		t.Fatalf("operation sets len = %d, want 1", len(bundle.OperationSets))
@@ -177,15 +174,6 @@ func TestCommitAutoStagesAll(t *testing.T) {
 func hasOperation(specs []operation.Spec, name string) bool {
 	for _, spec := range specs {
 		if string(spec.Ref.Name) == name {
-			return true
-		}
-	}
-	return false
-}
-
-func hasCommand(specs []command.Spec, path command.Path) bool {
-	for _, spec := range specs {
-		if spec.Path.String() == path.String() {
 			return true
 		}
 	}

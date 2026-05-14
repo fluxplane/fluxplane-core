@@ -11,17 +11,13 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/fluxplane/agentruntime/adapters/resourceview"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
-	corecommand "github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 )
 
@@ -34,21 +30,8 @@ var (
 
 // Output is the structured static description of a distribution.
 type Output struct {
-	Distribution     coredistribution.Spec      `json:"distribution" yaml:"distribution"`
-	Sources          []resource.SourceRef       `json:"sources,omitempty" yaml:"sources,omitempty"`
-	Resources        []resource.ResourceID      `json:"resources,omitempty" yaml:"resources,omitempty"`
-	Apps             []coreapp.Spec             `json:"apps,omitempty" yaml:"apps,omitempty"`
-	Sessions         []coresession.Spec         `json:"sessions,omitempty" yaml:"sessions,omitempty"`
-	Agents           []agent.Spec               `json:"agents,omitempty" yaml:"agents,omitempty"`
-	Commands         []corecommand.Spec         `json:"commands,omitempty" yaml:"commands,omitempty"`
-	Workflows        []workflow.Spec            `json:"workflows,omitempty" yaml:"workflows,omitempty"`
-	OperationSets    []operation.Set            `json:"operation_sets,omitempty" yaml:"operation_sets,omitempty"`
-	Operations       []operation.Spec           `json:"operations,omitempty" yaml:"operations,omitempty"`
-	Datasources      []coredatasource.Spec      `json:"datasources,omitempty" yaml:"datasources,omitempty"`
-	Skills           []skill.Spec               `json:"skills,omitempty" yaml:"skills,omitempty"`
-	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty" yaml:"context_providers,omitempty"`
-	Plugins          []resource.PluginRef       `json:"plugins,omitempty" yaml:"plugins,omitempty"`
-	Diagnostics      []resource.Diagnostic      `json:"diagnostics,omitempty" yaml:"diagnostics,omitempty"`
+	Distribution        coredistribution.Spec `json:"distribution" yaml:"distribution"`
+	resourceview.Output `yaml:",inline"`
 }
 
 // AgentOutput is the structured static description of one bundled agent.
@@ -63,43 +46,21 @@ type AgentOutput struct {
 
 // NewOutput builds a static description from distribution metadata and bundles.
 func NewOutput(dist distribution.Distribution) Output {
-	out := Output{
-		Distribution: dist.Spec,
-		Resources:    ResourceIDs(dist.Bundles),
-	}
-	for _, bundle := range dist.Bundles {
-		out.Sources = append(out.Sources, bundle.Source)
-		out.Apps = append(out.Apps, bundle.Apps...)
-		out.Sessions = append(out.Sessions, bundle.Sessions...)
-		out.Agents = append(out.Agents, bundle.Agents...)
-		out.Commands = append(out.Commands, bundle.Commands...)
-		out.Workflows = append(out.Workflows, bundle.Workflows...)
-		out.OperationSets = append(out.OperationSets, bundle.OperationSets...)
-		out.Operations = append(out.Operations, bundle.Operations...)
-		out.Datasources = append(out.Datasources, bundle.Datasources...)
-		out.Skills = append(out.Skills, bundle.Skills...)
-		out.ContextProviders = append(out.ContextProviders, bundle.ContextProviders...)
-		out.Plugins = append(out.Plugins, bundle.Plugins...)
-		out.Diagnostics = append(out.Diagnostics, bundle.Diagnostics...)
-	}
-	return out
+	return Output{Distribution: dist.Spec, Output: resourceview.NewOutput(dist.Bundles, nil)}
 }
 
 // RenderTree renders distribution metadata and bundled resources for humans.
 func RenderTree(out io.Writer, dist distribution.Distribution) error {
-	desc := NewOutput(dist)
 	w := treeWriter{out: out}
-	renderDistribution(&w, desc.Distribution)
-	renderSources(&w, desc.Sources)
-	if len(desc.Resources) == 0 {
-		w.println("\n(no resources)")
-		renderDiagnostics(&w, desc.Diagnostics)
+	renderDistribution(&w, dist.Spec)
+	if w.err != nil {
 		return w.err
 	}
-	renderResources(&w, dist.Bundles, desc.Resources)
-	renderResolution(&w, desc.Resources)
-	renderDiagnostics(&w, desc.Diagnostics)
-	return w.err
+	w.println()
+	if w.err != nil {
+		return w.err
+	}
+	return resourceview.RenderTree(out, dist.Bundles, nil)
 }
 
 // RenderJSON renders machine-readable distribution description JSON.
@@ -184,44 +145,7 @@ func Agent(dist distribution.Distribution, ref string) (AgentOutput, error) {
 
 // ResourceIDs derives canonical resource IDs for every static bundle resource.
 func ResourceIDs(bundles []resource.ContributionBundle) []resource.ResourceID {
-	var ids []resource.ResourceID
-	for _, bundle := range bundles {
-		for _, spec := range bundle.Apps {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "app", firstNonEmpty(string(spec.Name), "app")))
-		}
-		for _, spec := range bundle.Sessions {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "session", string(spec.Name)))
-		}
-		for _, spec := range bundle.Agents {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "agent", string(spec.Name)))
-		}
-		for _, spec := range bundle.Commands {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "command", spec.Path.String()))
-		}
-		for _, spec := range bundle.Workflows {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "workflow", string(spec.Name)))
-		}
-		for _, spec := range bundle.OperationSets {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "operation_set", spec.Name))
-		}
-		for _, spec := range bundle.Operations {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "operation", spec.Ref.String()))
-		}
-		for _, spec := range bundle.Datasources {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "datasource", string(spec.Name)))
-		}
-		for _, spec := range bundle.Skills {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "skill", string(spec.Name)))
-		}
-		for _, spec := range bundle.ContextProviders {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "context_provider", string(spec.Name)))
-		}
-		for _, spec := range bundle.Plugins {
-			ids = append(ids, resource.DeriveResourceID(bundle.Source, "plugin", spec.Name))
-		}
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i].Address() < ids[j].Address() })
-	return ids
+	return resourceview.ResourceIDs(bundles)
 }
 
 type treeWriter struct {
@@ -268,145 +192,12 @@ func renderDistribution(out *treeWriter, spec coredistribution.Spec) {
 	}
 }
 
-func renderSources(out *treeWriter, sources []resource.SourceRef) {
-	out.println("\nSources:")
-	if len(sources) == 0 {
-		out.println("  (none)")
-		return
-	}
-	for _, source := range sources {
-		out.printf("  %s\n", sourceLabel(source))
-	}
-}
-
-func renderResources(out *treeWriter, bundles []resource.ContributionBundle, ids []resource.ResourceID) {
-	type groupKey struct {
-		origin    string
-		namespace string
-	}
-	groups := map[groupKey]map[string][]string{}
-	var order []groupKey
-	for _, id := range ids {
-		key := groupKey{origin: id.Origin, namespace: id.Namespace.String()}
-		if groups[key] == nil {
-			groups[key] = map[string][]string{}
-			order = append(order, key)
-		}
-		groups[key][id.Kind] = append(groups[key][id.Kind], id.Name)
-	}
-	sort.Slice(order, func(i, j int) bool {
-		if order[i].origin != order[j].origin {
-			return order[i].origin < order[j].origin
-		}
-		return order[i].namespace < order[j].namespace
-	})
-	kinds := []string{"app", "session", "agent", "command", "workflow", "operation_set", "operation", "datasource", "skill", "context_provider", "plugin"}
-	for _, key := range order {
-		label := key.origin
-		if key.namespace != "" {
-			label += ":" + key.namespace
-		}
-		out.printf("\n%s\n", label)
-		for _, kind := range kinds {
-			names := groups[key][kind]
-			if len(names) == 0 {
-				continue
-			}
-			sort.Strings(names)
-			out.printf("├── %s\n", pluralKind(kind))
-			for i, name := range names {
-				connector := "│   ├── "
-				if i == len(names)-1 {
-					connector = "│   └── "
-				}
-				out.printf("%s%s\n", connector, name)
-				if kind == "agent" {
-					renderAgentRefs(out, bundles, name, i == len(names)-1)
-				}
-				if kind == "skill" {
-					renderSkillRefs(out, bundles, name, i == len(names)-1)
-				}
-			}
-		}
-	}
-}
-
-func renderAgentRefs(out *treeWriter, bundles []resource.ContributionBundle, name string, last bool) {
-	indent := "│   │   "
-	if last {
-		indent = "│       "
-	}
-	for _, bundle := range bundles {
-		for _, spec := range bundle.Agents {
-			if string(spec.Name) != name {
-				continue
-			}
-			if len(spec.Tools) > 0 {
-				out.printf("%stools: %s\n", indent, strings.Join(agentToolNames(spec), ", "))
-			}
-			if len(spec.Commands) > 0 {
-				out.printf("%scommands: %s\n", indent, strings.Join(agentCommandNames(spec), ", "))
-			}
-			if len(spec.Skills) > 0 {
-				out.printf("%sskills: %s\n", indent, strings.Join(agentSkillNames(spec), ", "))
-			}
-		}
-	}
-}
-
-func renderSkillRefs(out *treeWriter, bundles []resource.ContributionBundle, name string, last bool) {
-	indent := "│   │   "
-	if last {
-		indent = "│       "
-	}
-	for _, bundle := range bundles {
-		for _, spec := range bundle.Skills {
-			if string(spec.Name) != name || len(spec.References) == 0 {
-				continue
-			}
-			paths := make([]string, 0, len(spec.References))
-			for _, ref := range spec.References {
-				paths = append(paths, ref.Path)
-			}
-			sort.Strings(paths)
-			out.printf("%sreferences: %s\n", indent, strings.Join(paths, ", "))
-		}
-	}
-}
-
-func renderResolution(out *treeWriter, ids []resource.ResourceID) {
-	out.println("\nResolution:")
-	seen := map[string]resource.ResourceID{}
-	var keys []string
-	for _, id := range ids {
-		key := id.Kind + ":" + id.Name
-		if _, ok := seen[key]; !ok {
-			keys = append(keys, key)
-		}
-		seen[key] = id
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		out.printf("  %-32s -> %s\n", key, seen[key].Address())
-	}
-}
-
-func renderDiagnostics(out *treeWriter, diagnostics []resource.Diagnostic) {
-	if len(diagnostics) == 0 {
-		return
-	}
-	out.println("\nDiagnostics:")
-	for _, diag := range diagnostics {
-		out.printf("  %s %s\n", diag.Severity, diag.Message)
-	}
-}
-
 func renderAgentDetail(out *treeWriter, desc AgentOutput) {
 	spec := desc.Agent
 	out.println("Agent:")
 	line(out, "name", string(spec.Name))
 	line(out, "resource", desc.Resource.Address())
-	line(out, "source", sourceLabel(desc.Source))
+	line(out, "source", resourceview.SourceLabel(desc.Source))
 	line(out, "description", spec.Description)
 	if spec.Driver.Kind != "" {
 		line(out, "driver", string(spec.Driver.Kind))
@@ -528,27 +319,6 @@ func surfaceNames(s coredistribution.Surfaces) []string {
 		out = append(out, "discover")
 	}
 	return out
-}
-
-func sourceLabel(source resource.SourceRef) string {
-	if source.ID != "" {
-		return source.ID
-	}
-	if source.Location != "" {
-		return source.Location
-	}
-	return "(unknown)"
-}
-
-func pluralKind(kind string) string {
-	switch kind {
-	case "app":
-		return "apps"
-	case "datasource":
-		return "datasources"
-	default:
-		return kind + "s"
-	}
 }
 
 func agentToolNames(spec agent.Spec) []string {

@@ -4,30 +4,32 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 )
 
-func TestPluginContributesConfiguredCommands(t *testing.T) {
+func TestPluginContributesConfiguredOperations(t *testing.T) {
 	bundle, err := New().Contributions(context.Background(), pluginContext(resource.PluginRef{
 		Name: Name,
 		Config: map[string]any{
-			"commands": []any{"upper", "trim"},
+			"operations": []any{"upper", "trim"},
 		},
 	}))
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	if len(bundle.Commands) != 2 {
-		t.Fatalf("commands len = %d, want 2", len(bundle.Commands))
+	if len(bundle.Commands) != 0 {
+		t.Fatalf("commands len = %d, want 0", len(bundle.Commands))
 	}
-	if bundle.Commands[0].Path.String() != "/text/upper" {
-		t.Fatalf("first command = %s, want /text/upper", bundle.Commands[0].Path.String())
+	if len(bundle.Operations) != 2 {
+		t.Fatalf("operations len = %d, want 2", len(bundle.Operations))
 	}
-	if _, ok := findCommand(bundle.Commands, command.Path{"text", "lower"}); ok {
-		t.Fatal("lower command was contributed despite config")
+	if bundle.Operations[0].Ref.Name != "upper" {
+		t.Fatalf("first operation = %s, want upper", bundle.Operations[0].Ref.Name)
+	}
+	if hasOperation(bundle.Operations, "lower") {
+		t.Fatal("lower operation was contributed despite config")
 	}
 }
 
@@ -35,7 +37,7 @@ func TestPluginOperationTransformsText(t *testing.T) {
 	ops, err := New().Operations(context.Background(), pluginContext(resource.PluginRef{
 		Name: Name,
 		Config: map[string]any{
-			"commands": []any{"upper"},
+			"operations": []any{"upper"},
 		},
 	}))
 	if err != nil {
@@ -50,15 +52,15 @@ func TestPluginOperationTransformsText(t *testing.T) {
 	}
 }
 
-func TestPluginRejectsUnknownConfiguredCommand(t *testing.T) {
+func TestPluginRejectsUnknownConfiguredOperation(t *testing.T) {
 	_, err := New().Contributions(context.Background(), pluginContext(resource.PluginRef{
 		Name: Name,
 		Config: map[string]any{
-			"commands": []any{"missing"},
+			"operations": []any{"missing"},
 		},
 	}))
 	if err == nil {
-		t.Fatal("Contributions error is nil, want unknown command error")
+		t.Fatal("Contributions error is nil, want unknown operation error")
 	}
 }
 
@@ -74,13 +76,13 @@ func TestPluginRejectsUnknownConfigKey(t *testing.T) {
 	}
 }
 
-func findCommand(commands []command.Spec, path command.Path) (command.Spec, bool) {
-	for _, spec := range commands {
-		if spec.Path.String() == path.String() {
-			return spec, true
+func hasOperation(specs []operation.Spec, name operation.Name) bool {
+	for _, spec := range specs {
+		if spec.Ref.Name == name {
+			return true
 		}
 	}
-	return command.Spec{}, false
+	return false
 }
 
 func pluginContext(ref resource.PluginRef) pluginhostContext {

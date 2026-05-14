@@ -1,6 +1,8 @@
 package coder
 
 import (
+	"context"
+
 	agentruntime "github.com/fluxplane/agentruntime"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	"github.com/fluxplane/agentruntime/apps/launch"
@@ -43,13 +45,20 @@ func Distribution() distribution.Distribution {
 			Serve:   true,
 		},
 	}
-	bundles := []agentruntime.ResourceBundle{Bundle()}
+	runtimeBundles := []agentruntime.ResourceBundle{Bundle()}
+	describeBundles, diagnostics := launch.BundlesWithStaticPluginContributions(context.Background(), launch.StaticPluginOptions{
+		Bundles: runtimeBundles,
+		Plugins: localPlugins,
+	})
+	if len(diagnostics) > 0 {
+		describeBundles = append(describeBundles, agentruntime.ResourceBundle{Diagnostics: diagnostics})
+	}
 	return distribution.Distribution{
 		Spec:    spec,
-		Bundles: bundles,
+		Bundles: describeBundles,
 		Runtime: launch.NewLocalRuntime(launch.LocalRuntimeConfig{
 			Spec:           spec,
-			Bundles:        bundles,
+			Bundles:        runtimeBundles,
 			Plugins:        localPlugins,
 			ToolProjection: ToolProjectionConfig(),
 		}),

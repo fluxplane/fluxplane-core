@@ -290,7 +290,7 @@ func TestComposeResolvesConfiguredPluginContributions(t *testing.T) {
 			Plugins: []resource.PluginRef{{
 				Name: textplugin.Name,
 				Config: map[string]any{
-					"commands": []any{"upper"},
+					"operations": []any{"upper"},
 				},
 			}},
 		}},
@@ -298,8 +298,8 @@ func TestComposeResolvesConfiguredPluginContributions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if _, ok := composition.Commands.Resolve(command.Path{"text", "upper"}); !ok {
-		t.Fatal("configured plugin command was not registered")
+	if _, ok := composition.Commands.Resolve(command.Path{"text", "upper"}); ok {
+		t.Fatal("configured plugin operation was exposed as a command")
 	}
 	if _, ok := composition.Commands.Resolve(command.Path{"text", "lower"}); ok {
 		t.Fatal("unconfigured plugin command was registered")

@@ -8,10 +8,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/adapters/htmlconvert"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -47,17 +44,6 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Outbound web operations.", Operations: []operation.Ref{spec.Ref}}},
 		Operations:    []operation.Spec{spec},
-		Commands: []command.Spec{{
-			Path:        command.Path{Name, RequestOp},
-			Description: spec.Description,
-			Target:      invocation.Target{Kind: invocation.TargetOperation, Operation: spec.Ref},
-			Input:       spec.Input,
-			Output:      spec.Output,
-			Policy: policy.InvocationPolicy{
-				AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerAgent},
-				RequiredTrust:  policy.TrustVerified,
-			},
-		}},
 	}, nil
 }
 

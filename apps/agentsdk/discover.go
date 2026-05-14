@@ -5,6 +5,7 @@ import (
 
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
+	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/spf13/cobra"
 )
 
@@ -27,10 +28,15 @@ func newDiscoverCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			pluginView := launch.StaticPluginView(cmd.Context(), launch.StaticPluginOptions{
+				Bundles: loaded.Distribution.Bundles,
+				Launch:  loaded.Launch,
+			})
 			result := resourcediscovery.Result{
-				Root:        loaded.Root,
-				Bundles:     loaded.Distribution.Bundles,
-				Diagnostics: loaded.Diagnostics,
+				Root:            loaded.Root,
+				Bundles:         pluginView.Bundles,
+				Diagnostics:     append(loaded.Diagnostics, pluginView.Diagnostics...),
+				ImplicitPlugins: pluginView.ImplicitPlugins,
 			}
 			switch opts.output {
 			case "", "tree", "pretty":
