@@ -1,5 +1,9 @@
 # Fluxplane Agent Runtime
 
+<p align="center">
+  <img src="docs/assets/fluxplane-logo.svg" alt="Fluxplane Agent Runtime logo" width="760">
+</p>
+
 Fluxplane Agent Runtime is a Go runtime and SDK for building agent systems with
 durable sessions, resource-declared capabilities, plugin-contributed tools, and
 transport-neutral channel clients.

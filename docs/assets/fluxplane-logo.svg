@@ -1,0 +1,80 @@
+<svg width="960" height="320" viewBox="0 0 960 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Fluxplane Agent Runtime logo</title>
+  <desc id="desc">An abstract layered flux plane with connected agent nodes in cyan and violet gradients.</desc>
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#203A8A" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#101B42" stop-opacity="0.38"/>
+      <stop offset="100%" stop-color="#07111F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="planeA" x1="215" y1="78" x2="705" y2="250" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DF9FF"/>
+      <stop offset="0.52" stop-color="#42A5FF"/>
+      <stop offset="1" stop-color="#9B5CFF"/>
+    </linearGradient>
+    <linearGradient id="planeB" x1="229" y1="206" x2="715" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#26E7D6" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#B36BFF" stop-opacity="0.92"/>
+    </linearGradient>
+    <linearGradient id="textGrad" x1="332" y1="105" x2="817" y2="213" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EAFBFF"/>
+      <stop offset="0.55" stop-color="#BFE9FF"/>
+      <stop offset="1" stop-color="#D6C4FF"/>
+    </linearGradient>
+    <filter id="softGlow" x="120" y="20" width="720" height="280" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.18 0 0 0 0 0.85 0 0 0 0 1 0 0 0 0.45 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+    <filter id="nodeGlow" x="0" y="0" width="960" height="320" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="960" height="320" rx="36" fill="#07111F"/>
+  <rect width="960" height="320" rx="36" fill="url(#bgGlow)"/>
+  <path d="M0 254C125 226 207 242 326 267C446 292 560 294 673 253C786 213 860 212 960 236V320H0V254Z" fill="#0B1730" opacity="0.72"/>
+
+  <g opacity="0.38" stroke="#4BCBFF" stroke-width="1">
+    <path d="M90 80H870"/>
+    <path d="M90 160H870"/>
+    <path d="M90 240H870"/>
+    <path d="M180 38V282"/>
+    <path d="M300 38V282"/>
+    <path d="M420 38V282"/>
+    <path d="M540 38V282"/>
+    <path d="M660 38V282"/>
+    <path d="M780 38V282"/>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <path d="M116 164L294 72L438 124L736 78L560 190L410 172L260 246L116 164Z" fill="url(#planeA)" opacity="0.26"/>
+    <path d="M116 164L294 72L438 124L736 78L560 190L410 172L260 246L116 164Z" stroke="url(#planeA)" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M294 72L410 172L560 190L438 124L294 72Z" fill="#7DF9FF" opacity="0.18"/>
+    <path d="M260 246L410 172L560 190L395 260L260 246Z" fill="url(#planeB)" opacity="0.34"/>
+    <path d="M116 164L410 172M294 72L260 246M438 124L395 260M736 78L560 190" stroke="#CFF8FF" stroke-width="1.5" opacity="0.48"/>
+  </g>
+
+  <g filter="url(#nodeGlow)" stroke="#BDF7FF" stroke-width="2">
+    <path d="M154 158L294 72L438 124L560 190L691 94" opacity="0.55"/>
+    <path d="M260 246L410 172L438 124" opacity="0.42"/>
+    <circle cx="116" cy="164" r="6" fill="#7DF9FF"/>
+    <circle cx="294" cy="72" r="7" fill="#5FE7FF"/>
+    <circle cx="438" cy="124" r="6" fill="#8BD8FF"/>
+    <circle cx="736" cy="78" r="7" fill="#B36BFF"/>
+    <circle cx="560" cy="190" r="7" fill="#8E7CFF"/>
+    <circle cx="410" cy="172" r="6" fill="#7DF9FF"/>
+    <circle cx="260" cy="246" r="7" fill="#26E7D6"/>
+    <circle cx="395" cy="260" r="5" fill="#B36BFF"/>
+  </g>
+
+  <g>
+    <text x="332" y="138" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="54" font-weight="750" letter-spacing="-1.8" fill="url(#textGrad)">Fluxplane</text>
+    <text x="336" y="184" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="24" font-weight="600" letter-spacing="5.5" fill="#7DF9FF" opacity="0.92">AGENT RUNTIME</text>
+    <text x="338" y="220" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="500" fill="#AFC9E8" opacity="0.86">durable sessions · plugin tools · transport-neutral agents</text>
+  </g>
+</svg>
