@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- OpenRouter/Responses replay now repairs orphan tool-result transcript items
+  instead of sending provider-invalid tool messages without matching calls.
 - OpenAI image generation no longer sends unsupported `response_format` for
   `gpt-image-1` and can consume URL image responses.
 

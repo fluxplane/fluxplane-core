@@ -282,6 +282,11 @@ func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (r
 		transcript := *req.Transcript
 		transcript.Provider = provider
 		transcript = m.compactTranscript(req, transcript, budgetScale)
+		usePreviousResponse := m.runtime.Continuation != ResponsesContinuationReplay && req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID()
+		orphanToolResults := map[string]bool{}
+		if !usePreviousResponse {
+			transcript.Items, orphanToolResults = repairReplayToolResults(transcript.Provider, transcript.Items)
+		}
 		inputItems, _, err := inputItemsFromTranscript(transcript.Provider, transcript.Items)
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
@@ -291,11 +296,14 @@ func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (r
 		if len(recordItems) == 0 {
 			recordItems = transcript.Items
 		}
+		if len(orphanToolResults) > 0 {
+			recordItems, _ = repairKnownOrphanToolResults(transcript.Provider, recordItems, orphanToolResults)
+		}
 		_, sentItems, err = inputItemsFromTranscript(transcript.Provider, recordItems)
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
 		}
-		if m.runtime.Continuation != ResponsesContinuationReplay && req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID() {
+		if usePreviousResponse {
 			params.PreviousResponseID = openai.String(req.Transcript.Continuation.ResponseID)
 		}
 	} else {
@@ -461,6 +469,126 @@ func inputItemsFromTranscript(provider coreconversation.ProviderIdentity, items 
 	return out, recorded, nil
 }
 
+func repairReplayToolResults(provider coreconversation.ProviderIdentity, items []coreconversation.Item) ([]coreconversation.Item, map[string]bool) {
+	seenCalls := map[string]bool{}
+	orphanResults := map[string]bool{}
+	out := make([]coreconversation.Item, 0, len(items))
+	for _, item := range items {
+		if item.Provider.Provider == "" {
+			item.Provider = provider
+		}
+		if item.Kind == coreconversation.ItemOutput {
+			if callID := transcriptToolCallID(item); callID != "" {
+				seenCalls[callID] = true
+			}
+			out = append(out, item)
+			continue
+		}
+		if item.Kind == coreconversation.ItemToolResult {
+			callID := strings.TrimSpace(item.CallID)
+			if callID != "" && !seenCalls[callID] {
+				orphanResults[callID] = true
+				out = append(out, syntheticToolCallForOrphanResult(provider, item), item)
+				seenCalls[callID] = true
+				continue
+			}
+		}
+		out = append(out, item)
+	}
+	return out, orphanResults
+}
+
+func repairKnownOrphanToolResults(provider coreconversation.ProviderIdentity, items []coreconversation.Item, orphanResults map[string]bool) ([]coreconversation.Item, map[string]bool) {
+	if len(orphanResults) == 0 {
+		return items, nil
+	}
+	out := make([]coreconversation.Item, 0, len(items))
+	repaired := map[string]bool{}
+	seenCalls := map[string]bool{}
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemOutput {
+			if callID := transcriptToolCallID(item); callID != "" {
+				seenCalls[callID] = true
+			}
+			out = append(out, item)
+			continue
+		}
+		callID := strings.TrimSpace(item.CallID)
+		if item.Kind == coreconversation.ItemToolResult && callID != "" && orphanResults[callID] && !seenCalls[callID] {
+			out = append(out, syntheticToolCallForOrphanResult(provider, item), item)
+			repaired[callID] = true
+			seenCalls[callID] = true
+			continue
+		}
+		if item.Kind == coreconversation.ItemToolResult && callID != "" {
+			seenCalls[callID] = true
+		}
+		if item.Provider.Provider == "" {
+			item.Provider = provider
+		}
+		out = append(out, item)
+	}
+	return out, repaired
+}
+
+func syntheticToolCallForOrphanResult(provider coreconversation.ProviderIdentity, result coreconversation.Item) coreconversation.Item {
+	name := strings.TrimSpace(result.Name)
+	if name == "" {
+		name = "tool"
+	}
+	callID := strings.TrimSpace(result.CallID)
+	metadata := cloneStringMap(result.Metadata)
+	callType := metadata["provider_call_type"]
+	if callType == "" {
+		callType = "function_call"
+	}
+	metadata["provider_call_type"] = callType
+	metadata["repaired"] = "true"
+	metadata["repair"] = "orphan_tool_call"
+	arguments := `{"repair":"orphan_tool_result","reason":"matching assistant tool call was missing from replay"}`
+	var paramItem responses.ResponseInputItemUnionParam
+	switch callType {
+	case "custom_tool_call":
+		paramItem = responses.ResponseInputItemParamOfCustomToolCall(callID, arguments, name)
+	default:
+		callType = "function_call"
+		metadata["provider_call_type"] = callType
+		paramItem = responses.ResponseInputItemParamOfFunctionCall(arguments, callID, name)
+	}
+	return itemWithNative(coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		CallID:   callID,
+		Name:     name,
+		Metadata: metadata,
+	}, paramItem)
+}
+
+func transcriptToolCallID(item coreconversation.Item) string {
+	if callID := strings.TrimSpace(item.CallID); callID != "" {
+		return callID
+	}
+	if len(item.Native) == 0 {
+		return ""
+	}
+	var raw struct {
+		Type   string `json:"type"`
+		CallID string `json:"call_id"`
+		ID     string `json:"id"`
+	}
+	if err := json.Unmarshal(item.Native, &raw); err != nil {
+		return ""
+	}
+	switch raw.Type {
+	case "function_call":
+		return strings.TrimSpace(raw.CallID)
+	case "custom_tool_call":
+		return firstNonEmpty(strings.TrimSpace(raw.CallID), strings.TrimSpace(raw.ID))
+	default:
+		return ""
+	}
+}
+
 func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, item coreconversation.Item) (responses.ResponseInputItemUnionParam, coreconversation.Item, error) {
 	if len(item.Native) > 0 {
 		return param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(item.Native)), item, nil
@@ -533,6 +661,14 @@ func transcriptContentString(content any) string {
 		}
 		return string(data)
 	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in)+2)
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool, prices []corellm.PricingSpec) (llmagent.Response, error) {

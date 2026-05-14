@@ -949,7 +949,7 @@ func normalizeProviderModel(provider, model string) (string, string) {
 
 func knownModelProviderPrefix(value string) bool {
 	switch value {
-	case "openai", "codex", "openrouter", "anthropic", "minimax":
+	case "openai", "codex", "openrouter", "anthropic", "claudecode", "minimax":
 		return true
 	default:
 		return false

@@ -229,6 +229,178 @@ func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
 	}
 }
 
+func TestResponseParamsRepairsOrphanReplayToolResult(t *testing.T) {
+	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "make a plan"},
+				{
+					Kind:    coreconversation.ItemToolResult,
+					CallID:  "call_1",
+					Name:    "plan",
+					Content: map[string]any{"code": "plan_invalid", "message": "planexec: title is required"},
+				},
+			},
+			NewItems: []coreconversation.Item{{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "plan",
+				Content: map[string]any{"code": "plan_invalid", "message": "planexec: title is required"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	if strings.Contains(json, `"role":"developer"`) {
+		t.Fatalf("params json = %s, did not want developer repair message", raw)
+	}
+	if !strings.Contains(json, `"type":"function_call"`) || !strings.Contains(json, `"type":"function_call_output"`) {
+		t.Fatalf("params json = %s, want synthetic tool call and tool output", raw)
+	}
+	if !strings.Contains(json, "matching assistant tool call was missing from replay") || !strings.Contains(json, "plan_invalid") {
+		t.Fatalf("params json = %s, want repair reason and original tool result", raw)
+	}
+	if len(sent) != 2 || sent[0].Kind != coreconversation.ItemOutput || sent[0].Metadata["repair"] != "orphan_tool_call" || sent[1].Kind != coreconversation.ItemToolResult || sent[1].CallID != "call_1" {
+		t.Fatalf("sent = %#v, want synthetic call plus original tool result", sent)
+	}
+}
+
+func TestResponseParamsRepairsOrphanCustomToolResult(t *testing.T) {
+	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{{
+				Kind:     coreconversation.ItemToolResult,
+				CallID:   "call_custom",
+				Name:     "inspect",
+				Content:  "custom result",
+				Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
+			}},
+			NewItems: []coreconversation.Item{{
+				Kind:     coreconversation.ItemToolResult,
+				CallID:   "call_custom",
+				Name:     "inspect",
+				Content:  "custom result",
+				Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	if strings.Contains(json, `"role":"developer"`) {
+		t.Fatalf("params json = %s, did not want developer repair message", raw)
+	}
+	if !strings.Contains(json, `"type":"custom_tool_call"`) || !strings.Contains(json, `"type":"custom_tool_call_output"`) {
+		t.Fatalf("params json = %s, want synthetic custom tool call and output", raw)
+	}
+	if len(sent) != 2 || sent[0].Metadata["provider_call_type"] != "custom_tool_call" || sent[0].Metadata["repair"] != "orphan_tool_call" || sent[1].Metadata["provider_call_type"] != "custom_tool_call" {
+		t.Fatalf("sent = %#v, want repaired custom call plus original custom result", sent)
+	}
+}
+
+func TestResponseParamsPreservesMatchedReplayToolResult(t *testing.T) {
+	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "make a plan"},
+				{
+					Kind:   coreconversation.ItemOutput,
+					CallID: "call_1",
+					Name:   "plan",
+					Native: []byte(`{"type":"function_call","call_id":"call_1","name":"plan","arguments":"{\"title\":\"Fix\"}"}`),
+				},
+				{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "plan", Content: map[string]any{"ok": true}},
+			},
+			NewItems: []coreconversation.Item{{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "plan", Content: map[string]any{"ok": true}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	if !strings.Contains(json, `"type":"function_call"`) || !strings.Contains(json, `"type":"function_call_output"`) {
+		t.Fatalf("params json = %s, want matched tool call and output", raw)
+	}
+	if len(sent) != 1 || sent[0].Kind != coreconversation.ItemToolResult || sent[0].CallID != "call_1" || len(sent[0].Native) == 0 {
+		t.Fatalf("sent = %#v, want native tool result", sent)
+	}
+}
+
+func TestResponseParamsPreservesMatchedMultiToolReplayResults(t *testing.T) {
+	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "openrouter", API: "openrouter.responses", Family: "responses", Model: "anthropic/claude-sonnet-4.6"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "inspect"},
+				{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "read", Native: []byte(`{"type":"function_call","call_id":"call_1","name":"read","arguments":"{}"}`)},
+				{Kind: coreconversation.ItemOutput, CallID: "call_2", Name: "diff", Native: []byte(`{"type":"function_call","call_id":"call_2","name":"diff","arguments":"{}"}`)},
+				{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "read", Content: "content"},
+				{Kind: coreconversation.ItemToolResult, CallID: "call_2", Name: "diff", Content: "diff"},
+			},
+			NewItems: []coreconversation.Item{
+				{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "read", Content: "content"},
+				{Kind: coreconversation.ItemToolResult, CallID: "call_2", Name: "diff", Content: "diff"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	json := string(raw)
+	if strings.Count(json, `"type":"function_call"`) != 2 || strings.Count(json, `"type":"function_call_output"`) != 2 {
+		t.Fatalf("params json = %s, want two tool calls and two outputs", raw)
+	}
+	if len(sent) != 2 || sent[0].CallID != "call_1" || sent[1].CallID != "call_2" {
+		t.Fatalf("sent = %#v, want both tool results in order", sent)
+	}
+}
+
 func TestResponseParamsCompactsLargeReplayToolResult(t *testing.T) {
 	model, err := New(Config{
 		Model:         "gpt-test",
@@ -245,13 +417,16 @@ func TestResponseParamsCompactsLargeReplayToolResult(t *testing.T) {
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
-			Items: []coreconversation.Item{{
-				Kind:    coreconversation.ItemToolResult,
-				CallID:  "call_1",
-				Name:    "file_patch",
-				Content: large,
-				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
-			}},
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_patch", Native: []byte(`{"type":"function_call","call_id":"call_1","name":"file_patch","arguments":"{}"}`)},
+				{
+					Kind:    coreconversation.ItemToolResult,
+					CallID:  "call_1",
+					Name:    "file_patch",
+					Content: large,
+					Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
+				},
+			},
 			NewItems: []coreconversation.Item{{
 				Kind:    coreconversation.ItemToolResult,
 				CallID:  "call_1",

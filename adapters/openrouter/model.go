@@ -56,7 +56,7 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 	if runtime.Cache == "" {
 		runtime.Cache = openaiadapter.ResponsesCacheAuto
 	}
-	if runtime.Continuation == "" {
+	if runtime.Continuation == "" || runtime.Continuation == openaiadapter.ResponsesContinuationAuto {
 		runtime.Continuation = openaiadapter.ResponsesContinuationReplay
 	}
 	title := strings.TrimSpace(cfg.Title)

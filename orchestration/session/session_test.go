@@ -78,6 +78,13 @@ func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {
 	}
 }
 
+func TestNormalizeProviderModelRecognizesClaudeCodePrefix(t *testing.T) {
+	provider, model := normalizeProviderModel("", "claudecode/claude-sonnet-4-6")
+	if provider != "claudecode" || model != "claude-sonnet-4-6" {
+		t.Fatalf("provider/model = %q/%q, want claudecode/claude-sonnet-4-6", provider, model)
+	}
+}
+
 func TestExecuteInboundCommandPersistsFailedOperationOutboundMessage(t *testing.T) {
 	ctx := context.Background()
 	opRef := operation.Ref{Name: "fail"}
