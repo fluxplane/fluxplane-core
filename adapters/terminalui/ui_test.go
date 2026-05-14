@@ -497,7 +497,7 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		"openai/gpt-test",
 		"input tokens 2,109",
 		"cache write tokens 128",
-		"cached input tokens 1,536",
+		"cached input tokens 1,536 | cached 73%",
 		"output tokens 11",
 		"estimated cost $0.0031",
 		"codex/gpt-test",
@@ -507,6 +507,21 @@ func TestRenderUsageSnapshotGroupsHumanReadableTotals(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("usage output = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestRenderUsageSnapshotOmitsCacheRateWithoutCachedTokens(t *testing.T) {
+	var out bytes.Buffer
+	snapshot := usage.NewSnapshot(usage.Recorded{
+		Subject: usage.Subject{Kind: usage.SubjectLLM, Provider: "openai", Name: "gpt-test"},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricLLMInputTokens, Quantity: 100, Unit: usage.UnitToken, Direction: usage.DirectionInput},
+		},
+	})
+
+	RenderUsageSnapshot(&out, snapshot)
+	if strings.Contains(out.String(), "| cached") {
+		t.Fatalf("usage output = %q, did not want cache rate", out.String())
 	}
 }
 

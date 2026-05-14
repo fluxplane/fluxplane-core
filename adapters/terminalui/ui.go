@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -903,7 +904,7 @@ func RenderUsageSnapshot(w io.Writer, snapshot usage.Snapshot) {
 		}
 		_, _ = fmt.Fprintf(w, "%s %s%s%s\n", subjectIcon(subject.Subject.Kind), ansiCyan, subjectLabel(subject.Subject), ansiReset)
 		for _, measurement := range subject.Totals {
-			if line := measurementLine(measurement); line != "" {
+			if line := measurementLine(subject.Subject, subject.Totals, measurement); line != "" {
 				_, _ = fmt.Fprintf(w, "  %s\n", line)
 			}
 		}
@@ -943,7 +944,7 @@ func subjectLabel(subject usage.Subject) string {
 	return "usage"
 }
 
-func measurementLine(measurement usage.Measurement) string {
+func measurementLine(subject usage.Subject, totals []usage.Measurement, measurement usage.Measurement) string {
 	switch measurement.Metric {
 	case usage.MetricLLMInputTokens:
 		if measurement.Dimensions != nil && measurement.Dimensions["cache_creation"] == "true" {
@@ -951,7 +952,11 @@ func measurementLine(measurement usage.Measurement) string {
 		}
 		return "↑ input tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMCachedTokens:
-		return "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
+		line := "↻ cached input tokens " + formatHumanNumber(measurement.Quantity)
+		if rate, ok := cacheRate(subject, totals, measurement); ok {
+			line += " | cached " + formatPercent(rate)
+		}
+		return line
 	case usage.MetricLLMOutputTokens:
 		return "↓ output tokens " + formatHumanNumber(measurement.Quantity)
 	case usage.MetricLLMReasoningTokens:
@@ -971,6 +976,29 @@ func measurementLine(measurement usage.Measurement) string {
 	default:
 		return string(measurement.Metric) + " " + formatHumanQuantity(measurement)
 	}
+}
+
+func cacheRate(subject usage.Subject, totals []usage.Measurement, cached usage.Measurement) (float64, bool) {
+	if subject.Kind != usage.SubjectLLM || cached.Quantity <= 0 {
+		return 0, false
+	}
+	var input float64
+	for _, measurement := range totals {
+		if measurement.Metric == usage.MetricLLMInputTokens && measurement.Dimensions["cache_creation"] != "true" {
+			input += measurement.Quantity
+		}
+	}
+	if input <= 0 {
+		return 0, false
+	}
+	rate := cached.Quantity / input * 100
+	if rate < 0 {
+		rate = 0
+	}
+	if rate > 100 {
+		rate = 100
+	}
+	return rate, true
 }
 
 func networkBytesLine(measurement usage.Measurement) string {
@@ -1044,6 +1072,10 @@ func formatCost(measurement usage.Measurement) string {
 	default:
 		return prefix + strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", quantity), "0"), ".")
 	}
+}
+
+func formatPercent(quantity float64) string {
+	return formatHumanNumber(math.Round(quantity)) + "%"
 }
 
 func formatDurationQuantity(quantity float64, unit usage.Unit) string {
