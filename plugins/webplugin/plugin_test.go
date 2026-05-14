@@ -40,6 +40,33 @@ func TestWebRequestConvertsHTMLToMarkdown(t *testing.T) {
 	}
 }
 
+func TestWebRequestIntentUsesTypedURLTarget(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	provider, ok := ops[0].(operation.IntentProvider)
+	if !ok {
+		t.Fatalf("%s does not implement IntentProvider", ops[0].Spec().Ref.String())
+	}
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), requestInput{URL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if len(intents.Operations) != 1 || intents.Operations[0].Behavior != operation.IntentNetworkFetch {
+		t.Fatalf("intents = %#v, want one network intent", intents)
+	}
+	target, ok := intents.Operations[0].Target.(operation.URLTarget)
+	if !ok || target.URL != "https://example.com" {
+		t.Fatalf("target = %#v, want URL target", intents.Operations[0].Target)
+	}
+}
+
 func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("q"); got != "agent runtime" {

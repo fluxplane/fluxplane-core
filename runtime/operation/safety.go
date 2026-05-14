@@ -9,17 +9,17 @@ import (
 
 // SafetyGate rejects operation execution before the handler runs.
 type SafetyGate interface {
-	Check(operation.Context, operation.Spec, operation.Value) error
+	Check(operation.Context, operation.Operation, operation.Value) error
 }
 
 // SafetyGateFunc adapts a function to SafetyGate.
-type SafetyGateFunc func(operation.Context, operation.Spec, operation.Value) error
+type SafetyGateFunc func(operation.Context, operation.Operation, operation.Value) error
 
-func (f SafetyGateFunc) Check(ctx operation.Context, spec operation.Spec, input operation.Value) error {
+func (f SafetyGateFunc) Check(ctx operation.Context, op operation.Operation, input operation.Value) error {
 	if f == nil {
 		return nil
 	}
-	return f(ctx, spec, input)
+	return f(ctx, op, input)
 }
 
 // Sandbox models the sandboxing decision for one operation execution. Concrete
@@ -36,7 +36,7 @@ type AccessController interface {
 // CommandRiskClassifier models shell/code execution risk classification, for
 // example via codewandler/cmdrisk or a successor.
 type CommandRiskClassifier interface {
-	Classify(operation.Context, operation.Spec, operation.Value) (CommandRisk, error)
+	Classify(operation.Context, operation.Spec, operation.IntentSet) (CommandRisk, error)
 }
 
 // SecretGuard models secret detection/redaction policy before execution.
@@ -76,7 +76,8 @@ type SafetyEnvelope struct {
 }
 
 // Check enforces the configured safety envelope.
-func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input operation.Value) error {
+func (e SafetyEnvelope) Check(ctx operation.Context, op operation.Operation, input operation.Value) error {
+	spec := op.Spec()
 	if e.ACL != nil {
 		if err := e.ACL.Authorize(ctx, spec, input); err != nil {
 			return fmt.Errorf("acl_denied: %w", err)
@@ -91,9 +92,20 @@ func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input 
 	}
 	approved := false
 	if e.CommandRisk != nil {
-		risk, err := e.CommandRisk.Classify(ctx, spec, input)
+		intents, hasIntent, err := operation.IntentFor(ctx, op, input)
 		if err != nil {
-			return fmt.Errorf("cmdrisk_failed: %w", err)
+			return fmt.Errorf("intent_failed: %w", err)
+		}
+		var risk CommandRisk
+		if hasIntent && !intents.Empty() {
+			risk, err = e.CommandRisk.Classify(ctx, spec, intents)
+			if err != nil {
+				return fmt.Errorf("cmdrisk_failed: %w", err)
+			}
+		} else if explicitIntentRequired(spec.Semantics) {
+			return fmt.Errorf("intent_required")
+		} else {
+			risk = CommandRisk{Level: spec.Semantics.Risk, Reason: "declared operation risk"}
 		}
 		if risk.RequiresApproval {
 			if err := e.approve(ctx, spec, input, risk); err != nil {
@@ -159,6 +171,10 @@ func requiresApproval(semantics operation.Semantics) bool {
 		semantics.Effects.Has(operation.EffectDestructive) ||
 		semantics.Effects.Has(operation.EffectIrreversible) ||
 		semantics.Effects.Has(operation.EffectDelete)
+}
+
+func explicitIntentRequired(semantics operation.Semantics) bool {
+	return semantics.Effects.Has(operation.EffectProcess)
 }
 
 func riskAllowed(actual, max operation.RiskLevel) bool {

@@ -95,25 +95,41 @@ func New(cfg Config) Classifier {
 	}
 }
 
-// Classify evaluates operation input against cmdrisk.
-func (c Classifier) Classify(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
-	switch {
-	case spec.Semantics.Effects.Has(operation.EffectProcess):
-		if hasNativeGitIntent(spec) {
-			return c.classifyNativeGitIntent(ctx, spec, input)
-		}
-		if hasCommandIntent(spec, input) {
-			return c.classifyCommand(ctx, spec, input)
-		}
+// Classify evaluates typed operation intent against cmdrisk.
+func (c Classifier) Classify(ctx operation.Context, spec operation.Spec, intents operation.IntentSet) (operationruntime.CommandRisk, error) {
+	operations := c.intentOperations(intents)
+	if len(operations) == 0 {
 		return c.declaredRisk(ctx, spec), nil
-	case spec.Semantics.Effects.Has(operation.EffectNetwork):
-		if hasNetworkIntent(input) {
-			return c.classifyNetworkIntent(ctx, spec, input)
-		}
-		return c.declaredRisk(ctx, spec), nil
-	default:
-		return operationruntime.CommandRisk{Level: spec.Semantics.Risk}, nil
 	}
+	if command, ok := processOnlyCommand(intents); ok {
+		if strings.TrimSpace(command) == "" {
+			return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "empty command"}, nil
+		}
+		if len(command) > c.maxCommandLength {
+			return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "command is too large to assess"}, nil
+		}
+		assessment, err := c.analyzer.Assess(ctx, codewandlercmdrisk.Request{
+			Command: command,
+			Context: c.base,
+		})
+		if err != nil {
+			return operationruntime.CommandRisk{}, err
+		}
+		return c.result(ctx, spec, assessment, false), nil
+	}
+	for _, op := range operations {
+		if op.Category == "command" && len(op.Target) > c.maxCommandLength {
+			return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "command is too large to assess"}, nil
+		}
+	}
+	assessment, err := c.analyzer.AssessIntent(ctx, codewandlercmdrisk.IntentRequest{
+		Context:    c.base,
+		Operations: operations,
+	})
+	if err != nil {
+		return operationruntime.CommandRisk{}, err
+	}
+	return c.result(ctx, spec, assessment, networkOnly(intents) && c.networkApprovalAsMedium), nil
 }
 
 func (c Classifier) declaredRisk(ctx operation.Context, spec operation.Spec) operationruntime.CommandRisk {
@@ -125,60 +141,6 @@ func (c Classifier) declaredRisk(ctx operation.Context, spec operation.Spec) ope
 		Rationale: reason,
 	})
 	return operationruntime.CommandRisk{Level: spec.Semantics.Risk, Reason: reason}
-}
-
-func (c Classifier) classifyCommand(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
-	command := commandString(spec, input)
-	if strings.TrimSpace(command) == "" {
-		return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "empty command"}, nil
-	}
-	if len(command) > c.maxCommandLength {
-		return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "command is too large to assess"}, nil
-	}
-	assessment, err := c.analyzer.Assess(ctx, codewandlercmdrisk.Request{
-		Command: command,
-		Context: c.contextFor(input),
-	})
-	if err != nil {
-		return operationruntime.CommandRisk{}, err
-	}
-	return c.result(ctx, spec, assessment, false), nil
-}
-
-func (c Classifier) classifyNativeGitIntent(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
-	operations := nativeGitIntentOperations(c.base.WorkingDirectory, spec, input)
-	if len(operations) == 0 {
-		return c.declaredRisk(ctx, spec), nil
-	}
-	assessment, err := c.analyzer.AssessIntent(ctx, codewandlercmdrisk.IntentRequest{
-		Context:    c.contextFor(input),
-		Operations: operations,
-	})
-	if err != nil {
-		return operationruntime.CommandRisk{}, err
-	}
-	return c.result(ctx, spec, assessment, false), nil
-}
-
-func (c Classifier) classifyNetworkIntent(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
-	target := urlString(input)
-	if strings.TrimSpace(target) == "" {
-		return operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "empty network target"}, nil
-	}
-	assessment, err := c.analyzer.AssessIntent(ctx, codewandlercmdrisk.IntentRequest{
-		Context: c.contextFor(input),
-		Operations: []codewandlercmdrisk.IntentOperation{{
-			Behavior: "network_fetch",
-			Target:   target,
-			Role:     "network_target",
-			Category: "url",
-			Certain:  true,
-		}},
-	})
-	if err != nil {
-		return operationruntime.CommandRisk{}, err
-	}
-	return c.result(ctx, spec, assessment, true), nil
 }
 
 func (c Classifier) result(ctx operation.Context, spec operation.Spec, assessment codewandlercmdrisk.Assessment, structuredNetwork bool) operationruntime.CommandRisk {
@@ -198,14 +160,6 @@ func (c Classifier) result(ctx operation.Context, spec operation.Spec, assessmen
 		RiskDimensions: append([]codewandlercmdrisk.RiskDimension(nil), assessment.RiskDimensions...),
 	})
 	return operationruntime.CommandRisk{Level: level, Reason: reason, RequiresApproval: requiresApproval}
-}
-
-func (c Classifier) contextFor(input operation.Value) codewandlercmdrisk.Context {
-	out := c.base
-	if wd := stringField(input, "workdir"); wd != "" {
-		out.WorkingDirectory = wd
-	}
-	return out
 }
 
 func riskFromAssessment(declared operation.RiskLevel, assessment codewandlercmdrisk.Assessment, approvalAsMedium bool) (operation.RiskLevel, bool) {
@@ -270,203 +224,101 @@ func riskRank(risk operation.RiskLevel) int {
 	}
 }
 
-func commandString(spec operation.Spec, input operation.Value) string {
-	command := stringField(input, "command")
-	args := stringSliceField(input, "args")
-	if len(args) == 0 {
-		args = stringSliceField(input, "command")
-		if len(args) > 0 {
-			command = args[0]
-			args = args[1:]
+func (c Classifier) intentOperations(intents operation.IntentSet) []codewandlercmdrisk.IntentOperation {
+	out := make([]codewandlercmdrisk.IntentOperation, 0, len(intents.Operations))
+	for _, intent := range intents.Operations {
+		converted, ok := c.intentOperation(intent)
+		if ok {
+			out = append(out, converted)
 		}
 	}
-	if len(args) == 0 {
-		if command == "" {
-			switch spec.Ref.Name {
-			case "git_status":
-				return "git status --short --branch"
-			case "git_diff":
-				return "git diff"
-			case "git_add":
-				return "git add"
-			case "git_commit":
-				return "git -c core.hooksPath=/dev/null commit --no-verify --no-gpg-sign"
-			case "code_execute":
-				return "docker run --rm --network none <scratch-code>"
-			}
-		}
-		return command
-	}
-	quoted := make([]string, 0, len(args)+1)
-	quoted = append(quoted, shellQuote(command))
-	for _, arg := range args {
-		quoted = append(quoted, shellQuote(arg))
-	}
-	return strings.Join(quoted, " ")
+	return out
 }
 
-func hasNativeGitIntent(spec operation.Spec) bool {
-	switch spec.Ref.Name {
-	case "git_add", "git_commit":
-		return true
+func (c Classifier) intentOperation(intent operation.IntentOperation) (codewandlercmdrisk.IntentOperation, bool) {
+	target, category, ok := c.intentTarget(intent.Target)
+	if !ok || strings.TrimSpace(target) == "" {
+		return codewandlercmdrisk.IntentOperation{}, false
+	}
+	return codewandlercmdrisk.IntentOperation{
+		Behavior: string(intent.Behavior),
+		Target:   target,
+		Role:     string(intent.Role),
+		Category: category,
+		Certain:  intent.Certainty != operation.IntentPotential,
+	}, true
+}
+
+func (c Classifier) intentTarget(target operation.IntentTarget) (string, string, bool) {
+	switch typed := target.(type) {
+	case operation.PathTarget:
+		return pathTarget(c.base.WorkingDirectory, typed.Path), "path", true
+	case operation.URLTarget:
+		return string(typed.URL), "url", true
+	case operation.ProcessTarget:
+		return processTarget(typed), "command", true
+	case operation.BrowserTarget:
+		if typed.URL != "" {
+			return string(typed.URL), "url", true
+		}
+		if typed.SessionID != "" {
+			return string(typed.SessionID), "session", true
+		}
+		return "", "", false
 	default:
-		return false
+		return "", "", false
 	}
 }
 
-func nativeGitIntentOperations(root string, spec operation.Spec, input operation.Value) []codewandlercmdrisk.IntentOperation {
-	switch spec.Ref.Name {
-	case "git_add":
-		return gitAddIntent(root, input)
-	case "git_commit":
-		ops := []codewandlercmdrisk.IntentOperation{{
-			Behavior: "persistence_modify",
-			Target:   gitPath(root, ".git"),
-			Role:     "write_target",
-			Category: "path",
-			Certain:  true,
-		}}
-		if boolField(input, "stage") {
-			ops = append(gitAddIntent(root, input), ops...)
-		}
-		if stringField(input, "message") != "" {
-			ops = append(ops, codewandlercmdrisk.IntentOperation{
-				Behavior: "persistence_modify",
-				Target:   gitPath(root, ".git/COMMIT_EDITMSG"),
-				Role:     "write_target",
-				Category: "path",
-				Certain:  true,
-			})
-		}
-		if boolField(input, "allow_empty") {
-			ops = append(ops, codewandlercmdrisk.IntentOperation{
-				Behavior: "persistence_modify",
-				Target:   gitPath(root, ".git"),
-				Role:     "write_target",
-				Category: "path",
-				Certain:  true,
-			})
-		}
-		return ops
-	default:
-		return nil
-	}
-}
-
-func gitAddIntent(root string, input operation.Value) []codewandlercmdrisk.IntentOperation {
-	ops := []codewandlercmdrisk.IntentOperation{{
-		Behavior: "persistence_modify",
-		Target:   gitPath(root, ".git/index"),
-		Role:     "write_target",
-		Category: "path",
-		Certain:  true,
-	}}
-	if boolField(input, "all") {
-		ops = append(ops, codewandlercmdrisk.IntentOperation{
-			Behavior: "filesystem_read",
-			Target:   gitPath(root, "."),
-			Role:     "read_target",
-			Category: "path",
-			Certain:  true,
-		})
-		return ops
-	}
-	for _, path := range stringSliceField(input, "paths") {
-		ops = append(ops, codewandlercmdrisk.IntentOperation{
-			Behavior: "filesystem_read",
-			Target:   gitPath(root, path),
-			Role:     "read_target",
-			Category: "path",
-			Certain:  true,
-		})
-	}
-	return ops
-}
-
-func gitPath(root, path string) string {
-	path = strings.TrimSpace(path)
-	if root == "" || filepath.IsAbs(path) {
-		if path == "" {
+func pathTarget(root string, path operation.Path) string {
+	text := strings.TrimSpace(string(path))
+	if root == "" || filepath.IsAbs(text) {
+		if text == "" {
 			return root
 		}
-		return path
+		return text
 	}
-	if path == "" || path == "." {
+	if text == "" || text == "." {
 		return root
 	}
-	return filepath.Join(root, path)
+	return filepath.Join(root, text)
 }
 
-func hasCommandIntent(spec operation.Spec, input operation.Value) bool {
-	switch spec.Ref.Name {
-	case "shell_exec", "process_start", "git_status", "git_diff", "git_add", "git_commit", "code_execute":
-		return true
+func processTarget(target operation.ProcessTarget) string {
+	command := string(target.Command)
+	args := make([]string, 0, len(target.Args))
+	for _, arg := range target.Args {
+		args = append(args, string(arg))
 	}
-	if stringField(input, "command") != "" {
-		return true
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, shellQuote(command))
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
 	}
-	return len(stringSliceField(input, "command")) > 0 || len(stringSliceField(input, "args")) > 0
+	return strings.Join(parts, " ")
 }
 
-func hasNetworkIntent(input operation.Value) bool {
-	return strings.TrimSpace(urlString(input)) != ""
-}
-
-func urlString(input operation.Value) string {
-	if value, ok := input.(string); ok {
-		return value
+func processOnlyCommand(intents operation.IntentSet) (string, bool) {
+	if len(intents.Operations) != 1 || intents.Operations[0].Behavior != operation.IntentCommandExecution {
+		return "", false
 	}
-	return stringField(input, "url")
-}
-
-func stringField(input operation.Value, key string) string {
-	switch value := input.(type) {
-	case map[string]any:
-		text, _ := value[key].(string)
-		return strings.TrimSpace(text)
-	case string:
-		if key == "command" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func boolField(input operation.Value, key string) bool {
-	value, ok := input.(map[string]any)
+	target, ok := intents.Operations[0].Target.(operation.ProcessTarget)
 	if !ok {
+		return "", false
+	}
+	return processTarget(target), true
+}
+
+func networkOnly(intents operation.IntentSet) bool {
+	if len(intents.Operations) == 0 {
 		return false
 	}
-	switch raw := value[key].(type) {
-	case bool:
-		return raw
-	case string:
-		return strings.EqualFold(strings.TrimSpace(raw), "true")
-	default:
-		return false
-	}
-}
-
-func stringSliceField(input operation.Value, key string) []string {
-	value, ok := input.(map[string]any)
-	if !ok {
-		return nil
-	}
-	switch raw := value[key].(type) {
-	case []string:
-		return append([]string(nil), raw...)
-	case []any:
-		out := make([]string, 0, len(raw))
-		for _, item := range raw {
-			text, ok := item.(string)
-			if ok {
-				out = append(out, text)
-			}
+	for _, intent := range intents.Operations {
+		if intent.Behavior != operation.IntentNetworkFetch {
+			return false
 		}
-		return out
-	default:
-		return nil
 	}
+	return true
 }
 
 func shellQuote(value string) string {

@@ -52,10 +52,10 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		return nil, fmt.Errorf("gitplugin: system is nil")
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[statusInput, map[string]any](statusSpec(), p.status()),
-		operationruntime.NewTypedResult[diffInput, map[string]any](diffSpec(), p.diff()),
-		operationruntime.NewTypedResult[addInput, map[string]any](addSpec(), p.add()),
-		operationruntime.NewTypedResult[commitInput, map[string]any](commitSpec(), p.commit()),
+		operationruntime.NewTypedResult[statusInput, map[string]any](statusSpec(), p.status(), operationruntime.WithIntent(statusIntent)),
+		operationruntime.NewTypedResult[diffInput, map[string]any](diffSpec(), p.diff(), operationruntime.WithIntent(diffIntent)),
+		operationruntime.NewTypedResult[addInput, map[string]any](addSpec(), p.add(), operationruntime.WithIntent(addIntent)),
+		operationruntime.NewTypedResult[commitInput, map[string]any](commitSpec(), p.commit(), operationruntime.WithIntent(commitIntent)),
 	}, nil
 }
 
@@ -119,6 +119,105 @@ type commitInput struct {
 	All        bool     `json:"all,omitempty" jsonschema:"description=When stage is true, stage all tracked and untracked workspace changes with git add -A."`
 	Paths      []string `json:"paths,omitempty" jsonschema:"description=When stage is true, stage only these paths unless all is true."`
 	AllowEmpty bool     `json:"allow_empty,omitempty" jsonschema:"description=Allow creating an empty commit."`
+}
+
+func statusIntent(operation.Context, statusInput) (operation.IntentSet, error) {
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent("git", "status", "--short", "--branch"),
+		pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, ".git"),
+	}}, nil
+}
+
+func diffIntent(_ operation.Context, req diffInput) (operation.IntentSet, error) {
+	args := []string{"diff"}
+	if req.Staged {
+		args = append(args, "--staged")
+	}
+	if strings.TrimSpace(req.Ref) != "" {
+		args = append(args, req.Ref)
+	}
+	if len(req.Paths) > 0 {
+		args = append(args, "--")
+		args = append(args, req.Paths...)
+	}
+	ops := []operation.IntentOperation{
+		processIntent("git", args...),
+		pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, ".git"),
+	}
+	for _, path := range req.Paths {
+		ops = append(ops, pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, path))
+	}
+	return operation.IntentSet{Operations: ops}, nil
+}
+
+func addIntent(_ operation.Context, req addInput) (operation.IntentSet, error) {
+	args, result := gitAddArgs(req.All, req.Paths, "invalid_git_add_input")
+	if result.IsError() {
+		return operation.IntentSet{}, fmt.Errorf("%s", result.Error.Message)
+	}
+	ops := []operation.IntentOperation{
+		processIntent("git", args...),
+		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git/index"),
+	}
+	if req.All {
+		ops = append(ops, pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, "."))
+		return operation.IntentSet{Operations: ops}, nil
+	}
+	for _, path := range req.Paths {
+		ops = append(ops, pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, path))
+	}
+	return operation.IntentSet{Operations: ops}, nil
+}
+
+func commitIntent(_ operation.Context, req commitInput) (operation.IntentSet, error) {
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		return operation.IntentSet{}, fmt.Errorf("message is required")
+	}
+	if !req.Stage && (req.All || len(req.Paths) > 0) {
+		return operation.IntentSet{}, fmt.Errorf("paths or all require stage to be true")
+	}
+	var ops []operation.IntentOperation
+	if req.Stage {
+		add, err := addIntent(nil, addInput{All: req.All, Paths: req.Paths})
+		if err != nil {
+			return operation.IntentSet{}, err
+		}
+		ops = append(ops, add.Operations...)
+	}
+	args := []string{"-c", "core.hooksPath=/dev/null", "commit", "--no-verify", "--no-gpg-sign"}
+	if req.AllowEmpty {
+		args = append(args, "--allow-empty")
+	}
+	args = append(args, "-m", message)
+	ops = append(ops,
+		processIntent("git", args...),
+		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git"),
+		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git/COMMIT_EDITMSG"),
+	)
+	return operation.IntentSet{Operations: ops}, nil
+}
+
+func processIntent(command string, args ...string) operation.IntentOperation {
+	out := make([]operation.Argument, 0, len(args))
+	for _, arg := range args {
+		out = append(out, operation.Argument(arg))
+	}
+	return operation.IntentOperation{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command(command), Args: out},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
+	}
+}
+
+func pathIntent(behavior operation.IntentBehavior, role operation.IntentRole, path string) operation.IntentOperation {
+	return operation.IntentOperation{
+		Behavior:  behavior,
+		Target:    operation.PathTarget{Path: operation.Path(path)},
+		Role:      role,
+		Certainty: operation.IntentCertain,
+	}
 }
 
 func operationRefs(specs []operation.Spec) []operation.Ref {

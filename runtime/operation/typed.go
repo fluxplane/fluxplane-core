@@ -17,12 +17,29 @@ type TypedHandler[I, O any] func(operation.Context, I) (O, error)
 // needs to decide the final operation status itself.
 type TypedResultHandler[I, O any] func(operation.Context, I) operation.Result
 
+// TypedIntentHandler derives an operation's safety intent from typed input.
+type TypedIntentHandler[I any] func(operation.Context, I) (operation.IntentSet, error)
+
+type typedConfig[I any] struct {
+	intent TypedIntentHandler[I]
+}
+
+// TypedOption configures a typed operation adapter.
+type TypedOption[I any] func(*typedConfig[I])
+
+// WithIntent attaches typed safety-intent derivation to a typed operation.
+func WithIntent[I any](handler TypedIntentHandler[I]) TypedOption[I] {
+	return func(cfg *typedConfig[I]) {
+		cfg.intent = handler
+	}
+}
+
 // NewTyped adapts a typed Go handler into an operation and derives JSON Schema
 // for the input and output contracts when the spec does not already provide
 // them.
-func NewTyped[I, O any](spec operation.Spec, handler TypedHandler[I, O]) operation.Operation {
+func NewTyped[I, O any](spec operation.Spec, handler TypedHandler[I, O], opts ...TypedOption[I]) operation.Operation {
 	spec = WithTypedContract[I, O](spec)
-	return operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
+	op := operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
 		var zero O
 		in, err := Bind[I](input)
 		if err != nil {
@@ -37,13 +54,14 @@ func NewTyped[I, O any](spec operation.Spec, handler TypedHandler[I, O]) operati
 		}
 		return operation.OK(out)
 	})
+	return withTypedOptions[I](op, opts...)
 }
 
 // NewTypedResult adapts a typed Go handler into an operation while preserving
 // the handler's ability to return rejected, failed, canceled, or ok results.
-func NewTypedResult[I, O any](spec operation.Spec, handler TypedResultHandler[I, O]) operation.Operation {
+func NewTypedResult[I, O any](spec operation.Spec, handler TypedResultHandler[I, O], opts ...TypedOption[I]) operation.Operation {
 	spec = WithTypedContract[I, O](spec)
-	return operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
+	op := operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
 		in, err := Bind[I](input)
 		if err != nil {
 			return operation.Failed("invalid_"+string(spec.Ref.Name)+"_input", err.Error(), nil)
@@ -54,6 +72,33 @@ func NewTypedResult[I, O any](spec operation.Spec, handler TypedResultHandler[I,
 		}
 		return handler(ctx, in)
 	})
+	return withTypedOptions[I](op, opts...)
+}
+
+func withTypedOptions[I any](op operation.Operation, opts ...TypedOption[I]) operation.Operation {
+	cfg := typedConfig[I]{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&cfg)
+		}
+	}
+	if cfg.intent == nil {
+		return op
+	}
+	return typedIntentOperation[I]{Operation: op, intent: cfg.intent}
+}
+
+type typedIntentOperation[I any] struct {
+	operation.Operation
+	intent TypedIntentHandler[I]
+}
+
+func (o typedIntentOperation[I]) Intent(ctx operation.Context, input operation.Value) (operation.IntentSet, error) {
+	in, err := Bind[I](input)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return o.intent(ctx, in)
 }
 
 // WithTypedContract fills empty input/output contracts on spec from I and O.

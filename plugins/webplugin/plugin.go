@@ -52,7 +52,7 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	if p.system == nil {
 		return nil, fmt.Errorf("webplugin: system is nil")
 	}
-	return []operation.Operation{operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request())}, nil
+	return []operation.Operation{operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent))}, nil
 }
 
 func requestSpec() operation.Spec {
@@ -75,6 +75,18 @@ type requestInput struct {
 	Body      string            `json:"body,omitempty" jsonschema:"description=Request body for methods that support one."`
 	TimeoutMS int               `json:"timeout_ms,omitempty" jsonschema:"description=Timeout in milliseconds."`
 	MaxBytes  int               `json:"max_bytes,omitempty" jsonschema:"description=Maximum response body bytes."`
+}
+
+func requestIntent(_ operation.Context, req requestInput) (operation.IntentSet, error) {
+	if strings.TrimSpace(req.URL) == "" {
+		return operation.IntentSet{}, fmt.Errorf("url is required")
+	}
+	return operation.IntentSet{Operations: []operation.IntentOperation{{
+		Behavior:  operation.IntentNetworkFetch,
+		Target:    operation.URLTarget{URL: operation.URL(req.URL)},
+		Role:      operation.IntentRoleNetworkTarget,
+		Certainty: operation.IntentCertain,
+	}}}, nil
 }
 
 func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[string]any] {

@@ -88,7 +88,7 @@ func TestSafetyEnvelopeAppliesACL(t *testing.T) {
 
 func TestSafetyEnvelopeRoutesCommandRiskApprovalToGate(t *testing.T) {
 	approval := recordingApproval{}
-	op := operation.New(operation.Spec{
+	op := intentOperation{Operation: operation.New(operation.Spec{
 		Ref: operation.Ref{Name: "git_commit"},
 		Semantics: operation.Semantics{
 			Effects: operation.EffectSet{operation.EffectProcess},
@@ -96,7 +96,7 @@ func TestSafetyEnvelopeRoutesCommandRiskApprovalToGate(t *testing.T) {
 		},
 	}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
-	})
+	})}
 	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
 		CommandRisk:    fixedCommandRisk{risk: CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true}},
 		Approval:       &approval,
@@ -115,7 +115,7 @@ func TestSafetyEnvelopeRoutesCommandRiskApprovalToGate(t *testing.T) {
 }
 
 func TestSafetyEnvelopeApprovalRequiredFailsClosedWithoutGate(t *testing.T) {
-	op := operation.New(operation.Spec{
+	op := intentOperation{Operation: operation.New(operation.Spec{
 		Ref: operation.Ref{Name: "git_commit"},
 		Semantics: operation.Semantics{
 			Effects: operation.EffectSet{operation.EffectProcess},
@@ -123,7 +123,7 @@ func TestSafetyEnvelopeApprovalRequiredFailsClosedWithoutGate(t *testing.T) {
 		},
 	}, func(_ operation.Context, _ operation.Value) operation.Result {
 		return operation.OK(nil)
-	})
+	})}
 	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
 		CommandRisk:    fixedCommandRisk{risk: CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true}},
 		Sandbox:        allowSandbox{},
@@ -141,7 +141,7 @@ func TestSafetyEnvelopeApprovalRequiredFailsClosedWithoutGate(t *testing.T) {
 }
 
 func TestSafetyEnvelopeApprovalDenialRejectsOperation(t *testing.T) {
-	op := operation.New(operation.Spec{
+	op := intentOperation{Operation: operation.New(operation.Spec{
 		Ref: operation.Ref{Name: "git_commit"},
 		Semantics: operation.Semantics{
 			Effects: operation.EffectSet{operation.EffectProcess},
@@ -149,7 +149,7 @@ func TestSafetyEnvelopeApprovalDenialRejectsOperation(t *testing.T) {
 		},
 	}, func(_ operation.Context, _ operation.Value) operation.Result {
 		return operation.OK(nil)
-	})
+	})}
 	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
 		CommandRisk:    fixedCommandRisk{risk: CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true}},
 		Approval:       denyApproval{},
@@ -181,8 +181,21 @@ type fixedCommandRisk struct {
 	risk CommandRisk
 }
 
-func (f fixedCommandRisk) Classify(operation.Context, operation.Spec, operation.Value) (CommandRisk, error) {
+func (f fixedCommandRisk) Classify(operation.Context, operation.Spec, operation.IntentSet) (CommandRisk, error) {
 	return f.risk, nil
+}
+
+type intentOperation struct {
+	operation.Operation
+}
+
+func (o intentOperation) Intent(operation.Context, operation.Value) (operation.IntentSet, error) {
+	return operation.IntentSet{Operations: []operation.IntentOperation{{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command("git")},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
+	}}}, nil
 }
 
 type recordingApproval struct {

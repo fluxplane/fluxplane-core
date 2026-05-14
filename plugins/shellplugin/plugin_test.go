@@ -41,6 +41,34 @@ func TestShellExecStreamsProcessEvents(t *testing.T) {
 	}
 }
 
+func TestShellExecIntentUsesNormalizedCommand(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	op := findOp(t, ops, ExecOp)
+	provider, ok := op.(operation.IntentProvider)
+	if !ok {
+		t.Fatalf("%s does not implement IntentProvider", op.Spec().Ref.String())
+	}
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), execInput{Command: "printf hello", Workdir: "subdir"})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if len(intents.Operations) != 1 {
+		t.Fatalf("intents = %#v, want one operation", intents)
+	}
+	target, ok := intents.Operations[0].Target.(operation.ProcessTarget)
+	if !ok || target.Command != "printf" || len(target.Args) != 1 || target.Args[0] != "hello" || target.Workdir != "subdir" {
+		t.Fatalf("target = %#v, want normalized printf command", intents.Operations[0].Target)
+	}
+}
+
 func TestBackgroundProcessLifecycle(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
@@ -67,20 +95,24 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	if processID == "" {
 		t.Fatalf("start data = %#v, want id", data)
 	}
-	time.Sleep(50 * time.Millisecond)
 	if list.Run(operation.NewContext(context.Background(), nil), map[string]any{}).IsError() {
 		t.Fatal("process_list failed")
 	}
 	if status.Run(operation.NewContext(context.Background(), nil), map[string]any{"process_id": processID}).IsError() {
 		t.Fatal("process_status failed")
 	}
-	out := output.Run(operation.NewContext(context.Background(), nil), map[string]any{"process_id": processID})
-	if out.IsError() {
-		t.Fatalf("process_output error = %#v", out.Error)
+	var out operation.Result
+	for i := 0; i < 20; i++ {
+		out = output.Run(operation.NewContext(context.Background(), nil), map[string]any{"process_id": processID})
+		if out.IsError() {
+			t.Fatalf("process_output error = %#v", out.Error)
+		}
+		if strings.Contains(out.Output.(operation.Rendered).Text, "background") {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-	if !strings.Contains(out.Output.(operation.Rendered).Text, "background") {
-		t.Fatalf("output = %#v, want captured text", out.Output)
-	}
+	t.Fatalf("output = %#v, want captured text", out.Output)
 }
 
 func findOp(t *testing.T, ops []operation.Operation, name string) operation.Operation {

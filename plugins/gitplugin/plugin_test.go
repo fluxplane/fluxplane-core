@@ -61,6 +61,22 @@ func TestAddStagesExplicitPath(t *testing.T) {
 	}
 }
 
+func TestAddIntentIncludesIndexAndPaths(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[AddOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), addInput{Paths: []string{"README.md"}})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if !hasPathIntent(intents, operation.IntentPersistenceModify, ".git/index") {
+		t.Fatalf("intents = %#v, want index write", intents)
+	}
+	if !hasPathIntent(intents, operation.IntentFilesystemRead, "README.md") {
+		t.Fatalf("intents = %#v, want README read", intents)
+	}
+}
+
 func TestCommitRejectsEmptyMessage(t *testing.T) {
 	ops := testGitOperations(t, t.TempDir())
 	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{})
@@ -131,6 +147,28 @@ func TestCommitAutoStagesPaths(t *testing.T) {
 	}
 }
 
+func TestCommitIntentIncludesStageAndCommitTargets(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[CommitOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), commitInput{
+		Message: "test: add file",
+		Stage:   true,
+		Paths:   []string{"file.txt"},
+	})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	for _, path := range []string{".git/index", ".git", ".git/COMMIT_EDITMSG", "file.txt"} {
+		if !hasAnyPathIntent(intents, path) {
+			t.Fatalf("intents = %#v, want path %s", intents, path)
+		}
+	}
+	if !hasProcessIntent(intents, "git") {
+		t.Fatalf("intents = %#v, want git process intent", intents)
+	}
+}
+
 func TestCommitDoesNotRunPostCommitHook(t *testing.T) {
 	dir := testRepo(t)
 	ops := testGitOperations(t, dir)
@@ -174,6 +212,45 @@ func TestCommitAutoStagesAll(t *testing.T) {
 func hasOperation(specs []operation.Spec, name string) bool {
 	for _, spec := range specs {
 		if string(spec.Ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func requireIntentProvider(t *testing.T, op operation.Operation) operation.IntentProvider {
+	t.Helper()
+	provider, ok := op.(operation.IntentProvider)
+	if !ok {
+		t.Fatalf("%s does not implement IntentProvider", op.Spec().Ref.String())
+	}
+	return provider
+}
+
+func hasPathIntent(intents operation.IntentSet, behavior operation.IntentBehavior, path string) bool {
+	for _, intent := range intents.Operations {
+		target, ok := intent.Target.(operation.PathTarget)
+		if ok && intent.Behavior == behavior && target.Path == operation.Path(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyPathIntent(intents operation.IntentSet, path string) bool {
+	for _, intent := range intents.Operations {
+		target, ok := intent.Target.(operation.PathTarget)
+		if ok && target.Path == operation.Path(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasProcessIntent(intents operation.IntentSet, command string) bool {
+	for _, intent := range intents.Operations {
+		target, ok := intent.Target.(operation.ProcessTarget)
+		if ok && target.Command == operation.Command(command) {
 			return true
 		}
 	}

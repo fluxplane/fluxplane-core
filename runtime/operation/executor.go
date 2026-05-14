@@ -63,7 +63,7 @@ func (e Executor) Execute(ctx operation.Context, op operation.Operation, input o
 
 	base := func(ctx operation.Context, input operation.Value) operation.Result {
 		if e.Safety != nil {
-			if err := e.Safety.Check(ctx, spec, input); err != nil {
+			if err := e.Safety.Check(ctx, op, input); err != nil {
 				return operation.Rejected("operation_safety_denied", err.Error(), nil)
 			}
 		}

@@ -50,7 +50,7 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	if p.system == nil {
 		return nil, fmt.Errorf("codeplugin: system is nil")
 	}
-	return []operation.Operation{operationruntime.NewTypedResult[executeInput, map[string]any](executeSpec(), p.execute())}, nil
+	return []operation.Operation{operationruntime.NewTypedResult[executeInput, map[string]any](executeSpec(), p.execute(), operationruntime.WithIntent(executeIntent))}, nil
 }
 
 func executeSpec() operation.Spec {
@@ -89,6 +89,57 @@ var presets = map[string]preset{
 	"python": {Image: "python:3.12-alpine", Command: []string{"python"}},
 	"go":     {Image: "golang:1.26-alpine", Command: []string{"go", "run"}},
 	"node":   {Image: "node:24-alpine", Command: []string{"node"}},
+}
+
+func executeIntent(_ operation.Context, req executeInput) (operation.IntentSet, error) {
+	preset, ok := presets[req.Preset]
+	if !ok {
+		return operation.IntentSet{}, fmt.Errorf("unknown preset")
+	}
+	if len(req.Files) == 0 {
+		return operation.IntentSet{}, fmt.Errorf("files are required")
+	}
+	command := append([]string(nil), req.Command...)
+	if len(command) == 0 {
+		command = append([]string(nil), preset.Command...)
+		if strings.TrimSpace(req.Entry) != "" {
+			command = append(command, req.Entry)
+		}
+	}
+	if len(command) == 0 {
+		return operation.IntentSet{}, fmt.Errorf("command or entry is required")
+	}
+	args := []string{"run", "--rm", "--network", "none", "-v", "<scratch>:/workspace", "-w", "/workspace", preset.Image}
+	args = append(args, command...)
+	ops := []operation.IntentOperation{
+		processIntent("docker", args...),
+	}
+	for _, file := range req.Files {
+		clean := path.Clean(strings.TrimSpace(file.Path))
+		if clean == "" || strings.HasPrefix(clean, "/") || clean == ".." || strings.HasPrefix(clean, "../") {
+			return operation.IntentSet{}, fmt.Errorf("file path must stay inside scratch workspace")
+		}
+		ops = append(ops, operation.IntentOperation{
+			Behavior:  operation.IntentFilesystemWrite,
+			Target:    operation.PathTarget{Path: operation.Path(path.Join("<scratch>", clean))},
+			Role:      operation.IntentRoleWriteTarget,
+			Certainty: operation.IntentCertain,
+		})
+	}
+	return operation.IntentSet{Operations: ops}, nil
+}
+
+func processIntent(command string, args ...string) operation.IntentOperation {
+	arguments := make([]operation.Argument, 0, len(args))
+	for _, arg := range args {
+		arguments = append(arguments, operation.Argument(arg))
+	}
+	return operation.IntentOperation{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command(command), Args: arguments},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
+	}
 }
 
 func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, map[string]any] {

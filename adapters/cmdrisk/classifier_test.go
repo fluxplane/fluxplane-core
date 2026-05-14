@@ -3,6 +3,7 @@ package cmdrisk
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -10,19 +11,18 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 )
 
-func TestClassifierRejectsDestructiveCommand(t *testing.T) {
+func TestClassifierRejectsDestructiveProcessIntent(t *testing.T) {
 	classifier := New(Config{WorkingDirectory: t.TempDir()})
 	spec := operation.Spec{
-		Ref: operation.Ref{Name: "shell_exec"},
+		Ref: operation.Ref{Name: "process"},
 		Semantics: operation.Semantics{
 			Effects: operation.EffectSet{operation.EffectProcess},
 			Risk:    operation.RiskMedium,
 		},
 	}
 
-	risk, err := classifier.Classify(operation.NewContext(context.Background(), event.Discard()), spec, map[string]any{
-		"command": "rm",
-		"args":    []any{"-rf", "/"},
+	risk, err := classifier.Classify(operation.NewContext(context.Background(), event.Discard()), spec, operation.IntentSet{
+		Operations: []operation.IntentOperation{processIntent("rm", "-rf", "/")},
 	})
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
@@ -32,47 +32,53 @@ func TestClassifierRejectsDestructiveCommand(t *testing.T) {
 	}
 }
 
-func TestClassifierEmitsAssessmentEvent(t *testing.T) {
+func TestClassifierEmitsAssessmentEventForURLIntent(t *testing.T) {
 	var emitted event.Event
 	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
 		emitted = evt
 	}))
 	classifier := New(Config{WorkingDirectory: t.TempDir()})
 	spec := operation.Spec{
-		Ref: operation.Ref{Name: "web_request"},
+		Ref: operation.Ref{Name: "fetch"},
 		Semantics: operation.Semantics{
 			Effects: operation.EffectSet{operation.EffectNetwork, operation.EffectReadExternal},
 			Risk:    operation.RiskLow,
 		},
 	}
 
-	if _, err := classifier.Classify(ctx, spec, map[string]any{"url": "https://example.com"}); err != nil {
+	if _, err := classifier.Classify(ctx, spec, operation.IntentSet{
+		Operations: []operation.IntentOperation{{
+			Behavior:  operation.IntentNetworkFetch,
+			Target:    operation.URLTarget{URL: operation.URL("https://example.com")},
+			Role:      operation.IntentRoleNetworkTarget,
+			Certainty: operation.IntentCertain,
+		}},
+	}); err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
 	assessed, ok := emitted.(Assessed)
 	if !ok {
 		t.Fatalf("emitted = %#v, want Assessed", emitted)
 	}
-	if assessed.Operation.Name != "web_request" || assessed.Action == "" || assessed.Action == "declared_risk" {
+	if assessed.Operation.Name != "fetch" || assessed.Action == "" || assessed.Action == "declared_risk" {
 		t.Fatalf("assessment = %#v", assessed)
 	}
 }
 
-func TestClassifierFallsBackToDeclaredRiskForProcessLifecycleOperation(t *testing.T) {
+func TestClassifierFallsBackToDeclaredRiskForEmptyIntent(t *testing.T) {
 	var emitted event.Event
 	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
 		emitted = evt
 	}))
 	classifier := New(Config{WorkingDirectory: t.TempDir()})
 	spec := operation.Spec{
-		Ref: operation.Ref{Name: "process_list"},
+		Ref: operation.Ref{Name: "lifecycle"},
 		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectProcess},
-			Risk:    operation.RiskLow,
+			Risk: operation.RiskLow,
 		},
 	}
 
-	risk, err := classifier.Classify(ctx, spec, map[string]any{})
+	risk, err := classifier.Classify(ctx, spec, operation.IntentSet{})
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
@@ -88,67 +94,7 @@ func TestClassifierFallsBackToDeclaredRiskForProcessLifecycleOperation(t *testin
 	}
 }
 
-func TestClassifierFallsBackToDeclaredRiskForBrowserSessionOperation(t *testing.T) {
-	var emitted event.Event
-	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
-		emitted = evt
-	}))
-	classifier := New(Config{WorkingDirectory: t.TempDir()})
-	spec := operation.Spec{
-		Ref: operation.Ref{Name: "browser_read"},
-		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectNetwork, operation.EffectReadExternal},
-			Risk:    operation.RiskMedium,
-		},
-	}
-
-	risk, err := classifier.Classify(ctx, spec, map[string]any{"session_id": "session-1"})
-	if err != nil {
-		t.Fatalf("Classify: %v", err)
-	}
-	if risk.Level != operation.RiskMedium || risk.Reason != "declared operation risk" {
-		t.Fatalf("risk = %#v, want declared medium risk", risk)
-	}
-	assessed, ok := emitted.(Assessed)
-	if !ok {
-		t.Fatalf("emitted = %#v, want Assessed", emitted)
-	}
-	if assessed.Action != "declared_risk" || assessed.Level != operation.RiskMedium {
-		t.Fatalf("assessment = %#v, want declared_risk medium", assessed)
-	}
-}
-
-func TestClassifierAssessesNativeGitWriteOperations(t *testing.T) {
-	for _, name := range []string{"git_add", "git_commit"} {
-		t.Run(name, func(t *testing.T) {
-			var emitted event.Event
-			ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
-				emitted = evt
-			}))
-			classifier := New(Config{WorkingDirectory: t.TempDir()})
-			spec := operation.Spec{
-				Ref: operation.Ref{Name: operation.Name(name)},
-				Semantics: operation.Semantics{
-					Effects: operation.EffectSet{operation.EffectProcess},
-					Risk:    operation.RiskMedium,
-				},
-			}
-
-			if _, err := classifier.Classify(ctx, spec, map[string]any{}); err != nil {
-				t.Fatalf("Classify: %v", err)
-			}
-			assessed, ok := emitted.(Assessed)
-			if !ok {
-				t.Fatalf("emitted = %#v, want Assessed", emitted)
-			}
-			if string(assessed.Operation.Name) != name || assessed.Action == "" || assessed.Action == "declared_risk" {
-				t.Fatalf("assessment = %#v, want command assessment", assessed)
-			}
-		})
-	}
-}
-
-func TestClassifierNativeGitCommitUsesStructuredIntent(t *testing.T) {
+func TestClassifierIncludesPathIntentTargets(t *testing.T) {
 	var emitted event.Event
 	root := t.TempDir()
 	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
@@ -156,49 +102,29 @@ func TestClassifierNativeGitCommitUsesStructuredIntent(t *testing.T) {
 	}))
 	classifier := New(Config{WorkingDirectory: root})
 	spec := operation.Spec{
-		Ref: operation.Ref{Name: "git_commit"},
+		Ref: operation.Ref{Name: "stage"},
 		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectProcess},
+			Effects: operation.EffectSet{operation.EffectFilesystem, operation.EffectWriteExternal},
 			Risk:    operation.RiskMedium,
 		},
 	}
 
-	if _, err := classifier.Classify(ctx, spec, map[string]any{"message": "docs: add logo"}); err != nil {
-		t.Fatalf("Classify: %v", err)
-	}
-	assessed, ok := emitted.(Assessed)
-	if !ok {
-		t.Fatalf("emitted = %#v, want Assessed", emitted)
-	}
-	if assessed.Action == "declared_risk" {
-		t.Fatalf("assessment = %#v, want structured assessment", assessed)
-	}
-	for _, behavior := range assessed.Behaviors {
-		if behavior == "network_fetch" {
-			t.Fatalf("behaviors = %#v, native git commit must not be modeled as network fetch", assessed.Behaviors)
-		}
-	}
-	if strings.Contains(strings.ToLower(assessed.Rationale), "remote") || strings.Contains(strings.ToLower(assessed.Rationale), "fetch") {
-		t.Fatalf("rationale = %q, want local git commit rationale", assessed.Rationale)
-	}
-}
-
-func TestClassifierNativeGitAddIncludesPathIntent(t *testing.T) {
-	var emitted event.Event
-	root := t.TempDir()
-	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
-		emitted = evt
-	}))
-	classifier := New(Config{WorkingDirectory: root})
-	spec := operation.Spec{
-		Ref: operation.Ref{Name: "git_add"},
-		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectProcess},
-			Risk:    operation.RiskMedium,
+	if _, err := classifier.Classify(ctx, spec, operation.IntentSet{
+		Operations: []operation.IntentOperation{
+			{
+				Behavior:  operation.IntentFilesystemRead,
+				Target:    operation.PathTarget{Path: operation.Path("README.md")},
+				Role:      operation.IntentRoleReadTarget,
+				Certainty: operation.IntentCertain,
+			},
+			{
+				Behavior:  operation.IntentPersistenceModify,
+				Target:    operation.PathTarget{Path: operation.Path(".git/index")},
+				Role:      operation.IntentRoleWriteTarget,
+				Certainty: operation.IntentCertain,
+			},
 		},
-	}
-
-	if _, err := classifier.Classify(ctx, spec, map[string]any{"paths": []any{"README.md"}}); err != nil {
+	}); err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
 	assessed, ok := emitted.(Assessed)
@@ -211,47 +137,28 @@ func TestClassifierNativeGitAddIncludesPathIntent(t *testing.T) {
 	}
 }
 
-func TestClassifierShellExecGitCommitUsesCommandAssessment(t *testing.T) {
-	var emitted event.Event
-	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
-		emitted = evt
-	}))
-	classifier := New(Config{WorkingDirectory: t.TempDir()})
-	spec := operation.Spec{
-		Ref: operation.Ref{Name: "shell_exec"},
-		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectProcess},
-			Risk:    operation.RiskMedium,
-		},
+func TestClassifierHasNoOperationNameSpecialCases(t *testing.T) {
+	data, err := os.ReadFile("classifier.go")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
 	}
-
-	if _, err := classifier.Classify(ctx, spec, map[string]any{"command": "git", "args": []any{"commit", "-m", "docs"}}); err != nil {
-		t.Fatalf("Classify: %v", err)
-	}
-	assessed, ok := emitted.(Assessed)
-	if !ok {
-		t.Fatalf("emitted = %#v, want Assessed", emitted)
-	}
-	if assessed.Action == "declared_risk" {
-		t.Fatalf("assessment = %#v, want shell command assessment", assessed)
+	source := string(data)
+	for _, forbidden := range []string{"git_", "shell_exec", "web_request"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("classifier.go contains operation-specific token %q", forbidden)
+		}
 	}
 }
 
-func TestClassifierShellExecEmptyCommandIsHighRisk(t *testing.T) {
-	classifier := New(Config{WorkingDirectory: t.TempDir()})
-	spec := operation.Spec{
-		Ref: operation.Ref{Name: "shell_exec"},
-		Semantics: operation.Semantics{
-			Effects: operation.EffectSet{operation.EffectProcess},
-			Risk:    operation.RiskMedium,
-		},
+func processIntent(command string, args ...string) operation.IntentOperation {
+	arguments := make([]operation.Argument, 0, len(args))
+	for _, arg := range args {
+		arguments = append(arguments, operation.Argument(arg))
 	}
-
-	risk, err := classifier.Classify(operation.NewContext(context.Background(), event.Discard()), spec, map[string]any{})
-	if err != nil {
-		t.Fatalf("Classify: %v", err)
-	}
-	if risk.Level != operation.RiskHigh || risk.Reason != "empty command" {
-		t.Fatalf("risk = %#v, want high empty command", risk)
+	return operation.IntentOperation{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command(command), Args: arguments},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
 	}
 }

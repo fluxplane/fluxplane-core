@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Type-safe operation safety intents let concrete operations describe expected
+  process, filesystem, and network effects from typed inputs before execution.
 - Terminal approval prompts for local `agentsdk run` and `coder` operation
   approvals, with fail-closed behavior when no approval input is available.
 - First-party `plugins/imageplugin` with `image_generate`, `image_understand`,
@@ -35,8 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Image plugin operation and action-tool schemas now derive from typed
   operation contracts instead of hand-written JSON Schema.
 - Command-risk approvals now route through the runtime approval gate, and
-  native `git_add`/`git_commit` operations are classified from structured
-  intent instead of synthetic shell commands.
+  cmdrisk now classifies generic operation intents instead of plugin-specific
+  operation names or raw input maps.
 
 ## [0.8.0] - 2026-05-14
 

@@ -50,3 +50,34 @@ func TestNewTypedGeneratesSchemaAndBindsInput(t *testing.T) {
 		t.Fatalf("output = %#v", result.Output)
 	}
 }
+
+func TestNewTypedResultDerivesIntentFromTypedInput(t *testing.T) {
+	op := NewTypedResult[typedInput, typedOutput](operation.Spec{
+		Ref: operation.Ref{Name: "inspect"},
+	}, func(_ operation.Context, input typedInput) operation.Result {
+		return operation.OK(typedOutput{Greeting: input.Name})
+	}, WithIntent(func(_ operation.Context, input typedInput) (operation.IntentSet, error) {
+		return operation.IntentSet{Operations: []operation.IntentOperation{{
+			Behavior:  operation.IntentFilesystemRead,
+			Target:    operation.PathTarget{Path: operation.Path(input.Name)},
+			Role:      operation.IntentRoleReadTarget,
+			Certainty: operation.IntentCertain,
+		}}}, nil
+	}))
+
+	provider, ok := op.(operation.IntentProvider)
+	if !ok {
+		t.Fatal("operation does not implement IntentProvider")
+	}
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), map[string]any{"name": "README.md"})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if len(intents.Operations) != 1 {
+		t.Fatalf("intents = %#v, want one operation", intents)
+	}
+	target, ok := intents.Operations[0].Target.(operation.PathTarget)
+	if !ok || target.Path != "README.md" {
+		t.Fatalf("target = %#v, want README.md path", intents.Operations[0].Target)
+	}
+}

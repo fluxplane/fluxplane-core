@@ -56,12 +56,12 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		return nil, fmt.Errorf("shellplugin: system is nil")
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ExecOp), p.exec()),
-		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ProcessStartOp), p.start()),
-		operationruntime.NewTypedResult[processListInput, map[string]any](specByName(ProcessListOp), p.list()),
-		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessStatusOp), p.status()),
-		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessOutputOp), p.output()),
-		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessKillOp), p.kill()),
+		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ExecOp), p.exec(), operationruntime.WithIntent(execIntent)),
+		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ProcessStartOp), p.start(), operationruntime.WithIntent(execIntent)),
+		operationruntime.NewTypedResult[processListInput, map[string]any](specByName(ProcessListOp), p.list(), operationruntime.WithIntent(processListIntent)),
+		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessStatusOp), p.status(), operationruntime.WithIntent(processReadIntent)),
+		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessOutputOp), p.output(), operationruntime.WithIntent(processReadIntent)),
+		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessKillOp), p.kill(), operationruntime.WithIntent(processKillIntent)),
 	}, nil
 }
 
@@ -198,6 +198,56 @@ func (p Plugin) list() operationruntime.TypedResultHandler[processListInput, map
 
 type processIDInput struct {
 	ProcessID string `json:"process_id" jsonschema:"description=Managed process id.,required"`
+}
+
+func execIntent(_ operation.Context, req execInput) (operation.IntentSet, error) {
+	command, args, err := commandAndArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	if deniedCommand(command) {
+		return operation.IntentSet{}, fmt.Errorf("command is blocked by default policy")
+	}
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent(command, args, req.Workdir),
+	}}, nil
+}
+
+func processListIntent(operation.Context, processListInput) (operation.IntentSet, error) {
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent("process_manager", []string{"list"}, ""),
+	}}, nil
+}
+
+func processReadIntent(_ operation.Context, req processIDInput) (operation.IntentSet, error) {
+	if strings.TrimSpace(req.ProcessID) == "" {
+		return operation.IntentSet{}, fmt.Errorf("process_id is required")
+	}
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent("process_manager", []string{"read", req.ProcessID}, ""),
+	}}, nil
+}
+
+func processKillIntent(_ operation.Context, req processIDInput) (operation.IntentSet, error) {
+	if strings.TrimSpace(req.ProcessID) == "" {
+		return operation.IntentSet{}, fmt.Errorf("process_id is required")
+	}
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent("process_manager", []string{"kill", req.ProcessID}, ""),
+	}}, nil
+}
+
+func processIntent(command string, args []string, workdir string) operation.IntentOperation {
+	arguments := make([]operation.Argument, 0, len(args))
+	for _, arg := range args {
+		arguments = append(arguments, operation.Argument(arg))
+	}
+	return operation.IntentOperation{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command(command), Args: arguments, Workdir: operation.Workdir(workdir)},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
+	}
 }
 
 func (p Plugin) status() operationruntime.TypedResultHandler[processIDInput, map[string]any] {
