@@ -7,13 +7,23 @@ import (
 
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
+	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
+	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
 
@@ -70,6 +80,7 @@ func TestRunConnectorEngineRejectsUnknownProvider(t *testing.T) {
 }
 
 func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
+	withStateDir(t)
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
@@ -91,6 +102,7 @@ func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
 }
 
 func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
+	withStateDir(t)
 	_, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
@@ -104,6 +116,7 @@ func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
 }
 
 func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
+	withStateDir(t)
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
@@ -125,6 +138,7 @@ func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
 }
 
 func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
+	withStateDir(t)
 	tmp := t.TempDir()
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
@@ -154,6 +168,116 @@ func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
 	}
 }
 
+func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
+	withStateDir(t)
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Agents: []coreagent.Spec{{Name: "main"}},
+		}},
+		Dev:                 true,
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	if !hasDatasourceSpec(runtime, string(sessionhistoryplugin.DatasourceName)) {
+		t.Fatal("expected session history datasource")
+	}
+	if !hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
+		t.Fatal("expected datasource search operation")
+	}
+}
+
+func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
+	withStateDir(t)
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Agents:  []coreagent.Spec{{Name: "main"}},
+			Plugins: []resource.PluginRef{{Name: planexecplugin.Name}},
+		}},
+		Dev:                 true,
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	for _, name := range []string{string(planexecplugin.WorkerAgent), string(planexecplugin.ExplorerAgent)} {
+		spec, ok := agentSpec(runtime, name)
+		if !ok {
+			t.Fatalf("expected plugin agent %q", name)
+		}
+		if !agentHasOperation(spec, datasourceplugin.SearchOperation) ||
+			!agentHasOperation(spec, datasourceplugin.GetOperation) ||
+			!agentHasOperation(spec, datasourceplugin.BatchGetOperation) {
+			t.Fatalf("expected datasource operations on agent %q: %#v", name, spec.Operations)
+		}
+		if !agentHasDatasource(spec, string(sessionhistoryplugin.DatasourceName)) {
+			t.Fatalf("expected session history datasource on agent %q: %#v", name, spec.Datasources)
+		}
+		if !agentHasContext(spec, datasourceplugin.ContextProvider) {
+			t.Fatalf("expected datasource catalog context on agent %q: %#v", name, spec.Context)
+		}
+	}
+}
+
+func TestDatasourceIndexDevIncludesSessionHistoryCorpus(t *testing.T) {
+	withStateDir(t)
+	ctx := context.Background()
+	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
+	if err != nil {
+		t.Fatalf("NewEventRegistry: %v", err)
+	}
+	store, closeStore, err := openLocalThreadStore(registry)
+	if err != nil {
+		t.Fatalf("openLocalThreadStore: %v", err)
+	}
+	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_index_dev"})
+	if err != nil {
+		closeStore()
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = store.Append(ctx, corethread.Ref{ID: snapshot.ID, BranchID: snapshot.BranchID}, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventInputReceived,
+		Payload: coresession.InputReceived{
+			Message: channel.Message{Content: "index dev session history marker"},
+		},
+	}})
+	closeStore()
+	if err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	runtime, err := NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
+		Root:     t.TempDir(),
+		Provider: "hash",
+		Dev:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewDatasourceIndexRuntime: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
+	result, err := datasourceindex.Build(ctx, datasourceindex.Request{
+		Registry:   runtime.Registry,
+		Index:      runtime.Index,
+		Datasource: coredatasource.Name("session_history"),
+		Entity:     coredatasource.EntityType("session.message"),
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if result.Documents == 0 {
+		t.Fatalf("documents = 0, want session history corpus documents")
+	}
+}
+
 func hasOperationSpec(runtime Runtime, name string) bool {
 	for _, spec := range runtime.Composition.OperationSpecs {
 		if string(spec.Ref.Name) == name {
@@ -161,6 +285,56 @@ func hasOperationSpec(runtime Runtime, name string) bool {
 		}
 	}
 	return false
+}
+
+func hasDatasourceSpec(runtime Runtime, name string) bool {
+	for _, spec := range runtime.Composition.DatasourceSpecs {
+		if string(spec.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func agentSpec(runtime Runtime, name string) (coreagent.Spec, bool) {
+	for _, spec := range runtime.Composition.AgentSpecs {
+		if string(spec.Name) == name {
+			return spec, true
+		}
+	}
+	return coreagent.Spec{}, false
+}
+
+func agentHasOperation(spec coreagent.Spec, name string) bool {
+	for _, ref := range spec.Operations {
+		if string(ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func agentHasDatasource(spec coreagent.Spec, name string) bool {
+	for _, ref := range spec.Datasources {
+		if string(ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func agentHasContext(spec coreagent.Spec, name string) bool {
+	for _, ref := range spec.Context {
+		if string(ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func withStateDir(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }
 
 func TestSemanticEmbedderDefaultsToAxon(t *testing.T) {

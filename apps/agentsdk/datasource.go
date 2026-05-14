@@ -24,6 +24,7 @@ type datasourceIndexOptions struct {
 	storePath      string
 	provider       string
 	model          string
+	dev            bool
 }
 
 func newDatasourceCommand() *cobra.Command {
@@ -98,6 +99,7 @@ func addDatasourceIndexFlags(cmd *cobra.Command, opts *datasourceIndexOptions) {
 	cmd.Flags().StringVar(&opts.storePath, "store", "", "semantic index store path")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "embedding provider: axon, hash, or openai")
 	cmd.Flags().StringVar(&opts.model, "model", "", "embedding model id")
+	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer datasources such as session history")
 }
 
 func runDatasourceIndexBuild(ctx context.Context, opts datasourceIndexOptions, appDir string, out io.Writer) error {
@@ -178,6 +180,7 @@ func datasourceIndexRuntime(ctx context.Context, opts datasourceIndexOptions, ap
 		StorePath: opts.storePath,
 		Provider:  opts.provider,
 		Model:     opts.model,
+		Dev:       opts.dev,
 	})
 }
 

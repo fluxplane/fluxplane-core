@@ -33,8 +33,13 @@ type Config struct {
 	EventTypes        []event.Event
 	Plugins           []pluginhost.Plugin
 	Bundles           []resource.ContributionBundle
+	BundleTransforms  []BundleTransform
 	OperationExecutor operationruntime.Executor
 }
+
+// BundleTransform mutates or augments resource bundles after plugin
+// contributions have been resolved and before catalogs are collected.
+type BundleTransform func([]resource.ContributionBundle) []resource.ContributionBundle
 
 // Composition is executable runtime configuration assembled from resources and
 // provided implementations.
@@ -85,6 +90,12 @@ func Compose(cfg Config) (Composition, error) {
 	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
+	}
+	for _, transform := range cfg.BundleTransforms {
+		if transform == nil {
+			continue
+		}
+		bundles = transform(bundles)
 	}
 	for _, bundle := range bundles {
 		diagnostics = append(diagnostics, bundle.Diagnostics...)

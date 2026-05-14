@@ -8,7 +8,9 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -24,6 +26,12 @@ type EventRegistryConfig struct {
 // NewEventRegistry builds a decoder registry for runtime event payloads.
 func NewEventRegistry(cfg EventRegistryConfig) (*event.Registry, error) {
 	registry := event.NewRegistry()
+	if err := corethread.RegisterEvents(registry); err != nil {
+		return nil, fmt.Errorf("app: register thread events: %w", err)
+	}
+	if err := coresession.RegisterEvents(registry); err != nil {
+		return nil, fmt.Errorf("app: register session events: %w", err)
+	}
 	for _, sample := range defaultEventTypes() {
 		if err := registerEventType(registry, sample); err != nil {
 			return nil, err

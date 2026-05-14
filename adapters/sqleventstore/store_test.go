@@ -157,3 +157,52 @@ func TestRuntimeThreadStoreOnSQLStore(t *testing.T) {
 		t.Fatalf("node id = %q, want node-1", read.Events[1].NodeID)
 	}
 }
+
+func TestRuntimeThreadStorePersistsAcrossReopen(t *testing.T) {
+	registry := event.NewRegistry()
+	if err := corethread.RegisterEvents(registry); err != nil {
+		t.Fatalf("register thread events: %v", err)
+	}
+	if err := registry.Register(messageAdded{}); err != nil {
+		t.Fatalf("register message event: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "threads.db")
+	ctx := context.Background()
+
+	sqlStore, err := Open(path, registry)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	threadStore, err := runtimethread.NewStore(sqlStore)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-1"}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, corethread.Ref{ID: "thread-1"}, corethread.AppendRecord{
+		Event: event.Record{Payload: messageAdded{Text: "persisted"}},
+	}); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+	if err := sqlStore.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	reopened, err := Open(path, registry)
+	if err != nil {
+		t.Fatalf("reopen returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	reopenedThreads, err := runtimethread.NewStore(reopened)
+	if err != nil {
+		t.Fatalf("NewStore reopened returned error: %v", err)
+	}
+	read, err := reopenedThreads.Read(ctx, corethread.ReadParams{ID: "thread-1"})
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	if len(read.Events) != 2 {
+		t.Fatalf("len(read.Events) = %d, want 2", len(read.Events))
+	}
+}

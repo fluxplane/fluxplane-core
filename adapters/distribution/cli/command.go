@@ -53,6 +53,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 				Debug:               opts.debug,
 				Usage:               opts.usage,
 				Yolo:                opts.yolo,
+				Dev:                 opts.dev,
 				Prompt:              dist.Spec.Name,
 				In:                  os.Stdin,
 				Out:                 os.Stdout,
@@ -70,6 +71,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
+	cmd.PersistentFlags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.AddCommand(newDescribeCommand(dist))
 	cmd.AddCommand(newModelsCommand(dist))
 	return cmd
@@ -86,6 +88,7 @@ type options struct {
 	debug            bool
 	usage            bool
 	yolo             bool
+	dev              bool
 }
 
 // RunOptions configures a distribution REPL or one-shot run.
@@ -106,6 +109,7 @@ type RunOptions struct {
 	Debug               bool
 	Usage               bool
 	Yolo                bool
+	Dev                 bool
 	Prompt              string
 	In                  io.Reader
 	Out                 io.Writer
@@ -200,6 +204,7 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 		EffortSet:    opts.EffortSet,
 		Debug:        opts.Debug,
 		Yolo:         opts.Yolo,
+		Dev:          opts.Dev,
 	})
 }
 
