@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Browser CDP sessions no longer cancel immediately after `browser_open` when
+  later operations reuse the session.
+- Failed model turns now preserve pending transcript input, and replay uses
+  concrete provider model identities so resolved model IDs do not drop context.
 - OpenRouter/Responses replay now repairs orphan tool-result transcript items
   instead of sending provider-invalid tool messages without matching calls.
 - OpenAI image generation no longer sends unsupported `response_format` for
@@ -23,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Local launches can set `AGENTRUNTIME_BROWSER_HEADLESS=false` to run browser
+  automation with a visible Chrome window for smoke testing.
 - Improved architecture score by moving pure event codec helpers into core and
   removing unused runtime pass-through fields from app composition.
 - Architecture reports now include score penalty explanations so improvement

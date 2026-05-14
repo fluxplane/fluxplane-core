@@ -124,6 +124,18 @@ func (a *Agent) ContextProviders() []corecontext.Provider {
 	return append([]corecontext.Provider(nil), a.contextProviders...)
 }
 
+// ProviderIdentity reports the concrete provider identity selected by the
+// model for this agent, when the model exposes it.
+func (a *Agent) ProviderIdentity() coreconversation.ProviderIdentity {
+	if a == nil {
+		return coreconversation.ProviderIdentity{}
+	}
+	if identified, ok := a.model.(ProviderIdentityModel); ok {
+		return identified.ProviderIdentity(Request{Agent: a.spec, Driver: a.driver})
+	}
+	return coreconversation.ProviderIdentity{}
+}
+
 // Step advances one LLM-backed agent turn.
 func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
 	if a == nil {

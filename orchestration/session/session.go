@@ -464,7 +464,7 @@ func derefHandle(handle **coreconversation.ContinuationHandle) *coreconversation
 }
 
 func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
-	if !hasToolResultTranscriptItems(items) {
+	if len(items) == 0 {
 		return nil
 	}
 	copied := append([]coreconversation.Item(nil), items...)
@@ -487,13 +487,8 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 	return out
 }
 
-func hasToolResultTranscriptItems(items []coreconversation.Item) bool {
-	for _, item := range items {
-		if item.Kind == coreconversation.ItemToolResult {
-			return true
-		}
-	}
-	return false
+type providerIdentityAgent interface {
+	ProviderIdentity() coreconversation.ProviderIdentity
 }
 
 type contextProviderAgent interface {
@@ -908,21 +903,27 @@ func (s Session) transcriptForPending(ctx context.Context, pending, localItems [
 func (s Session) providerIdentity() coreconversation.ProviderIdentity {
 	var identity coreconversation.ProviderIdentity
 	if s.Agent != nil {
+		if identified, ok := s.Agent.(providerIdentityAgent); ok {
+			identity = identified.ProviderIdentity()
+		}
 		spec := s.Agent.Spec()
-		identity.Model = spec.Inference.Model
+		identity.Model = firstNonEmptyString(identity.Model, spec.Inference.Model)
 		identity.Provider = firstNonEmptyString(
+			identity.Provider,
 			spec.Inference.Annotations["provider"],
 			spec.Inference.Annotations["llm.provider"],
 			spec.Driver.Annotations["provider"],
 			stringFromAny(spec.Driver.Config["provider"]),
 		)
 		identity.API = firstNonEmptyString(
+			identity.API,
 			spec.Inference.Annotations["api"],
 			spec.Inference.Annotations["llm.api"],
 			spec.Driver.Annotations["api"],
 			stringFromAny(spec.Driver.Config["api"]),
 		)
 		identity.Family = firstNonEmptyString(
+			identity.Family,
 			spec.Inference.Annotations["family"],
 			spec.Inference.Annotations["llm.family"],
 			spec.Driver.Annotations["family"],

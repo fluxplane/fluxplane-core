@@ -191,7 +191,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	hostSystem.SetClarifier(terminalui.Prompter{In: os.Stdin, Out: os.Stderr})
-	browser, err := browsercdp.New(browsercdp.Config{Workspace: hostSystem.Workspace(), Headless: true})
+	browser, err := browsercdp.New(browsercdp.Config{Workspace: hostSystem.Workspace(), Headless: browserHeadless()})
 	if err == nil {
 		hostSystem.SetBrowser(browser)
 	} else if opts.Debug {
@@ -302,6 +302,15 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Dispatcher:  dispatcher,
 		Close:       closeRuntime,
 	}, nil
+}
+
+func browserHeadless() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTRUNTIME_BROWSER_HEADLESS"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agentruntime.ToolProjectionConfig {

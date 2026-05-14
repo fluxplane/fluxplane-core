@@ -1493,6 +1493,127 @@ func TestExecuteInboundInputUsesProviderContinuationWithPrefixedModel(t *testing
 	}
 }
 
+func TestExecuteInboundInputUsesConcreteModelIdentityForReplay(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-concrete-model-replay"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{
+		Provider: "openrouter",
+		API:      "openrouter.responses",
+		Family:   "responses",
+		Model:    "minimax/minimax-m2.7-20260318",
+	}
+	var transcripts []coreconversation.Transcript
+	model := sessionIdentifiedModel{
+		identity: provider,
+		complete: func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+			if req.Transcript == nil {
+				t.Fatalf("transcript is nil")
+			}
+			transcripts = append(transcripts, *req.Transcript)
+			items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+			if len(transcripts) == 1 {
+				items = append(items, coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "noted"})
+				return llmagent.Response{
+					Message:    &agent.Message{Content: "noted"},
+					Transcript: coreconversation.Transcript{Provider: provider, Items: items},
+				}, nil
+			}
+			items = append(items, coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "still here"})
+			return llmagent.Response{
+				Message:    &agent.Message{Content: "still here"},
+				Transcript: coreconversation.Transcript{Provider: provider, Items: items},
+			}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "openrouter/minimax/minimax-m2.7"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-concrete-model-replay"}}
+
+	first := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "remember browser failure"}})
+	if first.Status != InputStatusOK {
+		t.Fatalf("first status = %q, want ok: %#v", first.Status, first)
+	}
+	second := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "so?"}})
+	if second.Status != InputStatusOK {
+		t.Fatalf("second status = %q, want ok: %#v", second.Status, second)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	if transcripts[1].Provider != provider {
+		t.Fatalf("second provider = %#v, want concrete provider %#v", transcripts[1].Provider, provider)
+	}
+	if !hasTranscriptUserContent(transcripts[1].Items, "remember browser failure") {
+		t.Fatalf("second items = %#v, want first prompt replayed", transcripts[1].Items)
+	}
+}
+
+func TestExecuteInboundInputPersistsPendingInputWhenModelFails(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-failed-input-replay"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	calls := 0
+	var secondTranscript coreconversation.Transcript
+	model := sessionIdentifiedModel{
+		identity: provider,
+		complete: func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+			calls++
+			if calls == 1 {
+				return llmagent.Response{}, errors.New("transport failed")
+			}
+			if req.Transcript == nil {
+				t.Fatalf("transcript is nil")
+			}
+			secondTranscript = *req.Transcript
+			items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+			items = append(items, coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "I saw it"})
+			return llmagent.Response{
+				Message:    &agent.Message{Content: "I saw it"},
+				Transcript: coreconversation.Transcript{Provider: provider, Items: items},
+			}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-failed-input-replay"}}
+
+	first := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "open login page"}})
+	if first.Status != InputStatusFailed {
+		t.Fatalf("first status = %q, want failed: %#v", first.Status, first)
+	}
+	second := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "so?"}})
+	if second.Status != InputStatusOK {
+		t.Fatalf("second status = %q, want ok: %#v", second.Status, second)
+	}
+	if !hasTranscriptUserContent(secondTranscript.Items, "open login page") || !hasTranscriptUserContent(secondTranscript.Items, "so?") {
+		t.Fatalf("second transcript = %#v, want failed prompt and follow-up", secondTranscript.Items)
+	}
+}
+
 func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 	commands := command.NewRegistry()
 	if err := commands.Register(command.Spec{
@@ -1525,6 +1646,19 @@ func TestExecuteInboundCommandRejectsInsufficientTrust(t *testing.T) {
 	if result.Policy.Reason != "insufficient_trust" {
 		t.Fatalf("policy reason = %q, want insufficient_trust", result.Policy.Reason)
 	}
+}
+
+type sessionIdentifiedModel struct {
+	identity coreconversation.ProviderIdentity
+	complete func(context.Context, llmagent.Request) (llmagent.Response, error)
+}
+
+func (m sessionIdentifiedModel) Complete(ctx context.Context, req llmagent.Request) (llmagent.Response, error) {
+	return m.complete(ctx, req)
+}
+
+func (m sessionIdentifiedModel) ProviderIdentity(llmagent.Request) coreconversation.ProviderIdentity {
+	return m.identity
 }
 
 type fixedAgent struct {

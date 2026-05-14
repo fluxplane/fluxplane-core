@@ -82,6 +82,10 @@ func (m *Manager) Open(ctx context.Context, req system.BrowserOpenRequest) (syst
 		height = 900
 	}
 	sessionCtx, cancel := chromedp.NewContext(m.allocCtx)
+	if err := chromedp.Run(sessionCtx); err != nil {
+		cancel()
+		return system.BrowserOpenResult{}, err
+	}
 	m.mu.Lock()
 	m.next++
 	id := fmt.Sprintf("browser-%d", m.next)
