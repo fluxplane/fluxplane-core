@@ -25,7 +25,6 @@ type Config struct {
 	HTTPClient        *http.Client
 	Runtime           openaiadapter.ResponsesRuntimeConfig
 	Pricing           []corellm.PricingSpec
-	ContextTokens     int64
 	ReasoningEffort   string
 	ReasoningSummary  string
 }
@@ -67,7 +66,6 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 		APIKey:            "codex-auth-via-middleware",
 		Runtime:           runtime,
 		Pricing:           cfg.Pricing,
-		ContextTokens:     cfg.ContextTokens,
 		ReasoningEffort:   cfg.ReasoningEffort,
 		ReasoningSummary:  cfg.ReasoningSummary,
 		ParallelToolCalls: cfg.ParallelToolCalls,

@@ -387,7 +387,6 @@ func newOpenAIModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Mo
 		Model:             string(modelSpec.Ref.Name),
 		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
-		ContextTokens:     modelSpec.ContextTokens,
 		ReasoningEffort:   opts.Reasoning.Effort,
 		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),
 		ParallelToolCalls: true,
@@ -400,7 +399,6 @@ func newCodexModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Mod
 		Model:             string(modelSpec.Ref.Name),
 		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
-		ContextTokens:     modelSpec.ContextTokens,
 		ReasoningEffort:   opts.Reasoning.Effort,
 		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),
 		ParallelToolCalls: true,
@@ -415,7 +413,6 @@ func newOpenRouterModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagen
 	return openrouter.New(openrouter.Config{
 		Model:             string(modelSpec.Ref.Name),
 		Pricing:           modelSpec.Pricing,
-		ContextTokens:     modelSpec.ContextTokens,
 		ReasoningEffort:   opts.Reasoning.Effort,
 		ReasoningSummary:  opts.Reasoning.Summary,
 		ParallelToolCalls: true,

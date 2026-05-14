@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added provider-neutral end-of-turn auto-compaction that checkpoints large
+  transcripts after they exceed the configured model context threshold.
 - Added `/compact` and `/compact --dry-run` built-in session commands for
   checkpointing or previewing deterministic provider transcript compaction.
 - Added opt-in runtime workspace roots so local launches can expose named
@@ -23,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed OpenAI-specific request-local transcript compaction so compaction
+  behavior is durable and session-owned across providers.
 - Conversation continuity repair now records durable diagnostics and preserves
   provider transcript data when tool-call assembly fails.
 - Read-only workspace roots can no longer be used as process working

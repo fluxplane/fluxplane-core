@@ -11,6 +11,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -47,6 +48,46 @@ func TestFactoryBuildsLLMAgentWithProjectedTools(t *testing.T) {
 	}
 	if len(request.Tools) != 1 {
 		t.Fatalf("tools len = %d, want 1", len(request.Tools))
+	}
+}
+
+func TestFactoryAnnotatesResolvedModelSpec(t *testing.T) {
+	var request llmagent.Request
+	composition := testComposition(t, agent.Spec{Name: "main"})
+	factory := New(Config{
+		Agents:         composition.AgentCatalog,
+		Resolver:       composition.Resolver,
+		CommandCatalog: composition.CommandCatalog,
+		ModelResolver: testModelResolverWithSpec{
+			model: llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+				request = req
+				return llmagent.MessageResponse("ok"), nil
+			}),
+			spec: corellm.ModelSpec{
+				Ref:             corellm.ModelRef{Provider: "openai", Name: "gpt-test"},
+				ContextTokens:   1000000,
+				MaxOutputTokens: 8192,
+			},
+		},
+	})
+	runtime, err := factory.Build(context.Background(), agent.Ref{Name: "main"})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if request.Agent.Inference.Annotations["llm.context_tokens"] != "1000000" {
+		t.Fatalf("annotations = %#v, want context tokens", request.Agent.Inference.Annotations)
+	}
+	if request.Agent.Inference.Annotations["llm.max_output_tokens"] != "8192" {
+		t.Fatalf("annotations = %#v, want max output tokens", request.Agent.Inference.Annotations)
+	}
+	if request.Agent.Inference.Model != "gpt-test" {
+		t.Fatalf("model = %q, want gpt-test", request.Agent.Inference.Model)
 	}
 }
 
@@ -405,6 +446,19 @@ func (testAgentContext) Err() error { return nil }
 func (testAgentContext) Value(any) any { return nil }
 
 func (testAgentContext) Events() event.Sink { return event.Discard() }
+
+type testModelResolverWithSpec struct {
+	model llmagent.Model
+	spec  corellm.ModelSpec
+}
+
+func (r testModelResolverWithSpec) ResolveModel(context.Context, agent.Spec) (llmagent.Model, error) {
+	return r.model, nil
+}
+
+func (r testModelResolverWithSpec) ResolveModelWithSpec(context.Context, agent.Spec) (ModelResolution, error) {
+	return ModelResolution{Model: r.model, Spec: r.spec}, nil
+}
 
 type testContextProvider struct {
 	name corecontext.ProviderName

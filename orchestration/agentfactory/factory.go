@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -38,6 +40,18 @@ func (f ModelResolverFunc) ResolveModel(ctx context.Context, spec agent.Spec) (l
 		return nil, llmagent.ErrModelMissing
 	}
 	return f(ctx, spec)
+}
+
+// ModelResolution describes a resolved runtime model and its catalog metadata.
+type ModelResolution struct {
+	Model llmagent.Model
+	Spec  corellm.ModelSpec
+}
+
+// ModelResolverWithSpec resolves the runtime model together with the inert
+// model catalog entry selected for the session.
+type ModelResolverWithSpec interface {
+	ResolveModelWithSpec(context.Context, agent.Spec) (ModelResolution, error)
 }
 
 // Config configures a composed-agent factory.
@@ -128,9 +142,12 @@ func (f *Factory) build(ctx context.Context, ref agent.Ref, profile coresession.
 }
 
 func (f *Factory) buildLLMAgent(ctx context.Context, spec agent.Spec) (agent.Agent, error) {
-	model, err := f.resolveModel(ctx, spec)
+	model, modelSpec, hasModelSpec, err := f.resolveModel(ctx, spec)
 	if err != nil {
 		return nil, err
+	}
+	if hasModelSpec {
+		spec = annotateResolvedModelSpec(spec, modelSpec)
 	}
 	repo, state, err := f.skillState(spec)
 	if err != nil {
@@ -231,21 +248,57 @@ func (f *Factory) resolvedSkillSpecs() ([]skill.Spec, error) {
 	return out, nil
 }
 
-func (f *Factory) resolveModel(ctx context.Context, spec agent.Spec) (llmagent.Model, error) {
+func (f *Factory) resolveModel(ctx context.Context, spec agent.Spec) (llmagent.Model, corellm.ModelSpec, bool, error) {
 	if f.modelResolver != nil {
+		if resolver, ok := f.modelResolver.(ModelResolverWithSpec); ok {
+			resolved, err := resolver.ResolveModelWithSpec(ctx, spec)
+			if err != nil {
+				return nil, corellm.ModelSpec{}, false, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, err)
+			}
+			if resolved.Model == nil {
+				return nil, corellm.ModelSpec{}, false, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, llmagent.ErrModelMissing)
+			}
+			return resolved.Model, resolved.Spec, true, nil
+		}
 		model, err := f.modelResolver.ResolveModel(ctx, spec)
 		if err != nil {
-			return nil, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, err)
+			return nil, corellm.ModelSpec{}, false, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, err)
 		}
 		if model == nil {
-			return nil, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, llmagent.ErrModelMissing)
+			return nil, corellm.ModelSpec{}, false, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, llmagent.ErrModelMissing)
 		}
-		return model, nil
+		return model, corellm.ModelSpec{}, false, nil
 	}
 	if f.model == nil {
-		return nil, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, llmagent.ErrModelMissing)
+		return nil, corellm.ModelSpec{}, false, fmt.Errorf("agentfactory: resolve model for agent %q: %w", spec.Name, llmagent.ErrModelMissing)
 	}
-	return f.model, nil
+	return f.model, corellm.ModelSpec{}, false, nil
+}
+
+func annotateResolvedModelSpec(spec agent.Spec, model corellm.ModelSpec) agent.Spec {
+	if spec.Inference.Annotations == nil {
+		spec.Inference.Annotations = map[string]string{}
+	} else {
+		spec.Inference.Annotations = cloneStringMap(spec.Inference.Annotations)
+	}
+	if model.ContextTokens > 0 {
+		spec.Inference.Annotations["llm.context_tokens"] = strconv.FormatInt(model.ContextTokens, 10)
+	}
+	if model.MaxOutputTokens > 0 {
+		spec.Inference.Annotations["llm.max_output_tokens"] = strconv.FormatInt(model.MaxOutputTokens, 10)
+	}
+	if spec.Inference.Model == "" && model.Ref.Name != "" {
+		spec.Inference.Model = string(model.Ref.Name)
+	}
+	return spec
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func (f *Factory) projectTools() toolprojection.Result {

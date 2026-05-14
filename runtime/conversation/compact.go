@@ -285,6 +285,12 @@ func compactionNotice(provider coreconversation.ProviderIdentity, omitted int) c
 	}
 }
 
+// EstimateItemsTokens returns the deterministic transcript token estimate used
+// by compaction decisions.
+func EstimateItemsTokens(items []coreconversation.Item) int {
+	return estimateItemsTokens(items)
+}
+
 func estimateItemsTokens(items []coreconversation.Item) int {
 	total := 0
 	for _, item := range items {

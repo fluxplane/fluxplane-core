@@ -22,6 +22,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -1041,7 +1042,7 @@ func TestExecuteInboundCommandCompactPersistsCheckpoint(t *testing.T) {
 	if !checkpoint.Stats.CheckpointPersist || checkpoint.Stats.SummarizedItems == 0 {
 		t.Fatalf("checkpoint stats = %#v, want persisted summarized checkpoint", checkpoint.Stats)
 	}
-	if len(checkpoint.Items) != 1 || checkpoint.Items[0].Metadata["compaction"] != "tool_result_summary" {
+	if !hasCompactedToolResult(checkpoint.Items) {
 		t.Fatalf("checkpoint items = %#v, want compacted tool result", checkpoint.Items)
 	}
 }
@@ -1092,11 +1093,337 @@ func TestExecuteInboundCommandCompactAffectsNextReplay(t *testing.T) {
 	if len(got.Items) < 2 {
 		t.Fatalf("transcript items = %#v, want compacted checkpoint plus pending", got.Items)
 	}
-	if got.Items[0].Metadata["compaction"] != "tool_result_summary" {
-		t.Fatalf("first item = %#v, want compacted checkpoint item", got.Items[0])
+	if !hasCompactedToolResult(got.Items) {
+		t.Fatalf("transcript items = %#v, want compacted checkpoint item", got.Items)
 	}
-	if strings.Contains(valueText(got.Items[0].Content), "large tool result") {
-		t.Fatalf("first content still contains original large result")
+	for _, item := range got.Items {
+		if strings.Contains(valueText(item.Content), "large tool result") {
+			t.Fatalf("item still contains original large result: %#v", item)
+		}
+	}
+	if !hasTranscriptUserContent(got.Items, "continue") {
+		t.Fatalf("transcript items = %#v, want pending user prompt", got.Items)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactsAfterSuccessfulTurn(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       autoCompactAgent(t, provider, "16000", strings.Repeat("large assistant output ", 4000)),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	checkpoints := compactionEvents(stored.Events)
+	if len(checkpoints) != 1 {
+		t.Fatalf("compaction events = %d, want 1", len(checkpoints))
+	}
+	if !checkpoints[0].Stats.CheckpointPersist || checkpoints[0].Stats.SummarizedItems == 0 {
+		t.Fatalf("checkpoint stats = %#v, want persisted summarized checkpoint", checkpoints[0].Stats)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionSkipsBelowThreshold(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-skip")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       autoCompactAgent(t, provider, "16000", "small response"),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 0 {
+		t.Fatalf("compaction events = %d, want none", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionUsesTriggerBoundary(t *testing.T) {
+	ctx := context.Background()
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+
+	t.Run("at threshold", func(t *testing.T) {
+		threadStore, ref := compactThread(t, ctx, "thread-auto-compact-boundary-at")
+		s := Session{
+			Agent:       autoCompactAgent(t, provider, "16000", ""),
+			ThreadStore: threadStore,
+			Thread:      ref,
+		}
+		_, budget := s.compactOptionsAndBudget()
+		item := autoCompactAssistantOutput(provider, "at-threshold", exactTokenContent(budget.TriggerTokens))
+		if tokens := conversationruntime.EstimateItemsTokens([]coreconversation.Item{item}); tokens != budget.TriggerTokens {
+			t.Fatalf("estimated tokens = %d, want trigger %d", tokens, budget.TriggerTokens)
+		}
+		if err := s.appendConversation(ctx, "turn-1", provider, []coreconversation.Item{item}); err != nil {
+			t.Fatalf("append transcript: %v", err)
+		}
+
+		if err := s.autoCompactAfterTurn(ctx, "turn-1"); err != nil {
+			t.Fatalf("auto compact: %v", err)
+		}
+		stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+		if err != nil {
+			t.Fatalf("read thread: %v", err)
+		}
+		if got := len(compactionEvents(stored.Events)); got != 0 {
+			t.Fatalf("compaction events = %d, want none at trigger threshold", got)
+		}
+	})
+
+	t.Run("above threshold", func(t *testing.T) {
+		threadStore, ref := compactThread(t, ctx, "thread-auto-compact-boundary-over")
+		s := Session{
+			Agent:       autoCompactAgent(t, provider, "16000", ""),
+			ThreadStore: threadStore,
+			Thread:      ref,
+		}
+		_, budget := s.compactOptionsAndBudget()
+		item := autoCompactAssistantOutput(provider, "over-threshold", exactTokenContent(budget.TriggerTokens+1))
+		if tokens := conversationruntime.EstimateItemsTokens([]coreconversation.Item{item}); tokens != budget.TriggerTokens+1 {
+			t.Fatalf("estimated tokens = %d, want trigger+1 %d", tokens, budget.TriggerTokens+1)
+		}
+		if err := s.appendConversation(ctx, "turn-1", provider, []coreconversation.Item{item}); err != nil {
+			t.Fatalf("append transcript: %v", err)
+		}
+
+		if err := s.autoCompactAfterTurn(ctx, "turn-1"); err != nil {
+			t.Fatalf("auto compact: %v", err)
+		}
+		stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+		if err != nil {
+			t.Fatalf("read thread: %v", err)
+		}
+		if got := len(compactionEvents(stored.Events)); got != 1 {
+			t.Fatalf("compaction events = %d, want one above trigger threshold", got)
+		}
+	})
+}
+
+func TestExecuteInboundInputAutoCompactionCapsLargeModelContext(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-cap")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       autoCompactAgent(t, provider, "1000000", strings.Repeat("large capped-model output ", 40000)),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 1 {
+		t.Fatalf("compaction events = %d, want cap-triggered checkpoint", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionUsesDefaultContextWhenMissingAnnotation(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-default-context")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       autoCompactAgentWithOptions(t, provider, autoCompactAgentOptions{Output: exactTokenContent(30000)}),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 0 {
+		t.Fatalf("compaction events = %d, want none with default context budget", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionUsesOutputReserve(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-output-reserve")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent: autoCompactAgentWithOptions(t, provider, autoCompactAgentOptions{
+			ContextTokens:   "16000",
+			MaxOutputTokens: 12000,
+			Output:          exactTokenContent(5000),
+		}),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+	_, budget := s.compactOptionsAndBudget()
+	if budget.OutputReserve != 12000 || budget.TriggerTokens != compactLargeItemTokens {
+		t.Fatalf("budget = %#v, want output reserve to reduce trigger to large item floor", budget)
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 1 {
+		t.Fatalf("compaction events = %d, want reserve-triggered checkpoint", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionFailureDoesNotFailTurn(t *testing.T) {
+	ctx := context.Background()
+	base, ref := compactThread(t, ctx, "thread-auto-compact-fail")
+	threadStore := failCompactionStore{Store: base}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       autoCompactAgent(t, provider, "16000", strings.Repeat("large assistant output ", 4000)),
+		ThreadStore: threadStore,
+		Thread:      ref,
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok despite compaction append failure", result)
+	}
+	stored, err := base.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 0 {
+		t.Fatalf("compaction events = %d, want failed append omitted", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionSkipsFailedTurn(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-skip-failed")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:   "coder",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{
+			Model: provider.Model,
+			Annotations: map[string]string{
+				"provider":           provider.Provider,
+				"api":                provider.API,
+				"family":             provider.Family,
+				"llm.context_tokens": "16000",
+			},
+		},
+	}, llmagent.ModelFunc(func(context.Context, llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{}, errors.New("model down")
+	}))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: ref}
+	if err := s.appendConversation(ctx, "turn-0", provider, []coreconversation.Item{
+		autoCompactAssistantOutput(provider, "preexisting", strings.Repeat("large prior output ", 4000)),
+	}); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+
+	result := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+
+	if result.Status != InputStatusFailed {
+		t.Fatalf("input = %#v, want failed", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := len(compactionEvents(stored.Events)); got != 0 {
+		t.Fatalf("compaction events = %d, want none after failed turn", got)
+	}
+}
+
+func TestExecuteInboundInputAutoCompactionAffectsNextReplay(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := compactThread(t, ctx, "thread-auto-compact-replay")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	const original = "large replay assistant output "
+	var got coreconversation.Transcript
+	calls := 0
+	model := sessionIdentifiedModel{
+		identity: provider,
+		complete: func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+			calls++
+			items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+			if calls == 2 {
+				got = *req.Transcript
+				items = append(items, autoCompactAssistantOutput(provider, "small", "ok"))
+			} else {
+				items = append(items, autoCompactAssistantOutput(provider, "large", strings.Repeat(original, 4000)))
+			}
+			return llmagent.Response{
+				Message:    &agent.Message{Content: "ok"},
+				Transcript: coreconversation.Transcript{Provider: provider, Items: items},
+			}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:   "coder",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{
+			Model: provider.Model,
+			Annotations: map[string]string{
+				"provider":           provider.Provider,
+				"api":                provider.API,
+				"family":             provider.Family,
+				"llm.context_tokens": "16000",
+			},
+		},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: ref}
+
+	first := s.ExecuteInboundInput(ctx, compactMessageInbound("run-1", "hello"))
+	if first.Status != InputStatusOK {
+		t.Fatalf("first input = %#v, want ok", first)
+	}
+	second := s.ExecuteInboundInput(ctx, compactMessageInbound("run-2", "continue"))
+	if second.Status != InputStatusOK {
+		t.Fatalf("second input = %#v, want ok", second)
+	}
+	if !hasCompactedAssistantOutput(got.Items) {
+		t.Fatalf("transcript items = %#v, want compacted assistant checkpoint", got.Items)
+	}
+	for _, item := range got.Items {
+		if strings.Contains(valueText(item.Content), original) {
+			t.Fatalf("item still contains original large output: %#v", item)
+		}
 	}
 	if !hasTranscriptUserContent(got.Items, "continue") {
 		t.Fatalf("transcript items = %#v, want pending user prompt", got.Items)
@@ -1881,6 +2208,24 @@ func hasTranscriptUserContent(items []coreconversation.Item, content string) boo
 	return false
 }
 
+func hasCompactedToolResult(items []coreconversation.Item) bool {
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemToolResult && item.Metadata["compaction"] == "tool_result_summary" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasCompactedAssistantOutput(items []coreconversation.Item) bool {
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemOutput && item.Metadata["compaction"] == "assistant_output_summary" {
+			return true
+		}
+	}
+	return false
+}
+
 func compactTestAgent(t *testing.T, provider coreconversation.ProviderIdentity) agent.Agent {
 	t.Helper()
 	runtimeAgent, err := llmagent.New(agent.Spec{
@@ -1901,6 +2246,79 @@ func compactTestAgent(t *testing.T, provider coreconversation.ProviderIdentity) 
 	return runtimeAgent
 }
 
+type autoCompactAgentOptions struct {
+	ContextTokens   string
+	MaxOutputTokens int
+	Output          string
+}
+
+func autoCompactAgent(t *testing.T, provider coreconversation.ProviderIdentity, contextTokens, output string) agent.Agent {
+	t.Helper()
+	return autoCompactAgentWithOptions(t, provider, autoCompactAgentOptions{
+		ContextTokens: contextTokens,
+		Output:        output,
+	})
+}
+
+func autoCompactAgentWithOptions(t *testing.T, provider coreconversation.ProviderIdentity, opts autoCompactAgentOptions) agent.Agent {
+	t.Helper()
+	model := sessionIdentifiedModel{
+		identity: provider,
+		complete: func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+			items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+			items = append(items, autoCompactAssistantOutput(provider, "assistant", opts.Output))
+			return llmagent.Response{
+				Message:    &agent.Message{Content: "ok"},
+				Transcript: coreconversation.Transcript{Provider: provider, Items: items},
+			}, nil
+		},
+	}
+	annotations := map[string]string{
+		"provider": provider.Provider,
+		"api":      provider.API,
+		"family":   provider.Family,
+	}
+	if opts.ContextTokens != "" {
+		annotations["llm.context_tokens"] = opts.ContextTokens
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:   "coder",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{
+			Model:           provider.Model,
+			MaxOutputTokens: opts.MaxOutputTokens,
+			Annotations:     annotations,
+		},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	return runtimeAgent
+}
+
+func autoCompactAssistantOutput(provider coreconversation.ProviderIdentity, name, content string) coreconversation.Item {
+	return coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Name: name, Content: content}
+}
+
+func exactTokenContent(tokens int) string {
+	if tokens <= 0 {
+		return ""
+	}
+	return strings.Repeat("x", tokens*4-3)
+}
+
+func compactThread(t *testing.T, ctx context.Context, id corethread.ID) (corethread.Store, corethread.Ref) {
+	t.Helper()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: id}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	return threadStore, corethread.Ref{ID: id}
+}
+
 func compactLargeToolResult(provider coreconversation.ProviderIdentity, callID string) []coreconversation.Item {
 	return []coreconversation.Item{{
 		Provider: provider,
@@ -1911,6 +2329,16 @@ func compactLargeToolResult(provider coreconversation.ProviderIdentity, callID s
 	}}
 }
 
+func compactMessageInbound(id, content string) channel.Inbound {
+	return channel.Inbound{
+		ID:      id,
+		Kind:    channel.InboundMessage,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Message: &channel.Message{Content: content},
+	}
+}
+
 func compactInbound(id string, input any) channel.Inbound {
 	return channel.Inbound{
 		ID:      id,
@@ -1919,6 +2347,19 @@ func compactInbound(id string, input any) channel.Inbound {
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
 		Command: &command.Invocation{Path: command.Path{"compact"}, Input: input},
 	}
+}
+
+type failCompactionStore struct {
+	corethread.Store
+}
+
+func (s failCompactionStore) Append(ctx context.Context, ref corethread.Ref, records ...corethread.AppendRecord) ([]corethread.Record, error) {
+	for _, record := range records {
+		if _, ok := record.Event.Payload.(coreconversation.CompactionStored); ok {
+			return nil, errors.New("compaction append failed")
+		}
+	}
+	return s.Store.Append(ctx, ref, records...)
 }
 
 func compactionEvents(records []corethread.Record) []coreconversation.CompactionStored {

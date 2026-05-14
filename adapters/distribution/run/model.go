@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
+	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -74,14 +75,30 @@ type ModelResolver struct {
 }
 
 func (r ModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	registry, err := DefaultModelRegistryWithAliases(r.ProviderSpecs, r.ModelAliases)
+	resolved, err := r.resolveModel(spec)
 	if err != nil {
 		return nil, err
+	}
+	return resolved.Model, nil
+}
+
+func (r ModelResolver) ResolveModelWithSpec(_ context.Context, spec agent.Spec) (agentfactory.ModelResolution, error) {
+	return r.resolveModel(spec)
+}
+
+func (r ModelResolver) resolveModel(spec agent.Spec) (agentfactory.ModelResolution, error) {
+	registry, err := DefaultModelRegistryWithAliases(r.ProviderSpecs, r.ModelAliases)
+	if err != nil {
+		return agentfactory.ModelResolution{}, err
 	}
 	selection := registry.ResolveModelSelection(firstNonEmptyString(r.Provider, r.DefaultProvider, "openai"), firstNonEmptyString(r.Model, spec.Inference.Model, r.DefaultModel))
 	_, modelSpec, ok := registry.ModelSpec(selection.Provider, selection.Model)
 	if !ok {
-		return registry.NewModel(selection, r.Debug)
+		model, err := registry.NewModel(selection, r.Debug)
+		if err != nil {
+			return agentfactory.ModelResolution{}, err
+		}
+		return agentfactory.ModelResolution{Model: model}, nil
 	}
 	reasoning, err := ResolveReasoning(selection.Provider, modelSpec, spec.Inference, ReasoningOverrides{
 		Thinking:    r.Thinking,
@@ -90,9 +107,13 @@ func (r ModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagen
 		EffortSet:   r.EffortSet,
 	})
 	if err != nil {
-		return nil, err
+		return agentfactory.ModelResolution{}, err
 	}
-	return registry.NewModelWithOptions(selection, ModelOptions{Debug: r.Debug, Reasoning: reasoning})
+	model, err := registry.NewModelWithOptions(selection, ModelOptions{Debug: r.Debug, Reasoning: reasoning})
+	if err != nil {
+		return agentfactory.ModelResolution{}, err
+	}
+	return agentfactory.ModelResolution{Model: model, Spec: modelSpec}, nil
 }
 
 // ValidateReasoningFlags validates user-facing CLI flag values.
