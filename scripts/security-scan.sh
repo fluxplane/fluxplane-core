@@ -34,10 +34,10 @@ rg_exclude_args() {
 trufflehog_exclude_paths_file() {
 	local exclude_file="$1"
 	cat >"$exclude_file" <<'EOF'
-^\.git/
-^\.cache/
-^vendor/
-^node_modules/
+(^|.*/)\.git/
+(^|.*/)\.cache/
+(^|.*/)vendor/
+(^|.*/)node_modules/
 EOF
 }
 
