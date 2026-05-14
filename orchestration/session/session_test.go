@@ -1484,6 +1484,12 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	if result.Error == nil || result.Error.Code != "step_limit_exceeded" {
 		t.Fatalf("error = %#v, want step_limit_exceeded", result.Error)
 	}
+	if result.Error.Message != "inner loop reached max_steps=2 model decision calls" {
+		t.Fatalf("error message = %q, want inner max_steps detail", result.Error.Message)
+	}
+	if result.Error.Details["loop"] != "inner" || result.Error.Details["max_steps"] != 2 {
+		t.Fatalf("error details = %#v, want inner max_steps detail", result.Error.Details)
+	}
 	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-limit-repair"})
 	if err != nil {
 		t.Fatalf("read thread: %v", err)

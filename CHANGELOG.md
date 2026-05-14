@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-blocking `task quality:metrics` reports coverage plus optional
   cyclomatic and cognitive complexity hotspots for refactoring guidance.
 
+### Changed
+
+- `step_limit_exceeded` session errors now report the inner-loop
+  `max_steps` model-decision-call limit in their message and structured
+  details, distinguishing the inner agent loop from outer continuation.
+
 ### Fixed
 
 - Removed OpenAI-specific request-local transcript compaction so compaction

@@ -472,7 +472,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		observations = append(observations, observationsForEffects(batch)...)
 		pending = toolResults
 	}
-	return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Effects: effects, Error: &CommandError{Code: "step_limit_exceeded", Message: "agent reached max_steps"}}, State: state, Effects: effects}
+	return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Effects: effects, Error: innerStepLimitError(maxSteps)}, State: state, Effects: effects}
 }
 
 func (s Session) finalizeInputResult(ctx context.Context, inbound channel.Inbound, result InputResult) InputResult {
@@ -1327,7 +1327,23 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 }
 
 func (s Session) stepLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
-	return s.operationBoundaryResult(ctx, inbound, agentResult, effects, &CommandError{Code: "step_limit_exceeded", Message: "agent reached max_steps"})
+	return s.operationBoundaryResult(ctx, inbound, agentResult, effects, innerStepLimitError(s.maxSteps()))
+}
+
+func innerStepLimitError(maxSteps int) *CommandError {
+	if maxSteps <= 0 {
+		maxSteps = 1
+	}
+	return &CommandError{
+		Code:    "step_limit_exceeded",
+		Message: fmt.Sprintf("inner loop reached max_steps=%d model decision calls", maxSteps),
+		Details: map[string]any{
+			"loop":                 "inner",
+			"limit":                "max_steps",
+			"max_steps":            maxSteps,
+			"model_decision_calls": maxSteps,
+		},
+	}
 }
 
 func (s Session) operationBoundaryResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult, limitErr ...*CommandError) InputResult {
