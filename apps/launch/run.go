@@ -272,6 +272,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			DefaultModel:    opts.Spec.DefaultModel.Model,
 			Debug:           opts.Debug,
 			ProviderSpecs:   composition.LLMProviderSpecs,
+			ModelAliases:    composition.LLMModelAliases,
 		},
 		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
 		ToolProjection: firstToolProjection(opts.ToolProjection, agentruntime.ToolProjectionConfig{

@@ -74,6 +74,7 @@ type ContributionBundle struct {
 	Commands         []command.Spec             `json:"commands,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty"`
 	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty"`
+	LLMModelAliases  []corellm.ModelAliasSpec   `json:"llm_model_aliases,omitempty"`
 	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
 	Skills           []skill.Spec               `json:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
@@ -96,6 +97,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Commands = append(b.Commands, other.Commands...)
 	b.Datasources = append(b.Datasources, other.Datasources...)
 	b.LLMProviders = append(b.LLMProviders, other.LLMProviders...)
+	b.LLMModelAliases = append(b.LLMModelAliases, other.LLMModelAliases...)
 	b.Sessions = append(b.Sessions, other.Sessions...)
 	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)

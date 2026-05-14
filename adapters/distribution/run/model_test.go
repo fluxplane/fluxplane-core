@@ -43,6 +43,62 @@ func TestResolveModelSelectionKeepsOpenRouterSlashModel(t *testing.T) {
 	}
 }
 
+func TestResolveModelSelectionUsesBuiltInAliases(t *testing.T) {
+	registry, err := DefaultModelRegistry()
+	if err != nil {
+		t.Fatalf("DefaultModelRegistry: %v", err)
+	}
+	got := registry.ResolveModelSelection("openai", "codex")
+	if got.Provider != "codex" || got.Model != "gpt-5.5" {
+		t.Fatalf("codex selection = %#v, want codex/gpt-5.5", got)
+	}
+	got = registry.ResolveModelSelection("openai", "claude/sonnet")
+	if got.Provider != "anthropic" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
+		t.Fatalf("claude/sonnet selection = %#v, want anthropic claude sonnet", got)
+	}
+	got = registry.ResolveModelSelection("anthropic", "sonnet")
+	if got.Provider != "anthropic" || !strings.HasPrefix(got.Model, "claude-sonnet-") {
+		t.Fatalf("anthropic sonnet selection = %#v, want anthropic claude sonnet", got)
+	}
+	got = registry.ResolveModelSelection("openai", "minimax")
+	if got.Provider != "minimax" || got.Model == "" {
+		t.Fatalf("minimax selection = %#v, want minimax default model", got)
+	}
+}
+
+func TestResolveModelSelectionUsesModelAliasesFromProviders(t *testing.T) {
+	registry, err := NewModelRegistryWithAliases([]ModelProvider{{
+		Spec: corellm.ProviderSpec{
+			Name: "test",
+			Models: []corellm.ModelSpec{{
+				Ref:     corellm.ModelRef{Name: "test-model-v2"},
+				Aliases: []corellm.ModelName{"latest"},
+			}},
+		},
+	}}, nil, nil)
+	if err != nil {
+		t.Fatalf("NewModelRegistryWithAliases: %v", err)
+	}
+	got := registry.ResolveModelSelection("openai", "test/latest")
+	if got.Provider != "test" || got.Model != "test-model-v2" {
+		t.Fatalf("selection = %#v, want test/test-model-v2", got)
+	}
+}
+
+func TestResolveModelSelectionAppAliasesOverrideBuiltIns(t *testing.T) {
+	registry, err := DefaultModelRegistryWithAliases(nil, []corellm.ModelAliasSpec{{
+		Name:   "codex",
+		Target: corellm.ModelRef{Provider: "openai", Name: "gpt-4.1-mini"},
+	}})
+	if err != nil {
+		t.Fatalf("DefaultModelRegistryWithAliases: %v", err)
+	}
+	got := registry.ResolveModelSelection("openai", "codex")
+	if got.Provider != "openai" || got.Model != "gpt-4.1-mini" {
+		t.Fatalf("selection = %#v, want app alias override to openai/gpt-4.1-mini", got)
+	}
+}
+
 func TestNewModelRejectsUnknownOpenRouterModel(t *testing.T) {
 	_, err := NewModel(ModelSelection{Provider: "openrouter", Model: "gpt-5.5"}, false)
 	if err == nil || !strings.Contains(err.Error(), "exact OpenRouter model id") {

@@ -13,11 +13,12 @@ import (
 func TestContributionBundleAppendIncludesAppAndSkillSpecs(t *testing.T) {
 	var bundle ContributionBundle
 	bundle.Append(ContributionBundle{
-		Apps:         []coreapp.Spec{{Name: "dev"}},
-		Agents:       []agent.Spec{{Name: "main"}},
-		LLMProviders: []corellm.ProviderSpec{{Name: "openai"}},
-		Skills:       []skill.Spec{{Name: "architecture"}},
-		Workflows:    []workflow.Spec{{Name: "feature"}},
+		Apps:            []coreapp.Spec{{Name: "dev"}},
+		Agents:          []agent.Spec{{Name: "main"}},
+		LLMProviders:    []corellm.ProviderSpec{{Name: "openai"}},
+		LLMModelAliases: []corellm.ModelAliasSpec{{Name: "codex", Target: corellm.ModelRef{Provider: "codex", Name: "gpt-5.5"}}},
+		Skills:          []skill.Spec{{Name: "architecture"}},
+		Workflows:       []workflow.Spec{{Name: "feature"}},
 	})
 
 	if len(bundle.Apps) != 1 || bundle.Apps[0].Name != "dev" {
@@ -28,5 +29,8 @@ func TestContributionBundleAppendIncludesAppAndSkillSpecs(t *testing.T) {
 	}
 	if len(bundle.LLMProviders) != 1 || bundle.LLMProviders[0].Name != "openai" {
 		t.Fatalf("llm providers = %#v, want openai", bundle.LLMProviders)
+	}
+	if len(bundle.LLMModelAliases) != 1 || bundle.LLMModelAliases[0].Name != "codex" {
+		t.Fatalf("llm model aliases = %#v, want codex", bundle.LLMModelAliases)
 	}
 }

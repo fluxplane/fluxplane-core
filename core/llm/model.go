@@ -22,6 +22,33 @@ type ModelRef struct {
 	Name     ModelName    `json:"name" yaml:"name"`
 }
 
+// String returns the provider-qualified model reference when both components
+// are available.
+func (r ModelRef) String() string {
+	provider := strings.TrimSpace(string(r.Provider))
+	name := strings.TrimSpace(string(r.Name))
+	if provider == "" {
+		return name
+	}
+	if name == "" {
+		return provider
+	}
+	return provider + "/" + name
+}
+
+// ParseModelRef parses a provider-qualified model reference. The model portion
+// may itself contain slashes, as with OpenRouter model IDs.
+func ParseModelRef(raw string) (ModelRef, error) {
+	raw = strings.TrimSpace(raw)
+	provider, model, ok := strings.Cut(raw, "/")
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	if !ok || provider == "" || model == "" {
+		return ModelRef{}, fmt.Errorf("llm: model ref %q must be <provider>/<model>", raw)
+	}
+	return ModelRef{Provider: ProviderName(provider), Name: ModelName(model)}, nil
+}
+
 // Modality describes supported input or output modalities.
 type Modality string
 
@@ -43,6 +70,7 @@ type ModelSpec struct {
 	MaxOutputTokens  int64             `json:"max_output_tokens,omitempty" yaml:"max_output_tokens,omitempty"`
 	Capabilities     CapabilitySet     `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Pricing          []PricingSpec     `json:"pricing,omitempty" yaml:"pricing,omitempty"`
+	Aliases          []ModelName       `json:"aliases,omitempty" yaml:"aliases,omitempty"`
 	Annotations      map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
@@ -56,6 +84,11 @@ func (s ModelSpec) Validate() error {
 	}
 	if s.MaxOutputTokens < 0 {
 		return fmt.Errorf("llm: max_output_tokens must be >= 0")
+	}
+	for i, alias := range s.Aliases {
+		if strings.TrimSpace(string(alias)) == "" {
+			return fmt.Errorf("llm: aliases[%d] is empty", i)
+		}
 	}
 	for i, price := range s.Pricing {
 		if err := price.Validate(); err != nil {

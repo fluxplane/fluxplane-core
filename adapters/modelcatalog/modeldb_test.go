@@ -57,6 +57,35 @@ func TestProjectProviderFiltersByAPIAndAllowedModelIDs(t *testing.T) {
 	}
 }
 
+func TestProjectProviderPreservesModelAliases(t *testing.T) {
+	key := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "anthropic", Family: "claude", Version: "sonnet"})
+	catalog := modeldb.Catalog{
+		Models: map[modeldb.ModelKey]modeldb.ModelRecord{
+			key: {Key: key, Name: "Claude Sonnet", Aliases: []string{"claude-sonnet"}},
+		},
+		Services: map[string]modeldb.Service{"anthropic": {ID: "anthropic", Name: "Anthropic"}},
+		Offerings: map[modeldb.OfferingRef]modeldb.Offering{
+			{ServiceID: "anthropic", WireModelID: "claude-sonnet-4-6"}: {
+				ServiceID:   "anthropic",
+				WireModelID: "claude-sonnet-4-6",
+				ModelKey:    key,
+				Aliases:     []string{"sonnet"},
+				Exposures:   []modeldb.OfferingExposure{{APIType: modeldb.APITypeAnthropicMessages}},
+			},
+		},
+	}
+	spec, ok := ProjectProvider(catalog, ProviderProjection{
+		ServiceID: "anthropic",
+		APIType:   modeldb.APITypeAnthropicMessages,
+	})
+	if !ok {
+		t.Fatalf("ProjectProvider returned false")
+	}
+	if got := spec.Models[0].Aliases; len(got) != 2 || got[0] != "claude-sonnet" || got[1] != "sonnet" {
+		t.Fatalf("aliases = %#v, want model and offering aliases", got)
+	}
+}
+
 func TestFromModelDBAnnotatesOpenAIResponsesReasoningValues(t *testing.T) {
 	key := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "moonshot", Family: "kimi", Version: "2"})
 	catalog := modeldb.Catalog{

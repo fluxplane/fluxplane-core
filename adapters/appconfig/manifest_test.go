@@ -118,6 +118,35 @@ plugins:
 	}
 }
 
+func TestDecodeManifestLoadsModelAliases(t *testing.T) {
+	data := []byte(`
+kind: app
+name: engineer
+models:
+  alias:
+    codex: codex/gpt-5.5
+    claude/sonnet: anthropic/claude-sonnet-4-6
+`)
+
+	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
+	if err != nil {
+		t.Fatalf("DecodeManifest: %v", err)
+	}
+	if len(bundle.LLMModelAliases) != 2 {
+		t.Fatalf("aliases len = %d, want 2", len(bundle.LLMModelAliases))
+	}
+	got := map[string]string{}
+	for _, alias := range bundle.LLMModelAliases {
+		got[alias.Name] = alias.Target.String()
+	}
+	if got["codex"] != "codex/gpt-5.5" {
+		t.Fatalf("codex alias = %q, want codex/gpt-5.5", got["codex"])
+	}
+	if got["claude/sonnet"] != "anthropic/claude-sonnet-4-6" {
+		t.Fatalf("claude/sonnet alias = %q, want anthropic/claude-sonnet-4-6", got["claude/sonnet"])
+	}
+}
+
 func TestDecodeManifestLoadsSemanticSearchConfig(t *testing.T) {
 	data := []byte(`
 kind: app

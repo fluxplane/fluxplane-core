@@ -51,11 +51,18 @@ type ModelRegistry struct {
 	catalog   corellm.ProviderCatalog
 	factories map[corellm.ProviderName]modelFactory
 	hints     map[corellm.ProviderName]string
+	aliases   map[string]corellm.ModelRef
 }
 
 // NewModelRegistry builds a provider registry from runtime-backed providers
 // and optional inert provider specs.
 func NewModelRegistry(providers []ModelProvider, specs ...corellm.ProviderSpec) (ModelRegistry, error) {
+	return NewModelRegistryWithAliases(providers, specs, nil)
+}
+
+// NewModelRegistryWithAliases builds a provider registry with explicit model
+// alias overlays. Explicit aliases override provider/modeldb aliases.
+func NewModelRegistryWithAliases(providers []ModelProvider, specs []corellm.ProviderSpec, aliases []corellm.ModelAliasSpec) (ModelRegistry, error) {
 	byName := map[corellm.ProviderName]corellm.ProviderSpec{}
 	factories := map[corellm.ProviderName]modelFactory{}
 	hints := map[corellm.ProviderName]string{}
@@ -86,17 +93,27 @@ func NewModelRegistry(providers []ModelProvider, specs ...corellm.ProviderSpec) 
 	if err != nil {
 		return ModelRegistry{}, err
 	}
-	return ModelRegistry{catalog: catalog, factories: factories, hints: hints}, nil
+	aliasMap, err := modelAliases(catalog, aliases)
+	if err != nil {
+		return ModelRegistry{}, err
+	}
+	return ModelRegistry{catalog: catalog, factories: factories, hints: hints, aliases: aliasMap}, nil
 }
 
 // DefaultModelRegistry returns the built-in providers projected from modeldb,
 // plus optional provider specs contributed by the loaded distribution.
 func DefaultModelRegistry(specs ...corellm.ProviderSpec) (ModelRegistry, error) {
+	return DefaultModelRegistryWithAliases(specs, nil)
+}
+
+// DefaultModelRegistryWithAliases returns the built-in providers with alias
+// overlays contributed by the loaded distribution.
+func DefaultModelRegistryWithAliases(specs []corellm.ProviderSpec, aliases []corellm.ModelAliasSpec) (ModelRegistry, error) {
 	providers, err := defaultModelProviders()
 	if err != nil {
 		return ModelRegistry{}, err
 	}
-	return NewModelRegistry(providers, specs...)
+	return NewModelRegistryWithAliases(providers, specs, aliases)
 }
 
 func (r ModelRegistry) ResolveModelSelection(provider, model string) ModelSelection {
@@ -105,6 +122,9 @@ func (r ModelRegistry) ResolveModelSelection(provider, model string) ModelSelect
 		provider = "openai"
 	}
 	model = strings.TrimSpace(model)
+	if target, ok := r.resolveAlias(provider, model); ok {
+		return ModelSelection{Provider: string(target.Provider), Model: string(target.Name)}
+	}
 	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
 		if r.catalog.HasProvider(before) && provider == "openai" {
 			provider = before
@@ -115,6 +135,22 @@ func (r ModelRegistry) ResolveModelSelection(provider, model string) ModelSelect
 		model = defaultModel
 	}
 	return ModelSelection{Provider: provider, Model: model}
+}
+
+func (r ModelRegistry) resolveAlias(provider, model string) (corellm.ModelRef, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" || len(r.aliases) == 0 {
+		return corellm.ModelRef{}, false
+	}
+	if target, ok := r.aliases[model]; ok {
+		return target, true
+	}
+	provider = strings.TrimSpace(provider)
+	if provider == "" || strings.Contains(model, "/") {
+		return corellm.ModelRef{}, false
+	}
+	target, ok := r.aliases[provider+"/"+model]
+	return target, ok
 }
 
 func (r ModelRegistry) NewModel(selection ModelSelection, debug bool) (llmagent.Model, error) {
@@ -159,6 +195,16 @@ func (r ModelRegistry) Providers() []corellm.ProviderSpec {
 	return r.catalog.Providers()
 }
 
+// Aliases returns the effective alias table sorted by alias name.
+func (r ModelRegistry) Aliases() []corellm.ModelAliasSpec {
+	out := make([]corellm.ModelAliasSpec, 0, len(r.aliases))
+	for name, target := range r.aliases {
+		out = append(out, corellm.ModelAliasSpec{Name: name, Target: target})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 func (r ModelRegistry) providerNames() []string {
 	providers := r.catalog.Providers()
 	out := make([]string, 0, len(providers))
@@ -166,6 +212,100 @@ func (r ModelRegistry) providerNames() []string {
 		out = append(out, string(provider.Name))
 	}
 	return out
+}
+
+func modelAliases(catalog corellm.ProviderCatalog, overlays []corellm.ModelAliasSpec) (map[string]corellm.ModelRef, error) {
+	aliases := map[string]corellm.ModelRef{}
+	for _, provider := range catalog.Providers() {
+		for _, model := range provider.Models {
+			for _, alias := range model.Aliases {
+				name := strings.TrimSpace(string(alias))
+				if name == "" {
+					continue
+				}
+				aliases[string(provider.Name)+"/"+name] = corellm.ModelRef{Provider: provider.Name, Name: model.Ref.Name}
+			}
+		}
+	}
+	addBuiltInModelAliases(aliases, catalog)
+	for _, alias := range overlays {
+		if err := alias.Validate(); err != nil {
+			return nil, err
+		}
+		aliases[strings.TrimSpace(alias.Name)] = alias.Target
+	}
+	return aliases, nil
+}
+
+func addBuiltInModelAliases(aliases map[string]corellm.ModelRef, catalog corellm.ProviderCatalog) {
+	addAliasIfModelExists(aliases, catalog, "codex", "codex", defaultModel)
+	for _, provider := range []string{"anthropic", "claudecode"} {
+		for _, family := range []string{"opus", "sonnet", "haiku"} {
+			if model, ok := latestClaudeFamilyModel(catalog, provider, family); ok {
+				addAlias(aliases, provider+"/"+family, provider, model)
+				if provider == "anthropic" {
+					addAlias(aliases, "claude/"+family, provider, model)
+				}
+			}
+		}
+	}
+	if model, ok := preferredModel(catalog, "minimax", "MiniMax-M2.7"); ok {
+		addAlias(aliases, "minimax", "minimax", model)
+		addAlias(aliases, "minimax/latest", "minimax", model)
+	}
+}
+
+func addAliasIfModelExists(aliases map[string]corellm.ModelRef, catalog corellm.ProviderCatalog, name, provider, model string) {
+	if _, _, ok := catalog.Find(provider, model); !ok {
+		return
+	}
+	addAlias(aliases, name, provider, model)
+}
+
+func addAlias(aliases map[string]corellm.ModelRef, name, provider, model string) {
+	name = strings.TrimSpace(name)
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	if name == "" || provider == "" || model == "" {
+		return
+	}
+	aliases[name] = corellm.ModelRef{Provider: corellm.ProviderName(provider), Name: corellm.ModelName(model)}
+}
+
+func latestClaudeFamilyModel(catalog corellm.ProviderCatalog, providerName, family string) (string, bool) {
+	provider, ok := catalog.Provider(providerName)
+	if !ok {
+		return "", false
+	}
+	prefix := "claude-" + family + "-"
+	var names []string
+	for _, model := range provider.Models {
+		name := string(model.Ref.Name)
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return "", false
+	}
+	sort.Strings(names)
+	return names[len(names)-1], true
+}
+
+func preferredModel(catalog corellm.ProviderCatalog, providerName, preferred string) (string, bool) {
+	if _, _, ok := catalog.Find(providerName, preferred); ok {
+		return preferred, true
+	}
+	provider, ok := catalog.Provider(providerName)
+	if !ok || len(provider.Models) == 0 {
+		return "", false
+	}
+	names := make([]string, 0, len(provider.Models))
+	for _, model := range provider.Models {
+		names = append(names, string(model.Ref.Name))
+	}
+	sort.Strings(names)
+	return names[len(names)-1], true
 }
 
 func defaultModelProviders() ([]ModelProvider, error) {

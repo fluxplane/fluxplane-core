@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -127,6 +128,11 @@ func DecodeFile(path string, data []byte) (File, error) {
 				}
 			}
 			bundle.LLMProviders = append(bundle.LLMProviders, manifest.LLMProviders...)
+			aliases, err := manifest.Models.AliasSpecs()
+			if err != nil {
+				return File{}, err
+			}
+			bundle.LLMModelAliases = append(bundle.LLMModelAliases, aliases...)
 			distribution = manifest.Distribution.Spec()
 			daemon = manifest.Daemon
 			connectors = cloneConnectorMap(manifest.Connectors)
@@ -245,12 +251,34 @@ type Manifest struct {
 	Discovery      discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 	ModelPolicy    modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
 	SemanticSearch semanticSearchDoc       `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
+	Models         modelConfigDoc          `json:"models,omitempty" yaml:"models,omitempty"`
 	Distribution   distributionDoc         `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	LLMProviders   []corellm.ProviderSpec  `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+type modelConfigDoc struct {
+	Alias map[string]string `json:"alias,omitempty" yaml:"alias,omitempty"`
+}
+
+func (d modelConfigDoc) AliasSpecs() ([]corellm.ModelAliasSpec, error) {
+	keys := make([]string, 0, len(d.Alias))
+	for key := range d.Alias {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]corellm.ModelAliasSpec, 0, len(keys))
+	for _, key := range keys {
+		spec, err := corellm.NewModelAliasSpec(key, d.Alias[key])
+		if err != nil {
+			return nil, fmt.Errorf("appconfig: models.alias[%q]: %w", key, err)
+		}
+		out = append(out, spec)
+	}
+	return out, nil
 }
 
 type distributionDoc struct {

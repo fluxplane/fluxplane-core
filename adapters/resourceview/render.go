@@ -35,6 +35,7 @@ type Output struct {
 	Operations       []operation.Spec           `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
+	LLMModelAliases  []corellm.ModelAliasSpec   `json:"llm_model_aliases,omitempty" yaml:"llm_model_aliases,omitempty"`
 	Skills           []skill.Spec               `json:"skills,omitempty" yaml:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty" yaml:"context_providers,omitempty"`
 	EventTypes       []string                   `json:"event_types,omitempty" yaml:"event_types,omitempty"`
@@ -66,6 +67,7 @@ func NewOutput(bundles []resource.ContributionBundle, diagnostics []resource.Dia
 		out.Operations = append(out.Operations, bundle.Operations...)
 		out.Datasources = append(out.Datasources, bundle.Datasources...)
 		out.LLMProviders = append(out.LLMProviders, bundle.LLMProviders...)
+		out.LLMModelAliases = append(out.LLMModelAliases, bundle.LLMModelAliases...)
 		out.Skills = append(out.Skills, bundle.Skills...)
 		out.ContextProviders = append(out.ContextProviders, bundle.ContextProviders...)
 		for _, eventType := range bundle.EventTypes {
@@ -113,6 +115,9 @@ func ResourceIDs(bundles []resource.ContributionBundle) []resource.ResourceID {
 		}
 		for _, spec := range bundle.LLMProviders {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "llm_provider", string(spec.Name)))
+		}
+		for _, spec := range bundle.LLMModelAliases {
+			ids = append(ids, resource.DeriveResourceID(bundle.Source, "llm_model_alias", spec.Name))
 		}
 		for _, spec := range bundle.Skills {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "skill", string(spec.Name)))
@@ -233,6 +238,9 @@ func renderResources(out *treeWriter, bundles []resource.ContributionBundle, ids
 				if kind == "llm_provider" {
 					renderLLMProviderRefs(out, bundles, name, i == len(names)-1)
 				}
+				if kind == "llm_model_alias" {
+					renderLLMModelAliasRefs(out, bundles, name, i == len(names)-1)
+				}
 			}
 		}
 	}
@@ -317,6 +325,7 @@ func contributionKinds() []string {
 		"operation",
 		"datasource",
 		"llm_provider",
+		"llm_model_alias",
 		"skill",
 		"context_provider",
 		"event_type",
@@ -436,6 +445,21 @@ func renderSkillRefs(out *treeWriter, bundles []resource.ContributionBundle, nam
 			}
 			sort.Strings(paths)
 			out.printf("%sreferences: %s\n", indent, strings.Join(paths, ", "))
+		}
+	}
+}
+
+func renderLLMModelAliasRefs(out *treeWriter, bundles []resource.ContributionBundle, name string, last bool) {
+	indent := "│   │   "
+	if last {
+		indent = "│       "
+	}
+	for _, bundle := range bundles {
+		for _, spec := range bundle.LLMModelAliases {
+			if spec.Name == name {
+				out.printf("%s└── %s\n", indent, spec.Target.String())
+				return
+			}
 		}
 	}
 }
@@ -564,6 +588,8 @@ func pluralKind(kind string) string {
 		return "datasources"
 	case "llm_provider":
 		return "llm providers"
+	case "llm_model_alias":
+		return "llm model aliases"
 	case "tool_set":
 		return "tool sets"
 	default:

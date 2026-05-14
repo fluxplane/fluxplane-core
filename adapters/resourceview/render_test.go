@@ -147,8 +147,8 @@ func TestRenderTreeLabelsImplicitPlugins(t *testing.T) {
 
 func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	out := NewOutput([]resource.ContributionBundle{testBundle()}, nil)
-	if len(out.Resources) != 14 {
-		t.Fatalf("resources len = %d, want 14", len(out.Resources))
+	if len(out.Resources) != 15 {
+		t.Fatalf("resources len = %d, want 15", len(out.Resources))
 	}
 	assertLen(t, "sources", len(out.Sources), 1)
 	assertLen(t, "apps", len(out.Apps), 1)
@@ -160,6 +160,7 @@ func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	assertLen(t, "operations", len(out.Operations), 2)
 	assertLen(t, "datasources", len(out.Datasources), 1)
 	assertLen(t, "llm_providers", len(out.LLMProviders), 1)
+	assertLen(t, "llm_model_aliases", len(out.LLMModelAliases), 1)
 	assertLen(t, "skills", len(out.Skills), 1)
 	assertLen(t, "context_providers", len(out.ContextProviders), 1)
 	assertLen(t, "event_types", len(out.EventTypes), 1)
@@ -230,6 +231,10 @@ func testBundle() resource.ContributionBundle {
 			Models: []corellm.ModelSpec{{
 				Ref: corellm.ModelRef{Name: "gpt-test"},
 			}},
+		}},
+		LLMModelAliases: []corellm.ModelAliasSpec{{
+			Name:   "codex",
+			Target: corellm.ModelRef{Provider: "codex", Name: "gpt-5.5"},
 		}},
 		Skills: []skill.Spec{{
 			Name: "guidance",

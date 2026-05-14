@@ -187,8 +187,26 @@ func modelSpec(model modeldb.ModelRecord, offering modeldb.Offering) corellm.Mod
 		MaxOutputTokens:  int64(limits.MaxOutput),
 		Capabilities:     capabilities(model.Capabilities, offering.Exposures),
 		Pricing:          pricing(firstPricing(offering.Pricing, model.ReferencePricing)),
+		Aliases:          modelAliases(model.Aliases, offering.Aliases),
 		Annotations:      annotations,
 	}
+}
+
+func modelAliases(values ...[]string) []corellm.ModelName {
+	seen := map[string]bool{}
+	var out []corellm.ModelName
+	for _, group := range values {
+		for _, value := range group {
+			value = strings.TrimSpace(value)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			out = append(out, corellm.ModelName(value))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 func addAnthropicMessagesAnnotations(annotations map[string]string, exposures []modeldb.OfferingExposure) {

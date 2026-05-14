@@ -29,13 +29,13 @@ func newModelsCommand() *cobra.Command {
 			if len(args) > 0 {
 				path = args[0]
 			}
-			providers, err := models(cmd.Context(), path)
+			providers, aliases, err := models(cmd.Context(), path)
 			if err != nil {
 				return err
 			}
 			switch opts.output {
 			case "", "tree", "pretty":
-				return modelview.RenderTree(cmd.OutOrStdout(), providers)
+				return modelview.RenderTree(cmd.OutOrStdout(), providers, aliases...)
 			case "json":
 				return modelview.RenderJSON(cmd.OutOrStdout(), providers)
 			case "yaml":
@@ -49,12 +49,13 @@ func newModelsCommand() *cobra.Command {
 	return cmd
 }
 
-func models(ctx context.Context, path string) ([]corellm.ProviderSpec, error) {
+func models(ctx context.Context, path string) ([]corellm.ProviderSpec, []corellm.ModelAliasSpec, error) {
 	var specs []corellm.ProviderSpec
+	var aliases []corellm.ModelAliasSpec
 	if strings.TrimSpace(path) != "" {
 		loaded, err := distlocal.Load(ctx, path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		pluginView := launch.StaticPluginView(ctx, launch.StaticPluginOptions{
 			Bundles: loaded.Distribution.Bundles,
@@ -62,16 +63,17 @@ func models(ctx context.Context, path string) ([]corellm.ProviderSpec, error) {
 		})
 		for _, diag := range append(loaded.Diagnostics, pluginView.Diagnostics...) {
 			if diag.Severity == resource.SeverityError {
-				return nil, fmt.Errorf("models: %s", diag.Message)
+				return nil, nil, fmt.Errorf("models: %s", diag.Message)
 			}
 		}
 		for _, bundle := range pluginView.Bundles {
 			specs = append(specs, bundle.LLMProviders...)
+			aliases = append(aliases, bundle.LLMModelAliases...)
 		}
 	}
-	registry, err := distrun.DefaultModelRegistry(specs...)
+	registry, err := distrun.DefaultModelRegistryWithAliases(specs, aliases)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return registry.Providers(), nil
+	return registry.Providers(), registry.Aliases(), nil
 }

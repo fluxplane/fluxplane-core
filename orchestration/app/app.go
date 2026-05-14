@@ -52,6 +52,7 @@ type Composition struct {
 	DatasourceProviders  []coredatasource.Provider
 	DatasourceCatalog    DatasourceCatalog
 	LLMProviderCatalog   LLMProviderCatalog
+	LLMModelAliasCatalog LLMModelAliasCatalog
 	WorkflowCatalog      WorkflowCatalog
 	OperationSetCatalog  OperationSetCatalog
 	ToolSetCatalog       session.ToolSetCatalog
@@ -64,6 +65,7 @@ type Composition struct {
 	ContextSpecs         []corecontext.ProviderSpec
 	DatasourceSpecs      []coredatasource.Spec
 	LLMProviderSpecs     []corellm.ProviderSpec
+	LLMModelAliases      []corellm.ModelAliasSpec
 	WorkflowSpecs        []workflow.Spec
 	OperationSets        []operation.Set
 	ToolSets             []tool.Set
@@ -124,6 +126,11 @@ func Compose(cfg Config) (Composition, error) {
 	llmProviderCatalog, llmProviderSpecs, llmProviderDiagnostic, err := collectLLMProviders(bundles, index)
 	if err != nil {
 		diagnostics = append(diagnostics, llmProviderDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	llmModelAliasCatalog, llmModelAliases, llmModelAliasDiagnostic, err := collectLLMModelAliases(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, llmModelAliasDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
 	workflowCatalog, workflowSpecs, workflowDiagnostic, err := collectWorkflows(bundles, index)
@@ -239,6 +246,7 @@ func Compose(cfg Config) (Composition, error) {
 		DatasourceProviders:  pluginDatasourceProviders,
 		DatasourceCatalog:    datasourceCatalog,
 		LLMProviderCatalog:   llmProviderCatalog,
+		LLMModelAliasCatalog: llmModelAliasCatalog,
 		WorkflowCatalog:      workflowCatalog,
 		OperationSetCatalog:  operationSetCatalog,
 		ToolSetCatalog:       toolSetCatalog,
@@ -251,6 +259,7 @@ func Compose(cfg Config) (Composition, error) {
 		ContextSpecs:         contextSpecs,
 		DatasourceSpecs:      datasourceSpecs,
 		LLMProviderSpecs:     llmProviderSpecs,
+		LLMModelAliases:      llmModelAliases,
 		WorkflowSpecs:        workflowSpecs,
 		OperationSets:        operationSets,
 		ToolSets:             toolSets,
@@ -372,6 +381,18 @@ func collectLLMProviders(bundles []resource.ContributionBundle, index *resource.
 		func(spec corellm.ProviderSpec) error { return spec.Validate() },
 	)
 	return LLMProviderCatalog(catalog), specs, diag, err
+}
+
+func collectLLMModelAliases(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (LLMModelAliasCatalog, []corellm.ModelAliasSpec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"llm_model_alias",
+		func(bundle resource.ContributionBundle) []corellm.ModelAliasSpec { return bundle.LLMModelAliases },
+		func(spec corellm.ModelAliasSpec, _ resource.SourceRef) string { return spec.Name },
+		func(spec corellm.ModelAliasSpec) error { return spec.Validate() },
+	)
+	return LLMModelAliasCatalog(catalog), specs, diag, err
 }
 
 func collectWorkflows(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (WorkflowCatalog, []workflow.Spec, resource.Diagnostic, error) {

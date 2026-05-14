@@ -40,6 +40,10 @@ type DatasourceCatalog map[string]ResourceBinding[coredatasource.Spec]
 // address.
 type LLMProviderCatalog map[string]ResourceBinding[corellm.ProviderSpec]
 
+// LLMModelAliasCatalog indexes model alias specs by canonical resource ID
+// address.
+type LLMModelAliasCatalog map[string]ResourceBinding[corellm.ModelAliasSpec]
+
 // WorkflowCatalog indexes workflow specs by canonical resource ID address.
 type WorkflowCatalog map[string]ResourceBinding[workflow.Spec]
 

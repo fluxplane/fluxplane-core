@@ -70,6 +70,26 @@ func TestComposeIndexesLLMProviderContributions(t *testing.T) {
 	}
 }
 
+func TestComposeIndexesLLMModelAliasContributions(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			LLMModelAliases: []corellm.ModelAliasSpec{{
+				Name:   "codex",
+				Target: corellm.ModelRef{Provider: "codex", Name: "gpt-5.5"},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composition.LLMModelAliases) != 1 {
+		t.Fatalf("LLMModelAliases len = %d, want 1", len(composition.LLMModelAliases))
+	}
+	if len(composition.LLMModelAliasCatalog) != 1 {
+		t.Fatalf("LLMModelAliasCatalog len = %d, want 1", len(composition.LLMModelAliasCatalog))
+	}
+}
+
 func TestComposeRejectsCommandTargetingUnknownOperation(t *testing.T) {
 	_, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{

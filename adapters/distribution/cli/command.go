@@ -248,13 +248,13 @@ func newModelsCommand(dist distribution.Distribution) *cobra.Command {
 		Short: "List available model providers and models",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			providers, err := distributionModels(dist)
+			providers, aliases, err := distributionModels(dist)
 			if err != nil {
 				return err
 			}
 			switch output {
 			case "", "tree", "pretty":
-				return modelview.RenderTree(cmd.OutOrStdout(), providers)
+				return modelview.RenderTree(cmd.OutOrStdout(), providers, aliases...)
 			case "json":
 				return modelview.RenderJSON(cmd.OutOrStdout(), providers)
 			case "yaml":
@@ -268,16 +268,18 @@ func newModelsCommand(dist distribution.Distribution) *cobra.Command {
 	return cmd
 }
 
-func distributionModels(dist distribution.Distribution) ([]corellm.ProviderSpec, error) {
+func distributionModels(dist distribution.Distribution) ([]corellm.ProviderSpec, []corellm.ModelAliasSpec, error) {
 	var specs []corellm.ProviderSpec
+	var aliases []corellm.ModelAliasSpec
 	for _, bundle := range dist.Bundles {
 		specs = append(specs, bundle.LLMProviders...)
+		aliases = append(aliases, bundle.LLMModelAliases...)
 	}
-	registry, err := distrun.DefaultModelRegistry(specs...)
+	registry, err := distrun.DefaultModelRegistryWithAliases(specs, aliases)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return registry.Providers(), nil
+	return registry.Providers(), registry.Aliases(), nil
 }
 
 func shortDescription(dist distribution.Distribution) string {

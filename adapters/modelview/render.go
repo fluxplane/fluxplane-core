@@ -12,8 +12,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// RenderTree renders providers and nested model IDs for humans.
-func RenderTree(out io.Writer, providers []corellm.ProviderSpec) error {
+// RenderTree renders providers, nested model IDs, and optional aliases for
+// humans.
+func RenderTree(out io.Writer, providers []corellm.ProviderSpec, aliases ...corellm.ModelAliasSpec) error {
 	_, err := fmt.Fprintln(out, "Providers:")
 	if err != nil {
 		return err
@@ -32,6 +33,19 @@ func RenderTree(out io.Writer, providers []corellm.ProviderSpec) error {
 			if _, err := fmt.Fprintf(out, "%s%s%s\n", connector, model.Ref.Name, modelDetails(model)); err != nil {
 				return err
 			}
+		}
+	}
+	if len(aliases) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(out, "\nAliases:"); err != nil {
+		return err
+	}
+	aliases = append([]corellm.ModelAliasSpec(nil), aliases...)
+	sort.Slice(aliases, func(i, j int) bool { return aliases[i].Name < aliases[j].Name })
+	for _, alias := range aliases {
+		if _, err := fmt.Fprintf(out, "%s -> %s\n", alias.Name, alias.Target.String()); err != nil {
+			return err
 		}
 	}
 	return nil

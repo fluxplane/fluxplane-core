@@ -70,10 +70,11 @@ type ModelResolver struct {
 	DefaultModel    string
 	Debug           bool
 	ProviderSpecs   []corellm.ProviderSpec
+	ModelAliases    []corellm.ModelAliasSpec
 }
 
 func (r ModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	registry, err := DefaultModelRegistry(r.ProviderSpecs...)
+	registry, err := DefaultModelRegistryWithAliases(r.ProviderSpecs, r.ModelAliases)
 	if err != nil {
 		return nil, err
 	}
