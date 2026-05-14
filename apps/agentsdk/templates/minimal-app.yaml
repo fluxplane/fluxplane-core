@@ -1,7 +1,8 @@
 kind: app
 name: {{quote .Name}}
 description: Minimal local agentsdk app.
-default_agent: default
+default_agent:
+  name: default
 daemon:
   listeners:
     - name: local

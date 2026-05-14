@@ -18,17 +18,21 @@ func TestSpecValidateAllowsEngineerAgentShape(t *testing.T) {
 			Thinking:        "auto",
 			ReasoningEffort: "high",
 		},
-		Policy: Policy{MaxSteps: 100},
-		Tools:  []ToolRef{{Name: "bash"}, {Name: "file_read"}},
+		Turns: TurnPolicy{
+			MaxSteps: 100,
+			Continuation: ContinuationPolicy{
+				StopCondition: StopConditionSpec{
+					Type: "max-continuations",
+					Max:  3,
+				},
+			},
+		},
+		Tools: []ToolRef{{Name: "bash"}, {Name: "file_read"}},
 		Commands: []CommandRef{
 			{Name: "review"},
 			{Name: "design"},
 		},
 		Skills: []skill.Ref{{Name: "architecture"}},
-		Stop: StopConditionSpec{
-			Type: "max-continuations",
-			Max:  3,
-		},
 	}
 
 	if err := spec.Validate(); err != nil {
@@ -44,9 +48,16 @@ func TestSpecValidateRejectsEmptyName(t *testing.T) {
 }
 
 func TestSpecValidateRejectsNegativeMaxContinuations(t *testing.T) {
-	err := Spec{Name: "main", Policy: Policy{MaxContinuations: -1}}.Validate()
+	err := Spec{Name: "main", Turns: TurnPolicy{Continuation: ContinuationPolicy{MaxContinuations: -1}}}.Validate()
 	if err == nil {
 		t.Fatal("Validate error is nil, want negative max continuations error")
+	}
+}
+
+func TestSpecValidateRejectsMaxContinuationsWithoutStopCondition(t *testing.T) {
+	err := Spec{Name: "main", Turns: TurnPolicy{Continuation: ContinuationPolicy{MaxContinuations: 3}}}.Validate()
+	if err == nil {
+		t.Fatal("Validate error is nil, want stop condition requirement")
 	}
 }
 

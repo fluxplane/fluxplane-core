@@ -61,15 +61,26 @@ type AgencyProfile struct {
 	Learning  bool          `json:"learning,omitempty"`
 }
 
-// Policy describes generic runtime boundaries for an agent.
+// Policy describes generic decision policy for an agent.
 type Policy struct {
+	AllowedDecisions []DecisionKind `json:"allowed_decisions,omitempty"`
+}
+
+// TurnPolicy describes bounded agent turn-loop behavior.
+type TurnPolicy struct {
 	// MaxSteps limits inner agent/model decision calls in one turn. Tool
 	// executions do not count directly; the model call that requests them does.
-	MaxSteps int `json:"max_steps,omitempty"`
-	// MaxContinuations limits outer follow-up turns after a terminal response
-	// when a stop condition asks the runtime to continue.
-	MaxContinuations int            `json:"max_continuations,omitempty"`
-	AllowedDecisions []DecisionKind `json:"allowed_decisions,omitempty"`
+	MaxSteps     int                `json:"max_steps,omitempty"`
+	Continuation ContinuationPolicy `json:"continuation,omitempty"`
+}
+
+// ContinuationPolicy describes outer follow-up turns after a terminal response.
+type ContinuationPolicy struct {
+	// MaxContinuations limits outer follow-up turns when a stop condition asks
+	// the runtime to continue.
+	MaxContinuations int               `json:"max_continuations,omitempty"`
+	ContextPolicy    string            `json:"context_policy,omitempty"`
+	StopCondition    StopConditionSpec `json:"stop_condition,omitempty"`
 }
 
 // ToolRef identifies a driver-facing tool projection by name. Tool projection
@@ -100,6 +111,7 @@ type StopConditionSpec struct {
 	Type        string              `json:"type,omitempty"`
 	Max         int                 `json:"max,omitempty"`
 	Prompt      string              `json:"prompt,omitempty"`
+	Session     string              `json:"session,omitempty"`
 	Conditions  []StopConditionSpec `json:"conditions,omitempty"`
 	Annotations map[string]string   `json:"annotations,omitempty"`
 }
@@ -112,7 +124,7 @@ type Spec struct {
 	Objective   Objective                 `json:"objective,omitempty"`
 	Driver      DriverSpec                `json:"driver,omitempty"`
 	Inference   InferenceSpec             `json:"inference,omitempty"`
-	Stop        StopConditionSpec         `json:"stop,omitempty"`
+	Turns       TurnPolicy                `json:"turns,omitempty"`
 	Agency      AgencyProfile             `json:"agency,omitempty"`
 	Policy      Policy                    `json:"policy,omitempty"`
 	Operations  []operation.Ref           `json:"operations,omitempty"`
@@ -129,11 +141,14 @@ func (s Spec) Validate() error {
 	if strings.TrimSpace(string(s.Name)) == "" {
 		return fmt.Errorf("agent: spec name is empty")
 	}
-	if s.Policy.MaxSteps < 0 {
-		return fmt.Errorf("agent: max_steps must be >= 0")
+	if s.Turns.MaxSteps < 0 {
+		return fmt.Errorf("agent: turns.max_steps must be >= 0")
 	}
-	if s.Policy.MaxContinuations < 0 {
-		return fmt.Errorf("agent: max_continuations must be >= 0")
+	if s.Turns.Continuation.MaxContinuations < 0 {
+		return fmt.Errorf("agent: turns.continuation.max_continuations must be >= 0")
+	}
+	if s.Turns.Continuation.MaxContinuations > 0 && strings.TrimSpace(s.Turns.Continuation.StopCondition.Type) == "" {
+		return fmt.Errorf("agent: turns.continuation.max_continuations requires turns.continuation.stop_condition")
 	}
 	for i, tool := range s.Tools {
 		if strings.TrimSpace(tool.Name) == "" {

@@ -37,6 +37,7 @@ type Config struct {
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
 	Subagents         *subagent.Supervisor
+	StopEvaluator     session.StopEvaluator
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -58,6 +59,7 @@ type Service struct {
 	events            coreevent.Sink
 	threadStore       corethread.Store
 	subagents         *subagent.Supervisor
+	stopEvaluator     session.StopEvaluator
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -82,6 +84,7 @@ func New(cfg Config) *Service {
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
 		subagents:         cfg.Subagents,
+		stopEvaluator:     cfg.StopEvaluator,
 		bindings:          map[bindingKey]corethread.Ref{},
 		profiles:          map[corethread.ID]coresession.Spec{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
@@ -331,6 +334,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Thread:            info.Thread,
 		Subagents:         s.currentSubagents(),
 		Delegation:        s.delegationForInfo(info),
+		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
@@ -387,6 +391,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Thread:            info.Thread,
 		Subagents:         s.currentSubagents(),
 		Delegation:        s.delegationForInfo(info),
+		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)

@@ -100,6 +100,7 @@ type Config struct {
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
+	StopEvaluator     session.StopEvaluator
 	Channel           channel.Ref
 	Caller            policy.Caller
 	Trust             policy.Trust
@@ -136,6 +137,15 @@ func New(cfg Config) (*Service, error) {
 		threadStore = store
 	}
 	executor := cfg.OperationExecutor
+	stopEvaluator := cfg.StopEvaluator
+	if stopEvaluator == nil {
+		switch {
+		case cfg.LLMModel != nil:
+			stopEvaluator = session.ModelStopEvaluator{Model: cfg.LLMModel}
+		case cfg.LLMModelResolver != nil:
+			stopEvaluator = resolverStopEvaluator{resolver: cfg.LLMModelResolver}
+		}
+	}
 
 	service := harness.New(harness.Config{
 		Agent:             cfg.Agent,
@@ -149,6 +159,7 @@ func New(cfg Config) (*Service, error) {
 		OperationExecutor: executor,
 		Events:            cfg.Events,
 		ThreadStore:       threadStore,
+		StopEvaluator:     stopEvaluator,
 	})
 	client, err := directchannel.New(directchannel.Config{
 		Service: service,
@@ -284,6 +295,21 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 		cfg.OperationExecutor = composition.OperationExecutor
 	}
 	return New(cfg)
+}
+
+type resolverStopEvaluator struct {
+	resolver LLMModelResolver
+}
+
+func (e resolverStopEvaluator) EvaluateStopCondition(ctx context.Context, input session.StopEvaluationInput) (session.StopEvaluation, error) {
+	if e.resolver == nil {
+		return session.StopEvaluation{}, fmt.Errorf("agentruntime: stop evaluator model resolver is nil")
+	}
+	model, err := e.resolver.ResolveModel(ctx, input.Agent)
+	if err != nil {
+		return session.StopEvaluation{}, err
+	}
+	return session.ModelStopEvaluator{Model: model}.EvaluateStopCondition(ctx, input)
 }
 
 // Client returns the default in-process channel client.

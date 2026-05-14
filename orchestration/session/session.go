@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
@@ -50,7 +51,68 @@ type Session struct {
 	Thread            corethread.Ref
 	Subagents         *subagent.Supervisor
 	Delegation        coresession.DelegationPolicy
+	StopEvaluator     StopEvaluator
 	RunID             string
+}
+
+// StopEvaluator evaluates continuation stop conditions that require model
+// judgment.
+type StopEvaluator interface {
+	EvaluateStopCondition(context.Context, StopEvaluationInput) (StopEvaluation, error)
+}
+
+// StopEvaluationInput describes one outer-loop continuation decision.
+type StopEvaluationInput struct {
+	Agent            agent.Spec
+	Condition        agent.StopConditionSpec
+	Inbound          channel.Inbound
+	AgentResult      agent.StepResult
+	Effects          []environment.EffectResult
+	Completed        int
+	MaxContinuations int
+}
+
+type StopAction string
+
+const (
+	StopActionStop     StopAction = "stop"
+	StopActionContinue StopAction = "continue"
+)
+
+// StopEvaluation is the normalized stop-condition decision.
+type StopEvaluation struct {
+	Action              StopAction `json:"action" jsonschema:"description=Whether the parent agent should stop or continue.,enum=stop,enum=continue,required"`
+	Reason              string     `json:"reason,omitempty" jsonschema:"description=Brief reason for the decision."`
+	ContinueInstruction string     `json:"continue_instruction,omitempty" jsonschema:"description=Instruction to send back to the parent agent when action is continue."`
+}
+
+// ModelStopEvaluator evaluates prompt stop conditions with a provider-neutral
+// LLM model and a typed synthetic decision operation.
+type ModelStopEvaluator struct {
+	Model llmagent.Model
+}
+
+// EvaluateStopCondition implements StopEvaluator.
+func (e ModelStopEvaluator) EvaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
+	if e.Model == nil {
+		return StopEvaluation{}, fmt.Errorf("stop evaluator model is nil")
+	}
+	response, err := e.Model.Complete(ctx, llmagent.Request{
+		Agent: evaluatorAgentSpec(input.Agent),
+		Tools: []tool.Spec{continuationDecisionToolSpec()},
+		Goal:  stopEvaluatorGoal(input),
+	})
+	if err != nil {
+		return StopEvaluation{}, err
+	}
+	if len(response.Operations) != 1 {
+		return StopEvaluation{}, fmt.Errorf("stop evaluator must call continuation_decision exactly once")
+	}
+	request := response.Operations[0]
+	if request.Operation.Name != continuationDecisionOperationName {
+		return StopEvaluation{}, fmt.Errorf("stop evaluator called %q, want %q", request.Operation.String(), continuationDecisionOperationName)
+	}
+	return executeContinuationDecision(ctx, request.Input)
 }
 
 const (
@@ -364,16 +426,25 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		state = inner.State
 		effects = inner.Effects
-		if !s.shouldContinueAfterTerminal(continuation, inner.AgentResult) {
+		decision := s.evaluateContinuation(ctx, inbound, continuation, inner.AgentResult, effects)
+		if decision.Result.Status != "" {
+			return s.finalizeInputResult(ctx, inbound, decision.Result)
+		}
+		if !decision.Continue {
 			return s.finalizeInputResult(ctx, inbound, s.applyTerminalAgentDecision(ctx, inbound, inner.AgentResult, effects))
 		}
-		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), "Continue.")}
+		instruction := strings.TrimSpace(decision.Instruction)
+		if instruction == "" {
+			instruction = "Continue."
+		}
+		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), instruction)}
 		observations = []environment.Observation{{
 			Source:  "session",
 			Kind:    "session.continuation",
-			Content: "Continue.",
+			Content: instruction,
 			Metadata: map[string]any{
 				"continuation": continuation + 1,
+				"reason":       decision.Reason,
 			},
 		}}
 	}
@@ -1336,10 +1407,10 @@ func innerStepLimitError(maxSteps int) *CommandError {
 	}
 	return &CommandError{
 		Code:    "step_limit_exceeded",
-		Message: fmt.Sprintf("inner loop reached max_steps=%d model decision calls", maxSteps),
+		Message: fmt.Sprintf("inner loop reached turns.max_steps=%d model decision calls", maxSteps),
 		Details: map[string]any{
 			"loop":                 "inner",
-			"limit":                "max_steps",
+			"limit":                "turns.max_steps",
 			"max_steps":            maxSteps,
 			"model_decision_calls": maxSteps,
 		},
@@ -1388,8 +1459,8 @@ func (s Session) maxSteps() int {
 		return defaultLLMMaxSteps
 	}
 	spec := s.Agent.Spec()
-	if spec.Policy.MaxSteps > 0 {
-		return spec.Policy.MaxSteps
+	if spec.Turns.MaxSteps > 0 {
+		return spec.Turns.MaxSteps
 	}
 	if isLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMMaxSteps
@@ -1402,7 +1473,7 @@ func (s Session) failOnStepLimit() bool {
 		return true
 	}
 	spec := s.Agent.Spec()
-	return isLLMDriverKind(spec.Driver.Kind) || spec.Policy.MaxSteps > 0
+	return isLLMDriverKind(spec.Driver.Kind) || spec.Turns.MaxSteps > 0
 }
 
 func (s Session) maxContinuations() int {
@@ -1410,8 +1481,8 @@ func (s Session) maxContinuations() int {
 		return 0
 	}
 	spec := s.Agent.Spec()
-	if spec.Policy.MaxContinuations > 0 {
-		return spec.Policy.MaxContinuations
+	if spec.Turns.Continuation.MaxContinuations > 0 {
+		return spec.Turns.Continuation.MaxContinuations
 	}
 	if isLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMContinuations
@@ -1423,29 +1494,226 @@ func isLLMDriverKind(kind agent.DriverKind) bool {
 	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)
 }
 
-func (s Session) shouldContinueAfterTerminal(completed int, agentResult agent.StepResult) bool {
-	if agentResult.Status != agent.StatusOK {
-		return false
-	}
-	spec := s.Agent.Spec()
-	if !stopConditionRequestsContinuation(spec.Stop, completed) {
-		return false
-	}
-	return completed < s.maxContinuations()
+type continuationDecision struct {
+	Continue    bool
+	Instruction string
+	Reason      string
+	Result      InputResult
 }
 
-func stopConditionRequestsContinuation(stop agent.StopConditionSpec, completed int) bool {
-	switch strings.TrimSpace(stop.Type) {
+func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbound, completed int, agentResult agent.StepResult, effects []environment.EffectResult) continuationDecision {
+	if agentResult.Status != agent.StatusOK || s.Agent == nil {
+		return continuationDecision{}
+	}
+	spec := s.Agent.Spec()
+	condition := spec.Turns.Continuation.StopCondition
+	if strings.TrimSpace(condition.Type) == "" {
+		return continuationDecision{}
+	}
+	evaluation, err := s.evaluateStopCondition(ctx, StopEvaluationInput{
+		Agent:            spec,
+		Condition:        condition,
+		Inbound:          inbound,
+		AgentResult:      agentResult,
+		Effects:          effects,
+		Completed:        completed,
+		MaxContinuations: s.maxContinuations(),
+	})
+	if err != nil {
+		return continuationDecision{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "stop_condition_failed", Message: err.Error()}}}
+	}
+	action := StopAction(strings.TrimSpace(strings.ToLower(string(evaluation.Action))))
+	if action != StopActionContinue {
+		return continuationDecision{Reason: evaluation.Reason}
+	}
+	if completed >= s.maxContinuations() {
+		return continuationDecision{Result: s.continuationLimitResult(agentResult, effects)}
+	}
+	return continuationDecision{Continue: true, Instruction: evaluation.ContinueInstruction, Reason: evaluation.Reason}
+}
+
+func (s Session) evaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
+	return s.evaluateStopConditionSpec(ctx, input.Condition, input)
+}
+
+func (s Session) evaluateStopConditionSpec(ctx context.Context, condition agent.StopConditionSpec, input StopEvaluationInput) (StopEvaluation, error) {
+	switch strings.TrimSpace(condition.Type) {
+	case "":
+		return StopEvaluation{Action: StopActionStop}, nil
 	case "max-continuations":
-		return stop.Max <= 0 || completed < stop.Max
-	case "or", "and":
-		for _, condition := range stop.Conditions {
-			if stopConditionRequestsContinuation(condition, completed) {
-				return true
+		if condition.Max > 0 && input.Completed >= condition.Max {
+			return StopEvaluation{Action: StopActionStop, Reason: "stop condition max reached"}, nil
+		}
+		return StopEvaluation{Action: StopActionContinue, ContinueInstruction: "Continue.", Reason: "max-continuations stop condition requested another continuation"}, nil
+	case "prompt":
+		if s.StopEvaluator == nil {
+			return StopEvaluation{}, fmt.Errorf("prompt stop condition requires a stop evaluator")
+		}
+		input.Condition = condition
+		return s.StopEvaluator.EvaluateStopCondition(ctx, input)
+	case "agent":
+		return StopEvaluation{}, fmt.Errorf("agent stop conditions require typed subagent decision tools and are not implemented")
+	case "or":
+		for _, child := range condition.Conditions {
+			evaluation, err := s.evaluateStopConditionSpec(ctx, child, input)
+			if err != nil {
+				return StopEvaluation{}, err
+			}
+			if evaluation.Action == StopActionContinue {
+				return evaluation, nil
 			}
 		}
+		return StopEvaluation{Action: StopActionStop}, nil
+	case "and":
+		var out StopEvaluation
+		for _, child := range condition.Conditions {
+			evaluation, err := s.evaluateStopConditionSpec(ctx, child, input)
+			if err != nil {
+				return StopEvaluation{}, err
+			}
+			if evaluation.Action != StopActionContinue {
+				return StopEvaluation{Action: StopActionStop, Reason: evaluation.Reason}, nil
+			}
+			out = evaluation
+		}
+		if out.Action == "" {
+			out.Action = StopActionStop
+		}
+		return out, nil
+	default:
+		return StopEvaluation{}, fmt.Errorf("unsupported stop condition type %q", condition.Type)
 	}
-	return false
+}
+
+func evaluatorAgentSpec(parent agent.Spec) agent.Spec {
+	spec := agent.Spec{
+		Name:      agent.Name(string(parent.Name) + "-stop-evaluator"),
+		System:    stopEvaluatorSystemPrompt(),
+		Inference: parent.Inference,
+	}
+	return spec
+}
+
+const continuationDecisionOperationName operation.Name = "continuation_decision"
+
+func continuationDecisionToolSpec() tool.Spec {
+	spec := continuationDecisionOperation().Spec()
+	return tool.Spec{
+		Name:        tool.Name(spec.Ref.Name),
+		Description: spec.Description,
+		Target:      invocation.Target{Kind: invocation.TargetOperation, Operation: spec.Ref},
+		Input:       spec.Input,
+		Output:      spec.Output,
+	}
+}
+
+func continuationDecisionOperation() operation.Operation {
+	return operationruntime.NewTyped[StopEvaluation, StopEvaluation](operation.Spec{
+		Ref:         operation.Ref{Name: continuationDecisionOperationName},
+		Description: "Return whether the parent agent should stop or continue.",
+	}, func(_ operation.Context, input StopEvaluation) (StopEvaluation, error) {
+		return normalizeStopEvaluation(input)
+	})
+}
+
+func executeContinuationDecision(ctx context.Context, input operation.Value) (StopEvaluation, error) {
+	result := continuationDecisionOperation().Run(operation.NewContext(ctx, event.Discard()), input)
+	if result.Status != operation.StatusOK {
+		if result.Error != nil {
+			return StopEvaluation{}, fmt.Errorf("continuation decision failed: %s", result.Error.Message)
+		}
+		return StopEvaluation{}, fmt.Errorf("continuation decision failed with status %q", result.Status)
+	}
+	out, err := operationruntime.Bind[StopEvaluation](result.Output)
+	if err != nil {
+		return StopEvaluation{}, fmt.Errorf("bind continuation decision output: %w", err)
+	}
+	return normalizeStopEvaluation(out)
+}
+
+func stopEvaluatorSystemPrompt() string {
+	return "You evaluate whether an agent should stop or continue. You must call the continuation_decision tool exactly once. Do not answer in text."
+}
+
+func stopEvaluatorGoal(input StopEvaluationInput) string {
+	var b strings.Builder
+	b.WriteString("Evaluate this continuation stop condition.\n\n")
+	writeStopEvaluationContext(&b, input)
+	fmt.Fprintf(&b, "Completed continuations: %d\n", input.Completed)
+	fmt.Fprintf(&b, "Maximum continuations: %d\n\n", input.MaxContinuations)
+	b.WriteString("Call continuation_decision with action stop or continue.")
+	return b.String()
+}
+
+func writeStopEvaluationContext(b *strings.Builder, input StopEvaluationInput) {
+	policy := strings.TrimSpace(input.Agent.Turns.Continuation.ContextPolicy)
+	if policy == "" {
+		policy = "inherit"
+	}
+	switch policy {
+	case "summary", "new":
+		writeStopEvaluationSummary(b, input)
+	default:
+		writeStopEvaluationInheritedContext(b, input)
+	}
+}
+
+func writeStopEvaluationSummary(b *strings.Builder, input StopEvaluationInput) {
+	if input.Condition.Prompt != "" {
+		b.WriteString("Stop condition:\n")
+		b.WriteString(input.Condition.Prompt)
+		b.WriteString("\n\n")
+	}
+	if input.Inbound.Message != nil {
+		b.WriteString("Original user input:\n")
+		fmt.Fprint(b, input.Inbound.Message.Content)
+		b.WriteString("\n\n")
+	}
+	if input.AgentResult.Decision.Message != nil {
+		b.WriteString("Latest agent response:\n")
+		fmt.Fprint(b, input.AgentResult.Decision.Message.Content)
+		b.WriteString("\n\n")
+	}
+	if len(input.Effects) > 0 {
+		fmt.Fprintf(b, "Operation effects observed: %d\n\n", len(input.Effects))
+	}
+}
+
+func writeStopEvaluationInheritedContext(b *strings.Builder, input StopEvaluationInput) {
+	writeStopEvaluationSummary(b, input)
+	if len(input.Effects) == 0 {
+		return
+	}
+	b.WriteString("Operation effect details:\n")
+	for i, effect := range input.Effects {
+		fmt.Fprintf(b, "- effect %d: %s\n", i+1, truncateText(fmt.Sprint(effect.Result.Output), 2000))
+		if effect.Result.Error != nil {
+			fmt.Fprintf(b, "  error: %s\n", truncateText(effect.Result.Error.Message, 1000))
+		}
+	}
+	b.WriteString("\n")
+}
+
+func normalizeStopEvaluation(out StopEvaluation) (StopEvaluation, error) {
+	action := StopAction(strings.ToLower(strings.TrimSpace(string(out.Action))))
+	if action != StopActionStop && action != StopActionContinue {
+		return StopEvaluation{}, fmt.Errorf("stop evaluation action must be stop or continue")
+	}
+	out.Action = action
+	return out, nil
+}
+
+func (s Session) continuationLimitResult(agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
+	max := s.maxContinuations()
+	return InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{
+		Code:    "continuation_limit_exceeded",
+		Message: fmt.Sprintf("outer continuation reached turns.continuation.max_continuations=%d", max),
+		Details: map[string]any{
+			"loop":              "outer",
+			"limit":             "turns.continuation.max_continuations",
+			"max_continuations": max,
+		},
+	}}
 }
 
 func observationsForEffects(effects []environment.EffectResult) []environment.Observation {

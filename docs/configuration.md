@@ -25,7 +25,8 @@ sessions, datasources, and model providers.
 kind: app
 name: demo
 description: Local demo app.
-default_agent: default
+default_agent:
+  name: default
 daemon:
   listeners:
     - name: local
@@ -126,8 +127,8 @@ Agent documents define LLM-backed runtime agents.
 kind: agent
 name: support
 model: openai/gpt-5.5
-max_steps: 50
-max_continuations: 3
+turns:
+  max_steps: 50
 tools:
   - datasource_search
   - datasource_get
@@ -141,14 +142,46 @@ system: |
   Help the user answer questions from the configured documentation.
 ```
 
-Common fields are `name`, `description`, `model`, `max_tokens`, `max_steps`,
-`max_continuations`, `thinking`, `effort`, `tools`, `context`, `datasources`,
-`skills`, and `system`.
+Common fields are `name`, `description`, `model`, `max_tokens`, `turns`,
+`thinking`, `effort`, `tools`, `context`, `datasources`, `skills`, and
+`system`.
 
 `thinking` accepts `auto`, `on`, `off`, and the agentdir-friendly alias
 `enabled`. At runtime `enabled` is normalized to `on`. `effort` accepts `low`,
 `medium`, `high`, or `max` when the selected provider/model exposes that
 reasoning effort.
+
+#### Turns
+
+`turns` configures the agent turn loop. The inner loop is controlled by
+`turns.max_steps`: it limits model decision calls in one user turn. Tool
+executions do not count directly; the model decision that requested them does.
+
+The outer loop is `turns.continuation`. It runs only after the agent emits a
+terminal response, and only when `turns.continuation.stop_condition` asks for
+another follow-up turn. `turns.continuation.max_continuations` is only a cap;
+setting it without a stop condition is invalid configuration.
+
+```yaml
+turns:
+  max_steps: 50
+  continuation:
+    max_continuations: 8
+    context_policy: inherit
+    stop_condition:
+      type: prompt
+      prompt: |
+        Stop when test coverage is above 90%, or when there is no reasonable
+        remaining test to add.
+```
+
+`context_policy` controls what the continuation evaluator sees:
+
+- `inherit`: include the task summary plus operation effect details from the
+  current turn.
+- `summary`: include a compact task/progress summary and effect counts, without
+  raw operation payloads.
+- `new`: use clean evaluator context plus the same compact summary.
 
 ### Sessions
 
@@ -326,7 +359,8 @@ agent, and the markdown body becomes the system prompt.
 name: reviewer
 description: Review code changes.
 model: openai/gpt-5.5
-max-steps: 30
+turns:
+  max-steps: 30
 tools: [file_read, git_diff]
 skills: [code-review]
 ---
@@ -334,6 +368,28 @@ Review the current changes with attention to correctness, tests, and maintainabi
 ```
 
 If `name` is omitted, the filename stem is used.
+
+Agentdir uses kebab-case inside `turns`. The equivalent of an appconfig prompt
+stop condition is:
+
+```markdown
+---
+name: tester
+model: openai/gpt-5.5
+turns:
+  max-steps: 50
+  continuation:
+    max-continuations: 8
+    context-policy: inherit
+    stop-condition:
+      type: prompt
+      prompt: |
+        Stop when test coverage is above 90%, or when there is no reasonable
+        remaining test to add.
+tools: [file_read, git_diff, shell_exec]
+---
+Improve test coverage with focused, maintainable tests.
+```
 
 ### Commands
 

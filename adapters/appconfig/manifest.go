@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -23,6 +24,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	invjsonschema "github.com/invopop/jsonschema"
+	santhoshjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )
 
@@ -106,6 +109,9 @@ func DecodeFile(path string, data []byte) (File, error) {
 	for i, doc := range docs {
 		kind := strings.TrimSpace(documentKind(doc))
 		if i == 0 && (kind == "" || kind == "app") {
+			if err := validateYAMLNode[Manifest](doc); err != nil {
+				return File{}, fmt.Errorf("appconfig: validate app document schema: %w", err)
+			}
 			var manifest Manifest
 			if err := doc.Decode(&manifest); err != nil {
 				return File{}, fmt.Errorf("appconfig: decode app document: %w", err)
@@ -205,6 +211,99 @@ func decodeDocuments(data []byte) ([]yaml.Node, error) {
 		docs = append(docs, *doc.Content[0])
 	}
 	return docs, nil
+}
+
+func validateYAMLNode[T any](node yaml.Node) error {
+	value, err := jsonValueFromYAMLNode(node)
+	if err != nil {
+		return err
+	}
+	return validateJSONValue[T](value)
+}
+
+func validateJSONValue[T any](value any) error {
+	value, err := normalizeJSONValue(value)
+	if err != nil {
+		return err
+	}
+	schemaData, err := schemaDataFor[T]()
+	if err != nil {
+		return err
+	}
+	var schemaValue any
+	if err := json.Unmarshal(schemaData, &schemaValue); err != nil {
+		return fmt.Errorf("decode schema resource: %w", err)
+	}
+	compiler := santhoshjsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
+		return fmt.Errorf("add schema resource: %w", err)
+	}
+	compiled, err := compiler.Compile("schema.json")
+	if err != nil {
+		return fmt.Errorf("compile schema: %w", err)
+	}
+	if err := compiled.Validate(value); err != nil {
+		return fmt.Errorf("schema validation failed: %w", err)
+	}
+	return nil
+}
+
+func normalizeJSONValue(value any) (any, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON value: %w", err)
+	}
+	var out any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("unmarshal JSON value: %w", err)
+	}
+	return out, nil
+}
+
+func schemaDataFor[T any]() ([]byte, error) {
+	typ := reflect.TypeOf((*T)(nil)).Elem()
+	reflector := invjsonschema.Reflector{
+		DoNotReference:             false,
+		ExpandedStruct:             true,
+		AllowAdditionalProperties:  false,
+		RequiredFromJSONSchemaTags: true,
+	}
+	ptr := reflect.New(typ)
+	if typ.Kind() == reflect.Ptr {
+		ptr = reflect.New(typ.Elem())
+	}
+	schema := reflector.Reflect(ptr.Interface())
+	if schema == nil {
+		return nil, fmt.Errorf("schema is nil")
+	}
+	schema.Version = invjsonschema.Version
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("marshal schema: %w", err)
+	}
+	return data, nil
+}
+
+func jsonValueFromYAMLNode(node yaml.Node) (any, error) {
+	if node.Kind == yaml.DocumentNode {
+		if len(node.Content) == 0 {
+			return nil, nil
+		}
+		node = *node.Content[0]
+	}
+	var decoded any
+	if err := node.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JSON value: %w", err)
+	}
+	var out any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("unmarshal JSON value: %w", err)
+	}
+	return out, nil
 }
 
 func (f File) Validate() error {
@@ -623,23 +722,62 @@ type AccessDoc struct {
 }
 
 type agentDoc struct {
-	Kind             string   `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name             string   `json:"name" yaml:"name"`
-	Description      string   `json:"description,omitempty" yaml:"description,omitempty"`
-	Model            string   `json:"model,omitempty" yaml:"model,omitempty"`
-	MaxTokens        int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	MaxSteps         int      `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
-	MaxContinuations int      `json:"max_continuations,omitempty" yaml:"max_continuations,omitempty"`
-	Thinking         string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	Effort           string   `json:"effort,omitempty" yaml:"effort,omitempty"`
-	Tools            []string `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Context          []string `json:"context,omitempty" yaml:"context,omitempty"`
-	Datasources      []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
-	Skills           []string `json:"skills,omitempty" yaml:"skills,omitempty"`
-	System           string   `json:"system,omitempty" yaml:"system,omitempty"`
+	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string   `json:"name" yaml:"name"`
+	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
+	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	Turns       turnsDoc `json:"turns,omitempty" yaml:"turns,omitempty"`
+	Thinking    string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort      string   `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Tools       []string `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Context     []string `json:"context,omitempty" yaml:"context,omitempty"`
+	Datasources []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Skills      []string `json:"skills,omitempty" yaml:"skills,omitempty"`
+	System      string   `json:"system,omitempty" yaml:"system,omitempty"`
+}
+
+type turnsDoc struct {
+	MaxSteps     int             `json:"max_steps,omitempty" yaml:"max_steps,omitempty"`
+	Continuation continuationDoc `json:"continuation,omitempty" yaml:"continuation,omitempty"`
+}
+
+type continuationDoc struct {
+	MaxContinuations int              `json:"max_continuations,omitempty" yaml:"max_continuations,omitempty"`
+	ContextPolicy    string           `json:"context_policy,omitempty" yaml:"context_policy,omitempty"`
+	StopCondition    stopConditionDoc `json:"stop_condition,omitempty" yaml:"stop_condition,omitempty"`
+}
+
+type stopConditionDoc struct {
+	Type        string              `json:"type,omitempty" yaml:"type,omitempty"`
+	Max         int                 `json:"max,omitempty" yaml:"max,omitempty"`
+	Prompt      string              `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Session     string              `json:"session,omitempty" yaml:"session,omitempty"`
+	Conditions  []*stopConditionDoc `json:"conditions,omitempty" yaml:"conditions,omitempty"`
+	Annotations map[string]string   `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d stopConditionDoc) Spec() agent.StopConditionSpec {
+	out := agent.StopConditionSpec{
+		Type:        strings.TrimSpace(d.Type),
+		Max:         d.Max,
+		Prompt:      strings.TrimSpace(d.Prompt),
+		Session:     strings.TrimSpace(d.Session),
+		Annotations: cloneStringMap(d.Annotations),
+	}
+	for _, condition := range d.Conditions {
+		if condition == nil {
+			continue
+		}
+		out.Conditions = append(out.Conditions, condition.Spec())
+	}
+	return out
 }
 
 func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
+	if err := validateYAMLNode[agentDoc](node); err != nil {
+		return agent.Spec{}, fmt.Errorf("appconfig: validate agent document schema: %w", err)
+	}
 	var raw agentDoc
 	if err := node.Decode(&raw); err != nil {
 		return agent.Spec{}, fmt.Errorf("appconfig: decode agent document: %w", err)
@@ -654,7 +792,14 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 			Thinking:        strings.TrimSpace(raw.Thinking),
 			ReasoningEffort: strings.TrimSpace(raw.Effort),
 		},
-		Policy: agent.Policy{MaxSteps: raw.MaxSteps, MaxContinuations: raw.MaxContinuations},
+		Turns: agent.TurnPolicy{
+			MaxSteps: raw.Turns.MaxSteps,
+			Continuation: agent.ContinuationPolicy{
+				MaxContinuations: raw.Turns.Continuation.MaxContinuations,
+				ContextPolicy:    strings.TrimSpace(raw.Turns.Continuation.ContextPolicy),
+				StopCondition:    raw.Turns.Continuation.StopCondition.Spec(),
+			},
+		},
 	}
 	for _, name := range raw.Tools {
 		name = strings.TrimSpace(name)
@@ -687,6 +832,9 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 }
 
 func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
+	if err := validateYAMLNode[DatasourceDoc](node); err != nil {
+		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document schema: %w", err)
+	}
 	var raw DatasourceDoc
 	if err := node.Decode(&raw); err != nil {
 		return coredatasource.Spec{}, fmt.Errorf("appconfig: decode datasource document: %w", err)
@@ -698,11 +846,34 @@ func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 	return spec, nil
 }
 
+type llmProviderDoc struct {
+	Kind        string               `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        corellm.ProviderName `json:"name" yaml:"name"`
+	DisplayName string               `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Models      []corellm.ModelSpec  `json:"models,omitempty" yaml:"models,omitempty"`
+	Annotations map[string]string    `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d llmProviderDoc) Spec() corellm.ProviderSpec {
+	return corellm.ProviderSpec{
+		Name:        d.Name,
+		DisplayName: d.DisplayName,
+		Description: d.Description,
+		Models:      d.Models,
+		Annotations: cloneStringMap(d.Annotations),
+	}
+}
+
 func decodeLLMProviderDoc(node yaml.Node) (corellm.ProviderSpec, error) {
-	var spec corellm.ProviderSpec
-	if err := node.Decode(&spec); err != nil {
+	if err := validateYAMLNode[llmProviderDoc](node); err != nil {
+		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: validate llm provider document schema: %w", err)
+	}
+	var raw llmProviderDoc
+	if err := node.Decode(&raw); err != nil {
 		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: decode llm provider document: %w", err)
 	}
+	spec := raw.Spec()
 	if err := spec.Validate(); err != nil {
 		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: validate llm provider document: %w", err)
 	}
@@ -719,6 +890,9 @@ type sessionDoc struct {
 }
 
 func decodeSessionDoc(node yaml.Node) (coresession.Spec, error) {
+	if err := validateYAMLNode[sessionDoc](node); err != nil {
+		return coresession.Spec{}, fmt.Errorf("appconfig: validate session document schema: %w", err)
+	}
 	var raw sessionDoc
 	if err := node.Decode(&raw); err != nil {
 		return coresession.Spec{}, fmt.Errorf("appconfig: decode session document: %w", err)
@@ -855,6 +1029,19 @@ func (m modelPolicy) Spec() coreapp.ModelPolicy {
 
 type agentRef agent.Ref
 
+func (agentRef) JSONSchema() *invjsonschema.Schema {
+	properties := invjsonschema.NewProperties()
+	properties.Set("name", &invjsonschema.Schema{Type: "string"})
+	return &invjsonschema.Schema{OneOf: []*invjsonschema.Schema{
+		{Type: "string"},
+		{
+			Type:                 "object",
+			Properties:           properties,
+			AdditionalProperties: invjsonschema.FalseSchema,
+		},
+	}}
+}
+
 func (r *agentRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var name string
@@ -886,6 +1073,25 @@ func (r *agentRef) UnmarshalJSON(data []byte) error {
 
 type sourceSpec coreapp.SourceSpec
 
+func (sourceSpec) JSONSchema() *invjsonschema.Schema {
+	properties := invjsonschema.NewProperties()
+	properties.Set("location", &invjsonschema.Schema{Type: "string"})
+	properties.Set("scope", &invjsonschema.Schema{Type: "string"})
+	properties.Set("ecosystem", &invjsonschema.Schema{Type: "string"})
+	properties.Set("annotations", &invjsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: &invjsonschema.Schema{Type: "string"},
+	})
+	return &invjsonschema.Schema{OneOf: []*invjsonschema.Schema{
+		{Type: "string"},
+		{
+			Type:                 "object",
+			Properties:           properties,
+			AdditionalProperties: invjsonschema.FalseSchema,
+		},
+	}}
+}
+
 func (s *sourceSpec) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		var location string
@@ -916,6 +1122,23 @@ func (s *sourceSpec) UnmarshalJSON(data []byte) error {
 }
 
 type pluginRef coreapp.PluginRef
+
+func (pluginRef) JSONSchema() *invjsonschema.Schema {
+	properties := invjsonschema.NewProperties()
+	properties.Set("name", &invjsonschema.Schema{Type: "string"})
+	properties.Set("config", &invjsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: invjsonschema.TrueSchema,
+	})
+	return &invjsonschema.Schema{OneOf: []*invjsonschema.Schema{
+		{Type: "string"},
+		{
+			Type:                 "object",
+			Properties:           properties,
+			AdditionalProperties: invjsonschema.FalseSchema,
+		},
+	}}
+}
 
 func (p *pluginRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {

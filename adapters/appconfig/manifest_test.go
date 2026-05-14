@@ -16,8 +16,8 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	data := []byte(`{
   "name": "engineer",
   "description": "Coding agent app",
-  "default_agent": "main",
-  "sources": [".agents"],
+  "default_agent": {"name": "main"},
+  "sources": [{"location": ".agents"}],
   "discovery": {
     "include_global_user_resources": true,
     "include_external_ecosystems": false,
@@ -29,7 +29,7 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
     "source_api": "auto"
   },
   "plugins": [
-    "git",
+    {"name": "git"},
     {"name": "browser", "config": {"headless": true}}
   ]
 }`)
@@ -91,7 +91,7 @@ name: engineer
 default_agent:
   name: main
 sources:
-  - .agents
+  - location: .agents
 model_policy:
   provider: openai
   approved_only: true
@@ -115,6 +115,28 @@ plugins:
 	}
 	if got := bundle.Plugins[0].Config["scope"]; got != "project" {
 		t.Fatalf("plugin scope = %#v, want project", got)
+	}
+}
+
+func TestDecodeManifestPreservesScalarShorthands(t *testing.T) {
+	bundle, err := DecodeManifest("agentsdk.app.yaml", []byte(`
+name: engineer
+default_agent: main
+sources: [.agents]
+plugins: [git]
+`))
+	if err != nil {
+		t.Fatalf("DecodeManifest: %v", err)
+	}
+	app := bundle.Apps[0]
+	if app.DefaultAgent.Name != "main" {
+		t.Fatalf("default agent = %#v, want main", app.DefaultAgent)
+	}
+	if len(app.Sources) != 1 || app.Sources[0].Location != ".agents" {
+		t.Fatalf("sources = %#v, want .agents", app.Sources)
+	}
+	if len(app.Plugins) != 1 || app.Plugins[0].Name != "git" {
+		t.Fatalf("plugins = %#v, want git", app.Plugins)
 	}
 }
 
@@ -276,7 +298,8 @@ func TestDecodeFileLoadsRewriteNativeSlackManifest(t *testing.T) {
 	data := []byte(`
 kind: app
 name: slack-bot
-default_agent: slack_bot
+default_agent:
+  name: slack_bot
 plugins:
   - name: slack
 connectors:
@@ -315,8 +338,13 @@ agent: slack_bot
 kind: agent
 name: slack_bot
 model: openai/gpt-5.5
-max_steps: 50
-max_continuations: 50
+turns:
+  max_steps: 50
+  continuation:
+    max_continuations: 50
+    stop_condition:
+      type: prompt
+      prompt: Finish when the support answer is complete.
 tools: [channel_send]
 context: [datasource.catalog]
 datasources: [slack-bot, local-docs]
@@ -337,11 +365,14 @@ system: |
 	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Inference.Model != "openai/gpt-5.5" {
 		t.Fatalf("agents = %#v", file.Bundle.Agents)
 	}
-	if file.Bundle.Agents[0].Policy.MaxContinuations != 50 {
-		t.Fatalf("max continuations = %d, want 50", file.Bundle.Agents[0].Policy.MaxContinuations)
+	if file.Bundle.Agents[0].Turns.Continuation.MaxContinuations != 50 {
+		t.Fatalf("max continuations = %d, want 50", file.Bundle.Agents[0].Turns.Continuation.MaxContinuations)
 	}
-	if file.Bundle.Agents[0].Policy.MaxSteps != 50 {
-		t.Fatalf("max steps = %d, want 50", file.Bundle.Agents[0].Policy.MaxSteps)
+	if file.Bundle.Agents[0].Turns.MaxSteps != 50 {
+		t.Fatalf("max steps = %d, want 50", file.Bundle.Agents[0].Turns.MaxSteps)
+	}
+	if file.Bundle.Agents[0].Turns.Continuation.StopCondition.Type != "prompt" {
+		t.Fatalf("stop condition = %#v, want prompt", file.Bundle.Agents[0].Turns.Continuation.StopCondition)
 	}
 	if len(file.Bundle.Agents[0].Datasources) != 2 || file.Bundle.Agents[0].Datasources[0].Name != "slack-bot" {
 		t.Fatalf("agent datasources = %#v", file.Bundle.Agents[0].Datasources)
@@ -363,6 +394,33 @@ system: |
 	}
 	if len(file.Connectors) != 1 || file.Connectors["slack-bot"].Kind != "slack" {
 		t.Fatalf("connectors = %#v, want slack-bot slack", file.Connectors)
+	}
+}
+
+func TestDecodeFileRejectsUnknownAgentField(t *testing.T) {
+	_, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: agent
+name: main
+model: openai/gpt-5.5
+surprise: true
+`))
+	if err == nil || !strings.Contains(err.Error(), "schema validation failed") {
+		t.Fatalf("DecodeFile error = %v, want schema validation failure", err)
+	}
+}
+
+func TestDecodeFileRejectsMaxContinuationsWithoutStopCondition(t *testing.T) {
+	_, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: agent
+name: main
+model: openai/gpt-5.5
+turns:
+  max_steps: 50
+  continuation:
+    max_continuations: 3
+`))
+	if err == nil || !strings.Contains(err.Error(), "stop_condition") {
+		t.Fatalf("DecodeFile error = %v, want stop_condition failure", err)
 	}
 }
 
@@ -405,14 +463,14 @@ runtime:
 }
 
 func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"sources":[""]}`))
+	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"sources":[{"location":""}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want empty source validation error")
 	}
 }
 
 func TestDecodeManifestRejectsEmptyPluginViaValidation(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[""]}`))
+	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"name":""}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want empty plugin validation error")
 	}
@@ -421,7 +479,7 @@ func TestDecodeManifestRejectsEmptyPluginViaValidation(t *testing.T) {
 func TestLoadDirReadsDefaultManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, DefaultManifestName)
-	if err := os.WriteFile(path, []byte(`{"default_agent":"main","sources":[".agents"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"default_agent":{"name":"main"},"sources":[{"location":".agents"}]}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -440,7 +498,7 @@ func TestLoadDirReadsDefaultManifest(t *testing.T) {
 func TestLoadDirReadsYAMLManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agentsdk.app.yaml")
-	if err := os.WriteFile(path, []byte("default_agent: main\nsources:\n  - .agents\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("default_agent:\n  name: main\nsources:\n  - location: .agents\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -459,7 +517,7 @@ func TestLoadDirReadsYAMLManifest(t *testing.T) {
 func TestLoadDirReadsYMLManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agentsdk.app.yml")
-	if err := os.WriteFile(path, []byte("default_agent: main\nsources:\n  - .agents\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("default_agent:\n  name: main\nsources:\n  - location: .agents\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -479,10 +537,10 @@ func TestLoadDirUsesDeterministicManifestOrder(t *testing.T) {
 	dir := t.TempDir()
 	jsonPath := filepath.Join(dir, "agentsdk.app.json")
 	yamlPath := filepath.Join(dir, "agentsdk.app.yaml")
-	if err := os.WriteFile(jsonPath, []byte(`{"default_agent":"json","sources":[".agents"]}`), 0o600); err != nil {
+	if err := os.WriteFile(jsonPath, []byte(`{"default_agent":{"name":"json"},"sources":[{"location":".agents"}]}`), 0o600); err != nil {
 		t.Fatalf("WriteFile json: %v", err)
 	}
-	if err := os.WriteFile(yamlPath, []byte("default_agent: yaml\nsources:\n  - .agents\n"), 0o600); err != nil {
+	if err := os.WriteFile(yamlPath, []byte("default_agent:\n  name: yaml\nsources:\n  - location: .agents\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile yaml: %v", err)
 	}
 

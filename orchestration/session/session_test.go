@@ -14,6 +14,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -865,7 +866,7 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
 		}, nil
 	})
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Policy: agent.Policy{MaxSteps: 2}}, model, llmagent.WithContextProviders(contextProvider))
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model, llmagent.WithContextProviders(contextProvider))
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
@@ -1470,7 +1471,10 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 		Name:      "coder",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
-		Policy:    agent.Policy{MaxSteps: 2, MaxContinuations: 99},
+		Turns: agent.TurnPolicy{MaxSteps: 2, Continuation: agent.ContinuationPolicy{
+			MaxContinuations: 99,
+			StopCondition:    agent.StopConditionSpec{Type: "max-continuations", Max: 99},
+		}},
 	}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
@@ -1484,7 +1488,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	if result.Error == nil || result.Error.Code != "step_limit_exceeded" {
 		t.Fatalf("error = %#v, want step_limit_exceeded", result.Error)
 	}
-	if result.Error.Message != "inner loop reached max_steps=2 model decision calls" {
+	if result.Error.Message != "inner loop reached turns.max_steps=2 model decision calls" {
 		t.Fatalf("error message = %q, want inner max_steps detail", result.Error.Message)
 	}
 	if result.Error.Details["loop"] != "inner" || result.Error.Details["max_steps"] != 2 {
@@ -1537,7 +1541,10 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 		Name:      "coder",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
-		Policy:    agent.Policy{MaxContinuations: 2},
+		Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{
+			MaxContinuations: 2,
+			StopCondition:    agent.StopConditionSpec{Type: "max-continuations", Max: 2},
+		}},
 	}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
@@ -1642,10 +1649,10 @@ func TestStepAndContinuationLimitsUseLLMDefaultsAndExplicitOverrides(t *testing.
 	overrideSession := Session{Agent: &sequenceAgent{spec: agent.Spec{
 		Name:   "main",
 		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
-		Policy: agent.Policy{
-			MaxSteps:         8,
+		Turns: agent.TurnPolicy{MaxSteps: 8, Continuation: agent.ContinuationPolicy{
 			MaxContinuations: 50,
-		},
+			StopCondition:    agent.StopConditionSpec{Type: "max-continuations", Max: 50},
+		}},
 	}}}
 	if got := overrideSession.maxSteps(); got != 8 {
 		t.Fatalf("override maxSteps = %d, want 8", got)
@@ -1689,7 +1696,7 @@ func TestExecuteInboundInputMaxContinuationsDoesNotLimitInnerToolLoop(t *testing
 		Name:      "coder",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
-		Policy:    agent.Policy{MaxSteps: 3, MaxContinuations: 0},
+		Turns:     agent.TurnPolicy{MaxSteps: 3, Continuation: agent.ContinuationPolicy{MaxContinuations: 0}},
 	}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
@@ -1710,7 +1717,7 @@ func TestExecuteInboundInputNoStopConditionDoesNotOuterContinue(t *testing.T) {
 		spec: agent.Spec{
 			Name:   "main",
 			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
-			Policy: agent.Policy{MaxSteps: 50, MaxContinuations: 3},
+			Turns:  agent.TurnPolicy{MaxSteps: 50},
 		},
 		results: []agent.StepResult{
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}}},
@@ -1733,8 +1740,10 @@ func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testi
 		spec: agent.Spec{
 			Name:   "main",
 			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
-			Policy: agent.Policy{MaxSteps: 50, MaxContinuations: 2},
-			Stop:   agent.StopConditionSpec{Type: "max-continuations", Max: 5},
+			Turns: agent.TurnPolicy{MaxSteps: 50, Continuation: agent.ContinuationPolicy{
+				MaxContinuations: 2,
+				StopCondition:    agent.StopConditionSpec{Type: "max-continuations", Max: 5},
+			}},
 		},
 		results: []agent.StepResult{
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "first"}}},
@@ -1745,8 +1754,8 @@ func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testi
 	s := Session{Agent: agentRuntime}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
-	if result.Status != InputStatusOK {
-		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	if result.Status != InputStatusFailed {
+		t.Fatalf("status = %q, want failed after continuation limit: %#v", result.Status, result)
 	}
 	if len(agentRuntime.inputs) != 3 {
 		t.Fatalf("steps = %d, want first turn plus two continuations", len(agentRuntime.inputs))
@@ -1754,8 +1763,225 @@ func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testi
 	if agentRuntime.inputs[1].Observations[0].Kind != "session.continuation" {
 		t.Fatalf("second observations = %#v, want continuation", agentRuntime.inputs[1].Observations)
 	}
-	if result.Outbound == nil || result.Outbound.Message.Content != "third" {
+	if result.Error == nil || result.Error.Code != "continuation_limit_exceeded" {
+		t.Fatalf("error = %#v, want continuation_limit_exceeded", result.Error)
+	}
+}
+
+func TestExecuteInboundInputPromptStopConditionUsesEvaluatorInstruction(t *testing.T) {
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "main",
+			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+			Turns: agent.TurnPolicy{MaxSteps: 50, Continuation: agent.ContinuationPolicy{
+				MaxContinuations: 2,
+				StopCondition:    agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when the task is complete."},
+			}},
+		},
+		results: []agent.StepResult{
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "first"}}},
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}}},
+		},
+	}
+	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
+		{Action: "continue", Reason: "more work remains", ContinueInstruction: "Add tests for parser errors."},
+		{Action: "stop", Reason: "task complete"},
+	}}
+	s := Session{Agent: agentRuntime, StopEvaluator: evaluator}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "improve coverage"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("steps = %d, want first turn plus one continuation", len(agentRuntime.inputs))
+	}
+	if got := agentRuntime.inputs[1].Observations[0].Content; got != "Add tests for parser errors." {
+		t.Fatalf("continuation content = %#v, want evaluator instruction", got)
+	}
+	if len(evaluator.inputs) != 2 || evaluator.inputs[0].Condition.Prompt != "Stop when the task is complete." {
+		t.Fatalf("evaluator inputs = %#v, want prompt condition", evaluator.inputs)
+	}
+	if result.Outbound == nil || result.Outbound.Message.Content != "done" {
 		t.Fatalf("outbound = %#v, want final continuation message", result.Outbound)
+	}
+}
+
+func TestModelStopEvaluatorAcceptsToolDecision(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if got := req.Agent.Inference.Model; got != "expensive-model" {
+			t.Fatalf("evaluator model = %q, want parent model", got)
+		}
+		if len(req.Tools) != 1 || req.Tools[0].Name != "continuation_decision" {
+			t.Fatalf("tools = %#v, want continuation_decision", req.Tools)
+		}
+		return llmagent.Response{Operations: []agent.OperationRequest{{
+			Operation: operation.Ref{Name: "continuation_decision"},
+			Input:     StopEvaluation{Action: StopActionContinue, Reason: "coverage remains", ContinueInstruction: "Add parser error tests."},
+		}}}, nil
+	})
+
+	got, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent: agent.Spec{
+			Name:      "coder",
+			Inference: agent.InferenceSpec{Model: "expensive-model", Thinking: "enabled"},
+		},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err != nil {
+		t.Fatalf("EvaluateStopCondition: %v", err)
+	}
+	if got.Action != "continue" || got.ContinueInstruction != "Add parser error tests." {
+		t.Fatalf("evaluation = %#v, want continue with instruction", got)
+	}
+}
+
+func TestModelStopEvaluatorAcceptsStopToolDecision(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Operations: []agent.OperationRequest{{
+			Operation: operation.Ref{Name: "continuation_decision"},
+			Input:     StopEvaluation{Action: StopActionStop, Reason: "done"},
+		}}}, nil
+	})
+
+	got, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err != nil {
+		t.Fatalf("EvaluateStopCondition: %v", err)
+	}
+	if got.Action != StopActionStop || got.Reason != "done" {
+		t.Fatalf("evaluation = %#v, want stop/done", got)
+	}
+}
+
+func TestModelStopEvaluatorRejectsTextDecision(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Message: &agent.Message{Content: "done"}}, nil
+	})
+
+	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must call continuation_decision") {
+		t.Fatalf("EvaluateStopCondition error = %v, want tool-call requirement", err)
+	}
+}
+
+func TestModelStopEvaluatorRejectsWrongTool(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Operations: []agent.OperationRequest{{
+			Operation: operation.Ref{Name: "other"},
+			Input:     StopEvaluation{Action: StopActionStop},
+		}}}, nil
+	})
+
+	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err == nil || !strings.Contains(err.Error(), "want \"continuation_decision\"") {
+		t.Fatalf("EvaluateStopCondition error = %v, want wrong-tool failure", err)
+	}
+}
+
+func TestModelStopEvaluatorRejectsMultipleDecisions(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Operations: []agent.OperationRequest{
+			{Operation: operation.Ref{Name: "continuation_decision"}, Input: StopEvaluation{Action: StopActionStop}},
+			{Operation: operation.Ref{Name: "continuation_decision"}, Input: StopEvaluation{Action: StopActionContinue}},
+		}}, nil
+	})
+
+	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exactly once") {
+		t.Fatalf("EvaluateStopCondition error = %v, want exactly-once failure", err)
+	}
+}
+
+func TestModelStopEvaluatorRejectsInvalidDecisionAction(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Operations: []agent.OperationRequest{{
+			Operation: operation.Ref{Name: "continuation_decision"},
+			Input:     StopEvaluation{Action: "maybe"},
+		}}}, nil
+	})
+
+	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err == nil || !strings.Contains(err.Error(), "stop evaluation action must be stop or continue") {
+		t.Fatalf("EvaluateStopCondition error = %v, want invalid-action failure", err)
+	}
+}
+
+func TestModelStopEvaluatorRejectsMissingDecisionAction(t *testing.T) {
+	model := llmagent.ModelFunc(func(_ context.Context, _ llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{Operations: []agent.OperationRequest{{
+			Operation: operation.Ref{Name: "continuation_decision"},
+			Input:     StopEvaluation{Reason: "missing"},
+		}}}, nil
+	})
+
+	_, err := (ModelStopEvaluator{Model: model}).EvaluateStopCondition(context.Background(), StopEvaluationInput{
+		Agent:     agent.Spec{Name: "coder"},
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+	})
+	if err == nil || !strings.Contains(err.Error(), "stop evaluation action must be stop or continue") {
+		t.Fatalf("EvaluateStopCondition error = %v, want missing-action failure", err)
+	}
+}
+
+func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
+	input := StopEvaluationInput{
+		Condition: agent.StopConditionSpec{Type: "prompt", Prompt: "Stop when complete."},
+		Inbound:   channel.Inbound{Kind: channel.InboundMessage, Message: &channel.Message{Content: "Do sensitive work."}},
+		AgentResult: agent.StepResult{Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "I ran the operation."},
+		}},
+		Effects: []environment.EffectResult{{Result: operation.OK("RAW_SECRET_OUTPUT")}},
+	}
+
+	summaryInput := input
+	summaryInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "summary"}}}
+	summaryGoal := stopEvaluatorGoal(summaryInput)
+	if strings.Contains(summaryGoal, "RAW_SECRET_OUTPUT") {
+		t.Fatalf("summary goal leaked raw effect output:\n%s", summaryGoal)
+	}
+	if !strings.Contains(summaryGoal, "Operation effects observed: 1") {
+		t.Fatalf("summary goal = %q, want effect count", summaryGoal)
+	}
+
+	inheritInput := input
+	inheritInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "inherit"}}}
+	inheritGoal := stopEvaluatorGoal(inheritInput)
+	if !strings.Contains(inheritGoal, "RAW_SECRET_OUTPUT") {
+		t.Fatalf("inherit goal = %q, want raw effect output", inheritGoal)
+	}
+}
+
+func TestExecuteInboundInputAgentStopConditionIsDeferred(t *testing.T) {
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:  "main",
+			Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{MaxContinuations: 1, StopCondition: agent.StopConditionSpec{Type: "agent", Session: "reviewer", Prompt: "Stop when reviewed."}}},
+		},
+		results: []agent.StepResult{
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "candidate answer"}}},
+		},
+	}
+	s := Session{Agent: agentRuntime}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "answer the user"}})
+	if result.Status != InputStatusFailed || result.Error == nil || !strings.Contains(result.Error.Message, "typed subagent decision tools") {
+		t.Fatalf("result = %#v, want deferred agent stop-condition failure", result)
 	}
 }
 
@@ -2159,6 +2385,19 @@ func (a *sequenceAgent) Step(_ agent.Context, input agent.StepInput) agent.StepR
 		return a.results[len(a.inputs)-1]
 	}
 	return agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}}
+}
+
+type sequenceStopEvaluator struct {
+	evaluations []StopEvaluation
+	inputs      []StopEvaluationInput
+}
+
+func (e *sequenceStopEvaluator) EvaluateStopCondition(_ context.Context, input StopEvaluationInput) (StopEvaluation, error) {
+	e.inputs = append(e.inputs, input)
+	if len(e.inputs) <= len(e.evaluations) {
+		return e.evaluations[len(e.inputs)-1], nil
+	}
+	return StopEvaluation{Action: "stop"}, nil
 }
 
 type scriptedContextProvider struct {

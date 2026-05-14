@@ -1,7 +1,8 @@
 kind: app
 name: "agentsdk"
 description: Local agentsdk app with searchable repository documentation.
-default_agent: default
+default_agent:
+  name: default
 distribution:
   name: agentsdk
   title: AgentSDK

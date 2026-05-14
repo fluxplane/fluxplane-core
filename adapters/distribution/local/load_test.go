@@ -90,7 +90,8 @@ func TestLoadOverlaysDistributionManifestMetadata(t *testing.T) {
 kind: app
 name: sample
 description: Sample app.
-default_agent: assistant
+default_agent:
+  name: assistant
 model_policy:
   provider: openai
   model: app-model
@@ -159,7 +160,8 @@ func TestLoadExposesGeneratedDefaultSessionForDefaultAgent(t *testing.T) {
 	writeManifest(t, dir, `
 kind: app
 name: sample
-default_agent: assistant
+default_agent:
+  name: assistant
 ---
 kind: agent
 name: assistant

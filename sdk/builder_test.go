@@ -21,7 +21,6 @@ func TestBuildAppContribution(t *testing.T) {
 		AsLLMAgent("gpt-test").
 		WithSystem("Be useful.").
 		WithMaxSteps(50).
-		WithMaxContinuations(3).
 		WithOperation("lookup").
 		Build()
 
@@ -39,8 +38,8 @@ func TestBuildAppContribution(t *testing.T) {
 	if len(bundle.Agents) != 1 || bundle.Agents[0].Driver.Kind != "llmagent" {
 		t.Fatalf("agents = %#v, want one llmagent", bundle.Agents)
 	}
-	if bundle.Agents[0].Policy.MaxSteps != 50 || bundle.Agents[0].Policy.MaxContinuations != 3 {
-		t.Fatalf("policy = %#v, want max_steps 50 and max_continuations 3", bundle.Agents[0].Policy)
+	if bundle.Agents[0].Turns.MaxSteps != 50 {
+		t.Fatalf("turns = %#v, want max_steps 50", bundle.Agents[0].Turns)
 	}
 	if len(bundle.Commands) != 1 || bundle.Commands[0].Path.String() != "/lookup" {
 		t.Fatalf("commands = %#v, want /lookup", bundle.Commands)
@@ -50,5 +49,32 @@ func TestBuildAppContribution(t *testing.T) {
 	}
 	if len(bundle.Sessions) != 1 || bundle.Apps[0].DefaultSession.Name != "default" {
 		t.Fatalf("sessions = %#v app = %#v, want default session", bundle.Sessions, bundle.Apps[0])
+	}
+}
+
+func TestBuildAgentContinuationHelpersProduceValidSpecs(t *testing.T) {
+	capped := BuildAgent("main").
+		WithMaxContinuations(3).
+		Build()
+	if err := capped.Validate(); err != nil {
+		t.Fatalf("capped Validate: %v", err)
+	}
+	if capped.Turns.Continuation.StopCondition.Type != "max-continuations" || capped.Turns.Continuation.StopCondition.Max != 3 {
+		t.Fatalf("stop condition = %#v, want max-continuations 3", capped.Turns.Continuation.StopCondition)
+	}
+
+	prompt := BuildAgent("reviewer").
+		WithMaxContinuations(5).
+		WithPromptStopCondition("Stop when reviewed.").
+		WithContinuationContextPolicy("summary").
+		Build()
+	if err := prompt.Validate(); err != nil {
+		t.Fatalf("prompt Validate: %v", err)
+	}
+	if prompt.Turns.Continuation.StopCondition.Type != "prompt" || prompt.Turns.Continuation.StopCondition.Prompt != "Stop when reviewed." {
+		t.Fatalf("stop condition = %#v, want prompt", prompt.Turns.Continuation.StopCondition)
+	}
+	if prompt.Turns.Continuation.ContextPolicy != "summary" {
+		t.Fatalf("context policy = %q, want summary", prompt.Turns.Continuation.ContextPolicy)
 	}
 }

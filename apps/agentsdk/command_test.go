@@ -178,7 +178,7 @@ func TestInitRefusesExistingManifestUnlessForced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if !strings.Contains(string(data), "default_agent: default") {
+	if !strings.Contains(string(data), "name: default") {
 		t.Fatalf("manifest = %s, want generated minimal manifest", data)
 	}
 }
@@ -315,7 +315,8 @@ func TestDiscoverCommandRendersStaticPluginContributions(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "agentsdk.app.yaml", `kind: app
 name: plugin-discovery
-default_agent: main
+default_agent:
+  name: main
 plugins:
   - name: web
 datasources:
