@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git plugin now includes `git_tag` and `git_push` operations with typed safety
   intent for local tag writes and explicit remote pushes.
 
+### Changed
+
+- Pre-push security scans now skip the repository-local `.cache/` directory so
+  hidden Go build cache files are not scanned.
+
 ## [0.10.0] - 2026-05-14
 
 ### Added

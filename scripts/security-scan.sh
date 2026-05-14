@@ -7,6 +7,12 @@ cd "$repo_root"
 
 banned_pattern='babel''force'
 secret_pattern='-----BEGIN (RSA|OPENSSH|EC|DSA|PRIVATE) PRIVATE KEY-----|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}'
+working_tree_exclude_globs=(
+	'!.git/**'
+	'!.cache/**'
+	'!vendor/**'
+	'!node_modules/**'
+)
 
 require_tool() {
 	local tool="$1"
@@ -19,6 +25,29 @@ require_tool() {
 run() {
 	printf 'security-scan: %s\n' "$*"
 	"$@"
+}
+
+rg_exclude_args() {
+	printf -- '--glob\n%s\n' "${working_tree_exclude_globs[@]}"
+}
+
+trufflehog_exclude_paths_file() {
+	local exclude_file="$1"
+	cat >"$exclude_file" <<'EOF'
+^\.git/
+^\.cache/
+^vendor/
+^node_modules/
+EOF
+}
+
+gitleaks_working_tree_targets() {
+	find . \
+		-path './.git' -prune -o \
+		-path './.cache' -prune -o \
+		-path './vendor' -prune -o \
+		-path './node_modules' -prune -o \
+		-type f -print
 }
 
 check_staged() {
@@ -46,7 +75,10 @@ check_full() {
 	local revs=()
 	mapfile -t revs < <(git rev-list --all)
 
-	if rg -n -i --hidden --glob '!.git/**' --glob '!vendor/**' --glob '!node_modules/**' "$banned_pattern" .; then
+	local rg_excludes=()
+	mapfile -t rg_excludes < <(rg_exclude_args)
+
+	if rg -n -i --hidden "${rg_excludes[@]}" "$banned_pattern" .; then
 		printf 'security-scan: banned keyword found in working tree: %s\n' "$banned_pattern" >&2
 		exit 1
 	fi
@@ -56,7 +88,7 @@ check_full() {
 		exit 1
 	fi
 
-	if rg -l --hidden --glob '!.git/**' --glob '!vendor/**' --glob '!node_modules/**' --pcre2 "(?i)($secret_pattern)" .; then
+	if rg -l --hidden "${rg_excludes[@]}" --pcre2 "(?i)($secret_pattern)" .; then
 		printf 'security-scan: high-confidence secret pattern found in working tree\n' >&2
 		exit 1
 	fi
@@ -66,10 +98,20 @@ check_full() {
 		exit 1
 	fi
 
+	local trufflehog_excludes
+	trufflehog_excludes="$(mktemp)"
+	trap 'rm -f "$trufflehog_excludes"' RETURN
+	trufflehog_exclude_paths_file "$trufflehog_excludes"
+
+	local gitleaks_targets=()
+	mapfile -t gitleaks_targets < <(gitleaks_working_tree_targets)
+
 	run gitleaks git . --redact --no-color --log-level warn
-	run gitleaks dir . --redact --no-color --log-level warn
-	run trufflehog git "file://$repo_root" --no-verification --no-update --fail --log-level=-1
-	run trufflehog filesystem "$repo_root" --no-verification --no-update --fail --log-level=-1
+	if ((${#gitleaks_targets[@]} > 0)); then
+		run gitleaks dir --redact --no-color --log-level warn "${gitleaks_targets[@]}"
+	fi
+	run trufflehog git "file://$repo_root" --exclude-paths "$trufflehog_excludes" --no-verification --no-update --fail --log-level=-1
+	run trufflehog filesystem "$repo_root" --exclude-paths "$trufflehog_excludes" --no-verification --no-update --fail --log-level=-1
 }
 
 case "$mode" in
