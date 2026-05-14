@@ -63,6 +63,9 @@ func RepairToolContinuity(items []coreconversation.Item, opts ToolContinuityRepa
 		switch item.Kind {
 		case coreconversation.ItemToolResult:
 			callID := strings.TrimSpace(item.CallID)
+			if !state.isOpen(callID) {
+				out = append(out, state.missingResults()...)
+			}
 			if callID != "" && !state.isOpen(callID) && opts.RepairOrphanResults {
 				synthetic, diagnostic := syntheticToolCallForOrphanResult(opts.Provider, item, i)
 				out = append(out, synthetic)
@@ -75,14 +78,15 @@ func RepairToolContinuity(items []coreconversation.Item, opts ToolContinuityRepa
 		case coreconversation.ItemOutput:
 			calls := item.ToolCallRefs()
 			state.flagInvalidToolCalls(i, calls)
+			out = append(out, state.missingResults()...)
 			if len(calls) == 0 {
-				out = append(out, state.missingResults()...)
 				out = append(out, item)
 				continue
 			}
 			out = append(out, item)
 			state.openToolCalls(calls)
 		case coreconversation.ItemReasoning:
+			out = append(out, state.missingResults()...)
 			out = append(out, item)
 		default:
 			out = append(out, state.missingResults()...)

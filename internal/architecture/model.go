@@ -18,6 +18,7 @@ const (
 	LayerAdapters      Layer = "adapters"
 	LayerPlugins       Layer = "plugins"
 	LayerApps          Layer = "apps"
+	LayerCmd           Layer = "cmd"
 	LayerFacade        Layer = "facade"
 )
 
@@ -245,7 +246,7 @@ func layerOf(modulePath, importPath string) Layer {
 	rest := strings.TrimPrefix(importPath, prefix)
 	layer, _, _ := strings.Cut(rest, "/")
 	switch Layer(layer) {
-	case LayerCore, LayerSDK, LayerRuntime, LayerOrchestration, LayerAdapters, LayerPlugins, LayerApps:
+	case LayerCore, LayerSDK, LayerRuntime, LayerOrchestration, LayerAdapters, LayerPlugins, LayerApps, LayerCmd:
 		return Layer(layer)
 	default:
 		return ""
@@ -293,6 +294,11 @@ func allowedImport(from, to Layer) (bool, string) {
 			LayerPlugins:       true,
 			LayerApps:          true,
 			LayerFacade:        true,
+		},
+		LayerCmd: {
+			LayerApps:     true,
+			LayerAdapters: true,
+			LayerCmd:      true,
 		},
 		LayerFacade: {
 			LayerCore:          true,
@@ -398,6 +404,7 @@ func layerOrder() []Layer {
 		LayerAdapters,
 		LayerPlugins,
 		LayerApps,
+		LayerCmd,
 		LayerFacade,
 	}
 }

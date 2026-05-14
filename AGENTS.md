@@ -1,288 +1,188 @@
 # Fluxplane Agent Runtime Agent Notes
 
 This file is for AI agents and developers working in
-`github.com/fluxplane/agentruntime`.
+`github.com/fluxplane/agentruntime`. It carries the operative rules only.
+Background lives in:
 
-For migration rationale, package disposition, historical decisions, and current
-rewrite milestones, use [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md).
-For the current security model and roadmap, use [docs/security.md](docs/security.md).
+- [docs/architecture.md](docs/architecture.md): full layer model, package
+  responsibilities, and common flows.
+- [docs/security.md](docs/security.md): full safety model and roadmap.
+- [docs/verification.md](docs/verification.md): quality gate, Git hooks, and
+  architecture report commands.
+- [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md):
+  migration rationale and historical decisions.
+
 Do not put migration decision logs in this file.
 
 ## Worktree Rules
 
 - Never commit unless explicitly asked.
-- Never run destructive git commands such as `git reset`, `git clean`,
-  `git checkout --`, or force pushes.
-- When committing, use semantic/conventional commit messages with a body:
-  `feat: short summary`, blank line, then a short body explaining what changed
-  and why. Use the appropriate type (`feat`, `fix`, `docs`, `test`, `chore`,
-  `refactor`, and so on).
-- Before committing user-visible changes, documentation changes, removals, or
-  release-affecting work, update `CHANGELOG.md` in the same commit unless the
-  user explicitly says to skip it.
-- The generated architecture render directory `.agents/architecture/` is
-  ignored. Regenerate it when needed.
-- This is a pre-1.0 rewrite. Do not add backward-compatibility shims,
-  deprecated wrappers, or compatibility paths unless explicitly requested.
-- We do not care about backward compatibility. Prefer the clean current design
-  and delete or replace stale shapes instead of preserving old behavior by
-  default.
+- Never run destructive git commands (`git reset`, `git clean`,
+  `git checkout --`, force pushes).
+- Commit messages are conventional with a body: `feat: short summary`, blank
+  line, then a short body explaining what changed and why. Use the
+  appropriate type (`feat`, `fix`, `docs`, `test`, `chore`, `refactor`, ...).
+- Update `CHANGELOG.md` in the same commit for user-visible changes,
+  documentation changes, removals, or release-affecting work, unless the user
+  explicitly says to skip it.
+- This is a pre-1.0 rewrite. No backward compatibility, no compat shims, no
+  deprecated wrappers. Replace stale shapes; do not preserve them.
 
 ## Verification
 
-Use the rewrite-local quality gate:
+Run `task verify` before committing. It is the rewrite-local quality gate
+(format, modules, whitespace, vet, lint, tests, architecture check). See
+[docs/verification.md](docs/verification.md) for hooks, the security scan,
+and architecture report invocations.
 
-```bash
-task verify
-```
+The architecture test in `internal/architecture` is the hard boundary check.
+Zero violations is required.
 
-`task verify` runs formatting checks, module consistency checks, whitespace
-checks, `go vet`, `golangci-lint`, tests, and the architecture import check.
+## Layer Rules
 
-New clones should enable the tracked Git hooks:
-
-```bash
-task hooks:install
-```
-
-The tracked pre-commit hook runs the staged security scan and staged whitespace
-check. The tracked pre-push hook runs the full security scan, `task verify`,
-and the cross-platform binary build.
-
-Do not run the old repository root CI for rewrite work unless explicitly
-asked.
-
-Architecture reports:
-
-```bash
-go run ./apps/archreport
-go run ./apps/archreport -format json
-go run ./apps/archreport -format dot
-go run ./apps/archreport -format mermaid
-task arch:render
-```
-
-The architecture test is the hard boundary check. The report is a review tool
-for coupling, fan-in/fan-out, and refactoring decisions.
-
-## Dependency Direction
-
-The top-level layers are:
+The dependency direction is fixed and enforced by `apps/archreport` and
+`internal/architecture`:
 
 ```text
-core -> runtime -> orchestration -> adapters/plugins -> apps
-core -> sdk -> apps/user code
+cmd -> apps -> {plugins, adapters} -> orchestration -> runtime -> core
+sdk -> core
+facade (root module) -> {core, sdk, runtime, orchestration, adapters}
 ```
 
-Dependencies must point inward. Outer layers may depend on inner layers; inner
-layers must not depend on outer layers.
+Outer layers may depend on inner layers; inner layers must not depend on
+outer layers. The exact allowed-import matrix is defined in
+`internal/architecture/model.go` (`allowedImport`).
 
-`apps` and the root facade may assemble outward-facing products. Inner packages
-must not import apps.
+| Layer | Answers | May import | Notes |
+|---|---|---|---|
+| `core` | What is the stable shape of the agent system? | `core` | Inert specs, events, refs, descriptors, policies, registries. No IO, no execution, no rendering. |
+| `sdk` | How do users author inert specs conveniently? | `core` | IO-free authoring sugar. Imported by `plugins`, `apps`, and the root facade only. |
+| `runtime` | How are core contracts executed or stored? | `core`, `runtime` | Surface-neutral execution and storage. No CLI/HTTP/Slack presentation. Avoid sibling runtime imports without a clear reason. |
+| `orchestration` | Which runtime pieces are combined for a use case? | `core`, `runtime`, `orchestration` | Session lifecycle, command dispatch, plugin contribution resolution, daemon lifecycle. No protocol wire formats, no terminal rendering. |
+| `adapters` | How does the outside world talk to the runtime? | `core`, `runtime`, `orchestration`, `adapters` | IO and protocol boundaries. Translate external systems in and events/results back out. No new domain concepts. |
+| `plugins` | Which optional first-party capability bundle is contributed? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins` | Optional capability bundles via core/orchestration contracts. No global app assembly. |
+| `apps` | What product was assembled? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins`, `apps`, root facade | Assembled products and dogfood apps. No reusable domain or runtime concepts. |
+| `cmd` | How is an assembled product launched as a process? | `apps`, `adapters`, `cmd` (and stdlib) | Executable entrypoint glue only. Adapter import is allowed for distribution-CLI launchers (e.g. `cmd/coder`); no feature logic, no plugin assembly. |
+| `facade` (root module) | In-process embedding entrypoint. | `core`, `sdk`, `runtime`, `orchestration`, `adapters` | The root `agentruntime` package. Assembles outward-facing in-process products. Inner packages must not import it. |
 
-`sdk` is an IO-free authoring convenience layer. It may depend on `core` only
-and emits specs/contribution bundles. It must not execute operations, open
-sessions, instantiate model providers, inspect files, or import runtime,
-orchestration, adapters, plugins, or apps.
+See [docs/architecture.md](docs/architecture.md) for per-layer concept lists
+and common flows.
 
-LLM provider/model availability, pricing, APIs, and capability metadata should
-come from `github.com/codewandler/modeldb` through an adapter bridge. Do not
-hand-maintain broad model lists in core or app packages.
+## Placement Checklist
 
-## `core/`
+When placing new code, walk this list top-down and stop at the first match.
+This subsumes the migration rule: when extracting from the old SDK, identify
+each concept and place it independently using this list.
 
-`core` is the inner domain/kernel layer.
+```text
+Authoring sugar for inert specs, no IO, no execution?
+  -> sdk
 
-Allowed:
+Pure spec, event, ID, ref, descriptor, policy, or registry over them?
+  -> core
 
-- value objects, IDs, refs, names, descriptors, policies, events, and result
-  types;
-- inert `Spec` types authored by users, resources, or apps;
-- pure builders, validation, and normalization;
-- small interfaces only when the inner model genuinely needs a port;
-- pure registries over specs or core port interfaces.
+Concrete execution or storage implementation of a core contract?
+  -> runtime
 
-Forbidden:
+Use-case flow that composes runtime pieces (session, dispatch, lifecycle)?
+  -> orchestration
 
-- filesystem, environment, process, terminal, network, HTTP, Slack, browser,
-  database, JSONL, SQLite, model-provider clients, goroutine hosts, or daemon
-  lifecycle;
-- concrete plugin discovery;
-- rendering;
-- persistence implementation details;
-- imports from `runtime`, `orchestration`, `plugins`, `adapters`, or `apps`.
+IO or protocol boundary (filesystem, terminal, HTTP, Slack, provider, SQL,
+browser, shell, CLI)?
+  -> adapters
 
-Core should answer: "What is the stable shape of this agent system?"
+Optional first-party capability bundle contributed through core/orchestration
+contracts?
+  -> plugins
 
-## `runtime/`
+Assembled product, distribution, or default set?
+  -> apps
 
-`runtime` contains concrete implementations of core contracts and execution
-mechanics that are still surface-neutral.
+Executable main package only?
+  -> cmd
+```
 
-Allowed:
+Do not copy old packages wholesale just because names match. Split by
+responsibility using this list.
 
-- agent turn engine implementations;
-- operation executors and middleware;
-- context materialization engines;
-- event projection runners and stores;
-- surface-neutral persistence implementations.
+## Concept Rules
 
-Forbidden:
+Concept rules cut across layers. They constrain how specific concepts are
+shaped and where their logic lives, regardless of which layer the code is
+in.
 
-- CLI/terminal presentation;
-- HTTP/SSE or Slack protocol handling;
-- app/product assembly;
-- plugin selection policy;
-- filesystem resource discovery policy.
+### Operations and Safety
 
-Runtime packages should depend on `core`. Avoid sibling runtime imports unless
-there is a clear local reason; larger composition usually belongs in
-`orchestration`.
+- All side-effecting operations enter through
+  `runtime/operation.SafetyEnvelope`. No shell, filesystem, network,
+  browser, code execution, or connector path may bypass it.
+- Reusable plugins use `runtime/system.System` for filesystem, network,
+  process, browser, and human-clarification access. Do not import or call
+  `os`, `os/exec`, `syscall`, `net`, `net/http`, or `net/url` directly
+  unless the package itself implements a `System` adapter.
+- Process operations preserve the managed process boundary so stdout/stderr
+  streaming, background process handles, and per-session cleanup stay
+  centralized.
+- Prefer `runtime/operation.NewTyped` or `NewTypedResult`. Define
+  input/output structs with `json` and `jsonschema` tags and let the typed
+  helper generate the `operation.Type` JSON Schema. Hand-written schema
+  strings are only for shapes reflection cannot express cleanly.
 
-Runtime should answer: "How is this core concept executed or stored?"
-
-## `orchestration/`
-
-`orchestration` is the application/use-case layer. It composes core definitions
-and runtime implementations into higher-level flows.
-
-Allowed:
-
-- session lifecycle;
-- command dispatch against a live session;
-- workflow or trigger use cases;
-- resource-to-app composition after adapters have loaded resources;
-- event fanout and read-model coordination;
-- plugin contribution resolution at the abstract plugin contract level.
-
-Forbidden:
-
-- terminal rendering;
-- protocol wire formats;
-- provider-specific transport code;
-- concrete first-party plugin internals;
-- filesystem crawling details.
-
-Orchestration should answer: "Which runtime pieces are combined to fulfill a
-user/application use case?"
-
-## `adapters/`
-
-`adapters` contains IO and protocol boundaries. Adapters translate the outside
-world into core/orchestration requests and translate events/results back out.
-
-Allowed:
-
-- filesystem resource loading and discovery;
-- compatibility format readers;
-- terminal, HTTP/SSE, Slack, browser, shell, and process boundaries;
-- concrete filesystem, SQL, JSONL, or protocol-backed stores.
-
-Forbidden:
-
-- new domain concepts;
-- session semantics that bypass orchestration;
-- plugin contribution types that should be inner contracts.
-
-Adapters should answer: "How does an outside system talk to the runtime?"
-
-Keep channel HTTP/SSE and daemon/control HTTP conceptually separate.
-
-## `plugins/`
-
-`plugins` contains first-party plugin implementations. A plugin contributes
-optional capability bundles through core/orchestration contracts.
-
-Allowed:
-
-- concrete plugin packages such as git, code, browser, skills, memory, plan
-  executor, datasources, and local CLI support;
-- plugin-specific adapters when tightly scoped to that plugin;
-- plugin tests and fixtures.
-
-Forbidden:
-
-- global app assembly;
-- hidden default bundles;
-- core abstractions used by unrelated packages.
-
-Plugins should answer: "Which optional capability bundle is being contributed?"
-
-## `apps/`
-
-`apps` contains assembled products and dogfood apps.
-
-Allowed:
-
-- first-party apps;
-- product-specific defaults;
-- app-specific embedded resources;
-- app-specific composition tests.
-
-Forbidden:
-
-- reusable domain model;
-- reusable runtime semantics that should live in inner layers.
-
-Apps should answer: "What product did we assemble from the runtime and SDK?"
-
-## Safety Rule
-
-When operation implementations move beyond pure/in-memory examples, implement
-them safety-first. Do not add shell, filesystem, network, browser, code
-execution, or connector operations as plain function calls and retrofit safety
-later.
-
-The first real operation runtime batch must include the enforcement shape for
-sandboxing, ACL/scope checks, command-risk classification
-(`codewandler/cmdrisk` or successor), secret handling/redaction, approval
-requirements, audit events, and environment boundaries.
-
-Current concrete side-effecting operations must enter through
-`runtime/operation.SafetyEnvelope`. The first-party coder host wires
-`adapters/cmdrisk` for shell and structured network intent assessment and keeps
-operation-local checks as defense in depth. Do not add a new shell, filesystem,
-network, browser, code execution, or connector path that bypasses the safety
-envelope.
-
-Standard operation implementations must also use `runtime/system.System` for
-filesystem, network, process, browser, and human-clarification access. Do not
-import or call `os`, `os/exec`, `syscall`, `net`, `net/http`, or `net/url`
-directly from a reusable standard plugin unless the package is itself
-implementing a `System` adapter. Process operations must preserve the managed
-process boundary so stdout/stderr streaming, background process handles, and
-per-session cleanup can be enforced centrally.
-
-Prefer `runtime/operation.NewTyped` or `NewTypedResult` for new operation
-implementations. Define input/output structs with `json` and `jsonschema` tags
-and let the typed helper generate `operation.Type` JSON Schemas. Avoid
-hand-written schema strings unless a type needs a custom union or discriminator
-shape that reflection cannot express cleanly.
-
-## Architecture Rules
+See [docs/security.md](docs/security.md) for the full safety model.
 
 ### Commands
 
 - UI/adapters translate user input into canonical submissions and do not
   validate domain semantics.
-- Command syntax is parsed once at the command boundary and transported as
+- Command syntax is parsed once at the command boundary and transported as a
   structured `command.Invocation`.
-- Command behavior is dispatched through specs, registries, and `Target.Kind`,
-  not hard-coded path checks.
+- Command behavior is dispatched through specs, registries, and
+  `Target.Kind`, not hard-coded path checks.
 - Built-in commands use the same registry and handler model as contributed
   commands.
 - Backend/session dispatch owns command validation, policy evaluation, and
   execution semantics.
 - Typed command input uses structs and binders, not ad hoc `map[string]any`
   parsing spread across layers.
-- CLI flags may choose the submission shape, but must not decide whether that
-  submission is semantically valid.
+- CLI flags may choose the submission shape, but must not decide whether
+  that submission is semantically valid.
 - Harness code may inspect command metadata for routing, but must not turn
   pre-routing lookup failures into execution failures.
-- Terminal UI must not implement command-specific parsers when `core/command`
-  owns parsing.
-- Defaults are applied at the owning semantic layer, not hidden in transport or
-  presentation adapters.
+- Terminal UI must not implement command-specific parsers when
+  `core/command` owns parsing.
+- Defaults are applied at the owning semantic layer, not hidden in transport
+  or presentation adapters.
+
+### Plugin Contributions
+
+- A plugin contributes optional capability bundles (specs, operations,
+  context providers, channels, datasource providers, connector providers)
+  through `core` and `orchestration` contracts.
+- Plugin contracts belong in `core` or `orchestration`, never in a concrete
+  plugin implementation package.
+- Plugins may depend on adapters only when the adapter is part of that
+  plugin's concrete implementation boundary.
+- Apps select plugins explicitly. There are no hidden default bundles.
+
+### Distributions vs Apps
+
+- A distribution is a runnable package of defaults, metadata, bundled
+  resources, and supported surfaces. It is described in
+  `core/distribution`.
+- An `app.Spec` is resource-authored configuration inside a bundle. It is
+  not a distribution.
+- Distribution loading and runtime handles live in
+  `orchestration/distribution`. CLI/local/remote/describe helpers are
+  adapters under `adapters/distribution/*`. Concrete assembly lives in
+  `apps/launch` (and product bundles like `apps/coder`).
+
+### Channel HTTP/SSE vs Daemon Control HTTP
+
+- The channel HTTP/SSE surface (user/agent message transport) and the
+  daemon/control HTTP surface (daemon lifecycle, health, admin) are
+  conceptually separate and live in separate adapter packages.
+- Do not collapse them, share routers across them, or let either reach into
+  session internals; both enter through `orchestration/harness`.
 
 ## Naming Rule
 
@@ -308,7 +208,8 @@ orchestration/utils
 plugins/standard
 ```
 
-Use `Spec` for inert, user-authored, or resource-authored configuration shapes:
+Use `Spec` for inert, user-authored, or resource-authored configuration
+shapes:
 
 ```text
 agent.Spec
@@ -318,18 +219,6 @@ workflow.Spec
 context.ProviderSpec
 ```
 
-Reserve `Definition` for a distinct normalized, validated, executable internal
-form if the codebase later needs to distinguish authored config from prepared
-runtime form. Do not use `Definition` as a synonym for `Spec`.
-
-## Migration Rule
-
-Do not copy packages wholesale just because names match. For every old package,
-identify the concepts inside it and split by responsibility:
-
-- pure model/spec/event data -> `core`;
-- execution implementation -> `runtime`;
-- use-case composition -> `orchestration`;
-- IO/protocol/loading/rendering -> `adapters`;
-- optional first-party contribution bundle -> `plugins`;
-- assembled product -> `apps`.
+Reserve `Definition` for a distinct normalized, validated, executable
+internal form if the codebase later needs to distinguish authored config
+from prepared runtime form. Do not use `Definition` as a synonym for `Spec`.

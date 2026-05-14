@@ -44,6 +44,27 @@ effects, idempotency, determinism, and coarse declared risk. It does not encode
 caller trust, channel exposure, or app-specific policy. Those are applied by
 orchestration and runtime safety when an operation is projected or executed.
 
+## Enforcement Shape
+
+When operation implementations move beyond pure/in-memory examples, they must
+be implemented safety-first. Shell, filesystem, network, browser, code
+execution, and connector operations must not land as plain function calls with
+safety retrofitted later. Every such operation must enter through
+`runtime/operation.SafetyEnvelope`, and the envelope composition must cover:
+
+- sandboxing;
+- ACL and scope checks;
+- command-risk classification (`codewandler/cmdrisk` or successor);
+- secret handling and redaction;
+- approval requirements;
+- audit events;
+- environment boundaries.
+
+The first-party coder host wires `adapters/cmdrisk` for shell and structured
+network intent assessment and keeps operation-local checks as defense in depth.
+Do not add a new shell, filesystem, network, browser, code execution, or
+connector path that bypasses the safety envelope.
+
 ## Implemented Controls
 
 `runtime/operation.SafetyEnvelope` is the mandatory pre-execution shape for
