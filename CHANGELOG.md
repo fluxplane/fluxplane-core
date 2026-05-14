@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.8.0
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.8.0] - 2026-05-14
 
 ### Added
 
@@ -29,7 +36,7 @@
 - LLM agent construction now normalizes an empty driver kind to the LLM driver
   kind so session limit defaults apply consistently.
 
-## 0.7.0
+## [0.7.0] - 2026-05-14
 
 ### Added
 
@@ -52,7 +59,7 @@
   `apps/agentsdk`, connector auth CLI behavior in `adapters/connectors/cli`,
   and run/serve command wiring in `apps/launch`.
 
-## 0.6.0
+## [0.6.0] - 2026-05-13
 
 ### Added
 
@@ -108,7 +115,7 @@
 - Slack status updates no longer expose operation details and are cleared before
   content streaming starts.
 
-## 0.5.0
+## [0.5.0] - 2026-05-13
 
 ### Added
 
@@ -137,7 +144,7 @@
 - Datasource connector normalization now maps nested record fields explicitly
   for Slack, Jira, and GitLab metadata.
 
-## 0.4.0
+## [0.4.0] - 2026-05-13
 
 ### Added
 
@@ -180,7 +187,7 @@
 - Slack connector selection preserves the empty-instance fallback when a Slack
   channel omits a connector instance.
 
-## 0.3.0
+## [0.3.0] - 2026-05-13
 
 ### Added
 
@@ -213,7 +220,7 @@
 - Assistant content streaming now writes each markdown delta once instead of
   replaying accumulated content while rendering.
 
-## 0.2.0
+## [0.2.0] - 2026-05-13
 
 ### Added
 
@@ -238,7 +245,7 @@
 - `file_copy` and `file_move` now copy complete files instead of using bounded
   reads, and `file_patch` rejects oversized files before writing.
 
-## 0.1.0
+## [0.1.0] - 2026-05-12
 
 ### Added
 
@@ -264,3 +271,13 @@
 - No backward compatibility is provided with the old agentsdk. Concepts were
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
+
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/fluxplane/agentruntime/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/fluxplane/agentruntime/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/fluxplane/agentruntime/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/fluxplane/agentruntime/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/fluxplane/agentruntime/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/fluxplane/agentruntime/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/fluxplane/agentruntime/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/fluxplane/agentruntime/releases/tag/v0.1.0
