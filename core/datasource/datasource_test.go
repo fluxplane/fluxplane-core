@@ -84,10 +84,10 @@ func TestAccessPolicyContextMissing(t *testing.T) {
 
 func TestSpecValidateAllowsValidSpec(t *testing.T) {
 	spec := Spec{
-		Name:       "docs",
-		Kind:       "filesystem",
-		Entities:   []EntityType{"file.document"},
-		Connector:  "filesystem",
+		Name:      "docs",
+		Kind:      "filesystem",
+		Entities:  []EntityType{"file.document"},
+		Connector: "filesystem",
 	}
 	if err := spec.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

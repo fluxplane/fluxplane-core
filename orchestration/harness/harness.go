@@ -366,7 +366,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	})
 	profile, _, _ := s.profileForInfo(info)
 	agentRuntime := s.agent
-	if session.IsContextCommandPath(inbound.Command.Path) {
+	if session.IsContextCommandPath(inbound.Command.Path) || session.IsCompactCommandPath(inbound.Command.Path) {
 		var err error
 		agentRuntime, err = s.agentForSession(ctx, info)
 		if err != nil {

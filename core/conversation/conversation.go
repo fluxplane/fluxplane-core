@@ -153,6 +153,7 @@ func (i Item) Validate() error {
 const (
 	EventItemsAppended      event.Name = "conversation.items.appended"
 	EventContinuationStored event.Name = "conversation.continuation.stored"
+	EventCompactionStored   event.Name = "conversation.compaction.stored"
 )
 
 // ItemsAppended records provider-visible transcript items in the exact order
@@ -174,6 +175,29 @@ type ContinuationStored struct {
 
 func (ContinuationStored) EventName() event.Name { return EventContinuationStored }
 
+// CompactionStats describes a deterministic transcript compaction pass.
+type CompactionStats struct {
+	OriginalItems     int  `json:"original_items,omitempty"`
+	CompactedItems    int  `json:"compacted_items,omitempty"`
+	OriginalTokens    int  `json:"original_tokens,omitempty"`
+	CompactedTokens   int  `json:"compacted_tokens,omitempty"`
+	OmittedItems      int  `json:"omitted_items,omitempty"`
+	SummarizedItems   int  `json:"summarized_items,omitempty"`
+	Compacted         bool `json:"compacted,omitempty"`
+	CheckpointPersist bool `json:"checkpoint_persist,omitempty"`
+}
+
+// CompactionStored records a provider-visible transcript checkpoint. Projection
+// replays compatible later items from this compacted prefix.
+type CompactionStored struct {
+	TurnID   string           `json:"turn_id,omitempty"`
+	Provider ProviderIdentity `json:"provider,omitempty"`
+	Items    []Item           `json:"items,omitempty"`
+	Stats    CompactionStats  `json:"stats,omitempty"`
+}
+
+func (CompactionStored) EventName() event.Name { return EventCompactionStored }
+
 // RegisterEvents registers conversation transcript events.
 func RegisterEvents(registry *event.Registry) error {
 	if registry == nil {
@@ -182,6 +206,7 @@ func RegisterEvents(registry *event.Registry) error {
 	for _, sample := range []event.Event{
 		ItemsAppended{},
 		ContinuationStored{},
+		CompactionStored{},
 	} {
 		if err := registry.Register(sample); err != nil {
 			return err

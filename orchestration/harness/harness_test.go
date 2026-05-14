@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -21,6 +22,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -664,6 +666,70 @@ func TestHandleInboundContextCommandUsesAgentProvider(t *testing.T) {
 	}
 }
 
+func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	service := New(Config{
+		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
+			return harnessProviderAgent{provider: provider}, nil
+		}),
+		ThreadStore: threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session: coresession.Ref{Name: "coder"},
+		Profile: coresession.Spec{
+			Name:  "coder",
+			Agent: coreagent.Ref{Name: "coder"},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-compact"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if err := conversationruntime.Append(ctx, threadStore, info.Thread, "turn-1", provider, []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   "call_1",
+		Name:     "file_read",
+		Content:  strings.Repeat("large tool result ", 40000),
+	}}); err != nil {
+		t.Fatalf("Append transcript: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-compact",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-compact"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"compact"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("status = %s, error = %#v", result.Command.Status, result.Command.Error)
+	}
+	snapshot, err := threadStore.Read(ctx, corethread.ReadParams{ID: info.Thread.ID})
+	if err != nil {
+		t.Fatalf("Read thread: %v", err)
+	}
+	var checkpoint coreconversation.CompactionStored
+	for _, record := range snapshot.Events {
+		if payload, ok := record.Event.Payload.(coreconversation.CompactionStored); ok {
+			checkpoint = payload
+		}
+	}
+	if checkpoint.Provider != provider {
+		t.Fatalf("checkpoint provider = %#v, want %#v", checkpoint.Provider, provider)
+	}
+}
+
 func testService(t *testing.T) (*Service, corethread.Store) {
 	t.Helper()
 	ops := operation.NewRegistry()
@@ -726,6 +792,28 @@ func (a harnessContextAgent) Step(coreagent.Context, coreagent.StepInput) coreag
 
 func (a harnessContextAgent) ContextProviders() []corecontext.Provider {
 	return append([]corecontext.Provider(nil), a.providers...)
+}
+
+type harnessProviderAgent struct {
+	provider coreconversation.ProviderIdentity
+}
+
+func (a harnessProviderAgent) Spec() coreagent.Spec {
+	return coreagent.Spec{
+		Name: "coder",
+		Inference: coreagent.InferenceSpec{
+			Model: a.provider.Model,
+			Annotations: map[string]string{
+				"provider": a.provider.Provider,
+				"api":      a.provider.API,
+				"family":   a.provider.Family,
+			},
+		},
+	}
+}
+
+func (a harnessProviderAgent) Step(coreagent.Context, coreagent.StepInput) coreagent.StepResult {
+	return coreagent.StepResult{Status: coreagent.StatusOK, Decision: coreagent.Decision{Kind: coreagent.DecisionWait}}
 }
 
 type harnessContextProvider struct {

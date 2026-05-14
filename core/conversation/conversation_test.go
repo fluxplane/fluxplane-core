@@ -50,14 +50,14 @@ func TestContinuationHandleRejectsWrongMode(t *testing.T) {
 
 func TestTranscriptEmpty(t *testing.T) {
 	tests := []struct {
-		name      string
+		name       string
 		transcript Transcript
-		expected  bool
+		expected   bool
 	}{
 		{
-			name:      "empty transcript",
+			name:       "empty transcript",
 			transcript: Transcript{},
-			expected:  true,
+			expected:   true,
 		},
 		{
 			name: "with items",

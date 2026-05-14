@@ -97,10 +97,10 @@ func TestSnapshotEventsWithNestedBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventsForBranch returned error: %v", err)
 	}
-	if len(events) != 4 {
-		t.Fatalf("len(events) = %d, want 4", len(events))
+	if len(events) != 5 {
+		t.Fatalf("len(events) = %d, want 5", len(events))
 	}
-	want := []event.Sequence{1, 2, 4, 5}
+	want := []event.Sequence{1, 2, 3, 4, 5}
 	for i, record := range events {
 		if record.Sequence != want[i] {
 			t.Fatalf("events[%d].Sequence = %d, want %d", i, record.Sequence, want[i])

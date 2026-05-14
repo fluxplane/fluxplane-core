@@ -54,6 +54,11 @@ type Session struct {
 const (
 	defaultLLMMaxSteps      = 50
 	defaultLLMContinuations = 3
+
+	compactMaxInputTokens      = 128000
+	compactSafetyMarginTokens  = 4096
+	compactLargeItemTokens     = 4096
+	compactPreserveRecentItems = 16
 )
 
 var contextCommandSpec = command.Spec{
@@ -66,12 +71,29 @@ var contextCommandSpec = command.Spec{
 	},
 }
 
+var compactCommandSpec = command.Spec{
+	Path:        command.Path{"compact"},
+	Description: "Compact provider transcript replay for the current thread.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustVerified,
+	},
+}
+
 var errContextProviderNotFound = errors.New("context provider not found")
+var errCompactUnavailable = errors.New("compact is unavailable without a thread store and active thread")
 
 // IsContextCommandPath reports whether path targets the built-in context
 // preview command.
 func IsContextCommandPath(path command.Path) bool {
 	return len(path) == 1 && strings.TrimSpace(path[0]) == "context"
+}
+
+// IsCompactCommandPath reports whether path targets the built-in compaction
+// command.
+func IsCompactCommandPath(path command.Path) bool {
+	return len(path) == 1 && strings.TrimSpace(path[0]) == "compact"
 }
 
 // OperationBinding binds a canonical operation resource to an executable
@@ -1391,7 +1413,8 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
 	}
 	isContextCommand := IsContextCommandPath(inbound.Command.Path)
-	if s.Profile.Commands != nil && !isContextCommand && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
+	isCompactCommand := IsCompactCommandPath(inbound.Command.Path)
+	if s.Profile.Commands != nil && !isContextCommand && !isCompactCommand && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
 		return commandFailed("command_not_found", "command not found", map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
@@ -1408,6 +1431,9 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	}
 	if isContextCommand {
 		return s.executeContextCommand(ctx, inbound)
+	}
+	if isCompactCommand {
+		return s.executeCompactCommand(ctx, inbound)
 	}
 	if s.Commands == nil && len(s.CommandCatalog) == 0 {
 		return commandFailed("command_registry_missing", "command registry is nil", nil)
@@ -1628,6 +1654,271 @@ func renderContextPreview(preview contextPreviewData) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+type compactCommandInput struct {
+	DryRun bool `json:"dry_run,omitempty"`
+}
+
+type compactReport struct {
+	Provider coreconversation.ProviderIdentity
+	Mode     coreconversation.ProjectionMode
+	Stats    coreconversation.CompactionStats
+}
+
+func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
+	spec := compactCommandSpec
+	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
+	switch evaluation.Decision {
+	case policy.DecisionDeny:
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
+	case policy.DecisionApprovalRequired:
+		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
+	}
+	input, err := parseCompactCommandInput(inbound.Command.Input)
+	if err != nil {
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: "invalid_compact_command_input", Message: err.Error()},
+		}
+	}
+	transcript, err := s.compactableTranscript(ctx)
+	if err != nil {
+		code := "compact_projection_failed"
+		if errors.Is(err, errCompactUnavailable) {
+			code = "compact_unavailable"
+		}
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: code, Message: err.Error()},
+		}
+	}
+	result := conversationruntime.CompactTranscript(transcript, conversationruntime.CompactOptions{
+		MaxInputTokens:      compactMaxInputTokens,
+		SafetyMarginTokens:  compactSafetyMarginTokens,
+		LargeItemTokens:     compactLargeItemTokens,
+		PreserveRecentItems: compactPreserveRecentItems,
+	})
+	stats := coreconversation.CompactionStats{
+		OriginalItems:     len(transcript.Items),
+		CompactedItems:    len(result.Transcript.Items),
+		OriginalTokens:    result.OriginalTokens,
+		CompactedTokens:   result.CompactedTokens,
+		OmittedItems:      result.OmittedItems,
+		SummarizedItems:   result.SummarizedItems,
+		Compacted:         result.Compacted,
+		CheckpointPersist: result.Compacted && !input.DryRun,
+	}
+	report := compactReport{Provider: transcript.Provider, Mode: transcript.Mode, Stats: stats}
+	if stats.CheckpointPersist {
+		err := retryThreadAppend(ctx, func(appendCtx context.Context) error {
+			return conversationruntime.AppendCompaction(appendCtx, s.ThreadStore, s.Thread, inbound.ID, transcript.Provider, result.Transcript.Items, stats)
+		})
+		if err != nil {
+			return CommandResult{
+				Status: CommandStatusFailed,
+				Spec:   spec,
+				Policy: evaluation,
+				Error:  &CommandError{Code: "compact_append_failed", Message: err.Error()},
+			}
+		}
+	}
+	text := renderCompactReport(report, input.DryRun)
+	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: channel.Message{Content: text},
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	return CommandResult{
+		Status: CommandStatusOK,
+		Spec:   spec,
+		Policy: evaluation,
+		Effect: &environment.EffectResult{Result: operation.OK(text)},
+	}
+}
+
+func (s Session) compactableTranscript(ctx context.Context) (coreconversation.Transcript, error) {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return coreconversation.Transcript{}, errCompactUnavailable
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		return coreconversation.Transcript{}, err
+	}
+	provider := s.providerIdentity()
+	projected, err := conversationruntime.Project(conversationruntime.ProjectionInput{
+		Thread:     snapshot,
+		BranchID:   s.Thread.BranchID,
+		Provider:   provider,
+		Mode:       coreconversation.ProjectionFullReplay,
+		AllowEmpty: true,
+	})
+	if err != nil {
+		return coreconversation.Transcript{}, err
+	}
+	return projected.Transcript(provider), nil
+}
+
+func parseCompactCommandInput(value any) (compactCommandInput, error) {
+	if value == nil {
+		return compactCommandInput{}, nil
+	}
+	switch typed := value.(type) {
+	case compactCommandInput:
+		return typed, nil
+	case *compactCommandInput:
+		if typed == nil {
+			return compactCommandInput{}, nil
+		}
+		return *typed, nil
+	case string:
+		return parseCompactCommandArgs(strings.Fields(typed))
+	case map[string]any:
+		return parseCompactCommandMap(typed)
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return compactCommandInput{}, err
+	}
+	var input compactCommandInput
+	if err := json.Unmarshal(data, &input); err != nil {
+		return compactCommandInput{}, err
+	}
+	return input, nil
+}
+
+func parseCompactCommandArgs(args []string) (compactCommandInput, error) {
+	var input compactCommandInput
+	for _, arg := range args {
+		switch arg {
+		case "--dry-run":
+			input.DryRun = true
+		default:
+			return compactCommandInput{}, fmt.Errorf("unknown /compact argument %q", arg)
+		}
+	}
+	return input, nil
+}
+
+func parseCompactCommandMap(values map[string]any) (compactCommandInput, error) {
+	var input compactCommandInput
+	for key, value := range values {
+		switch key {
+		case "dry-run", "dry_run", "dryRun":
+			parsed, err := boolInputValue(value)
+			if err != nil {
+				return compactCommandInput{}, fmt.Errorf("%s: %w", key, err)
+			}
+			input.DryRun = parsed
+		default:
+			return compactCommandInput{}, fmt.Errorf("unknown /compact argument %q", key)
+		}
+	}
+	return input, nil
+}
+
+func boolInputValue(value any) (bool, error) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "1", "true", "yes", "on":
+			return true, nil
+		case "0", "false", "no", "off":
+			return false, nil
+		default:
+			return false, fmt.Errorf("invalid boolean value %q", typed)
+		}
+	default:
+		return false, fmt.Errorf("expected boolean value")
+	}
+}
+
+func renderCompactReport(report compactReport, dryRun bool) string {
+	title := "Compaction not needed"
+	if dryRun {
+		title = "Compaction dry run"
+	} else if report.Stats.CheckpointPersist {
+		title = "Compaction complete"
+	}
+	var b strings.Builder
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	b.WriteString("Provider: ")
+	b.WriteString(providerIdentityLabel(report.Provider))
+	b.WriteString("\n")
+	b.WriteString("Replay: ")
+	if report.Mode == "" {
+		b.WriteString(string(coreconversation.ProjectionFullReplay))
+	} else {
+		b.WriteString(string(report.Mode))
+	}
+	b.WriteString("\n")
+	b.WriteString("Items: ")
+	b.WriteString(formatInt(report.Stats.OriginalItems))
+	b.WriteString(" -> ")
+	b.WriteString(formatInt(report.Stats.CompactedItems))
+	b.WriteString("\n")
+	b.WriteString("Estimated tokens: ")
+	b.WriteString(formatInt(report.Stats.OriginalTokens))
+	b.WriteString(" -> ")
+	b.WriteString(formatInt(report.Stats.CompactedTokens))
+	b.WriteString("\n")
+	b.WriteString("Omitted items: ")
+	b.WriteString(formatInt(report.Stats.OmittedItems))
+	b.WriteString("\n")
+	b.WriteString("Summarized large items: ")
+	b.WriteString(formatInt(report.Stats.SummarizedItems))
+	b.WriteString("\n")
+	b.WriteString("Checkpoint: ")
+	switch {
+	case dryRun && report.Stats.Compacted:
+		b.WriteString("would be persisted by /compact")
+	case dryRun:
+		b.WriteString("would not be persisted")
+	case report.Stats.CheckpointPersist:
+		b.WriteString("persisted")
+	default:
+		b.WriteString("not persisted")
+	}
+	return b.String()
+}
+
+func providerIdentityLabel(provider coreconversation.ProviderIdentity) string {
+	left := strings.TrimSpace(provider.Provider)
+	right := strings.TrimSpace(provider.Model)
+	switch {
+	case left != "" && right != "":
+		return left + " / " + right
+	case left != "":
+		return left
+	case right != "":
+		return right
+	default:
+		return "unknown"
+	}
+}
+
+func formatInt(value int) string {
+	text := fmt.Sprintf("%d", value)
+	if len(text) <= 3 {
+		return text
+	}
+	var parts []string
+	for len(text) > 3 {
+		parts = append([]string{text[len(text)-3:]}, parts...)
+		text = text[:len(text)-3]
+	}
+	parts = append([]string{text}, parts...)
+	return strings.Join(parts, ",")
 }
 
 func commandPathAllowed(allowed []command.Path, path command.Path) bool {

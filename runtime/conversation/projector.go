@@ -90,6 +90,18 @@ func replay(snapshot corethread.Snapshot, branchID corethread.BranchID, provider
 				continue
 			}
 			items = append(items, filterCompatible(payload.Items, provider)...)
+		case coreconversation.CompactionStored:
+			if !payload.Provider.Compatible(provider) {
+				continue
+			}
+			items = filterCompatible(payload.Items, provider)
+			head = nil
+		case *coreconversation.CompactionStored:
+			if payload == nil || !payload.Provider.Compatible(provider) {
+				continue
+			}
+			items = filterCompatible(payload.Items, provider)
+			head = nil
 		case coreconversation.ContinuationStored:
 			if payload.Handle.Provider.Compatible(provider) {
 				copied := payload.Handle
@@ -166,6 +178,30 @@ func filterCompatible(items []coreconversation.Item, provider coreconversation.P
 		}
 	}
 	return out
+}
+
+// AppendCompaction records a provider transcript compaction checkpoint.
+func AppendCompaction(ctx context.Context, store corethread.Store, ref corethread.Ref, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, stats coreconversation.CompactionStats) error {
+	if store == nil || ref.ID == "" {
+		return nil
+	}
+	for i, item := range items {
+		if err := item.Validate(); err != nil {
+			return fmt.Errorf("conversation: compaction item %d: %w", i, err)
+		}
+	}
+	payload := coreconversation.CompactionStored{
+		TurnID:   turnID,
+		Provider: provider,
+		Items:    append([]coreconversation.Item(nil), items...),
+		Stats:    stats,
+	}
+	_, err := store.Append(ctx, ref, corethread.AppendRecord{Event: event.Record{
+		Name:    payload.EventName(),
+		Scope:   event.Scope{ThreadID: string(ref.ID), TurnID: turnID},
+		Payload: payload,
+	}})
+	return err
 }
 
 // Append records provider transcript events to a thread store.

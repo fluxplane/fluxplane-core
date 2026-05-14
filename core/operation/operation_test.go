@@ -2,13 +2,15 @@ package operation
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/event"
 )
 
 func TestNewContextCreatesWithDefaults(t *testing.T) {
-	ctx := NewContext(nil, nil)
+	var parent context.Context
+	ctx := NewContext(parent, nil)
 	if ctx == nil {
 		t.Fatal("NewContext returned nil")
 	}
@@ -113,7 +115,8 @@ func TestCallIDFromContextEmpty(t *testing.T) {
 }
 
 func TestCallIDFromContextNil(t *testing.T) {
-	callID := CallIDFromContext(nil)
+	var ctx context.Context
+	callID := CallIDFromContext(ctx)
 	if callID != "" {
 		t.Fatalf("CallIDFromContext(nil) = %q, want empty", callID)
 	}
@@ -128,7 +131,7 @@ func TestResultOK(t *testing.T) {
 	if result.IsError() {
 		t.Fatalf("IsError = true, want false")
 	}
-	if result.Output != output {
+	if !reflect.DeepEqual(result.Output, output) {
 		t.Fatalf("Output = %v, want %v", result.Output, output)
 	}
 	if result.Error != nil {
@@ -154,7 +157,7 @@ func TestResultFailed(t *testing.T) {
 	if result.Error.Message != "operation timed out" {
 		t.Fatalf("Error.Message = %q, want 'operation timed out'", result.Error.Message)
 	}
-	if result.Error.Details != details {
+	if !reflect.DeepEqual(result.Error.Details, details) {
 		t.Fatalf("Error.Details = %v, want %v", result.Error.Details, details)
 	}
 }
@@ -218,9 +221,9 @@ func TestRenderedModelText(t *testing.T) {
 			want: "plain text",
 		},
 		{
-			name: "returns empty string when both are empty",
+			name:     "returns empty string when both are empty",
 			rendered: Rendered{},
-			want: "",
+			want:     "",
 		},
 	}
 

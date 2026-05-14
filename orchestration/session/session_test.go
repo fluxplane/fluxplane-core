@@ -966,6 +966,143 @@ func TestExecuteInboundCommandContextPreviewFreshAndKey(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundCommandCompactDryRunDoesNotPersistCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-compact-dry-run"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       compactTestAgent(t, provider),
+		ThreadStore: threadStore,
+		Thread:      corethread.Ref{ID: "thread-compact-dry-run"},
+	}
+	if err := s.appendConversation(ctx, "turn-1", provider, compactLargeToolResult(provider, "call_1")); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+
+	result := s.ExecuteInboundCommand(ctx, compactInbound("cmd-1", map[string]any{"dry-run": true}))
+	if result.Status != CommandStatusOK || result.Effect == nil {
+		t.Fatalf("compact dry-run = %#v, want ok", result)
+	}
+	output := fmt.Sprint(result.Effect.Result.Output)
+	if !strings.Contains(output, "Compaction dry run") || !strings.Contains(output, "Checkpoint: would be persisted by /compact") {
+		t.Fatalf("output = %q, want dry-run checkpoint report", output)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-compact-dry-run"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if got := countEvent(stored.Events, coreconversation.EventCompactionStored); got != 0 {
+		t.Fatalf("compaction events = %d, want none for dry-run", got)
+	}
+}
+
+func TestExecuteInboundCommandCompactPersistsCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-compact-run"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	s := Session{
+		Agent:       compactTestAgent(t, provider),
+		ThreadStore: threadStore,
+		Thread:      corethread.Ref{ID: "thread-compact-run"},
+	}
+	if err := s.appendConversation(ctx, "turn-1", provider, compactLargeToolResult(provider, "call_1")); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+
+	result := s.ExecuteInboundCommand(ctx, compactInbound("cmd-1", nil))
+	if result.Status != CommandStatusOK || result.Effect == nil {
+		t.Fatalf("compact = %#v, want ok", result)
+	}
+	output := fmt.Sprint(result.Effect.Result.Output)
+	if !strings.Contains(output, "Compaction complete") || !strings.Contains(output, "Checkpoint: persisted") {
+		t.Fatalf("output = %q, want persisted checkpoint report", output)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-compact-run"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	checkpoints := compactionEvents(stored.Events)
+	if len(checkpoints) != 1 {
+		t.Fatalf("compaction events = %d, want 1", len(checkpoints))
+	}
+	checkpoint := checkpoints[0]
+	if !checkpoint.Stats.CheckpointPersist || checkpoint.Stats.SummarizedItems == 0 {
+		t.Fatalf("checkpoint stats = %#v, want persisted summarized checkpoint", checkpoint.Stats)
+	}
+	if len(checkpoint.Items) != 1 || checkpoint.Items[0].Metadata["compaction"] != "tool_result_summary" {
+		t.Fatalf("checkpoint items = %#v, want compacted tool result", checkpoint.Items)
+	}
+}
+
+func TestExecuteInboundCommandCompactAffectsNextReplay(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-compact-replay"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	var got coreconversation.Transcript
+	model := sessionIdentifiedModel{
+		identity: provider,
+		complete: func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+			if req.Transcript == nil {
+				t.Fatalf("transcript is nil")
+			}
+			got = *req.Transcript
+			items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+			items = append(items, coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+			return llmagent.Response{Message: &agent.Message{Content: "ok"}, Transcript: coreconversation.Transcript{Provider: provider, Items: items}}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-compact-replay"}}
+	if err := s.appendConversation(ctx, "turn-1", provider, compactLargeToolResult(provider, "call_1")); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	if result := s.ExecuteInboundCommand(ctx, compactInbound("cmd-1", nil)); result.Status != CommandStatusOK {
+		t.Fatalf("compact = %#v, want ok", result)
+	}
+
+	input := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "continue"}})
+	if input.Status != InputStatusOK {
+		t.Fatalf("input = %#v, want ok", input)
+	}
+	if len(got.Items) < 2 {
+		t.Fatalf("transcript items = %#v, want compacted checkpoint plus pending", got.Items)
+	}
+	if got.Items[0].Metadata["compaction"] != "tool_result_summary" {
+		t.Fatalf("first item = %#v, want compacted checkpoint item", got.Items[0])
+	}
+	if strings.Contains(valueText(got.Items[0].Content), "large tool result") {
+		t.Fatalf("first content still contains original large result")
+	}
+	if !hasTranscriptUserContent(got.Items, "continue") {
+		t.Fatalf("transcript items = %#v, want pending user prompt", got.Items)
+	}
+}
+
 func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -1742,6 +1879,57 @@ func hasTranscriptUserContent(items []coreconversation.Item, content string) boo
 		}
 	}
 	return false
+}
+
+func compactTestAgent(t *testing.T, provider coreconversation.ProviderIdentity) agent.Agent {
+	t.Helper()
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:   "coder",
+		Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{
+			Model: provider.Model,
+			Annotations: map[string]string{
+				"provider": provider.Provider,
+				"api":      provider.API,
+				"family":   provider.Family,
+			},
+		},
+	}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")})
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	return runtimeAgent
+}
+
+func compactLargeToolResult(provider coreconversation.ProviderIdentity, callID string) []coreconversation.Item {
+	return []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   callID,
+		Name:     "file_read",
+		Content:  strings.Repeat("large tool result ", 40000),
+	}}
+}
+
+func compactInbound(id string, input any) channel.Inbound {
+	return channel.Inbound{
+		ID:      id,
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"compact"}, Input: input},
+	}
+}
+
+func compactionEvents(records []corethread.Record) []coreconversation.CompactionStored {
+	var out []coreconversation.CompactionStored
+	for _, record := range records {
+		payload, ok := record.Event.Payload.(coreconversation.CompactionStored)
+		if ok {
+			out = append(out, payload)
+		}
+	}
+	return out
 }
 
 func threadHasToolResultCallID(records []corethread.Record, callID string) bool {

@@ -23,6 +23,10 @@ func (pe *pointerEvent) EventName() Name {
 	return "pointer_event"
 }
 
+type emptyNameEvent struct{}
+
+func (ene emptyNameEvent) EventName() Name { return "" }
+
 func TestNewRegistry(t *testing.T) {
 	reg := NewRegistry()
 	if reg == nil {
@@ -59,10 +63,6 @@ func TestRegistryRegisterNil(t *testing.T) {
 
 func TestRegistryRegisterEmptyName(t *testing.T) {
 	reg := NewRegistry()
-
-	// Create a mock event with empty name
-	type emptyNameEvent struct{}
-	func (ene emptyNameEvent) EventName() Name { return "" }
 
 	err := reg.Register(emptyNameEvent{})
 	if err == nil {

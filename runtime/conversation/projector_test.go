@@ -187,6 +187,118 @@ func TestProjectNativeContinuationFallsBackToFullReplay(t *testing.T) {
 	}
 }
 
+func TestProjectUsesCompatibleCompactionCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	old := coreconversation.Item{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "old"}
+	checkpoint := []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "developer", Content: "compacted"}}
+	later := coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "later"}
+	if err := Append(ctx, store, ref, "turn-1", provider, []coreconversation.Item{old}); err != nil {
+		t.Fatalf("append old transcript: %v", err)
+	}
+	if err := AppendCompaction(ctx, store, ref, "compact-1", provider, checkpoint, coreconversation.CompactionStats{Compacted: true}); err != nil {
+		t.Fatalf("append compaction: %v", err)
+	}
+	if err := Append(ctx, store, ref, "turn-2", provider, []coreconversation.Item{later}); err != nil {
+		t.Fatalf("append later transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{Thread: snapshot, Provider: provider, Mode: coreconversation.ProjectionFullReplay})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("items = %#v, want checkpoint + later", result.Items)
+	}
+	if result.Items[0].Content != "compacted" || result.Items[1].Content != "later" {
+		t.Fatalf("items = %#v, want old replay replaced by checkpoint", result.Items)
+	}
+}
+
+func TestProjectCompactionCheckpointClearsPriorContinuation(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	handle := coreconversation.ContinuationHandle{
+		Provider:   provider,
+		Mode:       coreconversation.ContinuationPreviousResponseID,
+		Transport:  coreconversation.TransportHTTPSSE,
+		ResponseID: "resp_old",
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider,
+		[]coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "old"}},
+		handle,
+	); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	if err := AppendCompaction(ctx, store, ref, "compact-1", provider,
+		[]coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "developer", Content: "compacted"}},
+		coreconversation.CompactionStats{Compacted: true},
+	); err != nil {
+		t.Fatalf("append compaction: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Pending:  []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "next"}},
+		Mode:     coreconversation.ProjectionNativeContinuation,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if result.Mode != coreconversation.ProjectionFullReplay {
+		t.Fatalf("mode = %q, want full replay after checkpoint clears continuation", result.Mode)
+	}
+	if result.Continuation != nil {
+		t.Fatalf("continuation = %#v, want nil", result.Continuation)
+	}
+	if len(result.Items) != 2 || result.Items[0].Content != "compacted" || result.Items[1].Content != "next" {
+		t.Fatalf("items = %#v, want checkpoint + pending", result.Items)
+	}
+}
+
+func TestProjectIgnoresIncompatibleCompactionCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	otherProvider := coreconversation.ProviderIdentity{Provider: "anthropic", API: "anthropic.messages", Model: "claude-test"}
+	old := coreconversation.Item{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "old"}
+	if err := Append(ctx, store, ref, "turn-1", provider, []coreconversation.Item{old}); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	if err := AppendCompaction(ctx, store, ref, "compact-1", otherProvider,
+		[]coreconversation.Item{{Provider: otherProvider, Kind: coreconversation.ItemInput, Role: "developer", Content: "other compacted"}},
+		coreconversation.CompactionStats{Compacted: true},
+	); err != nil {
+		t.Fatalf("append compaction: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{Thread: snapshot, Provider: provider, Mode: coreconversation.ProjectionFullReplay})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Content != "old" {
+		t.Fatalf("items = %#v, want original provider replay", result.Items)
+	}
+}
+
 func newThreadStore(t *testing.T) corethread.Store {
 	t.Helper()
 	store, err := runtimethread.NewStore(eventstore.NewMemoryStore())

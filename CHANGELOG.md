@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `/compact` and `/compact --dry-run` built-in session commands for
+  checkpointing or previewing deterministic provider transcript compaction.
 - Added `claudecode` as a Claude Code-compatible LLM provider using local
   Claude OAuth credentials and Claude Code request headers/preflight behavior.
 - Non-blocking `task quality:metrics` reports coverage plus optional

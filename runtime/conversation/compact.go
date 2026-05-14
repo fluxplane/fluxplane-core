@@ -30,6 +30,7 @@ type CompactResult struct {
 	CompactedTokens int
 	Compacted       bool
 	OmittedItems    int
+	SummarizedItems int
 }
 
 // CompactTranscript bounds the provider-visible transcript without changing
@@ -60,11 +61,20 @@ func CompactTranscript(transcript coreconversation.Transcript, opts CompactOptio
 		}
 	}
 	if estimateItemsTokens(out.Items) > limit {
-		if compactLargeItems(out.Items, opts.LargeItemTokens) {
+		summarized := compactLargeItems(out.Items, opts.LargeItemTokens)
+		if summarized > 0 {
 			compacted = true
 		}
-		if compactLargeItems(out.NewItems, opts.LargeItemTokens) {
+		if compactLargeItems(out.NewItems, opts.LargeItemTokens) > 0 {
 			compacted = true
+		}
+		return CompactResult{
+			Transcript:      out,
+			OriginalTokens:  original,
+			CompactedTokens: estimateItemsTokens(out.Items),
+			Compacted:       compacted,
+			OmittedItems:    omitted,
+			SummarizedItems: summarized,
 		}
 	}
 
@@ -93,8 +103,8 @@ func compactOptionsWithDefaults(opts CompactOptions) CompactOptions {
 	return opts
 }
 
-func compactLargeItems(items []coreconversation.Item, maxTokens int) bool {
-	var changed bool
+func compactLargeItems(items []coreconversation.Item, maxTokens int) int {
+	changed := 0
 	for i := range items {
 		tokens := estimateItemTokens(items[i])
 		if tokens <= maxTokens {
@@ -103,13 +113,13 @@ func compactLargeItems(items []coreconversation.Item, maxTokens int) bool {
 		switch {
 		case items[i].Kind == coreconversation.ItemToolResult:
 			items[i] = compactToolResult(items[i], tokens)
-			changed = true
+			changed++
 		case items[i].Kind == coreconversation.ItemOutput && strings.TrimSpace(items[i].CallID) == "":
 			items[i] = compactAssistantOutput(items[i], tokens)
-			changed = true
+			changed++
 		case items[i].Kind == coreconversation.ItemInput && items[i].Metadata["context"] == "diff" && strings.TrimSpace(items[i].Role) != "user":
 			items[i] = compactContextInput(items[i], tokens)
-			changed = true
+			changed++
 		}
 	}
 	return changed

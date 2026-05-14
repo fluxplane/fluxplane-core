@@ -74,10 +74,10 @@ func TestNormalizeRecordWithCustomValues(t *testing.T) {
 	now := time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC)
 	customID := "custom-id"
 	record, err := NormalizeRecord(event.Record{
-		ID:         customID,
-		Payload:    testEvent{Text: "hello"},
+		ID:          customID,
+		Payload:     testEvent{Text: "hello"},
 		Sensitivity: policy.SensitivityPublic,
-		Attributes: map[string]string{"k": "v"},
+		Attributes:  map[string]string{"k": "v"},
 	}, now)
 	if err != nil {
 		t.Fatalf("NormalizeRecord returned error: %v", err)
