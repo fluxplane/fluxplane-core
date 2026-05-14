@@ -84,5 +84,9 @@ type OpenRequest struct {
 	Conversation channel.ConversationRef
 	Provider     string
 	Model        string
+	Thinking     string
+	ThinkingSet  bool
+	Effort       string
+	EffortSet    bool
 	Debug        bool
 }

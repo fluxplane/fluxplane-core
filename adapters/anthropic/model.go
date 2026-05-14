@@ -21,6 +21,8 @@ type Config struct {
 	MaxOutputTokens int
 	PromptCache     bool
 	Pricing         []corellm.PricingSpec
+	Thinking        string
+	ReasoningEffort string
 	Redactor        adapterllm.Redactor
 }
 
@@ -47,6 +49,8 @@ func New(cfg Config) (*anthropicmessages.Model, error) {
 		MaxOutputTokens: cfg.MaxOutputTokens,
 		PromptCache:     cfg.PromptCache,
 		Pricing:         cfg.Pricing,
+		Thinking:        cfg.Thinking,
+		ReasoningEffort: cfg.ReasoningEffort,
 		Redactor:        cfg.Redactor,
 	})
 }

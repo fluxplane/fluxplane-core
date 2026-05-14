@@ -34,6 +34,10 @@ func TestRunPathUsesLoadedDistributionAndSubmitsInput(t *testing.T) {
 	err := RunPathWithLoader(context.Background(), loader, "ignored", RunPathOptions{
 		Session:      "custom",
 		Conversation: "conv",
+		Thinking:     "on",
+		ThinkingSet:  true,
+		Effort:       "high",
+		EffortSet:    true,
 		Input:        "hello",
 		In:           strings.NewReader(""),
 		Out:          &out,
@@ -47,6 +51,9 @@ func TestRunPathUsesLoadedDistributionAndSubmitsInput(t *testing.T) {
 	}
 	if runtime.request.Conversation.ID != "conv" {
 		t.Fatalf("conversation = %q, want conv", runtime.request.Conversation.ID)
+	}
+	if runtime.request.Thinking != "on" || !runtime.request.ThinkingSet || runtime.request.Effort != "high" || !runtime.request.EffortSet {
+		t.Fatalf("reasoning request = %#v, want thinking on effort high", runtime.request)
 	}
 	if runtime.session.submission.Input == nil || runtime.session.submission.Input.Text != "hello" {
 		t.Fatalf("submission = %#v, want input hello", runtime.session.submission)
@@ -115,6 +122,7 @@ func TestRunCommandHelpIncludesConnectorPath(t *testing.T) {
 
 func TestRunCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 	var gotPath string
+	runtime := &fakeRunRuntime{}
 	loader := func(_ context.Context, path string) (distribution.Loaded, error) {
 		gotPath = path
 		return distribution.Loaded{
@@ -123,7 +131,7 @@ func TestRunCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 					Name:           "sample",
 					DefaultSession: coresession.Ref{Name: "main"},
 				},
-				Runtime: &fakeRunRuntime{},
+				Runtime: runtime,
 			},
 		}, nil
 	}
@@ -138,6 +146,25 @@ func TestRunCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 	}
 	if gotPath != "." {
 		t.Fatalf("path = %q, want .", gotPath)
+	}
+	if runtime.request.Effort != "" || runtime.request.EffortSet {
+		t.Fatalf("reasoning request = %#v, want no default effort", runtime.request)
+	}
+}
+
+func TestRunCommandRejectsInvalidThinking(t *testing.T) {
+	cmd := NewRunCommandWithLoader(func(context.Context, string) (distribution.Loaded, error) {
+		t.Fatal("loader should not be called")
+		return distribution.Loaded{}, nil
+	})
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--thinking", "auth", "--input", "hello"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `invalid --thinking "auth"`) {
+		t.Fatalf("Execute error = %v, want invalid thinking", err)
 	}
 }
 

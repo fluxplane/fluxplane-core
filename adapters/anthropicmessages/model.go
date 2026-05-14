@@ -42,6 +42,8 @@ type Config struct {
 	MaxOutputTokens int
 	PromptCache     bool
 	Pricing         []corellm.PricingSpec
+	Thinking        string
+	ReasoningEffort string
 	Redactor        adapterllm.Redactor
 	HTTPClient      *http.Client
 }
@@ -61,6 +63,8 @@ type Model struct {
 	maxOutputTokens int
 	promptCache     bool
 	pricing         []corellm.PricingSpec
+	thinking        string
+	reasoningEffort string
 	redactor        adapterllm.Redactor
 }
 
@@ -106,6 +110,8 @@ func New(cfg Config) (*Model, error) {
 		maxOutputTokens: maxOutput,
 		promptCache:     cfg.PromptCache,
 		pricing:         append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		thinking:        strings.TrimSpace(cfg.Thinking),
+		reasoningEffort: strings.TrimSpace(cfg.ReasoningEffort),
 		redactor:        cfg.Redactor,
 	}, nil
 }
@@ -203,8 +209,11 @@ func (m *Model) messageRequest(req llmagent.Request, stream bool) (messageReques
 	} else if req.Agent.Inference.Temperature > 0 {
 		wire.Temperature = &req.Agent.Inference.Temperature
 	}
-	if effort := firstNonEmpty(req.Driver.Inference.ReasoningEffort, req.Agent.Inference.ReasoningEffort); effort != "" && effort != "none" {
+	thinking := normalizeThinking(firstNonEmpty(m.thinking, req.Agent.Inference.Thinking))
+	effort := firstNonEmpty(m.reasoningEffort, req.Driver.Inference.ReasoningEffort, req.Agent.Inference.ReasoningEffort)
+	if thinking == "on" {
 		wire.Thinking = &thinkingConfig{Type: "enabled", BudgetTokens: 1024}
+		wire.Effort = effort
 		if wire.MaxTokens <= 1024 {
 			wire.MaxTokens = 1025
 		}
