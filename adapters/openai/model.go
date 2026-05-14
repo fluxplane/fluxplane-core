@@ -173,13 +173,28 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		toolNames:    map[int]tool.Name{},
 		outputPhases: map[int]string{},
 	}
+	streamAssembler := adapterllm.NewToolCallAssembler(tools)
+	var streamedOperations []agent.OperationRequest
+	var streamedOutputItems []responses.ResponseOutputItemUnion
 	var final responses.Response
 	for stream.Next() {
 		evt := stream.Current()
 		if evt.Type == "response.completed" {
 			final = evt.AsResponseCompleted().Response
 		}
+		if m.runtime.Output == ResponsesOutputStreamItems && evt.Type == "response.output_item.done" {
+			streamedOutputItems = append(streamedOutputItems, evt.AsResponseOutputItemDone().Item)
+		}
 		for _, normalized := range m.streamEvents(evt, &streamState) {
+			if normalized.Kind != adapterllm.StreamToolCallDelta {
+				// Responses done events carry the complete argument body; deltas
+				// are only for live display.
+				completed, err := streamAssembler.Apply(normalized)
+				if err != nil {
+					return llmagent.Response{}, err
+				}
+				streamedOperations = append(streamedOperations, completed...)
+			}
 			if runtimeEvent, ok := m.redactor.ToRuntimeStream(normalized); ok && emit != nil {
 				emit(runtimeEvent)
 			}
@@ -193,9 +208,15 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	}
 	provider := m.providerIdentity(m.modelName(req))
 	m.emitBufferedStreamContent(final, &streamState, emit)
-	out, err := responseFromOpenAI(final, tools, provider, m.store, m.pricing)
+	source := responseForOutputMode(final, streamedOutputItems, m.runtime.Output)
+	out, err := responseFromOpenAI(source, tools, provider, m.store, m.pricing)
 	if err != nil {
 		return llmagent.Response{}, err
+	}
+	usedStreamedOperations := len(out.Operations) == 0 && len(streamedOperations) > 0
+	out = applyStreamedOperationsFallback(out, streamedOperations)
+	if usedStreamedOperations {
+		out.Transcript.Items = append(out.Transcript.Items, streamedOperationTranscriptItems(provider, streamedOperations)...)
 	}
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
 	out = applyStreamedContentFallback(out, provider, &streamState)
@@ -371,11 +392,26 @@ func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, ite
 			role,
 		)
 		return paramItem, itemWithNative(item, paramItem), nil
+	case coreconversation.ItemOutput:
+		role := strings.TrimSpace(item.Role)
+		if role == "" {
+			role = "assistant"
+		}
+		if role != "assistant" {
+			return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("unsupported output role %q without native payload", role)
+		}
+		paramItem := responses.ResponseInputItemParamOfMessage(transcriptContentString(item.Content), responses.EasyInputMessageRoleAssistant)
+		return paramItem, itemWithNative(item, paramItem), nil
 	case coreconversation.ItemToolResult:
 		if strings.TrimSpace(item.CallID) == "" {
 			return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, errors.New("tool result call_id is empty")
 		}
-		paramItem := responses.ResponseInputItemParamOfFunctionCallOutput(item.CallID, transcriptContentString(item.Content))
+		var paramItem responses.ResponseInputItemUnionParam
+		if item.Metadata["provider_call_type"] == "custom_tool_call" {
+			paramItem = responses.ResponseInputItemParamOfCustomToolCallOutput(item.CallID, transcriptContentString(item.Content))
+		} else {
+			paramItem = responses.ResponseInputItemParamOfFunctionCallOutput(item.CallID, transcriptContentString(item.Content))
+		}
 		return paramItem, itemWithNative(item, paramItem), nil
 	default:
 		return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("unsupported transcript item kind %q without native payload", item.Kind)
@@ -415,21 +451,38 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 	assembler := adapterllm.NewToolCallAssembler(tools)
 	var operations []agent.OperationRequest
 	for i, item := range resp.Output {
-		if item.Type != "function_call" {
+		switch item.Type {
+		case "function_call":
+			call := item.AsFunctionCall()
+			reqs, err := assembler.Apply(adapterllm.StreamEvent{
+				Kind:       adapterllm.StreamToolCallDone,
+				Tool:       tool.Name(call.Name),
+				ToolCallID: callID(call, i),
+				CallType:   "function_call",
+				Index:      i,
+				Arguments:  call.Arguments,
+			})
+			if err != nil {
+				return llmagent.Response{}, err
+			}
+			operations = append(operations, reqs...)
+		case "custom_tool_call":
+			call := item.AsCustomToolCall()
+			reqs, err := assembler.Apply(adapterllm.StreamEvent{
+				Kind:       adapterllm.StreamToolCallDone,
+				Tool:       tool.Name(call.Name),
+				ToolCallID: firstNonEmpty(call.CallID, call.ID),
+				CallType:   "custom_tool_call",
+				Index:      i,
+				Arguments:  call.Input,
+			})
+			if err != nil {
+				return llmagent.Response{}, err
+			}
+			operations = append(operations, reqs...)
+		default:
 			continue
 		}
-		call := item.AsFunctionCall()
-		reqs, err := assembler.Apply(adapterllm.StreamEvent{
-			Kind:       adapterllm.StreamToolCallDone,
-			Tool:       tool.Name(call.Name),
-			ToolCallID: callID(call, i),
-			Index:      i,
-			Arguments:  call.Arguments,
-		})
-		if err != nil {
-			return llmagent.Response{}, err
-		}
-		operations = append(operations, reqs...)
 	}
 	if len(operations) > 0 {
 		out := llmagent.OperationResponse(operations...)
@@ -449,6 +502,14 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 	return llmagent.Response{Usage: recordedUsage, Transcript: transcript}, nil
 }
 
+func responseForOutputMode(final responses.Response, streamed []responses.ResponseOutputItemUnion, mode ResponsesOutputMode) responses.Response {
+	if mode != ResponsesOutputStreamItems || len(streamed) == 0 {
+		return final
+	}
+	final.Output = append([]responses.ResponseOutputItemUnion(nil), streamed...)
+	return final
+}
+
 func responseTranscript(resp responses.Response, provider coreconversation.ProviderIdentity, store bool) coreconversation.Transcript {
 	items := make([]coreconversation.Item, 0, len(resp.Output))
 	for _, output := range resp.Output {
@@ -464,6 +525,9 @@ func responseTranscript(resp responses.Response, provider coreconversation.Provi
 		if output.Type == "message" {
 			item.Content = outputMessageText(output)
 			item.Phase = outputPhase(output)
+		}
+		if output.Type == "function_call" || output.Type == "custom_tool_call" {
+			item.Metadata = map[string]string{"provider_call_type": output.Type}
 		}
 		items = append(items, item)
 	}
@@ -695,12 +759,53 @@ func applyStreamedContentFallback(out llmagent.Response, provider coreconversati
 	}
 	out.Message = &agent.Message{Content: text}
 	out.Transcript.Provider = provider
-	out.Transcript.Items = append(out.Transcript.Items, coreconversation.Item{
+	item := coreconversation.Item{
 		Provider: provider,
 		Kind:     coreconversation.ItemOutput,
 		Role:     "assistant",
 		Content:  text,
-	})
+	}
+	paramItem := responses.ResponseInputItemParamOfMessage(text, responses.EasyInputMessageRoleAssistant)
+	out.Transcript.Items = append(out.Transcript.Items, itemWithNative(item, paramItem))
+	return out
+}
+
+func applyStreamedOperationsFallback(out llmagent.Response, streamed []agent.OperationRequest) llmagent.Response {
+	if len(out.Operations) > 0 || len(streamed) == 0 {
+		return out
+	}
+	out.Operations = append([]agent.OperationRequest(nil), streamed...)
+	return out
+}
+
+func streamedOperationTranscriptItems(provider coreconversation.ProviderIdentity, streamed []agent.OperationRequest) []coreconversation.Item {
+	out := make([]coreconversation.Item, 0, len(streamed))
+	for _, request := range streamed {
+		if strings.TrimSpace(request.ProviderCallID) == "" {
+			continue
+		}
+		callType := request.ProviderCallType
+		if callType == "" {
+			callType = "function_call"
+		}
+		name := request.Operation.String()
+		arguments := transcriptContentString(request.Input)
+		var paramItem responses.ResponseInputItemUnionParam
+		switch callType {
+		case "custom_tool_call":
+			paramItem = responses.ResponseInputItemParamOfCustomToolCall(request.ProviderCallID, arguments, name)
+		default:
+			callType = "function_call"
+			paramItem = responses.ResponseInputItemParamOfFunctionCall(arguments, request.ProviderCallID, name)
+		}
+		out = append(out, itemWithNative(coreconversation.Item{
+			Provider: provider,
+			Kind:     coreconversation.ItemOutput,
+			CallID:   request.ProviderCallID,
+			Name:     name,
+			Metadata: map[string]string{"provider_call_type": callType},
+		}, paramItem))
+	}
 	return out
 }
 
@@ -747,7 +852,7 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 	case "response.output_item.added":
 		added := evt.AsResponseOutputItemAdded()
 		state.setPhase(int(added.OutputIndex), added.Item)
-		if added.Item.Type != "function_call" {
+		if added.Item.Type != "function_call" && added.Item.Type != "custom_tool_call" {
 			return nil
 		}
 		name := tool.Name(added.Item.Name)
@@ -756,6 +861,7 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			Kind:       adapterllm.StreamToolCallStart,
 			Tool:       name,
 			ToolCallID: firstNonEmpty(added.Item.CallID, added.Item.ID),
+			CallType:   added.Item.Type,
 			Index:      int(added.OutputIndex),
 		}}
 	case "response.output_item.done":
@@ -771,12 +877,16 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 				return nil
 			}
 		}
-		if done.Item.Type != "function_call" || state.completedToolCalls[int(done.OutputIndex)] {
+		if done.Item.Type != "function_call" && done.Item.Type != "custom_tool_call" || state.completedToolCalls[int(done.OutputIndex)] {
 			return nil
 		}
 		name := tool.Name(done.Item.Name)
 		if name == "" {
 			name = state.toolNames[int(done.OutputIndex)]
+		}
+		arguments := done.Item.Arguments.OfString
+		if done.Item.Type == "custom_tool_call" {
+			arguments = done.Item.Input
 		}
 		state.completedToolCalls[int(done.OutputIndex)] = true
 		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
@@ -784,8 +894,9 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
 			ToolCallID: firstNonEmpty(done.Item.CallID, done.Item.ID),
+			CallType:   done.Item.Type,
 			Index:      int(done.OutputIndex),
-			Arguments:  done.Item.Arguments.OfString,
+			Arguments:  arguments,
 			Final:      true,
 		})
 		return events
@@ -795,6 +906,7 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			Kind:       adapterllm.StreamToolCallDelta,
 			Tool:       state.toolNames[int(delta.OutputIndex)],
 			ToolCallID: delta.ItemID,
+			CallType:   "function_call",
 			Index:      int(delta.OutputIndex),
 			Arguments:  delta.Delta,
 		}}
@@ -813,8 +925,37 @@ func (m *Model) streamEvents(evt responses.ResponseStreamEventUnion, state *open
 			Kind:       adapterllm.StreamToolCallDone,
 			Tool:       name,
 			ToolCallID: done.ItemID,
+			CallType:   "function_call",
 			Index:      int(done.OutputIndex),
 			Arguments:  done.Arguments,
+			Final:      true,
+		})
+		return events
+	case "response.custom_tool_call_input.delta":
+		delta := evt.AsResponseCustomToolCallInputDelta()
+		return []adapterllm.StreamEvent{{
+			Kind:       adapterllm.StreamToolCallDelta,
+			Tool:       state.toolNames[int(delta.OutputIndex)],
+			ToolCallID: delta.ItemID,
+			CallType:   "custom_tool_call",
+			Index:      int(delta.OutputIndex),
+			Arguments:  delta.Delta,
+		}}
+	case "response.custom_tool_call_input.done":
+		done := evt.AsResponseCustomToolCallInputDone()
+		if state.completedToolCalls[int(done.OutputIndex)] {
+			return nil
+		}
+		name := state.toolNames[int(done.OutputIndex)]
+		state.completedToolCalls[int(done.OutputIndex)] = true
+		events := state.flushAllUnphased(adapterllm.StreamThinkingDelta)
+		events = append(events, adapterllm.StreamEvent{
+			Kind:       adapterllm.StreamToolCallDone,
+			Tool:       name,
+			ToolCallID: done.ItemID,
+			CallType:   "custom_tool_call",
+			Index:      int(done.OutputIndex),
+			Arguments:  done.Input,
 			Final:      true,
 		})
 		return events

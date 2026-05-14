@@ -19,11 +19,12 @@ type ToolCallAssembler struct {
 }
 
 type pendingToolCall struct {
-	id        string
-	index     int
-	name      tool.Name
-	arguments string
-	done      bool
+	id       string
+	callType string
+	index    int
+	name     tool.Name
+	input    string
+	done     bool
 }
 
 // NewToolCallAssembler returns a tool-call assembler for the projected tools.
@@ -48,18 +49,25 @@ func (a *ToolCallAssembler) Apply(evt StreamEvent) ([]agent.OperationRequest, er
 		call := a.call(evt)
 		call.name = evt.Tool
 		call.index = evt.Index
+		call.callType = evt.CallType
 	case StreamToolCallDelta:
 		call := a.call(evt)
 		if evt.Tool != "" {
 			call.name = evt.Tool
 		}
-		call.arguments += evt.Arguments
+		if evt.CallType != "" {
+			call.callType = evt.CallType
+		}
+		call.input += evt.Arguments
 	case StreamToolCallDone:
 		call := a.call(evt)
 		if evt.Tool != "" {
 			call.name = evt.Tool
 		}
-		call.arguments += evt.Arguments
+		if evt.CallType != "" {
+			call.callType = evt.CallType
+		}
+		call.input += evt.Arguments
 		call.done = true
 		req, err := a.operationRequest(*call)
 		if err != nil {
@@ -122,11 +130,16 @@ func (a *ToolCallAssembler) operationRequest(call pendingToolCall) (agent.Operat
 	if spec.Target.Operation.Name == "" {
 		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q operation ref is empty", call.name)
 	}
-	input, err := decodeArguments(call.arguments)
+	input, err := decodeArguments(call.input)
 	if err != nil {
 		return agent.OperationRequest{}, fmt.Errorf("llm: tool %q arguments: %w", call.name, err)
 	}
-	return agent.OperationRequest{Operation: spec.Target.Operation, Input: input, ProviderCallID: call.id}, nil
+	return agent.OperationRequest{
+		Operation:        spec.Target.Operation,
+		Input:            input,
+		ProviderCallID:   call.id,
+		ProviderCallType: call.callType,
+	}, nil
 }
 
 func decodeArguments(raw string) (operation.Value, error) {

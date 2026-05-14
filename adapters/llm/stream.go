@@ -25,6 +25,7 @@ type StreamEvent struct {
 	Text        string             `json:"text,omitempty"`
 	Tool        tool.Name          `json:"tool,omitempty"`
 	ToolCallID  string             `json:"tool_call_id,omitempty"`
+	CallType    string             `json:"call_type,omitempty"`
 	Index       int                `json:"index,omitempty"`
 	Arguments   string             `json:"arguments,omitempty"`
 	Final       bool               `json:"final,omitempty"`

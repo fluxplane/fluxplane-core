@@ -29,23 +29,32 @@ type Config struct {
 
 // New returns a Codex-backed Responses model.
 func New(cfg Config) (*openaiadapter.Model, error) {
-	auth, err := loadAuth(cfg.AuthPath, cfg.HTTPClient)
-	if err != nil {
-		return nil, err
-	}
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 	runtime := cfg.Runtime
-	if runtime.Transport == "" {
-		runtime.Transport = openaiadapter.ResponsesTransportAuto
+	if runtime.Transport == "" || runtime.Transport == openaiadapter.ResponsesTransportAuto {
+		runtime.Transport = openaiadapter.ResponsesTransportSSE
+	}
+	if runtime.Transport == openaiadapter.ResponsesTransportWebSocket {
+		return nil, fmt.Errorf("codex: websocket transport is not implemented; HTTP/SSE transport requires replay continuation")
 	}
 	if runtime.Cache == "" {
 		runtime.Cache = openaiadapter.ResponsesCacheMax
 	}
-	if runtime.Continuation == "" {
-		runtime.Continuation = openaiadapter.ResponsesContinuationAuto
+	if runtime.Continuation == "" || runtime.Continuation == openaiadapter.ResponsesContinuationAuto {
+		runtime.Continuation = openaiadapter.ResponsesContinuationReplay
+	}
+	if runtime.Continuation == openaiadapter.ResponsesContinuationProvider {
+		return nil, fmt.Errorf("codex: provider continuation requires websocket transport; HTTP/SSE endpoint rejects previous_response_id")
+	}
+	if runtime.Output == "" {
+		runtime.Output = openaiadapter.ResponsesOutputStreamItems
+	}
+	auth, err := loadAuth(cfg.AuthPath, cfg.HTTPClient)
+	if err != nil {
+		return nil, err
 	}
 	return openaiadapter.New(openaiadapter.Config{
 		Model:             cfg.Model,

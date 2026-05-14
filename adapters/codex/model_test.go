@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
 )
 
 func TestMutateBodyDropsOpenAIOnlyFields(t *testing.T) {
@@ -55,6 +57,25 @@ func TestCodexMiddlewareIncludesHTTPErrorBody(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "bad request detail") {
 		t.Fatalf("err = %v, want response body", err)
+	}
+}
+
+func TestNewRejectsProviderContinuationOnHTTPTransport(t *testing.T) {
+	_, err := New(Config{Runtime: openaiadapter.ResponsesRuntimeConfig{
+		Transport:    openaiadapter.ResponsesTransportSSE,
+		Continuation: openaiadapter.ResponsesContinuationProvider,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "provider continuation requires websocket transport") {
+		t.Fatalf("err = %v, want provider continuation transport error", err)
+	}
+}
+
+func TestNewRejectsWebSocketTransportUntilImplemented(t *testing.T) {
+	_, err := New(Config{Runtime: openaiadapter.ResponsesRuntimeConfig{
+		Transport: openaiadapter.ResponsesTransportWebSocket,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "websocket transport is not implemented") {
+		t.Fatalf("err = %v, want websocket transport error", err)
 	}
 }
 

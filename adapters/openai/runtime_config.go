@@ -32,12 +32,22 @@ const (
 	ResponsesContinuationProvider ResponsesContinuationMode = "provider"
 )
 
+// ResponsesOutputMode controls which response payload supplies completed
+// output items for streaming requests.
+type ResponsesOutputMode string
+
+const (
+	ResponsesOutputFinalResponse ResponsesOutputMode = "final_response"
+	ResponsesOutputStreamItems   ResponsesOutputMode = "stream_items"
+)
+
 // ResponsesRuntimeConfig is the provider-neutral runtime tuning shared by
 // OpenAI Responses-compatible adapters.
 type ResponsesRuntimeConfig struct {
 	Transport    ResponsesTransportMode
 	Cache        ResponsesCacheMode
 	Continuation ResponsesContinuationMode
+	Output       ResponsesOutputMode
 	ToolSearch   bool
 }
 
@@ -48,6 +58,7 @@ func DefaultResponsesRuntimeConfig() ResponsesRuntimeConfig {
 		Transport:    ResponsesTransportAuto,
 		Cache:        ResponsesCacheMax,
 		Continuation: ResponsesContinuationAuto,
+		Output:       ResponsesOutputFinalResponse,
 		ToolSearch:   true,
 	}
 }
@@ -61,6 +72,9 @@ func (c ResponsesRuntimeConfig) withDefaults() ResponsesRuntimeConfig {
 	}
 	if c.Continuation == "" {
 		c.Continuation = ResponsesContinuationAuto
+	}
+	if c.Output == "" {
+		c.Output = ResponsesOutputFinalResponse
 	}
 	return c
 }

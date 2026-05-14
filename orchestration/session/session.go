@@ -993,13 +993,17 @@ func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, o
 			"details": result.Error.Details,
 		}
 	}
-	return coreconversation.Item{
+	item := coreconversation.Item{
 		Provider: provider,
 		Kind:     coreconversation.ItemToolResult,
 		CallID:   providerCallID,
 		Name:     opReq.Operation.String(),
 		Content:  content,
 	}
+	if opReq.ProviderCallType != "" {
+		item.Metadata = map[string]string{"provider_call_type": opReq.ProviderCallType}
+	}
+	return item
 }
 
 func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) event.Sink {

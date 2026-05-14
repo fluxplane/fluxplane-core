@@ -190,6 +190,78 @@ func TestResponseParamsUsesTranscriptItemsAndPreviousResponseID(t *testing.T) {
 	}
 }
 
+func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
+	model, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionNativeContinuation,
+			Continuation: &coreconversation.ContinuationHandle{
+				Provider:   coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
+				Mode:       coreconversation.ContinuationPreviousResponseID,
+				Transport:  coreconversation.TransportHTTPSSE,
+				ResponseID: "resp_prev",
+			},
+			Items: []coreconversation.Item{{
+				Kind:     coreconversation.ItemToolResult,
+				CallID:   "call_1",
+				Content:  map[string]any{"ok": true},
+				Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(raw), `"previous_response_id":"resp_prev"`) || !strings.Contains(string(raw), `"type":"custom_tool_call_output"`) {
+		t.Fatalf("params json = %s, want previous_response_id and custom_tool_call_output", raw)
+	}
+	if len(sent) != 1 || sent[0].Metadata["provider_call_type"] != "custom_tool_call" || len(sent[0].Native) == 0 {
+		t.Fatalf("sent = %#v, want native custom tool output", sent)
+	}
+}
+
+func TestResponseParamsReplaysPlainAssistantOutput(t *testing.T) {
+	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, sent, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
+		Transcript: &coreconversation.Transcript{
+			Provider: coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"},
+			Mode:     coreconversation.ProjectionFullReplay,
+			Items: []coreconversation.Item{
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "hello"},
+				{Kind: coreconversation.ItemOutput, Role: "assistant", Content: "hi"},
+				{Kind: coreconversation.ItemInput, Role: "user", Content: "again"},
+			},
+			NewItems: []coreconversation.Item{{Kind: coreconversation.ItemInput, Role: "user", Content: "again"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(raw), `"role":"assistant"`) || !strings.Contains(string(raw), `"hi"`) {
+		t.Fatalf("params json = %s, want assistant output replay", raw)
+	}
+	if len(sent) != 1 || sent[0].Content != "again" {
+		t.Fatalf("sent = %#v, want only pending item recorded", sent)
+	}
+}
+
 func TestResponseParamsRecordsOnlyTranscriptNewItems(t *testing.T) {
 	model, err := New(Config{})
 	if err != nil {
@@ -246,6 +318,71 @@ func TestResponseFromOpenAIConvertsText(t *testing.T) {
 	}
 	if got.Message == nil || got.Message.Content != "hello" {
 		t.Fatalf("message = %#v, want hello", got.Message)
+	}
+}
+
+func TestResponseForOutputModeUsesStreamItemsAsPrimary(t *testing.T) {
+	final := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"status": "completed",
+		"output": []
+	}`)
+	done := mustStreamEvent(t, `{
+		"type":"response.output_item.done",
+		"output_index":0,
+		"item":{
+			"id":"msg_1",
+			"type":"message",
+			"status":"completed",
+			"role":"assistant",
+			"content":[{"type":"output_text","text":"from stream item"}]
+		}
+	}`)
+	resp := responseForOutputMode(final, []responses.ResponseOutputItemUnion{done.AsResponseOutputItemDone().Item}, ResponsesOutputStreamItems)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if got.Message == nil || got.Message.Content != "from stream item" {
+		t.Fatalf("message = %#v, want stream item text", got.Message)
+	}
+	if len(got.Transcript.Items) != 1 || len(got.Transcript.Items[0].Native) == 0 {
+		t.Fatalf("transcript items = %#v, want native stream item", got.Transcript.Items)
+	}
+}
+
+func TestResponseForOutputModeDefaultsToFinalResponse(t *testing.T) {
+	final := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"status": "completed",
+		"output": [{
+			"id": "msg_1",
+			"type": "message",
+			"status": "completed",
+			"role": "assistant",
+			"content": [{"type": "output_text", "text": "from final"}]
+		}]
+	}`)
+	done := mustStreamEvent(t, `{
+		"type":"response.output_item.done",
+		"output_index":0,
+		"item":{
+			"id":"msg_2",
+			"type":"message",
+			"status":"completed",
+			"role":"assistant",
+			"content":[{"type":"output_text","text":"from stream item"}]
+		}
+	}`)
+	resp := responseForOutputMode(final, []responses.ResponseOutputItemUnion{done.AsResponseOutputItemDone().Item}, ResponsesOutputFinalResponse)
+	got, err := responseFromOpenAI(resp, nil, openAIProviderIdentity("gpt-test"), false, nil)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if got.Message == nil || got.Message.Content != "from final" {
+		t.Fatalf("message = %#v, want final response text", got.Message)
 	}
 }
 
@@ -361,6 +498,39 @@ func TestResponseFromOpenAIConvertsMultipleFunctionCalls(t *testing.T) {
 	}
 }
 
+func TestResponseFromOpenAIConvertsCustomToolCall(t *testing.T) {
+	resp := mustResponse(t, `{
+		"id": "resp_1",
+		"object": "response",
+		"status": "completed",
+		"output": [
+			{"type": "custom_tool_call", "call_id": "call_1", "name": "inspect", "input": "{\"path\":\"README.md\"}"}
+		]
+	}`)
+	got, err := responseFromOpenAI(resp, []adapterllm.ToolSpec{{
+		Name: "inspect",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "inspect"},
+		},
+	}}, openAIProviderIdentity("gpt-test"), true, nil)
+	if err != nil {
+		t.Fatalf("responseFromOpenAI: %v", err)
+	}
+	if len(got.Operations) != 1 {
+		t.Fatalf("operations = %#v, want one", got.Operations)
+	}
+	if got.Operations[0].Operation.Name != "inspect" || got.Operations[0].ProviderCallID != "call_1" {
+		t.Fatalf("operation = %#v, want inspect call_1", got.Operations[0])
+	}
+	if got.Operations[0].ProviderCallType != "custom_tool_call" {
+		t.Fatalf("provider call type = %q, want custom_tool_call", got.Operations[0].ProviderCallType)
+	}
+	if len(got.Transcript.Items) != 1 || got.Transcript.Items[0].Metadata["provider_call_type"] != "custom_tool_call" {
+		t.Fatalf("transcript items = %#v, want custom tool call metadata", got.Transcript.Items)
+	}
+}
+
 func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
 	model := &Model{}
 	state := &openAIStreamState{toolNames: map[int]tool.Name{}, outputPhases: map[int]string{}}
@@ -381,6 +551,29 @@ func TestStreamEventsNormalizeThinkingAndToolCalls(t *testing.T) {
 	events = model.streamEvents(thinking, state)
 	if len(events) != 1 || events[0].Kind != adapterllm.StreamThinkingDelta || events[0].Text != "checking" {
 		t.Fatalf("thinking events = %#v, want thinking delta", events)
+	}
+}
+
+func TestStreamEventsNormalizeCustomToolCalls(t *testing.T) {
+	model := &Model{}
+	state := &openAIStreamState{toolNames: map[int]tool.Name{}, outputPhases: map[int]string{}}
+
+	added := mustStreamEvent(t, `{"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","call_id":"call_1","name":"inspect","input":""}}`)
+	events := model.streamEvents(added, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallStart || events[0].Tool != "inspect" || events[0].CallType != "custom_tool_call" {
+		t.Fatalf("added events = %#v, want custom inspect start", events)
+	}
+
+	delta := mustStreamEvent(t, `{"type":"response.custom_tool_call_input.delta","output_index":0,"item_id":"call_1","delta":"{\"path\""}`)
+	events = model.streamEvents(delta, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDelta || events[0].Tool != "inspect" || events[0].CallType != "custom_tool_call" {
+		t.Fatalf("delta events = %#v, want custom inspect delta", events)
+	}
+
+	done := mustStreamEvent(t, `{"type":"response.custom_tool_call_input.done","output_index":0,"item_id":"call_1","input":"{\"path\":\"README.md\"}"}`)
+	events = model.streamEvents(done, state)
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDone || !events[0].Final || events[0].Arguments != `{"path":"README.md"}` {
+		t.Fatalf("done events = %#v, want custom inspect done", events)
 	}
 }
 
@@ -462,6 +655,59 @@ func TestStreamedContentFallbackCreatesMessage(t *testing.T) {
 	}
 	if len(out.Transcript.Items) != 1 || out.Transcript.Items[0].Content != "The answer is 2." {
 		t.Fatalf("transcript items = %#v, want assistant fallback item", out.Transcript.Items)
+	}
+	if len(out.Transcript.Items[0].Native) == 0 || !strings.Contains(string(out.Transcript.Items[0].Native), `"role":"assistant"`) {
+		t.Fatalf("native = %s, want assistant message", out.Transcript.Items[0].Native)
+	}
+}
+
+func TestStreamedOperationsFallbackUsesStreamedToolCalls(t *testing.T) {
+	streamed := []agent.OperationRequest{{
+		Operation:      operation.Ref{Name: "datasource_search"},
+		Input:          map[string]any{"query": "go.mod module path"},
+		ProviderCallID: "call_1",
+	}}
+	out := applyStreamedOperationsFallback(llmagent.Response{}, streamed)
+	if len(out.Operations) != 1 {
+		t.Fatalf("operations = %#v, want streamed operation", out.Operations)
+	}
+	if out.Operations[0].Operation.Name != "datasource_search" || out.Operations[0].ProviderCallID != "call_1" {
+		t.Fatalf("operation = %#v, want datasource_search call_1", out.Operations[0])
+	}
+}
+
+func TestStreamedOperationsFallbackKeepsFinalResponseOperations(t *testing.T) {
+	final := llmagent.OperationResponse(agent.OperationRequest{
+		Operation:      operation.Ref{Name: "final_tool"},
+		ProviderCallID: "final_call",
+	})
+	out := applyStreamedOperationsFallback(final, []agent.OperationRequest{{
+		Operation:      operation.Ref{Name: "streamed_tool"},
+		ProviderCallID: "streamed_call",
+	}})
+	if len(out.Operations) != 1 || out.Operations[0].Operation.Name != "final_tool" {
+		t.Fatalf("operations = %#v, want final response operation preserved", out.Operations)
+	}
+}
+
+func TestStreamedOperationTranscriptItemsPreserveProviderCall(t *testing.T) {
+	items := streamedOperationTranscriptItems(openAIProviderIdentity("gpt-test"), []agent.OperationRequest{{
+		Operation:      operation.Ref{Name: "datasource_search"},
+		Input:          map[string]any{"query": "go.mod module path"},
+		ProviderCallID: "call_1",
+	}})
+	if len(items) != 1 {
+		t.Fatalf("items = %#v, want one", items)
+	}
+	item := items[0]
+	if item.Kind != coreconversation.ItemOutput || item.CallID != "call_1" || item.Name != "datasource_search" {
+		t.Fatalf("item = %#v, want output datasource_search call_1", item)
+	}
+	if item.Metadata["provider_call_type"] != "function_call" {
+		t.Fatalf("metadata = %#v, want function_call", item.Metadata)
+	}
+	if !strings.Contains(string(item.Native), `"type":"function_call"`) || !strings.Contains(string(item.Native), `"arguments":"{\"query\":\"go.mod module path\"}"`) {
+		t.Fatalf("native = %s, want function_call with arguments", item.Native)
 	}
 }
 

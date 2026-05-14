@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -117,7 +118,7 @@ func missingToolResults(items, pending []coreconversation.Item, provider corecon
 			continue
 		}
 		resolved[item.CallID] = true
-		out = append(out, coreconversation.Item{
+		repair := coreconversation.Item{
 			Provider: provider,
 			Kind:     coreconversation.ItemToolResult,
 			CallID:   item.CallID,
@@ -127,9 +128,34 @@ func missingToolResults(items, pending []coreconversation.Item, provider corecon
 				"message": "Tool call did not complete because the previous turn failed before a result could be recorded.",
 			},
 			Metadata: map[string]string{"is_error": "true"},
-		})
+		}
+		if callType := providerCallType(item); callType != "" {
+			repair.Metadata["provider_call_type"] = callType
+		}
+		out = append(out, repair)
 	}
 	return out
+}
+
+func providerCallType(item coreconversation.Item) string {
+	if item.Metadata != nil && strings.TrimSpace(item.Metadata["provider_call_type"]) != "" {
+		return strings.TrimSpace(item.Metadata["provider_call_type"])
+	}
+	if len(item.Native) == 0 {
+		return ""
+	}
+	var raw struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(item.Native, &raw); err != nil {
+		return ""
+	}
+	switch raw.Type {
+	case "function_call", "custom_tool_call":
+		return raw.Type
+	default:
+		return ""
+	}
 }
 
 func filterCompatible(items []coreconversation.Item, provider coreconversation.ProviderIdentity) []coreconversation.Item {
