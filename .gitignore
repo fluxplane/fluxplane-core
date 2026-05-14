@@ -2,3 +2,14 @@
 **/.agents/index/
 /bin/
 /.cache/
+
+# Test artifacts
+*.out
+*.test
+coverage.txt
+coverage.html
+*.coverprofile
+.coverage
+htmlcov/
+dist/
+**/*.tmp

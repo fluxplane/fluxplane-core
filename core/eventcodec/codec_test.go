@@ -61,3 +61,31 @@ func TestEncodeDecodePayload(t *testing.T) {
 		t.Fatalf("Text = %q, want hello", payload.Text)
 	}
 }
+
+func TestDecodePayloadUnknownEvent(t *testing.T) {
+	registry := event.NewRegistry()
+	_, err := DecodePayload(registry, "unknown.event", []byte(`{}`))
+	if err == nil {
+		t.Fatal("DecodePayload succeeded for unknown event, want error")
+	}
+}
+
+func TestNormalizeRecordWithCustomValues(t *testing.T) {
+	now := time.Date(2026, 5, 12, 1, 2, 3, 0, time.UTC)
+	customID := "custom-id"
+	record, err := NormalizeRecord(event.Record{
+		ID:         customID,
+		Payload:    testEvent{Text: "hello"},
+		Sensitivity: policy.SensitivityPublic,
+		Attributes: map[string]string{"k": "v"},
+	}, now)
+	if err != nil {
+		t.Fatalf("NormalizeRecord returned error: %v", err)
+	}
+	if record.ID != customID {
+		t.Fatalf("ID = %q, want %q", record.ID, customID)
+	}
+	if record.Sensitivity != policy.SensitivityPublic {
+		t.Fatalf("Sensitivity = %q, want public", record.Sensitivity)
+	}
+}

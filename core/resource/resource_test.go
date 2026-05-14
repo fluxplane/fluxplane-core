@@ -34,3 +34,26 @@ func TestContributionBundleAppendIncludesAppAndSkillSpecs(t *testing.T) {
 		t.Fatalf("llm model aliases = %#v, want codex", bundle.LLMModelAliases)
 	}
 }
+
+func TestContributionBundleAppendMultiple(t *testing.T) {
+	var bundle ContributionBundle
+	bundle.Append(ContributionBundle{
+		Apps: []coreapp.Spec{{Name: "app1"}},
+	})
+	bundle.Append(ContributionBundle{
+		Apps: []coreapp.Spec{{Name: "app2"}},
+	})
+
+	if len(bundle.Apps) != 2 {
+		t.Fatalf("apps = %d, want 2", len(bundle.Apps))
+	}
+}
+
+func TestContributionBundleAppendEmpty(t *testing.T) {
+	var bundle ContributionBundle
+	bundle.Append(ContributionBundle{})
+
+	if bundle.Apps != nil || bundle.Skills != nil {
+		t.Fatal("empty append should not modify bundle")
+	}
+}

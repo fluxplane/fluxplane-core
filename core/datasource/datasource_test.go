@@ -73,3 +73,50 @@ func TestAccessPolicyContextRoundTrip(t *testing.T) {
 		t.Fatalf("policy = %#v ok=%v", policy, ok)
 	}
 }
+
+func TestAccessPolicyContextMissing(t *testing.T) {
+	ctx := context.Background()
+	policy, ok := AccessPolicyFromContext(ctx)
+	if ok || policy.Datasources != nil {
+		t.Fatalf("policy = %#v ok=%v, want missing", policy, ok)
+	}
+}
+
+func TestSpecValidateAllowsValidSpec(t *testing.T) {
+	spec := Spec{
+		Name:       "docs",
+		Kind:       "filesystem",
+		Entities:   []EntityType{"file.document"},
+		Connector:  "filesystem",
+	}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestEntityValidateRejectsEmptyType(t *testing.T) {
+	spec := EntitySpec{Type: ""}
+	if err := spec.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want error for empty type")
+	}
+}
+
+func TestEntityValidateRejectsEmptyRelationName(t *testing.T) {
+	spec := EntitySpec{
+		Type: "team.group",
+		Relations: []RelationSpec{{
+			Name:         "",
+			TargetEntity: "team.user",
+		}},
+	}
+	if err := spec.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want error for empty relation name")
+	}
+}
+
+func TestEntitySpecValidateAllowsNoRelations(t *testing.T) {
+	spec := EntitySpec{Type: "team.group"}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
