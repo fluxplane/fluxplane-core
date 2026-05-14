@@ -194,8 +194,8 @@ func dispatchActions(dispatch *tool.Dispatch) []string {
 }
 
 func decodeArguments(raw string) (operation.Value, error) {
-	if raw == "" {
-		return nil, nil
+	if strings.TrimSpace(raw) == "" {
+		return map[string]any{}, nil
 	}
 	var value any
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {

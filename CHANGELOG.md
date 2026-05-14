@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Conversation continuity repair now records durable diagnostics and preserves
+  provider transcript data when tool-call assembly fails.
 - Read-only workspace roots can no longer be used as process working
   directories, closing a write bypass through process-backed operations.
 - Browser CDP sessions no longer cancel immediately after `browser_open` when

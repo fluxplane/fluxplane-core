@@ -124,18 +124,58 @@ const (
 	ItemNative     ItemKind = "native"
 )
 
+// ToolCallRef is the provider-normalized identity of a tool call emitted by an
+// assistant transcript item.
+type ToolCallRef struct {
+	CallID string `json:"call_id"`
+	Name   string `json:"name,omitempty"`
+	Type   string `json:"type,omitempty"`
+	Input  any    `json:"input,omitempty"`
+}
+
 // Item is one exact provider-visible transcript item.
 type Item struct {
-	Provider ProviderIdentity  `json:"provider,omitempty"`
-	Kind     ItemKind          `json:"kind"`
-	Role     string            `json:"role,omitempty"`
-	Phase    string            `json:"phase,omitempty"`
-	ID       string            `json:"id,omitempty"`
-	CallID   string            `json:"call_id,omitempty"`
-	Name     string            `json:"name,omitempty"`
-	Content  any               `json:"content,omitempty"`
-	Native   json.RawMessage   `json:"native,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	Provider  ProviderIdentity  `json:"provider,omitempty"`
+	Kind      ItemKind          `json:"kind"`
+	Role      string            `json:"role,omitempty"`
+	Phase     string            `json:"phase,omitempty"`
+	ID        string            `json:"id,omitempty"`
+	CallID    string            `json:"call_id,omitempty"`
+	Name      string            `json:"name,omitempty"`
+	ToolCalls []ToolCallRef     `json:"tool_calls,omitempty"`
+	Content   any               `json:"content,omitempty"`
+	Native    json.RawMessage   `json:"native,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+}
+
+// ToolCallRefs returns normalized assistant tool calls carried by the item.
+func (i Item) ToolCallRefs() []ToolCallRef {
+	if i.Kind != ItemOutput {
+		return nil
+	}
+	if len(i.ToolCalls) > 0 {
+		out := make([]ToolCallRef, 0, len(i.ToolCalls))
+		for _, call := range i.ToolCalls {
+			call.CallID = strings.TrimSpace(call.CallID)
+			if call.Name == "" {
+				call.Name = i.Name
+			}
+			if call.Type == "" && i.Metadata != nil {
+				call.Type = strings.TrimSpace(i.Metadata["provider_call_type"])
+			}
+			out = append(out, call)
+		}
+		return out
+	}
+	callID := strings.TrimSpace(i.CallID)
+	if callID == "" {
+		return nil
+	}
+	ref := ToolCallRef{CallID: callID, Name: i.Name}
+	if i.Metadata != nil {
+		ref.Type = strings.TrimSpace(i.Metadata["provider_call_type"])
+	}
+	return []ToolCallRef{ref}
 }
 
 // Validate checks that an item has enough information to preserve a transcript
@@ -144,7 +184,7 @@ func (i Item) Validate() error {
 	if i.Kind == "" {
 		return fmt.Errorf("conversation: item kind is empty")
 	}
-	if len(i.Native) == 0 && i.Content == nil && i.ID == "" && i.CallID == "" {
+	if len(i.Native) == 0 && i.Content == nil && i.ID == "" && i.CallID == "" && len(i.ToolCalls) == 0 {
 		return fmt.Errorf("conversation: item has no content or native payload")
 	}
 	return nil

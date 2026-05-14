@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
@@ -55,10 +57,12 @@ const (
 	defaultLLMMaxSteps      = 50
 	defaultLLMContinuations = 3
 
-	compactMaxInputTokens      = 128000
-	compactSafetyMarginTokens  = 4096
-	compactLargeItemTokens     = 4096
-	compactPreserveRecentItems = 16
+	defaultCompactContextTokens = 128000
+	maxCompactContextTokens     = 200000
+	compactTriggerRatio         = 0.85
+	compactSafetyMarginTokens   = 4096
+	compactLargeItemTokens      = 4096
+	compactPreserveRecentItems  = 16
 )
 
 var contextCommandSpec = command.Spec{
@@ -356,12 +360,12 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 			ConversationTurnID:  inbound.ID,
 		})
 		if inner.Result.Status != "" {
-			return inner.Result
+			return s.finalizeInputResult(ctx, inbound, inner.Result)
 		}
 		state = inner.State
 		effects = inner.Effects
 		if !s.shouldContinueAfterTerminal(continuation, inner.AgentResult) {
-			return s.applyTerminalAgentDecision(ctx, inbound, inner.AgentResult, effects)
+			return s.finalizeInputResult(ctx, inbound, s.applyTerminalAgentDecision(ctx, inbound, inner.AgentResult, effects))
 		}
 		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), "Continue.")}
 		observations = []environment.Observation{{
@@ -434,8 +438,8 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if agentResult.Status != agent.StatusOK {
-			if err := s.persistRepairTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_repair_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			if err := s.persistFailedTurnTranscript(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript, agentErrorMessage(agentResult)); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
 			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects}
 		}
@@ -457,8 +461,8 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		}
 		effects = append(effects, batch...)
 		if step == maxSteps-1 {
-			if err := s.persistRepairTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_repair_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			if err := s.persistPendingTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
 			if !in.FailOnStepLimit {
 				return innerTurnResult{Result: s.operationBoundaryResult(ctx, in.Inbound, agentResult, effects), AgentResult: agentResult, State: state, Effects: effects}
@@ -469,6 +473,13 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		pending = toolResults
 	}
 	return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Effects: effects, Error: &CommandError{Code: "step_limit_exceeded", Message: "agent reached max_steps"}}, State: state, Effects: effects}
+}
+
+func (s Session) finalizeInputResult(ctx context.Context, inbound channel.Inbound, result InputResult) InputResult {
+	if result.Status == InputStatusOK {
+		_ = s.autoCompactAfterTurn(ctx, inbound.ID)
+	}
+	return result
 }
 
 func derefItems(items *[]coreconversation.Item) []coreconversation.Item {
@@ -485,7 +496,7 @@ func derefHandle(handle **coreconversation.ContinuationHandle) *coreconversation
 	return *handle
 }
 
-func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
+func (s Session) persistPendingTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -494,6 +505,29 @@ func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string
 		*localItems = append(*localItems, copied...)
 	}
 	return s.appendConversation(ctx, turnID, provider, copied)
+}
+
+func (s Session) persistFailedTurnTranscript(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, pending []coreconversation.Item, localItems *[]coreconversation.Item, reason string) error {
+	base := derefItems(localItems)
+	if len(base) == 0 {
+		return s.persistPendingTranscriptItems(ctx, turnID, provider, pending, localItems)
+	}
+	repaired := conversationruntime.RepairToolContinuity(base, conversationruntime.ToolContinuityRepairOptions{
+		Provider:            provider,
+		RepairOrphanResults: true,
+		MissingResultReason: reason,
+	})
+	if len(repaired.Repairs) == 0 {
+		return nil
+	}
+	return s.persistPendingTranscriptItems(ctx, turnID, provider, repaired.Repairs, localItems)
+}
+
+func agentErrorMessage(result agent.StepResult) string {
+	if result.Error != nil && strings.TrimSpace(result.Error.Message) != "" {
+		return result.Error.Message
+	}
+	return "Tool call did not complete because the model turn failed before a result could be recorded."
 }
 
 func inputObservationMetadata(inbound channel.Inbound) map[string]any {
@@ -511,6 +545,10 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 
 type providerIdentityAgent interface {
 	ProviderIdentity() coreconversation.ProviderIdentity
+}
+
+type driverSpecAgent interface {
+	DriverSpec() corellmagent.Spec
 }
 
 type contextProviderAgent interface {
@@ -882,28 +920,45 @@ func (s Session) transcriptForPending(ctx context.Context, pending, localItems [
 	if s.ThreadStore == nil || s.Thread.ID == "" {
 		if localHandle != nil && localHandle.SupportsPreviousResponseID() {
 			copied := *localHandle
+			repaired := conversationruntime.RepairToolContinuity(append(append([]coreconversation.Item(nil), localItems...), pending...), conversationruntime.ToolContinuityRepairOptions{
+				Provider: provider,
+			})
+			items := append([]coreconversation.Item(nil), repaired.Repairs...)
+			items = append(items, pending...)
 			return coreconversation.Transcript{
 				Provider:     provider,
-				Items:        pending,
-				NewItems:     append([]coreconversation.Item(nil), pending...),
+				Items:        items,
+				NewItems:     append([]coreconversation.Item(nil), items...),
 				Continuation: &copied,
 				Mode:         coreconversation.ProjectionNativeContinuation,
 			}, nil
 		}
+		repaired := conversationruntime.RepairToolContinuity(append(append([]coreconversation.Item(nil), localItems...), pending...), conversationruntime.ToolContinuityRepairOptions{
+			Provider:            provider,
+			RepairOrphanResults: true,
+		})
+		newItems := append([]coreconversation.Item(nil), repaired.Repairs...)
+		newItems = append(newItems, pending...)
 		return coreconversation.Transcript{
 			Provider: provider,
-			Items:    append(append([]coreconversation.Item(nil), localItems...), pending...),
-			NewItems: append([]coreconversation.Item(nil), pending...),
+			Items:    repaired.Items,
+			NewItems: newItems,
 			Mode:     coreconversation.ProjectionFullReplay,
 		}, nil
 	}
 	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
 	if err != nil {
 		if errors.Is(err, corethread.ErrNotFound) {
+			repaired := conversationruntime.RepairToolContinuity(pending, conversationruntime.ToolContinuityRepairOptions{
+				Provider:            provider,
+				RepairOrphanResults: true,
+			})
+			newItems := append([]coreconversation.Item(nil), repaired.Repairs...)
+			newItems = append(newItems, pending...)
 			return coreconversation.Transcript{
 				Provider: provider,
-				Items:    pending,
-				NewItems: append([]coreconversation.Item(nil), pending...),
+				Items:    repaired.Items,
+				NewItems: newItems,
 				Mode:     coreconversation.ProjectionFullReplay,
 			}, nil
 		}
@@ -1666,6 +1721,14 @@ type compactReport struct {
 	Stats    coreconversation.CompactionStats
 }
 
+type compactBudget struct {
+	ContextTokens  int
+	InputBudget    int
+	TriggerTokens  int
+	OutputReserve  int
+	TriggerPercent int
+}
+
 func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
 	spec := compactCommandSpec
 	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
@@ -1699,12 +1762,7 @@ func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbo
 			Error:  &CommandError{Code: code, Message: err.Error()},
 		}
 	}
-	result := conversationruntime.CompactTranscript(transcript, conversationruntime.CompactOptions{
-		MaxInputTokens:      compactMaxInputTokens,
-		SafetyMarginTokens:  compactSafetyMarginTokens,
-		LargeItemTokens:     compactLargeItemTokens,
-		PreserveRecentItems: compactPreserveRecentItems,
-	})
+	result := conversationruntime.CompactTranscript(transcript, s.compactOptions())
 	stats := coreconversation.CompactionStats{
 		OriginalItems:     len(transcript.Items),
 		CompactedItems:    len(result.Transcript.Items),
@@ -1742,6 +1800,101 @@ func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbo
 		Policy: evaluation,
 		Effect: &environment.EffectResult{Result: operation.OK(text)},
 	}
+}
+
+func (s Session) autoCompactAfterTurn(ctx context.Context, turnID string) error {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return nil
+	}
+	transcript, err := s.compactableTranscript(ctx)
+	if err != nil {
+		return err
+	}
+	_, budget := s.compactOptionsAndBudget()
+	if budget.TriggerTokens <= 0 {
+		return nil
+	}
+	if conversationruntime.EstimateItemsTokens(transcript.Items) <= budget.TriggerTokens {
+		return nil
+	}
+	result := conversationruntime.CompactTranscript(transcript, s.compactOptions())
+	if !result.Compacted {
+		return nil
+	}
+	stats := coreconversation.CompactionStats{
+		OriginalItems:     len(transcript.Items),
+		CompactedItems:    len(result.Transcript.Items),
+		OriginalTokens:    result.OriginalTokens,
+		CompactedTokens:   result.CompactedTokens,
+		OmittedItems:      result.OmittedItems,
+		SummarizedItems:   result.SummarizedItems,
+		Compacted:         result.Compacted,
+		CheckpointPersist: true,
+	}
+	return retryThreadAppend(ctx, func(appendCtx context.Context) error {
+		return conversationruntime.AppendCompaction(appendCtx, s.ThreadStore, s.Thread, turnID, transcript.Provider, result.Transcript.Items, stats)
+	})
+}
+
+func (s Session) compactOptions() conversationruntime.CompactOptions {
+	opts, _ := s.compactOptionsAndBudget()
+	return opts
+}
+
+func (s Session) compactOptionsAndBudget() (conversationruntime.CompactOptions, compactBudget) {
+	contextTokens := s.modelContextTokens()
+	outputReserve := s.outputReserveTokens()
+	inputBudget := contextTokens - outputReserve
+	if inputBudget < compactLargeItemTokens {
+		inputBudget = compactLargeItemTokens
+	}
+	triggerTokens := int(float64(inputBudget) * compactTriggerRatio)
+	if triggerTokens < compactLargeItemTokens {
+		triggerTokens = compactLargeItemTokens
+	}
+	return conversationruntime.CompactOptions{
+			MaxInputTokens:      triggerTokens + compactSafetyMarginTokens,
+			SafetyMarginTokens:  compactSafetyMarginTokens,
+			LargeItemTokens:     compactLargeItemTokens,
+			PreserveRecentItems: compactPreserveRecentItems,
+		}, compactBudget{
+			ContextTokens:  contextTokens,
+			InputBudget:    inputBudget,
+			TriggerTokens:  triggerTokens,
+			OutputReserve:  outputReserve,
+			TriggerPercent: int(compactTriggerRatio * 100),
+		}
+}
+
+func (s Session) modelContextTokens() int {
+	contextTokens := defaultCompactContextTokens
+	if s.Agent != nil {
+		spec := s.Agent.Spec()
+		if value := intAnnotation(spec.Inference.Annotations, "llm.context_tokens"); value > 0 {
+			contextTokens = value
+		}
+	}
+	if contextTokens > maxCompactContextTokens {
+		return maxCompactContextTokens
+	}
+	return contextTokens
+}
+
+func (s Session) outputReserveTokens() int {
+	reserve := compactSafetyMarginTokens
+	if s.Agent == nil {
+		return reserve
+	}
+	spec := s.Agent.Spec()
+	reserve = maxInt(reserve, spec.Inference.MaxOutputTokens)
+	if value := intAnnotation(spec.Inference.Annotations, "llm.max_output_tokens"); value > 0 {
+		reserve = maxInt(reserve, value)
+	}
+	if driver, ok := s.Agent.(driverSpecAgent); ok {
+		driverSpec := driver.DriverSpec()
+		reserve = maxInt(reserve, driverSpec.Inference.MaxOutputTokens)
+	}
+	return reserve
 }
 
 func (s Session) compactableTranscript(ctx context.Context) (coreconversation.Transcript, error) {
@@ -1840,6 +1993,24 @@ func boolInputValue(value any) (bool, error) {
 	default:
 		return false, fmt.Errorf("expected boolean value")
 	}
+}
+
+func intAnnotation(values map[string]string, key string) int {
+	if len(values) == 0 {
+		return 0
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(values[key]))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func renderCompactReport(report compactReport, dryRun bool) string {

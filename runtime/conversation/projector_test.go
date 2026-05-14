@@ -149,6 +149,114 @@ func TestProjectNativeContinuationRepairsMissingToolResult(t *testing.T) {
 	}
 }
 
+func TestProjectFullReplayRepairsMissingToolResultBeforePendingInput(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "anthropic", API: "anthropic.messages", Model: "claude-test"}
+	if err := Append(ctx, store, ref, "turn-1", provider, []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		Role:     "assistant",
+		ToolCalls: []coreconversation.ToolCallRef{{
+			CallID: "toolu_1",
+			Name:   "file_create",
+			Type:   "tool_use",
+			Input:  map[string]string{"path": "docs/multi-agent.md"},
+		}},
+	}}); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Pending:  []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "did you write it?"}},
+		Mode:     coreconversation.ProjectionFullReplay,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("items = %#v, want tool call, repair, pending", result.Items)
+	}
+	repair := result.Items[1]
+	if repair.Kind != coreconversation.ItemToolResult || repair.CallID != "toolu_1" || repair.Metadata["repair"] != "missing_tool_result" {
+		t.Fatalf("repair = %#v, want missing tool result repair", repair)
+	}
+	if len(result.NewItems) != 2 || result.NewItems[0].CallID != "toolu_1" {
+		t.Fatalf("new items = %#v, want repair plus pending", result.NewItems)
+	}
+}
+
+func TestProjectFullReplayRepairsOrphanToolResult(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	pending := coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   "call_1",
+		Name:     "plan",
+		Content:  map[string]any{"code": "plan_invalid", "message": "title is required"},
+		Metadata: map[string]string{"provider_call_type": "function_call"},
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Pending:  []coreconversation.Item{pending},
+		Mode:     coreconversation.ProjectionFullReplay,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("items = %#v, want synthetic call plus result", result.Items)
+	}
+	synthetic := result.Items[0]
+	if synthetic.Kind != coreconversation.ItemOutput || synthetic.CallID != "call_1" || synthetic.Metadata["repair"] != "orphan_tool_result" {
+		t.Fatalf("synthetic = %#v, want orphan tool result repair", synthetic)
+	}
+	if len(synthetic.ToolCalls) != 1 || synthetic.ToolCalls[0].CallID != "call_1" {
+		t.Fatalf("tool calls = %#v, want canonical synthetic call", synthetic.ToolCalls)
+	}
+}
+
+func TestRepairToolContinuityReportsInvalidAndMissingCalls(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	result := RepairToolContinuity([]coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		ToolCalls: []coreconversation.ToolCallRef{
+			{Name: "empty_id", Type: "function_call", Input: `{}`},
+			{CallID: "call_3", Name: "missing_result", Type: "function_call", Input: `{}`},
+		},
+	}}, ToolContinuityRepairOptions{Provider: provider})
+
+	if len(result.Diagnostics) != 2 {
+		t.Fatalf("diagnostics = %#v, want invalid + missing", result.Diagnostics)
+	}
+	if result.Diagnostics[0].Kind != RepairInvalidToolCall || result.Diagnostics[0].ReasonCode != "empty_call_id" {
+		t.Fatalf("first diagnostic = %#v, want empty call id", result.Diagnostics[0])
+	}
+	if result.Diagnostics[1].Kind != RepairMissingToolResult || result.Diagnostics[1].CallID != "call_3" || result.Diagnostics[1].Name != "missing_result" {
+		t.Fatalf("second diagnostic = %#v, want missing call_3", result.Diagnostics[1])
+	}
+	if len(result.Repairs) != 1 || result.Repairs[0].Metadata["source_item_index"] != "0" {
+		t.Fatalf("repairs = %#v, want one missing result repair with source index", result.Repairs)
+	}
+}
+
 func TestProjectNativeContinuationFallsBackToFullReplay(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)

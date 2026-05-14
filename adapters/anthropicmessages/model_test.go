@@ -156,6 +156,82 @@ func TestStreamToolUseReturnsOperationAndTranscript(t *testing.T) {
 	}
 }
 
+func TestMessageRequestDoesNotSynthesizeMissingToolResult(t *testing.T) {
+	model, err := New(Config{Model: "claude-test", APIKey: "test-key", BaseURL: "http://example.test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	assistant := nativeTranscriptItem(t, message{Role: "assistant", Content: []contentBlock{{
+		Type:  "tool_use",
+		ID:    "toolu_missing",
+		Name:  "file_create",
+		Input: json.RawMessage(`{"path":"docs/multi-agent.md"}`),
+	}}})
+
+	wire, _, _, err := model.messageRequest(llmagent.Request{
+		Transcript: &coreconversation.Transcript{Items: []coreconversation.Item{
+			assistant,
+			{Provider: model.providerIdentity("claude-test"), Kind: coreconversation.ItemInput, Role: "user", Content: "did you write it?"},
+		}},
+	}, false)
+	if err != nil {
+		t.Fatalf("messageRequest: %v", err)
+	}
+	if len(wire.Messages) != 2 {
+		t.Fatalf("messages = %#v, want assistant plus user without adapter repair", wire.Messages)
+	}
+	if wire.Messages[1].Role != "user" || len(wire.Messages[1].Content) != 1 || wire.Messages[1].Content[0].Type == "tool_result" {
+		t.Fatalf("second message = %#v, want original user input", wire.Messages[1])
+	}
+}
+
+func TestMessageRequestGroupsConsecutiveToolResults(t *testing.T) {
+	model, err := New(Config{Model: "claude-test", APIKey: "test-key", BaseURL: "http://example.test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	provider := model.providerIdentity("claude-test")
+	assistant := nativeTranscriptItem(t, message{Role: "assistant", Content: []contentBlock{
+		{Type: "tool_use", ID: "toolu_1", Name: "read", Input: json.RawMessage(`{}`)},
+		{Type: "tool_use", ID: "toolu_2", Name: "stat", Input: json.RawMessage(`{}`)},
+	}})
+
+	wire, _, _, err := model.messageRequest(llmagent.Request{
+		Transcript: &coreconversation.Transcript{Items: []coreconversation.Item{
+			assistant,
+			{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "toolu_1", Name: "read", Content: "one"},
+			{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "toolu_2", Name: "stat", Content: "two"},
+		}},
+	}, false)
+	if err != nil {
+		t.Fatalf("messageRequest: %v", err)
+	}
+	if len(wire.Messages) != 2 {
+		t.Fatalf("messages = %#v, want assistant plus grouped tool results", wire.Messages)
+	}
+	results := wire.Messages[1]
+	if results.Role != "user" || len(results.Content) != 2 {
+		t.Fatalf("results message = %#v, want two tool_result blocks", results)
+	}
+	if results.Content[0].ToolUseID != "toolu_1" || results.Content[1].ToolUseID != "toolu_2" {
+		t.Fatalf("results message = %#v, want matching tool_use ids", results)
+	}
+}
+
+func nativeTranscriptItem(t *testing.T, msg message) coreconversation.Item {
+	t.Helper()
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	return coreconversation.Item{
+		Provider: coreconversation.ProviderIdentity{Provider: "anthropic", API: "anthropic.messages", Model: "claude-test"},
+		Kind:     coreconversation.ItemOutput,
+		Role:     "assistant",
+		Native:   raw,
+	}
+}
+
 func TestMessageRequestAppliesThinkingOverride(t *testing.T) {
 	model, err := New(Config{
 		Model:           "claude-test",

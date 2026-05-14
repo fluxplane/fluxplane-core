@@ -165,9 +165,24 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 	emit(ctx, ModelRequested{Agent: a.spec.Name, Provider: provider, Model: modelName(req)})
 	resp, err := a.complete(base, ctx, req)
 	if err != nil {
+		if partial, ok := PartialResponse(err); ok {
+			a.emitResponseArtifacts(ctx, partial)
+		} else if !resp.Transcript.Empty() || len(resp.Usage) > 0 {
+			a.emitResponseArtifacts(ctx, resp)
+		}
 		emit(ctx, ModelFailed{Agent: a.spec.Name, Provider: provider, Model: modelName(req), Error: err.Error()})
 		return failed("model_failed", err.Error(), nil)
 	}
+	a.emitResponseArtifacts(ctx, resp)
+	result := resultFromResponse(resp)
+	if provider == "" && resp.Transcript.Provider.Provider != "" {
+		provider = resp.Transcript.Provider.Provider
+	}
+	emit(ctx, ModelCompleted{Agent: a.spec.Name, Provider: provider, Model: modelName(req), Decision: result.Decision.Kind})
+	return result
+}
+
+func (a *Agent) emitResponseArtifacts(ctx agent.Context, resp Response) {
 	for _, recorded := range resp.Usage {
 		if !recorded.Empty() {
 			emit(ctx, recorded)
@@ -184,12 +199,6 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 			emit(ctx, coreconversation.ContinuationStored{Handle: *resp.Transcript.Continuation})
 		}
 	}
-	result := resultFromResponse(resp)
-	if provider == "" && resp.Transcript.Provider.Provider != "" {
-		provider = resp.Transcript.Provider.Provider
-	}
-	emit(ctx, ModelCompleted{Agent: a.spec.Name, Provider: provider, Model: modelName(req), Decision: result.Decision.Kind})
-	return result
 }
 
 func (a *Agent) complete(ctx context.Context, agentCtx agent.Context, req Request) (Response, error) {

@@ -234,18 +234,35 @@ func (s responseState) transcript(provider coreconversation.ProviderIdentity) co
 	msg := message{Role: "assistant", Content: compactBlocks(s.blocks)}
 	raw, _ := json.Marshal(msg)
 	item := coreconversation.Item{
-		Provider: provider,
-		Kind:     coreconversation.ItemOutput,
-		Role:     "assistant",
-		ID:       s.messageID,
-		Content:  blocksText(s.blocks),
-		Native:   raw,
+		Provider:  provider,
+		Kind:      coreconversation.ItemOutput,
+		Role:      "assistant",
+		ID:        s.messageID,
+		ToolCalls: toolCallsFromBlocks(s.blocks),
+		Content:   blocksText(s.blocks),
+		Native:    raw,
 	}
 	return coreconversation.Transcript{
 		Provider: provider,
 		Items:    []coreconversation.Item{item},
 		Mode:     coreconversation.ProjectionFullReplay,
 	}
+}
+
+func toolCallsFromBlocks(blocks []contentBlock) []coreconversation.ToolCallRef {
+	var out []coreconversation.ToolCallRef
+	for _, block := range blocks {
+		if block.Type != "tool_use" || strings.TrimSpace(block.ID) == "" {
+			continue
+		}
+		out = append(out, coreconversation.ToolCallRef{
+			CallID: strings.TrimSpace(block.ID),
+			Name:   block.Name,
+			Type:   "tool_use",
+			Input:  json.RawMessage(block.Input),
+		})
+	}
+	return out
 }
 
 func usageFromAnthropic(raw usageWire, provider coreconversation.ProviderIdentity, id string, prices []corellm.PricingSpec) []usage.Recorded {

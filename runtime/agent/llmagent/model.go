@@ -2,6 +2,7 @@ package llmagent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
@@ -67,6 +68,44 @@ type Response struct {
 	State      agent.StateUpdate           `json:"state,omitempty"`
 	Usage      []usage.Recorded            `json:"usage,omitempty"`
 	Transcript coreconversation.Transcript `json:"transcript,omitempty"`
+}
+
+// PartialResponseError reports a model failure that still produced transcript
+// or usage data that must be preserved for conversation continuity.
+type PartialResponseError struct {
+	Response Response
+	Err      error
+}
+
+func (e PartialResponseError) Error() string {
+	if e.Err == nil {
+		return "model failed with partial response"
+	}
+	return e.Err.Error()
+}
+
+func (e PartialResponseError) Unwrap() error { return e.Err }
+
+// PartialError returns an error carrying the provider response observed before
+// failure.
+func PartialError(resp Response, err error) error {
+	if err == nil {
+		return nil
+	}
+	return PartialResponseError{Response: resp, Err: err}
+}
+
+// PartialResponse extracts response data from a partial model error.
+func PartialResponse(err error) (Response, bool) {
+	var partial PartialResponseError
+	if errors.As(err, &partial) {
+		return partial.Response, true
+	}
+	var partialPtr *PartialResponseError
+	if errors.As(err, &partialPtr) && partialPtr != nil {
+		return partialPtr.Response, true
+	}
+	return Response{}, false
 }
 
 // StreamKind classifies one provider-neutral streaming delta.

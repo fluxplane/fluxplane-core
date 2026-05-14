@@ -77,6 +77,31 @@ func TestToolCallAssemblerRejectsNonOperationTool(t *testing.T) {
 	}
 }
 
+func TestToolCallAssemblerTreatsEmptyArgumentsAsObject(t *testing.T) {
+	assembler := NewToolCallAssembler([]ToolSpec{{
+		Name: "inspect",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "inspect"},
+		},
+	}})
+	completed, err := assembler.Apply(StreamEvent{
+		Kind:       StreamToolCallDone,
+		Tool:       "inspect",
+		ToolCallID: "call_empty",
+		Arguments:  "",
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(completed) != 1 {
+		t.Fatalf("completed = %#v, want one operation", completed)
+	}
+	if input, ok := completed[0].Input.(map[string]any); !ok || len(input) != 0 {
+		t.Fatalf("input = %#v, want empty object", completed[0].Input)
+	}
+}
+
 func TestToolCallAssemblerDispatchesActionToolSet(t *testing.T) {
 	assembler := NewToolCallAssembler([]ToolSpec{{
 		Name: "image",

@@ -21,7 +21,6 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	runtimeusage "github.com/fluxplane/agentruntime/runtime/usage"
 )
 
@@ -57,10 +56,6 @@ type Config struct {
 	// Pricing enriches emitted LLM usage records with estimated cost.
 	Pricing []corellm.PricingSpec
 
-	// ContextTokens configures the model context window used for transcript
-	// compaction before provider requests.
-	ContextTokens int64
-
 	// ReasoningEffort sets Responses reasoning.effort when the provider/model
 	// supports it.
 	ReasoningEffort string
@@ -93,7 +88,6 @@ type Model struct {
 	api               string
 	runtime           ResponsesRuntimeConfig
 	pricing           []corellm.PricingSpec
-	contextTokens     int64
 	reasoningEffort   string
 	reasoningSummary  string
 	store             bool
@@ -124,7 +118,6 @@ func New(cfg Config) (*Model, error) {
 		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
 		runtime:           runtime,
 		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
-		contextTokens:     cfg.ContextTokens,
 		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
 		reasoningSummary:  firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
 		store:             store,
@@ -141,18 +134,11 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
-	params, tools, sentItems, err := m.responseParams(req, 1)
+	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
 	resp, err := m.client.Responses.New(ctx, params)
-	if contextLengthExceeded(err) {
-		params, tools, sentItems, err = m.responseParams(req, 0.7)
-		if err != nil {
-			return llmagent.Response{}, err
-		}
-		resp, err = m.client.Responses.New(ctx, params)
-	}
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -161,7 +147,7 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	}
 	out, err := responseFromOpenAI(*resp, tools, m.providerIdentity(m.modelName(req)), m.store, m.pricing)
 	if err != nil {
-		return llmagent.Response{}, err
+		return attachOpenAIPartial(err, sentItems, m.providerIdentity(m.modelName(req)), httpUsage)
 	}
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
 	out.Usage = append(out.Usage, httpUsageRecord(m.providerIdentity(m.modelName(req)), httpUsage)...)
@@ -176,14 +162,14 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
-	params, tools, sentItems, err := m.responseParams(req, 1)
+	params, tools, sentItems, err := m.responseParams(req)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
-	return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage, false)
+	return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage)
 }
 
-func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc, params responses.ResponseNewParams, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector, retried bool) (llmagent.Response, error) {
+func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc, params responses.ResponseNewParams, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector) (llmagent.Response, error) {
 	stream := m.client.Responses.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
@@ -195,9 +181,7 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	var streamedOperations []agent.OperationRequest
 	var streamedOutputItems []responses.ResponseOutputItemUnion
 	var final responses.Response
-	var sawStreamEvent bool
 	for stream.Next() {
-		sawStreamEvent = true
 		evt := stream.Current()
 		if evt.Type == "response.completed" {
 			final = evt.AsResponseCompleted().Response
@@ -211,7 +195,20 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 				// are only for live display.
 				completed, err := streamAssembler.Apply(normalized)
 				if err != nil {
-					return llmagent.Response{}, err
+					provider := m.providerIdentity(m.modelName(req))
+					items := append([]coreconversation.Item(nil), sentItems...)
+					if item, ok := streamToolCallTranscriptItem(provider, normalized); ok {
+						items = append(items, item)
+					}
+					resp := llmagent.Response{
+						Usage: append([]usage.Recorded(nil), httpUsageRecord(provider, httpUsage)...),
+						Transcript: coreconversation.Transcript{
+							Provider: provider,
+							Items:    items,
+							Mode:     coreconversation.ProjectionFullReplay,
+						},
+					}
+					return resp, llmagent.PartialError(resp, err)
 				}
 				streamedOperations = append(streamedOperations, completed...)
 			}
@@ -221,13 +218,6 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 		}
 	}
 	if err := stream.Err(); err != nil {
-		if !retried && !sawStreamEvent && contextLengthExceeded(err) {
-			params, tools, sentItems, retryErr := m.responseParams(req, 0.7)
-			if retryErr != nil {
-				return llmagent.Response{}, retryErr
-			}
-			return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage, true)
-		}
 		return llmagent.Response{}, err
 	}
 	if final.ID == "" {
@@ -238,7 +228,7 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	source := responseForOutputMode(final, streamedOutputItems, m.runtime.Output)
 	out, err := responseFromOpenAI(source, tools, provider, m.store, m.pricing)
 	if err != nil {
-		return llmagent.Response{}, err
+		return attachOpenAIPartial(err, sentItems, provider, httpUsage)
 	}
 	usedStreamedOperations := len(out.Operations) == 0 && len(streamedOperations) > 0
 	out = applyStreamedOperationsFallback(out, streamedOperations)
@@ -251,11 +241,40 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	return out, nil
 }
 
-func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (responses.ResponseNewParams, []adapterllm.ToolSpec, []coreconversation.Item, error) {
-	budgetScale := 1.0
-	if len(budgetScales) > 0 {
-		budgetScale = budgetScales[0]
+func streamToolCallTranscriptItem(provider coreconversation.ProviderIdentity, evt adapterllm.StreamEvent) (coreconversation.Item, bool) {
+	if evt.Kind != adapterllm.StreamToolCallDone && evt.Kind != adapterllm.StreamToolCallStart {
+		return coreconversation.Item{}, false
 	}
+	callType := strings.TrimSpace(evt.CallType)
+	if callType == "" {
+		callType = "function_call"
+	}
+	return coreconversation.Item{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		CallID:   strings.TrimSpace(evt.ToolCallID),
+		Name:     string(evt.Tool),
+		ToolCalls: []coreconversation.ToolCallRef{{
+			CallID: strings.TrimSpace(evt.ToolCallID),
+			Name:   string(evt.Tool),
+			Type:   callType,
+			Input:  evt.Arguments,
+		}},
+		Metadata: map[string]string{"provider_call_type": callType},
+	}, true
+}
+
+func attachOpenAIPartial(err error, sentItems []coreconversation.Item, provider coreconversation.ProviderIdentity, httpUsage *httpUsageCollector) (llmagent.Response, error) {
+	resp, ok := llmagent.PartialResponse(err)
+	if !ok {
+		return llmagent.Response{}, err
+	}
+	resp.Transcript.Items = append(append([]coreconversation.Item(nil), sentItems...), resp.Transcript.Items...)
+	resp.Usage = append(resp.Usage, httpUsageRecord(provider, httpUsage)...)
+	return resp, llmagent.PartialError(resp, err)
+}
+
+func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParams, []adapterllm.ToolSpec, []coreconversation.Item, error) {
 	model := m.modelName(req)
 	if model == "" {
 		return responses.ResponseNewParams{}, nil, nil, ErrModelMissing
@@ -281,12 +300,7 @@ func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (r
 		provider := m.providerIdentity(model)
 		transcript := *req.Transcript
 		transcript.Provider = provider
-		transcript = m.compactTranscript(req, transcript, budgetScale)
 		usePreviousResponse := m.runtime.Continuation != ResponsesContinuationReplay && req.Transcript.Continuation != nil && req.Transcript.Continuation.SupportsPreviousResponseID()
-		orphanToolResults := map[string]bool{}
-		if !usePreviousResponse {
-			transcript.Items, orphanToolResults = repairReplayToolResults(transcript.Provider, transcript.Items)
-		}
 		inputItems, _, err := inputItemsFromTranscript(transcript.Provider, transcript.Items)
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
@@ -295,9 +309,6 @@ func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (r
 		recordItems := transcript.NewItems
 		if len(recordItems) == 0 {
 			recordItems = transcript.Items
-		}
-		if len(orphanToolResults) > 0 {
-			recordItems, _ = repairKnownOrphanToolResults(transcript.Provider, recordItems, orphanToolResults)
 		}
 		_, sentItems, err = inputItemsFromTranscript(transcript.Provider, recordItems)
 		if err != nil {
@@ -333,54 +344,6 @@ func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (r
 	return params, tools, sentItems, nil
 }
 
-func (m *Model) compactTranscript(req llmagent.Request, transcript coreconversation.Transcript, budgetScale float64) coreconversation.Transcript {
-	budget := m.transcriptInputBudget(req, budgetScale)
-	if budget <= 0 {
-		return transcript
-	}
-	result := conversationruntime.CompactTranscript(transcript, conversationruntime.CompactOptions{
-		MaxInputTokens:      budget,
-		PreserveRecentItems: 16,
-	})
-	return result.Transcript
-}
-
-func (m *Model) transcriptInputBudget(req llmagent.Request, budgetScale float64) int {
-	const (
-		defaultContextTokens     int64 = 128000
-		defaultOutputReserve     int   = 4096
-		codexReplayInputTokenCap int   = 64000
-		minInputBudget           int   = 4096
-	)
-	contextTokens := m.contextTokens
-	if contextTokens <= 0 {
-		contextTokens = defaultContextTokens
-	}
-	if contextTokens > int64(^uint(0)>>1) {
-		contextTokens = int64(^uint(0) >> 1)
-	}
-	reserve := maxInt(defaultOutputReserve, req.Agent.Inference.MaxOutputTokens, req.Driver.Inference.MaxOutputTokens)
-	inputBudget := int(contextTokens) - reserve
-	if m.provider == "codex" && m.runtime.Continuation == ResponsesContinuationReplay && inputBudget > codexReplayInputTokenCap {
-		inputBudget = codexReplayInputTokenCap
-	}
-	if budgetScale > 0 && budgetScale < 1 {
-		inputBudget = int(float64(inputBudget) * budgetScale)
-	}
-	if inputBudget < minInputBudget {
-		return minInputBudget
-	}
-	return inputBudget
-}
-
-func contextLengthExceeded(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "context_length_exceeded") || strings.Contains(text, "context window")
-}
-
 func (m *Model) modelName(req llmagent.Request) string {
 	if m.model != "" {
 		return m.model
@@ -389,16 +352,6 @@ func (m *Model) modelName(req llmagent.Request) string {
 		return strings.TrimSpace(req.Driver.Model.Model)
 	}
 	return strings.TrimSpace(req.Agent.Inference.Model)
-}
-
-func maxInt(values ...int) int {
-	var out int
-	for _, value := range values {
-		if value > out {
-			out = value
-		}
-	}
-	return out
 }
 
 // ProviderIdentity reports the provider identity this adapter will use for req.
@@ -469,126 +422,6 @@ func inputItemsFromTranscript(provider coreconversation.ProviderIdentity, items 
 	return out, recorded, nil
 }
 
-func repairReplayToolResults(provider coreconversation.ProviderIdentity, items []coreconversation.Item) ([]coreconversation.Item, map[string]bool) {
-	seenCalls := map[string]bool{}
-	orphanResults := map[string]bool{}
-	out := make([]coreconversation.Item, 0, len(items))
-	for _, item := range items {
-		if item.Provider.Provider == "" {
-			item.Provider = provider
-		}
-		if item.Kind == coreconversation.ItemOutput {
-			if callID := transcriptToolCallID(item); callID != "" {
-				seenCalls[callID] = true
-			}
-			out = append(out, item)
-			continue
-		}
-		if item.Kind == coreconversation.ItemToolResult {
-			callID := strings.TrimSpace(item.CallID)
-			if callID != "" && !seenCalls[callID] {
-				orphanResults[callID] = true
-				out = append(out, syntheticToolCallForOrphanResult(provider, item), item)
-				seenCalls[callID] = true
-				continue
-			}
-		}
-		out = append(out, item)
-	}
-	return out, orphanResults
-}
-
-func repairKnownOrphanToolResults(provider coreconversation.ProviderIdentity, items []coreconversation.Item, orphanResults map[string]bool) ([]coreconversation.Item, map[string]bool) {
-	if len(orphanResults) == 0 {
-		return items, nil
-	}
-	out := make([]coreconversation.Item, 0, len(items))
-	repaired := map[string]bool{}
-	seenCalls := map[string]bool{}
-	for _, item := range items {
-		if item.Kind == coreconversation.ItemOutput {
-			if callID := transcriptToolCallID(item); callID != "" {
-				seenCalls[callID] = true
-			}
-			out = append(out, item)
-			continue
-		}
-		callID := strings.TrimSpace(item.CallID)
-		if item.Kind == coreconversation.ItemToolResult && callID != "" && orphanResults[callID] && !seenCalls[callID] {
-			out = append(out, syntheticToolCallForOrphanResult(provider, item), item)
-			repaired[callID] = true
-			seenCalls[callID] = true
-			continue
-		}
-		if item.Kind == coreconversation.ItemToolResult && callID != "" {
-			seenCalls[callID] = true
-		}
-		if item.Provider.Provider == "" {
-			item.Provider = provider
-		}
-		out = append(out, item)
-	}
-	return out, repaired
-}
-
-func syntheticToolCallForOrphanResult(provider coreconversation.ProviderIdentity, result coreconversation.Item) coreconversation.Item {
-	name := strings.TrimSpace(result.Name)
-	if name == "" {
-		name = "tool"
-	}
-	callID := strings.TrimSpace(result.CallID)
-	metadata := cloneStringMap(result.Metadata)
-	callType := metadata["provider_call_type"]
-	if callType == "" {
-		callType = "function_call"
-	}
-	metadata["provider_call_type"] = callType
-	metadata["repaired"] = "true"
-	metadata["repair"] = "orphan_tool_call"
-	arguments := `{"repair":"orphan_tool_result","reason":"matching assistant tool call was missing from replay"}`
-	var paramItem responses.ResponseInputItemUnionParam
-	switch callType {
-	case "custom_tool_call":
-		paramItem = responses.ResponseInputItemParamOfCustomToolCall(callID, arguments, name)
-	default:
-		callType = "function_call"
-		metadata["provider_call_type"] = callType
-		paramItem = responses.ResponseInputItemParamOfFunctionCall(arguments, callID, name)
-	}
-	return itemWithNative(coreconversation.Item{
-		Provider: provider,
-		Kind:     coreconversation.ItemOutput,
-		CallID:   callID,
-		Name:     name,
-		Metadata: metadata,
-	}, paramItem)
-}
-
-func transcriptToolCallID(item coreconversation.Item) string {
-	if callID := strings.TrimSpace(item.CallID); callID != "" {
-		return callID
-	}
-	if len(item.Native) == 0 {
-		return ""
-	}
-	var raw struct {
-		Type   string `json:"type"`
-		CallID string `json:"call_id"`
-		ID     string `json:"id"`
-	}
-	if err := json.Unmarshal(item.Native, &raw); err != nil {
-		return ""
-	}
-	switch raw.Type {
-	case "function_call":
-		return strings.TrimSpace(raw.CallID)
-	case "custom_tool_call":
-		return firstNonEmpty(strings.TrimSpace(raw.CallID), strings.TrimSpace(raw.ID))
-	default:
-		return ""
-	}
-}
-
 func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, item coreconversation.Item) (responses.ResponseInputItemUnionParam, coreconversation.Item, error) {
 	if len(item.Native) > 0 {
 		return param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(item.Native)), item, nil
@@ -611,6 +444,13 @@ func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, ite
 		)
 		return paramItem, itemWithNative(item, paramItem), nil
 	case coreconversation.ItemOutput:
+		if calls := item.ToolCallRefs(); len(calls) > 0 {
+			if len(calls) != 1 {
+				return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("output item has %d tool calls; openai replay expects one per item", len(calls))
+			}
+			paramItem, recorded := toolCallInputItem(provider, item, calls[0])
+			return paramItem, recorded, nil
+		}
 		role := strings.TrimSpace(item.Role)
 		if role == "" {
 			role = "assistant"
@@ -634,6 +474,51 @@ func inputItemFromTranscriptItem(provider coreconversation.ProviderIdentity, ite
 	default:
 		return responses.ResponseInputItemUnionParam{}, coreconversation.Item{}, fmt.Errorf("unsupported transcript item kind %q without native payload", item.Kind)
 	}
+}
+
+func toolCallInputItem(provider coreconversation.ProviderIdentity, item coreconversation.Item, call coreconversation.ToolCallRef) (responses.ResponseInputItemUnionParam, coreconversation.Item) {
+	if item.Provider.Provider == "" {
+		item.Provider = provider
+	}
+	callID := strings.TrimSpace(call.CallID)
+	name := strings.TrimSpace(call.Name)
+	if name == "" {
+		name = strings.TrimSpace(item.Name)
+	}
+	callType := strings.TrimSpace(call.Type)
+	if callType == "" && item.Metadata != nil {
+		callType = strings.TrimSpace(item.Metadata["provider_call_type"])
+	}
+	if callType == "" {
+		callType = "function_call"
+	}
+	arguments := transcriptContentString(call.Input)
+	if strings.TrimSpace(arguments) == "" {
+		arguments = "{}"
+	}
+	if item.Metadata == nil {
+		item.Metadata = map[string]string{}
+	}
+	item.Metadata["provider_call_type"] = callType
+	item.CallID = callID
+	item.Name = name
+	item.ToolCalls = []coreconversation.ToolCallRef{{
+		CallID: callID,
+		Name:   name,
+		Type:   callType,
+		Input:  call.Input,
+	}}
+	var paramItem responses.ResponseInputItemUnionParam
+	switch callType {
+	case "custom_tool_call":
+		paramItem = responses.ResponseInputItemParamOfCustomToolCall(callID, arguments, name)
+	default:
+		callType = "function_call"
+		item.Metadata["provider_call_type"] = callType
+		item.ToolCalls[0].Type = callType
+		paramItem = responses.ResponseInputItemParamOfFunctionCall(arguments, callID, name)
+	}
+	return paramItem, itemWithNative(item, paramItem)
 }
 
 func itemWithNative(item coreconversation.Item, paramItem responses.ResponseInputItemUnionParam) coreconversation.Item {
@@ -663,14 +548,6 @@ func transcriptContentString(content any) string {
 	}
 }
 
-func cloneStringMap(in map[string]string) map[string]string {
-	out := make(map[string]string, len(in)+2)
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
-}
-
 func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, provider coreconversation.ProviderIdentity, store bool, prices []corellm.PricingSpec) (llmagent.Response, error) {
 	recordedUsage := usageFromOpenAI(resp, provider, prices)
 	transcript := responseTranscript(resp, provider, store)
@@ -689,7 +566,7 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 				Arguments:  call.Arguments,
 			})
 			if err != nil {
-				return llmagent.Response{}, err
+				return llmagent.Response{}, llmagent.PartialError(llmagent.Response{Usage: recordedUsage, Transcript: transcript}, err)
 			}
 			operations = append(operations, reqs...)
 		case "custom_tool_call":
@@ -703,7 +580,7 @@ func responseFromOpenAI(resp responses.Response, tools []adapterllm.ToolSpec, pr
 				Arguments:  call.Input,
 			})
 			if err != nil {
-				return llmagent.Response{}, err
+				return llmagent.Response{}, llmagent.PartialError(llmagent.Response{Usage: recordedUsage, Transcript: transcript}, err)
 			}
 			operations = append(operations, reqs...)
 		default:
@@ -738,7 +615,7 @@ func responseForOutputMode(final responses.Response, streamed []responses.Respon
 
 func responseTranscript(resp responses.Response, provider coreconversation.ProviderIdentity, store bool) coreconversation.Transcript {
 	items := make([]coreconversation.Item, 0, len(resp.Output))
-	for _, output := range resp.Output {
+	for i, output := range resp.Output {
 		item := coreconversation.Item{
 			Provider: provider,
 			Kind:     transcriptKindFromOutputType(output.Type),
@@ -752,8 +629,31 @@ func responseTranscript(resp responses.Response, provider coreconversation.Provi
 			item.Content = outputMessageText(output)
 			item.Phase = outputPhase(output)
 		}
-		if output.Type == "function_call" || output.Type == "custom_tool_call" {
+		switch output.Type {
+		case "function_call":
+			call := output.AsFunctionCall()
+			id := callID(call, i)
+			item.CallID = id
+			item.Name = call.Name
 			item.Metadata = map[string]string{"provider_call_type": output.Type}
+			item.ToolCalls = []coreconversation.ToolCallRef{{
+				CallID: id,
+				Name:   call.Name,
+				Type:   output.Type,
+				Input:  call.Arguments,
+			}}
+		case "custom_tool_call":
+			call := output.AsCustomToolCall()
+			id := firstNonEmpty(call.CallID, call.ID)
+			item.CallID = id
+			item.Name = call.Name
+			item.Metadata = map[string]string{"provider_call_type": output.Type}
+			item.ToolCalls = []coreconversation.ToolCallRef{{
+				CallID: id,
+				Name:   call.Name,
+				Type:   output.Type,
+				Input:  call.Input,
+			}}
 		}
 		items = append(items, item)
 	}
@@ -1029,6 +929,12 @@ func streamedOperationTranscriptItems(provider coreconversation.ProviderIdentity
 			Kind:     coreconversation.ItemOutput,
 			CallID:   request.ProviderCallID,
 			Name:     name,
+			ToolCalls: []coreconversation.ToolCallRef{{
+				CallID: request.ProviderCallID,
+				Name:   name,
+				Type:   callType,
+				Input:  request.Input,
+			}},
 			Metadata: map[string]string{"provider_call_type": callType},
 		}, paramItem))
 	}

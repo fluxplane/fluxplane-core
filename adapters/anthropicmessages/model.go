@@ -160,6 +160,9 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	}
 	out, err := m.responseFromMessage(resp, tools, sentItems, collector)
 	if err != nil {
+		if partial, ok := llmagent.PartialResponse(err); ok {
+			return partial, err
+		}
 		return llmagent.Response{}, err
 	}
 	return out, nil
@@ -192,7 +195,7 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		}
 		events, err := state.applyFrame(frame)
 		if err != nil {
-			return llmagent.Response{}, err
+			return anthropicPartialResponse(state, sentItems, m.providerIdentity(state.modelName()), m.pricing, collector, err)
 		}
 		for _, evt := range events {
 			if runtimeEvent, ok := m.redactor.ToRuntimeStream(evt); ok && emit != nil {
@@ -431,7 +434,13 @@ func (m *Model) responseFromMessage(resp messageResponse, tools []adapterllm.Too
 		}
 		reqs, err := state.assembler.Apply(adapterllm.StreamEvent{Kind: adapterllm.StreamToolCallDone, Tool: tool.Name(block.Name), ToolCallID: block.ID, Index: index, Arguments: args})
 		if err != nil {
-			return llmagent.Response{}, err
+			resp := llmagent.Response{
+				Usage:      usageFromAnthropic(state.usage, provider, state.messageID, m.pricing),
+				Transcript: state.transcript(provider),
+			}
+			resp.Transcript.Items = append(sentItems, resp.Transcript.Items...)
+			resp.Usage = append(resp.Usage, httpUsageRecord(provider, collector)...)
+			return llmagent.Response{}, llmagent.PartialError(resp, err)
 		}
 		state.operations = append(state.operations, reqs...)
 	}
@@ -442,6 +451,19 @@ func (m *Model) responseFromMessage(resp messageResponse, tools []adapterllm.Too
 	out.Transcript.Items = append(sentItems, out.Transcript.Items...)
 	out.Usage = append(out.Usage, httpUsageRecord(provider, collector)...)
 	return out, nil
+}
+
+func anthropicPartialResponse(state *streamState, sentItems []coreconversation.Item, provider coreconversation.ProviderIdentity, prices []corellm.PricingSpec, collector *httpUsageCollector, err error) (llmagent.Response, error) {
+	if provider.Model == "" {
+		provider.Model = state.modelName()
+	}
+	resp := llmagent.Response{
+		Usage:      usageFromAnthropic(state.usage, provider, state.messageID, prices),
+		Transcript: state.transcript(provider),
+	}
+	resp.Transcript.Items = append(sentItems, resp.Transcript.Items...)
+	resp.Usage = append(resp.Usage, httpUsageRecord(provider, collector)...)
+	return resp, llmagent.PartialError(resp, err)
 }
 
 type httpUsageCollector struct {
