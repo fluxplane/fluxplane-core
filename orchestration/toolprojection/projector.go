@@ -111,7 +111,10 @@ func Project(cfg Config) Result {
 }
 
 func projectToolSet(cfg Config, binding session.ToolSetBinding) (tool.Spec, []resource.ResourceID, bool, string) {
-	spec := binding.Spec
+	spec, ok := toolSetSpec(binding.Spec)
+	if !ok {
+		return tool.Spec{}, nil, false, "tool_set_spec_unsupported"
+	}
 	if spec.Action == nil {
 		return tool.Spec{}, nil, false, "tool_set_has_no_action_projection"
 	}
@@ -164,6 +167,20 @@ func projectToolSet(cfg Config, binding session.ToolSetBinding) (tool.Spec, []re
 			"tool_set_id": binding.ID.Address(),
 		},
 	}, covered, true, ""
+}
+
+func toolSetSpec(value any) (tool.Set, bool) {
+	switch spec := value.(type) {
+	case tool.Set:
+		return spec, true
+	case *tool.Set:
+		if spec == nil {
+			return tool.Set{}, false
+		}
+		return *spec, true
+	default:
+		return tool.Set{}, false
+	}
 }
 
 func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool, string) {

@@ -21,6 +21,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	runtimeusage "github.com/fluxplane/agentruntime/runtime/usage"
 )
 
@@ -56,6 +57,10 @@ type Config struct {
 	// Pricing enriches emitted LLM usage records with estimated cost.
 	Pricing []corellm.PricingSpec
 
+	// ContextTokens configures the model context window used for transcript
+	// compaction before provider requests.
+	ContextTokens int64
+
 	// ReasoningEffort sets Responses reasoning.effort when the provider/model
 	// supports it.
 	ReasoningEffort string
@@ -88,6 +93,7 @@ type Model struct {
 	api               string
 	runtime           ResponsesRuntimeConfig
 	pricing           []corellm.PricingSpec
+	contextTokens     int64
 	reasoningEffort   string
 	reasoningSummary  string
 	store             bool
@@ -118,6 +124,7 @@ func New(cfg Config) (*Model, error) {
 		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "openai.responses"),
 		runtime:           runtime,
 		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		contextTokens:     cfg.ContextTokens,
 		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
 		reasoningSummary:  firstNonEmpty(strings.TrimSpace(cfg.ReasoningSummary), string(shared.ReasoningSummaryAuto)),
 		store:             store,
@@ -134,11 +141,18 @@ func (m *Model) Complete(ctx context.Context, req llmagent.Request) (llmagent.Re
 	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
-	params, tools, sentItems, err := m.responseParams(req)
+	params, tools, sentItems, err := m.responseParams(req, 1)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
 	resp, err := m.client.Responses.New(ctx, params)
+	if contextLengthExceeded(err) {
+		params, tools, sentItems, err = m.responseParams(req, 0.7)
+		if err != nil {
+			return llmagent.Response{}, err
+		}
+		resp, err = m.client.Responses.New(ctx, params)
+	}
 	if err != nil {
 		return llmagent.Response{}, err
 	}
@@ -162,10 +176,14 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	}
 	httpUsage := newHTTPUsageCollector()
 	ctx = contextWithHTTPUsage(ctx, httpUsage)
-	params, tools, sentItems, err := m.responseParams(req)
+	params, tools, sentItems, err := m.responseParams(req, 1)
 	if err != nil {
 		return llmagent.Response{}, err
 	}
+	return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage, false)
+}
+
+func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc, params responses.ResponseNewParams, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector, retried bool) (llmagent.Response, error) {
 	stream := m.client.Responses.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
@@ -177,7 +195,9 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	var streamedOperations []agent.OperationRequest
 	var streamedOutputItems []responses.ResponseOutputItemUnion
 	var final responses.Response
+	var sawStreamEvent bool
 	for stream.Next() {
+		sawStreamEvent = true
 		evt := stream.Current()
 		if evt.Type == "response.completed" {
 			final = evt.AsResponseCompleted().Response
@@ -201,6 +221,13 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 		}
 	}
 	if err := stream.Err(); err != nil {
+		if !retried && !sawStreamEvent && contextLengthExceeded(err) {
+			params, tools, sentItems, retryErr := m.responseParams(req, 0.7)
+			if retryErr != nil {
+				return llmagent.Response{}, retryErr
+			}
+			return m.streamWithParams(ctx, req, emit, params, tools, sentItems, httpUsage, true)
+		}
 		return llmagent.Response{}, err
 	}
 	if final.ID == "" {
@@ -224,7 +251,11 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 	return out, nil
 }
 
-func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParams, []adapterllm.ToolSpec, []coreconversation.Item, error) {
+func (m *Model) responseParams(req llmagent.Request, budgetScales ...float64) (responses.ResponseNewParams, []adapterllm.ToolSpec, []coreconversation.Item, error) {
+	budgetScale := 1.0
+	if len(budgetScales) > 0 {
+		budgetScale = budgetScales[0]
+	}
 	model := m.modelName(req)
 	if model == "" {
 		return responses.ResponseNewParams{}, nil, nil, ErrModelMissing
@@ -250,6 +281,7 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		provider := m.providerIdentity(model)
 		transcript := *req.Transcript
 		transcript.Provider = provider
+		transcript = m.compactTranscript(req, transcript, budgetScale)
 		inputItems, _, err := inputItemsFromTranscript(transcript.Provider, transcript.Items)
 		if err != nil {
 			return responses.ResponseNewParams{}, nil, nil, err
@@ -293,6 +325,54 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 	return params, tools, sentItems, nil
 }
 
+func (m *Model) compactTranscript(req llmagent.Request, transcript coreconversation.Transcript, budgetScale float64) coreconversation.Transcript {
+	budget := m.transcriptInputBudget(req, budgetScale)
+	if budget <= 0 {
+		return transcript
+	}
+	result := conversationruntime.CompactTranscript(transcript, conversationruntime.CompactOptions{
+		MaxInputTokens:      budget,
+		PreserveRecentItems: 16,
+	})
+	return result.Transcript
+}
+
+func (m *Model) transcriptInputBudget(req llmagent.Request, budgetScale float64) int {
+	const (
+		defaultContextTokens     int64 = 128000
+		defaultOutputReserve     int   = 4096
+		codexReplayInputTokenCap int   = 64000
+		minInputBudget           int   = 4096
+	)
+	contextTokens := m.contextTokens
+	if contextTokens <= 0 {
+		contextTokens = defaultContextTokens
+	}
+	if contextTokens > int64(^uint(0)>>1) {
+		contextTokens = int64(^uint(0) >> 1)
+	}
+	reserve := maxInt(defaultOutputReserve, req.Agent.Inference.MaxOutputTokens, req.Driver.Inference.MaxOutputTokens)
+	inputBudget := int(contextTokens) - reserve
+	if m.provider == "codex" && m.runtime.Continuation == ResponsesContinuationReplay && inputBudget > codexReplayInputTokenCap {
+		inputBudget = codexReplayInputTokenCap
+	}
+	if budgetScale > 0 && budgetScale < 1 {
+		inputBudget = int(float64(inputBudget) * budgetScale)
+	}
+	if inputBudget < minInputBudget {
+		return minInputBudget
+	}
+	return inputBudget
+}
+
+func contextLengthExceeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "context_length_exceeded") || strings.Contains(text, "context window")
+}
+
 func (m *Model) modelName(req llmagent.Request) string {
 	if m.model != "" {
 		return m.model
@@ -301,6 +381,16 @@ func (m *Model) modelName(req llmagent.Request) string {
 		return strings.TrimSpace(req.Driver.Model.Model)
 	}
 	return strings.TrimSpace(req.Agent.Inference.Model)
+}
+
+func maxInt(values ...int) int {
+	var out int
+	for _, value := range values {
+		if value > out {
+			out = value
+		}
+	}
+	return out
 }
 
 // ProviderIdentity reports the provider identity this adapter will use for req.

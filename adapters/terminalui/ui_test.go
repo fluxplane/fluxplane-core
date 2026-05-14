@@ -254,11 +254,73 @@ func TestRendererSummarizesPlanToolStart(t *testing.T) {
 	})
 
 	got := err.String()
-	if !strings.Contains(got, "tool start:") || !strings.Contains(got, "plan create (2 steps)") {
-		t.Fatalf("tool start = %q, want summarized plan create", got)
+	if !strings.Contains(got, "●") || !strings.Contains(got, "plan") || !strings.Contains(got, "  ↳ create 2 steps") {
+		t.Fatalf("tool start = %q, want summarized plan call block", got)
 	}
 	if strings.Contains(got, `"actions"`) {
 		t.Fatalf("tool start = %q, want no raw JSON actions", got)
+	}
+}
+
+func TestRendererRendersToolTimeline(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationRequested,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "image_generate"},
+			Input:     map[string]any{"prompt": "minimal fluxplane logo", "size": "1024x1024"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "image_generate"},
+			Result:    &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{Text: "created image"}},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"●", "image_generate", `  ↳ prompt="minimal fluxplane logo" size=1024x1024`, "✓", "created image"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("tool block = %q, missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "tool start:") || strings.Contains(got, "tool end:") || strings.Contains(got, `{"prompt"`) || strings.Contains(got, "  >") {
+		t.Fatalf("tool block = %q, did not want old start/end wording", got)
+	}
+}
+
+func TestRendererRendersToolTimelineFailure(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationRequested,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "git_commit"},
+			Input:     map[string]any{"message": "fix timeline UI"},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "git_commit"},
+			Result: &operation.Result{
+				Status: operation.StatusRejected,
+				Error:  &operation.Error{Code: "approval_required", Message: "approval required"},
+			},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"●", "git_commit", `  ↳ message="fix timeline UI"`, "✕", "rejected", `reason="approval required"`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("tool block = %q, missing %q", got, want)
+		}
 	}
 }
 

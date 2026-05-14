@@ -366,7 +366,8 @@ func (p Plugin) filePatch(ws system.Workspace) operation.Handler {
 			action = "Patched"
 		}
 		text := fmt.Sprintf("%s %s\n\n%s", action, displayPath(resolved), diff)
-		return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "diff": diff}})
+		modelText := fmt.Sprintf("%s %s: %d replacement(s) applied. Full diff omitted from model transcript; use git_diff or file_read if exact content is needed.", action, displayPath(resolved), len(req.Patches))
+		return operation.OK(operation.Rendered{Text: text, Model: modelText, Data: map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "diff": diff}})
 	}
 }
 
