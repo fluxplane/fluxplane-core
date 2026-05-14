@@ -124,6 +124,36 @@ func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
 	}
 }
 
+func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
+	tmp := t.TempDir()
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Launch: distribution.LaunchConfig{
+			Workspace: distribution.WorkspaceConfig{
+				Roots: []distribution.WorkspaceRoot{{
+					Name:   "tmp",
+					Path:   tmp,
+					Access: "read_write",
+				}},
+				ScratchRoot: "tmp",
+			},
+		},
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	resolved, err := runtime.System.Workspace().WriteFile(context.Background(), "@tmp/out.txt", []byte("x"), 0644, false)
+	if err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if resolved.Rel != "@tmp/out.txt" {
+		t.Fatalf("resolved = %#v, want @tmp/out.txt", resolved)
+	}
+}
+
 func hasOperationSpec(runtime Runtime, name string) bool {
 	for _, spec := range runtime.Composition.OperationSpecs {
 		if string(spec.Ref.Name) == name {

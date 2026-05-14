@@ -33,6 +33,21 @@ type LaunchConfig struct {
 	Connectors map[string]Connector
 	Listeners  []Listener
 	Channels   []Channel
+	Workspace  WorkspaceConfig
+}
+
+// WorkspaceConfig carries filesystem roots used by local launch adapters.
+type WorkspaceConfig struct {
+	Roots       []WorkspaceRoot
+	ScratchRoot string
+}
+
+// WorkspaceRoot describes one additional local workspace root.
+type WorkspaceRoot struct {
+	Name   string
+	Path   string
+	Access string
+	Create bool
 }
 
 // Connector describes one configured connector instance expected at launch.

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `/compact` and `/compact --dry-run` built-in session commands for
   checkpointing or previewing deterministic provider transcript compaction.
+- Added opt-in runtime workspace roots so local launches can expose named
+  directories such as `@tmp` while keeping filesystem operations confined by
+  default.
+- Added `docs/agent-loop.md` with an architecture summary of the agent
+  execution and continuation loops.
 - Added `claudecode` as a Claude Code-compatible LLM provider using local
   Claude OAuth credentials and Claude Code request headers/preflight behavior.
 - Non-blocking `task quality:metrics` reports coverage plus optional
@@ -18,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Read-only workspace roots can no longer be used as process working
+  directories, closing a write bypass through process-backed operations.
 - Browser CDP sessions no longer cancel immediately after `browser_open` when
   later operations reuse the session.
 - Failed model turns now preserve pending transcript input, and replay uses

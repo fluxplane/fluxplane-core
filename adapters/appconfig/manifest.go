@@ -81,6 +81,7 @@ type File struct {
 	Path         string
 	Bundle       resource.ContributionBundle
 	Distribution coredistribution.Spec
+	Runtime      RuntimeConfig
 	Daemon       DaemonConfig
 	Connectors   map[string]ConnectorDoc
 }
@@ -91,6 +92,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 	source := manifestSource(path)
 	bundle := resource.ContributionBundle{Source: source}
 	distribution := coredistribution.Spec{}
+	runtime := RuntimeConfig{}
 	daemon := DaemonConfig{}
 	connectors := map[string]ConnectorDoc{}
 
@@ -134,6 +136,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			}
 			bundle.LLMModelAliases = append(bundle.LLMModelAliases, aliases...)
 			distribution = manifest.Distribution.Spec()
+			runtime = manifest.Runtime
 			daemon = manifest.Daemon
 			connectors = cloneConnectorMap(manifest.Connectors)
 			continue
@@ -169,7 +172,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
 		}
 	}
-	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Daemon: daemon, Connectors: connectors}, nil
+	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon, Connectors: connectors}, nil
 }
 
 func manifestSource(path string) resource.SourceRef {
@@ -218,6 +221,22 @@ func (f File) Validate() error {
 			return fmt.Errorf("appconfig: connectors[%q].kind is empty", name)
 		}
 	}
+	for i, root := range f.Runtime.Workspace.Roots {
+		if strings.TrimSpace(root.Name) == "" {
+			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].name is empty", i)
+		}
+		if strings.ContainsAny(strings.TrimSpace(root.Name), `/\`) || strings.HasPrefix(strings.TrimSpace(root.Name), "@") {
+			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].name is invalid", i)
+		}
+		if strings.TrimSpace(root.Path) == "" {
+			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].path is empty", i)
+		}
+		switch strings.TrimSpace(root.Access) {
+		case "", "read_only", "read_write":
+		default:
+			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].access must be read_only or read_write", i)
+		}
+	}
 	for i, listener := range f.Daemon.Listeners {
 		if strings.TrimSpace(listener.Name) == "" {
 			return fmt.Errorf("appconfig: daemon.listeners[%d] name is empty", i)
@@ -256,8 +275,27 @@ type Manifest struct {
 	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	LLMProviders   []corellm.ProviderSpec  `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
+	Runtime        RuntimeConfig           `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+// RuntimeConfig contains local runtime wiring consumed by launch adapters.
+type RuntimeConfig struct {
+	Workspace WorkspaceConfig `json:"workspace,omitempty" yaml:"workspace,omitempty"`
+}
+
+// WorkspaceConfig contains additional local filesystem workspace roots.
+type WorkspaceConfig struct {
+	Roots       []WorkspaceRootDoc `json:"roots,omitempty" yaml:"roots,omitempty"`
+	ScratchRoot string             `json:"scratch_root,omitempty" yaml:"scratch_root,omitempty"`
+}
+
+type WorkspaceRootDoc struct {
+	Name   string `json:"name" yaml:"name"`
+	Path   string `json:"path" yaml:"path"`
+	Access string `json:"access,omitempty" yaml:"access,omitempty"`
+	Create bool   `json:"create,omitempty" yaml:"create,omitempty"`
 }
 
 type modelConfigDoc struct {

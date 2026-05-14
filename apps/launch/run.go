@@ -186,7 +186,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	hostSystem, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: opts.AllowPrivateNetwork})
+	hostSystem, err := system.NewHost(system.Config{
+		Root:                root,
+		Workspace:           systemWorkspaceConfig(opts.Launch.Workspace),
+		AllowPrivateNetwork: opts.AllowPrivateNetwork,
+	})
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -302,6 +306,19 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Dispatcher:  dispatcher,
 		Close:       closeRuntime,
 	}, nil
+}
+
+func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) system.WorkspaceConfig {
+	out := system.WorkspaceConfig{ScratchRoot: strings.TrimSpace(cfg.ScratchRoot)}
+	for _, root := range cfg.Roots {
+		out.Roots = append(out.Roots, system.WorkspaceRootConfig{
+			Name:   strings.TrimSpace(root.Name),
+			Path:   strings.TrimSpace(root.Path),
+			Access: system.WorkspaceAccess(strings.TrimSpace(root.Access)),
+			Create: root.Create,
+		})
+	}
+	return out
 }
 
 func browserHeadless() bool {

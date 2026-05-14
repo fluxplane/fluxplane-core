@@ -373,6 +373,37 @@ func TestFileValidateRejectsConnectorWithoutKind(t *testing.T) {
 	}
 }
 
+func TestDecodeFileReadsRuntimeWorkspaceConfig(t *testing.T) {
+	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: app
+name: sample
+runtime:
+  workspace:
+    roots:
+      - name: tmp
+        path: /tmp/agentruntime-sample
+        access: read_write
+        create: true
+    scratch_root: tmp
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if err := file.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if file.Runtime.Workspace.ScratchRoot != "tmp" {
+		t.Fatalf("scratch root = %q, want tmp", file.Runtime.Workspace.ScratchRoot)
+	}
+	if len(file.Runtime.Workspace.Roots) != 1 {
+		t.Fatalf("roots = %#v, want one root", file.Runtime.Workspace.Roots)
+	}
+	root := file.Runtime.Workspace.Roots[0]
+	if root.Name != "tmp" || root.Path != "/tmp/agentruntime-sample" || root.Access != "read_write" || !root.Create {
+		t.Fatalf("root = %#v, want tmp read_write create", root)
+	}
+}
+
 func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
 	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"sources":[""]}`))
 	if err == nil {

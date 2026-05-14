@@ -69,10 +69,53 @@ Common fields are:
 - `datasources` for configured data sources available to agents.
 - `daemon` for listeners and channels used by `agentsdk serve` and
   `agentsdk remote`.
+- `runtime` for local runtime wiring; see [Runtime](#runtime).
 - `distribution` for runnable/deployable package metadata and Docker build
   inputs.
 - `semantic_search` for app-wide datasource indexing defaults.
 - `llm_providers` for app-local model provider and model catalog entries.
+
+### Runtime
+
+The top-level `runtime` section configures local runtime boundaries. These
+settings are launch-time wiring, not agent resources, and are consumed by
+`agentsdk run`, `agentsdk serve`, and distribution CLIs such as `coder`.
+
+Filesystem operations are secure by default: without extra configuration, they
+can only access the app workspace root. Additional workspace roots are opt-in
+and should point at specific directories, not broad host locations such as all
+of `/tmp`.
+
+Use `runtime.workspace.roots` to expose named filesystem roots. Tools can
+address named roots with `@name/path`; absolute paths are accepted only when
+they resolve inside the app root or a configured extra root.
+
+```yaml
+runtime:
+  workspace:
+    roots:
+      - name: tmp
+        path: /tmp/agentruntime-demo
+        access: read_write
+        create: true
+    scratch_root: tmp
+```
+
+Fields:
+
+- `roots[].name` is the logical root name used in paths such as
+  `@tmp/report.txt`.
+- `roots[].path` is the host directory exposed to the runtime.
+- `roots[].access` accepts `read_write` or `read_only`; omitted access defaults
+  to `read_write`.
+- `roots[].create` creates the directory at launch when it does not exist.
+- `scratch_root` chooses the named root used by runtime-owned scratch
+  directories, such as generated image outputs.
+
+With the example above, `file_create` may write `@tmp/report.txt` or
+`/tmp/agentruntime-demo/report.txt`. It still cannot write arbitrary files
+elsewhere under `/tmp`, and symlinks that escape the configured root are
+rejected.
 
 ### Agents
 

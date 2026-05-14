@@ -31,6 +31,14 @@ daemon:
       type: direct
       listener: control
       session: main
+runtime:
+  workspace:
+    roots:
+      - name: tmp
+        path: /tmp/agentruntime-sample
+        access: read_write
+        create: true
+    scratch_root: tmp
 ---
 kind: session
 name: main
@@ -70,6 +78,9 @@ name: assistant
 	}
 	if len(loaded.Launch.Channels) != 1 || loaded.Launch.Channels[0].Session != "main" {
 		t.Fatalf("channels = %#v, want main direct channel", loaded.Launch.Channels)
+	}
+	if loaded.Launch.Workspace.ScratchRoot != "tmp" || len(loaded.Launch.Workspace.Roots) != 1 || loaded.Launch.Workspace.Roots[0].Name != "tmp" {
+		t.Fatalf("workspace = %#v, want tmp scratch root", loaded.Launch.Workspace)
 	}
 }
 

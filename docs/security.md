@@ -87,8 +87,11 @@ such as `file_read`, `file_patch`, `grep`, and `browser_click`.
 The host-backed filesystem boundary currently:
 
 - resolves the workspace root through `EvalSymlinks`;
+- optionally resolves explicitly configured named roots such as `@tmp/path`;
 - resolves existing paths and create parents before accepting them;
 - rejects symlink escapes for reads and writes;
+- keeps `/tmp` denied by default unless a distribution opts into a specific
+  subdirectory such as `/tmp/agentruntime-demo`;
 - keeps glob expansion limited to search operations;
 - emits file usage events for read/write boundaries.
 

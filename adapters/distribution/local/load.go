@@ -279,7 +279,21 @@ func launchConfig(file appconfig.File) distribution.LaunchConfig {
 		Connectors: connectors,
 		Listeners:  listeners(file.Daemon.Listeners),
 		Channels:   channels(file.Daemon.Channels),
+		Workspace:  workspace(file.Runtime.Workspace),
 	}
+}
+
+func workspace(doc appconfig.WorkspaceConfig) distribution.WorkspaceConfig {
+	out := distribution.WorkspaceConfig{ScratchRoot: strings.TrimSpace(doc.ScratchRoot)}
+	for _, root := range doc.Roots {
+		out.Roots = append(out.Roots, distribution.WorkspaceRoot{
+			Name:   strings.TrimSpace(root.Name),
+			Path:   strings.TrimSpace(root.Path),
+			Access: strings.TrimSpace(root.Access),
+			Create: root.Create,
+		})
+	}
+	return out
 }
 
 func listeners(docs []appconfig.ListenerDoc) []distribution.Listener {
