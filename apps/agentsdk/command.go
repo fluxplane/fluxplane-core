@@ -38,6 +38,7 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(launch.NewRunCommand())
 	cmd.AddCommand(launch.NewServeCommand())
+	cmd.AddCommand(newModelsCommand())
 	cmd.AddCommand(distremote.NewCommand(distremote.CommandOptions{
 		DefaultSession:      defaultRemoteSession,
 		DefaultConversation: defaultRemoteConversation,

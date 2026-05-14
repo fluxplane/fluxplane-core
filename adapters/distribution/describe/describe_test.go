@@ -16,6 +16,7 @@ import (
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -46,6 +47,7 @@ func TestRenderTreeShowsMetadataAndAllStaticResourceKinds(t *testing.T) {
 		"operation_sets",
 		"operations",
 		"datasources",
+		"llm providers",
 		"skills",
 		"context_providers",
 		"event_types",
@@ -53,6 +55,7 @@ func TestRenderTreeShowsMetadataAndAllStaticResourceKinds(t *testing.T) {
 		"test.event",
 		"lookup-set",
 		"lookup",
+		"gpt-test",
 		"standalone",
 		"references: references/guide.md",
 		"Diagnostics:",
@@ -77,7 +80,7 @@ func TestRenderJSONIncludesAllStaticResourceGroups(t *testing.T) {
 		t.Fatalf("distribution name = %q, want testdist", decoded.Distribution.Name)
 	}
 	assertLen(t, "sources", len(decoded.Sources), 1)
-	assertLen(t, "resources", len(decoded.Resources), 13)
+	assertLen(t, "resources", len(decoded.Resources), 14)
 	assertLen(t, "apps", len(decoded.Apps), 1)
 	assertLen(t, "sessions", len(decoded.Sessions), 1)
 	assertLen(t, "agents", len(decoded.Agents), 1)
@@ -86,6 +89,7 @@ func TestRenderJSONIncludesAllStaticResourceGroups(t *testing.T) {
 	assertLen(t, "operation_sets", len(decoded.OperationSets), 1)
 	assertLen(t, "operations", len(decoded.Operations), 2)
 	assertLen(t, "datasources", len(decoded.Datasources), 1)
+	assertLen(t, "llm_providers", len(decoded.LLMProviders), 1)
 	assertLen(t, "skills", len(decoded.Skills), 1)
 	assertLen(t, "context_providers", len(decoded.ContextProviders), 1)
 	assertLen(t, "event_types", len(decoded.EventTypes), 1)
@@ -257,6 +261,12 @@ func testDistribution() distribution.Distribution {
 				Name:     "docs",
 				Entities: []coredatasource.EntityType{"doc"},
 				Kind:     "memory",
+			}},
+			LLMProviders: []corellm.ProviderSpec{{
+				Name: "openai",
+				Models: []corellm.ModelSpec{{
+					Ref: corellm.ModelRef{Name: "gpt-test"},
+				}},
 			}},
 			Skills: []skill.Spec{{
 				Name: "guidance",

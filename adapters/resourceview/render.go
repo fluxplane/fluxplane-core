@@ -12,6 +12,7 @@ import (
 	corecommand "github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -31,6 +32,7 @@ type Output struct {
 	OperationSets    []operation.Set            `json:"operation_sets,omitempty" yaml:"operation_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Skills           []skill.Spec               `json:"skills,omitempty" yaml:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty" yaml:"context_providers,omitempty"`
 	EventTypes       []string                   `json:"event_types,omitempty" yaml:"event_types,omitempty"`
@@ -60,6 +62,7 @@ func NewOutput(bundles []resource.ContributionBundle, diagnostics []resource.Dia
 		out.OperationSets = append(out.OperationSets, bundle.OperationSets...)
 		out.Operations = append(out.Operations, bundle.Operations...)
 		out.Datasources = append(out.Datasources, bundle.Datasources...)
+		out.LLMProviders = append(out.LLMProviders, bundle.LLMProviders...)
 		out.Skills = append(out.Skills, bundle.Skills...)
 		out.ContextProviders = append(out.ContextProviders, bundle.ContextProviders...)
 		for _, eventType := range bundle.EventTypes {
@@ -101,6 +104,9 @@ func ResourceIDs(bundles []resource.ContributionBundle) []resource.ResourceID {
 		}
 		for _, spec := range bundle.Datasources {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "datasource", string(spec.Name)))
+		}
+		for _, spec := range bundle.LLMProviders {
+			ids = append(ids, resource.DeriveResourceID(bundle.Source, "llm_provider", string(spec.Name)))
 		}
 		for _, spec := range bundle.Skills {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "skill", string(spec.Name)))
@@ -215,6 +221,9 @@ func renderResources(out *treeWriter, bundles []resource.ContributionBundle, ids
 				if kind == "skill" {
 					renderSkillRefs(out, bundles, name, i == len(names)-1)
 				}
+				if kind == "llm_provider" {
+					renderLLMProviderRefs(out, bundles, name, i == len(names)-1)
+				}
 			}
 		}
 	}
@@ -297,6 +306,7 @@ func contributionKinds() []string {
 		"operation_set",
 		"operation",
 		"datasource",
+		"llm_provider",
 		"skill",
 		"context_provider",
 		"event_type",
@@ -378,6 +388,34 @@ func renderSkillRefs(out *treeWriter, bundles []resource.ContributionBundle, nam
 			sort.Strings(paths)
 			out.printf("%sreferences: %s\n", indent, strings.Join(paths, ", "))
 		}
+	}
+}
+
+func renderLLMProviderRefs(out *treeWriter, bundles []resource.ContributionBundle, name string, last bool) {
+	indent := "│   │   "
+	if last {
+		indent = "│       "
+	}
+	var models []string
+	for _, bundle := range bundles {
+		for _, spec := range bundle.LLMProviders {
+			if string(spec.Name) != name {
+				continue
+			}
+			for _, model := range spec.Models {
+				if model.Ref.Name != "" {
+					models = append(models, string(model.Ref.Name))
+				}
+			}
+		}
+	}
+	sort.Strings(models)
+	for i, model := range models {
+		connector := "├── "
+		if i == len(models)-1 {
+			connector = "└── "
+		}
+		out.printf("%s%s%s\n", indent, connector, model)
 	}
 }
 
@@ -475,6 +513,8 @@ func pluralKind(kind string) string {
 		return "apps"
 	case "datasource":
 		return "datasources"
+	case "llm_provider":
+		return "llm providers"
 	default:
 		return kind + "s"
 	}

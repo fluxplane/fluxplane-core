@@ -12,6 +12,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -52,6 +53,7 @@ type Composition struct {
 	ContextProviderImpls []corecontext.Provider
 	DatasourceProviders  []coredatasource.Provider
 	DatasourceCatalog    DatasourceCatalog
+	LLMProviderCatalog   LLMProviderCatalog
 	WorkflowCatalog      WorkflowCatalog
 	OperationSetCatalog  OperationSetCatalog
 	CommandCatalog       session.CommandCatalog
@@ -62,6 +64,7 @@ type Composition struct {
 	SkillSpecs           []skill.Spec
 	ContextSpecs         []corecontext.ProviderSpec
 	DatasourceSpecs      []coredatasource.Spec
+	LLMProviderSpecs     []corellm.ProviderSpec
 	WorkflowSpecs        []workflow.Spec
 	OperationSets        []operation.Set
 	OperationSpecs       []operation.Spec
@@ -118,6 +121,11 @@ func Compose(cfg Config) (Composition, error) {
 	datasourceCatalog, datasourceSpecs, datasourceDiagnostic, err := collectDatasources(bundles, index)
 	if err != nil {
 		diagnostics = append(diagnostics, datasourceDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	llmProviderCatalog, llmProviderSpecs, llmProviderDiagnostic, err := collectLLMProviders(bundles, index)
+	if err != nil {
+		diagnostics = append(diagnostics, llmProviderDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
 	workflowCatalog, workflowSpecs, workflowDiagnostic, err := collectWorkflows(bundles, index)
@@ -227,6 +235,7 @@ func Compose(cfg Config) (Composition, error) {
 		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
 		DatasourceProviders:  pluginDatasourceProviders,
 		DatasourceCatalog:    datasourceCatalog,
+		LLMProviderCatalog:   llmProviderCatalog,
 		WorkflowCatalog:      workflowCatalog,
 		OperationSetCatalog:  operationSetCatalog,
 		CommandCatalog:       commandCatalog,
@@ -237,6 +246,7 @@ func Compose(cfg Config) (Composition, error) {
 		SkillSpecs:           skillSpecs,
 		ContextSpecs:         contextSpecs,
 		DatasourceSpecs:      datasourceSpecs,
+		LLMProviderSpecs:     llmProviderSpecs,
 		WorkflowSpecs:        workflowSpecs,
 		OperationSets:        operationSets,
 		OperationSpecs:       operationSpecs,
@@ -347,6 +357,18 @@ func collectDatasources(bundles []resource.ContributionBundle, index *resource.R
 		func(spec coredatasource.Spec) error { return spec.Validate() },
 	)
 	return DatasourceCatalog(catalog), specs, diag, err
+}
+
+func collectLLMProviders(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (LLMProviderCatalog, []corellm.ProviderSpec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"llm_provider",
+		func(bundle resource.ContributionBundle) []corellm.ProviderSpec { return bundle.LLMProviders },
+		func(spec corellm.ProviderSpec, _ resource.SourceRef) string { return string(spec.Name) },
+		func(spec corellm.ProviderSpec) error { return spec.Validate() },
+	)
+	return LLMProviderCatalog(catalog), specs, diag, err
 }
 
 func collectWorkflows(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (WorkflowCatalog, []workflow.Spec, resource.Diagnostic, error) {

@@ -10,13 +10,13 @@ import (
 // PricingSpec describes how one usage metric is priced. It is catalog data,
 // not an evaluator.
 type PricingSpec struct {
-	Metric       usage.MetricName `json:"metric"`
-	Unit         usage.Unit       `json:"unit"`
-	Direction    usage.Direction  `json:"direction,omitempty"`
-	Currency     string           `json:"currency"`
-	Price        float64          `json:"price"`
-	Per          float64          `json:"per"`
-	EffectiveUTC string           `json:"effective_utc,omitempty"`
+	Metric       usage.MetricName `json:"metric" yaml:"metric"`
+	Unit         usage.Unit       `json:"unit" yaml:"unit"`
+	Direction    usage.Direction  `json:"direction,omitempty" yaml:"direction,omitempty"`
+	Currency     string           `json:"currency" yaml:"currency"`
+	Price        float64          `json:"price" yaml:"price"`
+	Per          float64          `json:"per" yaml:"per"`
+	EffectiveUTC string           `json:"effective_utc,omitempty" yaml:"effective_utc,omitempty"`
 }
 
 // Validate checks that a pricing spec can be interpreted by a cost evaluator.

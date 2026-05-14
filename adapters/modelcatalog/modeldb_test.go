@@ -17,6 +17,46 @@ func TestSupportsAPI(t *testing.T) {
 	}
 }
 
+func TestProjectProviderFiltersByAPIAndAllowedModelIDs(t *testing.T) {
+	responsesKey := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "openai", Family: "gpt", Version: "responses"})
+	chatKey := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "openai", Family: "gpt", Version: "chat"})
+	catalog := modeldb.Catalog{
+		Models: map[modeldb.ModelKey]modeldb.ModelRecord{
+			responsesKey: {Key: responsesKey, Name: "Responses"},
+			chatKey:      {Key: chatKey, Name: "Chat"},
+		},
+		Services: map[string]modeldb.Service{"openai": {ID: "openai", Name: "OpenAI"}},
+		Offerings: map[modeldb.OfferingRef]modeldb.Offering{
+			{ServiceID: "openai", WireModelID: "gpt-responses"}: {
+				ServiceID:   "openai",
+				WireModelID: "gpt-responses",
+				ModelKey:    responsesKey,
+				Exposures:   []modeldb.OfferingExposure{{APIType: modeldb.APITypeOpenAIResponses}},
+			},
+			{ServiceID: "openai", WireModelID: "gpt-chat"}: {
+				ServiceID:   "openai",
+				WireModelID: "gpt-chat",
+				ModelKey:    chatKey,
+				Exposures:   []modeldb.OfferingExposure{{APIType: modeldb.APITypeOpenAIChat}},
+			},
+		},
+	}
+	spec, ok := ProjectProvider(catalog, ProviderProjection{
+		ServiceID: "openai",
+		APIType:   modeldb.APITypeOpenAIResponses,
+		ModelIDs:  []string{"gpt-responses", "missing"},
+	})
+	if !ok {
+		t.Fatalf("ProjectProvider returned false")
+	}
+	if spec.Name != "openai" || spec.DisplayName != "OpenAI" {
+		t.Fatalf("provider = %#v", spec)
+	}
+	if len(spec.Models) != 1 || spec.Models[0].Ref.Name != "gpt-responses" {
+		t.Fatalf("models = %#v, want only gpt-responses", spec.Models)
+	}
+}
+
 func TestFromModelDBAnnotatesOpenAIResponsesReasoningValues(t *testing.T) {
 	key := modeldb.NormalizeKey(modeldb.ModelKey{Creator: "moonshot", Family: "kimi", Version: "2"})
 	catalog := modeldb.Catalog{

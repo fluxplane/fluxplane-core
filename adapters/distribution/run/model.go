@@ -7,14 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/anthropic"
 	"github.com/fluxplane/agentruntime/adapters/cmdrisk"
-	"github.com/fluxplane/agentruntime/adapters/codex"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/adapters/minimax"
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
-	"github.com/fluxplane/agentruntime/adapters/openai"
-	"github.com/fluxplane/agentruntime/adapters/openrouter"
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -29,85 +24,19 @@ type ModelSelection struct {
 }
 
 func ResolveModelSelection(provider, model string) ModelSelection {
-	provider = strings.TrimSpace(provider)
-	if provider == "" {
-		provider = "openai"
+	registry, err := DefaultModelRegistry()
+	if err != nil {
+		return ModelSelection{Provider: firstNonEmptyString(provider, "openai"), Model: firstNonEmptyString(model, defaultModel)}
 	}
-	model = strings.TrimSpace(model)
-	if before, after, ok := strings.Cut(model, "/"); ok && before != "" && after != "" {
-		if knownCLIProvider(before) && provider == "openai" {
-			provider = before
-			model = after
-		}
-	}
-	if model == "" {
-		model = defaultModel
-	}
-	return ModelSelection{Provider: provider, Model: model}
+	return registry.ResolveModelSelection(provider, model)
 }
 
 func NewModel(selection ModelSelection, debug bool) (llmagent.Model, error) {
-	_, modelSpec, found := modelcatalog.Find(selection.Provider, selection.Model)
-	pricing := modelSpec.Pricing
-	runtime := openaiadapter.DefaultResponsesRuntimeConfig()
-	switch selection.Provider {
-	case "openai":
-		return openaiadapter.New(openaiadapter.Config{
-			Model:             selection.Model,
-			Runtime:           runtime,
-			Pricing:           pricing,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(debug),
-		})
-	case "codex":
-		return codex.New(codex.Config{
-			Model:             selection.Model,
-			Runtime:           runtime,
-			Pricing:           pricing,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(debug),
-		})
-	case "openrouter":
-		if !found {
-			return nil, fmt.Errorf("openrouter model %q was not found in modeldb; use an exact OpenRouter model id, for example --model openrouter/anthropic/claude-sonnet-4.6", selection.Model)
-		}
-		if !modelcatalog.SupportsAPI(modelSpec, "openai-responses") {
-			return nil, fmt.Errorf("openrouter model %q does not expose OpenAI Responses in modeldb", selection.Model)
-		}
-		reasoningEffort, reasoningSummary := OpenRouterReasoningDefaults(modelSpec)
-		return openrouter.New(openrouter.Config{
-			Model:             selection.Model,
-			Pricing:           pricing,
-			ReasoningEffort:   reasoningEffort,
-			ReasoningSummary:  reasoningSummary,
-			ParallelToolCalls: true,
-			Redactor:          debugRedactor(debug),
-		})
-	case "anthropic":
-		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
-			return nil, err
-		}
-		return anthropic.New(anthropic.Config{
-			Model:           selection.Model,
-			Pricing:         pricing,
-			MaxOutputTokens: maxOutputTokens(modelSpec),
-			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-			Redactor:        debugRedactor(debug),
-		})
-	case "minimax":
-		if err := requireMessagesModel(selection.Provider, selection.Model, modelSpec, found); err != nil {
-			return nil, err
-		}
-		return minimax.New(minimax.Config{
-			Model:           selection.Model,
-			Pricing:         pricing,
-			MaxOutputTokens: maxOutputTokens(modelSpec),
-			PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
-			Redactor:        debugRedactor(debug),
-		})
-	default:
-		return nil, fmt.Errorf("unknown provider %q", selection.Provider)
+	registry, err := DefaultModelRegistry()
+	if err != nil {
+		return nil, err
 	}
+	return registry.NewModel(selection, debug)
 }
 
 func DebugStreamPolicy(debug bool) llmagent.StreamPolicy {
@@ -115,15 +44,21 @@ func DebugStreamPolicy(debug bool) llmagent.StreamPolicy {
 }
 
 type ModelResolver struct {
-	Provider     string
-	Model        string
-	DefaultModel string
-	Debug        bool
+	Provider        string
+	Model           string
+	DefaultProvider string
+	DefaultModel    string
+	Debug           bool
+	ProviderSpecs   []corellm.ProviderSpec
 }
 
 func (r ModelResolver) ResolveModel(_ context.Context, spec agent.Spec) (llmagent.Model, error) {
-	selection := ResolveModelSelection(firstNonEmptyString(r.Provider, "openai"), firstNonEmptyString(r.Model, spec.Inference.Model, r.DefaultModel))
-	return NewModel(selection, r.Debug)
+	registry, err := DefaultModelRegistry(r.ProviderSpecs...)
+	if err != nil {
+		return nil, err
+	}
+	selection := registry.ResolveModelSelection(firstNonEmptyString(r.Provider, r.DefaultProvider, "openai"), firstNonEmptyString(r.Model, spec.Inference.Model, r.DefaultModel))
+	return registry.NewModel(selection, r.Debug)
 }
 
 func OpenRouterReasoningDefaults(modelSpec corellm.ModelSpec) (string, string) {
@@ -157,15 +92,6 @@ func CommandRisk(root string) operationruntime.CommandRiskClassifier {
 	})
 }
 
-func knownCLIProvider(provider string) bool {
-	switch provider {
-	case "openai", "codex", "openrouter", "anthropic", "minimax":
-		return true
-	default:
-		return false
-	}
-}
-
 func debugRedactor(debug bool) adapterllm.Redactor {
 	if !debug {
 		return adapterllm.Redactor{ExposeThinkingSummary: true}
@@ -173,12 +99,9 @@ func debugRedactor(debug bool) adapterllm.Redactor {
 	return adapterllm.Redactor{ExposeThinking: true, ExposeThinkingSummary: true, ExposeToolArgs: true}
 }
 
-func requireMessagesModel(provider, model string, modelSpec corellm.ModelSpec, found bool) error {
-	if !found {
-		return fmt.Errorf("%s model %q was not found in modeldb", provider, model)
-	}
+func requireMessagesModel(provider string, modelSpec corellm.ModelSpec) error {
 	if !modelcatalog.SupportsAPI(modelSpec, "anthropic-messages") {
-		return fmt.Errorf("%s model %q does not expose Anthropic Messages in modeldb", provider, model)
+		return fmt.Errorf("%s model %q does not expose Anthropic Messages in modeldb", provider, modelSpec.Ref.Name)
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 )
 
@@ -19,10 +20,89 @@ func TestRootCommandHasExpectedCommands(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "init", "build", "run", "serve", "connect", "remote", "discover"} {
+	for _, want := range []string{"coder", "init", "build", "run", "serve", "models", "connect", "remote", "discover"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}
+	}
+}
+
+func TestModelsCommandRendersBuiltInProviders(t *testing.T) {
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"models"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+	text := out.String()
+	for _, want := range []string{"Providers:", "openai", "codex", "gpt-5.5"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("models output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestModelsCommandRendersJSON(t *testing.T) {
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"models", "-o", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+	var providers []corellm.ProviderSpec
+	if err := json.Unmarshal(out.Bytes(), &providers); err != nil {
+		t.Fatalf("Unmarshal: %v\n%s", err, out.String())
+	}
+	if len(providers) == 0 {
+		t.Fatalf("providers is empty")
+	}
+}
+
+func TestModelsCommandIncludesPathLLMProviders(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "agentsdk.app.yaml", `kind: app
+name: model-demo
+llm_providers:
+  - name: localai
+    display_name: Local AI
+    models:
+      - ref:
+          name: local-model
+        context_tokens: 1234
+`)
+
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"models", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v\n%s", err, out.String())
+	}
+	text := out.String()
+	for _, want := range []string{"localai", "Local AI", "local-model", "context 1234"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("models output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestModelsCommandRejectsUnsupportedOutput(t *testing.T) {
+	cmd := NewCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"models", "-o", "xml"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `models: unsupported output "xml"`) {
+		t.Fatalf("Execute error = %v, want unsupported output", err)
 	}
 }
 
@@ -242,6 +322,11 @@ datasources:
   - name: docs
     kind: filesystem
     entities: [file.document]
+llm_providers:
+  - name: localai
+    models:
+      - ref:
+          name: local-model
 ---
 kind: session
 name: main
@@ -268,6 +353,9 @@ datasources: [docs]
 		"tools: web_request, datasource_search",
 		"datasources",
 		"docs",
+		"llm providers",
+		"localai",
+		"local-model",
 		"plugins",
 		"web",
 		"datasource (implicit)",

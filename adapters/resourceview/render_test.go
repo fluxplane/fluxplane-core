@@ -13,6 +13,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -40,6 +41,7 @@ func TestRenderTreeShowsEveryContributionKind(t *testing.T) {
 		"operation_sets",
 		"operations",
 		"datasources",
+		"llm providers",
 		"skills",
 		"context_providers",
 		"event_types",
@@ -47,6 +49,7 @@ func TestRenderTreeShowsEveryContributionKind(t *testing.T) {
 		"test.event",
 		"lookup-set",
 		"lookup",
+		"gpt-test",
 		"standalone",
 		"references: references/guide.md",
 		"bundle diagnostic",
@@ -144,8 +147,8 @@ func TestRenderTreeLabelsImplicitPlugins(t *testing.T) {
 
 func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	out := NewOutput([]resource.ContributionBundle{testBundle()}, nil)
-	if len(out.Resources) != 13 {
-		t.Fatalf("resources len = %d, want 13", len(out.Resources))
+	if len(out.Resources) != 14 {
+		t.Fatalf("resources len = %d, want 14", len(out.Resources))
 	}
 	assertLen(t, "sources", len(out.Sources), 1)
 	assertLen(t, "apps", len(out.Apps), 1)
@@ -156,6 +159,7 @@ func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	assertLen(t, "operation_sets", len(out.OperationSets), 1)
 	assertLen(t, "operations", len(out.Operations), 2)
 	assertLen(t, "datasources", len(out.Datasources), 1)
+	assertLen(t, "llm_providers", len(out.LLMProviders), 1)
 	assertLen(t, "skills", len(out.Skills), 1)
 	assertLen(t, "context_providers", len(out.ContextProviders), 1)
 	assertLen(t, "event_types", len(out.EventTypes), 1)
@@ -220,6 +224,12 @@ func testBundle() resource.ContributionBundle {
 		Datasources: []coredatasource.Spec{{
 			Name: "docs",
 			Kind: "memory",
+		}},
+		LLMProviders: []corellm.ProviderSpec{{
+			Name: "openai",
+			Models: []corellm.ModelSpec{{
+				Ref: corellm.ModelRef{Name: "gpt-test"},
+			}},
 		}},
 		Skills: []skill.Spec{{
 			Name: "guidance",

@@ -17,6 +17,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -120,6 +121,12 @@ func DecodeFile(path string, data []byte) (File, error) {
 			for _, ds := range manifest.Datasources {
 				bundle.Datasources = append(bundle.Datasources, ds.Spec())
 			}
+			for i, provider := range manifest.LLMProviders {
+				if err := provider.Validate(); err != nil {
+					return File{}, fmt.Errorf("appconfig: validate llm_providers[%d]: %w", i, err)
+				}
+			}
+			bundle.LLMProviders = append(bundle.LLMProviders, manifest.LLMProviders...)
 			distribution = manifest.Distribution.Spec()
 			daemon = manifest.Daemon
 			connectors = cloneConnectorMap(manifest.Connectors)
@@ -144,6 +151,12 @@ func DecodeFile(path string, data []byte) (File, error) {
 				return File{}, err
 			}
 			bundle.Datasources = append(bundle.Datasources, spec)
+		case "llm_provider":
+			spec, err := decodeLLMProviderDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.LLMProviders = append(bundle.LLMProviders, spec)
 		case "":
 			return File{}, fmt.Errorf("appconfig: document %d kind is empty", i+1)
 		default:
@@ -235,6 +248,7 @@ type Manifest struct {
 	Distribution   distributionDoc         `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	LLMProviders   []corellm.ProviderSpec  `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
 }
@@ -614,6 +628,17 @@ func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 	spec := raw.Spec()
 	if err := spec.Validate(); err != nil {
 		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document: %w", err)
+	}
+	return spec, nil
+}
+
+func decodeLLMProviderDoc(node yaml.Node) (corellm.ProviderSpec, error) {
+	var spec corellm.ProviderSpec
+	if err := node.Decode(&spec); err != nil {
+		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: decode llm provider document: %w", err)
+	}
+	if err := spec.Validate(); err != nil {
+		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: validate llm provider document: %w", err)
 	}
 	return spec, nil
 }

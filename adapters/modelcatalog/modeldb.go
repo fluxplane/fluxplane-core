@@ -11,6 +11,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/usage"
 )
 
+// ProviderProjection selects the provider-visible slice of a modeldb catalog.
+type ProviderProjection struct {
+	ServiceID string
+	APIType   modeldb.APIType
+	ModelIDs  []string
+}
+
 // BuiltIn loads the embedded modeldb catalog and converts one entry per
 // service/API exposure into agentsdk provider specs.
 func BuiltIn() ([]corellm.ProviderSpec, error) {
@@ -19,6 +26,49 @@ func BuiltIn() ([]corellm.ProviderSpec, error) {
 		return nil, err
 	}
 	return FromModelDB(catalog), nil
+}
+
+// BuiltInProvider projects one provider from the embedded modeldb catalog.
+func BuiltInProvider(projection ProviderProjection) (corellm.ProviderSpec, bool, error) {
+	catalog, err := modeldb.LoadBuiltIn()
+	if err != nil {
+		return corellm.ProviderSpec{}, false, err
+	}
+	spec, ok := ProjectProvider(catalog, projection)
+	return spec, ok, nil
+}
+
+// ProjectProvider converts the selected modeldb service view into one provider
+// spec. ModelIDs is a provider-local allowlist; when empty all visible models
+// matching APIType are included.
+func ProjectProvider(catalog modeldb.Catalog, projection ProviderProjection) (corellm.ProviderSpec, bool) {
+	serviceID := strings.TrimSpace(projection.ServiceID)
+	if serviceID == "" {
+		return corellm.ProviderSpec{}, false
+	}
+	allowed := stringSet(projection.ModelIDs)
+	items := modeldb.ServiceView(catalog, serviceID, modeldb.ViewOptions{VisibleOnly: true}).List()
+	spec := corellm.ProviderSpec{Name: corellm.ProviderName(serviceID), DisplayName: serviceID}
+	if service, ok := catalog.Services[serviceID]; ok {
+		spec.DisplayName = firstNonEmpty(service.Name, service.ID)
+		spec.Description = service.DocsURL
+	}
+	for _, item := range items {
+		if item.Model.Deprecated {
+			continue
+		}
+		if projection.APIType != "" && !item.Offering.HasExposure(projection.APIType) {
+			continue
+		}
+		if len(allowed) > 0 && !allowed[item.Offering.WireModelID] {
+			continue
+		}
+		spec.Models = append(spec.Models, modelSpec(item.Model, item.Offering))
+	}
+	sort.Slice(spec.Models, func(i, j int) bool {
+		return spec.Models[i].Ref.Name < spec.Models[j].Ref.Name
+	})
+	return spec, true
 }
 
 // FromModelDB converts modeldb service offerings into agentsdk provider specs.
@@ -95,6 +145,17 @@ func provider(providers map[string]*corellm.ProviderSpec, name string) *corellm.
 	spec := &corellm.ProviderSpec{Name: corellm.ProviderName(name), DisplayName: name}
 	providers[name] = spec
 	return spec
+}
+
+func stringSet(values []string) map[string]bool {
+	out := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out[value] = true
+		}
+	}
+	return out
 }
 
 func modelSpec(model modeldb.ModelRecord, offering modeldb.Offering) corellm.ModelSpec {

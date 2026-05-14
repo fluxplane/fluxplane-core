@@ -7,11 +7,11 @@ import (
 
 // ProviderSpec is an inert catalog for one LLM provider.
 type ProviderSpec struct {
-	Name        ProviderName      `json:"name"`
-	DisplayName string            `json:"display_name,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Models      []ModelSpec       `json:"models,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	Name        ProviderName      `json:"name" yaml:"name"`
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Models      []ModelSpec       `json:"models,omitempty" yaml:"models,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
 // Validate checks that provider and model identities are structurally useful.

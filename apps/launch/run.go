@@ -246,10 +246,12 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		LLMModelResolver: distrun.ModelResolver{
-			Provider:     opts.Provider,
-			Model:        opts.Model,
-			DefaultModel: opts.Spec.DefaultModel.Model,
-			Debug:        opts.Debug,
+			Provider:        opts.Provider,
+			Model:           opts.Model,
+			DefaultProvider: opts.Spec.DefaultModel.Provider,
+			DefaultModel:    opts.Spec.DefaultModel.Model,
+			Debug:           opts.Debug,
+			ProviderSpecs:   composition.LLMProviderSpecs,
 		},
 		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
 		ToolProjection: firstToolProjection(opts.ToolProjection, agentruntime.ToolProjectionConfig{

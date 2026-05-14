@@ -11,6 +11,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -44,6 +45,28 @@ func TestComposeRegistersResourceCommandsAgainstProvidedOperations(t *testing.T)
 	}
 	if op, ok := composition.Operations.Resolve(operation.Ref{Name: "echo"}); !ok || op == nil {
 		t.Fatal("operation was not registered")
+	}
+}
+
+func TestComposeIndexesLLMProviderContributions(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			LLMProviders: []corellm.ProviderSpec{{
+				Name: "openai",
+				Models: []corellm.ModelSpec{{
+					Ref: corellm.ModelRef{Name: "gpt-test"},
+				}},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if len(composition.LLMProviderSpecs) != 1 {
+		t.Fatalf("LLMProviderSpecs len = %d, want 1", len(composition.LLMProviderSpecs))
+	}
+	if len(composition.LLMProviderCatalog) != 1 {
+		t.Fatalf("LLMProviderCatalog len = %d, want 1", len(composition.LLMProviderCatalog))
 	}
 }
 
