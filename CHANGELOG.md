@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Non-blocking `task quality:metrics` reports coverage plus optional
   cyclomatic and cognitive complexity hotspots for refactoring guidance.
 
+### Fixed
+
+- OpenAI image generation no longer sends unsupported `response_format` for
+  `gpt-image-1` and can consume URL image responses.
+
 ### Changed
 
 - Improved architecture score by moving pure event codec helpers into core and

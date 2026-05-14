@@ -72,9 +72,11 @@ func (openAIImageProvider) Info(sys system.System) ProviderInfo {
 func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req GenerateRequest) (GenerateResult, error) {
 	model := firstNonEmpty(req.Model, "gpt-image-1")
 	body := map[string]any{
-		"model":           model,
-		"prompt":          req.Prompt,
-		"response_format": "b64_json",
+		"model":  model,
+		"prompt": req.Prompt,
+	}
+	if strings.HasPrefix(model, "dall-e-") {
+		body["response_format"] = "b64_json"
 	}
 	if req.Size != "" {
 		body["size"] = req.Size
@@ -104,14 +106,37 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 	if decoded.Error != nil && decoded.Error.Message != "" {
 		return GenerateResult{}, fmt.Errorf("openai: %s", decoded.Error.Message)
 	}
-	if len(decoded.Data) == 0 || decoded.Data[0].B64JSON == "" {
-		return GenerateResult{}, fmt.Errorf("openai: response did not include b64_json image data")
+	if len(decoded.Data) == 0 {
+		return GenerateResult{}, fmt.Errorf("openai: response did not include image data")
 	}
-	data, err := base64.StdEncoding.DecodeString(decoded.Data[0].B64JSON)
+	if decoded.Data[0].B64JSON != "" {
+		data, err := base64.StdEncoding.DecodeString(decoded.Data[0].B64JSON)
+		if err != nil {
+			return GenerateResult{}, fmt.Errorf("openai: decode image: %w", err)
+		}
+		return writeGeneratedImage(ctx, sys, "openai", model, req.Prompt, detectContentType(data), data)
+	}
+	if decoded.Data[0].URL == "" {
+		return GenerateResult{}, fmt.Errorf("openai: response did not include b64_json or url image data")
+	}
+	imageResp, err := sys.Network().DoHTTP(ctx, system.HTTPRequest{
+		URL:       decoded.Data[0].URL,
+		Method:    "GET",
+		Timeout:   60 * time.Second,
+		MaxBytes:  25 * 1024 * 1024,
+		UserAgent: "agentruntime/0.1",
+	})
 	if err != nil {
-		return GenerateResult{}, fmt.Errorf("openai: decode image: %w", err)
+		return GenerateResult{}, err
 	}
-	return writeGeneratedImage(ctx, sys, "openai", model, req.Prompt, detectContentType(data), data)
+	if imageResp.StatusCode < 200 || imageResp.StatusCode >= 300 {
+		return GenerateResult{}, fmt.Errorf("openai: image download HTTP %s: %s", imageResp.Status, string(imageResp.Body))
+	}
+	contentType := strings.TrimSpace(strings.Split(imageResp.ContentType, ";")[0])
+	if contentType == "" || !strings.HasPrefix(contentType, "image/") {
+		contentType = detectContentType(imageResp.Body)
+	}
+	return writeGeneratedImage(ctx, sys, "openai", model, req.Prompt, contentType, imageResp.Body)
 }
 
 type openRouterImageProvider struct{}

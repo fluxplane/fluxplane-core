@@ -64,11 +64,57 @@ func TestOpenAIImageGenerateUsesConfiguredAPI(t *testing.T) {
 		t.Fatalf("headers = %#v, want authorization and json content type", req.Headers)
 	}
 	body := decodeJSONBody(t, req.Body)
-	if body["model"] != "gpt-image-1" || body["prompt"] != "a diagram" || body["response_format"] != "b64_json" || body["quality"] != "high" {
-		t.Fatalf("body = %#v, want OpenAI generation payload", body)
+	if body["model"] != "gpt-image-1" || body["prompt"] != "a diagram" || body["response_format"] != nil || body["quality"] != "high" {
+		t.Fatalf("body = %#v, want OpenAI generation payload without response_format for gpt-image-1", body)
 	}
 	if result.Provider != "openai" || result.ContentType != "image/png" {
 		t.Fatalf("result = %#v, want openai png", result)
+	}
+}
+
+func TestOpenAIImageGenerateRequestsB64ForDALLE(t *testing.T) {
+	image := base64.StdEncoding.EncodeToString([]byte{0x89, 0x50, 0x4e, 0x47})
+	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, system.HTTPResponse{
+		Status:     "200 OK",
+		StatusCode: 200,
+		Body:       []byte(`{"data":[{"b64_json":"` + image + `"}]}`),
+	})
+
+	_, err := (openAIImageProvider{}).Generate(context.Background(), sys, GenerateRequest{Prompt: "a diagram", Model: "dall-e-3"})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	body := decodeJSONBody(t, sys.network.lastRequest().Body)
+	if body["response_format"] != "b64_json" {
+		t.Fatalf("body = %#v, want response_format for DALL-E model", body)
+	}
+}
+
+func TestOpenAIImageGenerateDownloadsURLResponse(t *testing.T) {
+	sys := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "sk-test"}, system.HTTPResponse{})
+	sys.network.responses = []system.HTTPResponse{
+		{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Body:       []byte(`{"data":[{"url":"https://example.test/generated.png"}]}`),
+		},
+		{
+			Status:      "200 OK",
+			StatusCode:  200,
+			ContentType: "image/png",
+			Body:        []byte{0x89, 0x50, 0x4e, 0x47},
+		},
+	}
+
+	result, err := (openAIImageProvider{}).Generate(context.Background(), sys, GenerateRequest{Prompt: "a diagram"})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(sys.network.requests) != 2 || sys.network.requests[1].URL != "https://example.test/generated.png" || sys.network.requests[1].Method != "GET" {
+		t.Fatalf("requests = %#v, want image download after generation", sys.network.requests)
+	}
+	if result.Provider != "openai" || result.ContentType != "image/png" || result.SizeBytes != 4 {
+		t.Fatalf("result = %#v, want downloaded openai png", result)
 	}
 }
 
@@ -190,13 +236,19 @@ func (s providerTestSystem) Clarifier() system.Clarifier     { return nil }
 func (s providerTestSystem) Environment() system.Environment { return s.env }
 
 type recordingNetwork struct {
-	requests []system.HTTPRequest
-	response system.HTTPResponse
-	err      error
+	requests  []system.HTTPRequest
+	response  system.HTTPResponse
+	responses []system.HTTPResponse
+	err       error
 }
 
 func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
 	n.requests = append(n.requests, req)
+	if len(n.responses) > 0 {
+		resp := n.responses[0]
+		n.responses = n.responses[1:]
+		return resp, n.err
+	}
 	return n.response, n.err
 }
 
