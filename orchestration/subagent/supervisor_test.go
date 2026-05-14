@@ -2,6 +2,7 @@ package subagent
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,9 @@ func TestSupervisorRejectsDisallowedProfile(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Spawn err = nil, want rejection")
+	}
+	if !strings.Contains(err.Error(), "allowed profiles: worker") {
+		t.Fatalf("Spawn err = %q, want allowed profile hint", err.Error())
 	}
 }
 

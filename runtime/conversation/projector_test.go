@@ -99,6 +99,56 @@ func TestProjectNativeContinuationReturnsOnlyPendingItems(t *testing.T) {
 	}
 }
 
+func TestProjectNativeContinuationRepairsMissingToolResult(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	handle := coreconversation.ContinuationHandle{
+		Provider:   provider,
+		Mode:       coreconversation.ContinuationPreviousResponseID,
+		Transport:  coreconversation.TransportHTTPSSE,
+		ResponseID: "resp_1",
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider,
+		[]coreconversation.Item{{
+			Provider: provider,
+			Kind:     coreconversation.ItemOutput,
+			CallID:   "call_1",
+			Name:     "delegate",
+			Native:   raw(`{"type":"function_call","call_id":"call_1","name":"delegate","arguments":"{}"}`),
+		}},
+		handle,
+	); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	pending := []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "what happened"}}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Pending:  pending,
+		Mode:     coreconversation.ProjectionNativeContinuation,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("items len = %d, want repair + pending", len(result.Items))
+	}
+	repair := result.Items[0]
+	if repair.Kind != coreconversation.ItemToolResult || repair.CallID != "call_1" || repair.Metadata["is_error"] != "true" {
+		t.Fatalf("repair item = %#v, want error tool result for call_1", repair)
+	}
+	if len(result.NewItems) != 2 || result.NewItems[0].CallID != "call_1" {
+		t.Fatalf("new items = %#v, want repair recorded before pending", result.NewItems)
+	}
+}
+
 func TestProjectNativeContinuationFallsBackToFullReplay(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)

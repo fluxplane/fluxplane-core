@@ -439,12 +439,12 @@ func resolveProfile(req SpawnRequest) (coresession.Ref, error) {
 	if len(req.Policy.AllowedProfiles) == 1 {
 		return req.Policy.AllowedProfiles[0], nil
 	}
-	return coresession.Ref{}, fmt.Errorf("subagent: profile is required")
+	return coresession.Ref{}, fmt.Errorf("subagent: profile is required; allowed profiles: %s", allowedProfileList(req.Policy.AllowedProfiles))
 }
 
 func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.Ref) error {
 	if profile.Name == "" {
-		return fmt.Errorf("subagent: profile is required")
+		return fmt.Errorf("subagent: profile is required; allowed profiles: %s", allowedProfileList(policy.AllowedProfiles))
 	}
 	if len(policy.AllowedProfiles) == 0 {
 		return fmt.Errorf("subagent: delegation policy has no allowed profiles")
@@ -454,7 +454,20 @@ func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.R
 			return nil
 		}
 	}
-	return fmt.Errorf("subagent: profile %q is not allowed", profile.Name)
+	return fmt.Errorf("subagent: profile %q is not allowed; allowed profiles: %s", profile.Name, allowedProfileList(policy.AllowedProfiles))
+}
+
+func allowedProfileList(profiles []coresession.Ref) string {
+	names := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile.Name != "" {
+			names = append(names, string(profile.Name))
+		}
+	}
+	if len(names) == 0 {
+		return "(none)"
+	}
+	return strings.Join(names, ", ")
 }
 
 func (s *Supervisor) resolveProfileSpec(ctx context.Context, policy coresession.DelegationPolicy, profile coresession.Ref) (coresession.Spec, bool, error) {

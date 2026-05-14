@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -75,10 +76,11 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 
 // File is the complete app configuration file shape after decoding.
 type File struct {
-	Path       string
-	Bundle     resource.ContributionBundle
-	Daemon     DaemonConfig
-	Connectors map[string]ConnectorDoc
+	Path         string
+	Bundle       resource.ContributionBundle
+	Distribution coredistribution.Spec
+	Daemon       DaemonConfig
+	Connectors   map[string]ConnectorDoc
 }
 
 // DecodeFile decodes one local app file. It supports both the legacy single
@@ -86,6 +88,7 @@ type File struct {
 func DecodeFile(path string, data []byte) (File, error) {
 	source := manifestSource(path)
 	bundle := resource.ContributionBundle{Source: source}
+	distribution := coredistribution.Spec{}
 	daemon := DaemonConfig{}
 	connectors := map[string]ConnectorDoc{}
 
@@ -117,6 +120,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			for _, ds := range manifest.Datasources {
 				bundle.Datasources = append(bundle.Datasources, ds.Spec())
 			}
+			distribution = manifest.Distribution.Spec()
 			daemon = manifest.Daemon
 			connectors = cloneConnectorMap(manifest.Connectors)
 			continue
@@ -146,7 +150,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
 		}
 	}
-	return File{Path: filepath.Clean(path), Bundle: bundle, Daemon: daemon, Connectors: connectors}, nil
+	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Daemon: daemon, Connectors: connectors}, nil
 }
 
 func manifestSource(path string) resource.SourceRef {

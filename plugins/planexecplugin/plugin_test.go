@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -29,6 +30,163 @@ func TestDelegateSpawnUsesSubagentSupervisor(t *testing.T) {
 	}
 	if rendered.Text == "" {
 		t.Fatal("rendered text is empty")
+	}
+}
+
+func TestDelegateSpawnFailureReturnsAllowedProfiles(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
+		MaxParallel:     2,
+	})
+
+	result := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "default", Task: "do it"})
+	if !result.IsError() {
+		t.Fatal("delegate succeeded, want profile rejection")
+	}
+	if result.Error == nil {
+		t.Fatal("delegate error is nil")
+	}
+	if !strings.Contains(result.Error.Message, "allowed profiles: worker, explorer") {
+		t.Fatalf("error message = %q, want allowed profile hint", result.Error.Message)
+	}
+	allowed, ok := result.Error.Details["allowed_profiles"].([]string)
+	if !ok {
+		t.Fatalf("allowed_profiles details = %#v, want []string", result.Error.Details["allowed_profiles"])
+	}
+	if strings.Join(allowed, ",") != "worker,explorer" {
+		t.Fatalf("allowed profiles = %#v, want worker/explorer", allowed)
+	}
+	if got := result.Error.Details["requested_profile"]; got != "default" {
+		t.Fatalf("requested_profile = %#v, want default", got)
+	}
+}
+
+func TestDelegateResultWaitsForCompletion(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContext(t, "worker done")
+	spawn := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "worker", Task: "do it"})
+	if spawn.IsError() {
+		t.Fatalf("spawn failed: %#v", spawn.Error)
+	}
+	handle := renderedHandle(t, spawn)
+
+	result := plugin.delegate(ctx, delegateInput{Action: "result", WorkerID: string(handle.ID), Timeout: "1s"})
+	if result.IsError() {
+		t.Fatalf("result failed: %#v", result.Error)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("result output = %T, want operation.Rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "worker done") {
+		t.Fatalf("rendered text = %q, want worker done", rendered.Text)
+	}
+}
+
+func TestDelegateResultReportsRunningWithoutFailing(t *testing.T) {
+	plugin := New()
+	client := newBlockingPlanClient()
+	supervisor := subagent.New(subagent.Config{Client: client})
+	events := event.Discard()
+	base := subagent.ContextWithScope(context.Background(), subagent.Scope{
+		Supervisor: supervisor,
+		Policy: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+			MaxParallel:     2,
+		},
+		Events: events,
+	})
+	ctx := operation.NewContext(base, events)
+
+	spawn := plugin.delegate(ctx, delegateInput{Action: "spawn", Profile: "worker", Task: "do it"})
+	if spawn.IsError() {
+		t.Fatalf("spawn failed: %#v", spawn.Error)
+	}
+	handle := renderedHandle(t, spawn)
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start")
+	}
+
+	result := plugin.delegate(ctx, delegateInput{Action: "result", WorkerID: string(handle.ID), Timeout: "1ms"})
+	if result.IsError() {
+		t.Fatalf("result failed: %#v", result.Error)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("result output = %T, want operation.Rendered", result.Output)
+	}
+	if rendered.Text != string(subagent.StatusRunning) && rendered.Text != string(subagent.StatusPrepared) {
+		t.Fatalf("rendered text = %q, want running/prepared", rendered.Text)
+	}
+	client.finish()
+}
+
+func TestContextProviderRendersDelegationProfiles(t *testing.T) {
+	provider := contextProvider{plugin: New()}
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
+	})
+
+	blocks, err := provider.Build(ctx, corecontext.Request{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(blocks))
+	}
+	content := blocks[0].Content
+	for _, want := range []string{
+		"delegation profiles: explorer, worker",
+		"use delegate with profile set to one of: explorer, worker",
+		"plan: none",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestContextProviderRendersPlanState(t *testing.T) {
+	plugin := New()
+	ctx := scopedOperationContextWithPolicy(t, "worker done", coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+	})
+	create := plugin.planOperation(ctx, planInput{Actions: []planAction{{
+		Action: "create",
+		Title:  "Ship it",
+		Steps:  []StepSpec{{ID: "inspect", Title: "Inspect", Profile: "worker"}},
+	}}})
+	if create.IsError() {
+		t.Fatalf("create plan: %#v", create.Error)
+	}
+
+	blocks, err := (contextProvider{plugin: plugin}).Build(ctx, corecontext.Request{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	content := blocks[0].Content
+	for _, want := range []string{
+		"plan id: plan_1",
+		"plan phase: drafting",
+		"plan title: Ship it",
+		"inspect: waiting - Inspect (profile: worker)",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestContextProviderReportsDelegationUnavailable(t *testing.T) {
+	blocks, err := (contextProvider{plugin: New()}).Build(context.Background(), corecontext.Request{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "delegation: unavailable in this session") {
+		t.Fatalf("blocks = %#v, want unavailable delegation", blocks)
 	}
 }
 
@@ -254,15 +412,25 @@ func scopedOperationContext(t *testing.T, result string) operation.Context {
 
 func scopedOperationContextWithEvents(t *testing.T, result string, sink func(event.Event)) operation.Context {
 	t.Helper()
+	return scopedOperationContextWithPolicyAndEvents(t, result, coresession.DelegationPolicy{
+		AllowedProfiles: []coresession.Ref{{Name: "worker"}},
+		MaxParallel:     2,
+	}, sink)
+}
+
+func scopedOperationContextWithPolicy(t *testing.T, result string, policy coresession.DelegationPolicy) operation.Context {
+	t.Helper()
+	return scopedOperationContextWithPolicyAndEvents(t, result, policy, func(event.Event) {})
+}
+
+func scopedOperationContextWithPolicyAndEvents(t *testing.T, result string, policy coresession.DelegationPolicy, sink func(event.Event)) operation.Context {
+	t.Helper()
 	supervisor := subagent.New(subagent.Config{Client: planFakeClient{result: result}})
 	events := event.SinkFunc(sink)
 	base := subagent.ContextWithScope(context.Background(), subagent.Scope{
 		Supervisor: supervisor,
-		Policy: coresession.DelegationPolicy{
-			AllowedProfiles: []coresession.Ref{{Name: "worker"}},
-			MaxParallel:     2,
-		},
-		Events: events,
+		Policy:     policy,
+		Events:     events,
 	})
 	return operation.NewContext(base, events)
 }
@@ -332,6 +500,19 @@ func hasEvent(events []event.Event, name event.Name) bool {
 		}
 	}
 	return false
+}
+
+func renderedHandle(t *testing.T, result operation.Result) subagent.Handle {
+	t.Helper()
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want operation.Rendered", result.Output)
+	}
+	handle, ok := rendered.Data.(subagent.Handle)
+	if !ok {
+		t.Fatalf("rendered data = %T, want subagent.Handle", rendered.Data)
+	}
+	return handle
 }
 
 type planFakeClient struct {

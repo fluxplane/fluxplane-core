@@ -1,6 +1,8 @@
 package planexecplugin
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,22 +33,7 @@ func (p *Plugin) delegate(ctx operation.Context, input delegateInput) operation.
 	case "status":
 		return rendered("Sub-agent status.", map[string]any{"workers": p.delegateWorkers(ctx, scope)})
 	case "result":
-		if strings.TrimSpace(input.WorkerID) == "" {
-			return operation.Failed("delegate_worker_id_required", "worker_id is required", nil)
-		}
-		if result, err := scope.Supervisor.Result(subagent.ID(input.WorkerID)); err == nil {
-			return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
-		}
-		workers := p.delegateWorkerMap(ctx, scope)
-		worker, ok := workers[subagent.ID(input.WorkerID)]
-		if !ok {
-			return operation.Failed("delegate_result_failed", fmt.Sprintf("subagent: worker %q not found", input.WorkerID), nil)
-		}
-		if worker.Status == subagent.StatusPrepared || worker.Status == subagent.StatusRunning {
-			return operation.Failed("delegate_result_failed", fmt.Sprintf("subagent: worker %q is %s", input.WorkerID, worker.Status), nil)
-		}
-		result := subagent.Result{Handle: worker, Output: worker.Output, Error: worker.Error}
-		return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+		return p.delegateResult(ctx, scope, input)
 	case "cancel":
 		if strings.TrimSpace(input.WorkerID) == "" {
 			return operation.Failed("delegate_worker_id_required", "worker_id is required", nil)
@@ -58,6 +45,43 @@ func (p *Plugin) delegate(ctx operation.Context, input delegateInput) operation.
 	default:
 		return operation.Failed("delegate_action_invalid", "action must be spawn, status, result, or cancel", nil)
 	}
+}
+
+func (p *Plugin) delegateResult(ctx operation.Context, scope subagent.Scope, input delegateInput) operation.Result {
+	if strings.TrimSpace(input.WorkerID) == "" {
+		return operation.Failed("delegate_worker_id_required", "worker_id is required", nil)
+	}
+	id := subagent.ID(input.WorkerID)
+	if result, err := scope.Supervisor.Result(id); err == nil {
+		return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+	}
+	timeout, err := parseDuration(input.Timeout)
+	if err != nil {
+		return operation.Failed("delegate_timeout_invalid", err.Error(), nil)
+	}
+	worker, ok := p.delegateWorkerMap(ctx, scope)[id]
+	if !ok {
+		return operation.Failed("delegate_result_failed", fmt.Sprintf("subagent: worker %q not found", input.WorkerID), nil)
+	}
+	if worker.Status == subagent.StatusPrepared || worker.Status == subagent.StatusRunning {
+		if timeout > 0 {
+			waitCtx, cancel := context.WithTimeout(ctx, timeout)
+			result, waitErr := scope.Supervisor.Wait(waitCtx, id)
+			cancel()
+			if waitErr == nil {
+				return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
+			}
+			if !errors.Is(waitErr, context.DeadlineExceeded) && !errors.Is(waitErr, context.Canceled) {
+				return operation.Failed("delegate_result_failed", waitErr.Error(), nil)
+			}
+			if refreshed, ok := p.delegateWorkerMap(ctx, scope)[id]; ok {
+				worker = refreshed
+			}
+		}
+		return rendered(string(worker.Status), subagent.Result{Handle: worker, Output: worker.Output, Error: worker.Error})
+	}
+	result := subagent.Result{Handle: worker, Output: worker.Output, Error: worker.Error}
+	return rendered(firstNonEmpty(result.Output, result.Error, "done"), result)
 }
 
 func (p *Plugin) delegateWorkers(ctx operation.Context, scope subagent.Scope) []subagent.Handle {
@@ -103,9 +127,29 @@ func (p *Plugin) delegateSpawn(ctx operation.Context, scope subagent.Scope, inpu
 		Events:         scope.Events,
 	})
 	if err != nil {
-		return operation.Failed("delegate_spawn_failed", err.Error(), nil)
+		return operation.Failed("delegate_spawn_failed", err.Error(), delegateSpawnFailureDetails(input, scope.Policy))
 	}
 	return rendered(fmt.Sprintf("Spawned %s using %s.", handle.ID, handle.Profile.Name), handle)
+}
+
+func delegateSpawnFailureDetails(input delegateInput, policy coresession.DelegationPolicy) map[string]any {
+	details := map[string]any{
+		"requested_profile": strings.TrimSpace(input.Profile),
+	}
+	if profiles := allowedProfileNames(policy.AllowedProfiles); len(profiles) > 0 {
+		details["allowed_profiles"] = profiles
+	}
+	return details
+}
+
+func allowedProfileNames(profiles []coresession.Ref) []string {
+	out := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		if profile.Name != "" {
+			out = append(out, string(profile.Name))
+		}
+	}
+	return out
 }
 
 func parseDuration(value string) (time.Duration, error) {

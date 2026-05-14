@@ -12,6 +12,10 @@ import (
 // ProviderName identifies a context provider.
 type ProviderName string
 
+// AnnotationAutoContext marks providers that should remain visible even when an
+// agent declares an explicit context-provider allowlist.
+const AnnotationAutoContext = "agentruntime.auto_context"
+
 // ProviderRef identifies a provider by name.
 type ProviderRef struct {
 	Name ProviderName `json:"name"`

@@ -329,7 +329,12 @@ func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) [
 		if provider == nil {
 			continue
 		}
-		if _, ok := allowed[provider.Spec().Name]; ok {
+		providerSpec := provider.Spec()
+		if providerSpec.Annotations[corecontext.AnnotationAutoContext] == "true" {
+			out = append(out, provider)
+			continue
+		}
+		if _, ok := allowed[providerSpec.Name]; ok {
 			out = append(out, provider)
 		}
 	}

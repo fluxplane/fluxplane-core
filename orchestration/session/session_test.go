@@ -20,6 +20,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -444,7 +445,7 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	if len(transcripts) != 2 {
 		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
 	}
-	if len(transcripts[0].Items) != 1 || transcripts[0].Items[0].Content != "lookup A100" {
+	if !hasTranscriptUserContent(transcripts[0].Items, "lookup A100") {
 		t.Fatalf("first transcript = %#v, want current user input", transcripts[0])
 	}
 	if !hasToolResultCallID(transcripts[1].Items, "call_1") {
@@ -513,8 +514,10 @@ func TestExecuteInboundInputRendersContextOnlyWhenChanged(t *testing.T) {
 	if len(transcripts) != 2 {
 		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
 	}
-	if len(transcripts[0].NewItems) != 1 || !strings.Contains(valueText(transcripts[0].NewItems[0].Content), "<system-context>") {
-		t.Fatalf("first new items = %#v, want context-prefixed user input", transcripts[0].NewItems)
+	if len(transcripts[0].NewItems) != 2 ||
+		!strings.Contains(valueText(transcripts[0].NewItems[0].Content), "agent.self") ||
+		!strings.Contains(valueText(transcripts[0].NewItems[1].Content), "project rules") {
+		t.Fatalf("first new items = %#v, want self system context plus context-prefixed user input", transcripts[0].NewItems)
 	}
 	if len(transcripts[1].NewItems) != 1 || strings.Contains(valueText(transcripts[1].NewItems[0].Content), "<system-context>") {
 		t.Fatalf("second new items = %#v, want unchanged context omitted", transcripts[1].NewItems)
@@ -595,14 +598,54 @@ func TestExecuteInboundInputRendersDeveloperPlacementAsDeveloperTranscriptItem(t
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if len(got.NewItems) != 2 {
-		t.Fatalf("new items = %#v, want developer context plus user input", got.NewItems)
+	if len(got.NewItems) != 3 {
+		t.Fatalf("new items = %#v, want self, developer context, and user input", got.NewItems)
 	}
-	if got.NewItems[0].Role != "developer" || !strings.Contains(valueText(got.NewItems[0].Content), "developer scoped rules") {
-		t.Fatalf("first new item = %#v, want developer context", got.NewItems[0])
+	if got.NewItems[0].Role != "system" || !strings.Contains(valueText(got.NewItems[0].Content), "agent.self") {
+		t.Fatalf("first new item = %#v, want self system context", got.NewItems[0])
 	}
-	if got.NewItems[1].Role != "user" || strings.Contains(valueText(got.NewItems[1].Content), "<system-context>") {
-		t.Fatalf("second new item = %#v, want plain user input", got.NewItems[1])
+	if got.NewItems[1].Role != "developer" || !strings.Contains(valueText(got.NewItems[1].Content), "developer scoped rules") {
+		t.Fatalf("second new item = %#v, want developer context", got.NewItems[1])
+	}
+	if got.NewItems[2].Role != "user" || strings.Contains(valueText(got.NewItems[2].Content), "<system-context>") {
+		t.Fatalf("third new item = %#v, want plain user input", got.NewItems[2])
+	}
+}
+
+func TestExecuteInboundInputContextProvidersSeeSubagentScope(t *testing.T) {
+	ctx := context.Background()
+	var sawProfiles []string
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "delegation", DefaultPlacement: corecontext.PlacementSystem},
+		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+			scope, ok := subagent.ScopeFromContext(ctx)
+			if !ok {
+				t.Fatal("subagent scope missing from context provider context")
+			}
+			for _, profile := range scope.Policy.AllowedProfiles {
+				sawProfiles = append(sawProfiles, string(profile.Name))
+			}
+			return []corecontext.Block{{ID: "delegation/current", Content: strings.Join(sawProfiles, ",")}}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{
+		Agent:     runtimeAgent,
+		Subagents: subagent.New(subagent.Config{}),
+		Delegation: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
+		},
+	}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-scope", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if strings.Join(sawProfiles, ",") != "worker,explorer" {
+		t.Fatalf("profiles = %#v, want worker/explorer", sawProfiles)
 	}
 }
 
@@ -644,8 +687,8 @@ func TestExecuteInboundInputPersistsContextUpdatesAndRemovals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read thread: %v", err)
 	}
-	if got := countEvent(stored.Events, corecontext.EventBlockRecorded); got != 2 {
-		t.Fatalf("block recorded events = %d, want add and update", got)
+	if got := countEvent(stored.Events, corecontext.EventBlockRecorded); got != 3 {
+		t.Fatalf("block recorded events = %d, want self add plus docs add and update", got)
 	}
 	if got := countEvent(stored.Events, corecontext.EventBlockRemoved); got != 1 {
 		t.Fatalf("block removed events = %d, want one removal", got)
@@ -1034,6 +1077,61 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 	}
 	if !threadHasToolResultCallID(stored.Events, "call_1") {
 		t.Fatalf("stored events = %#v, want repaired tool result for call_1", stored.Events)
+	}
+}
+
+func TestAppendThreadEventsRetriesAppendConflict(t *testing.T) {
+	ctx := context.Background()
+	events := &conflictingSessionEventStore{inner: eventstore.NewMemoryStore(), threadID: "thread-append-conflict"}
+	threadStore, err := runtimethread.NewStore(events)
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-append-conflict"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	s := Session{ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-append-conflict"}}
+
+	err = s.appendThreadEvents(ctx, coresession.InputReceived{
+		RunID:   "run-1",
+		Message: channel.Message{Content: "hello"},
+	})
+	if err != nil {
+		t.Fatalf("appendThreadEvents returned error: %v", err)
+	}
+	if !events.injected {
+		t.Fatal("conflict was not injected")
+	}
+}
+
+func TestAppendConversationRetriesAppendConflict(t *testing.T) {
+	ctx := context.Background()
+	events := &conflictingSessionEventStore{inner: eventstore.NewMemoryStore(), threadID: "thread-conversation-conflict"}
+	threadStore, err := runtimethread.NewStore(events)
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-conversation-conflict"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	s := Session{ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-conversation-conflict"}}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+
+	err = s.appendConversation(ctx, "turn-1", provider, []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   "call_1",
+		Content:  "ok",
+	}})
+	if err != nil {
+		t.Fatalf("appendConversation returned error: %v", err)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-conversation-conflict"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if !threadHasToolResultCallID(stored.Events, "call_1") {
+		t.Fatalf("stored events = %#v, want tool result for call_1", stored.Events)
 	}
 }
 
@@ -1496,6 +1594,15 @@ func hasToolResultCallID(items []coreconversation.Item, callID string) bool {
 	return false
 }
 
+func hasTranscriptUserContent(items []coreconversation.Item, content string) bool {
+	for _, item := range items {
+		if item.Kind == coreconversation.ItemInput && item.Role == "user" && valueText(item.Content) == content {
+			return true
+		}
+	}
+	return false
+}
+
 func threadHasToolResultCallID(records []corethread.Record, callID string) bool {
 	for _, record := range records {
 		payload, ok := record.Event.Payload.(coreconversation.ItemsAppended)
@@ -1585,3 +1692,35 @@ func TestExecuteInboundCommandPersistsThreadEvents(t *testing.T) {
 		t.Fatalf("event[4] = %q, want session.outbound.produced", got)
 	}
 }
+
+type conflictingSessionEventStore struct {
+	inner    event.Store
+	threadID corethread.ID
+	injected bool
+}
+
+func (s *conflictingSessionEventStore) Append(ctx context.Context, stream event.StreamID, opts event.AppendOptions, records ...event.Record) ([]event.StoredRecord, error) {
+	if !s.injected && stream == event.StreamID("thread:"+s.threadID) && opts.CheckExpectedSequence && opts.ExpectedSequence > 0 {
+		s.injected = true
+		if _, err := s.inner.Append(ctx, stream, event.AppendOptions{}, event.Record{
+			Name:    "test.concurrent_append",
+			Payload: concurrentAppendEvent{},
+			Scope:   event.Scope{ThreadID: string(s.threadID)},
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return s.inner.Append(ctx, stream, opts, records...)
+}
+
+func (s *conflictingSessionEventStore) AppendBatch(ctx context.Context, requests ...event.AppendRequest) ([]event.AppendResult, error) {
+	return s.inner.AppendBatch(ctx, requests...)
+}
+
+func (s *conflictingSessionEventStore) Load(ctx context.Context, stream event.StreamID, opts event.LoadOptions) ([]event.StoredRecord, error) {
+	return s.inner.Load(ctx, stream, opts)
+}
+
+type concurrentAppendEvent struct{}
+
+func (concurrentAppendEvent) EventName() event.Name { return "test.concurrent_append" }

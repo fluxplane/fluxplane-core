@@ -123,6 +123,7 @@ func TestFactoryAppliesSessionContextNarrowing(t *testing.T) {
 		ContextProviders: []corecontext.Provider{
 			testContextProvider{name: "docs"},
 			testContextProvider{name: "repo"},
+			testContextProvider{name: "runtime", auto: true},
 		},
 		Model: llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
 			request = req
@@ -143,8 +144,14 @@ func TestFactoryAppliesSessionContextNarrowing(t *testing.T) {
 	if result.Status != agent.StatusOK {
 		t.Fatalf("status = %q, want ok", result.Status)
 	}
-	if len(request.Context) != 1 || request.Context[0].Provider != "docs" {
-		t.Fatalf("context = %#v, want docs only", request.Context)
+	if !hasContextProvider(request.Context, "docs") {
+		t.Fatalf("context = %#v, want docs", request.Context)
+	}
+	if hasContextProvider(request.Context, "repo") {
+		t.Fatalf("context = %#v, did not want repo", request.Context)
+	}
+	if !hasContextProvider(request.Context, "runtime") {
+		t.Fatalf("context = %#v, want auto runtime provider", request.Context)
 	}
 }
 
@@ -349,10 +356,15 @@ func (testAgentContext) Events() event.Sink { return event.Discard() }
 
 type testContextProvider struct {
 	name corecontext.ProviderName
+	auto bool
 }
 
 func (p testContextProvider) Spec() corecontext.ProviderSpec {
-	return corecontext.ProviderSpec{Name: p.name}
+	spec := corecontext.ProviderSpec{Name: p.name}
+	if p.auto {
+		spec.Annotations = map[string]string{corecontext.AnnotationAutoContext: "true"}
+	}
+	return spec
 }
 
 func (p testContextProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {

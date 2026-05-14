@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -32,6 +33,7 @@ type Plugin struct {
 
 var _ pluginhost.Plugin = (*Plugin)(nil)
 var _ pluginhost.OperationContributor = (*Plugin)(nil)
+var _ pluginhost.ContextProviderContributor = (*Plugin)(nil)
 
 func New() *Plugin { return &Plugin{} }
 
@@ -41,7 +43,8 @@ func (p *Plugin) Manifest() pluginhost.Manifest {
 
 func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{delegateSpec(), planSpec()},
+		ContextProviders: []corecontext.ProviderSpec{contextSpec()},
+		Operations:       []operation.Spec{delegateSpec(), planSpec()},
 		Agents: []agent.Spec{
 			{
 				Name:        WorkerAgent,
@@ -85,6 +88,13 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 			PlanCancelled{},
 		},
 	}, nil
+}
+
+func (p *Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
+	if p == nil {
+		p = New()
+	}
+	return []corecontext.Provider{contextProvider{plugin: p}}, nil
 }
 
 func (p *Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {

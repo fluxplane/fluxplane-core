@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -46,13 +47,15 @@ func Project(input ProjectionInput) (ProjectionResult, error) {
 	}
 	pending := filterCompatible(input.Pending, input.Provider)
 	if input.Mode == coreconversation.ProjectionNativeContinuation && head != nil && head.SupportsPreviousResponseID() {
-		out := append([]coreconversation.Item(nil), pending...)
+		repair := missingToolResults(items, pending, input.Provider)
+		out := append([]coreconversation.Item(nil), repair...)
+		out = append(out, pending...)
 		if len(out) == 0 && !input.AllowEmpty {
 			out = nil
 		}
 		return ProjectionResult{
 			Items:        out,
-			NewItems:     append([]coreconversation.Item(nil), pending...),
+			NewItems:     append([]coreconversation.Item(nil), out...),
 			Continuation: head,
 			Mode:         coreconversation.ProjectionNativeContinuation,
 		}, nil
@@ -99,6 +102,34 @@ func replay(snapshot corethread.Snapshot, branchID corethread.BranchID, provider
 		}
 	}
 	return items, head, nil
+}
+
+func missingToolResults(items, pending []coreconversation.Item, provider coreconversation.ProviderIdentity) []coreconversation.Item {
+	resolved := map[string]bool{}
+	for _, item := range append(append([]coreconversation.Item(nil), items...), pending...) {
+		if item.Kind == coreconversation.ItemToolResult && strings.TrimSpace(item.CallID) != "" {
+			resolved[item.CallID] = true
+		}
+	}
+	var out []coreconversation.Item
+	for _, item := range items {
+		if item.Kind != coreconversation.ItemOutput || strings.TrimSpace(item.CallID) == "" || resolved[item.CallID] {
+			continue
+		}
+		resolved[item.CallID] = true
+		out = append(out, coreconversation.Item{
+			Provider: provider,
+			Kind:     coreconversation.ItemToolResult,
+			CallID:   item.CallID,
+			Name:     item.Name,
+			Content: map[string]any{
+				"code":    "tool_result_missing",
+				"message": "Tool call did not complete because the previous turn failed before a result could be recorded.",
+			},
+			Metadata: map[string]string{"is_error": "true"},
+		})
+	}
+	return out
 }
 
 func filterCompatible(items []coreconversation.Item, provider coreconversation.ProviderIdentity) []coreconversation.Item {

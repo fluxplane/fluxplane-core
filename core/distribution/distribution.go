@@ -19,6 +19,7 @@ type Spec struct {
 	DefaultConversation channel.ConversationRef `json:"default_conversation,omitempty"`
 	DefaultModel        ModelDefault            `json:"default_model,omitempty"`
 	Surfaces            Surfaces                `json:"surfaces,omitempty"`
+	Build               BuildSpec              `json:"build,omitempty"`
 	Commands            []Command               `json:"commands,omitempty"`
 	Metadata            map[string]string       `json:"metadata,omitempty"`
 }
@@ -41,6 +42,23 @@ type Surfaces struct {
 	Validate bool `json:"validate,omitempty"`
 	Status   bool `json:"status,omitempty"`
 	Discover bool `json:"discover,omitempty"`
+}
+
+// BuildSpec describes packaging inputs and outputs for a distribution.
+type BuildSpec struct {
+	Assets []string         `json:"assets,omitempty"`
+	Docker *DockerBuildSpec `json:"docker,omitempty"`
+}
+
+// DockerBuildSpec describes a future Docker image build target.
+type DockerBuildSpec struct {
+	Image       string            `json:"image,omitempty"`
+	Tags        []string          `json:"tags,omitempty"`
+	Dockerfile  string            `json:"dockerfile,omitempty"`
+	Context     string            `json:"context,omitempty"`
+	Platforms   []string          `json:"platforms,omitempty"`
+	BuildArgs   map[string]string `json:"build_args,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // Command describes a distribution-specific command surface.

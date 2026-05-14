@@ -116,7 +116,7 @@ type StepResult struct {
 
 // Step runs one observe-decide-apply cycle.
 func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
-	agentCtx := agentContext{Context: ensureContext(ctx), events: s.eventSink()}
+	agentCtx := agentContext{Context: s.withSubagentBaseContext(ensureContext(ctx), "", s.eventSink()), events: s.eventSink()}
 	if s.Agent == nil {
 		return StepResult{Agent: agent.StepResult{
 			Status: agent.StatusFailed,
@@ -390,6 +390,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
 		}
 		modelCtx := llmagent.ContextWithMaterializedContext(llmagent.ContextWithTranscript(in.BaseContext, &transcript))
+		modelCtx = s.withSubagentBaseContext(modelCtx, "", in.Events)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
 			Observations: observations,
@@ -462,7 +463,7 @@ func (s Session) persistRepairTranscriptItems(ctx context.Context, turnID string
 	if localItems != nil {
 		*localItems = append(*localItems, copied...)
 	}
-	return conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, turnID, provider, copied)
+	return s.appendConversation(ctx, turnID, provider, copied)
 }
 
 func inputObservationMetadata(inbound channel.Inbound) map[string]any {
@@ -620,6 +621,7 @@ func (s Session) contextProviders() []corecontext.Provider {
 
 func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation) context.Context {
 	ctx = ensureContext(ctx)
+	ctx = s.withSubagentBaseContext(ctx, "", s.eventSink())
 	ctx = coredatasource.ContextWithDetectionInput(ctx, detectionInputFromObservations(observations))
 	if s.Agent == nil {
 		return ctx
@@ -1021,7 +1023,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 			if localItems != nil {
 				*localItems = append(*localItems, typed.Items...)
 			}
-			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
+			if err := s.appendConversation(ctx, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
 				*errp = err
 			}
 		case *coreconversation.ItemsAppended:
@@ -1038,7 +1040,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 			if localItems != nil {
 				*localItems = append(*localItems, copied.Items...)
 			}
-			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
+			if err := s.appendConversation(ctx, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
 				*errp = err
 			}
 		case coreconversation.ContinuationStored:
@@ -1052,7 +1054,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 				copied := typed.Handle
 				*localHandle = &copied
 			}
-			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
+			if err := s.appendConversation(ctx, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
 				*errp = err
 			}
 		case *coreconversation.ContinuationStored:
@@ -1070,7 +1072,7 @@ func (s Session) conversationEventSink(ctx context.Context, turnID string, errp 
 				handle := copied.Handle
 				*localHandle = &handle
 			}
-			if err := conversationruntime.Append(persistenceContext(ctx), s.ThreadStore, s.Thread, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
+			if err := s.appendConversation(ctx, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
 				*errp = err
 			}
 		}
@@ -1697,16 +1699,26 @@ func (s Session) withSubagentScope(ctx operation.Context, callID operation.CallI
 	if ctx == nil || s.Subagents == nil {
 		return ctx
 	}
-	base := subagent.ContextWithScope(ctx, subagent.Scope{
+	base := s.withSubagentBaseContext(ctx, callID, ctx.Events())
+	return operation.NewContext(base, ctx.Events())
+}
+
+func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.CallID, events event.Sink) context.Context {
+	if ctx == nil || s.Subagents == nil {
+		return ctx
+	}
+	if events == nil {
+		events = event.Discard()
+	}
+	return subagent.ContextWithScope(ctx, subagent.Scope{
 		Supervisor:     s.Subagents,
 		ParentThreadID: s.Thread.ID,
 		ParentRunID:    s.RunID,
 		ParentCallID:   callID,
 		Policy:         s.Delegation,
-		Events:         ctx.Events(),
+		Events:         events,
 		ThreadStore:    s.ThreadStore,
 	})
-	return operation.NewContext(base, ctx.Events())
 }
 
 func (s Session) replaySkillEvents(ctx context.Context) error {
@@ -1867,8 +1879,41 @@ func (s Session) appendThreadEvents(ctx context.Context, events ...event.Event) 
 	if len(records) == 0 {
 		return nil
 	}
-	_, err := s.ThreadStore.Append(persistenceContext(ctx), s.Thread, records...)
-	return err
+	return s.appendThreadRecords(ctx, records...)
+}
+
+func (s Session) appendConversation(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, handles ...coreconversation.ContinuationHandle) error {
+	return retryThreadAppend(ctx, func(appendCtx context.Context) error {
+		return conversationruntime.Append(appendCtx, s.ThreadStore, s.Thread, turnID, provider, items, handles...)
+	})
+}
+
+func (s Session) appendThreadRecords(ctx context.Context, records ...corethread.AppendRecord) error {
+	if s.ThreadStore == nil || s.Thread.ID == "" || len(records) == 0 {
+		return nil
+	}
+	return retryThreadAppend(ctx, func(appendCtx context.Context) error {
+		_, err := s.ThreadStore.Append(appendCtx, s.Thread, records...)
+		return err
+	})
+}
+
+func retryThreadAppend(ctx context.Context, append func(context.Context) error) error {
+	if append == nil {
+		return nil
+	}
+	var last error
+	for attempt := 0; attempt < 8; attempt++ {
+		if err := append(persistenceContext(ctx)); err != nil {
+			last = err
+			if !errors.Is(err, event.ErrAppendConflict) {
+				return err
+			}
+			continue
+		}
+		return nil
+	}
+	return last
 }
 
 func persistenceContext(ctx context.Context) context.Context {

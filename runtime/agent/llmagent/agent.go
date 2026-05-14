@@ -95,6 +95,7 @@ func New(spec agent.Spec, model Model, opts ...Option) (*Agent, error) {
 			opt(a)
 		}
 	}
+	a.contextProviders = append([]corecontext.Provider{newSelfContextProvider(a.spec, a.driver, a.model)}, a.contextProviders...)
 	return a, nil
 }
 

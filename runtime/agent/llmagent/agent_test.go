@@ -3,6 +3,7 @@ package llmagent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,8 +80,32 @@ func TestAgentStepSendsStructuredRequestAndReturnsMessageDecision(t *testing.T) 
 	if len(got.Observations) != 1 || got.Observations[0].Content != "please fix tests" {
 		t.Fatalf("observations = %#v, want channel message", got.Observations)
 	}
-	if len(got.Context) != 1 || got.Context[0].Content != "repo context" {
+	if !hasContextBlock(got.Context, "", "repo context") {
 		t.Fatalf("context = %#v, want repo context", got.Context)
+	}
+	if !hasContextBlock(got.Context, SelfContextProviderName, "model: test-model") {
+		t.Fatalf("context = %#v, want self context with model", got.Context)
+	}
+}
+
+func TestAgentStepIncludesSelfContextWithProviderIdentity(t *testing.T) {
+	var got Request
+	runtime, err := New(agent.Spec{Name: "main", Inference: agent.InferenceSpec{Model: "fallback-model"}}, capturingIdentifiedModel{
+		identity: coreconversation.ProviderIdentity{Provider: "test-provider", Model: "resolved-model"},
+		response: MessageResponse("ok"),
+		got:      &got,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.Step(testAgentContext{}, agent.StepInput{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if !hasContextBlock(got.Context, SelfContextProviderName, "model: test-provider/resolved-model") {
+		t.Fatalf("context = %#v, want self context with provider/model", got.Context)
 	}
 }
 
@@ -133,7 +158,7 @@ func TestAgentStepPassesChannelMessageToContextProvidersForDetection(t *testing.
 	if len(gotInput.Sources) != 1 || gotInput.Sources[0].Text != "see DEV-381" {
 		t.Fatalf("detection input = %#v, want channel text", gotInput)
 	}
-	if len(got.Context) != 1 || got.Context[0].Content != "detected" {
+	if !hasContextBlock(got.Context, "detect", "detected") {
 		t.Fatalf("context = %#v, want provider block", got.Context)
 	}
 }
@@ -452,6 +477,18 @@ func (p contextProviderFunc) Build(ctx context.Context, req corecontext.Request)
 	return p.build(ctx, req)
 }
 
+func hasContextBlock(blocks []corecontext.Block, provider corecontext.ProviderName, content string) bool {
+	for _, block := range blocks {
+		if provider != "" && block.Provider != provider {
+			continue
+		}
+		if strings.Contains(block.Content, content) {
+			return true
+		}
+	}
+	return false
+}
+
 type streamingModel struct{}
 
 func (streamingModel) Complete(context.Context, Request) (Response, error) {
@@ -475,5 +512,22 @@ func (m identifiedModel) Complete(context.Context, Request) (Response, error) {
 }
 
 func (m identifiedModel) ProviderIdentity(Request) coreconversation.ProviderIdentity {
+	return m.identity
+}
+
+type capturingIdentifiedModel struct {
+	identity coreconversation.ProviderIdentity
+	response Response
+	got      *Request
+}
+
+func (m capturingIdentifiedModel) Complete(_ context.Context, req Request) (Response, error) {
+	if m.got != nil {
+		*m.got = req
+	}
+	return m.response, nil
+}
+
+func (m capturingIdentifiedModel) ProviderIdentity(Request) coreconversation.ProviderIdentity {
 	return m.identity
 }
