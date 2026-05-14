@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Outbound provider, channel, and guarded system HTTP clients now share the
+  runtime transport for extended compression handling and transient retry
+  behavior.
 - Removed OpenAI-specific request-local transcript compaction so compaction
   behavior is durable and session-owned across providers.
 - Conversation continuity repair now records durable diagnostics and preserves

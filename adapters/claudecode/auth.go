@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 const (
@@ -53,7 +55,7 @@ type managedTokenProvider struct {
 
 func newManagedTokenProvider(key string, store tokenStore, client *http.Client) *managedTokenProvider {
 	if client == nil {
-		client = http.DefaultClient
+		client = httptransport.CloneDefaultHTTPClient()
 	}
 	return &managedTokenProvider{key: key, store: store, client: client}
 }

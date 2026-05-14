@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 const (
@@ -118,7 +120,7 @@ func (a *auth) refreshLocked(ctx context.Context) (string, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	client := a.client
 	if client == nil {
-		client = http.DefaultClient
+		client = httptransport.CloneDefaultHTTPClient()
 	}
 	resp, err := client.Do(req)
 	if err != nil {

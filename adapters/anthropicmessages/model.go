@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/usage"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 const (
@@ -88,7 +89,7 @@ func New(cfg Config) (*Model, error) {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = http.DefaultClient
+		client = httptransport.CloneDefaultHTTPClient()
 	}
 	maxOutput := cfg.MaxOutputTokens
 	if maxOutput <= 0 {

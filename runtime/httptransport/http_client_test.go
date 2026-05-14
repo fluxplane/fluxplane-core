@@ -5,15 +5,17 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 )
 
-func TestDefaultHTTPClientUsesDecompressingTransport(t *testing.T) {
+func TestDefaultHTTPClientUsesDefaultTransport(t *testing.T) {
 	client := DefaultHTTPClient()
 	if client == nil || client.Transport == nil {
 		t.Fatalf("expected default client with transport")
@@ -90,6 +92,98 @@ func TestDecompressingTransportDecodesSupportedEncodings(t *testing.T) {
 	}
 }
 
+func TestRetryingTransportRetriesTransientStatus(t *testing.T) {
+	var calls int
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return textStatusResponse(http.StatusTooManyRequests, "retry"), nil
+		}
+		return textStatusResponse(http.StatusOK, "ok"), nil
+	}), RetryConfig{
+		MaxAttempts: 2,
+		BaseWait:    time.Millisecond,
+		MaxWait:     time.Millisecond,
+		Sleep:       noSleep,
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestRetryingTransportRequiresReplayableBody(t *testing.T) {
+	var calls int
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("temporary")
+	}), RetryConfig{
+		MaxAttempts: 2,
+		BaseWait:    time.Millisecond,
+		MaxWait:     time.Millisecond,
+		Sleep:       noSleep,
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.test", io.NopCloser(bytes.NewReader([]byte("body"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rt.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestRetryingTransportReplaysPostWithGetBody(t *testing.T) {
+	var calls int
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "body" {
+			t.Fatalf("body = %q", body)
+		}
+		if calls == 1 {
+			return textStatusResponse(http.StatusServiceUnavailable, "retry"), nil
+		}
+		return textStatusResponse(http.StatusOK, "ok"), nil
+	}), RetryConfig{
+		MaxAttempts: 2,
+		BaseWait:    time.Millisecond,
+		MaxWait:     time.Millisecond,
+		Sleep:       noSleep,
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.test", bytes.NewReader([]byte("body")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func noSleep(context.Context, time.Duration) error { return nil }
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -105,6 +199,16 @@ func textResponse(encoding string, body []byte) *http.Response {
 		StatusCode:    http.StatusOK,
 		Header:        header,
 		Body:          io.NopCloser(bytes.NewReader(body)),
+		ContentLength: int64(len(body)),
+	}
+}
+
+func textStatusResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode:    status,
+		Status:        http.StatusText(status),
+		Header:        http.Header{"Content-Type": {"text/plain"}},
+		Body:          io.NopCloser(bytes.NewReader([]byte(body))),
 		ContentLength: int64(len(body)),
 	}
 }

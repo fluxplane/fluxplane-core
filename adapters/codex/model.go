@@ -64,6 +64,7 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 		APIName:           "codex.responses",
 		BaseURL:           baseURL,
 		APIKey:            "codex-auth-via-middleware",
+		HTTPClient:        cfg.HTTPClient,
 		Runtime:           runtime,
 		Pricing:           cfg.Pricing,
 		ReasoningEffort:   cfg.ReasoningEffort,

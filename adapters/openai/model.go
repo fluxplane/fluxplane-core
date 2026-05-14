@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
@@ -21,6 +22,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 	runtimeusage "github.com/fluxplane/agentruntime/runtime/usage"
 )
 
@@ -75,6 +77,9 @@ type Config struct {
 	// runtime stream events.
 	Redactor adapterllm.Redactor
 
+	// HTTPClient overrides the runtime default outbound HTTP client.
+	HTTPClient *http.Client
+
 	// RequestOptions appends low-level OpenAI SDK options such as provider
 	// middleware. Prefer higher-level config when adding new behavior.
 	RequestOptions []option.RequestOption
@@ -97,7 +102,12 @@ type Model struct {
 
 // New returns an OpenAI Responses API model adapter.
 func New(cfg Config) (*Model, error) {
-	opts := make([]option.RequestOption, 0, 2)
+	httpClient := cfg.HTTPClient
+	if httpClient == nil {
+		httpClient = httptransport.CloneDefaultHTTPClient()
+	}
+	opts := make([]option.RequestOption, 0, 3)
+	opts = append(opts, option.WithHTTPClient(httpClient))
 	if cfg.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))
 	}

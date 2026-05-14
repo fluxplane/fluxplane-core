@@ -20,6 +20,7 @@ import (
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)
@@ -52,7 +53,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = httptransport.CloneDefaultHTTPClient()
 	}
 	if cfg.UnixSocket != "" {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -60,7 +61,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 			var dialer net.Dialer
 			return dialer.DialContext(ctx, "unix", cfg.UnixSocket)
 		}
-		httpClient = &http.Client{Transport: transport}
+		httpClient = &http.Client{Transport: httptransport.NewDefaultTransport(transport)}
 	}
 	headers := cfg.Headers.Clone()
 	if headers == nil {

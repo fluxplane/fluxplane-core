@@ -25,6 +25,7 @@ type Config struct {
 	Model             string
 	APIKey            string
 	BaseURL           string
+	HTTPClient        *http.Client
 	HTTPReferer       string
 	Title             string
 	ParallelToolCalls bool
@@ -75,6 +76,7 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 		APIName:           "openrouter.responses",
 		BaseURL:           baseURL,
 		APIKey:            apiKey,
+		HTTPClient:        cfg.HTTPClient,
 		Runtime:           runtime,
 		Pricing:           cfg.Pricing,
 		ReasoningEffort:   cfg.ReasoningEffort,

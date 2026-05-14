@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 // System groups the runtime boundaries that can touch the outside world.
@@ -998,7 +999,7 @@ func (n *HostNetwork) DoHTTP(ctx context.Context, req HTTPRequest) (HTTPResponse
 		httpReq.Header.Set(key, value)
 	}
 	client := &http.Client{
-		Transport: PublicNetworkTransport(n.allowPrivate),
+		Transport: httptransport.NewDefaultTransport(PublicNetworkTransport(n.allowPrivate)),
 		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {
 			return ValidatePublicURL(redirectReq.URL, n.allowPrivate)
 		},

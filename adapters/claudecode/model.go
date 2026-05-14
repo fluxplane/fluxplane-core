@@ -14,9 +14,9 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/adapters/anthropicmessages"
-	"github.com/fluxplane/agentruntime/adapters/httptransport"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
+	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
 const (
