@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
+	"github.com/fluxplane/agentruntime/adapters/modelview"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	"github.com/fluxplane/agentruntime/core/channel"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -49,6 +52,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.AddCommand(newDescribeCommand(dist))
+	cmd.AddCommand(newModelsCommand(dist))
 	return cmd
 }
 
@@ -210,6 +214,45 @@ func newDescribeAgentCommand(dist distribution.Distribution) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "tree", "Output format: tree|json|yaml")
 	return cmd
+}
+
+func newModelsCommand(dist distribution.Distribution) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "models",
+		Short: "List available model providers and models",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			providers, err := distributionModels(dist)
+			if err != nil {
+				return err
+			}
+			switch output {
+			case "", "tree", "pretty":
+				return modelview.RenderTree(cmd.OutOrStdout(), providers)
+			case "json":
+				return modelview.RenderJSON(cmd.OutOrStdout(), providers)
+			case "yaml":
+				return modelview.RenderYAML(cmd.OutOrStdout(), providers)
+			default:
+				return fmt.Errorf("models: unsupported output %q", output)
+			}
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "tree", "Output format: tree|json|yaml")
+	return cmd
+}
+
+func distributionModels(dist distribution.Distribution) ([]corellm.ProviderSpec, error) {
+	var specs []corellm.ProviderSpec
+	for _, bundle := range dist.Bundles {
+		specs = append(specs, bundle.LLMProviders...)
+	}
+	registry, err := distrun.DefaultModelRegistry(specs...)
+	if err != nil {
+		return nil, err
+	}
+	return registry.Providers(), nil
 }
 
 func shortDescription(dist distribution.Distribution) string {
