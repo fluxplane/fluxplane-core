@@ -84,6 +84,7 @@ agentsdk serve .
 agentsdk run . --provider openai --model gpt-5.5
 agentsdk run . --model openrouter/anthropic/claude-sonnet-4.6
 agentsdk run . --model anthropic/claude-haiku-4-5-20251001
+agentsdk run . --provider claudecode --model claude-sonnet-4-6
 agentsdk run . --model minimax/MiniMax-M2.7
 ```
 
@@ -114,6 +115,8 @@ auth files:
 - local Codex OAuth at `~/.codex/auth.json` or `CODEX_AUTH_PATH`.
 - `OPENROUTER_API_KEY` for OpenRouter.
 - `ANTHROPIC_API_KEY` for Anthropic.
+- local Claude Code OAuth at `$CLAUDE_CONFIG_DIR/.credentials.json` or
+  `~/.claude/.credentials.json` for `claudecode`.
 - `MINIMAX_API_KEY` for MiniMax.
 
 ### Connectors And Datasources

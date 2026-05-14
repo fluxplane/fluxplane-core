@@ -46,8 +46,14 @@ func TestStreamTextAndUsage(t *testing.T) {
 		if r.URL.Path != "/v1/messages" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
+		if r.URL.RawQuery != "" {
+			t.Fatalf("query = %q, want empty for plain Anthropic Messages", r.URL.RawQuery)
+		}
 		if r.Header.Get("x-api-key") != "test-key" {
 			t.Fatalf("x-api-key = %q", r.Header.Get("x-api-key"))
+		}
+		if r.Header.Get("Anthropic-Beta") != "" || r.Header.Get("Authorization") != "" {
+			t.Fatalf("unexpected optional headers: %v", r.Header)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
 			t.Fatalf("decode request: %v", err)

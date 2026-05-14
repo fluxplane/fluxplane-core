@@ -28,44 +28,56 @@ const (
 
 var ErrModelMissing = errors.New("anthropic messages: model is empty")
 
+// RequestProcessor mutates the provider wire request before it is encoded.
+type RequestProcessor func(context.Context, *MessageRequest) error
+
+// HeaderFunc mutates the HTTP request after default Anthropic headers are set.
+type HeaderFunc func(context.Context, *http.Request, MessageRequest) error
+
 // Config configures a generic Anthropic-compatible Messages model.
 type Config struct {
-	Model           string
-	APIKey          string
-	BaseURL         string
-	ProviderName    string
-	APIName         string
-	Version         string
-	AuthHeader      string
-	AuthScheme      string
-	Headers         map[string]string
-	MaxOutputTokens int
-	PromptCache     bool
-	Pricing         []corellm.PricingSpec
-	Thinking        string
-	ReasoningEffort string
-	Redactor        adapterllm.Redactor
-	HTTPClient      *http.Client
+	Model             string
+	APIKey            string
+	BaseURL           string
+	ProviderName      string
+	APIName           string
+	Version           string
+	AuthHeader        string
+	AuthScheme        string
+	Headers           map[string]string
+	MaxOutputTokens   int
+	PromptCache       bool
+	Pricing           []corellm.PricingSpec
+	Thinking          string
+	ReasoningEffort   string
+	Redactor          adapterllm.Redactor
+	HTTPClient        *http.Client
+	Query             map[string]string
+	RequestProcessors []RequestProcessor
+	HeaderFuncs       []HeaderFunc
 }
 
 // Model implements the llmagent model ports over /v1/messages.
 type Model struct {
-	client          *http.Client
-	model           string
-	baseURL         string
-	provider        string
-	api             string
-	version         string
-	apiKey          string
-	authHeader      string
-	authScheme      string
-	headers         map[string]string
-	maxOutputTokens int
-	promptCache     bool
-	pricing         []corellm.PricingSpec
-	thinking        string
-	reasoningEffort string
-	redactor        adapterllm.Redactor
+	client            *http.Client
+	model             string
+	baseURL           string
+	provider          string
+	api               string
+	version           string
+	apiKey            string
+	authHeader        string
+	authScheme        string
+	headers           map[string]string
+	maxOutputTokens   int
+	promptCache       bool
+	pricing           []corellm.PricingSpec
+	thinking          string
+	reasoningEffort   string
+	redactor          adapterllm.Redactor
+	query             map[string]string
+	requestProcessors []RequestProcessor
+	headerFuncs       []HeaderFunc
 }
 
 // New returns a generic Anthropic Messages model.
@@ -96,23 +108,32 @@ func New(cfg Config) (*Model, error) {
 			headers[strings.TrimSpace(key)] = strings.TrimSpace(value)
 		}
 	}
+	query := map[string]string{}
+	for key, value := range cfg.Query {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			query[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
 	return &Model{
-		client:          client,
-		model:           strings.TrimSpace(cfg.Model),
-		baseURL:         baseURL,
-		provider:        firstNonEmpty(strings.TrimSpace(cfg.ProviderName), "anthropic"),
-		api:             firstNonEmpty(strings.TrimSpace(cfg.APIName), "anthropic.messages"),
-		version:         version,
-		apiKey:          strings.TrimSpace(cfg.APIKey),
-		authHeader:      authHeader,
-		authScheme:      strings.TrimSpace(cfg.AuthScheme),
-		headers:         headers,
-		maxOutputTokens: maxOutput,
-		promptCache:     cfg.PromptCache,
-		pricing:         append([]corellm.PricingSpec(nil), cfg.Pricing...),
-		thinking:        strings.TrimSpace(cfg.Thinking),
-		reasoningEffort: strings.TrimSpace(cfg.ReasoningEffort),
-		redactor:        cfg.Redactor,
+		client:            client,
+		model:             strings.TrimSpace(cfg.Model),
+		baseURL:           baseURL,
+		provider:          firstNonEmpty(strings.TrimSpace(cfg.ProviderName), "anthropic"),
+		api:               firstNonEmpty(strings.TrimSpace(cfg.APIName), "anthropic.messages"),
+		version:           version,
+		apiKey:            strings.TrimSpace(cfg.APIKey),
+		authHeader:        authHeader,
+		authScheme:        strings.TrimSpace(cfg.AuthScheme),
+		headers:           headers,
+		maxOutputTokens:   maxOutput,
+		promptCache:       cfg.PromptCache,
+		pricing:           append([]corellm.PricingSpec(nil), cfg.Pricing...),
+		thinking:          strings.TrimSpace(cfg.Thinking),
+		reasoningEffort:   strings.TrimSpace(cfg.ReasoningEffort),
+		redactor:          cfg.Redactor,
+		query:             query,
+		requestProcessors: append([]RequestProcessor(nil), cfg.RequestProcessors...),
+		headerFuncs:       append([]HeaderFunc(nil), cfg.HeaderFuncs...),
 	}, nil
 }
 
@@ -285,11 +306,14 @@ func (m *Model) modelName(req llmagent.Request) string {
 
 func (m *Model) doJSON(ctx context.Context, wire messageRequest, collector *httpUsageCollector) ([]byte, string, error) {
 	wire.Stream = false
+	if err := m.processRequest(ctx, &wire); err != nil {
+		return nil, "", err
+	}
 	body, err := json.Marshal(wire)
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := m.do(ctx, body, collector)
+	resp, err := m.do(ctx, wire, body, collector)
 	if err != nil {
 		return nil, "", err
 	}
@@ -307,11 +331,14 @@ func (m *Model) doJSON(ctx context.Context, wire messageRequest, collector *http
 
 func (m *Model) doStream(ctx context.Context, wire messageRequest, collector *httpUsageCollector) (io.ReadCloser, error) {
 	wire.Stream = true
+	if err := m.processRequest(ctx, &wire); err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(wire)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := m.do(ctx, body, collector)
+	resp, err := m.do(ctx, wire, body, collector)
 	if err != nil {
 		return nil, err
 	}
@@ -324,11 +351,30 @@ func (m *Model) doStream(ctx context.Context, wire messageRequest, collector *ht
 	return countingReadCloser{ReadCloser: resp.Body, add: func(n int64) { collector.downloadBytes.Add(n) }}, nil
 }
 
-func (m *Model) do(ctx context.Context, body []byte, collector *httpUsageCollector) (*http.Response, error) {
+func (m *Model) processRequest(ctx context.Context, wire *messageRequest) error {
+	for _, processor := range m.requestProcessors {
+		if processor == nil {
+			continue
+		}
+		if err := processor(ctx, (*MessageRequest)(wire)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Model) do(ctx context.Context, wire messageRequest, body []byte, collector *httpUsageCollector) (*http.Response, error) {
 	url := strings.TrimRight(m.baseURL, "/") + "/v1/messages"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
+	}
+	if len(m.query) > 0 {
+		q := req.URL.Query()
+		for key, value := range m.query {
+			q.Set(key, value)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -336,12 +382,21 @@ func (m *Model) do(ctx context.Context, body []byte, collector *httpUsageCollect
 	for key, value := range m.headers {
 		req.Header.Set(key, value)
 	}
+	mergeAnthropicBetaHeader(req.Header, wire.Betas)
 	if m.apiKey != "" && m.authHeader != "" {
 		value := m.apiKey
 		if m.authScheme != "" {
 			value = m.authScheme + " " + m.apiKey
 		}
 		req.Header.Set(m.authHeader, value)
+	}
+	for _, fn := range m.headerFuncs {
+		if fn == nil {
+			continue
+		}
+		if err := fn(req.Context(), req, wire); err != nil {
+			return nil, err
+		}
 	}
 	if collector != nil {
 		collector.uploadBytes.Add(int64(len(body)))

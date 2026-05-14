@@ -1,8 +1,12 @@
 package run
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -21,6 +25,10 @@ func TestResolveModelSelectionParsesProviderPrefix(t *testing.T) {
 	got = ResolveModelSelection("openai", "minimax/MiniMax-M2.7")
 	if got.Provider != "minimax" || got.Model != "MiniMax-M2.7" {
 		t.Fatalf("selection = %#v, want minimax/MiniMax-M2.7", got)
+	}
+	got = ResolveModelSelection("openai", "claudecode/claude-sonnet-4-6")
+	if got.Provider != "claudecode" || got.Model != "claude-sonnet-4-6" {
+		t.Fatalf("selection = %#v, want claudecode/claude-sonnet-4-6", got)
 	}
 }
 
@@ -69,6 +77,30 @@ func TestNewModelSupportsAnthropicMessagesModels(t *testing.T) {
 	}
 	if model == nil {
 		t.Fatal("minimax model is nil")
+	}
+	claudeDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	writeClaudeCodeCredentials(t, filepath.Join(claudeDir, ".credentials.json"))
+	model, err = NewModel(ModelSelection{Provider: "claudecode", Model: "claude-haiku-4-5-20251001"}, false)
+	if err != nil {
+		t.Fatalf("NewModel claudecode: %v", err)
+	}
+	if model == nil {
+		t.Fatal("claudecode model is nil")
+	}
+}
+
+func TestDefaultModelRegistryIncludesClaudeCode(t *testing.T) {
+	registry, err := DefaultModelRegistry()
+	if err != nil {
+		t.Fatalf("DefaultModelRegistry: %v", err)
+	}
+	provider, model, ok := registry.ModelSpec("claudecode", "claude-haiku-4-5-20251001")
+	if !ok {
+		t.Fatal("claudecode claude-haiku-4-5-20251001 missing")
+	}
+	if provider.DisplayName != "Claude Code" || model.Ref.Provider != "claudecode" {
+		t.Fatalf("provider/model = %#v %#v, want claudecode rebinding", provider, model.Ref)
 	}
 }
 
@@ -135,6 +167,16 @@ func TestResolveReasoningAutoEffortEnablesAnthropicThinking(t *testing.T) {
 	if got.Thinking != "on" || got.Effort != "high" {
 		t.Fatalf("reasoning = %#v, want on/high", got)
 	}
+	got, err = ResolveReasoning("claudecode", anthropicReasoningModel("claude-test", "low,high", "enabled"), agent.InferenceSpec{}, ReasoningOverrides{
+		Effort:    "high",
+		EffortSet: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveReasoning claudecode: %v", err)
+	}
+	if got.Thinking != "on" || got.Effort != "high" {
+		t.Fatalf("reasoning = %#v, want on/high for claudecode", got)
+	}
 }
 
 func TestResolveReasoningOffSuppressesOpenRouterDefaults(t *testing.T) {
@@ -187,5 +229,22 @@ func anthropicReasoningModel(name, efforts, thinkingModes string) corellm.ModelS
 			"modeldb.anthropic_messages.reasoning_efforts": efforts,
 			"modeldb.anthropic_messages.thinking_modes":    thinkingModes,
 		},
+	}
+}
+
+func writeClaudeCodeCredentials(t *testing.T, path string) {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"claudeAiOauth": map[string]any{
+			"accessToken":  "access",
+			"refreshToken": "refresh",
+			"expiresAt":    time.Now().Add(time.Hour).UnixMilli(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

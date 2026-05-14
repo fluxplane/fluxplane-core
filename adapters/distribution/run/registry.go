@@ -7,6 +7,7 @@ import (
 
 	"github.com/codewandler/modeldb"
 	"github.com/fluxplane/agentruntime/adapters/anthropic"
+	"github.com/fluxplane/agentruntime/adapters/claudecode"
 	"github.com/fluxplane/agentruntime/adapters/codex"
 	"github.com/fluxplane/agentruntime/adapters/minimax"
 	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
@@ -209,6 +210,7 @@ func defaultModelProviders() ([]ModelProvider, error) {
 	if err != nil {
 		return nil, err
 	}
+	claudeCodeSpec := rebindProviderSpec(anthropicSpec, "claudecode", "Claude Code")
 	minimaxSpec, err := project(modelcatalog.ProviderProjection{
 		ServiceID: "minimax",
 		APIType:   modeldb.APITypeAnthropicMessages,
@@ -225,8 +227,19 @@ func defaultModelProviders() ([]ModelProvider, error) {
 			UnknownModelHint: "use an exact OpenRouter model id, for example --model openrouter/anthropic/claude-sonnet-4.6",
 		},
 		{Spec: anthropicSpec, New: newAnthropicModel},
+		{Spec: claudeCodeSpec, New: newClaudeCodeModel},
 		{Spec: minimaxSpec, New: newMinimaxModel},
 	}, nil
+}
+
+func rebindProviderSpec(spec corellm.ProviderSpec, name, displayName string) corellm.ProviderSpec {
+	spec.Name = corellm.ProviderName(name)
+	spec.DisplayName = displayName
+	spec.Models = append([]corellm.ModelSpec(nil), spec.Models...)
+	for i := range spec.Models {
+		spec.Models[i].Ref.Provider = spec.Name
+	}
+	return spec
 }
 
 func newOpenAIModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
@@ -272,6 +285,21 @@ func newAnthropicModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent
 		return nil, err
 	}
 	return anthropic.New(anthropic.Config{
+		Model:           string(modelSpec.Ref.Name),
+		Pricing:         modelSpec.Pricing,
+		MaxOutputTokens: maxOutputTokens(modelSpec),
+		PromptCache:     modelSpec.Capabilities.Has(corellm.CapabilityPromptCaching),
+		Thinking:        opts.Reasoning.Thinking,
+		ReasoningEffort: opts.Reasoning.Effort,
+		Redactor:        debugRedactor(opts.Debug),
+	})
+}
+
+func newClaudeCodeModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
+	if err := requireMessagesModel("claudecode", modelSpec); err != nil {
+		return nil, err
+	}
+	return claudecode.New(claudecode.Config{
 		Model:           string(modelSpec.Ref.Name),
 		Pricing:         modelSpec.Pricing,
 		MaxOutputTokens: maxOutputTokens(modelSpec),

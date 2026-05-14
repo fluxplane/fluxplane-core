@@ -83,6 +83,7 @@ coder --provider openai --model gpt-5.5
 coder --model codex/gpt-5.5
 coder --model openrouter/anthropic/claude-sonnet-4.6
 coder --model anthropic/claude-haiku-4-5-20251001
+coder --provider claudecode --model claude-sonnet-4-6
 coder --model minimax/MiniMax-M2.7
 ```
 
@@ -105,6 +106,8 @@ auth files:
 - local Codex OAuth at `~/.codex/auth.json` or `CODEX_AUTH_PATH`.
 - `OPENROUTER_API_KEY` for OpenRouter.
 - `ANTHROPIC_API_KEY` for Anthropic.
+- local Claude Code OAuth at `$CLAUDE_CONFIG_DIR/.credentials.json` or
+  `~/.claude/.credentials.json` for `claudecode`.
 - `MINIMAX_API_KEY` for MiniMax.
 
 ### Debugging And Usage

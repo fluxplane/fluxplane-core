@@ -3,6 +3,7 @@ package anthropicmessages
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
@@ -10,20 +11,31 @@ import (
 )
 
 type messageRequest struct {
-	Model       string           `json:"model"`
-	MaxTokens   int              `json:"max_tokens"`
-	Messages    []message        `json:"messages"`
-	System      []contentBlock   `json:"system,omitempty"`
-	Tools       []toolDefinition `json:"tools,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
-	Temperature *float64         `json:"temperature,omitempty"`
-	Thinking    *thinkingConfig  `json:"thinking,omitempty"`
-	Effort      string           `json:"reasoning_effort,omitempty"`
+	Model             string           `json:"model"`
+	MaxTokens         int              `json:"max_tokens"`
+	Messages          []message        `json:"messages"`
+	System            []contentBlock   `json:"system,omitempty"`
+	Tools             []toolDefinition `json:"tools,omitempty"`
+	Stream            bool             `json:"stream,omitempty"`
+	Temperature       *float64         `json:"temperature,omitempty"`
+	Thinking          *thinkingConfig  `json:"thinking,omitempty"`
+	Effort            string           `json:"reasoning_effort,omitempty"`
+	OutputConfig      *outputConfig    `json:"output_config,omitempty"`
+	CacheControl      *cacheControl    `json:"cache_control,omitempty"`
+	ContextManagement json.RawMessage  `json:"context_management,omitempty"`
+	Metadata          map[string]any   `json:"metadata,omitempty"`
+	Betas             []string         `json:"-"`
+	ClaudeSessionID   string           `json:"-"`
 }
 
 type thinkingConfig struct {
 	Type         string `json:"type"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+type outputConfig struct {
+	Effort string          `json:"effort,omitempty"`
+	Format json.RawMessage `json:"format,omitempty"`
 }
 
 type message struct {
@@ -49,6 +61,14 @@ type cacheControl struct {
 	Type string `json:"type"`
 	TTL  string `json:"ttl,omitempty"`
 }
+
+type MessageRequest = messageRequest
+type Message = message
+type ContentBlock = contentBlock
+type ThinkingConfig = thinkingConfig
+type OutputConfig = outputConfig
+type CacheControl = cacheControl
+type ToolDefinition = toolDefinition
 
 type toolDefinition struct {
 	Name         string         `json:"name"`
@@ -142,5 +162,32 @@ func normalizeThinking(value string) string {
 		return "off"
 	default:
 		return "auto"
+	}
+}
+
+func mergeAnthropicBetaHeader(headers http.Header, betas []string) {
+	if len(betas) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	var merged []string
+	for _, beta := range strings.Split(headers.Get("Anthropic-Beta"), ",") {
+		beta = strings.TrimSpace(beta)
+		if beta == "" || seen[beta] {
+			continue
+		}
+		seen[beta] = true
+		merged = append(merged, beta)
+	}
+	for _, beta := range betas {
+		beta = strings.TrimSpace(beta)
+		if beta == "" || seen[beta] {
+			continue
+		}
+		seen[beta] = true
+		merged = append(merged, beta)
+	}
+	if len(merged) > 0 {
+		headers.Set("Anthropic-Beta", strings.Join(merged, ","))
 	}
 }

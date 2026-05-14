@@ -149,7 +149,7 @@ func ResolveReasoning(provider string, modelSpec corellm.ModelSpec, inference ag
 			if err := validateReasoningEffort(provider, modelSpec, effort); err != nil {
 				return ReasoningConfig{}, err
 			}
-			if provider == "anthropic" || provider == "minimax" {
+			if isAnthropicMessagesProvider(provider) {
 				return ReasoningConfig{Thinking: "on", Effort: effort, Summary: defaultReasoningSummary(provider, modelSpec)}, nil
 			}
 			return ReasoningConfig{Thinking: "auto", Effort: effort}, nil
@@ -251,10 +251,19 @@ func validateReasoningEffort(provider string, modelSpec corellm.ModelSpec, effor
 
 func supportedReasoningEfforts(provider string, modelSpec corellm.ModelSpec) []string {
 	key := "modeldb.openai_responses.reasoning_efforts"
-	if provider == "anthropic" || provider == "minimax" {
+	if isAnthropicMessagesProvider(provider) {
 		key = "modeldb.anthropic_messages.reasoning_efforts"
 	}
 	return csvValues(modelSpec.Annotations[key])
+}
+
+func isAnthropicMessagesProvider(provider string) bool {
+	switch provider {
+	case "anthropic", "claudecode", "minimax":
+		return true
+	default:
+		return false
+	}
 }
 
 func defaultReasoningSummary(provider string, modelSpec corellm.ModelSpec) string {

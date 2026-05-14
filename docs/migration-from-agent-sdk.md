@@ -749,8 +749,8 @@ Important contract decisions from this slice:
   thinking/reasoning, streaming, context windows, output limits, modalities,
   safety features, and provider-specific knobs. `github.com/codewandler/modeldb`
   is the source catalog for provider/model lists, supported APIs, parameters,
-  capabilities, and pricing. OpenAI and Codex are first; Anthropic API and
-  Claude Code are scheduled as later native providers.
+  capabilities, and pricing. OpenAI, Codex, Anthropic API, Claude Code, and
+  selected compatible providers are available as native providers.
 
 Anthropic provider migration notes:
 
@@ -759,7 +759,7 @@ Anthropic provider migration notes:
   thinking, and tool capabilities.
 - MiniMax is wired through the same generic Messages adapter against its
   Anthropic-compatible endpoint.
-- Claude Code should be a separate provider mode using local Claude OAuth
+- Claude Code is a separate provider mode using local Claude OAuth
   credentials, Claude Code CLI-compatible headers/preflight behavior, system
   cache-control, and context-management request shape. It must act like Claude
   Code rather than a plain Anthropic API client.
