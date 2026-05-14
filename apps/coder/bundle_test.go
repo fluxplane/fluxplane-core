@@ -34,8 +34,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Policy.MaxContinuations; got != 3 {
 		t.Fatalf("max continuations = %d, want 3", got)
 	}
-	if len(composition.OperationSpecs) != 46 {
-		t.Fatalf("operation specs len = %d, want 46", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 48 {
+		t.Fatalf("operation specs len = %d, want 48", len(composition.OperationSpecs))
 	}
 	session := composition.SessionSpecs[0]
 	if len(session.Delegation.Commands) != 0 {

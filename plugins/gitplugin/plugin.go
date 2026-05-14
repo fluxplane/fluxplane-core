@@ -19,6 +19,8 @@ const (
 	DiffOp   = "git_diff"
 	AddOp    = "git_add"
 	CommitOp = "git_commit"
+	TagOp    = "git_tag"
+	PushOp   = "git_push"
 )
 
 // Plugin contributes basic git operations.
@@ -39,7 +41,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 // Contributions returns git specs.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	specs := []operation.Spec{statusSpec(), diffSpec(), addSpec(), commitSpec()}
+	specs := []operation.Spec{statusSpec(), diffSpec(), addSpec(), commitSpec(), tagSpec(), pushSpec()}
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Git repository operations.", Operations: operationRefs(specs)}},
 		Operations:    specs,
@@ -56,6 +58,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[diffInput, map[string]any](diffSpec(), p.diff(), operationruntime.WithIntent(diffIntent)),
 		operationruntime.NewTypedResult[addInput, map[string]any](addSpec(), p.add(), operationruntime.WithIntent(addIntent)),
 		operationruntime.NewTypedResult[commitInput, map[string]any](commitSpec(), p.commit(), operationruntime.WithIntent(commitIntent)),
+		operationruntime.NewTypedResult[tagInput, map[string]any](tagSpec(), p.tag(), operationruntime.WithIntent(tagIntent)),
+		operationruntime.NewTypedResult[pushInput, map[string]any](pushSpec(), p.push(), operationruntime.WithIntent(pushIntent)),
 	}, nil
 }
 
@@ -91,6 +95,34 @@ func commitSpec() operation.Spec {
 	})
 }
 
+func tagSpec() operation.Spec {
+	return operationruntime.WithTypedContract[tagInput, map[string]any](operation.Spec{
+		Ref:         operation.Ref{Name: TagOp},
+		Description: "Create a lightweight or annotated git tag.",
+		Semantics:   gitWriteSemantics(),
+	})
+}
+
+func pushSpec() operation.Spec {
+	return operationruntime.WithTypedContract[pushInput, map[string]any](operation.Spec{
+		Ref:         operation.Ref{Name: PushOp},
+		Description: "Push explicit git refspecs or tags to a configured remote.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Effects: operation.EffectSet{
+				operation.EffectProcess,
+				operation.EffectFilesystem,
+				operation.EffectNetwork,
+				operation.EffectReadExternal,
+				operation.EffectWriteExternal,
+				operation.EffectUpdate,
+			},
+			Risk: operation.RiskMedium,
+		},
+	})
+}
+
 func gitWriteSemantics() operation.Semantics {
 	return operation.Semantics{
 		Determinism: operation.DeterminismNonDeterministic,
@@ -119,6 +151,21 @@ type commitInput struct {
 	All        bool     `json:"all,omitempty" jsonschema:"description=When stage is true, stage all tracked and untracked workspace changes with git add -A."`
 	Paths      []string `json:"paths,omitempty" jsonschema:"description=When stage is true, stage only these paths unless all is true."`
 	AllowEmpty bool     `json:"allow_empty,omitempty" jsonschema:"description=Allow creating an empty commit."`
+}
+
+type tagInput struct {
+	Name    string `json:"name" jsonschema:"description=Tag name to create.,required"`
+	Ref     string `json:"ref,omitempty" jsonschema:"description=Optional commit-ish to tag. Defaults to HEAD."`
+	Message string `json:"message,omitempty" jsonschema:"description=Annotated tag message. When set, creates an annotated tag."`
+}
+
+type pushInput struct {
+	Remote         string   `json:"remote,omitempty" jsonschema:"description=Remote name or URL. Defaults to origin."`
+	Refspecs       []string `json:"refspecs,omitempty" jsonschema:"description=Explicit refspecs to push, for example main or HEAD:refs/heads/main."`
+	Tags           bool     `json:"tags,omitempty" jsonschema:"description=Push tags with --tags."`
+	SetUpstream    bool     `json:"set_upstream,omitempty" jsonschema:"description=Set upstream tracking with -u."`
+	ForceWithLease bool     `json:"force_with_lease,omitempty" jsonschema:"description=Use --force-with-lease. Raw force refspecs are rejected."`
+	DryRun         bool     `json:"dry_run,omitempty" jsonschema:"description=Show what would be pushed without updating the remote."`
 }
 
 func statusIntent(operation.Context, statusInput) (operation.IntentSet, error) {
@@ -193,6 +240,38 @@ func commitIntent(_ operation.Context, req commitInput) (operation.IntentSet, er
 		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git"),
 		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git/COMMIT_EDITMSG"),
 	)
+	return operation.IntentSet{Operations: ops}, nil
+}
+
+func tagIntent(_ operation.Context, req tagInput) (operation.IntentSet, error) {
+	args, result := gitTagArgs(req)
+	if result.IsError() {
+		return operation.IntentSet{}, fmt.Errorf("%s", result.Error.Message)
+	}
+	return operation.IntentSet{Operations: []operation.IntentOperation{
+		processIntent("git", args...),
+		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git/refs/tags/"+strings.TrimSpace(req.Name)),
+		pathIntent(operation.IntentPersistenceModify, operation.IntentRoleWriteTarget, ".git"),
+	}}, nil
+}
+
+func pushIntent(_ operation.Context, req pushInput) (operation.IntentSet, error) {
+	args, result := gitPushArgs(req)
+	if result.IsError() {
+		return operation.IntentSet{}, fmt.Errorf("%s", result.Error.Message)
+	}
+	ops := []operation.IntentOperation{
+		processIntent("git", args...),
+		pathIntent(operation.IntentFilesystemRead, operation.IntentRoleReadTarget, ".git/config"),
+	}
+	if remote := strings.TrimSpace(req.Remote); remote != "" && looksLikeURL(remote) {
+		ops = append(ops, operation.IntentOperation{
+			Behavior:  operation.IntentNetworkWrite,
+			Target:    operation.URLTarget{URL: operation.URL(remote)},
+			Role:      operation.IntentRoleNetworkTarget,
+			Certainty: operation.IntentCertain,
+		})
+	}
 	return operation.IntentSet{Operations: ops}, nil
 }
 
@@ -334,6 +413,41 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 	}
 }
 
+func (p Plugin) tag() operationruntime.TypedResultHandler[tagInput, map[string]any] {
+	return func(ctx operation.Context, req tagInput) operation.Result {
+		args, result := gitTagArgs(req)
+		if result.IsError() {
+			return result
+		}
+		run, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		data := processData(run)
+		data["tag"] = strings.TrimSpace(req.Name)
+		if err != nil {
+			return operation.Failed("git_tag_failed", err.Error(), data)
+		}
+		return operation.OK(operation.Rendered{Text: processText(run, "Created tag "+strings.TrimSpace(req.Name)), Data: data})
+	}
+}
+
+func (p Plugin) push() operationruntime.TypedResultHandler[pushInput, map[string]any] {
+	return func(ctx operation.Context, req pushInput) operation.Result {
+		args, result := gitPushArgs(req)
+		if result.IsError() {
+			return result
+		}
+		run, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 2 * time.Minute, MaxStdout: 128 * 1024, MaxStderr: 128 * 1024})
+		data := processData(run)
+		data["remote"] = gitPushRemote(req)
+		data["refspecs"] = append([]string(nil), req.Refspecs...)
+		data["tags"] = req.Tags
+		data["dry_run"] = req.DryRun
+		if err != nil {
+			return operation.Failed("git_push_failed", err.Error(), data)
+		}
+		return operation.OK(operation.Rendered{Text: processText(run, "Pushed to "+gitPushRemote(req)), Data: data})
+	}
+}
+
 func gitAddArgs(all bool, paths []string, invalidCode string) ([]string, operation.Result) {
 	if all {
 		return []string{"add", "-A"}, operation.Result{}
@@ -349,6 +463,101 @@ func gitAddArgs(all bool, paths []string, invalidCode string) ([]string, operati
 		args = append(args, path)
 	}
 	return args, operation.Result{}
+}
+
+func gitTagArgs(req tagInput) ([]string, operation.Result) {
+	name := strings.TrimSpace(req.Name)
+	if err := validateGitToken(name, "tag name"); err != nil {
+		return nil, operation.Failed("invalid_git_tag_input", err.Error(), nil)
+	}
+	args := []string{"tag"}
+	message := strings.TrimSpace(req.Message)
+	if message != "" {
+		args = append(args, "-a", name, "-m", message)
+	} else {
+		args = append(args, name)
+	}
+	ref := strings.TrimSpace(req.Ref)
+	if ref != "" {
+		if err := validateGitToken(ref, "ref"); err != nil {
+			return nil, operation.Failed("invalid_git_tag_input", err.Error(), nil)
+		}
+		args = append(args, ref)
+	}
+	return args, operation.Result{}
+}
+
+func gitPushArgs(req pushInput) ([]string, operation.Result) {
+	remote := gitPushRemote(req)
+	if err := validateGitToken(remote, "remote"); err != nil {
+		return nil, operation.Failed("invalid_git_push_input", err.Error(), nil)
+	}
+	if !req.Tags && len(req.Refspecs) == 0 {
+		return nil, operation.Failed("invalid_git_push_input", "refspecs or tags are required", nil)
+	}
+	args := []string{"push"}
+	if req.DryRun {
+		args = append(args, "--dry-run")
+	}
+	if req.SetUpstream {
+		args = append(args, "-u")
+	}
+	if req.ForceWithLease {
+		args = append(args, "--force-with-lease")
+	}
+	if req.Tags {
+		args = append(args, "--tags")
+	}
+	args = append(args, remote)
+	for _, refspec := range req.Refspecs {
+		refspec = strings.TrimSpace(refspec)
+		if err := validateGitRefspec(refspec); err != nil {
+			return nil, operation.Failed("invalid_git_push_input", err.Error(), nil)
+		}
+		args = append(args, refspec)
+	}
+	return args, operation.Result{}
+}
+
+func gitPushRemote(req pushInput) string {
+	remote := strings.TrimSpace(req.Remote)
+	if remote == "" {
+		return "origin"
+	}
+	return remote
+}
+
+func validateGitToken(value, label string) error {
+	if value == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%s must not start with '-'", label)
+	}
+	if strings.ContainsAny(value, " \t\r\n") {
+		return fmt.Errorf("%s must not contain whitespace", label)
+	}
+	if strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.Contains(value, "\\") {
+		return fmt.Errorf("%s is not a safe git ref token", label)
+	}
+	if strings.HasSuffix(value, ".") || strings.HasSuffix(value, "/") || strings.HasSuffix(value, ".lock") {
+		return fmt.Errorf("%s is not a safe git ref token", label)
+	}
+	return nil
+}
+
+func validateGitRefspec(value string) error {
+	if err := validateGitToken(value, "refspec"); err != nil {
+		return err
+	}
+	if strings.HasPrefix(value, "+") {
+		return fmt.Errorf("force refspecs are rejected; use force_with_lease")
+	}
+	return nil
+}
+
+func looksLikeURL(value string) bool {
+	return strings.Contains(value, "://")
 }
 
 func processData(result system.ProcessResult) map[string]any {

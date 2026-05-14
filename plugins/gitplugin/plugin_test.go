@@ -19,7 +19,7 @@ func TestContributionsIncludeGitOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	for _, name := range []string{StatusOp, DiffOp, AddOp, CommitOp} {
+	for _, name := range []string{StatusOp, DiffOp, AddOp, CommitOp, TagOp, PushOp} {
 		if !hasOperation(bundle.Operations, name) {
 			t.Fatalf("operation %q missing from contributions", name)
 		}
@@ -30,8 +30,8 @@ func TestContributionsIncludeGitOperations(t *testing.T) {
 	if len(bundle.OperationSets) != 1 {
 		t.Fatalf("operation sets len = %d, want 1", len(bundle.OperationSets))
 	}
-	if len(bundle.OperationSets[0].Operations) != 4 {
-		t.Fatalf("git operation refs len = %d, want 4", len(bundle.OperationSets[0].Operations))
+	if len(bundle.OperationSets[0].Operations) != 6 {
+		t.Fatalf("git operation refs len = %d, want 6", len(bundle.OperationSets[0].Operations))
 	}
 }
 
@@ -239,6 +239,118 @@ func TestCommitAutoStagesAll(t *testing.T) {
 	}
 }
 
+func TestTagCreatesAnnotatedTag(t *testing.T) {
+	dir := testRepo(t)
+	ops := testGitOperations(t, dir)
+	writeFile(t, dir, "file.txt", "hello\n")
+	runGit(t, dir, "add", "file.txt")
+	runGit(t, dir, "commit", "-m", "test: add file")
+
+	result := ops[TagOp].Run(operation.NewContext(context.Background(), event.Discard()), tagInput{
+		Name:    "v1.0.0",
+		Message: "release v1.0.0",
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v, want ok", result)
+	}
+	tags := gitOutput(t, dir, "tag", "--list", "v1.0.0")
+	if strings.TrimSpace(tags) != "v1.0.0" {
+		t.Fatalf("tags = %q, want v1.0.0", tags)
+	}
+}
+
+func TestTagRejectsUnsafeName(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	result := ops[TagOp].Run(operation.NewContext(context.Background(), event.Discard()), tagInput{Name: "-bad"})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "invalid_git_tag_input" {
+		t.Fatalf("error = %#v, want invalid_git_tag_input", result.Error)
+	}
+}
+
+func TestTagIntentIncludesTagRef(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[TagOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), tagInput{Name: "v1.0.0"})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if !hasPathIntent(intents, operation.IntentPersistenceModify, ".git/refs/tags/v1.0.0") {
+		t.Fatalf("intents = %#v, want tag ref write", intents)
+	}
+	if !hasProcessIntent(intents, "git") {
+		t.Fatalf("intents = %#v, want git process intent", intents)
+	}
+}
+
+func TestPushPushesExplicitRefToLocalRemote(t *testing.T) {
+	dir := testRepo(t)
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGit(t, t.TempDir(), "init", "--bare", remote)
+	ops := testGitOperations(t, dir)
+	writeFile(t, dir, "file.txt", "hello\n")
+	runGit(t, dir, "add", "file.txt")
+	runGit(t, dir, "commit", "-m", "test: add file")
+	runGit(t, dir, "branch", "-M", "main")
+
+	result := ops[PushOp].Run(operation.NewContext(context.Background(), event.Discard()), pushInput{
+		Remote:   remote,
+		Refspecs: []string{"main"},
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v, want ok", result)
+	}
+	head := strings.TrimSpace(gitOutput(t, dir, "rev-parse", "main"))
+	remoteHead := strings.TrimSpace(gitOutput(t, remote, "rev-parse", "main"))
+	if remoteHead != head {
+		t.Fatalf("remote main = %q, want %q", remoteHead, head)
+	}
+}
+
+func TestPushRequiresExplicitRefspecOrTags(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	result := ops[PushOp].Run(operation.NewContext(context.Background(), event.Discard()), pushInput{})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "invalid_git_push_input" {
+		t.Fatalf("error = %#v, want invalid_git_push_input", result.Error)
+	}
+}
+
+func TestPushRejectsForceRefspec(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	result := ops[PushOp].Run(operation.NewContext(context.Background(), event.Discard()), pushInput{Refspecs: []string{"+main"}})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "invalid_git_push_input" {
+		t.Fatalf("error = %#v, want invalid_git_push_input", result.Error)
+	}
+}
+
+func TestPushIntentIncludesConfigAndNetworkRemote(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	provider := requireIntentProvider(t, ops[PushOp])
+
+	intents, err := provider.Intent(operation.NewContext(context.Background(), nil), pushInput{
+		Remote:   "https://example.com/repo.git",
+		Refspecs: []string{"main"},
+	})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if !hasPathIntent(intents, operation.IntentFilesystemRead, ".git/config") {
+		t.Fatalf("intents = %#v, want git config read", intents)
+	}
+	if !hasURLIntent(intents, operation.IntentNetworkWrite, "https://example.com/repo.git") {
+		t.Fatalf("intents = %#v, want network write remote", intents)
+	}
+}
+
 func hasOperation(specs []operation.Spec, name string) bool {
 	for _, spec := range specs {
 		if string(spec.Ref.Name) == name {
@@ -281,6 +393,16 @@ func hasProcessIntent(intents operation.IntentSet, command string) bool {
 	for _, intent := range intents.Operations {
 		target, ok := intent.Target.(operation.ProcessTarget)
 		if ok && target.Command == operation.Command(command) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasURLIntent(intents operation.IntentSet, behavior operation.IntentBehavior, url string) bool {
+	for _, intent := range intents.Operations {
+		target, ok := intent.Target.(operation.URLTarget)
+		if ok && intent.Behavior == behavior && target.URL == operation.URL(url) {
 			return true
 		}
 	}

@@ -33,6 +33,7 @@ const (
 	IntentFilesystemWrite   IntentBehavior = "filesystem_write"
 	IntentPersistenceModify IntentBehavior = "persistence_modify"
 	IntentNetworkFetch      IntentBehavior = "network_fetch"
+	IntentNetworkWrite      IntentBehavior = "network_write"
 	IntentBrowserAccess     IntentBehavior = "browser_access"
 )
 

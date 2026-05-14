@@ -47,7 +47,7 @@ func Bundle() resource.ContributionBundle {
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
 			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",
 			"browser_hover", "browser_back", "browser_forward", "browser_pdf", "browser_close",
-			"git_status", "git_diff", "git_add", "git_commit",
+			"git_status", "git_diff", "git_add", "git_commit", "git_tag", "git_push",
 			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
 			"code_execute",
 			"clarify",
