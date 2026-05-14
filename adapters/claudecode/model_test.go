@@ -1,6 +1,8 @@
 package claudecode
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/adapters/anthropicmessages"
+	"github.com/fluxplane/agentruntime/adapters/httptransport"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
@@ -81,7 +84,7 @@ func TestStreamUsesClaudeCodeHeadersAndPreflight(t *testing.T) {
 	if seen.Header.Get("User-Agent") != claudeUserAgent ||
 		seen.Header.Get("X-App") != "cli" ||
 		seen.Header.Get("X-Claude-Code-Session-Id") == "" ||
-		seen.Header.Get("Accept-Encoding") != acceptEncoding {
+		seen.Header.Get("Accept-Encoding") != httptransport.ExtendedAcceptEncoding {
 		t.Fatalf("Claude Code headers = %v", seen.Header)
 	}
 	for _, want := range []string{
@@ -126,6 +129,48 @@ func TestStreamUsesClaudeCodeHeadersAndPreflight(t *testing.T) {
 	}
 	if userID["device_id"] != "device-1" || userID["account_uuid"] != "acct-1" || userID["session_id"] != seen.Header.Get("X-Claude-Code-Session-Id") {
 		t.Fatalf("user_id = %#v, header session = %q", userID, seen.Header.Get("X-Claude-Code-Session-Id"))
+	}
+}
+
+func TestStreamDecodesCompressedClaudeCodeSSE(t *testing.T) {
+	authPath := writeCredentials(t, t.TempDir(), "oauth-token", "refresh-token", time.Now().Add(time.Hour))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept-Encoding") != httptransport.ExtendedAcceptEncoding {
+			t.Fatalf("Accept-Encoding = %q, want extended encodings", r.Header.Get("Accept-Encoding"))
+		}
+		body := strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg","type":"message","role":"assistant","model":"claude-test","content":[]}}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`,
+			``,
+			`event: content_block_stop`,
+			`data: {"type":"content_block_stop","index":0}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(gzipBytes(t, []byte(body)))
+	}))
+	defer server.Close()
+
+	model, err := New(Config{Model: "claude-test", AuthPath: authPath, BaseURL: server.URL})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := model.Stream(context.Background(), llmagent.Request{Goal: "hello"}, nil)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if resp.Message == nil || resp.Message.Content != "ok" {
+		t.Fatalf("message = %#v, want ok", resp.Message)
 	}
 }
 
@@ -186,6 +231,19 @@ func TestClaudeConfigDirOverridesHome(t *testing.T) {
 	if store.path != path {
 		t.Fatalf("store path = %q, want %q", store.path, path)
 	}
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := gzip.NewWriter(&buf)
+	if _, err := w.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 func writeCredentials(t *testing.T, dir, access, refresh string, expires time.Time) string {

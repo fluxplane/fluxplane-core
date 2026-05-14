@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/adapters/anthropicmessages"
+	"github.com/fluxplane/agentruntime/adapters/httptransport"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 )
@@ -26,7 +27,6 @@ const (
 	stainlessPackage     = "0.81.0"
 	stainlessNodeVersion = "v24.3.0"
 	systemCacheTTL       = "1h"
-	acceptEncoding       = "gzip, deflate, br, zstd"
 )
 
 // Config configures a Claude Code-compatible Messages model.
@@ -47,7 +47,7 @@ type Config struct {
 func New(cfg Config) (*anthropicmessages.Model, error) {
 	client := cfg.HTTPClient
 	if client == nil {
-		client = http.DefaultClient
+		client = httptransport.CloneDefaultHTTPClient()
 	}
 	store, err := newLocalTokenStore(strings.TrimSpace(cfg.AuthPath))
 	if err != nil {
@@ -126,7 +126,7 @@ func claudeHeaders(_ context.Context, req *http.Request, wire anthropicmessages.
 	req.Header.Set("X-Stainless-Runtime", "node")
 	req.Header.Set("X-Stainless-Runtime-Version", stainlessNodeVersion)
 	req.Header.Set("X-Stainless-Timeout", "600")
-	req.Header.Set("Accept-Encoding", acceptEncoding)
+	req.Header.Set("Accept-Encoding", httptransport.ExtendedAcceptEncoding)
 	req.Header.Set("Connection", "keep-alive")
 	return nil
 }
