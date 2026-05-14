@@ -1,6 +1,7 @@
 package cmdrisk
 
 import (
+	"path/filepath"
 	"strings"
 
 	codewandlercmdrisk "github.com/codewandler/cmdrisk"
@@ -98,6 +99,9 @@ func New(cfg Config) Classifier {
 func (c Classifier) Classify(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
 	switch {
 	case spec.Semantics.Effects.Has(operation.EffectProcess):
+		if hasNativeGitIntent(spec) {
+			return c.classifyNativeGitIntent(ctx, spec, input)
+		}
 		if hasCommandIntent(spec, input) {
 			return c.classifyCommand(ctx, spec, input)
 		}
@@ -141,6 +145,21 @@ func (c Classifier) classifyCommand(ctx operation.Context, spec operation.Spec, 
 	return c.result(ctx, spec, assessment, false), nil
 }
 
+func (c Classifier) classifyNativeGitIntent(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
+	operations := nativeGitIntentOperations(c.base.WorkingDirectory, spec, input)
+	if len(operations) == 0 {
+		return c.declaredRisk(ctx, spec), nil
+	}
+	assessment, err := c.analyzer.AssessIntent(ctx, codewandlercmdrisk.IntentRequest{
+		Context:    c.contextFor(input),
+		Operations: operations,
+	})
+	if err != nil {
+		return operationruntime.CommandRisk{}, err
+	}
+	return c.result(ctx, spec, assessment, false), nil
+}
+
 func (c Classifier) classifyNetworkIntent(ctx operation.Context, spec operation.Spec, input operation.Value) (operationruntime.CommandRisk, error) {
 	target := urlString(input)
 	if strings.TrimSpace(target) == "" {
@@ -163,7 +182,7 @@ func (c Classifier) classifyNetworkIntent(ctx operation.Context, spec operation.
 }
 
 func (c Classifier) result(ctx operation.Context, spec operation.Spec, assessment codewandlercmdrisk.Assessment, structuredNetwork bool) operationruntime.CommandRisk {
-	level := riskFromAssessment(spec.Semantics.Risk, assessment, structuredNetwork && c.networkApprovalAsMedium)
+	level, requiresApproval := riskFromAssessment(spec.Semantics.Risk, assessment, structuredNetwork && c.networkApprovalAsMedium)
 	reason := assessment.Decision.Rationale
 	if reason == "" {
 		reason = string(assessment.Decision.Action)
@@ -178,7 +197,7 @@ func (c Classifier) result(ctx operation.Context, spec operation.Spec, assessmen
 		Targets:        append([]codewandlercmdrisk.Target(nil), assessment.Targets...),
 		RiskDimensions: append([]codewandlercmdrisk.RiskDimension(nil), assessment.RiskDimensions...),
 	})
-	return operationruntime.CommandRisk{Level: level, Reason: reason}
+	return operationruntime.CommandRisk{Level: level, Reason: reason, RequiresApproval: requiresApproval}
 }
 
 func (c Classifier) contextFor(input operation.Value) codewandlercmdrisk.Context {
@@ -189,8 +208,9 @@ func (c Classifier) contextFor(input operation.Value) codewandlercmdrisk.Context
 	return out
 }
 
-func riskFromAssessment(declared operation.RiskLevel, assessment codewandlercmdrisk.Assessment, approvalAsMedium bool) operation.RiskLevel {
+func riskFromAssessment(declared operation.RiskLevel, assessment codewandlercmdrisk.Assessment, approvalAsMedium bool) (operation.RiskLevel, bool) {
 	var level operation.RiskLevel
+	requiresApproval := false
 	switch assessment.Decision.Action {
 	case codewandlercmdrisk.ActionReject, codewandlercmdrisk.ActionError:
 		level = operation.RiskCritical
@@ -199,13 +219,14 @@ func riskFromAssessment(declared operation.RiskLevel, assessment codewandlercmdr
 			level = operation.RiskMedium
 		} else {
 			level = operation.RiskHigh
+			requiresApproval = true
 		}
 	case codewandlercmdrisk.ActionAllow:
 		level = riskFromDimensions(assessment.RiskDimensions)
 	default:
 		level = operation.RiskHigh
 	}
-	return maxRisk(declared, level)
+	return maxRisk(declared, level), requiresApproval
 }
 
 func riskFromDimensions(dimensions []codewandlercmdrisk.RiskDimension) operation.RiskLevel {
@@ -284,6 +305,98 @@ func commandString(spec operation.Spec, input operation.Value) string {
 	return strings.Join(quoted, " ")
 }
 
+func hasNativeGitIntent(spec operation.Spec) bool {
+	switch spec.Ref.Name {
+	case "git_add", "git_commit":
+		return true
+	default:
+		return false
+	}
+}
+
+func nativeGitIntentOperations(root string, spec operation.Spec, input operation.Value) []codewandlercmdrisk.IntentOperation {
+	switch spec.Ref.Name {
+	case "git_add":
+		return gitAddIntent(root, input)
+	case "git_commit":
+		ops := []codewandlercmdrisk.IntentOperation{{
+			Behavior: "persistence_modify",
+			Target:   gitPath(root, ".git"),
+			Role:     "write_target",
+			Category: "path",
+			Certain:  true,
+		}}
+		if boolField(input, "stage") {
+			ops = append(gitAddIntent(root, input), ops...)
+		}
+		if stringField(input, "message") != "" {
+			ops = append(ops, codewandlercmdrisk.IntentOperation{
+				Behavior: "persistence_modify",
+				Target:   gitPath(root, ".git/COMMIT_EDITMSG"),
+				Role:     "write_target",
+				Category: "path",
+				Certain:  true,
+			})
+		}
+		if boolField(input, "allow_empty") {
+			ops = append(ops, codewandlercmdrisk.IntentOperation{
+				Behavior: "persistence_modify",
+				Target:   gitPath(root, ".git"),
+				Role:     "write_target",
+				Category: "path",
+				Certain:  true,
+			})
+		}
+		return ops
+	default:
+		return nil
+	}
+}
+
+func gitAddIntent(root string, input operation.Value) []codewandlercmdrisk.IntentOperation {
+	ops := []codewandlercmdrisk.IntentOperation{{
+		Behavior: "persistence_modify",
+		Target:   gitPath(root, ".git/index"),
+		Role:     "write_target",
+		Category: "path",
+		Certain:  true,
+	}}
+	if boolField(input, "all") {
+		ops = append(ops, codewandlercmdrisk.IntentOperation{
+			Behavior: "filesystem_read",
+			Target:   gitPath(root, "."),
+			Role:     "read_target",
+			Category: "path",
+			Certain:  true,
+		})
+		return ops
+	}
+	for _, path := range stringSliceField(input, "paths") {
+		ops = append(ops, codewandlercmdrisk.IntentOperation{
+			Behavior: "filesystem_read",
+			Target:   gitPath(root, path),
+			Role:     "read_target",
+			Category: "path",
+			Certain:  true,
+		})
+	}
+	return ops
+}
+
+func gitPath(root, path string) string {
+	path = strings.TrimSpace(path)
+	if root == "" || filepath.IsAbs(path) {
+		if path == "" {
+			return root
+		}
+		return path
+	}
+	if path == "" || path == "." {
+		return root
+	}
+	return filepath.Join(root, path)
+}
+
 func hasCommandIntent(spec operation.Spec, input operation.Value) bool {
 	switch spec.Ref.Name {
 	case "shell_exec", "process_start", "git_status", "git_diff", "git_add", "git_commit", "code_execute":
@@ -317,6 +430,21 @@ func stringField(input operation.Value, key string) string {
 		}
 	}
 	return ""
+}
+
+func boolField(input operation.Value, key string) bool {
+	value, ok := input.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch raw := value[key].(type) {
+	case bool:
+		return raw
+	case string:
+		return strings.EqualFold(strings.TrimSpace(raw), "true")
+	default:
+		return false
+	}
 }
 
 func stringSliceField(input operation.Value, key string) []string {

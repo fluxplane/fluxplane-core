@@ -2,6 +2,7 @@ package terminalui
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 func TestRendererStreamsMarkdownContent(t *testing.T) {
@@ -36,6 +38,44 @@ func TestRendererStreamsMarkdownContent(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "**hello**") || strings.Contains(out.String(), "`world`") {
 		t.Fatalf("out = %q, want rendered markdown without source markers", out.String())
+	}
+}
+
+func TestApproverAcceptsYes(t *testing.T) {
+	var out bytes.Buffer
+	approver := Approver{In: strings.NewReader("y\n"), Out: &out}
+
+	err := approver.Approve(operation.NewContext(context.Background(), nil), operationruntime.ApprovalRequest{
+		Spec:  operation.Spec{Ref: operation.Ref{Name: "git_commit"}},
+		Input: map[string]any{"message": "docs"},
+		Risk:  operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true},
+	})
+
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{"approval required: git_commit", "risk: high", "reason: needs review", `"message":"docs"`, "Approve? [y/N]"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("approval prompt missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestApproverDeniesNoAndEmptyInput(t *testing.T) {
+	for _, input := range []string{"n\n", "\n"} {
+		t.Run(strings.TrimSpace(input), func(t *testing.T) {
+			approver := Approver{In: strings.NewReader(input), Out: &bytes.Buffer{}}
+
+			err := approver.Approve(operation.NewContext(context.Background(), nil), operationruntime.ApprovalRequest{
+				Spec: operation.Spec{Ref: operation.Ref{Name: "git_commit"}},
+				Risk: operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true},
+			})
+
+			if err == nil {
+				t.Fatal("Approve error is nil, want denial")
+			}
+		})
 	}
 }
 

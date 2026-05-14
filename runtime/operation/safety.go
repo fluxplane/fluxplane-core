@@ -2,6 +2,7 @@ package operationruntime
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/operation"
 )
@@ -45,13 +46,21 @@ type SecretGuard interface {
 
 // ApprovalGate models approval enforcement before execution.
 type ApprovalGate interface {
-	Check(operation.Context, operation.Spec, operation.Value) error
+	Approve(operation.Context, ApprovalRequest) error
 }
 
 // CommandRisk is the runtime command-risk classification result.
 type CommandRisk struct {
-	Level  operation.RiskLevel `json:"level,omitempty"`
-	Reason string              `json:"reason,omitempty"`
+	Level            operation.RiskLevel `json:"level,omitempty"`
+	Reason           string              `json:"reason,omitempty"`
+	RequiresApproval bool                `json:"requires_approval,omitempty"`
+}
+
+// ApprovalRequest describes one operation execution that needs user approval.
+type ApprovalRequest struct {
+	Spec  operation.Spec  `json:"spec"`
+	Input operation.Value `json:"input,omitempty"`
+	Risk  CommandRisk     `json:"risk,omitempty"`
 }
 
 // SafetyEnvelope is the default runtime safety gate shape for real
@@ -80,12 +89,18 @@ func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input 
 	} else if spec.Semantics.Effects.Has(operation.EffectSensitiveData) {
 		return fmt.Errorf("secret_guard_required")
 	}
+	approved := false
 	if e.CommandRisk != nil {
 		risk, err := e.CommandRisk.Classify(ctx, spec, input)
 		if err != nil {
 			return fmt.Errorf("cmdrisk_failed: %w", err)
 		}
-		if e.MaxCommandRisk != "" && !riskAllowed(risk.Level, e.MaxCommandRisk) {
+		if risk.RequiresApproval {
+			if err := e.approve(ctx, spec, input, risk); err != nil {
+				return err
+			}
+			approved = true
+		} else if e.MaxCommandRisk != "" && !riskAllowed(risk.Level, e.MaxCommandRisk) {
 			if risk.Reason != "" {
 				return fmt.Errorf("cmdrisk_denied: %s: %s", risk.Level, risk.Reason)
 			}
@@ -94,12 +109,10 @@ func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input 
 	} else if spec.Semantics.Effects.Has(operation.EffectProcess) {
 		return fmt.Errorf("cmdrisk_required")
 	}
-	if e.Approval != nil {
-		if err := e.Approval.Check(ctx, spec, input); err != nil {
-			return fmt.Errorf("approval_denied: %w", err)
+	if requiresApproval(spec.Semantics) && !approved {
+		if err := e.approve(ctx, spec, input, CommandRisk{Level: spec.Semantics.Risk, Reason: "operation semantics require approval", RequiresApproval: true}); err != nil {
+			return err
 		}
-	} else if requiresApproval(spec.Semantics) {
-		return fmt.Errorf("approval_required")
 	}
 	if e.Sandbox != nil {
 		if err := e.Sandbox.Check(ctx, spec, input); err != nil {
@@ -114,6 +127,30 @@ func (e SafetyEnvelope) Check(ctx operation.Context, spec operation.Spec, input 
 		return fmt.Errorf("sandbox_required")
 	}
 	return nil
+}
+
+func (e SafetyEnvelope) approve(ctx operation.Context, spec operation.Spec, input operation.Value, risk CommandRisk) error {
+	if e.Approval == nil {
+		return approvalRequiredError(risk)
+	}
+	if err := e.Approval.Approve(ctx, ApprovalRequest{Spec: spec, Input: input, Risk: risk}); err != nil {
+		return fmt.Errorf("approval_denied: %w", err)
+	}
+	return nil
+}
+
+func approvalRequiredError(risk CommandRisk) error {
+	var parts []string
+	if risk.Level != "" {
+		parts = append(parts, string(risk.Level))
+	}
+	if strings.TrimSpace(risk.Reason) != "" {
+		parts = append(parts, risk.Reason)
+	}
+	if len(parts) == 0 {
+		return fmt.Errorf("approval_required")
+	}
+	return fmt.Errorf("approval_required: %s", strings.Join(parts, ": "))
 }
 
 func requiresApproval(semantics operation.Semantics) bool {

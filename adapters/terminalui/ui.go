@@ -18,6 +18,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -939,6 +940,59 @@ func (p Prompter) Clarify(ctx context.Context, req system.ClarifyRequest) (syste
 		answer[field.Name] = text
 	}
 	return system.ClarifyResult{Answer: answer}, nil
+}
+
+// Approver collects y/N approval decisions from a terminal.
+type Approver struct {
+	In  io.Reader
+	Out io.Writer
+}
+
+// Approve implements operationruntime.ApprovalGate.
+func (a Approver) Approve(ctx operation.Context, req operationruntime.ApprovalRequest) error {
+	if a.In == nil {
+		return fmt.Errorf("terminalui: approval input is nil")
+	}
+	out := a.Out
+	if out == nil {
+		out = io.Discard
+	}
+	_, _ = fmt.Fprintf(out, "\napproval required: %s\n", req.Spec.Ref.String())
+	if req.Risk.Level != "" {
+		_, _ = fmt.Fprintf(out, "risk: %s\n", req.Risk.Level)
+	}
+	if strings.TrimSpace(req.Risk.Reason) != "" {
+		_, _ = fmt.Fprintf(out, "reason: %s\n", req.Risk.Reason)
+	}
+	if summary := approvalInputSummary(req.Input); summary != "" {
+		_, _ = fmt.Fprintf(out, "input: %s\n", summary)
+	}
+	_, _ = fmt.Fprint(out, "Approve? [y/N] ")
+	text, err := readLine(ctx, bufio.NewReader(a.In))
+	if err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "y", "yes":
+		return nil
+	default:
+		return fmt.Errorf("user denied approval")
+	}
+}
+
+func approvalInputSummary(input any) string {
+	if input == nil {
+		return ""
+	}
+	data, err := json.Marshal(input)
+	if err != nil {
+		return fmt.Sprint(input)
+	}
+	const max = 600
+	if len(data) > max {
+		return string(data[:max]) + "...(truncated)"
+	}
+	return string(data)
 }
 
 type schemaField struct {

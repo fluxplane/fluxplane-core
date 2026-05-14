@@ -237,6 +237,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			Sandbox:        localSandbox{Root: root},
 			ACL:            localACL{},
 			CommandRisk:    distrun.CommandRisk(root),
+			Approval:       terminalui.Approver{In: os.Stdin, Out: os.Stderr},
 			MaxCommandRisk: operation.RiskMedium,
 			AllowPure:      true,
 		})),

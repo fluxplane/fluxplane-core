@@ -2,6 +2,8 @@ package cmdrisk
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/event"
@@ -143,6 +145,95 @@ func TestClassifierAssessesNativeGitWriteOperations(t *testing.T) {
 				t.Fatalf("assessment = %#v, want command assessment", assessed)
 			}
 		})
+	}
+}
+
+func TestClassifierNativeGitCommitUsesStructuredIntent(t *testing.T) {
+	var emitted event.Event
+	root := t.TempDir()
+	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
+		emitted = evt
+	}))
+	classifier := New(Config{WorkingDirectory: root})
+	spec := operation.Spec{
+		Ref: operation.Ref{Name: "git_commit"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}
+
+	if _, err := classifier.Classify(ctx, spec, map[string]any{"message": "docs: add logo"}); err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	assessed, ok := emitted.(Assessed)
+	if !ok {
+		t.Fatalf("emitted = %#v, want Assessed", emitted)
+	}
+	if assessed.Action == "declared_risk" {
+		t.Fatalf("assessment = %#v, want structured assessment", assessed)
+	}
+	for _, behavior := range assessed.Behaviors {
+		if behavior == "network_fetch" {
+			t.Fatalf("behaviors = %#v, native git commit must not be modeled as network fetch", assessed.Behaviors)
+		}
+	}
+	if strings.Contains(strings.ToLower(assessed.Rationale), "remote") || strings.Contains(strings.ToLower(assessed.Rationale), "fetch") {
+		t.Fatalf("rationale = %q, want local git commit rationale", assessed.Rationale)
+	}
+}
+
+func TestClassifierNativeGitAddIncludesPathIntent(t *testing.T) {
+	var emitted event.Event
+	root := t.TempDir()
+	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
+		emitted = evt
+	}))
+	classifier := New(Config{WorkingDirectory: root})
+	spec := operation.Spec{
+		Ref: operation.Ref{Name: "git_add"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}
+
+	if _, err := classifier.Classify(ctx, spec, map[string]any{"paths": []any{"README.md"}}); err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	assessed, ok := emitted.(Assessed)
+	if !ok {
+		t.Fatalf("emitted = %#v, want Assessed", emitted)
+	}
+	targets := fmt.Sprint(assessed.Targets)
+	if !strings.Contains(targets, "README.md") || !strings.Contains(targets, ".git/index") {
+		t.Fatalf("targets = %s, want path and index intent", targets)
+	}
+}
+
+func TestClassifierShellExecGitCommitUsesCommandAssessment(t *testing.T) {
+	var emitted event.Event
+	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
+		emitted = evt
+	}))
+	classifier := New(Config{WorkingDirectory: t.TempDir()})
+	spec := operation.Spec{
+		Ref: operation.Ref{Name: "shell_exec"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}
+
+	if _, err := classifier.Classify(ctx, spec, map[string]any{"command": "git", "args": []any{"commit", "-m", "docs"}}); err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	assessed, ok := emitted.(Assessed)
+	if !ok {
+		t.Fatalf("emitted = %#v, want Assessed", emitted)
+	}
+	if assessed.Action == "declared_risk" {
+		t.Fatalf("assessment = %#v, want shell command assessment", assessed)
 	}
 }
 

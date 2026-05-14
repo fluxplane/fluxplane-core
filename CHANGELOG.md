@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Terminal approval prompts for local `agentsdk run` and `coder` operation
+  approvals, with fail-closed behavior when no approval input is available.
 - First-party `plugins/imageplugin` with `image_generate`, `image_understand`,
   and `image_providers` operations, plus an opt-in single `image` action tool
   projection.
@@ -32,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tools without modeling tool sets as invocation targets.
 - Image plugin operation and action-tool schemas now derive from typed
   operation contracts instead of hand-written JSON Schema.
+- Command-risk approvals now route through the runtime approval gate, and
+  native `git_add`/`git_commit` operations are classified from structured
+  intent instead of synthetic shell commands.
 
 ## [0.8.0] - 2026-05-14
 
