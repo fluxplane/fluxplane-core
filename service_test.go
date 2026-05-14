@@ -2,13 +2,10 @@ package agentruntime_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -113,25 +110,18 @@ func TestServiceListsAndResumesSessions(t *testing.T) {
 
 func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	manifest := []byte(`{
-  "commands": [
-    {
-      "path": ["echo"],
-      "operation": "echo",
-      "policy": {
-        "allowed_callers": ["user"],
-        "required_trust": "verified"
-      }
-    }
-  ]
-}`)
-	if err := os.WriteFile(filepath.Join(dir, resourcefs.DefaultManifestName), manifest, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	bundle, err := resourcefs.LoadDir(ctx, dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
+	bundle := agentruntime.ResourceBundle{
+		Commands: []command.Spec{{
+			Path: command.Path{"echo"},
+			Target: invocation.Target{
+				Kind:      invocation.TargetOperation,
+				Operation: operation.Ref{Name: "echo"},
+			},
+			Policy: policy.InvocationPolicy{
+				AllowedCallers: []policy.CallerKind{policy.CallerUser},
+				RequiredTrust:  policy.TrustVerified,
+			},
+		}},
 	}
 
 	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
@@ -175,18 +165,8 @@ func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 
 func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	ctx := context.Background()
-	dir := t.TempDir()
-	manifest := []byte(`{
-  "plugins": [
-    {"name": "echo"}
-  ]
-}`)
-	if err := os.WriteFile(filepath.Join(dir, resourcefs.DefaultManifestName), manifest, 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	bundle, err := resourcefs.LoadDir(ctx, dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
+	bundle := agentruntime.ResourceBundle{
+		Plugins: []coreresource.PluginRef{{Name: "echo"}},
 	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:   echoAgent{},

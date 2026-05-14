@@ -222,7 +222,7 @@ three concerns that are split in the rewrite:
 core/resource
   ContributionBundle, ResourceID, diagnostics, source refs, resource specs.
 
-adapters/resourcefs, adapters/agentdir, adapters/appconfig
+adapters/agentdir, adapters/appconfig
   Filesystem and external-format loading/parsing.
 
 orchestration/app
@@ -462,7 +462,7 @@ we audit every package in detail.
 | Context providers | `core/context` + `runtime/context` | Structured context blocks in core; provider execution/materialization in runtime. |
 | Capabilities | `core/capability` + `runtime/capability` | Capability specs/events in core; state machine implementations in runtime/plugins. |
 | Skills | `core/skill` + `plugins/skills` + resource adapters | Metadata/activation in core; discovery/loading in adapters. |
-| Resources | `core/resource` + `adapters/resourcefs` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
+| Resources | `core/resource` + `adapters/appconfig`/`adapters/agentdir` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
 | Plugins | `core/plugin` or `orchestration/pluginhost` + `plugins/*` | Keep contracts separate from implementations. |
 | Datasources | `core/datasource` + `plugins/datasources` + connector adapters | Search contract in core; connector/runtime details outward. |
 | Channels | `core/channel` + `orchestration/client` + `adapters/terminal/http/slack` | Core has normalized envelopes/specs; client defines handle API; adapters implement transports. |
@@ -486,7 +486,7 @@ ported.
 | Current package/directory | Proposed destination | Audit notes |
 | --- | --- | --- |
 | `action` | `core/operation` | Pure operation spec/result/type/ref mostly belongs in core. |
-| `action/declarative` | `runtime/operation/declarative` or `adapters/resourcefs` | Split declarative metadata from executable aliases/shell bindings. |
+| `action/declarative` | `runtime/operation/declarative` or app/resource config adapters | Split declarative metadata from executable aliases/shell bindings. |
 | `actionmw` | `runtime/operation/middleware` | Middleware implementation; safety types go to `core/safety`. |
 | `agent` | split | Specs to `core/agent`; runtime construction to `runtime/agent`; session lifecycle to `orchestration/session`. |
 | `agentconfig` | `core/agent` | Pure config candidate. |
@@ -509,7 +509,7 @@ ported.
 | `cmd/agentclient` | `apps/agentclient` + `adapters/httpchannel/client` | Product CLI over the direct channel client. It should not call session directly. |
 | `cmd/agent-sim` | `apps/agentsim` or test tool | Probably app/tooling. |
 | `command` | `core/command` + parser adapter | Descriptors/results/core tree in core; slash parsing may be adapter if terminal-specific. |
-| `command/markdown` | `adapters/resourcefs/commands` | Markdown command format reader. |
+| `command/markdown` | `adapters/agentdir` | Markdown command format reader. |
 | `conversation` | `core/conversation` + `runtime/conversation` | IDs/events/projection policy split from runtime history handling. |
 | `daemon` | `apps/serve` + `adapters/httpcontrol` + channel adapters | Process host/control plane outward; user messages still enter through channel adapters and harness. |
 | `datasource` | `core/datasource` + `runtime/datasource` | Source contract/core types; registry runtime. |
@@ -522,7 +522,7 @@ ported.
 | `plugins/*` | `plugins/*` | Keep first-party contribution bundles; update contracts. |
 | `project` | `runtime/project` + adapters/filesystem | Entity model core-ish; detection scans filesystem. |
 | `resource` | split | Contribution structs to `core/resource`; resolver/index pure maybe core; discovery/loading adapters. |
-| `resource/loader` | `adapters/resourcefs` | Filesystem/appconfig/embedded discovery. |
+| `resource/loader` | `adapters/appconfig`/`adapters/agentdir` | Filesystem appconfig and `.agents` discovery. |
 | `runner` | `runtime/agent/runner` | Model/tool turn loop. |
 | `runnertest` | test support | Place under relevant runtime test package. |
 | `runtime` | `runtime/agent` | Current engine/history/toolctx likely runtime agent/conversation. |
@@ -640,9 +640,6 @@ Implemented and green:
   operation and command projection.
 - `plugins/textplugin`: second migrated low-IO plugin, contributing
   configurable pure text transformation operations and commands.
-- `adapters/resourcefs`: first local filesystem manifest loader
-  (`agentruntime.json`) into pure resource contribution bundles, including
-  configured session profiles.
 - `adapters/appconfig`: narrow `agentsdk.app.json`/YAML manifest parser for
   app specs, source declarations, discovery policy, model policy, and plugin
   refs.
@@ -861,7 +858,7 @@ Recommended order:
    needs them.
 
 2. **Resource Format Expansion**
-   Extend `adapters/resourcefs` only where app composition needs it next:
+   Extend appconfig and agentdir only where app composition needs it next:
    plugin refs, agent specs, context provider specs, and workflows. Keep
    `.agents`, `agentdir`, and appconfig compatibility as adapter packages, not
    core concepts.

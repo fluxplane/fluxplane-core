@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
-	"github.com/fluxplane/agentruntime/adapters/resourcefs"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -365,7 +365,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	if dev.appDir == "" {
 		return agentruntime.New(cfg)
 	}
-	bundle, err := resourcefs.LoadDir(ctx, dev.appDir)
+	bundle, err := appconfig.LoadDir(ctx, dev.appDir)
 	if err != nil {
 		return nil, err
 	}
