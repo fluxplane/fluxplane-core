@@ -29,11 +29,13 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
@@ -51,10 +53,12 @@ type LocalRuntimeConfig struct {
 	AllowPrivateNetwork bool
 	Launch              distribution.LaunchConfig
 	AuthPath            string
+	Dev                 bool
 }
 
 type AttachOptions struct {
 	AuthPath string
+	Dev      bool
 }
 
 // RuntimeOptions describes the surface-neutral local launch inputs shared by
@@ -73,6 +77,7 @@ type RuntimeOptions struct {
 	EffortSet           bool
 	Debug               bool
 	Yolo                bool
+	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	AllowPrivateNetwork bool
@@ -105,6 +110,7 @@ func AttachLocalRuntimeWithOptions(loaded distribution.Loaded, opts AttachOption
 		AllowPrivateNetwork: true,
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
+		Dev:                 opts.Dev,
 	})
 	return loaded
 }
@@ -144,6 +150,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		EffortSet:           req.EffortSet,
 		Debug:               req.Debug,
 		Yolo:                req.Yolo,
+		Dev:                 cfg.Dev || req.Dev,
 		Plugins:             cfg.Plugins,
 		ToolProjection:      cfg.ToolProjection,
 		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
@@ -207,9 +214,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	var semanticIndex interface{ Close() error }
+	var closeThreadStore func()
 	closeRuntime := func() {
 		if semanticIndex != nil {
 			_ = semanticIndex.Close()
+		}
+		if closeThreadStore != nil {
+			closeThreadStore()
 		}
 		if connectorEngine != nil {
 			_ = connectorEngine.Close()
@@ -219,16 +230,33 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	dispatcher := slackplugin.NewDispatcher()
 	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
+	if opts.Dev {
+		bundles = ensureDevSessionHistoryPlugin(bundles)
+	}
+	eventRegistry, err := app.NewEventRegistry(app.EventRegistryConfig{Bundles: bundles, EventTypes: eventcatalog.All()})
+	if err != nil {
+		closeRuntime()
+		return Runtime{}, err
+	}
+	threadStore, closeStore, err := openLocalThreadStore(eventRegistry)
+	if err != nil {
+		closeRuntime()
+		return Runtime{}, err
+	}
+	closeThreadStore = closeStore
 	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher)
 	if opts.Plugins != nil {
 		available = opts.Plugins(hostSystem)
+	}
+	if opts.Dev {
+		available = appendPluginIfMissing(available, sessionhistoryplugin.New(threadStore))
 	}
 	plugins, err := selectDeclaredPlugins(bundles, available)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	if hasAnyDatasource(bundles) {
+	if opts.Dev || hasAnyDatasource(bundles) {
 		registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 		if err != nil {
 			closeRuntime()
@@ -247,10 +275,15 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Yolo {
 		approval = operationruntime.AutoApprover{}
 	}
+	var bundleTransforms []app.BundleTransform
+	if opts.Dev {
+		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
+	}
 	composition, err := app.Compose(app.Config{
-		Context: ctx,
-		Bundles: bundles,
-		Plugins: plugins,
+		Context:          ctx,
+		Bundles:          bundles,
+		Plugins:          plugins,
+		BundleTransforms: bundleTransforms,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:        localSandbox{Root: root},
 			ACL:            localACL{},
@@ -265,6 +298,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		ThreadStore: threadStore,
 		LLMModelResolver: distrun.ModelResolver{
 			Provider:        opts.Provider,
 			Model:           opts.Model,
@@ -355,6 +389,19 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		textplugin.New(),
 		webplugin.New(hostSystem),
 	}
+}
+
+func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {
+	if plugin == nil {
+		return plugins
+	}
+	name := strings.TrimSpace(plugin.Manifest().Name)
+	for _, existing := range plugins {
+		if existing != nil && strings.TrimSpace(existing.Manifest().Name) == name {
+			return plugins
+		}
+	}
+	return append(plugins, plugin)
 }
 
 func connectorInstancesForKind(instances []connectorplugin.Instance, kind string) []connectorplugin.Instance {
@@ -528,7 +575,9 @@ func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBund
 		providers = append(providers, contribution.Provider)
 	}
 	providers = append(providers, datasourceplugin.NewFilesystemProvider(os.DirFS(root)))
-	return datasourceplugin.BuildRegistry(ctx, datasourceSpecs(bundles), providers)
+	specs := datasourceSpecs(bundles)
+	specs = appendDatasourceSpecs(specs, datasourceSpecs(resolved.Bundles)...)
+	return datasourceplugin.BuildRegistry(ctx, specs, providers)
 }
 
 func ensureSkillDatasource(bundles []resource.ContributionBundle) {
@@ -575,6 +624,21 @@ func datasourceSpecs(bundles []resource.ContributionBundle) []coredatasource.Spe
 		out = append(out, bundle.Datasources...)
 	}
 	return out
+}
+
+func appendDatasourceSpecs(specs []coredatasource.Spec, candidates ...coredatasource.Spec) []coredatasource.Spec {
+	seen := map[coredatasource.Name]bool{}
+	for _, spec := range specs {
+		seen[spec.Name] = true
+	}
+	for _, spec := range candidates {
+		if seen[spec.Name] {
+			continue
+		}
+		specs = append(specs, spec)
+		seen[spec.Name] = true
+	}
+	return specs
 }
 
 func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {

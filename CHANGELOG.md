@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added opt-in runtime workspace roots so local launches can expose named
   directories such as `@tmp` while keeping filesystem operations confined by
   default.
+- Local launches now persist thread/event history to SQLite by default.
+- Added `--dev` for local run surfaces to expose a `session_history`
+  datasource with searchable session threads, messages, operations, model calls,
+  continuations, subagents, and usage.
 - Added `docs/agent-loop.md` with an architecture summary of the agent
   execution and continuation loops.
 - Added `claudecode` as a Claude Code-compatible LLM provider using local

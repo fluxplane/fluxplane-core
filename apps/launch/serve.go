@@ -28,6 +28,7 @@ import (
 type Options struct {
 	AppDir   string
 	Debug    bool
+	Dev      bool
 	AuthPath string
 }
 
@@ -47,6 +48,7 @@ func Serve(ctx context.Context, opts Options) error {
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
 		Debug:               opts.Debug,
+		Dev:                 opts.Dev,
 		AllowPrivateNetwork: true,
 	})
 	if err != nil {

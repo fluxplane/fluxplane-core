@@ -26,6 +26,7 @@ type RunPathOptions struct {
 	Debug        bool
 	Usage        bool
 	Yolo         bool
+	Dev          bool
 	AuthPath     string
 	In           io.Reader
 	Out          io.Writer
@@ -55,7 +56,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		}
 		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
 	}
-	loaded = AttachLocalRuntimeWithOptions(loaded, AttachOptions{AuthPath: opts.AuthPath})
+	loaded = AttachLocalRuntimeWithOptions(loaded, AttachOptions{AuthPath: opts.AuthPath, Dev: opts.Dev})
 	return distcli.Run(ctx, loaded.Distribution, distcli.RunOptions{
 		Session:      opts.Session,
 		Conversation: opts.Conversation,
@@ -69,6 +70,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		Debug:        opts.Debug,
 		Usage:        opts.Usage,
 		Yolo:         opts.Yolo,
+		Dev:          opts.Dev,
 		Prompt:       loaded.Distribution.Spec.Name,
 		In:           opts.In,
 		Out:          opts.Out,
@@ -87,6 +89,7 @@ type runCommandOptions struct {
 	debug        bool
 	usage        bool
 	yolo         bool
+	dev          bool
 	authPath     string
 }
 
@@ -121,6 +124,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Debug:        opts.debug,
 				Usage:        opts.usage,
 				Yolo:         opts.yolo,
+				Dev:          opts.dev,
 				AuthPath:     opts.authPath,
 				In:           cmd.InOrStdin(),
 				Out:          cmd.OutOrStdout(),
@@ -138,6 +142,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
+	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	return cmd
 }

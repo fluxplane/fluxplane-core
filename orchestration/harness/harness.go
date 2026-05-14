@@ -720,7 +720,13 @@ func (s *Service) persistRuntimeEvent(ctx context.Context, info SessionInfo, run
 
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	value := string(name)
-	return strings.HasPrefix(value, "plan.") || strings.HasPrefix(value, "subagent.") || strings.HasPrefix(value, "skill.")
+	return strings.HasPrefix(value, "plan.") ||
+		strings.HasPrefix(value, "subagent.") ||
+		strings.HasPrefix(value, "skill.") ||
+		value == "llmagent.model_requested" ||
+		value == "llmagent.model_completed" ||
+		value == "llmagent.model_failed" ||
+		value == "usage.recorded"
 }
 
 func liveSessionEvent(info clientapi.SessionInfo, runID clientapi.RunID, payload coreevent.Event) (clientapi.Event, bool) {

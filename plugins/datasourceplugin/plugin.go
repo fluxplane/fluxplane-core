@@ -142,12 +142,13 @@ func batchGetSpec() operation.Spec {
 }
 
 type searchInput struct {
-	Queries  []string `json:"queries,omitempty" jsonschema:"description=Search queries to run. Use one or more short text queries."`
-	Query    string   `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
-	Entities []string `json:"entities,omitempty" jsonschema:"description=Optional entity type filters such as gitlab.project, jira.issue, or jira.*."`
-	Limit    int      `json:"limit,omitempty" jsonschema:"description=Maximum records per datasource per query. Defaults to 10."`
-	Mode     string   `json:"mode,omitempty" jsonschema:"description=Search mode: auto, lexical, semantic, or hybrid. Defaults to auto."`
-	MinScore float64  `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
+	Queries  []string          `json:"queries,omitempty" jsonschema:"description=Search queries to run. Use one or more short text queries."`
+	Query    string            `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
+	Entities []string          `json:"entities,omitempty" jsonschema:"description=Optional entity type filters such as gitlab.project, jira.issue, or jira.*."`
+	Filters  map[string]string `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for lexical datasource search."`
+	Limit    int               `json:"limit,omitempty" jsonschema:"description=Maximum records per datasource per query. Defaults to 10."`
+	Mode     string            `json:"mode,omitempty" jsonschema:"description=Search mode: auto, lexical, semantic, or hybrid. Defaults to auto."`
+	MinScore float64           `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
 }
 
 type getInput struct {
@@ -214,21 +215,24 @@ func (p Plugin) search(ctx operation.Context, input searchInput) operation.Resul
 		return operation.Failed("datasource_search_denied", err.Error(), nil)
 	}
 	mode := searchMode(input.Mode)
+	if len(input.Filters) > 0 {
+		mode = "lexical"
+	}
 	if mode == "semantic" {
 		out := p.withRecordLinks(ctx, p.runSemanticSearches(ctx, targets, queries, limit, input.MinScore))
 		return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
 	}
 	if mode == "hybrid" || (mode == "auto" && p.hasIndexedSemanticTargets(ctx, targets)) {
-		lexical := p.runSearches(ctx, targets, queries, limit)
+		lexical := p.runSearches(ctx, targets, queries, limit, input.Filters)
 		semanticOut := p.runSemanticSearches(ctx, targets, queries, limit, input.MinScore)
 		out := p.withRecordLinks(ctx, mergeSearchOutputs(lexical, semanticOut, limit))
 		return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
 	}
-	out := p.withRecordLinks(ctx, p.runSearches(ctx, targets, queries, limit))
+	out := p.withRecordLinks(ctx, p.runSearches(ctx, targets, queries, limit, input.Filters))
 	return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
 }
 
-func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queries []string, limit int) searchOutput {
+func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queries []string, limit int, filters map[string]string) searchOutput {
 	type searchJob struct {
 		index  int
 		target searchTarget
@@ -261,7 +265,7 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 				results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: "search is not supported"}}
 				return
 			}
-			result, err := searcher.Search(ctx, coredatasource.SearchRequest{Entity: job.target.Entity.Type, Query: job.query, Limit: limit})
+			result, err := searcher.Search(ctx, coredatasource.SearchRequest{Entity: job.target.Entity.Type, Query: job.query, Limit: limit, Filters: filters})
 			if err != nil {
 				results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
 				return

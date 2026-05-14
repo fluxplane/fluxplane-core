@@ -217,6 +217,54 @@ func TestSearchEnforcesAgentDatasourceAccess(t *testing.T) {
 	}
 }
 
+func TestSearchFiltersForceLexicalMode(t *testing.T) {
+	accessor := &filterCaptureAccessor{
+		memoryAccessor: memoryAccessor{
+			spec: coredatasource.Spec{Name: "history", Entities: []coredatasource.EntityType{"session.operation"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type: "session.operation",
+				Capabilities: []coredatasource.EntityCapability{
+					coredatasource.EntityCapabilitySearch,
+					coredatasource.EntityCapabilitySemanticSearch,
+				},
+			},
+			records: []coredatasource.Record{{
+				ID:         "one",
+				Datasource: "history",
+				Entity:     "session.operation",
+				Title:      "hello",
+			}},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"history"},
+	}), nil)
+
+	result := NewWithSemantic(registry, nil).search(ctx, searchInput{
+		Query:   "hello",
+		Mode:    "semantic",
+		Filters: map[string]string{"type": "session.operation"},
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	rendered := result.Output.(operation.Rendered)
+	out := rendered.Data.(searchOutput)
+	if len(out.Errors) != 0 {
+		t.Fatalf("expected lexical search without semantic errors, got %#v", out.Errors)
+	}
+	if accessor.searches != 1 {
+		t.Fatalf("searches = %d, want 1", accessor.searches)
+	}
+	if accessor.filters["type"] != "session.operation" {
+		t.Fatalf("filters = %#v", accessor.filters)
+	}
+}
+
 func TestRelationReturnsExactRelatedRecords(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{
@@ -550,4 +598,16 @@ func (a *countingAccessor) Search(ctx context.Context, req coredatasource.Search
 func (a *countingAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
 	a.gets++
 	return a.memoryAccessor.Get(ctx, req)
+}
+
+type filterCaptureAccessor struct {
+	memoryAccessor
+	searches int
+	filters  map[string]string
+}
+
+func (a *filterCaptureAccessor) Search(ctx context.Context, req coredatasource.SearchRequest) (coredatasource.SearchResult, error) {
+	a.searches++
+	a.filters = req.Filters
+	return a.memoryAccessor.Search(ctx, req)
 }
