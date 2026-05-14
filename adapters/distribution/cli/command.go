@@ -25,9 +25,10 @@ import (
 // NewCommand builds a Cobra command for a distribution.
 func NewCommand(dist distribution.Distribution) *cobra.Command {
 	opts := options{
-		provider: dist.Spec.DefaultModel.Provider,
-		model:    dist.Spec.DefaultModel.Model,
-		thinking: "auto",
+		provider:         dist.Spec.DefaultModel.Provider,
+		model:            dist.Spec.DefaultModel.Model,
+		thinking:         "auto",
+		maxContinuations: 20,
 	}
 	cmd := &cobra.Command{
 		Use:   dist.Spec.Name,
@@ -38,21 +39,25 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 				return err
 			}
 			return Run(cmd.Context(), dist, RunOptions{
-				Provider:    opts.provider,
-				Model:       opts.model,
-				Thinking:    opts.thinking,
-				ThinkingSet: cmd.Flags().Changed("thinking"),
-				Effort:      opts.effort,
-				EffortSet:   cmd.Flags().Changed("effort"),
-				Input:       opts.input,
-				Debug:       opts.debug,
-				Usage:       opts.usage,
-				Yolo:        opts.yolo,
-				Dev:         opts.dev,
-				Prompt:      dist.Spec.Name,
-				In:          os.Stdin,
-				Out:         os.Stdout,
-				Err:         os.Stderr,
+				Provider:            opts.provider,
+				Model:               opts.model,
+				Thinking:            opts.thinking,
+				ThinkingSet:         cmd.Flags().Changed("thinking"),
+				Effort:              opts.effort,
+				EffortSet:           cmd.Flags().Changed("effort"),
+				Input:               opts.input,
+				Goal:                opts.goal,
+				GoalSet:             cmd.Flags().Changed("goal"),
+				MaxContinuations:    opts.maxContinuations,
+				MaxContinuationsSet: cmd.Flags().Changed("max-continuations"),
+				Debug:               opts.debug,
+				Usage:               opts.usage,
+				Yolo:                opts.yolo,
+				Dev:                 opts.dev,
+				Prompt:              dist.Spec.Name,
+				In:                  os.Stdin,
+				Out:                 os.Stdout,
+				Err:                 os.Stderr,
 			})
 		},
 	}
@@ -61,6 +66,8 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().StringVar(&opts.thinking, "thinking", opts.thinking, "thinking mode: auto|on|off")
 	cmd.PersistentFlags().StringVar(&opts.effort, "effort", opts.effort, "reasoning effort: low|medium|high|max")
 	cmd.PersistentFlags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
+	cmd.PersistentFlags().StringVar(&opts.goal, "goal", "", "run a goal-driven task and exit")
+	cmd.PersistentFlags().IntVar(&opts.maxContinuations, "max-continuations", opts.maxContinuations, "maximum goal continuations")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
@@ -71,44 +78,62 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 }
 
 type options struct {
-	provider string
-	model    string
-	thinking string
-	effort   string
-	input    string
-	debug    bool
-	usage    bool
-	yolo     bool
-	dev      bool
+	provider         string
+	model            string
+	thinking         string
+	effort           string
+	input            string
+	goal             string
+	maxContinuations int
+	debug            bool
+	usage            bool
+	yolo             bool
+	dev              bool
 }
 
 // RunOptions configures a distribution REPL or one-shot run.
 type RunOptions struct {
-	Session      string
-	Conversation string
-	Provider     string
-	Model        string
-	Thinking     string
-	ThinkingSet  bool
-	Effort       string
-	EffortSet    bool
-	Input        string
-	Debug        bool
-	Usage        bool
-	Yolo         bool
-	Dev          bool
-	Prompt       string
-	In           io.Reader
-	Out          io.Writer
-	Err          io.Writer
+	Session             string
+	Conversation        string
+	Provider            string
+	Model               string
+	Thinking            string
+	ThinkingSet         bool
+	Effort              string
+	EffortSet           bool
+	Input               string
+	Goal                string
+	GoalSet             bool
+	MaxContinuations    int
+	MaxContinuationsSet bool
+	Debug               bool
+	Usage               bool
+	Yolo                bool
+	Dev                 bool
+	Prompt              string
+	In                  io.Reader
+	Out                 io.Writer
+	Err                 io.Writer
 }
 
 // Run opens a distribution session and runs a one-shot prompt or REPL.
 func Run(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
+	if opts.GoalSet || opts.Goal != "" {
+		return runGoal(ctx, dist, opts)
+	}
 	if strings.TrimSpace(opts.Input) != "" {
 		return runOneShot(ctx, dist, opts)
 	}
 	return runREPL(ctx, dist, opts)
+}
+
+func runGoal(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
+	session, err := openSession(ctx, dist, opts)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = session.Close(ctx) }()
+	return terminalui.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, terminalOptions(opts), usage.NewTracker())
 }
 
 func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {

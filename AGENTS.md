@@ -259,6 +259,31 @@ and let the typed helper generate `operation.Type` JSON Schemas. Avoid
 hand-written schema strings unless a type needs a custom union or discriminator
 shape that reflection cannot express cleanly.
 
+## Architecture Rules
+
+### Commands
+
+- UI/adapters translate user input into canonical submissions and do not
+  validate domain semantics.
+- Command syntax is parsed once at the command boundary and transported as
+  structured `command.Invocation`.
+- Command behavior is dispatched through specs, registries, and `Target.Kind`,
+  not hard-coded path checks.
+- Built-in commands use the same registry and handler model as contributed
+  commands.
+- Backend/session dispatch owns command validation, policy evaluation, and
+  execution semantics.
+- Typed command input uses structs and binders, not ad hoc `map[string]any`
+  parsing spread across layers.
+- CLI flags may choose the submission shape, but must not decide whether that
+  submission is semantically valid.
+- Harness code may inspect command metadata for routing, but must not turn
+  pre-routing lookup failures into execution failures.
+- Terminal UI must not implement command-specific parsers when `core/command`
+  owns parsing.
+- Defaults are applied at the owning semantic layer, not hidden in transport or
+  presentation adapters.
+
 ## Naming Rule
 
 Use layer names for top-level directories and concept names below them.

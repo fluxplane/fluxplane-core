@@ -183,6 +183,15 @@ turns:
   raw operation payloads.
 - `new`: use clean evaluator context plus the same compact summary.
 
+Local CLI sessions can also enable continuation for one submission without
+changing agent configuration. `coder --goal "..."`, `agentsdk run . --goal
+"..."`, and `/goal --max 20 "..."` submit the built-in `/goal` command, which
+runs the goal text as the task and installs a prompt stop condition for that run
+only. The command stops when the evaluator decides the goal is complete,
+impossible, blocked, or no reasonable next action remains; otherwise it
+continues until the requested cap is reached. `--goal` defaults to
+`--max-continuations 20`.
+
 ### Sessions
 
 Session documents name an executable profile and bind it to an agent.

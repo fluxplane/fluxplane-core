@@ -15,6 +15,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 func TestDescribeCommandRendersWithoutRuntime(t *testing.T) {
@@ -247,6 +248,75 @@ func TestCommandRejectsInvalidEffort(t *testing.T) {
 	}
 }
 
+func TestRunGoalSubmitsGoalCommand(t *testing.T) {
+	session := &captureSession{}
+	runtime := &sessionRuntime{session: session}
+	err := Run(context.Background(), distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	}, RunOptions{
+		Goal:             "Test coverage has increased to 90%",
+		MaxContinuations: 20,
+		Out:              &bytes.Buffer{},
+		Err:              &bytes.Buffer{},
+	})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(session.submissions) != 1 {
+		t.Fatalf("submissions = %d, want goal command", len(session.submissions))
+	}
+	submission := session.submissions[0]
+	if submission.Command == nil || submission.Command.Path.String() != "/goal" {
+		t.Fatalf("submission = %#v, want /goal command", submission)
+	}
+	if len(submission.Command.Args) != 1 || submission.Command.Args[0] != "Test coverage has increased to 90%" {
+		t.Fatalf("args = %#v, want goal arg", submission.Command.Args)
+	}
+	input := submission.Command.Input.(map[string]any)
+	if input["max"] != 20 {
+		t.Fatalf("goal input = %#v, want cap 20", input)
+	}
+}
+
+func TestRunGoalForwardsCommandPayloadWithoutSemanticValidation(t *testing.T) {
+	session := &captureSession{}
+	runtime := &sessionRuntime{session: session}
+	err := Run(context.Background(), distribution.Distribution{
+		Spec:    coredistribution.Spec{Name: "coder"},
+		Runtime: runtime,
+	}, RunOptions{
+		GoalSet:             true,
+		MaxContinuations:    0,
+		MaxContinuationsSet: true,
+		Out:                 &bytes.Buffer{},
+		Err:                 &bytes.Buffer{},
+	})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(session.submissions) != 1 {
+		t.Fatalf("submissions = %d, want goal command", len(session.submissions))
+	}
+	submission := session.submissions[0]
+	if submission.Command == nil || submission.Command.Path.String() != "/goal" {
+		t.Fatalf("submission = %#v, want /goal command", submission)
+	}
+	if len(submission.Command.Args) != 1 || submission.Command.Args[0] != "" {
+		t.Fatalf("args = %#v, want empty goal forwarded", submission.Command.Args)
+	}
+	input := submission.Command.Input.(map[string]any)
+	if input["max"] != 0 {
+		t.Fatalf("goal input = %#v, want explicit cap 0 forwarded", input)
+	}
+}
+
 var errStopOpen = errors.New("stop open")
 
 type captureRuntime struct {
@@ -267,14 +337,16 @@ func (r *sessionRuntime) OpenSession(context.Context, distribution.OpenRequest) 
 }
 
 type captureSession struct {
-	submits int
+	submits     int
+	submissions []clientapi.Submission
 }
 
 func (s *captureSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
 
-func (s *captureSession) Submit(context.Context, clientapi.Submission) (clientapi.RunHandle, error) {
+func (s *captureSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
 	s.submits++
-	return nil, errors.New("unexpected submit")
+	s.submissions = append(s.submissions, submission)
+	return captureRun{submission: submission}, nil
 }
 
 func (s *captureSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
@@ -288,3 +360,34 @@ func (s *captureSession) OnEvent(context.Context, func(clientapi.Event)) (func()
 }
 
 func (s *captureSession) Close(context.Context) error { return nil }
+
+type captureRun struct {
+	submission clientapi.Submission
+}
+
+func (r captureRun) ID() clientapi.RunID { return r.submission.ID }
+
+func (r captureRun) Session() clientapi.SessionInfo { return clientapi.SessionInfo{} }
+
+func (r captureRun) Submission() clientapi.Submission { return r.submission }
+
+func (r captureRun) Events() <-chan clientapi.Event {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch
+}
+
+func (r captureRun) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (r captureRun) Err() error { return nil }
+
+func (r captureRun) Wait(context.Context) (clientapi.Result, error) {
+	return clientapi.Result{
+		Submission: r.submission,
+		Command:    &sessionruntime.CommandResult{Status: sessionruntime.CommandStatusOK},
+	}, nil
+}

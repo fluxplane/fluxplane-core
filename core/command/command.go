@@ -35,6 +35,7 @@ type Spec struct {
 // inbound envelopes, not to the command itself.
 type Invocation struct {
 	Path  Path            `json:"path"`
+	Args  []string        `json:"args,omitempty"`
 	Input operation.Value `json:"input,omitempty"`
 }
 

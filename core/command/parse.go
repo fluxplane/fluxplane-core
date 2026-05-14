@@ -1,9 +1,12 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+var ErrUnterminatedQuote = errors.New("command: unterminated quoted string")
 
 // ParseSlash parses token-based slash command syntax into a command invocation.
 // Non-slash input is ignored and returns ok=false.
@@ -13,7 +16,10 @@ func ParseSlash(input string) (Invocation, bool, error) {
 		return Invocation{}, false, nil
 	}
 
-	tokens := strings.Fields(input)
+	tokens, err := tokenize(input)
+	if err != nil {
+		return Invocation{}, false, err
+	}
 	if len(tokens) == 0 {
 		return Invocation{}, false, nil
 	}
@@ -34,6 +40,7 @@ func ParseSlash(input string) (Invocation, bool, error) {
 	path := Path{root}
 	inputMap := map[string]any{}
 	seenFlag := false
+	var args []string
 
 	for i := 1; i < len(tokens); i++ {
 		token := tokens[i]
@@ -66,7 +73,8 @@ func ParseSlash(input string) (Invocation, bool, error) {
 			return Invocation{}, false, fmt.Errorf("command: unsupported flag syntax %q", token)
 		}
 		if seenFlag {
-			return Invocation{}, false, fmt.Errorf("command: bare token %q after flags", token)
+			args = append(args, token)
+			continue
 		}
 		if err := validateSlashPathSegment(token); err != nil {
 			return Invocation{}, false, err
@@ -78,7 +86,58 @@ func ParseSlash(input string) (Invocation, bool, error) {
 	if len(inputMap) > 0 {
 		commandInput = inputMap
 	}
-	return Invocation{Path: path, Input: commandInput}, true, nil
+	return Invocation{Path: path, Args: args, Input: commandInput}, true, nil
+}
+
+func tokenize(input string) ([]string, error) {
+	var tokens []string
+	var cur strings.Builder
+	var quote rune
+	escaped := false
+
+	flush := func() {
+		if cur.Len() == 0 {
+			return
+		}
+		tokens = append(tokens, cur.String())
+		cur.Reset()
+	}
+
+	for _, r := range input {
+		if escaped {
+			cur.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			cur.WriteRune(r)
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\n', '\r':
+			flush()
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if escaped {
+		cur.WriteRune('\\')
+	}
+	if quote != 0 {
+		return nil, ErrUnterminatedQuote
+	}
+	flush()
+	return tokens, nil
 }
 
 func validateSlashPathSegment(segment string) error {

@@ -1807,6 +1807,61 @@ func TestExecuteInboundInputPromptStopConditionUsesEvaluatorInstruction(t *testi
 	}
 }
 
+func TestExecuteInboundCommandGoalUsesPromptContinuation(t *testing.T) {
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "coder",
+			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
+			Turns:  agent.TurnPolicy{MaxSteps: 1},
+		},
+		results: []agent.StepResult{
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "first"}}},
+			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}}},
+		},
+	}
+	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
+		{Action: StopActionContinue, ContinueInstruction: "keep going", Reason: "not done"},
+		{Action: StopActionStop, Reason: "done"},
+	}}
+	s := Session{Agent: agentRuntime, StopEvaluator: evaluator}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:   "run-goal",
+		Kind: channel.InboundCommand,
+		Caller: policy.Caller{
+			Kind: policy.CallerUser,
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"goal"},
+			Args: []string{"Test coverage has increased to 90%"},
+			Input: map[string]any{
+				"max": 2,
+			},
+		},
+	})
+
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q error = %#v, want ok", result.Status, result.Error)
+	}
+	if result.Output != "done" {
+		t.Fatalf("output = %#v, want final goal output", result.Output)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
+	}
+	for i, input := range agentRuntime.inputs {
+		if input.Goal != "Test coverage has increased to 90%" {
+			t.Fatalf("input[%d].Goal = %q, want goal", i, input.Goal)
+		}
+	}
+	if len(evaluator.inputs) != 2 {
+		t.Fatalf("evaluator inputs = %d, want two continuation decisions", len(evaluator.inputs))
+	}
+	if evaluator.inputs[0].MaxContinuations != 2 || !strings.Contains(evaluator.inputs[0].Condition.Prompt, "Test coverage has increased to 90%") {
+		t.Fatalf("evaluator input = %#v, want goal prompt and cap", evaluator.inputs[0])
+	}
+}
+
 func TestModelStopEvaluatorAcceptsToolDecision(t *testing.T) {
 	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
 		if got := req.Agent.Inference.Model; got != "expensive-model" {

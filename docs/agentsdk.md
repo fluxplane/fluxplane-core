@@ -70,6 +70,15 @@ Run one prompt and exit:
 agentsdk run . --input "Hello"
 ```
 
+Run a local app until a goal is satisfied or the continuation cap is reached:
+
+```bash
+agentsdk run . --goal "Test coverage has increased to 90%" --max-continuations 20
+```
+
+In an interactive local session, `/goal --max 20 "Test coverage has increased
+to 90%"` submits the same built-in goal command.
+
 Serve the app as a daemon:
 
 ```bash

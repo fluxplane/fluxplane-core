@@ -21,6 +21,7 @@ func TestParseSlash(t *testing.T) {
 		input string
 		path  Path
 		value map[string]any
+		args  []string
 	}{
 		{
 			name:  "context",
@@ -62,6 +63,13 @@ func TestParseSlash(t *testing.T) {
 			path:  Path{"foo", "bar", "baz"},
 			value: map[string]any{"dry-run": true},
 		},
+		{
+			name:  "flag then quoted args",
+			input: `/goal --max 40 "foo bar" baz`,
+			path:  Path{"goal"},
+			value: map[string]any{"max": "40"},
+			args:  []string{"foo bar", "baz"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +83,9 @@ func TestParseSlash(t *testing.T) {
 			}
 			if !reflect.DeepEqual(invocation.Path, tt.path) {
 				t.Fatalf("path = %#v, want %#v", invocation.Path, tt.path)
+			}
+			if !reflect.DeepEqual(invocation.Args, tt.args) {
+				t.Fatalf("args = %#v, want %#v", invocation.Args, tt.args)
 			}
 			if len(tt.value) == 0 {
 				if invocation.Input != nil {
@@ -98,7 +109,7 @@ func TestParseSlashRejectsInvalidInput(t *testing.T) {
 		"/",
 		"//foo",
 		"/context --key=",
-		"/context --key docs extra",
+		`/context "unterminated`,
 	}
 
 	for _, input := range tests {

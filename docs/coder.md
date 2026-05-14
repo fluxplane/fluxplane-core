@@ -18,6 +18,9 @@ Top-level behavior and commands:
 
 - `coder` opens an interactive REPL.
 - `--input` sends one prompt and exits instead of opening the REPL.
+- `--goal` runs a goal-driven task and exits after the goal is met or the
+  continuation cap is reached.
+- `--max-continuations` sets the `--goal` continuation cap; the default is `20`.
 - `--provider` selects the model provider.
 - `--model` selects the model name or `provider/model`.
 - `--debug` prints run events as highlighted JSON markdown.
@@ -58,6 +61,18 @@ Run one prompt:
 
 ```bash
 coder --input "Summarize this repository"
+```
+
+Run until a goal is satisfied or the cap is reached:
+
+```bash
+coder --goal "Test coverage has increased to 90%"
+```
+
+Inside the REPL, use `/goal --max <max-continuations> "<goal>"`:
+
+```text
+coder> /goal --max 20 "Test coverage has increased to 90%"
 ```
 
 Print usage accounting after the response:
