@@ -1,7 +1,8 @@
 kind: app
 name: slack-bot
 description: Minimal Slack daemon app for the rewrite runtime.
-default_agent: slack_bot
+default_agent:
+  name: slack_bot
 distribution:
   name: slack-bot
   title: Slack Bot
@@ -102,8 +103,8 @@ agent: slack_bot
 kind: agent
 name: slack_bot
 model: openai/gpt-5.5
-max_steps: 50
-max_continuations: 3
+turns:
+  max_steps: 50
 tools:
   - channel_send
   - datasource_search

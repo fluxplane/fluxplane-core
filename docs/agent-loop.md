@@ -54,15 +54,16 @@
 ## The Two Nested Loops
 
 ### Outer Loop: Continuation Loop
-- **Purpose**: Handle multi-turn reasoning when agent reaches step limit without final decision
-- **Max Iterations**: ~3 (default `maxContinuations`)
-- **Trigger**: Agent completes max steps but hasn't called STOP operation
-- **Action**: Send "Continue." message back as new input observation
-- **Result**: Outer loop iterates to gather final decision or continue further
+- **Purpose**: Follow up after a terminal response when a configured stop condition says useful work remains
+- **Max Iterations**: 3 by default, configured by `turns.continuation.max_continuations`
+- **Trigger**: `turns.continuation.stop_condition`
+- **Evaluator**: Prompt stop conditions use a runtime-provided evaluator model that must call the typed `continuation_decision` tool
+- **Action**: Send the stop evaluator's `continue_instruction` back as a `session.continuation` observation
+- **Result**: Outer loop iterates until the stop condition returns `stop` or the cap is reached
 
 ### Inner Loop: Step Loop
 - **Purpose**: Execute single steps until agent makes a decision or hits step limit
-- **Max Steps**: 50 (default `maxSteps`)
+- **Max Steps**: 50 by default, configured by `turns.max_steps`
 - **Flow per step**:
   1. **Materialize Context** → Render context blocks, invoke providers
   2. **Build Transcript** → Combine history + context + pending items
@@ -142,15 +143,18 @@ After inner loop exits:
 ```
 shouldContinueAfterTerminal(continuation, agentResult)?
 
-    ├─ Agent decision is STOP?
-    │   └─ NO: Continue checking...
+    ├─ turns.continuation.stop_condition configured?
+    │   └─ NO: Return terminal result
     │
-    ├─ continuation < maxContinuations?
-    │   ├─ YES: pending = ["Continue."]
+    ├─ stop condition says continue?
+    │   └─ NO: Return terminal result
+    │
+    ├─ continuation < turns.continuation.max_continuations?
+    │   ├─ YES: pending = [continue_instruction]
     │   │        observations = [{"kind": "session.continuation"}]
     │   │        loop back to inner loop
     │   │
-    │   └─ NO: Return terminal result
+    │   └─ NO: Return continuation_limit_exceeded
     │
     └─ Return applyTerminalAgentDecision()
        └─ Generate outbound message
@@ -184,7 +188,7 @@ User: "Write a function to sum an array"
 
 The agent loop is a **two-level nested machine**:
 
-1. **Outer Loop** (Continuation): Handles step limit without final decision
+1. **Outer Loop** (Continuation): Handles stop-condition-driven follow-up turns
 2. **Inner Loop** (Steps): Observe → Decide → Execute until decision
 
 Each step:

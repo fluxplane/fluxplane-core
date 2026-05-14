@@ -32,7 +32,6 @@ func Bundle() resource.ContributionBundle {
 		AsLLMAgent(DefaultModel).
 		WithMaxOutputTokens(4096).
 		WithMaxSteps(50).
-		WithMaxContinuations(3).
 		WithAgency(agent.AgencyProfile{
 			Autonomy: agent.AutonomyGoalDriven,
 			Reactive: true,

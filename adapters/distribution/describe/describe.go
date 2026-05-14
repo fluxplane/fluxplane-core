@@ -237,11 +237,11 @@ func renderAgentDetail(out *treeWriter, desc AgentOutput) {
 	if spec.Inference.MaxOutputTokens > 0 {
 		line(out, "max output tokens", fmt.Sprint(spec.Inference.MaxOutputTokens))
 	}
-	if spec.Policy.MaxSteps > 0 {
-		line(out, "max steps", fmt.Sprint(spec.Policy.MaxSteps))
+	if spec.Turns.MaxSteps > 0 {
+		line(out, "max steps", fmt.Sprint(spec.Turns.MaxSteps))
 	}
-	if spec.Policy.MaxContinuations > 0 {
-		line(out, "max continuations", fmt.Sprint(spec.Policy.MaxContinuations))
+	if spec.Turns.Continuation.MaxContinuations > 0 {
+		line(out, "max continuations", fmt.Sprint(spec.Turns.Continuation.MaxContinuations))
 	}
 	if agency := agencyLabel(spec.Agency); agency != "" {
 		line(out, "agency", agency)

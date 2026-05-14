@@ -51,7 +51,7 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 				Description: "Focused implementation worker for delegated coding tasks.",
 				System:      "You are a focused worker agent. Complete the assigned task within scope and summarize exactly what you changed or found. If blocked, report the blocker clearly.",
 				Driver:      agent.DriverSpec{Kind: "llmagent"},
-				Policy:      agent.Policy{MaxSteps: 50, MaxContinuations: 3},
+				Turns:       agent.TurnPolicy{MaxSteps: 50},
 				Operations: []operation.Ref{
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_patch"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"},
@@ -63,7 +63,7 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 				Description: "Read-only exploration worker for delegated investigation tasks.",
 				System:      "You are a read-only exploration worker. Inspect the requested context and report concise findings with file paths when relevant. Do not modify files.",
 				Driver:      agent.DriverSpec{Kind: "llmagent"},
-				Policy:      agent.Policy{MaxSteps: 30, MaxContinuations: 3},
+				Turns:       agent.TurnPolicy{MaxSteps: 30},
 				Operations: []operation.Ref{
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "grep"}, {Name: "glob"},
 					{Name: "git_status"}, {Name: "git_diff"}, {Name: "web_request"},

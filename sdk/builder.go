@@ -226,7 +226,7 @@ func (b *AgentBuilder) WithMaxSteps(max int) *AgentBuilder {
 	if b == nil {
 		return b
 	}
-	b.spec.Policy.MaxSteps = max
+	b.spec.Turns.MaxSteps = max
 	return b
 }
 
@@ -236,8 +236,42 @@ func (b *AgentBuilder) WithMaxContinuations(max int) *AgentBuilder {
 	if b == nil {
 		return b
 	}
-	b.spec.Policy.MaxContinuations = max
+	b.spec.Turns.Continuation.MaxContinuations = max
+	if max > 0 && strings.TrimSpace(b.spec.Turns.Continuation.StopCondition.Type) == "" {
+		b.spec.Turns.Continuation.StopCondition = agent.StopConditionSpec{Type: "max-continuations", Max: max}
+	}
 	return b
+}
+
+// WithContinuationContextPolicy sets how continuation evaluators receive
+// context.
+func (b *AgentBuilder) WithContinuationContextPolicy(policy string) *AgentBuilder {
+	if b == nil {
+		return b
+	}
+	b.spec.Turns.Continuation.ContextPolicy = policy
+	return b
+}
+
+// WithStopCondition sets the outer continuation stop condition.
+func (b *AgentBuilder) WithStopCondition(condition agent.StopConditionSpec) *AgentBuilder {
+	if b == nil {
+		return b
+	}
+	b.spec.Turns.Continuation.StopCondition = condition
+	return b
+}
+
+// WithPromptStopCondition sets a prompt-based outer continuation stop
+// condition.
+func (b *AgentBuilder) WithPromptStopCondition(prompt string) *AgentBuilder {
+	return b.WithStopCondition(agent.StopConditionSpec{Type: "prompt", Prompt: prompt})
+}
+
+// WithMaxContinuationStopCondition sets a deterministic stop condition that
+// continues until the given continuation count is reached.
+func (b *AgentBuilder) WithMaxContinuationStopCondition(max int) *AgentBuilder {
+	return b.WithStopCondition(agent.StopConditionSpec{Type: "max-continuations", Max: max})
 }
 
 // WithAgency sets the declarative agency profile.

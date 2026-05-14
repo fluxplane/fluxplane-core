@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -21,16 +22,19 @@ name: main
 description: Main coding agent.
 model: claude-sonnet-4-20250514
 max-tokens: 16000
-max-steps: 100
+turns:
+  max-steps: 100
+  continuation:
+    max-continuations: 3
+    stop-condition:
+      type: max-continuations
+      max: 3
 temperature: 0.2
 thinking: enabled
 effort: high
 tools: [bash, file_read]
 skills: [architecture]
 commands: [review, design]
-stop-condition:
-  type: max-continuations
-  max: 3
 ---
 You are the main agent.
 `)
@@ -43,18 +47,21 @@ Analyze the request.
 	writeFile(t, agentsDir, "agents/implementer.md", `---
 name: implementer
 description: Implementation agent.
-max-steps: 250
+turns:
+  max-steps: 250
+  continuation:
+    max-continuations: 25
+    stop-condition:
+      type: or
+      conditions:
+        - type: prompt
+          prompt: |
+            Check acceptance criteria.
+        - type: tool-sentinel
+        - type: max-continuations
+          max: 25
 tools:
   - bash
-stop-condition:
-  type: or
-  conditions:
-    - type: prompt
-      prompt: |
-        Check acceptance criteria.
-    - type: tool-sentinel
-    - type: max-continuations
-      max: 25
 ---
 Implement the feature.
 `)
@@ -136,8 +143,8 @@ description: Evaluate architecture.
 	if main.Inference.Thinking != "enabled" || main.Inference.ReasoningEffort != "high" {
 		t.Fatalf("main reasoning = %#v, want thinking enabled effort high", main.Inference)
 	}
-	if main.Policy.MaxSteps != 100 {
-		t.Fatalf("main max steps = %d", main.Policy.MaxSteps)
+	if main.Turns.MaxSteps != 100 {
+		t.Fatalf("main max steps = %d", main.Turns.MaxSteps)
 	}
 	if got, want := main.Tools[0].Name, "bash"; got != want {
 		t.Fatalf("main first tool = %q, want %q", got, want)
@@ -155,11 +162,11 @@ description: Evaluate architecture.
 	}
 
 	implementer := findAgent(t, bundle.Agents, "implementer")
-	if implementer.Stop.Type != "or" || len(implementer.Stop.Conditions) != 3 {
-		t.Fatalf("implementer stop = %#v", implementer.Stop)
+	if implementer.Turns.Continuation.StopCondition.Type != "or" || len(implementer.Turns.Continuation.StopCondition.Conditions) != 3 {
+		t.Fatalf("implementer stop = %#v", implementer.Turns.Continuation.StopCondition)
 	}
-	if implementer.Stop.Conditions[0].Type != "prompt" || implementer.Stop.Conditions[2].Max != 25 {
-		t.Fatalf("implementer nested stop = %#v", implementer.Stop.Conditions)
+	if implementer.Turns.Continuation.StopCondition.Conditions[0].Type != "prompt" || implementer.Turns.Continuation.StopCondition.Conditions[2].Max != 25 {
+		t.Fatalf("implementer nested stop = %#v", implementer.Turns.Continuation.StopCondition.Conditions)
 	}
 
 	review := findCommand(t, bundle.Commands, "review")
@@ -222,6 +229,33 @@ description: Review code.
 `))
 	if err == nil {
 		t.Fatal("DecodePromptCommand() error = nil, want empty prompt error")
+	}
+}
+
+func TestDecodeAgentRejectsUnknownFrontmatterField(t *testing.T) {
+	_, err := DecodeAgent("main.md", []byte(`---
+name: main
+surprise: true
+---
+You are useful.
+`))
+	if err == nil || !strings.Contains(err.Error(), "schema validation failed") {
+		t.Fatalf("DecodeAgent error = %v, want schema validation failure", err)
+	}
+}
+
+func TestDecodeAgentRejectsMaxContinuationsWithoutStopCondition(t *testing.T) {
+	_, err := DecodeAgent("main.md", []byte(`---
+name: main
+turns:
+  max-steps: 50
+  continuation:
+    max-continuations: 3
+---
+You are useful.
+`))
+	if err == nil || !strings.Contains(err.Error(), "stop_condition") {
+		t.Fatalf("DecodeAgent error = %v, want stop_condition failure", err)
 	}
 }
 

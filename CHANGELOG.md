@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   continuations, subagents, and usage.
 - Added `docs/agent-loop.md` with an architecture summary of the agent
   execution and continuation loops.
+- Added nested agent `turns` configuration for inner step budgets and
+  stop-condition-driven outer continuation loops.
 - Added `claudecode` as a Claude Code-compatible LLM provider using local
   Claude OAuth credentials and Claude Code request headers/preflight behavior.
 - Non-blocking `task quality:metrics` reports coverage plus optional
@@ -29,12 +31,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Agent loop config now uses `turns.max_steps` and
+  `turns.continuation.max_continuations` instead of flat agent policy fields.
+- Continuation prompt stop checks now require the typed
+  `continuation_decision` tool; context policy controls whether raw operation
+  effect details are included in evaluator prompts.
 - `step_limit_exceeded` session errors now report the inner-loop
-  `max_steps` model-decision-call limit in their message and structured
+  `turns.max_steps` model-decision-call limit in their message and structured
   details, distinguishing the inner agent loop from outer continuation.
 
 ### Fixed
 
+- Appconfig manifests and agentdir frontmatter now validate raw YAML/JSON
+  against generated JSON Schemas before decoding, and continuation caps now
+  require an explicit stop condition.
+- SDK agent builders now include fluent continuation stop-condition helpers, and
+  `WithMaxContinuations` produces a valid capped continuation spec by default.
 - Outbound provider, channel, and guarded system HTTP clients now share the
   runtime transport for extended compression handling and transient retry
   behavior.

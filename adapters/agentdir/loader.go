@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
+	invjsonschema "github.com/invopop/jsonschema"
+	santhoshjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )
 
@@ -369,8 +372,14 @@ func DecodeAgent(filename string, data []byte) (agent.Spec, error) {
 			Thinking:        strings.TrimSpace(fm.Thinking),
 			ReasoningEffort: strings.TrimSpace(fm.Effort),
 		},
-		Stop:        fm.StopCondition.agentSpec(),
-		Policy:      agent.Policy{MaxSteps: fm.MaxSteps},
+		Turns: agent.TurnPolicy{
+			MaxSteps: fm.Turns.MaxSteps,
+			Continuation: agent.ContinuationPolicy{
+				MaxContinuations: fm.Turns.Continuation.MaxContinuations,
+				ContextPolicy:    strings.TrimSpace(fm.Turns.Continuation.ContextPolicy),
+				StopCondition:    fm.Turns.Continuation.StopCondition.agentSpec(),
+			},
+		},
 		Tools:       toToolRefs(fm.Tools),
 		Commands:    toCommandRefs(fm.Commands),
 		Skills:      toSkillRefs(fm.Skills),
@@ -567,36 +576,64 @@ func DecodeSkill(defaultName, sourceURI string, data []byte) (skill.Spec, error)
 }
 
 type agentFrontmatter struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	Model         string            `yaml:"model"`
-	MaxTokens     int               `yaml:"max-tokens"`
-	MaxSteps      int               `yaml:"max-steps"`
-	Temperature   float64           `yaml:"temperature"`
-	Thinking      string            `yaml:"thinking"`
-	Effort        string            `yaml:"effort"`
-	Tools         []string          `yaml:"tools"`
-	Skills        []string          `yaml:"skills"`
-	Commands      []string          `yaml:"commands"`
-	Capabilities  []string          `yaml:"capabilities"`
-	StopCondition stopConditionYAML `yaml:"stop-condition"`
+	Name         string    `yaml:"name"`
+	Description  string    `yaml:"description"`
+	Model        string    `yaml:"model"`
+	MaxTokens    int       `yaml:"max-tokens"`
+	Turns        turnsYAML `yaml:"turns"`
+	Temperature  float64   `yaml:"temperature"`
+	Thinking     string    `yaml:"thinking"`
+	Effort       string    `yaml:"effort"`
+	Tools        []string  `yaml:"tools"`
+	Skills       []string  `yaml:"skills"`
+	Commands     []string  `yaml:"commands"`
+	Capabilities []string  `yaml:"capabilities"`
+}
+
+type turnsYAML struct {
+	MaxSteps     int              `yaml:"max-steps"`
+	Continuation continuationYAML `yaml:"continuation"`
+}
+
+type continuationYAML struct {
+	MaxContinuations int               `yaml:"max-continuations"`
+	ContextPolicy    string            `yaml:"context-policy"`
+	StopCondition    stopConditionYAML `yaml:"stop-condition"`
 }
 
 type stopConditionYAML struct {
-	Type       string              `yaml:"type"`
-	Max        int                 `yaml:"max"`
-	Prompt     string              `yaml:"prompt"`
-	Conditions []stopConditionYAML `yaml:"conditions"`
+	Type        string               `yaml:"type"`
+	Max         int                  `yaml:"max"`
+	Prompt      string               `yaml:"prompt"`
+	Session     string               `yaml:"session"`
+	Conditions  []*stopConditionYAML `yaml:"conditions"`
+	Annotations map[string]string    `yaml:"annotations"`
 }
 
 func (s stopConditionYAML) agentSpec() agent.StopConditionSpec {
 	out := agent.StopConditionSpec{
-		Type:   strings.TrimSpace(s.Type),
-		Max:    s.Max,
-		Prompt: strings.TrimSpace(s.Prompt),
+		Type:        strings.TrimSpace(s.Type),
+		Max:         s.Max,
+		Prompt:      strings.TrimSpace(s.Prompt),
+		Session:     strings.TrimSpace(s.Session),
+		Annotations: cloneStringMap(s.Annotations),
 	}
 	for _, condition := range s.Conditions {
+		if condition == nil {
+			continue
+		}
 		out.Conditions = append(out.Conditions, condition.agentSpec())
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }
@@ -653,7 +690,7 @@ type referenceFrontmatter struct {
 	Triggers []string `yaml:"triggers"`
 }
 
-func decodeFrontmatter(data []byte, out any) (string, error) {
+func decodeFrontmatter[T any](data []byte, out *T) (string, error) {
 	text := strings.TrimPrefix(string(data), "\ufeff")
 	if !strings.HasPrefix(text, "---\n") && !strings.HasPrefix(text, "---\r\n") {
 		return text, nil
@@ -676,10 +713,74 @@ func decodeFrontmatter(data []byte, out any) (string, error) {
 	if !end {
 		return "", fmt.Errorf("frontmatter is not closed")
 	}
-	if err := yaml.Unmarshal([]byte(fm.String()), out); err != nil {
+	frontmatter := []byte(fm.String())
+	if err := validateYAMLBytes[T](frontmatter); err != nil {
+		return "", fmt.Errorf("frontmatter schema: %w", err)
+	}
+	if err := yaml.Unmarshal(frontmatter, out); err != nil {
 		return "", err
 	}
 	return body.String(), nil
+}
+
+func validateYAMLBytes[T any](data []byte) error {
+	var decoded any
+	if err := yaml.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	jsonData, err := json.Marshal(decoded)
+	if err != nil {
+		return fmt.Errorf("marshal JSON value: %w", err)
+	}
+	var value any
+	if err := json.Unmarshal(jsonData, &value); err != nil {
+		return fmt.Errorf("unmarshal JSON value: %w", err)
+	}
+	schemaData, err := schemaDataFor[T]()
+	if err != nil {
+		return err
+	}
+	var schemaValue any
+	if err := json.Unmarshal(schemaData, &schemaValue); err != nil {
+		return fmt.Errorf("decode schema resource: %w", err)
+	}
+	compiler := santhoshjsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
+		return fmt.Errorf("add schema resource: %w", err)
+	}
+	compiled, err := compiler.Compile("schema.json")
+	if err != nil {
+		return fmt.Errorf("compile schema: %w", err)
+	}
+	if err := compiled.Validate(value); err != nil {
+		return fmt.Errorf("schema validation failed: %w", err)
+	}
+	return nil
+}
+
+func schemaDataFor[T any]() ([]byte, error) {
+	typ := reflect.TypeOf((*T)(nil)).Elem()
+	reflector := invjsonschema.Reflector{
+		DoNotReference:             false,
+		ExpandedStruct:             true,
+		AllowAdditionalProperties:  false,
+		RequiredFromJSONSchemaTags: true,
+		FieldNameTag:               "yaml",
+	}
+	ptr := reflect.New(typ)
+	if typ.Kind() == reflect.Ptr {
+		ptr = reflect.New(typ.Elem())
+	}
+	schema := reflector.Reflect(ptr.Interface())
+	if schema == nil {
+		return nil, fmt.Errorf("schema is nil")
+	}
+	schema.Version = invjsonschema.Version
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("marshal schema: %w", err)
+	}
+	return data, nil
 }
 
 func sortedGlob(pattern string) ([]string, error) {

@@ -333,7 +333,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 			Inference: agent.InferenceSpec{
 				Model: dev.openAIModel,
 			},
-			Policy: agent.Policy{MaxSteps: 50, MaxContinuations: 3},
+			Turns: agent.TurnPolicy{MaxSteps: 50},
 		}, model, llmagent.WithTools(tools...), llmagent.WithStreamPolicy(debugStreamPolicy(dev.debug)))
 		if err != nil {
 			return nil, err
