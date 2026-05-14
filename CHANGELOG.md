@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-14
+
 ### Added
 
+- Project branding in the README with a new Fluxplane logo SVG asset.
 - Type-safe operation safety intents let concrete operations describe expected
   process, filesystem, and network effects from typed inputs before execution.
 - Terminal approval prompts for local `agentsdk run` and `coder` operation
@@ -48,6 +51,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Command-risk approvals now route through the runtime approval gate, and
   cmdrisk now classifies generic operation intents instead of plugin-specific
   operation names or raw input maps.
+- Read-only Git status checks no longer request approval.
+
+## [0.9.0] - 2026-05-14
+
+### Added
+
+- Dedicated `docs/agentsdk.md`, `docs/coder.md`, and `docs/configuration.md`
+  onboarding and configuration guides.
+
+### Changed
+
+- README onboarding is now concise and links to focused guides for CLI usage,
+  coder usage, and configuration.
+
+### Removed
+
+- Legacy `agentruntime.json` resource filesystem loader path.
 
 ## [0.8.0] - 2026-05-14
 
@@ -314,7 +334,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/fluxplane/agentruntime/compare/v0.9.0...v0.10.0
+[0.9.0]: https://github.com/fluxplane/agentruntime/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/fluxplane/agentruntime/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/fluxplane/agentruntime/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/fluxplane/agentruntime/compare/v0.5.0...v0.6.0
