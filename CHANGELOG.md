@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-05-14
+
 ### Added
 
 - Git plugin now includes `git_tag` and `git_push` operations with typed safety
@@ -344,7 +346,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/fluxplane/agentruntime/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/fluxplane/agentruntime/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/fluxplane/agentruntime/compare/v0.7.0...v0.8.0
