@@ -370,7 +370,11 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	})
 	profile, _, _ := s.profileForInfo(info)
 	agentRuntime := s.agent
-	if session.IsContextCommandPath(inbound.Command.Path) || session.IsCompactCommandPath(inbound.Command.Path) {
+	targetsSession, err := session.CommandTargetsSession(inbound.Command.Path, s.resolver, s.commandCatalog, s.commands)
+	if err != nil {
+		targetsSession = false
+	}
+	if targetsSession {
 		var err error
 		agentRuntime, err = s.agentForSession(ctx, info)
 		if err != nil {
@@ -464,6 +468,8 @@ func commandOutbound(inbound channel.Inbound, result session.CommandResult) *cha
 			content = result.Effect.Result.Error.Message
 		}
 		out.Message = &channel.Message{Content: content}
+	case result.Output != nil:
+		out.Message = &channel.Message{Content: result.Output}
 	case result.Error != nil:
 		out.Message = &channel.Message{Content: result.Error.Message}
 	default:

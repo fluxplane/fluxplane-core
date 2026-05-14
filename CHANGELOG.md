@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added goal-driven local runs through the built-in `/goal` command plus
+  `coder --goal` and `agentsdk run --goal`, with a configurable continuation
+  cap.
 - Added provider-neutral end-of-turn auto-compaction that checkpoints large
   transcripts after they exceed the configured model context threshold.
 - Added `/compact` and `/compact --dry-run` built-in session commands for

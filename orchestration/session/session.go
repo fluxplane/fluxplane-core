@@ -147,20 +147,24 @@ var compactCommandSpec = command.Spec{
 	},
 }
 
+var goalCommandSpec = command.Spec{
+	Path:        command.Path{"goal"},
+	Description: "Run a goal-driven task until the goal is complete or the continuation cap is reached.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustVerified,
+	},
+}
+
+var builtInSessionCommands = map[string]sessionCommandBinding{
+	contextCommandSpec.Path.String(): {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
+	compactCommandSpec.Path.String(): {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
+	goalCommandSpec.Path.String():    {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
+}
+
 var errContextProviderNotFound = errors.New("context provider not found")
 var errCompactUnavailable = errors.New("compact is unavailable without a thread store and active thread")
-
-// IsContextCommandPath reports whether path targets the built-in context
-// preview command.
-func IsContextCommandPath(path command.Path) bool {
-	return len(path) == 1 && strings.TrimSpace(path[0]) == "context"
-}
-
-// IsCompactCommandPath reports whether path targets the built-in compaction
-// command.
-func IsCompactCommandPath(path command.Path) bool {
-	return len(path) == 1 && strings.TrimSpace(path[0]) == "compact"
-}
 
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
@@ -192,6 +196,18 @@ type CommandBinding struct {
 
 // CommandCatalog binds canonical command resource IDs to command specs.
 type CommandCatalog map[string]CommandBinding
+
+type sessionCommandHandler func(Session, context.Context, channel.Inbound, command.Spec, policy.Evaluation) CommandResult
+
+type sessionCommandBinding struct {
+	Spec    command.Spec
+	Handler sessionCommandHandler
+}
+
+type resolvedCommand struct {
+	Binding        CommandBinding
+	SessionHandler sessionCommandHandler
+}
 
 // StepRequest describes one agent step request.
 type StepRequest struct {
@@ -333,6 +349,7 @@ type CommandResult struct {
 	Spec   command.Spec              `json:"spec,omitempty"`
 	Policy policy.Evaluation         `json:"policy,omitempty"`
 	Effect *environment.EffectResult `json:"effect,omitempty"`
+	Output any                       `json:"output,omitempty"`
 	Error  *CommandError             `json:"error,omitempty"`
 }
 
@@ -355,9 +372,18 @@ type InputResult struct {
 	Error    *CommandError              `json:"error,omitempty"`
 }
 
+type inputExecutionOptions struct {
+	Goal             string
+	MaxContinuations int
+}
+
 // ExecuteInboundInput dispatches a channel message envelope as conversational
 // input to the configured agent.
 func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inbound) InputResult {
+	return s.executeInboundInput(ctx, inbound, inputExecutionOptions{})
+}
+
+func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inbound, opts inputExecutionOptions) InputResult {
 	if err := inbound.Validate(); err != nil {
 		return inputFailed("invalid_input_inbound", err.Error(), nil)
 	}
@@ -397,6 +423,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		Content:  inbound.Message.Content,
 		Metadata: inputObservationMetadata(inbound),
 	}}
+	goal := strings.TrimSpace(opts.Goal)
 	var (
 		state   agent.StateRef
 		effects []environment.EffectResult
@@ -413,6 +440,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 			LocalContinuation:   &localContinuation,
 			LocalContextRecords: &localContextRecords,
 			Pending:             pending,
+			Goal:                goal,
 			Observations:        observations,
 			State:               state,
 			Effects:             effects,
@@ -426,7 +454,7 @@ func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		state = inner.State
 		effects = inner.Effects
-		decision := s.evaluateContinuation(ctx, inbound, continuation, inner.AgentResult, effects)
+		decision := s.evaluateContinuation(ctx, inbound, opts, continuation, inner.AgentResult, effects)
 		if decision.Result.Status != "" {
 			return s.finalizeInputResult(ctx, inbound, decision.Result)
 		}
@@ -460,6 +488,7 @@ type innerTurnInput struct {
 	LocalContinuation   **coreconversation.ContinuationHandle
 	LocalContextRecords *map[corecontext.ProviderName]corecontext.ProviderRenderRecord
 	Pending             []coreconversation.Item
+	Goal                string
 	Observations        []environment.Observation
 	State               agent.StateRef
 	Effects             []environment.EffectResult
@@ -498,6 +527,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		modelCtx = s.withSubagentBaseContext(modelCtx, "", in.Events)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
+			Goal:         in.Goal,
 			Observations: observations,
 			Context:      in.History,
 			State:        state,
@@ -614,6 +644,31 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 	return out
 }
 
+func continuationPolicyForInput(opts inputExecutionOptions, spec agent.Spec) agent.ContinuationPolicy {
+	goal := strings.TrimSpace(opts.Goal)
+	if goal == "" {
+		return spec.Turns.Continuation
+	}
+	contextPolicy := strings.TrimSpace(spec.Turns.Continuation.ContextPolicy)
+	switch contextPolicy {
+	case "summary", "new":
+	default:
+		contextPolicy = "summary"
+	}
+	return agent.ContinuationPolicy{
+		MaxContinuations: opts.MaxContinuations,
+		ContextPolicy:    contextPolicy,
+		StopCondition: agent.StopConditionSpec{
+			Type:   "prompt",
+			Prompt: goalStopPrompt(goal),
+		},
+	}
+}
+
+func goalStopPrompt(goal string) string {
+	return "Goal:\n" + goal + "\n\nStop when the goal is complete, impossible, blocked, or no reasonable next action remains. Continue only when more work is needed, and provide the next concrete instruction for the parent agent."
+}
+
 type providerIdentityAgent interface {
 	ProviderIdentity() coreconversation.ProviderIdentity
 }
@@ -627,8 +682,15 @@ type contextProviderAgent interface {
 }
 
 type contextPreviewInput struct {
-	Fresh bool   `json:"fresh,omitempty"`
-	Key   string `json:"key,omitempty"`
+	Fresh bool   `json:"fresh,omitempty" command:"flag=fresh"`
+	Key   string `json:"key,omitempty" command:"flag=key"`
+}
+
+type goalCommandInput struct {
+	Goal                []string `json:"goal,omitempty" command:"arg"`
+	Max                 int      `json:"max,omitempty" command:"flag=max"`
+	MaxContinuations    int      `json:"max_continuations,omitempty" command:"flag=max-continuations"`
+	MaxContinuationsAlt int      `json:"max-continuations,omitempty"`
 }
 
 type contextPreviewData struct {
@@ -1490,6 +1552,13 @@ func (s Session) maxContinuations() int {
 	return 0
 }
 
+func (s Session) maxContinuationsForPolicy(policy agent.ContinuationPolicy) int {
+	if policy.MaxContinuations > 0 {
+		return policy.MaxContinuations
+	}
+	return s.maxContinuations()
+}
+
 func isLLMDriverKind(kind agent.DriverKind) bool {
 	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)
 }
@@ -1501,23 +1570,27 @@ type continuationDecision struct {
 	Result      InputResult
 }
 
-func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbound, completed int, agentResult agent.StepResult, effects []environment.EffectResult) continuationDecision {
+func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbound, opts inputExecutionOptions, completed int, agentResult agent.StepResult, effects []environment.EffectResult) continuationDecision {
 	if agentResult.Status != agent.StatusOK || s.Agent == nil {
 		return continuationDecision{}
 	}
 	spec := s.Agent.Spec()
-	condition := spec.Turns.Continuation.StopCondition
+	continuation := continuationPolicyForInput(opts, spec)
+	condition := continuation.StopCondition
 	if strings.TrimSpace(condition.Type) == "" {
 		return continuationDecision{}
 	}
+	evalSpec := spec
+	evalSpec.Turns.Continuation = continuation
+	maxContinuations := s.maxContinuationsForPolicy(continuation)
 	evaluation, err := s.evaluateStopCondition(ctx, StopEvaluationInput{
-		Agent:            spec,
+		Agent:            evalSpec,
 		Condition:        condition,
 		Inbound:          inbound,
 		AgentResult:      agentResult,
 		Effects:          effects,
 		Completed:        completed,
-		MaxContinuations: s.maxContinuations(),
+		MaxContinuations: maxContinuations,
 	})
 	if err != nil {
 		return continuationDecision{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "stop_condition_failed", Message: err.Error()}}}
@@ -1526,8 +1599,8 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 	if action != StopActionContinue {
 		return continuationDecision{Reason: evaluation.Reason}
 	}
-	if completed >= s.maxContinuations() {
-		return continuationDecision{Result: s.continuationLimitResult(agentResult, effects)}
+	if completed >= maxContinuations {
+		return continuationDecision{Result: continuationLimitResult(agentResult, effects, maxContinuations)}
 	}
 	return continuationDecision{Continue: true, Instruction: evaluation.ContinueInstruction, Reason: evaluation.Reason}
 }
@@ -1703,8 +1776,7 @@ func normalizeStopEvaluation(out StopEvaluation) (StopEvaluation, error) {
 	return out, nil
 }
 
-func (s Session) continuationLimitResult(agentResult agent.StepResult, effects []environment.EffectResult) InputResult {
-	max := s.maxContinuations()
+func continuationLimitResult(agentResult agent.StepResult, effects []environment.EffectResult, max int) InputResult {
 	return InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{
 		Code:    "continuation_limit_exceeded",
 		Message: fmt.Sprintf("outer continuation reached turns.continuation.max_continuations=%d", max),
@@ -1751,9 +1823,13 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if inbound.Kind != channel.InboundCommand || inbound.Command == nil {
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
 	}
-	isContextCommand := IsContextCommandPath(inbound.Command.Path)
-	isCompactCommand := IsCompactCommandPath(inbound.Command.Path)
-	if s.Profile.Commands != nil && !isContextCommand && !isCompactCommand && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
+	resolved, ok, err := s.resolveCommand(inbound.Command.Path)
+	if err != nil {
+		return commandFailed("command_resolution_failed", err.Error(), map[string]any{
+			"path": inbound.Command.Path.String(),
+		})
+	}
+	if s.Profile.Commands != nil && resolved.SessionHandler == nil && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
 		return commandFailed("command_not_found", "command not found", map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
@@ -1768,32 +1844,17 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	}); err != nil {
 		return commandFailed("thread_append_failed", err.Error(), nil)
 	}
-	if isContextCommand {
-		return s.executeContextCommand(ctx, inbound)
-	}
-	if isCompactCommand {
-		return s.executeCompactCommand(ctx, inbound)
-	}
-	if s.Commands == nil && len(s.CommandCatalog) == 0 {
-		return commandFailed("command_registry_missing", "command registry is nil", nil)
-	}
-	binding, ok, err := s.resolveCommandBinding(inbound.Command.Path)
-	if err != nil {
-		return commandFailed("command_resolution_failed", err.Error(), map[string]any{
+	if !ok {
+		if s.Commands == nil && len(s.CommandCatalog) == 0 {
+			return commandFailed("command_registry_missing", "command registry is nil", nil)
+		}
+		return commandFailed("command_not_found", "command not found", map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
 	}
-	spec := binding.Spec
-	if !ok {
-		var found bool
-		if s.Commands != nil {
-			spec, found = s.Commands.Resolve(inbound.Command.Path)
-		}
-		if !found {
-			return commandFailed("command_not_found", "command not found", map[string]any{
-				"path": inbound.Command.Path.String(),
-			})
-		}
+	spec := resolved.Binding.Spec
+	if spec.Path.String() == "" {
+		spec.Path = inbound.Command.Path
 	}
 	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
 	switch evaluation.Decision {
@@ -1805,40 +1866,25 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
 	}
 
-	opCtx := operation.NewContext(ensureContext(ctx), s.eventSink())
-	switch spec.Target.Kind {
-	case invocation.TargetOperation:
-		callID := operationCallID(inbound.ID, 1)
-		requested := coresession.OperationRequested{
-			RunID:     inbound.ID,
-			CallID:    callID,
-			Operation: spec.Target.Operation,
-			Input:     inbound.Command.Input,
+	if spec.Target.Kind == invocation.TargetSession {
+		if resolved.SessionHandler == nil {
+			return CommandResult{
+				Status: CommandStatusUnsupported,
+				Spec:   spec,
+				Policy: evaluation,
+				Error: &CommandError{
+					Code:    "session_command_handler_missing",
+					Message: "session command has no registered handler",
+					Details: map[string]any{
+						"path": spec.Path.String(),
+					},
+				},
+			}
 		}
-		if err := s.appendThreadEvents(ctx, requested); err != nil {
-			return commandFailed("thread_append_failed", err.Error(), nil)
-		}
-		s.emitLive(requested)
-		effect := s.applyBoundOperation(opCtx, binding, spec.Target.Operation, inbound.Command.Input, callID)
-		completed := coresession.OperationCompleted{
-			RunID:     inbound.ID,
-			CallID:    callID,
-			Operation: spec.Target.Operation,
-			Result:    effect.Result,
-		}
-		if err := s.appendThreadEvents(ctx, completed, coresession.OutboundProduced{
-			RunID:   inbound.ID,
-			Message: outboundMessageForOperationResult(effect.Result),
-		}); err != nil {
-			return commandFailed("thread_append_failed", err.Error(), nil)
-		}
-		s.emitLive(completed)
-		status := CommandStatusOK
-		if effect.Result.IsError() {
-			status = CommandStatusFailed
-		}
-		return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
-	default:
+		return resolved.SessionHandler(s, ctx, inbound, spec, evaluation)
+	}
+
+	if spec.Target.Kind != invocation.TargetOperation {
 		return CommandResult{
 			Status: CommandStatusUnsupported,
 			Spec:   spec,
@@ -1852,20 +1898,46 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 			},
 		}
 	}
+
+	if s.Operations == nil && len(s.OperationCatalog) == 0 {
+		return commandFailed("command_registry_missing", "command registry is nil", nil)
+	}
+
+	opCtx := operation.NewContext(ensureContext(ctx), s.eventSink())
+	callID := operationCallID(inbound.ID, 1)
+	requested := coresession.OperationRequested{
+		RunID:     inbound.ID,
+		CallID:    callID,
+		Operation: spec.Target.Operation,
+		Input:     inbound.Command.Input,
+	}
+	if err := s.appendThreadEvents(ctx, requested); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	s.emitLive(requested)
+	effect := s.applyBoundOperation(opCtx, resolved.Binding, spec.Target.Operation, inbound.Command.Input, callID)
+	completed := coresession.OperationCompleted{
+		RunID:     inbound.ID,
+		CallID:    callID,
+		Operation: spec.Target.Operation,
+		Result:    effect.Result,
+	}
+	if err := s.appendThreadEvents(ctx, completed, coresession.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: outboundMessageForOperationResult(effect.Result),
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	s.emitLive(completed)
+	status := CommandStatusOK
+	if effect.Result.IsError() {
+		status = CommandStatusFailed
+	}
+	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
 }
 
-func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
-	spec := contextCommandSpec
-	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
-	switch evaluation.Decision {
-	case policy.DecisionDeny:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
-		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
-	case policy.DecisionApprovalRequired:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
-		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
-	}
-	input, err := parseContextPreviewInput(inbound.Command.Input)
+func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+	input, err := parseContextPreviewCommand(*inbound.Command)
 	if err != nil {
 		return CommandResult{
 			Status: CommandStatusFailed,
@@ -1906,51 +1978,146 @@ func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbo
 	}
 }
 
-func parseContextPreviewInput(value any) (contextPreviewInput, error) {
-	if value == nil {
-		return contextPreviewInput{}, nil
-	}
-	switch typed := value.(type) {
-	case contextPreviewInput:
-		return typed, nil
-	case *contextPreviewInput:
-		if typed == nil {
-			return contextPreviewInput{}, nil
+func (s Session) executeGoalCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+	input, err := parseGoalCommandInput(*inbound.Command)
+	if err != nil {
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: "invalid_goal_command_input", Message: err.Error()},
 		}
-		return *typed, nil
-	case string:
-		return parseContextPreviewArgs(strings.Fields(typed))
 	}
-	data, err := json.Marshal(value)
+	messageInbound := inbound
+	messageInbound.Kind = channel.InboundMessage
+	messageInbound.Command = nil
+	messageInbound.Message = &channel.Message{Content: input.Goal}
+	result := s.executeInboundInput(ctx, messageInbound, input)
+	status := CommandStatusOK
+	if result.Status != InputStatusOK {
+		status = CommandStatusFailed
+	}
+	var output any
+	if result.Outbound != nil && result.Outbound.Message != nil {
+		output = result.Outbound.Message.Content
+	}
+	return CommandResult{
+		Status: status,
+		Spec:   spec,
+		Policy: evaluation,
+		Output: output,
+		Error:  result.Error,
+	}
+}
+
+func parseGoalCommandInput(inv command.Invocation) (inputExecutionOptions, error) {
+	input, err := command.Bind[goalCommandInput](inv)
+	if err != nil {
+		return inputExecutionOptions{}, err
+	}
+	if len(inv.Args) == 0 && inv.Input != nil {
+		structured := structuredGoalCommandInput(inv.Input)
+		input = mergeGoalCommandInput(input, structured)
+	}
+	return validateGoalCommandInput(input)
+}
+
+func structuredGoalCommandInput(value any) goalCommandInput {
+	values, ok := value.(map[string]any)
+	if !ok {
+		return goalCommandInput{}
+	}
+	var input goalCommandInput
+	switch goal := values["goal"].(type) {
+	case string:
+		input.Goal = []string{goal}
+	case []string:
+		input.Goal = append([]string(nil), goal...)
+	case []any:
+		for _, item := range goal {
+			input.Goal = append(input.Goal, fmt.Sprint(item))
+		}
+	}
+	input.Max = intValue(values["max"])
+	input.MaxContinuations = intValue(values["max_continuations"])
+	input.MaxContinuationsAlt = intValue(values["max-continuations"])
+	return input
+}
+
+func intValue(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(typed))
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func mergeGoalCommandInput(primary, fallback goalCommandInput) goalCommandInput {
+	if len(primary.Goal) == 0 {
+		primary.Goal = fallback.Goal
+	}
+	if primary.Max == 0 {
+		primary.Max = fallback.Max
+	}
+	if primary.MaxContinuations == 0 {
+		primary.MaxContinuations = fallback.MaxContinuations
+	}
+	if primary.MaxContinuationsAlt == 0 {
+		primary.MaxContinuationsAlt = fallback.MaxContinuationsAlt
+	}
+	return primary
+}
+
+func validateGoalCommandInput(input goalCommandInput) (inputExecutionOptions, error) {
+	goal := strings.TrimSpace(strings.Join(input.Goal, " "))
+	if goal == "" {
+		return inputExecutionOptions{}, fmt.Errorf("goal is required; use /goal --max 40 \"your goal\"")
+	}
+	max := input.Max
+	if max == 0 {
+		max = input.MaxContinuations
+	}
+	if max == 0 {
+		max = input.MaxContinuationsAlt
+	}
+	if max <= 0 {
+		return inputExecutionOptions{}, fmt.Errorf("max-continuations must be > 0")
+	}
+	return inputExecutionOptions{Goal: goal, MaxContinuations: max}, nil
+}
+
+func parseContextPreviewCommand(inv command.Invocation) (contextPreviewInput, error) {
+	input, err := command.Bind[contextPreviewInput](inv)
 	if err != nil {
 		return contextPreviewInput{}, err
 	}
-	var input contextPreviewInput
-	if err := json.Unmarshal(data, &input); err != nil {
-		return contextPreviewInput{}, err
+	if inv.Input != nil {
+		structured, err := decodeCommandInput[contextPreviewInput](inv.Input)
+		if err != nil {
+			return contextPreviewInput{}, err
+		}
+		input = mergeContextPreviewInput(input, structured)
 	}
 	input.Key = strings.TrimSpace(input.Key)
 	return input, nil
 }
 
-func parseContextPreviewArgs(args []string) (contextPreviewInput, error) {
-	var input contextPreviewInput
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--fresh":
-			input.Fresh = true
-		case "--key":
-			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
-				return contextPreviewInput{}, fmt.Errorf("--key requires a provider name")
-			}
-			i++
-			input.Key = args[i]
-		default:
-			return contextPreviewInput{}, fmt.Errorf("unknown /context argument %q", args[i])
-		}
+func mergeContextPreviewInput(primary, fallback contextPreviewInput) contextPreviewInput {
+	if !primary.Fresh {
+		primary.Fresh = fallback.Fresh
 	}
-	input.Key = strings.TrimSpace(input.Key)
-	return input, nil
+	if primary.Key == "" {
+		primary.Key = fallback.Key
+	}
+	return primary
 }
 
 func renderContextPreview(preview contextPreviewData) string {
@@ -1996,7 +2163,7 @@ func renderContextPreview(preview contextPreviewData) string {
 }
 
 type compactCommandInput struct {
-	DryRun bool `json:"dry_run,omitempty"`
+	DryRun bool `json:"dry_run,omitempty" command:"flag=dry-run"`
 }
 
 type compactReport struct {
@@ -2013,18 +2180,8 @@ type compactBudget struct {
 	TriggerPercent int
 }
 
-func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound) CommandResult {
-	spec := compactCommandSpec
-	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
-	switch evaluation.Decision {
-	case policy.DecisionDeny:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
-		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
-	case policy.DecisionApprovalRequired:
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
-		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
-	}
-	input, err := parseCompactCommandInput(inbound.Command.Input)
+func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+	input, err := parseCompactCommand(*inbound.Command)
 	if err != nil {
 		return CommandResult{
 			Status: CommandStatusFailed,
@@ -2203,80 +2360,42 @@ func (s Session) compactableTranscript(ctx context.Context) (coreconversation.Tr
 	return projected.Transcript(provider), nil
 }
 
-func parseCompactCommandInput(value any) (compactCommandInput, error) {
-	if value == nil {
-		return compactCommandInput{}, nil
-	}
-	switch typed := value.(type) {
-	case compactCommandInput:
-		return typed, nil
-	case *compactCommandInput:
-		if typed == nil {
-			return compactCommandInput{}, nil
-		}
-		return *typed, nil
-	case string:
-		return parseCompactCommandArgs(strings.Fields(typed))
-	case map[string]any:
-		return parseCompactCommandMap(typed)
-	}
-	data, err := json.Marshal(value)
+func parseCompactCommand(inv command.Invocation) (compactCommandInput, error) {
+	input, err := command.Bind[compactCommandInput](inv)
 	if err != nil {
 		return compactCommandInput{}, err
 	}
-	var input compactCommandInput
-	if err := json.Unmarshal(data, &input); err != nil {
-		return compactCommandInput{}, err
-	}
-	return input, nil
-}
-
-func parseCompactCommandArgs(args []string) (compactCommandInput, error) {
-	var input compactCommandInput
-	for _, arg := range args {
-		switch arg {
-		case "--dry-run":
-			input.DryRun = true
-		default:
-			return compactCommandInput{}, fmt.Errorf("unknown /compact argument %q", arg)
+	if inv.Input != nil {
+		structured, err := decodeCommandInput[compactCommandInput](inv.Input)
+		if err != nil {
+			return compactCommandInput{}, err
+		}
+		if !input.DryRun {
+			input.DryRun = structured.DryRun
 		}
 	}
 	return input, nil
 }
 
-func parseCompactCommandMap(values map[string]any) (compactCommandInput, error) {
-	var input compactCommandInput
-	for key, value := range values {
-		switch key {
-		case "dry-run", "dry_run", "dryRun":
-			parsed, err := boolInputValue(value)
-			if err != nil {
-				return compactCommandInput{}, fmt.Errorf("%s: %w", key, err)
-			}
-			input.DryRun = parsed
-		default:
-			return compactCommandInput{}, fmt.Errorf("unknown /compact argument %q", key)
-		}
-	}
-	return input, nil
-}
-
-func boolInputValue(value any) (bool, error) {
+func decodeCommandInput[T any](value any) (T, error) {
+	var out T
 	switch typed := value.(type) {
-	case bool:
+	case T:
 		return typed, nil
-	case string:
-		switch strings.ToLower(strings.TrimSpace(typed)) {
-		case "1", "true", "yes", "on":
-			return true, nil
-		case "0", "false", "no", "off":
-			return false, nil
-		default:
-			return false, fmt.Errorf("invalid boolean value %q", typed)
+	case *T:
+		if typed == nil {
+			return out, nil
 		}
-	default:
-		return false, fmt.Errorf("expected boolean value")
+		return *typed, nil
 	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return out, err
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out, err
+	}
+	return out, nil
 }
 
 func intAnnotation(values map[string]string, key string) int {
@@ -2389,16 +2508,51 @@ func commandPathAllowed(allowed []command.Path, path command.Path) bool {
 	return false
 }
 
-func (s Session) resolveCommandBinding(path command.Path) (CommandBinding, bool, error) {
-	if s.Resolver == nil || len(s.CommandCatalog) == 0 {
+// CommandTargetsSession reports whether a command path resolves to a
+// session-target command. It is used by channel harnesses to decide whether a
+// session-specific agent must be resolved before dispatch.
+func CommandTargetsSession(path command.Path, resolver *resource.Resolver, catalog CommandCatalog, registry *command.Registry) (bool, error) {
+	resolved, ok, err := resolveCommand(path, resolver, catalog, registry)
+	if err != nil || !ok {
+		return false, err
+	}
+	return resolved.Binding.Spec.Target.Kind == invocation.TargetSession, nil
+}
+
+func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {
+	return resolveCommand(path, s.Resolver, s.CommandCatalog, s.Commands)
+}
+
+func resolveCommand(path command.Path, resolver *resource.Resolver, catalog CommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
+	if sessionCommand, ok := builtInSessionCommands[path.String()]; ok {
+		return resolvedCommand{
+			Binding: CommandBinding{
+				Spec: sessionCommand.Spec,
+			},
+			SessionHandler: sessionCommand.Handler,
+		}, true, nil
+	}
+	if binding, ok, err := resolveCommandBinding(path, resolver, catalog); err != nil || ok {
+		return resolvedCommand{Binding: binding}, ok, err
+	}
+	if registry != nil {
+		if spec, ok := registry.Resolve(path); ok {
+			return resolvedCommand{Binding: CommandBinding{Spec: spec}}, true, nil
+		}
+	}
+	return resolvedCommand{}, false, nil
+}
+
+func resolveCommandBinding(path command.Path, resolver *resource.Resolver, catalog CommandCatalog) (CommandBinding, bool, error) {
+	if resolver == nil || len(catalog) == 0 {
 		return CommandBinding{}, false, nil
 	}
 	ref := commandPathRef(path)
-	id, err := s.Resolver.Resolve("command", ref)
+	id, err := resolver.Resolve("command", ref)
 	if err != nil {
 		return CommandBinding{}, false, err
 	}
-	binding, ok := s.CommandCatalog[id.Address()]
+	binding, ok := catalog[id.Address()]
 	return binding, ok, nil
 }
 
