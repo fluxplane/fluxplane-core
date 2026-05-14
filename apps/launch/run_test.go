@@ -9,13 +9,19 @@ import (
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
@@ -217,6 +223,58 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 		if !agentHasContext(spec, datasourceplugin.ContextProvider) {
 			t.Fatalf("expected datasource catalog context on agent %q: %#v", name, spec.Context)
 		}
+	}
+}
+
+func TestDatasourceIndexDevIncludesSessionHistoryCorpus(t *testing.T) {
+	withStateDir(t)
+	ctx := context.Background()
+	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
+	if err != nil {
+		t.Fatalf("NewEventRegistry: %v", err)
+	}
+	store, closeStore, err := openLocalThreadStore(registry)
+	if err != nil {
+		t.Fatalf("openLocalThreadStore: %v", err)
+	}
+	snapshot, err := store.Create(ctx, corethread.CreateParams{ID: "thread_index_dev"})
+	if err != nil {
+		closeStore()
+		t.Fatalf("Create: %v", err)
+	}
+	_, err = store.Append(ctx, corethread.Ref{ID: snapshot.ID, BranchID: snapshot.BranchID}, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventInputReceived,
+		Payload: coresession.InputReceived{
+			Message: channel.Message{Content: "index dev session history marker"},
+		},
+	}})
+	closeStore()
+	if err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	runtime, err := NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
+		Root:     t.TempDir(),
+		Provider: "hash",
+		Dev:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewDatasourceIndexRuntime: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
+	result, err := datasourceindex.Build(ctx, datasourceindex.Request{
+		Registry:   runtime.Registry,
+		Index:      runtime.Index,
+		Datasource: coredatasource.Name("session_history"),
+		Entity:     coredatasource.EntityType("session.message"),
+		DryRun:     true,
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if result.Documents == 0 {
+		t.Fatalf("documents = 0, want session history corpus documents")
 	}
 }
 

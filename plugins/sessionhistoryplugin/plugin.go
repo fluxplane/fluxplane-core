@@ -3,6 +3,8 @@ package sessionhistoryplugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,6 +115,7 @@ var _ coredatasource.Accessor = accessor{}
 var _ coredatasource.Searcher = accessor{}
 var _ coredatasource.Getter = accessor{}
 var _ coredatasource.BatchGetter = accessor{}
+var _ coredatasource.CorpusProvider = accessor{}
 
 func (a accessor) Spec() coredatasource.Spec { return a.spec }
 
@@ -146,14 +149,7 @@ func (a accessor) Search(ctx context.Context, req coredatasource.SearchRequest) 
 			matches = append(matches, record)
 		}
 	}
-	sort.SliceStable(matches, func(i, j int) bool {
-		left := recordTime(matches[i])
-		right := recordTime(matches[j])
-		if !left.Equal(right) {
-			return left.After(right)
-		}
-		return matches[i].ID > matches[j].ID
-	})
+	sortRecordsNewestFirst(matches)
 	total := len(matches)
 	if len(matches) > limit {
 		matches = matches[:limit]
@@ -206,6 +202,48 @@ func (a accessor) BatchGet(ctx context.Context, req coredatasource.BatchGetReque
 	return out, nil
 }
 
+func (a accessor) Corpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	entity := normalizeEntity(req.Entity)
+	if entity == "" {
+		return coredatasource.CorpusPage{}, fmt.Errorf("session_history: entity is required")
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = maxSearchLimit
+	}
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit
+	}
+	offset, err := parseCursor(req.Cursor)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	snapshots, err := a.snapshots(ctx, nil)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	var records []coredatasource.Record
+	for _, snapshot := range snapshots {
+		records = append(records, projectSnapshot(snapshot, entity)...)
+	}
+	sortRecordsNewestFirst(records)
+	if offset >= len(records) {
+		return coredatasource.CorpusPage{Complete: true}, nil
+	}
+	end := offset + limit
+	if end > len(records) {
+		end = len(records)
+	}
+	out := coredatasource.CorpusPage{Complete: end >= len(records)}
+	for _, record := range records[offset:end] {
+		out.Documents = append(out.Documents, corpusDocument(record))
+	}
+	if !out.Complete {
+		out.NextCursor = strconv.Itoa(end)
+	}
+	return out, nil
+}
+
 func (a accessor) snapshots(ctx context.Context, filters map[string]string) ([]corethread.Snapshot, error) {
 	if threadID := strings.TrimSpace(filters["thread_id"]); threadID != "" {
 		snapshot, err := a.threads.Read(ctx, corethread.ReadParams{ID: corethread.ID(threadID)})
@@ -225,7 +263,11 @@ func (a accessor) snapshots(ctx context.Context, filters map[string]string) ([]c
 }
 
 func entitySpecs() []coredatasource.EntitySpec {
-	caps := []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet}
+	caps := []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilitySemanticSearch,
+	}
 	return []coredatasource.EntitySpec{
 		entitySpec(EntityThread, "Persisted session threads.", caps),
 		entitySpec(EntityMessage, "Inbound and outbound session messages.", caps),
@@ -286,6 +328,7 @@ func threadRecord(snapshot corethread.Snapshot) coredatasource.Record {
 		Entity:     EntityThread,
 		Title:      fmt.Sprintf("thread %s", snapshot.ID),
 		Content:    fmt.Sprintf("thread %s has %d persisted events", snapshot.ID, len(snapshot.Events)),
+		URL:        sessionURL(string(snapshot.ID), EntityThread, 0),
 		Metadata:   metadata,
 		Raw:        snapshot,
 	}
@@ -319,6 +362,7 @@ func eventRecord(snapshot corethread.Snapshot, stored corethread.Record, entity 
 		Entity:     entity,
 		Title:      title,
 		Content:    content,
+		URL:        sessionURL(string(snapshot.ID), entity, stored.Sequence),
 		Metadata:   metadata,
 		Raw:        payload,
 	}, true
@@ -446,6 +490,13 @@ func recordID(threadID corethread.ID, entity coredatasource.EntityType, sequence
 	return string(threadID) + ":" + string(entity) + ":" + strconv.FormatInt(int64(sequence), 10)
 }
 
+func sessionURL(threadID string, entity coredatasource.EntityType, sequence event.Sequence) string {
+	if entity == EntityThread {
+		return "session://" + threadID + "/" + string(entity)
+	}
+	return "session://" + threadID + "/" + string(entity) + "/" + strconv.FormatInt(int64(sequence), 10)
+}
+
 func parseRecordID(id string, entity coredatasource.EntityType) (string, int64, bool) {
 	if entity == EntityThread {
 		id = strings.TrimSpace(id)
@@ -512,6 +563,82 @@ func recordTime(record coredatasource.Record) time.Time {
 		return time.Time{}
 	}
 	return parsed
+}
+
+func sortRecordsNewestFirst(records []coredatasource.Record) {
+	sort.SliceStable(records, func(i, j int) bool {
+		left := recordTime(records[i])
+		right := recordTime(records[j])
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		return records[i].ID > records[j].ID
+	})
+}
+
+func corpusDocument(record coredatasource.Record) coredatasource.CorpusDocument {
+	body := strings.TrimSpace(record.Content)
+	if metadata := strings.Join(metadataValues(record.Metadata), "\n"); metadata != "" {
+		if body != "" {
+			body += "\n\n"
+		}
+		body += metadata
+	}
+	return coredatasource.CorpusDocument{
+		Ref: coredatasource.RecordRef{
+			Datasource: record.Datasource,
+			Entity:     record.Entity,
+			ID:         record.ID,
+			URL:        record.URL,
+		},
+		Title:       record.Title,
+		Body:        body,
+		URL:         record.URL,
+		Metadata:    cloneMetadata(record.Metadata),
+		Fingerprint: recordFingerprint(record),
+	}
+}
+
+func recordFingerprint(record coredatasource.Record) string {
+	encoded, err := json.Marshal(struct {
+		Title    string            `json:"title"`
+		Content  string            `json:"content"`
+		URL      string            `json:"url"`
+		Metadata map[string]string `json:"metadata"`
+	}{
+		Title:    record.Title,
+		Content:  record.Content,
+		URL:      record.URL,
+		Metadata: record.Metadata,
+	})
+	if err != nil {
+		encoded = []byte(record.Title + "\n" + record.Content + "\n" + record.URL)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+func cloneMetadata(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func parseCursor(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(raw)
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("session_history: invalid corpus cursor %q", raw)
+	}
+	return offset, nil
 }
 
 func matchQuery(record coredatasource.Record, query string) bool {

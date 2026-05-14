@@ -11,12 +11,15 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
+	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
+	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
@@ -35,6 +38,7 @@ type DatasourceIndexOptions struct {
 	StorePath string
 	Provider  string
 	Model     string
+	Dev       bool
 }
 
 // DatasourceIndexRuntime contains the assembled registry and semantic index.
@@ -63,7 +67,11 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return DatasourceIndexRuntime{}, err
 	}
 	var index *semantic.Index
+	var closeThreadStore func()
 	closeFn := func() error {
+		if closeThreadStore != nil {
+			closeThreadStore()
+		}
 		if connectorEngine != nil {
 			if err := connectorEngine.Close(); err != nil {
 				return err
@@ -77,6 +85,21 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	plugins := datasourceIndexPlugins(hostSystem, connectorEngine, connectorInstances)
 	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
+	if opts.Dev {
+		bundles = ensureDevSessionHistoryPlugin(bundles)
+		eventRegistry, err := app.NewEventRegistry(app.EventRegistryConfig{Bundles: bundles, EventTypes: eventcatalog.All()})
+		if err != nil {
+			_ = closeFn()
+			return DatasourceIndexRuntime{}, err
+		}
+		threadStore, closeStore, err := openLocalThreadStore(eventRegistry)
+		if err != nil {
+			_ = closeFn()
+			return DatasourceIndexRuntime{}, err
+		}
+		closeThreadStore = closeStore
+		plugins = appendPluginIfMissing(plugins, sessionhistoryplugin.New(threadStore))
+	}
 	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 	if err != nil {
 		_ = closeFn()

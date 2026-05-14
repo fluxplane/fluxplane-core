@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `--dev` for local run surfaces to expose a `session_history`
   datasource with searchable session threads, messages, operations, model calls,
   continuations, subagents, and usage.
+- Added `--dev` for datasource index commands so local session history can be
+  indexed semantically, with `session://` URLs for session-history corpus
+  records.
 - Added `docs/agent-loop.md` with an architecture summary of the agent
   execution and continuation loops.
 - Added nested agent `turns` configuration for inner step budgets and
