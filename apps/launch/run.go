@@ -72,6 +72,7 @@ type RuntimeOptions struct {
 	Effort              string
 	EffortSet           bool
 	Debug               bool
+	Yolo                bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	AllowPrivateNetwork bool
@@ -142,6 +143,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Effort:              req.Effort,
 		EffortSet:           req.EffortSet,
 		Debug:               req.Debug,
+		Yolo:                req.Yolo,
 		Plugins:             cfg.Plugins,
 		ToolProjection:      cfg.ToolProjection,
 		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
@@ -237,6 +239,10 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		plugins = append(plugins, datasourceplugin.NewWithSemantic(registry, index))
 		ensurePluginRef(bundles, datasourceplugin.Name)
 	}
+	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
+	if opts.Yolo {
+		approval = operationruntime.AutoApprover{}
+	}
 	composition, err := app.Compose(app.Config{
 		Context: ctx,
 		Bundles: bundles,
@@ -245,7 +251,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			Sandbox:        localSandbox{Root: root},
 			ACL:            localACL{},
 			CommandRisk:    distrun.CommandRisk(root),
-			Approval:       terminalui.Approver{In: os.Stdin, Out: os.Stderr},
+			Approval:       approval,
 			MaxCommandRisk: operation.RiskMedium,
 			AllowPure:      true,
 		})),

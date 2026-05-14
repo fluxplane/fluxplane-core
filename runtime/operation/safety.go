@@ -49,6 +49,15 @@ type ApprovalGate interface {
 	Approve(operation.Context, ApprovalRequest) error
 }
 
+// AutoApprover approves every approval request. It is intended for explicit
+// local CLI opt-ins, not as a default runtime policy.
+type AutoApprover struct{}
+
+// Approve implements ApprovalGate.
+func (AutoApprover) Approve(operation.Context, ApprovalRequest) error {
+	return nil
+}
+
 // CommandRisk is the runtime command-risk classification result.
 type CommandRisk struct {
 	Level            operation.RiskLevel `json:"level,omitempty"`

@@ -25,6 +25,7 @@ type RunPathOptions struct {
 	Input        string
 	Debug        bool
 	Usage        bool
+	Yolo         bool
 	AuthPath     string
 	In           io.Reader
 	Out          io.Writer
@@ -67,6 +68,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		Input:        opts.Input,
 		Debug:        opts.Debug,
 		Usage:        opts.Usage,
+		Yolo:         opts.Yolo,
 		Prompt:       loaded.Distribution.Spec.Name,
 		In:           opts.In,
 		Out:          opts.Out,
@@ -84,6 +86,7 @@ type runCommandOptions struct {
 	input        string
 	debug        bool
 	usage        bool
+	yolo         bool
 	authPath     string
 }
 
@@ -117,6 +120,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Input:        opts.input,
 				Debug:        opts.debug,
 				Usage:        opts.usage,
+				Yolo:         opts.yolo,
 				AuthPath:     opts.authPath,
 				In:           cmd.InOrStdin(),
 				Out:          cmd.OutOrStdout(),
@@ -133,6 +137,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
+	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	return cmd
 }

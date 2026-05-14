@@ -167,6 +167,12 @@ func TestSafetyEnvelopeApprovalDenialRejectsOperation(t *testing.T) {
 	}
 }
 
+func TestAutoApproverApprovesRequests(t *testing.T) {
+	if err := (AutoApprover{}).Approve(operation.NewContext(context.Background(), nil), ApprovalRequest{}); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+}
+
 type allowSandbox struct{}
 
 func (allowSandbox) Check(operation.Context, operation.Spec, operation.Value) error { return nil }

@@ -89,4 +89,5 @@ type OpenRequest struct {
 	Effort       string
 	EffortSet    bool
 	Debug        bool
+	Yolo         bool
 }

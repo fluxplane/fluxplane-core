@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-14
+
+### Added
+
+- `agentsdk run` and distribution CLIs such as `coder` now support `--yolo`
+  to approve all operation approval prompts for that local run.
+
+### Changed
+
+- The tracked pre-push hook now runs the security scan and `task verify` without
+  also running the cross-platform binary build.
+
 ## [0.11.0] - 2026-05-14
 
 ### Added
@@ -346,7 +358,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/fluxplane/agentruntime/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/fluxplane/agentruntime/compare/v0.8.0...v0.9.0

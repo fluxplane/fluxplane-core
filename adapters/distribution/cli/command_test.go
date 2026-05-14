@@ -160,6 +160,29 @@ func TestCommandPropagatesReasoningFlags(t *testing.T) {
 	}
 }
 
+func TestCommandPropagatesYoloFlag(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommand(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--yolo"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	if !runtime.request.Yolo {
+		t.Fatalf("request = %#v, want yolo", runtime.request)
+	}
+}
+
 func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{

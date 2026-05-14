@@ -48,6 +48,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "--provider") {
 		t.Fatalf("help = %q, want provider flag", help)
 	}
+	if !strings.Contains(help, "--yolo") {
+		t.Fatalf("help = %q, want yolo flag", help)
+	}
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
 	}
