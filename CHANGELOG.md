@@ -11,6 +11,8 @@
 - The repository-local app manifest now enables a `local-docs` filesystem
   datasource with semantic search settings for markdown documentation.
 - `task index` builds the repository-local datasource semantic index.
+- `task security:scan` and local Git hook support scan for secrets and the
+  repository's banned internal keyword before commits and pushes.
 
 ### Changed
 

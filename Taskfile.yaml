@@ -32,6 +32,11 @@ tasks:
       - task: test
       - task: arch:check
 
+  security:scan:
+    desc: Scan working tree and Git history for secrets and banned keywords.
+    cmds:
+      - bash scripts/security-scan.sh full
+
   fmt:check:
     desc: Fail when Go files are not gofmt formatted.
     cmds:
