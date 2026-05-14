@@ -3,6 +3,8 @@ package system
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -281,5 +283,58 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	}
 	if !strings.HasPrefix(resolved.Rel, "@tmp/agentruntime-test-") || !strings.HasSuffix(resolved.Rel, "/out.txt") {
 		t.Fatalf("scratch rel = %q, want @tmp/agentruntime-test-*/out.txt", resolved.Rel)
+	}
+}
+
+func TestHostNetworkDoesNotRetryNonIdempotentRequests(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "retry", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	network := &HostNetwork{allowPrivate: true}
+	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
+		URL:    server.URL,
+		Method: http.MethodPost,
+		Body:   "side effect",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestHostNetworkRetriesIdempotentRequests(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "retry", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	network := &HostNetwork{allowPrivate: true}
+	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
+		URL:    server.URL,
+		Method: http.MethodGet,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
 	}
 }

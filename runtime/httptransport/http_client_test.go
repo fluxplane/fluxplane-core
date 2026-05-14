@@ -101,10 +101,11 @@ func TestRetryingTransportRetriesTransientStatus(t *testing.T) {
 		}
 		return textStatusResponse(http.StatusOK, "ok"), nil
 	}), RetryConfig{
-		MaxAttempts: 2,
-		BaseWait:    time.Millisecond,
-		MaxWait:     time.Millisecond,
-		Sleep:       noSleep,
+		MaxAttempts:        2,
+		BaseWait:           time.Millisecond,
+		MaxWait:            time.Millisecond,
+		RetryNonIdempotent: true,
+		Sleep:              noSleep,
 	})
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test", nil)
 	if err != nil {
@@ -129,10 +130,11 @@ func TestRetryingTransportRequiresReplayableBody(t *testing.T) {
 		calls++
 		return nil, errors.New("temporary")
 	}), RetryConfig{
-		MaxAttempts: 2,
-		BaseWait:    time.Millisecond,
-		MaxWait:     time.Millisecond,
-		Sleep:       noSleep,
+		MaxAttempts:        2,
+		BaseWait:           time.Millisecond,
+		MaxWait:            time.Millisecond,
+		RetryNonIdempotent: true,
+		Sleep:              noSleep,
 	})
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.test", io.NopCloser(bytes.NewReader([]byte("body"))))
 	if err != nil {
@@ -163,6 +165,32 @@ func TestRetryingTransportReplaysPostWithGetBody(t *testing.T) {
 		}
 		return textStatusResponse(http.StatusOK, "ok"), nil
 	}), RetryConfig{
+		MaxAttempts:        2,
+		BaseWait:           time.Millisecond,
+		MaxWait:            time.Millisecond,
+		RetryNonIdempotent: true,
+		Sleep:              noSleep,
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.test", bytes.NewReader([]byte("body")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+func TestRetryingTransportCanDisableNonIdempotentReplay(t *testing.T) {
+	var calls int
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		return textStatusResponse(http.StatusServiceUnavailable, "retry"), nil
+	}), RetryConfig{
 		MaxAttempts: 2,
 		BaseWait:    time.Millisecond,
 		MaxWait:     time.Millisecond,
@@ -177,8 +205,65 @@ func TestRetryingTransportReplaysPostWithGetBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if calls != 2 {
-		t.Fatalf("calls = %d, want 2", calls)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+}
+
+func TestRetryingTransportHonorsRetryAfterBeyondBackoffCap(t *testing.T) {
+	var slept time.Duration
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		resp := textStatusResponse(http.StatusTooManyRequests, "retry")
+		resp.Header.Set("Retry-After", "30")
+		return resp, nil
+	}), RetryConfig{
+		MaxAttempts:       2,
+		BaseWait:          time.Millisecond,
+		MaxWait:           time.Millisecond,
+		MaxRetryAfterWait: time.Minute,
+		Sleep: func(ctx context.Context, wait time.Duration) error {
+			slept = wait
+			return nil
+		},
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if slept != 30*time.Second {
+		t.Fatalf("slept = %s, want 30s", slept)
+	}
+}
+
+func TestRetryingTransportDoesNotRetryPermanentErrors(t *testing.T) {
+	var calls int
+	rt := NewRetryingTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		return nil, errors.New("tls: failed to verify certificate")
+	}), RetryConfig{
+		MaxAttempts: 2,
+		BaseWait:    time.Millisecond,
+		MaxWait:     time.Millisecond,
+		Sleep:       noSleep,
+	})
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = rt.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
 	}
 }
 

@@ -998,8 +998,10 @@ func (n *HostNetwork) DoHTTP(ctx context.Context, req HTTPRequest) (HTTPResponse
 	for key, value := range req.Headers {
 		httpReq.Header.Set(key, value)
 	}
+	retry := httptransport.DefaultRetryConfig()
+	retry.RetryNonIdempotent = false
 	client := &http.Client{
-		Transport: httptransport.NewDefaultTransport(PublicNetworkTransport(n.allowPrivate)),
+		Transport: httptransport.NewDefaultTransportWithRetry(PublicNetworkTransport(n.allowPrivate), retry),
 		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {
 			return ValidatePublicURL(redirectReq.URL, n.allowPrivate)
 		},

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,9 +23,10 @@ import (
 const ExtendedAcceptEncoding = "gzip, deflate, br, zstd"
 
 const (
-	defaultRetryAttempts = 3
-	defaultRetryBaseWait = 200 * time.Millisecond
-	defaultRetryMaxWait  = 2 * time.Second
+	defaultRetryAttempts     = 3
+	defaultRetryBaseWait     = 200 * time.Millisecond
+	defaultRetryMaxWait      = 2 * time.Second
+	defaultRetryAfterMaxWait = 30 * time.Second
 )
 
 var defaultHTTPTransport http.RoundTripper = NewDefaultTransport(defaultBaseTransport())
@@ -33,10 +35,15 @@ var defaultHTTPClient = &http.Client{Transport: defaultHTTPTransport}
 
 // RetryConfig configures transient HTTP retry behavior.
 type RetryConfig struct {
-	MaxAttempts int
-	BaseWait    time.Duration
-	MaxWait     time.Duration
-	Jitter      bool
+	MaxAttempts       int
+	BaseWait          time.Duration
+	MaxWait           time.Duration
+	MaxRetryAfterWait time.Duration
+	Jitter            bool
+
+	// RetryNonIdempotent permits retries for non-idempotent methods when the
+	// request body is replayable. Provider clients use this for model API POSTs.
+	RetryNonIdempotent bool
 
 	// Sleep overrides retry sleeping. Tests use this to avoid wall-clock waits.
 	Sleep func(context.Context, time.Duration) error
@@ -46,10 +53,12 @@ type RetryConfig struct {
 // adapter HTTP traffic.
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxAttempts: defaultRetryAttempts,
-		BaseWait:    defaultRetryBaseWait,
-		MaxWait:     defaultRetryMaxWait,
-		Jitter:      true,
+		MaxAttempts:        defaultRetryAttempts,
+		BaseWait:           defaultRetryBaseWait,
+		MaxWait:            defaultRetryMaxWait,
+		MaxRetryAfterWait:  defaultRetryAfterMaxWait,
+		Jitter:             true,
+		RetryNonIdempotent: true,
 	}
 }
 
@@ -70,7 +79,13 @@ func CloneDefaultHTTPClient() *http.Client {
 // NewDefaultTransport wraps base with the runtime default retry and
 // decompression behavior.
 func NewDefaultTransport(base http.RoundTripper) http.RoundTripper {
-	return NewDecompressingTransport(NewRetryingTransport(base, DefaultRetryConfig()))
+	return NewDefaultTransportWithRetry(base, DefaultRetryConfig())
+}
+
+// NewDefaultTransportWithRetry wraps base with custom retry behavior and the
+// default decompression behavior.
+func NewDefaultTransportWithRetry(base http.RoundTripper, cfg RetryConfig) http.RoundTripper {
+	return NewDecompressingTransport(NewRetryingTransport(base, cfg))
 }
 
 func NewRetryingTransport(base http.RoundTripper, cfg RetryConfig) http.RoundTripper {
@@ -112,6 +127,9 @@ func (c RetryConfig) withDefaults() RetryConfig {
 	if c.MaxWait <= 0 {
 		c.MaxWait = defaultRetryMaxWait
 	}
+	if c.MaxRetryAfterWait <= 0 {
+		c.MaxRetryAfterWait = defaultRetryAfterMaxWait
+	}
 	if c.Sleep == nil {
 		c.Sleep = sleepContext
 	}
@@ -127,7 +145,7 @@ func (t *retryingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	if req == nil {
 		return nil, errors.New("httptransport: nil request")
 	}
-	if !canReplay(req) {
+	if !canReplay(req, t.cfg.RetryNonIdempotent) {
 		return t.wrapped.RoundTrip(req)
 	}
 	var lastErr error
@@ -173,12 +191,15 @@ func requestForAttempt(req *http.Request, attempt int) (*http.Request, error) {
 	return clone, nil
 }
 
-func canReplay(req *http.Request) bool {
+func canReplay(req *http.Request, retryNonIdempotent bool) bool {
 	if req == nil {
 		return false
 	}
-	if isIdempotentMethod(req.Method) && req.Body == nil {
-		return true
+	if isIdempotentMethod(req.Method) {
+		return req.Body == nil || req.GetBody != nil
+	}
+	if !retryNonIdempotent {
+		return false
 	}
 	return req.GetBody != nil
 }
@@ -200,7 +221,7 @@ func shouldRetry(ctx context.Context, resp *http.Response, err error) bool {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return false
 		}
-		return true
+		return isRetryableTransportError(err)
 	}
 	if resp == nil {
 		return false
@@ -216,7 +237,7 @@ func shouldRetry(ctx context.Context, resp *http.Response, err error) bool {
 func retryWait(resp *http.Response, cfg RetryConfig, attempt int) time.Duration {
 	if resp != nil {
 		if wait, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
-			return clampDuration(wait, 0, cfg.MaxWait)
+			return clampDuration(wait, 0, cfg.MaxRetryAfterWait)
 		}
 	}
 	multiplier := math.Pow(2, float64(attempt))
@@ -225,6 +246,21 @@ func retryWait(resp *http.Response, cfg RetryConfig, attempt int) time.Duration 
 		wait += time.Duration(time.Now().UnixNano() % int64(wait/4+1))
 	}
 	return clampDuration(wait, cfg.BaseWait, cfg.MaxWait)
+}
+
+func isRetryableTransportError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return dnsErr.IsTimeout || dnsErr.IsTemporary
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return false
 }
 
 func parseRetryAfter(raw string, now time.Time) (time.Duration, bool) {
