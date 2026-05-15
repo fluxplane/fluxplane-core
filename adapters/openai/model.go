@@ -332,10 +332,14 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		if strings.TrimSpace(prompt) == "" {
 			prompt = "Continue."
 		}
-		params.Input = responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)}
+		inputItems := responses.ResponseInputParam{responses.ResponseInputItemParamOfInputMessage(
+			responses.ResponseInputMessageContentListParam{responses.ResponseInputContentParamOfInputText(prompt)},
+			"user",
+		)}
+		params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: inputItems}
 	}
-	if req.Driver.Instructions != "" {
-		params.Instructions = openai.String(req.Driver.Instructions)
+	if instructions := firstNonEmpty(req.Driver.Instructions, req.Agent.System); instructions != "" {
+		params.Instructions = openai.String(instructions)
 	}
 	if req.Driver.Inference.MaxOutputTokens > 0 {
 		params.MaxOutputTokens = openai.Int(int64(req.Driver.Inference.MaxOutputTokens))

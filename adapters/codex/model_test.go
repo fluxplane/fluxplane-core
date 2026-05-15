@@ -28,7 +28,7 @@ func TestMutateBodyDropsOpenAIOnlyFields(t *testing.T) {
 		t.Fatalf("mutateBody ok = false, want true")
 	}
 	got := string(mutated)
-	for _, forbidden := range []string{"max_output_tokens", "prompt_cache_retention", "previous_response_id", `"text"`} {
+	for _, forbidden := range []string{"max_output_tokens", "prompt_cache_retention", "previous_response_id", `"text":{}`} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("mutated body = %s, still contains %s", got, forbidden)
 		}

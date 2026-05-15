@@ -45,6 +45,33 @@ func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {
 	}
 }
 
+func TestResponseParamsUsesAgentSystemAsInstructionFallback(t *testing.T) {
+	model, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	params, _, _, err := model.responseParams(llmagent.Request{
+		Agent: agent.Spec{
+			System:    "You are the stop evaluator.",
+			Inference: agent.InferenceSpec{Model: "gpt-test"},
+		},
+		Goal: "Decide whether to continue.",
+	})
+	if err != nil {
+		t.Fatalf("responseParams: %v", err)
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(raw), `"instructions":"You are the stop evaluator."`) {
+		t.Fatalf("params JSON = %s, want agent system instructions", raw)
+	}
+	if strings.Contains(string(raw), `"input":"`) || !strings.Contains(string(raw), `"type":"input_text"`) {
+		t.Fatalf("params JSON = %s, want input item list", raw)
+	}
+}
+
 func TestTranscriptSystemContextItemUsesInputRoleSystem(t *testing.T) {
 	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses"}
 	item := coreconversation.Item{

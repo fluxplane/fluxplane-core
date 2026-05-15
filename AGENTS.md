@@ -68,6 +68,22 @@ outer layers. The exact allowed-import matrix is defined in
 See [docs/architecture.md](docs/architecture.md) for per-layer concept lists
 and common flows.
 
+### Architecture References
+
+Keep this file to the operative rules. Put explanatory architecture updates in
+the docs:
+
+- [docs/architecture.md](docs/architecture.md): layer model, package
+  responsibilities, common flows, and expected architecture report posture.
+- [docs/agent-loop.md](docs/agent-loop.md): session execution loop,
+  continuation loop, compaction, and transcript flow.
+- [docs/security.md](docs/security.md): side-effect, operation safety, and
+  system boundary model.
+- [docs/verification.md](docs/verification.md): `task verify`,
+  architecture report, hooks, and quality gates.
+- [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md):
+  migration rationale, architecture fitness-function notes, and package status.
+
 ## Placement Checklist
 
 When placing new code, walk this list top-down and stop at the first match.

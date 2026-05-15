@@ -75,6 +75,13 @@ usually indicate concepts that want splitting or a clearer composition point.
 High fan-in to core and app/facade fan-out are reported but not treated as
 problems by themselves.
 
+Current rewrite-local architecture work keeps the report at 90 or higher with
+zero violations. Recent extraction moved event registry assembly, resource
+cataloging, executable app resource binding, agent spec filtering, session
+environment wiring, and session control-plane helpers into focused
+orchestration packages rather than leaving those concerns in the app or
+session loops.
+
 ### Channel, Session, and Harness Boundary
 
 The user-facing client contract is handle-oriented:
@@ -620,6 +627,21 @@ Implemented and green:
 - `core/channel`: normalized channel specs and inbound/outbound envelopes.
 - `orchestration/session`: command and conversational input execution for one
   bound thread.
+- `orchestration/sessioncontrol`: session control-plane helpers such as
+  continuation stop-condition evaluation, built-in command policy/target
+  checks, resource aliases, and LLM-driver control helpers.
+- `orchestration/sessionenv`: runtime context assembly for session work,
+  including context materialization, skill and datasource access, persisted
+  skill replay, and sub-agent scope wiring.
+- `orchestration/resourcecatalog`: contribution-bundle catalog collection for
+  app, agent, skill, context-provider, datasource, LLM, workflow, and operation
+  set specs.
+- `orchestration/appresources`: executable resource binding for app
+  composition, including operation, tool set, command, and session catalogs.
+- `orchestration/agentconfig`: agent spec filtering and default-agent
+  selection used by app/session composition.
+- `orchestration/eventregistry`: event type registry assembly from
+  contribution bundles.
 - `orchestration/harness`: channel conversation binding, explicit
   session-bound execution, semantic event fanout, and replay from thread store.
 - `orchestration/client`: transport-neutral `ChannelClient`, `SessionHandle`,

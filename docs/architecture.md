@@ -178,14 +178,20 @@ Orchestration concepts include:
 
 ```text
 agent factory composition
+agent spec filtering for app/session selection
 app composition
+app resource binding and catalog collection
 channel runtime contracts
 client/session handles
 daemon lifecycle
 distribution loading result contracts
+event registry assembly
 harness channel-to-session boundary
 plugin host and contribution resolution
 projection coordination
+resource cataloging over contribution bundles
+session control-plane helpers
+session environment/context wiring
 session lifecycle and Submit handling
 sub-agent supervision
 tool projection use cases
@@ -198,8 +204,15 @@ session internals. The important example is the channel path:
 channel adapter
   -> orchestration/harness
      -> orchestration/session
+        -> orchestration/sessioncontrol + orchestration/sessionenv
         -> runtime agent/context/operation pieces
 ```
+
+The session package owns one bound thread's execution loop. Supporting
+orchestration packages keep high-coupling concerns narrow: `sessioncontrol`
+contains stop-condition evaluation, built-in command policy/target helpers,
+resource aliases, and LLM-driver control helpers; `sessionenv` assembles the
+runtime context, skill, datasource, and sub-agent scope used by session work.
 
 ### `adapters`
 
@@ -327,6 +340,7 @@ cmd/agentsdk
            -> adapters/distribution/cli.Run
               -> orchestration/distribution.Runtime.OpenSession
                  -> orchestration/session
+                    -> orchestration/sessioncontrol + orchestration/sessionenv
                     -> runtime/agent + runtime/operation + runtime/context
 ```
 
@@ -484,3 +498,8 @@ task arch:render
 The hard requirement is zero architecture violations. The numeric score is a
 review signal, not a release gate by itself. Fan-out in app assembly packages
 is expected; fan-out in inner layers usually deserves review.
+
+As of the current architecture split, the report is expected to remain at or
+above 90 with zero violations. Remaining score penalties are intentionally
+visible in the report so future work can decide whether a runtime sibling edge
+or inner-layer fan-out still warrants extraction.

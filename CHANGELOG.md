@@ -90,6 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resource catalog collection, executable app resource binding, agent spec
   filtering, and session environment wiring now live in focused orchestration
   packages, bringing the architecture score target to 80.
+- Session control-plane helpers now live in `orchestration/sessioncontrol`,
+  keeping stop-condition evaluation, built-in command policy/target wiring,
+  resource aliases, and LLM-driver control helpers out of the main session
+  loop and bringing the architecture score target to 90.
 - Improved architecture score by moving pure event codec helpers into core and
   removing unused runtime pass-through fields from app composition.
 - Architecture reports now include score penalty explanations so improvement

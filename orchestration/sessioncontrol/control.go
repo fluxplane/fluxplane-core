@@ -74,11 +74,20 @@ func (e ModelStopEvaluator) EvaluateStopCondition(ctx context.Context, input Sto
 	if e.Model == nil {
 		return StopEvaluation{}, fmt.Errorf("stop evaluator model is nil")
 	}
-	response, err := e.Model.Complete(ctx, llmagent.Request{
+	req := llmagent.Request{
 		Agent: evaluatorAgentSpec(input.Agent),
 		Tools: []tool.Spec{continuationDecisionToolSpec()},
 		Goal:  StopEvaluatorGoal(input),
-	})
+	}
+	var (
+		response llmagent.Response
+		err      error
+	)
+	if streaming, ok := e.Model.(llmagent.StreamingModel); ok {
+		response, err = streaming.Stream(ctx, req, nil)
+	} else {
+		response, err = e.Model.Complete(ctx, req)
+	}
 	if err != nil {
 		return StopEvaluation{}, err
 	}
