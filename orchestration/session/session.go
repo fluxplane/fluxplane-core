@@ -116,8 +116,9 @@ func (e ModelStopEvaluator) EvaluateStopCondition(ctx context.Context, input Sto
 }
 
 const (
-	defaultLLMMaxSteps      = 50
-	defaultLLMContinuations = 3
+	defaultLLMMaxSteps       = 50
+	defaultLLMContinuations  = 3
+	defaultGoalContinuations = 10
 
 	defaultCompactContextTokens = 128000
 	maxCompactContextTokens     = 200000
@@ -459,6 +460,12 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			return s.finalizeInputResult(ctx, inbound, decision.Result)
 		}
 		if !decision.Continue {
+			// When the inner loop exits cleanly at the step budget with a
+			// pending operation decision, surface the operation boundary result
+			// instead of treating it as a terminal agent decision.
+			if inner.AgentResult.Decision.Kind == agent.DecisionOperation {
+				return s.finalizeInputResult(ctx, inbound, s.operationBoundaryResult(ctx, inbound, inner.AgentResult, effects))
+			}
 			return s.finalizeInputResult(ctx, inbound, s.applyTerminalAgentDecision(ctx, inbound, inner.AgentResult, effects))
 		}
 		instruction := strings.TrimSpace(decision.Instruction)
@@ -514,7 +521,21 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 	if maxSteps <= 0 {
 		maxSteps = 1
 	}
-	for step := 0; step < maxSteps; step++ {
+	var lastAgentResult agent.StepResult
+	for step := 0; ; step++ {
+		// Check budget BEFORE calling the model — not after.
+		if step >= maxSteps {
+			if in.FailOnStepLimit {
+				return innerTurnResult{
+					Result:      s.stepLimitResult(ctx, in.Inbound, lastAgentResult, effects),
+					AgentResult: lastAgentResult,
+					State:       state,
+					Effects:     effects,
+				}
+			}
+			// Clean break: outer loop will call evaluateContinuation.
+			return innerTurnResult{AgentResult: lastAgentResult, State: state, Effects: effects}
+		}
 		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects}
@@ -550,6 +571,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		if !stateRefIsZero(agentResult.State.Ref) {
 			state = agentResult.State.Ref
 		}
+		lastAgentResult = agentResult
 		if agentResult.Decision.Kind != agent.DecisionOperation {
 			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects}
 		}
@@ -561,19 +583,16 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		effects = append(effects, batch...)
-		if step == maxSteps-1 {
+		// Persist tool results before the budget check at the top of the next
+		// iteration fires so they are durably recorded if the loop exits there.
+		if step+1 >= maxSteps {
 			if err := s.persistPendingTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
 				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 			}
-			if !in.FailOnStepLimit {
-				return innerTurnResult{Result: s.operationBoundaryResult(ctx, in.Inbound, agentResult, effects), AgentResult: agentResult, State: state, Effects: effects}
-			}
-			return innerTurnResult{Result: s.stepLimitResult(ctx, in.Inbound, agentResult, effects), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		observations = append(observations, observationsForEffects(batch)...)
 		pending = toolResults
 	}
-	return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Effects: effects, Error: innerStepLimitError(maxSteps)}, State: state, Effects: effects}
 }
 
 func (s Session) finalizeInputResult(ctx context.Context, inbound channel.Inbound, result InputResult) InputResult {
@@ -688,9 +707,10 @@ type contextPreviewInput struct {
 
 type goalCommandInput struct {
 	Goal                []string `json:"goal,omitempty" command:"arg"`
-	Max                 int      `json:"max,omitempty" command:"flag=max"`
-	MaxContinuations    int      `json:"max_continuations,omitempty" command:"flag=max-continuations"`
-	MaxContinuationsAlt int      `json:"max-continuations,omitempty"`
+	Max                 *int     `json:"max,omitempty" command:"flag=max"`
+	MaxContinuations    *int     `json:"max_continuations,omitempty" command:"flag=max-continuations"`
+	MaxContinuationsAlt *int     `json:"max-continuations,omitempty"`
+	DefaultMax          *int     `json:"-" command:"default=10"`
 }
 
 type contextPreviewData struct {
@@ -1884,7 +1904,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		})
 	}
 	if s.Profile.Commands != nil && resolved.SessionHandler == nil && !commandPathAllowed(s.Profile.Commands, inbound.Command.Path) {
-		return commandFailed("command_not_found", "command not found", map[string]any{
+		return commandFailed("command_not_found", fmt.Sprintf("command %s not found", inbound.Command.Path), map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
 	}
@@ -1902,7 +1922,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		if s.Commands == nil && len(s.CommandCatalog) == 0 {
 			return commandFailed("command_registry_missing", "command registry is nil", nil)
 		}
-		return commandFailed("command_not_found", "command not found", map[string]any{
+		return commandFailed("command_not_found", fmt.Sprintf("command %s not found", inbound.Command.Path), map[string]any{
 			"path": inbound.Command.Path.String(),
 		})
 	}
@@ -2092,10 +2112,19 @@ func structuredGoalCommandInput(value any) goalCommandInput {
 			input.Goal = append(input.Goal, fmt.Sprint(item))
 		}
 	}
-	input.Max = intValue(values["max"])
-	input.MaxContinuations = intValue(values["max_continuations"])
-	input.MaxContinuationsAlt = intValue(values["max-continuations"])
+	input.Max = intPointerValue(values, "max")
+	input.MaxContinuations = intPointerValue(values, "max_continuations")
+	input.MaxContinuationsAlt = intPointerValue(values, "max-continuations")
 	return input
+}
+
+func intPointerValue(values map[string]any, key string) *int {
+	value, ok := values[key]
+	if !ok {
+		return nil
+	}
+	parsed := intValue(value)
+	return &parsed
 }
 
 func intValue(value any) int {
@@ -2118,13 +2147,13 @@ func mergeGoalCommandInput(primary, fallback goalCommandInput) goalCommandInput 
 	if len(primary.Goal) == 0 {
 		primary.Goal = fallback.Goal
 	}
-	if primary.Max == 0 {
+	if primary.Max == nil {
 		primary.Max = fallback.Max
 	}
-	if primary.MaxContinuations == 0 {
+	if primary.MaxContinuations == nil {
 		primary.MaxContinuations = fallback.MaxContinuations
 	}
-	if primary.MaxContinuationsAlt == 0 {
+	if primary.MaxContinuationsAlt == nil {
 		primary.MaxContinuationsAlt = fallback.MaxContinuationsAlt
 	}
 	return primary
@@ -2133,14 +2162,19 @@ func mergeGoalCommandInput(primary, fallback goalCommandInput) goalCommandInput 
 func validateGoalCommandInput(input goalCommandInput) (inputExecutionOptions, error) {
 	goal := strings.TrimSpace(strings.Join(input.Goal, " "))
 	if goal == "" {
-		return inputExecutionOptions{}, fmt.Errorf("goal is required; use /goal --max 40 \"your goal\"")
+		return inputExecutionOptions{}, fmt.Errorf("goal is required; use /goal \"your goal\"")
 	}
-	max := input.Max
-	if max == 0 {
-		max = input.MaxContinuations
-	}
-	if max == 0 {
-		max = input.MaxContinuationsAlt
+	max := 0
+	if input.Max != nil {
+		max = *input.Max
+	} else if input.MaxContinuations != nil {
+		max = *input.MaxContinuations
+	} else if input.MaxContinuationsAlt != nil {
+		max = *input.MaxContinuationsAlt
+	} else if input.DefaultMax != nil {
+		max = *input.DefaultMax
+	} else {
+		max = defaultGoalContinuations
 	}
 	if max <= 0 {
 		return inputExecutionOptions{}, fmt.Errorf("max-continuations must be > 0")

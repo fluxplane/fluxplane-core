@@ -9,11 +9,11 @@ import (
 
 // intentOp is an Operation that also implements IntentProvider.
 type intentOp struct {
-	spec   Spec
+	spec    Spec
 	intents IntentSet
 }
 
-func (o intentOp) Spec() Spec                   { return o.spec }
+func (o intentOp) Spec() Spec                    { return o.spec }
 func (o intentOp) Run(_ Context, _ Value) Result { return OK(nil) }
 func (o intentOp) Intent(_ Context, _ Value) (IntentSet, error) {
 	return o.intents, nil

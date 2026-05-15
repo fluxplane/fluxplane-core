@@ -99,3 +99,4 @@ shapes, and command surfaces. We are deliberately not shipping
 backward-compatibility shims during this phase — see
 [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md) for
 rationale.
+
