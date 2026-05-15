@@ -157,7 +157,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().IntVar(&opts.maxContinuations, "max-continuations", opts.maxContinuations, "maximum goal continuations")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
-	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
+	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	return cmd

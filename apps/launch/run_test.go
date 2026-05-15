@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
@@ -134,6 +135,38 @@ func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
 	}
 	if !hasOperationSpec(runtime, "file_read") {
 		t.Fatal("expected coding plugin filesystem operation")
+	}
+}
+
+func TestLaunchYoloEnablesOverMaxCommandRiskApproval(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		yolo bool
+		want bool
+	}{
+		{name: "default", yolo: false, want: false},
+		{name: "yolo", yolo: true, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			withStateDir(t)
+			runtime, err := Launch(context.Background(), RuntimeOptions{
+				Root:                t.TempDir(),
+				Yolo:                tt.yolo,
+				AllowPrivateNetwork: true,
+			})
+			if err != nil {
+				t.Fatalf("Launch: %v", err)
+			}
+			defer runtime.Close()
+
+			envelope, ok := runtime.Composition.OperationExecutor.Safety.(operationruntime.SafetyEnvelope)
+			if !ok {
+				t.Fatalf("safety = %T, want SafetyEnvelope", runtime.Composition.OperationExecutor.Safety)
+			}
+			if envelope.ApproveOverMaxCommandRisk != tt.want {
+				t.Fatalf("ApproveOverMaxCommandRisk = %v, want %v", envelope.ApproveOverMaxCommandRisk, tt.want)
+			}
+		})
 	}
 }
 

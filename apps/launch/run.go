@@ -286,12 +286,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Plugins:          plugins,
 		BundleTransforms: bundleTransforms,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
-			Sandbox:        localSandbox{Root: root},
-			ACL:            localACL{},
-			CommandRisk:    distrun.CommandRisk(root),
-			Approval:       approval,
-			MaxCommandRisk: operation.RiskMedium,
-			AllowPure:      true,
+			Sandbox:                   localSandbox{Root: root},
+			ACL:                       localACL{},
+			CommandRisk:               distrun.CommandRisk(root),
+			Approval:                  approval,
+			MaxCommandRisk:            operation.RiskMedium,
+			ApproveOverMaxCommandRisk: opts.Yolo,
+			AllowPure:                 true,
 		})),
 	})
 	if err != nil {

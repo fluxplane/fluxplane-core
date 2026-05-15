@@ -70,7 +70,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().IntVar(&opts.maxContinuations, "max-continuations", opts.maxContinuations, "maximum goal continuations")
 	cmd.PersistentFlags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
-	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "approve all operation approval prompts for this local run")
+	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.PersistentFlags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.AddCommand(newDescribeCommand(dist))
 	cmd.AddCommand(newModelsCommand(dist))

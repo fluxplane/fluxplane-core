@@ -75,13 +75,14 @@ type ApprovalRequest struct {
 // SafetyEnvelope is the default runtime safety gate shape for real
 // side-effecting operations.
 type SafetyEnvelope struct {
-	Sandbox        Sandbox
-	ACL            AccessController
-	CommandRisk    CommandRiskClassifier
-	Secrets        SecretGuard
-	Approval       ApprovalGate
-	AllowPure      bool
-	MaxCommandRisk operation.RiskLevel
+	Sandbox                   Sandbox
+	ACL                       AccessController
+	CommandRisk               CommandRiskClassifier
+	Secrets                   SecretGuard
+	Approval                  ApprovalGate
+	AllowPure                 bool
+	MaxCommandRisk            operation.RiskLevel
+	ApproveOverMaxCommandRisk bool
 }
 
 // Check enforces the configured safety envelope.
@@ -122,10 +123,19 @@ func (e SafetyEnvelope) Check(ctx operation.Context, op operation.Operation, inp
 			}
 			approved = true
 		} else if e.MaxCommandRisk != "" && !riskAllowed(risk.Level, e.MaxCommandRisk) {
-			if risk.Reason != "" {
-				return fmt.Errorf("cmdrisk_denied: %s: %s", risk.Level, risk.Reason)
+			if e.ApproveOverMaxCommandRisk {
+				approvalRisk := risk
+				approvalRisk.RequiresApproval = true
+				if err := e.approve(ctx, spec, input, approvalRisk); err != nil {
+					return err
+				}
+				approved = true
+			} else {
+				if risk.Reason != "" {
+					return fmt.Errorf("cmdrisk_denied: %s: %s", risk.Level, risk.Reason)
+				}
+				return fmt.Errorf("cmdrisk_denied: %s", risk.Level)
 			}
-			return fmt.Errorf("cmdrisk_denied: %s", risk.Level)
 		}
 	} else if spec.Semantics.Effects.Has(operation.EffectProcess) {
 		return fmt.Errorf("cmdrisk_required")

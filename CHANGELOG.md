@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `--yolo` now auto-approves local command-risk gates, including commands that
+  exceed the default risk threshold, while ACL, sandbox, secret, syntax, and
+  plugin hard-deny checks remain enforced.
 - Reflection-based command binding now supports `default=...` tag values, and
   `/goal` defaults its continuation cap to 10 when no max is provided.
 - Agent loop config now uses `turns.max_steps` and
