@@ -170,11 +170,14 @@ func (Started) EventName() event.Name { return EventStartedName }
 
 // StepStarted is emitted when a workflow step starts.
 type StepStarted struct {
-	RunID     RunID         `json:"run_id"`
-	Workflow  Name          `json:"workflow"`
-	StepID    StepID        `json:"step_id"`
-	Operation operation.Ref `json:"operation"`
-	Attempt   int           `json:"attempt,omitempty"`
+	RunID     RunID           `json:"run_id"`
+	Workflow  Name            `json:"workflow"`
+	StepID    StepID          `json:"step_id"`
+	Kind      StepKind        `json:"kind,omitempty"`
+	Operation operation.Ref   `json:"operation,omitempty"`
+	Agent     agent.Ref       `json:"agent,omitempty"`
+	Input     operation.Value `json:"input,omitempty"`
+	Attempt   int             `json:"attempt,omitempty"`
 }
 
 func (StepStarted) EventName() event.Name { return EventStepStartedName }
@@ -184,7 +187,9 @@ type StepCompleted struct {
 	RunID     RunID           `json:"run_id"`
 	Workflow  Name            `json:"workflow"`
 	StepID    StepID          `json:"step_id"`
-	Operation operation.Ref   `json:"operation"`
+	Kind      StepKind        `json:"kind,omitempty"`
+	Operation operation.Ref   `json:"operation,omitempty"`
+	Agent     agent.Ref       `json:"agent,omitempty"`
 	Output    operation.Value `json:"output,omitempty"`
 	Attempt   int             `json:"attempt,omitempty"`
 }
@@ -196,7 +201,9 @@ type StepFailed struct {
 	RunID     RunID            `json:"run_id"`
 	Workflow  Name             `json:"workflow"`
 	StepID    StepID           `json:"step_id"`
-	Operation operation.Ref    `json:"operation"`
+	Kind      StepKind         `json:"kind,omitempty"`
+	Operation operation.Ref    `json:"operation,omitempty"`
+	Agent     agent.Ref        `json:"agent,omitempty"`
 	Error     *operation.Error `json:"error,omitempty"`
 	Attempt   int              `json:"attempt,omitempty"`
 }

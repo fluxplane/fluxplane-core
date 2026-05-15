@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Claude OAuth credentials and Claude Code request headers/preflight behavior.
 - Non-blocking `task quality:metrics` reports coverage plus optional
   cyclomatic and cognitive complexity hotspots for refactoring guidance.
+- Workflow commands now execute through orchestration, with operation steps
+  dispatched through the operation executor and workflow runtime events emitted
+  for run and step progress.
+- Appconfig manifests can now contribute `commands`, `workflows`, and
+  declaration-only `operations` either as top-level app fields or standalone
+  `kind: command`, `kind: workflow`, and `kind: operation` YAML documents.
 
 ### Changed
 
@@ -72,9 +78,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `step_limit_exceeded` session errors now report the inner-loop
   `turns.max_steps` model-decision-call limit in their message and structured
   details, distinguishing the inner agent loop from outer continuation.
+- `.agents/workflows/*.yaml` decoding now supports operation steps with
+  `operation`, `input`, and `error-policy` fields in addition to agent steps.
 
 ### Fixed
 
+- Appconfig multi-segment command paths now derive matching command resource
+  names, so composed commands like `/foo/bar` resolve as `foo:bar` at runtime.
 - `coder` now accepts common Claude-style user resource frontmatter and reports
   user resource load diagnostics, so `$HOME/.claude` skills are available for
   explicit REPL activation instead of failing with `skill_state_missing`.

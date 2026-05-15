@@ -105,6 +105,7 @@ type RunResult struct {
 type SpawnRequest struct {
 	ID             ID
 	Profile        coresession.Ref
+	Agent          agent.Ref
 	Task           string
 	TaskID         string
 	Timeout        time.Duration
@@ -192,15 +193,11 @@ func (s *Supervisor) Prepare(ctx context.Context, req SpawnRequest) (PreparedSpa
 	if strings.TrimSpace(req.Task) == "" {
 		return PreparedSpawn{}, fmt.Errorf("subagent: task is required")
 	}
-	profile, err := resolveProfile(req)
+	profile, profileSpec, profileResolved, err := resolveProfile(ctx, s, req)
 	if err != nil {
 		return PreparedSpawn{}, err
 	}
-	if err := authorizeProfile(req.Policy, profile); err != nil {
-		return PreparedSpawn{}, err
-	}
-	profileSpec, profileResolved, err := s.resolveProfileSpec(ctx, req.Policy, profile)
-	if err != nil {
+	if err := authorizeProfile(req.Policy, profile, req.Agent); err != nil {
 		return PreparedSpawn{}, err
 	}
 	agentRef, err := authorizeAgent(req.Policy, profile, profileSpec, profileResolved)
@@ -443,17 +440,38 @@ func progressMessage(ev RunEvent) string {
 	return ""
 }
 
-func resolveProfile(req SpawnRequest) (coresession.Ref, error) {
+func resolveProfile(ctx context.Context, s *Supervisor, req SpawnRequest) (coresession.Ref, coresession.Spec, bool, error) {
+	if req.Agent.Name != "" {
+		profile := req.Profile
+		if profile.Name == "" {
+			profile = coresession.Ref{Name: coresession.Name(req.Agent.Name)}
+		}
+		return profile, coresession.Spec{Name: profile.Name, Agent: req.Agent}, true, nil
+	}
 	if req.Profile.Name != "" {
-		return req.Profile, nil
+		spec, resolved, err := s.resolveProfileSpec(ctx, req.Policy, req.Profile)
+		return req.Profile, spec, resolved, err
 	}
 	if len(req.Policy.AllowedProfiles) == 1 {
-		return req.Policy.AllowedProfiles[0], nil
+		profile := req.Policy.AllowedProfiles[0]
+		spec, resolved, err := s.resolveProfileSpec(ctx, req.Policy, profile)
+		return profile, spec, resolved, err
 	}
-	return coresession.Ref{}, fmt.Errorf("subagent: profile is required; allowed profiles: %s", allowedProfileList(req.Policy.AllowedProfiles))
+	return coresession.Ref{}, coresession.Spec{}, false, fmt.Errorf("subagent: profile is required; allowed profiles: %s", allowedProfileList(req.Policy.AllowedProfiles))
 }
 
-func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.Ref) error {
+func authorizeProfile(policy coresession.DelegationPolicy, profile coresession.Ref, agentRef agent.Ref) error {
+	if agentRef.Name != "" {
+		if len(policy.AllowedAgents) == 0 {
+			return nil
+		}
+		for _, allowed := range policy.AllowedAgents {
+			if allowed.Name == agentRef.Name {
+				return nil
+			}
+		}
+		return fmt.Errorf("subagent: agent %q is not allowed", agentRef.Name)
+	}
 	if profile.Name == "" {
 		return fmt.Errorf("subagent: profile is required; allowed profiles: %s", allowedProfileList(policy.AllowedProfiles))
 	}

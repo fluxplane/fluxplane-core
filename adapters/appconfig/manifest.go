@@ -12,18 +12,23 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
+	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/invocation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/workflow"
 	invjsonschema "github.com/invopop/jsonschema"
 	santhoshjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
@@ -130,6 +135,27 @@ func DecodeFile(path string, data []byte) (File, error) {
 			for _, ds := range manifest.Datasources {
 				bundle.Datasources = append(bundle.Datasources, ds.Spec())
 			}
+			for i, raw := range manifest.Commands {
+				spec, err := raw.Spec()
+				if err != nil {
+					return File{}, fmt.Errorf("appconfig: validate commands[%d]: %w", i, err)
+				}
+				bundle.Commands = append(bundle.Commands, spec)
+			}
+			for i, raw := range manifest.Workflows {
+				spec, err := raw.Spec()
+				if err != nil {
+					return File{}, fmt.Errorf("appconfig: validate workflows[%d]: %w", i, err)
+				}
+				bundle.Workflows = append(bundle.Workflows, spec)
+			}
+			for i, raw := range manifest.Operations {
+				spec, err := raw.Spec()
+				if err != nil {
+					return File{}, fmt.Errorf("appconfig: validate operations[%d]: %w", i, err)
+				}
+				bundle.Operations = append(bundle.Operations, spec)
+			}
 			for i, provider := range manifest.LLMProviders {
 				if err := provider.Validate(); err != nil {
 					return File{}, fmt.Errorf("appconfig: validate llm_providers[%d]: %w", i, err)
@@ -160,6 +186,24 @@ func DecodeFile(path string, data []byte) (File, error) {
 				return File{}, err
 			}
 			bundle.Sessions = append(bundle.Sessions, spec)
+		case "command":
+			spec, err := decodeCommandDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Commands = append(bundle.Commands, spec)
+		case "workflow":
+			spec, err := decodeWorkflowDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Workflows = append(bundle.Workflows, spec)
+		case "operation":
+			spec, err := decodeOperationDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Operations = append(bundle.Operations, spec)
 		case "datasource":
 			spec, err := decodeDatasourceDoc(doc)
 			if err != nil {
@@ -373,6 +417,9 @@ type Manifest struct {
 	Distribution   distributionDoc         `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Commands       []commandDoc            `json:"commands,omitempty" yaml:"commands,omitempty"`
+	Workflows      []workflowDoc           `json:"workflows,omitempty" yaml:"workflows,omitempty"`
+	Operations     []operationDoc          `json:"operations,omitempty" yaml:"operations,omitempty"`
 	LLMProviders   []corellm.ProviderSpec  `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Runtime        RuntimeConfig           `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
@@ -831,6 +878,338 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 	return spec, nil
 }
 
+type commandDoc struct {
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string            `json:"name" yaml:"name"`
+	Path        []string          `json:"path,omitempty" yaml:"path,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Policy      commandPolicyDoc  `json:"policy,omitempty" yaml:"policy,omitempty"`
+	InputSchema any               `json:"input_schema,omitempty" yaml:"input_schema,omitempty"`
+	Target      commandTargetDoc  `json:"target" yaml:"target"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+type commandPolicyDoc struct {
+	AgentCallable *bool `json:"agent_callable,omitempty" yaml:"agent_callable,omitempty"`
+}
+
+type commandTargetDoc struct {
+	Operation string `json:"operation,omitempty" yaml:"operation,omitempty"`
+	Workflow  string `json:"workflow,omitempty" yaml:"workflow,omitempty"`
+	Input     any    `json:"input,omitempty" yaml:"input,omitempty"`
+}
+
+func decodeCommandDoc(node yaml.Node) (command.Spec, error) {
+	if err := validateYAMLNode[commandDoc](node); err != nil {
+		return command.Spec{}, fmt.Errorf("appconfig: validate command document schema: %w", err)
+	}
+	var raw commandDoc
+	if err := node.Decode(&raw); err != nil {
+		return command.Spec{}, fmt.Errorf("appconfig: decode command document: %w", err)
+	}
+	spec, err := raw.Spec()
+	if err != nil {
+		return command.Spec{}, fmt.Errorf("appconfig: validate command document: %w", err)
+	}
+	return spec, nil
+}
+
+func (d commandDoc) Spec() (command.Spec, error) {
+	if err := d.Target.Validate(); err != nil {
+		return command.Spec{}, err
+	}
+	path := commandPath(d)
+	annotations := cloneStringMap(d.Annotations)
+	if name := commandPathResourceName(path); name != "" && strings.TrimSpace(annotations["name"]) == "" {
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations["name"] = name
+	}
+	var input operation.Type
+	if d.InputSchema != nil {
+		schema, err := json.Marshal(d.InputSchema)
+		if err != nil {
+			return command.Spec{}, fmt.Errorf("marshal input_schema: %w", err)
+		}
+		input.Schema = operation.Schema{Format: "json-schema", Data: schema}
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations["input_schema"] = string(schema)
+	}
+	if d.Policy.AgentCallable != nil {
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		annotations["policy.agent_callable"] = fmt.Sprintf("%t", *d.Policy.AgentCallable)
+	}
+	spec := command.Spec{
+		Path:        path,
+		Description: strings.TrimSpace(d.Description),
+		Target:      d.Target.Target(),
+		Input:       input,
+		Annotations: annotations,
+	}
+	if d.Policy.AgentCallable != nil && *d.Policy.AgentCallable {
+		spec.Policy.AllowedCallers = []policy.CallerKind{policy.CallerUser, policy.CallerAgent}
+	}
+	if err := validateCommandSpec(spec); err != nil {
+		return command.Spec{}, err
+	}
+	return spec, nil
+}
+
+func commandPath(d commandDoc) command.Path {
+	if len(d.Path) > 0 {
+		out := make(command.Path, 0, len(d.Path))
+		for _, part := range d.Path {
+			if part = strings.Trim(strings.TrimSpace(part), "/"); part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	}
+	name := strings.Trim(strings.TrimSpace(d.Name), "/")
+	if name == "" {
+		return nil
+	}
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		out := make(command.Path, 0, len(parts))
+		for _, part := range parts {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	}
+	return command.Path{name}
+}
+
+func commandPathResourceName(path command.Path) string {
+	if len(path) <= 1 {
+		return ""
+	}
+	parts := make([]string, 0, len(path))
+	for _, part := range path {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts, ":")
+}
+
+func (d commandTargetDoc) Validate() error {
+	targets := 0
+	if strings.TrimSpace(d.Operation) != "" {
+		targets++
+	}
+	if strings.TrimSpace(d.Workflow) != "" {
+		targets++
+	}
+	if targets == 0 {
+		return fmt.Errorf("command target is empty")
+	}
+	if targets > 1 {
+		return fmt.Errorf("command target must specify exactly one of operation or workflow")
+	}
+	return nil
+}
+
+func (d commandTargetDoc) Target() invocation.Target {
+	switch {
+	case strings.TrimSpace(d.Operation) != "":
+		return invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: operation.Name(strings.TrimSpace(d.Operation))},
+			Input:     d.Input,
+		}
+	case strings.TrimSpace(d.Workflow) != "":
+		return invocation.Target{
+			Kind:     invocation.TargetWorkflow,
+			Workflow: workflow.Name(strings.TrimSpace(d.Workflow)),
+			Input:    d.Input,
+		}
+	default:
+		return invocation.Target{}
+	}
+}
+
+func validateCommandSpec(spec command.Spec) error {
+	if len(spec.Path) == 0 {
+		return fmt.Errorf("command path is empty")
+	}
+	for i, part := range spec.Path {
+		if strings.TrimSpace(part) == "" {
+			return fmt.Errorf("command path[%d] is empty", i)
+		}
+	}
+	switch spec.Target.Kind {
+	case invocation.TargetOperation:
+		if spec.Target.Operation.Name == "" {
+			return fmt.Errorf("command target operation is empty")
+		}
+	case invocation.TargetWorkflow:
+		if spec.Target.Workflow == "" {
+			return fmt.Errorf("command target workflow is empty")
+		}
+	default:
+		return fmt.Errorf("command target kind %q is unsupported by appconfig", spec.Target.Kind)
+	}
+	return nil
+}
+
+type workflowDoc struct {
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Version     string            `json:"version,omitempty" yaml:"version,omitempty"`
+	Inputs      operation.Type    `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	Outputs     operation.Type    `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Steps       []workflowStepDoc `json:"steps,omitempty" yaml:"steps,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+type workflowStepDoc struct {
+	ID              string               `json:"id" yaml:"id"`
+	Kind            string               `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Operation       string               `json:"operation,omitempty" yaml:"operation,omitempty"`
+	Agent           string               `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Input           operation.Value      `json:"input,omitempty" yaml:"input,omitempty"`
+	InputMap        map[string]string    `json:"input_map,omitempty" yaml:"input_map,omitempty"`
+	DependsOn       []string             `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	DependsOnDash   []string             `json:"depends-on,omitempty" yaml:"depends-on,omitempty"`
+	When            workflow.Condition   `json:"when,omitempty" yaml:"when,omitempty"`
+	Retry           workflow.RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Timeout         string               `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	ErrorPolicy     string               `json:"error_policy,omitempty" yaml:"error_policy,omitempty"`
+	ErrorPolicyDash string               `json:"error-policy,omitempty" yaml:"error-policy,omitempty"`
+	IdempotencyKey  string               `json:"idempotency_key,omitempty" yaml:"idempotency_key,omitempty"`
+	IdempotencyDash string               `json:"idempotency-key,omitempty" yaml:"idempotency-key,omitempty"`
+}
+
+func decodeWorkflowDoc(node yaml.Node) (workflow.Spec, error) {
+	if err := validateYAMLNode[workflowDoc](node); err != nil {
+		return workflow.Spec{}, fmt.Errorf("appconfig: validate workflow document schema: %w", err)
+	}
+	var raw workflowDoc
+	if err := node.Decode(&raw); err != nil {
+		return workflow.Spec{}, fmt.Errorf("appconfig: decode workflow document: %w", err)
+	}
+	spec, err := raw.Spec()
+	if err != nil {
+		return workflow.Spec{}, fmt.Errorf("appconfig: validate workflow document: %w", err)
+	}
+	return spec, nil
+}
+
+func (d workflowDoc) Spec() (workflow.Spec, error) {
+	spec := workflow.Spec{
+		Name:        workflow.Name(strings.TrimSpace(d.Name)),
+		Description: strings.TrimSpace(d.Description),
+		Version:     strings.TrimSpace(d.Version),
+		Inputs:      d.Inputs,
+		Outputs:     d.Outputs,
+		Annotations: cloneStringMap(d.Annotations),
+	}
+	for _, raw := range d.Steps {
+		step, err := raw.Step()
+		if err != nil {
+			return workflow.Spec{}, err
+		}
+		spec.Steps = append(spec.Steps, step)
+	}
+	if err := spec.Validate(); err != nil {
+		return workflow.Spec{}, err
+	}
+	return spec, nil
+}
+
+func (d workflowStepDoc) Step() (workflow.Step, error) {
+	step := workflow.Step{
+		ID:             workflow.StepID(strings.TrimSpace(d.ID)),
+		Kind:           workflow.StepKind(strings.TrimSpace(d.Kind)),
+		Input:          d.Input,
+		InputMap:       cloneStringMap(d.InputMap),
+		DependsOn:      stepIDs(firstStringSlice(d.DependsOn, d.DependsOnDash)),
+		When:           d.When,
+		Retry:          d.Retry,
+		ErrorPolicy:    workflow.StepErrorPolicy(firstNonEmpty(strings.TrimSpace(d.ErrorPolicy), strings.TrimSpace(d.ErrorPolicyDash))),
+		IdempotencyKey: firstNonEmpty(strings.TrimSpace(d.IdempotencyKey), strings.TrimSpace(d.IdempotencyDash)),
+	}
+	if operationName := strings.TrimSpace(d.Operation); operationName != "" {
+		step.Operation = operation.Ref{Name: operation.Name(operationName)}
+		if step.Kind == "" {
+			step.Kind = workflow.StepOperation
+		}
+	}
+	if agentName := strings.TrimSpace(d.Agent); agentName != "" {
+		step.Agent = agent.Ref{Name: agent.Name(agentName)}
+		if step.Kind == "" {
+			step.Kind = workflow.StepAgent
+		}
+	}
+	if timeout := strings.TrimSpace(d.Timeout); timeout != "" {
+		parsed, err := parseDuration(timeout)
+		if err != nil {
+			return workflow.Step{}, err
+		}
+		step.Timeout = parsed
+	}
+	return step, nil
+}
+
+type operationDoc struct {
+	Kind        string              `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string              `json:"name,omitempty" yaml:"name,omitempty"`
+	Ref         operation.Ref       `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Description string              `json:"description,omitempty" yaml:"description,omitempty"`
+	Input       operation.Type      `json:"input,omitempty" yaml:"input,omitempty"`
+	Output      operation.Type      `json:"output,omitempty" yaml:"output,omitempty"`
+	Semantics   operation.Semantics `json:"semantics,omitempty" yaml:"semantics,omitempty"`
+	Examples    []operation.Example `json:"examples,omitempty" yaml:"examples,omitempty"`
+	Annotations map[string]string   `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func decodeOperationDoc(node yaml.Node) (operation.Spec, error) {
+	if err := validateYAMLNode[operationDoc](node); err != nil {
+		return operation.Spec{}, fmt.Errorf("appconfig: validate operation document schema: %w", err)
+	}
+	var raw operationDoc
+	if err := node.Decode(&raw); err != nil {
+		return operation.Spec{}, fmt.Errorf("appconfig: decode operation document: %w", err)
+	}
+	spec, err := raw.Spec()
+	if err != nil {
+		return operation.Spec{}, fmt.Errorf("appconfig: validate operation document: %w", err)
+	}
+	return spec, nil
+}
+
+func (d operationDoc) Spec() (operation.Spec, error) {
+	ref := d.Ref
+	if ref.Name == "" {
+		ref.Name = operation.Name(strings.TrimSpace(d.Name))
+	}
+	spec := operation.Spec{
+		Ref:         ref,
+		Description: strings.TrimSpace(d.Description),
+		Input:       d.Input,
+		Output:      d.Output,
+		Semantics:   d.Semantics,
+		Examples:    append([]operation.Example(nil), d.Examples...),
+		Annotations: cloneStringMap(d.Annotations),
+	}
+	if strings.TrimSpace(string(spec.Ref.Name)) == "" {
+		return operation.Spec{}, fmt.Errorf("operation name is empty")
+	}
+	return spec, nil
+}
+
 func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 	if err := validateYAMLNode[DatasourceDoc](node); err != nil {
 		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document schema: %w", err)
@@ -1203,6 +1582,42 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func stepIDs(values []string) []workflow.StepID {
+	out := make([]workflow.StepID, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, workflow.StepID(value))
+		}
+	}
+	return out
+}
+
+func parseDuration(value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse workflow step timeout %q: %w", value, err)
+	}
+	return duration, nil
 }
 
 func cleaned(values []string) []string {

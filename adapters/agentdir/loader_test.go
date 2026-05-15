@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
@@ -208,6 +209,36 @@ description: Evaluate architecture.
 	}
 	if bundle.Skills[0].Source.URI == "" {
 		t.Fatalf("skill source URI is empty")
+	}
+}
+
+func TestDecodeWorkflowSupportsOperationSteps(t *testing.T) {
+	spec, err := DecodeWorkflow("ops.yaml", []byte(`name: ops
+steps:
+  - id: load
+    operation: fetch
+    input:
+      query: A100
+  - id: summarize
+    kind: operation
+    operation: summarize
+    depends-on: [load]
+    error-policy: continue
+`))
+	if err != nil {
+		t.Fatalf("DecodeWorkflow: %v", err)
+	}
+	if got, want := spec.Steps[0].Kind, workflow.StepOperation; got != want {
+		t.Fatalf("first kind = %q, want %q", got, want)
+	}
+	if got, want := spec.Steps[0].Operation, (operation.Ref{Name: "fetch"}); got != want {
+		t.Fatalf("first operation = %#v, want %#v", got, want)
+	}
+	if input, ok := spec.Steps[0].Input.(map[string]any); !ok || input["query"] != "A100" {
+		t.Fatalf("first input = %#v, want query", spec.Steps[0].Input)
+	}
+	if got, want := spec.Steps[1].ErrorPolicy, workflow.StepErrorContinue; got != want {
+		t.Fatalf("second error policy = %q, want %q", got, want)
 	}
 }
 

@@ -30,6 +30,16 @@ func TestWorkflowEventNames(t *testing.T) {
 	}
 }
 
+func TestRegisterEvents(t *testing.T) {
+	registry := event.NewRegistry()
+	if err := RegisterEvents(registry); err != nil {
+		t.Fatalf("RegisterEvents: %v", err)
+	}
+	if _, ok, err := registry.TryDecode(EventCompletedName, []byte(`{"run_id":"run","workflow":"wf"}`)); err != nil || !ok {
+		t.Fatalf("completed event not registered")
+	}
+}
+
 func TestSpecValidateAgentStep(t *testing.T) {
 	s := Spec{
 		Name: "wf",

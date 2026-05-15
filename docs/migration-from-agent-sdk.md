@@ -556,9 +556,9 @@ ported.
 1. Should JSONL event persistence be `adapters/eventjsonl` or
    `runtime/eventstore/jsonl`? Current rule: memory stores are runtime;
    filesystem/database formats are adapters unless they are strictly test-only.
-2. Is the workflow executor a runtime implementation or an orchestration use
-   case? The answer depends on whether it only executes operations or also owns
-   session/run lifecycle.
+2. Should workflow execution grow a durable read model, or are emitted workflow
+   and runtime events sufficient until larger workflow state requirements are
+   proven?
 3. Should `event.Store` grow a query/index port, or should non-stream lookup be
    modeled as separate projections/read models?
 4. Should plugin contracts live in `core/plugin` or `orchestration/pluginhost`?
@@ -615,6 +615,8 @@ Implemented and green:
   and reserved delegation policy shape for future sub-agents.
 - `core/workflow`: operation and agent-dispatched workflow DAG specs with
   dependency validation and raw definition preservation.
+- `orchestration/workflow`: dependency-ordered workflow execution over
+  orchestration-provided operation and agent dispatch callbacks.
 - `runtime/eventstore`: in-memory append-only event store.
 - `adapters/sqleventstore`: SQLite-backed event store adapter.
 - `core/thread` + `runtime/thread`: event-backed thread store, branch model,
@@ -626,7 +628,7 @@ Implemented and green:
 - `core/tool`: provider-neutral model-facing tool projection descriptors.
 - `core/channel`: normalized channel specs and inbound/outbound envelopes.
 - `orchestration/session`: command and conversational input execution for one
-  bound thread.
+  bound thread, including workflow-target command dispatch.
 - `orchestration/sessioncontrol`: session control-plane helpers such as
   continuation stop-condition evaluation, built-in command policy/target
   checks, resource aliases, and LLM-driver control helpers.
@@ -663,11 +665,11 @@ Implemented and green:
 - `plugins/textplugin`: second migrated low-IO plugin, contributing
   configurable pure text transformation operations and commands.
 - `adapters/appconfig`: narrow `agentsdk.app.json`/YAML manifest parser for
-  app specs, source declarations, discovery policy, model policy, and plugin
-  refs.
+  app specs, source declarations, discovery policy, model policy, plugin refs,
+  and embedded or standalone command, workflow, and operation declarations.
 - `adapters/agentdir`: narrow `.agents` parser for the engineer subset:
   agent markdown, prompt command markdown, workflow command YAML, workflow YAML,
-  and skill metadata.
+  operation and agent workflow steps, and skill metadata.
 - `adapters/llm`: provider-neutral adapter toolkit for message parts, tool
   descriptors, stream normalization, redaction, streamed tool-call assembly,
   and scripted fake provider models.

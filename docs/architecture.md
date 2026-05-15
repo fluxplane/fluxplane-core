@@ -195,6 +195,7 @@ session environment/context wiring
 session lifecycle and Submit handling
 sub-agent supervision
 tool projection use cases
+workflow execution
 ```
 
 Adapters should enter orchestration instead of reaching directly into lower

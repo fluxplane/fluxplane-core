@@ -89,6 +89,24 @@ func TestSupervisorEnforcesAllowedAgent(t *testing.T) {
 	}
 }
 
+func TestSupervisorOpensAgentRequestWithoutSessionProfile(t *testing.T) {
+	client := &recordingClient{result: "done"}
+	supervisor := New(Config{Client: client})
+	handle, err := supervisor.Spawn(context.Background(), SpawnRequest{
+		Agent: agent.Ref{Name: "reviewer"},
+		Task:  "review it",
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if handle.Agent.Name != "reviewer" {
+		t.Fatalf("handle agent = %q, want reviewer", handle.Agent.Name)
+	}
+	if client.profile.Agent.Name != "reviewer" {
+		t.Fatalf("child profile agent = %q, want reviewer", client.profile.Agent.Name)
+	}
+}
+
 func TestSupervisorRequiresResolverForAllowedAgents(t *testing.T) {
 	supervisor := New(Config{Client: fakeClient{result: "done"}})
 	_, err := supervisor.Spawn(context.Background(), SpawnRequest{

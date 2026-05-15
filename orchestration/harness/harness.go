@@ -18,6 +18,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -32,6 +33,7 @@ type Config struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
+	WorkflowCatalog   resourcecatalog.WorkflowCatalog
 	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
@@ -54,6 +56,7 @@ type Service struct {
 	resolver          *resource.Resolver
 	commandCatalog    session.CommandCatalog
 	operationCatalog  session.OperationCatalog
+	workflowCatalog   resourcecatalog.WorkflowCatalog
 	sessionCatalog    session.SessionCatalog
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
@@ -80,6 +83,7 @@ func New(cfg Config) *Service {
 		resolver:          cfg.Resolver,
 		commandCatalog:    cfg.CommandCatalog,
 		operationCatalog:  cfg.OperationCatalog,
+		workflowCatalog:   cfg.WorkflowCatalog,
 		sessionCatalog:    cfg.SessionCatalog,
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
@@ -337,6 +341,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Resolver:          s.resolver,
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
+		WorkflowCatalog:   s.workflowCatalog,
 		OperationExecutor: s.executorForInfo(info),
 		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
@@ -402,6 +407,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Resolver:          s.resolver,
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
+		WorkflowCatalog:   s.workflowCatalog,
 		OperationExecutor: s.executorForInfo(info),
 		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
@@ -863,6 +869,7 @@ func runtimeEventPersistenceContext(ctx context.Context) context.Context {
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	value := string(name)
 	return strings.HasPrefix(value, "plan.") ||
+		strings.HasPrefix(value, "workflow.") ||
 		strings.HasPrefix(value, "subagent.") ||
 		strings.HasPrefix(value, "skill.") ||
 		value == "llmagent.model_requested" ||

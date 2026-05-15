@@ -8,8 +8,12 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/invocation"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/workflow"
+	appcompose "github.com/fluxplane/agentruntime/orchestration/app"
 )
 
 func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
@@ -397,6 +401,196 @@ system: |
 	}
 }
 
+func TestDecodeFileLoadsTopLevelResources(t *testing.T) {
+	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: app
+name: resource-app
+commands:
+  - name: feature
+    description: Run feature workflow.
+    policy:
+      agent_callable: true
+    input_schema:
+      type: object
+      properties:
+        description:
+          type: string
+    target:
+      workflow: feature
+      input: "{{ .description }}"
+  - name: echo
+    target:
+      operation: echo
+workflows:
+  - name: feature
+    steps:
+      - id: plan
+        agent: reviewer
+      - id: run
+        operation: echo
+        input:
+          text: hello
+        depends-on: [plan]
+        error-policy: continue
+operations:
+  - name: echo
+    description: Echo input.
+    semantics:
+      determinism: deterministic
+      effects: [none]
+      risk: low
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if got, want := len(file.Bundle.Commands), 2; got != want {
+		t.Fatalf("commands len = %d, want %d", got, want)
+	}
+	if file.Bundle.Commands[0].Target.Kind != invocation.TargetWorkflow || file.Bundle.Commands[0].Target.Workflow != "feature" {
+		t.Fatalf("feature command target = %#v", file.Bundle.Commands[0].Target)
+	}
+	if file.Bundle.Commands[1].Target.Kind != invocation.TargetOperation || file.Bundle.Commands[1].Target.Operation.Name != "echo" {
+		t.Fatalf("echo command target = %#v", file.Bundle.Commands[1].Target)
+	}
+	if got, want := file.Bundle.Commands[0].Policy.AllowedCallers, 2; len(got) != want {
+		t.Fatalf("allowed callers len = %d, want %d", len(got), want)
+	}
+	if len(file.Bundle.Commands[0].Input.Schema.Data) == 0 {
+		t.Fatalf("feature command input schema is empty")
+	}
+	if got, want := len(file.Bundle.Workflows), 1; got != want {
+		t.Fatalf("workflows len = %d, want %d", got, want)
+	}
+	flow := file.Bundle.Workflows[0]
+	if flow.Steps[0].Kind != workflow.StepAgent || flow.Steps[0].Agent.Name != "reviewer" {
+		t.Fatalf("first step = %#v, want reviewer agent", flow.Steps[0])
+	}
+	if flow.Steps[1].Kind != workflow.StepOperation || flow.Steps[1].Operation.Name != "echo" {
+		t.Fatalf("second step = %#v, want echo operation", flow.Steps[1])
+	}
+	if flow.Steps[1].ErrorPolicy != workflow.StepErrorContinue {
+		t.Fatalf("error policy = %q, want continue", flow.Steps[1].ErrorPolicy)
+	}
+	if got, want := len(file.Bundle.Operations), 1; got != want {
+		t.Fatalf("operations len = %d, want %d", got, want)
+	}
+	if file.Bundle.Operations[0].Ref.Name != "echo" || file.Bundle.Operations[0].Semantics.Risk != operation.RiskLow {
+		t.Fatalf("operation = %#v", file.Bundle.Operations[0])
+	}
+}
+
+func TestDecodeFileLoadsResourceDocuments(t *testing.T) {
+	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: app
+name: docs
+---
+kind: operation
+name: echo
+description: Echo input.
+---
+kind: command
+name: echo
+target:
+  operation: echo
+---
+kind: workflow
+name: feature
+steps:
+  - id: run
+    operation: echo
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Operations) != 1 || file.Bundle.Operations[0].Ref.Name != "echo" {
+		t.Fatalf("operations = %#v", file.Bundle.Operations)
+	}
+	if len(file.Bundle.Commands) != 1 || file.Bundle.Commands[0].Target.Operation.Name != "echo" {
+		t.Fatalf("commands = %#v", file.Bundle.Commands)
+	}
+	if len(file.Bundle.Workflows) != 1 || file.Bundle.Workflows[0].Name != "feature" {
+		t.Fatalf("workflows = %#v", file.Bundle.Workflows)
+	}
+}
+
+func TestDecodeFileNamesMultiSegmentCommandsForResourceResolution(t *testing.T) {
+	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: app
+name: resource-app
+commands:
+  - path: [foo, bar]
+    target:
+      operation: echo
+  - name: baz/qux
+    target:
+      workflow: rollout
+  - name: explicit/path
+    annotations:
+      name: custom:command
+    target:
+      operation: echo
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if got, want := len(file.Bundle.Commands), 3; got != want {
+		t.Fatalf("commands len = %d, want %d", got, want)
+	}
+	tests := []struct {
+		index int
+		path  string
+		name  string
+	}{
+		{index: 0, path: "/foo/bar", name: "foo:bar"},
+		{index: 1, path: "/baz/qux", name: "baz:qux"},
+		{index: 2, path: "/explicit/path", name: "custom:command"},
+	}
+	for _, tc := range tests {
+		spec := file.Bundle.Commands[tc.index]
+		if got := spec.Path.String(); got != tc.path {
+			t.Fatalf("command[%d] path = %q, want %q", tc.index, got, tc.path)
+		}
+		if got := spec.Annotations["name"]; got != tc.name {
+			t.Fatalf("command[%d] annotation name = %q, want %q", tc.index, got, tc.name)
+		}
+	}
+}
+
+func TestDecodeFileComposesMultiSegmentCommandsUnderResolverName(t *testing.T) {
+	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+kind: app
+name: resource-app
+commands:
+  - path: [foo, bar]
+    target:
+      operation: echo
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcompose.Compose(appcompose.Config{
+		Operations: []operation.Operation{echo},
+		Bundles:    []resource.ContributionBundle{file.Bundle},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	id, err := composition.Resolver.Resolve("command", "foo:bar")
+	if err != nil {
+		t.Fatalf("Resolve command foo:bar: %v", err)
+	}
+	binding, ok := composition.CommandCatalog[id.Address()]
+	if !ok {
+		t.Fatalf("command catalog missing %s", id.Address())
+	}
+	if got, want := binding.Spec.Path.String(), "/foo/bar"; got != want {
+		t.Fatalf("bound command path = %q, want %q", got, want)
+	}
+}
+
 func TestDecodeFileRejectsUnknownAgentField(t *testing.T) {
 	_, err := DecodeFile("agentsdk.app.yaml", []byte(`
 kind: agent
@@ -421,6 +615,61 @@ turns:
 `))
 	if err == nil || !strings.Contains(err.Error(), "stop_condition") {
 		t.Fatalf("DecodeFile error = %v, want stop_condition failure", err)
+	}
+}
+
+func TestDecodeFileRejectsInvalidResourceDocuments(t *testing.T) {
+	tests := []struct {
+		name string
+		doc  string
+		want string
+	}{
+		{
+			name: "unknown command field",
+			doc: `
+kind: command
+name: echo
+target:
+  operation: echo
+surprise: true
+`,
+			want: "schema validation failed",
+		},
+		{
+			name: "empty command target",
+			doc: `
+kind: command
+name: echo
+target: {}
+`,
+			want: "command target is empty",
+		},
+		{
+			name: "empty workflow name",
+			doc: `
+kind: workflow
+steps:
+  - id: run
+    operation: echo
+`,
+			want: "workflow: spec name is empty",
+		},
+		{
+			name: "empty operation name",
+			doc: `
+kind: operation
+description: missing name
+`,
+			want: "operation name is empty",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := DecodeFile("agentsdk.app.yaml", []byte(tc.doc))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("DecodeFile error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

@@ -3,7 +3,8 @@
 Fluxplane Agent Runtime loads configuration from two filesystem-backed sources:
 appconfig manifests and `.agents` resource trees. Both decode into resource
 contribution bundles that the runtime composes into apps, sessions, agents,
-commands, datasources, model providers, and plugin capabilities.
+commands, workflows, operations, datasources, model providers, and plugin
+capabilities.
 
 Use appconfig for runnable apps. Use agentdir when you want a portable resource
 tree of authored agents, commands, workflows, and skills.
@@ -19,7 +20,8 @@ project can define one of these files at its root:
 
 YAML is the usual choice because appconfig supports multi-document files. The
 first document is the app document. Additional documents can define agents,
-sessions, datasources, and model providers.
+sessions, commands, workflows, operation declarations, datasources, and model
+providers.
 
 ```yaml
 kind: app
@@ -68,6 +70,8 @@ Common fields are:
 - `plugins` for first-party plugin contribution bundles.
 - `connectors` for named connector instances used by channels or datasources.
 - `datasources` for configured data sources available to agents.
+- `commands`, `workflows`, and `operations` for resource declarations embedded
+  directly in the app document.
 - `daemon` for listeners and channels used by `agentsdk serve` and
   `agentsdk remote`.
 - `runtime` for local runtime wiring; see [Runtime](#runtime).
@@ -75,6 +79,26 @@ Common fields are:
   inputs.
 - `semantic_search` for app-wide datasource indexing defaults.
 - `llm_providers` for app-local model provider and model catalog entries.
+
+Commands, workflows, and operation declarations can also be separate
+multi-document resources:
+
+```yaml
+kind: command
+name: feature
+target:
+  workflow: feature
+---
+kind: workflow
+name: feature
+steps:
+  - id: implement
+    agent: coder
+---
+kind: operation
+name: echo
+description: Declaration-only operation metadata.
+```
 
 ### Runtime
 
@@ -436,6 +460,22 @@ steps:
   - id: implement
     agent: coder
     depends-on: [plan]
+```
+
+Operation steps use the same DAG shape and execute through the composed
+operation catalog:
+
+```yaml
+name: ops
+steps:
+  - id: fetch
+    operation: web_fetch
+    input:
+      url: https://example.com
+  - id: summarize
+    operation: summarize
+    depends-on: [fetch]
+    error-policy: continue
 ```
 
 ### Skills

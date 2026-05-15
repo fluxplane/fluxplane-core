@@ -20,8 +20,11 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -132,6 +135,91 @@ func TestExecuteInboundCommandLeavesOversizedOperationResult(t *testing.T) {
 	output, ok := result.Effect.Result.Output.(map[string]any)
 	if !ok || output["content"] != large {
 		t.Fatalf("output = %#v, want original large command result", result.Effect.Result.Output)
+	}
+}
+
+func TestExecuteInboundCommandDispatchesWorkflow(t *testing.T) {
+	opRef := operation.Ref{Name: "echo"}
+	op := operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"echo": input})
+	})
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"feature"},
+		Target: invocation.Target{
+			Kind:     invocation.TargetWorkflow,
+			Workflow: "feature",
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	workflowID := resource.ResourceID{Kind: "workflow", Origin: "project", Name: "feature"}
+	operationID := resource.ResourceID{Kind: "operation", Origin: "project", Name: "echo"}
+	index := resource.NewResourceIndex()
+	index.Add(workflowID)
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(context.Background(), corethread.CreateParams{ID: "thread-workflow"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var emitted []event.Event
+	s := Session{
+		Commands: commands,
+		Resolver: resource.NewResolver(resource.ResolverConfig{Index: index}),
+		WorkflowCatalog: resourcecatalog.WorkflowCatalog{
+			workflowID.Address(): {
+				ID: workflowID,
+				Spec: coreworkflow.Spec{
+					Name: "feature",
+					Steps: []coreworkflow.Step{{
+						ID:        "run",
+						Operation: opRef,
+					}},
+				},
+			},
+		},
+		OperationCatalog: OperationCatalog{
+			operationID.Address(): {ID: operationID, Operation: op},
+		},
+		OperationExecutor: operationruntime.NewExecutor(),
+		ThreadStore:       threadStore,
+		Thread:            corethread.Ref{ID: "thread-workflow"},
+		Events: event.SinkFunc(func(payload event.Event) {
+			emitted = append(emitted, payload)
+		}),
+	}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:     "run-1",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path:  command.Path{"feature"},
+			Input: "hello",
+		},
+	})
+
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if result.Output == nil {
+		t.Fatalf("output is nil, want workflow output")
+	}
+	if !hasEvent(emitted, coreworkflow.EventCompletedName) {
+		t.Fatalf("emitted events = %#v, want workflow completion", eventNames(emitted))
+	}
+	stored, err := threadStore.Read(context.Background(), corethread.ReadParams{ID: "thread-workflow"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coresession.EventOutboundProduced) != 1 {
+		t.Fatalf("outbound event count = %d, want 1", countEvent(stored.Events, coresession.EventOutboundProduced))
 	}
 }
 
@@ -3038,3 +3126,22 @@ func (s *conflictingSessionEventStore) Load(ctx context.Context, stream event.St
 type concurrentAppendEvent struct{}
 
 func (concurrentAppendEvent) EventName() event.Name { return "test.concurrent_append" }
+
+func hasEvent(events []event.Event, name event.Name) bool {
+	for _, payload := range events {
+		if payload != nil && payload.EventName() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func eventNames(events []event.Event) []event.Name {
+	out := make([]event.Name, 0, len(events))
+	for _, payload := range events {
+		if payload != nil {
+			out = append(out, payload.EventName())
+		}
+	}
+	return out
+}

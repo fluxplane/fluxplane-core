@@ -17,11 +17,16 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	workflowruntime "github.com/fluxplane/agentruntime/orchestration/workflow"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -37,6 +42,7 @@ type Session struct {
 	Resolver          *sessioncontrol.Resolver
 	CommandCatalog    CommandCatalog
 	OperationCatalog  OperationCatalog
+	WorkflowCatalog   resourcecatalog.WorkflowCatalog
 	OperationExecutor operationruntime.Executor
 	Events            event.Sink
 	ThreadStore       corethread.Store
@@ -1693,6 +1699,10 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return resolved.SessionHandler(s, ctx, inbound, spec, evaluation)
 	}
 
+	if spec.Target.Kind == invocation.TargetWorkflow {
+		return s.executeWorkflowCommand(ctx, inbound, resolved.Binding, spec, evaluation)
+	}
+
 	if !sessioncontrol.TargetsOperation(spec) {
 		return CommandResult{
 			Status: CommandStatusUnsupported,
@@ -1743,6 +1753,180 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		status = CommandStatusFailed
 	}
 	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
+}
+
+func (s Session) executeWorkflowCommand(ctx context.Context, inbound channel.Inbound, binding CommandBinding, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	workflowBinding, err := s.resolveWorkflowBinding(binding, spec)
+	if err != nil {
+		return commandFailed("workflow_resolution_failed", err.Error(), map[string]any{
+			"workflow": string(spec.Target.Workflow),
+		})
+	}
+	result := workflowruntime.Run(ctx, workflowruntime.Config{
+		Spec:   workflowBinding.Spec,
+		RunID:  coreworkflow.RunID(inbound.ID),
+		Input:  firstNonNil(inbound.Command.Input, spec.Target.Input),
+		Events: s.eventSink(),
+		RunOperation: func(ctx context.Context, step coreworkflow.Step, input operation.Value, callID operation.CallID) (operation.Result, error) {
+			return s.runWorkflowOperationStep(ctx, inbound.ID, workflowBinding.ID, step, input, callID)
+		},
+		RunAgent: func(ctx context.Context, step coreworkflow.Step, input operation.Value) (operation.Value, error) {
+			return s.runWorkflowAgentStep(ctx, inbound.ID, step, input)
+		},
+	})
+	if result.Status == coreworkflow.StatusSucceeded {
+		commandResult := CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: result.Output}
+		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+			RunID:   inbound.ID,
+			Message: workflowCommandMessage(commandResult),
+		}); err != nil {
+			return commandFailed("thread_append_failed", err.Error(), nil)
+		}
+		return commandResult
+	}
+	message := "workflow failed"
+	code := "workflow_failed"
+	if result.Status == coreworkflow.StatusCanceled {
+		message = "workflow canceled"
+		code = "workflow_canceled"
+	}
+	if result.Error != nil {
+		message = result.Error.Message
+		if result.Error.Code != "" {
+			code = result.Error.Code
+		}
+	}
+	commandResult := CommandResult{
+		Status: CommandStatusFailed,
+		Spec:   spec,
+		Policy: evaluation,
+		Output: result.Output,
+		Error: &CommandError{
+			Code:    code,
+			Message: message,
+			Details: map[string]any{
+				"workflow": string(workflowBinding.Spec.Name),
+			},
+		},
+	}
+	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: workflowCommandMessage(commandResult),
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	return commandResult
+}
+
+func (s Session) resolveWorkflowBinding(binding CommandBinding, spec command.Spec) (resourcecatalog.Binding[coreworkflow.Spec], error) {
+	if !binding.TargetID.IsZero() {
+		if workflowBinding, ok := s.WorkflowCatalog[binding.TargetID.Address()]; ok {
+			return workflowBinding, nil
+		}
+		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow %q is not bound", binding.TargetID.Address())
+	}
+	if s.Resolver == nil {
+		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow resolver is nil")
+	}
+	id, err := s.Resolver.Resolve("workflow", string(spec.Target.Workflow))
+	if err != nil {
+		return resourcecatalog.Binding[coreworkflow.Spec]{}, err
+	}
+	workflowBinding, ok := s.WorkflowCatalog[id.Address()]
+	if !ok {
+		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow %q is not bound", id.Address())
+	}
+	return workflowBinding, nil
+}
+
+func (s Session) runWorkflowOperationStep(ctx context.Context, runID string, workflowID sessioncontrol.ResourceID, step coreworkflow.Step, input operation.Value, callID operation.CallID) (operation.Result, error) {
+	binding, err := s.OperationCatalog.Resolve(step.Operation.String(), workflowID)
+	if err != nil {
+		return operation.Result{}, err
+	}
+	requested := coresession.OperationRequested{
+		RunID:     runID,
+		CallID:    callID,
+		Operation: step.Operation,
+		Input:     input,
+	}
+	if err := s.appendThreadEvents(ctx, requested); err != nil {
+		return operation.Result{}, err
+	}
+	s.emitLive(requested)
+	effect := s.executeOperation(operation.NewContext(ensureContext(ctx), s.eventSink()), binding.Operation, input, callID)
+	completed := coresession.OperationCompleted{
+		RunID:     runID,
+		CallID:    callID,
+		Operation: step.Operation,
+		Result:    effect.Result,
+	}
+	if err := s.appendThreadEvents(ctx, completed); err != nil {
+		return operation.Result{}, err
+	}
+	s.emitLive(completed)
+	return effect.Result, nil
+}
+
+func (s Session) runWorkflowAgentStep(ctx context.Context, runID string, step coreworkflow.Step, input operation.Value) (operation.Value, error) {
+	if s.Subagents == nil {
+		return nil, fmt.Errorf("workflow agent step %q requires a sub-agent supervisor", step.ID)
+	}
+	task := workflowAgentTask(step, input)
+	prepared, err := s.Subagents.Prepare(ctx, subagent.SpawnRequest{
+		ID:             subagent.ID(string(runID) + ":" + string(step.ID)),
+		Agent:          step.Agent,
+		Task:           task,
+		TaskID:         string(step.ID),
+		Policy:         s.Delegation,
+		ParentThreadID: s.Thread.ID,
+		ParentRunID:    runID,
+		ParentCallID:   operation.CallID(string(runID) + ":workflow:" + string(step.ID)),
+		Events:         s.eventSink(),
+		Approver:       sessionenv.ApproverFromExecutor(s.OperationExecutor),
+	})
+	if err != nil {
+		return nil, err
+	}
+	prepared.Start()
+	result, err := s.Subagents.Wait(ctx, prepared.Handle.ID)
+	if err != nil {
+		return nil, err
+	}
+	if result.Error != "" {
+		return nil, fmt.Errorf("%s", result.Error)
+	}
+	return result.Output, nil
+}
+
+func workflowAgentTask(step coreworkflow.Step, input operation.Value) string {
+	if text, ok := input.(string); ok && strings.TrimSpace(text) != "" {
+		return strings.TrimSpace(text)
+	}
+	if step.ID != "" {
+		return "Run workflow step " + string(step.ID)
+	}
+	return "Run workflow step"
+}
+
+func workflowCommandMessage(result CommandResult) channel.Message {
+	switch {
+	case result.Output != nil:
+		return channel.Message{Content: result.Output}
+	case result.Error != nil:
+		return channel.Message{Content: result.Error.Message}
+	default:
+		return channel.Message{Content: string(result.Status)}
+	}
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {

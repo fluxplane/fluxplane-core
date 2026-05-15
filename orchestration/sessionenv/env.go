@@ -91,7 +91,7 @@ func WithBaseContext(ctx context.Context, cfg Config, callID operation.CallID) c
 		Policy:         cfg.Delegation,
 		Events:         events,
 		ThreadStore:    cfg.ThreadStore,
-		Approver:       approverFromExecutor(cfg.OperationExecutor),
+		Approver:       ApproverFromExecutor(cfg.OperationExecutor),
 	})
 }
 
@@ -237,7 +237,9 @@ func contextValueText(value any) string {
 	}
 }
 
-func approverFromExecutor(exec operationruntime.Executor) operationruntime.ApprovalGate {
+// ApproverFromExecutor returns the approval gate carried by an operation
+// executor safety envelope, if one is configured.
+func ApproverFromExecutor(exec operationruntime.Executor) operationruntime.ApprovalGate {
 	if env, ok := exec.Safety.(operationruntime.SafetyEnvelope); ok {
 		return env.Approval
 	}

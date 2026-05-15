@@ -230,7 +230,7 @@ func collectCommands(
 	pathCounts := map[string]int{}
 	for _, bundle := range bundles {
 		for _, spec := range bundle.Commands {
-			id := resource.DeriveResourceID(bundle.Source, "command", commandName(spec))
+			id := commandResourceID(bundle.Source, spec)
 			index.Add(id)
 			targetID, operationID, err := resolveCommandTarget(resolver, operations, id, spec)
 			if err != nil {
@@ -257,6 +257,18 @@ func collectCommands(
 		}
 	}
 	return registry, catalog, resource.Diagnostic{}, nil
+}
+
+func commandResourceID(source resource.SourceRef, spec command.Spec) resource.ResourceID {
+	name := commandName(spec)
+	id := resource.DeriveResourceID(source, "command", name)
+	parts := resourceNameParts(name)
+	if len(parts) <= 1 {
+		return id
+	}
+	id.Name = parts[len(parts)-1]
+	id.Namespace = id.Namespace.Append(parts[:len(parts)-1]...)
+	return id
 }
 
 func addSession(catalog session.SessionCatalog, index *resource.ResourceIndex, id resource.ResourceID, spec coresession.Spec) error {
@@ -370,6 +382,17 @@ func commandName(spec command.Spec) string {
 		}
 	}
 	return ""
+}
+
+func resourceNameParts(name string) []string {
+	raw := strings.Split(strings.TrimSpace(name), ":")
+	parts := make([]string, 0, len(raw))
+	for _, part := range raw {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }
 
 func sourceLabel(source resource.SourceRef) string {

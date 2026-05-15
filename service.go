@@ -19,6 +19,7 @@ import (
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
+	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
@@ -96,6 +97,7 @@ type Config struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
+	WorkflowCatalog   resourcecatalog.WorkflowCatalog
 	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
@@ -155,6 +157,7 @@ func New(cfg Config) (*Service, error) {
 		Resolver:          cfg.Resolver,
 		CommandCatalog:    cfg.CommandCatalog,
 		OperationCatalog:  cfg.OperationCatalog,
+		WorkflowCatalog:   cfg.WorkflowCatalog,
 		SessionCatalog:    cfg.SessionCatalog,
 		OperationExecutor: executor,
 		Events:            cfg.Events,
@@ -288,6 +291,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.OperationCatalog == nil {
 		cfg.OperationCatalog = composition.OperationCatalog
+	}
+	if cfg.WorkflowCatalog == nil {
+		cfg.WorkflowCatalog = composition.WorkflowCatalog
 	}
 	if cfg.SessionCatalog == nil {
 		cfg.SessionCatalog = composition.SessionCatalog

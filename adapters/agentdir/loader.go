@@ -518,12 +518,28 @@ func DecodeWorkflow(filename string, data []byte) (workflow.Spec, error) {
 		Raw:         rawMap,
 	}
 	for _, rawStep := range raw.Steps {
+		kind := workflow.StepKind(strings.TrimSpace(rawStep.Kind))
 		step := workflow.Step{
 			ID:        workflow.StepID(strings.TrimSpace(rawStep.ID)),
-			Kind:      workflow.StepAgent,
-			Agent:     agent.Ref{Name: agent.Name(strings.TrimSpace(rawStep.Agent))},
+			Kind:      kind,
 			DependsOn: toStepIDs(rawStep.DependsOn),
+			Input:     rawStep.Input,
 			Raw:       rawStep.Raw,
+		}
+		if agentName := strings.TrimSpace(rawStep.Agent); agentName != "" {
+			step.Agent = agent.Ref{Name: agent.Name(agentName)}
+			if step.Kind == "" {
+				step.Kind = workflow.StepAgent
+			}
+		}
+		if operationName := strings.TrimSpace(rawStep.Operation); operationName != "" {
+			step.Operation = operation.Ref{Name: operation.Name(operationName)}
+			if step.Kind == "" {
+				step.Kind = workflow.StepOperation
+			}
+		}
+		if policy := firstNonEmpty(strings.TrimSpace(rawStep.ErrorPolicy), strings.TrimSpace(rawStep.ErrorPolicySnake)); policy != "" {
+			step.ErrorPolicy = workflow.StepErrorPolicy(policy)
 		}
 		spec.Steps = append(spec.Steps, step)
 	}
@@ -668,10 +684,15 @@ type yamlWorkflow struct {
 }
 
 type workflowStep struct {
-	ID        string         `yaml:"id"`
-	Agent     string         `yaml:"agent"`
-	DependsOn []string       `yaml:"depends-on"`
-	Raw       map[string]any `yaml:",inline"`
+	ID               string         `yaml:"id"`
+	Kind             string         `yaml:"kind"`
+	Agent            string         `yaml:"agent"`
+	Operation        string         `yaml:"operation"`
+	Input            any            `yaml:"input"`
+	DependsOn        []string       `yaml:"depends-on"`
+	ErrorPolicy      string         `yaml:"error-policy"`
+	ErrorPolicySnake string         `yaml:"error_policy"`
+	Raw              map[string]any `yaml:",inline"`
 }
 
 type skillFrontmatter struct {
@@ -1042,6 +1063,15 @@ func annotationsOrNil(values map[string]string) map[string]string {
 		return nil
 	}
 	return values
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func validateCommand(spec command.Spec) error {

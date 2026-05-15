@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/usage"
+	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -32,6 +33,9 @@ func New(cfg Config) (*event.Registry, error) {
 	}
 	if err := coresession.RegisterEvents(registry); err != nil {
 		return nil, fmt.Errorf("app: register session events: %w", err)
+	}
+	if err := coreworkflow.RegisterEvents(registry); err != nil {
+		return nil, fmt.Errorf("app: register workflow events: %w", err)
 	}
 	for _, sample := range defaultEventTypes() {
 		if err := registerEventType(registry, sample); err != nil {
