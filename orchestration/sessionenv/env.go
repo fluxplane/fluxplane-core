@@ -132,6 +132,24 @@ func ReplaySkillEvents(ctx context.Context, cfg Config) error {
 	return nil
 }
 
+// ActivateSkillTriggers activates skill and reference triggers for the current
+// session agent before context rendering.
+func ActivateSkillTriggers(text string, cfg Config) error {
+	if cfg.Agent == nil {
+		return nil
+	}
+	state, ok := runtimeskill.StateFromAgent(cfg.Agent)
+	if !ok {
+		return nil
+	}
+	events := cfg.Events
+	if events == nil {
+		events = event.Discard()
+	}
+	_, err := state.ActivateTriggers(text, events)
+	return err
+}
+
 func withSkillAccess(ctx operation.Context, agent agent.Agent) operation.Context {
 	if ctx == nil || agent == nil {
 		return ctx

@@ -78,6 +78,52 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 	return loaded, nil
 }
 
+// RequestedResources is the result of resolving app-declared local resource
+// roots for already-authored bundles.
+type RequestedResources struct {
+	Root        string
+	Bundles     []resource.ContributionBundle
+	Diagnostics []resource.Diagnostic
+}
+
+// LoadRequestedResources resolves Sources and Discovery policy from bundled app
+// specs using the same local/appconfig loading behavior as Load.
+func LoadRequestedResources(ctx context.Context, path string, bundles []resource.ContributionBundle) (RequestedResources, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(path) == "" {
+		path = "."
+	}
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return RequestedResources{}, err
+	}
+	root = filepath.Clean(root)
+	out := RequestedResources{
+		Root:    root,
+		Bundles: append([]resource.ContributionBundle(nil), bundles...),
+	}
+	for _, bundle := range bundles {
+		for _, app := range bundle.Apps {
+			for _, source := range app.Sources {
+				sourceBundle, ok, err := loadSource(ctx, root, source)
+				if err != nil {
+					out.Diagnostics = append(out.Diagnostics, diagnostic(resource.SourceRef{Location: source.Location}, err))
+					continue
+				}
+				if ok {
+					out.Bundles = append(out.Bundles, sourceBundle)
+				}
+			}
+			if app.Discovery.IncludeGlobalUserResources {
+				out.Bundles = append(out.Bundles, loadUserResources(ctx)...)
+			}
+		}
+	}
+	return out, nil
+}
+
 func mergeDistributionSpec(base, override coredistribution.Spec) coredistribution.Spec {
 	if override.Name != "" {
 		base.Name = override.Name

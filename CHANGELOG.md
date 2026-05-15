@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `coder` now loads startup resources declared by its app discovery policy,
+  including `<cwd>/.agents`, `$HOME/.agents`, and `$HOME/.claude`; `coder
+  discover` uses the shared resource discovery command renderer.
+- Skills with matching trigger phrases are activated before model context
+  rendering, so triggered skill bodies and references are visible in the same
+  turn.
 - Sub-agents spawned via `delegate` or `plan` now inherit the parent session's
   approval gate (e.g. `--yolo`) through the spawn chain, so child sessions do
   not re-prompt for approvals already granted by the parent.

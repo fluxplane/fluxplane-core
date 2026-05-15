@@ -12,7 +12,11 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/channel"
 	corecommand "github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
+	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -50,6 +54,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	if !strings.Contains(help, "--yolo") {
 		t.Fatalf("help = %q, want yolo flag", help)
+	}
+	if !strings.Contains(help, "discover") {
+		t.Fatalf("help = %q, want discover command", help)
 	}
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
@@ -128,6 +135,54 @@ func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
 	}
 	if strings.Contains(text, "contributes:") {
 		t.Fatalf("describe tree output contains nested contribution summary:\n%s", text)
+	}
+}
+
+func TestStartupResourcesAppearInDescribeAndDiscover(t *testing.T) {
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	chdir(t, root)
+	writeFile(t, root, ".agents/skills/project-skill/SKILL.md", `---
+name: project-skill
+description: Project skill.
+triggers: [project smoke]
+---
+Project skill body.
+`)
+	writeFile(t, home, ".agents/skills/home-skill/SKILL.md", `---
+name: home-skill
+description: Home skill.
+triggers: [home smoke]
+---
+Home skill body.
+`)
+	writeFile(t, home, ".claude/skills/claude-skill/SKILL.md", `---
+name: claude-skill
+description: Claude skill.
+triggers: [claude smoke]
+---
+Claude skill body.
+`)
+
+	for _, args := range [][]string{
+		{"describe", "-o", "json"},
+		{"discover", "-o", "json"},
+	} {
+		cmd := NewCommand()
+		out := bytes.Buffer{}
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("Execute %v: %v", args, err)
+		}
+		text := out.String()
+		for _, want := range []string{"project-skill", "home-skill", "claude-skill", ".claude"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%v output missing %q:\n%s", args, want, text)
+			}
+		}
 	}
 }
 
@@ -210,6 +265,82 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 	}
 }
 
+func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var requests []llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		requests = append(requests, req)
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{
+			Bundle(),
+			{
+				Source: resource.SourceRef{ID: "test:skills", Scope: resource.ScopeProject, Location: "test/skills"},
+				Skills: []coreskill.Spec{{
+					Name:        "smoke-skill",
+					Description: "Smoke skill.",
+					Body:        "SKILL_BODY_VISIBLE",
+					Triggers:    []string{"smoke trigger"},
+					References: []coreskill.ReferenceSpec{{
+						Path:     "references/detail.md",
+						Body:     "REFERENCE_BODY_VISIBLE",
+						Triggers: []string{"detail trigger"},
+					}},
+				}},
+			},
+		},
+		Plugins: []pluginhost.Plugin{
+			codingplugin.New(sys),
+			planexecplugin.New(),
+			skillplugin.New(),
+			imageplugin.New(sys),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "skill-trigger-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("please use smoke trigger and detail trigger now"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("requests len = %d, want 1", len(requests))
+	}
+	text := requestText(requests[0])
+	for _, want := range []string{"SKILL_BODY_VISIBLE", "REFERENCE_BODY_VISIBLE"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("model request missing %q:\n%s", want, text)
+		}
+	}
+
+}
+
 func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
 	if err != nil {
@@ -266,4 +397,55 @@ func TestDefaultModel(t *testing.T) {
 	if DefaultModel != "gpt-5.5" {
 		t.Fatalf("DefaultModel = %q, want gpt-5.5", DefaultModel)
 	}
+}
+
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(old); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+}
+
+func writeFile(t *testing.T, root, name, content string) {
+	t.Helper()
+	path := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+func requestText(req llmagent.Request) string {
+	var parts []string
+	appendBlocks := func(blocks []corecontext.Block) {
+		for _, block := range blocks {
+			if block.Content != "" {
+				parts = append(parts, block.Content)
+			}
+		}
+	}
+	appendItems := func(items []coreconversation.Item) {
+		for _, item := range items {
+			if item.Content != nil {
+				parts = append(parts, fmt.Sprint(item.Content))
+			}
+		}
+	}
+	appendBlocks(req.Context)
+	if req.Transcript != nil {
+		appendItems(req.Transcript.Items)
+		appendItems(req.Transcript.NewItems)
+	}
+	return strings.Join(parts, "\n")
 }

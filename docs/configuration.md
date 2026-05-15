@@ -443,6 +443,11 @@ steps:
 Skills live at `.agents/skills/<name>/SKILL.md`. Optional references live in
 `.agents/skills/<name>/references/*.md`.
 
+The standalone `coder` app requests project and user resource roots at startup.
+It includes `<cwd>/.agents` plus global `$HOME/.agents` and `$HOME/.claude`
+resources through the same local app discovery path used by appconfig. Use
+`coder discover` to inspect the resulting resource set.
+
 ```markdown
 ---
 name: code-review
@@ -461,6 +466,11 @@ trigger: concurrency
 ---
 Check cancellation, shared state, and blocking behavior.
 ```
+
+Skill and reference `triggers` are matched as case-insensitive text phrases
+against incoming user turns. Matching skills and references are activated before
+model context rendering, so their bodies are available to the agent in the same
+turn.
 
 ## Choosing A Format
 

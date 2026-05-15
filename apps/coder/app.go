@@ -5,6 +5,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
+	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
@@ -23,11 +24,18 @@ const defaultConversation = "agentsdk-coder"
 
 // NewCommand returns the CLI command for the coder distribution.
 func NewCommand() *cobra.Command {
-	return distcli.NewCommand(Distribution())
+	startup := loadStartupResources(context.Background())
+	cmd := distcli.NewCommand(distributionFromStartup(startup))
+	cmd.AddCommand(newDiscoverCommand(startup))
+	return cmd
 }
 
 // Distribution returns the runnable/deployable coder distribution declaration.
 func Distribution() distribution.Distribution {
+	return distributionFromStartup(loadStartupResources(context.Background()))
+}
+
+func distributionFromStartup(startup startupResources) distribution.Distribution {
 	spec := coredistribution.Spec{
 		Name:                AppName,
 		Title:               "Coder",
@@ -46,11 +54,12 @@ func Distribution() distribution.Distribution {
 			Serve:   true,
 		},
 	}
-	runtimeBundles := []agentruntime.ResourceBundle{Bundle()}
+	runtimeBundles := startup.Bundles
 	describeBundles, diagnostics := launch.BundlesWithStaticPluginContributions(context.Background(), launch.StaticPluginOptions{
 		Bundles: runtimeBundles,
 		Plugins: localPlugins,
 	})
+	diagnostics = append(startup.Diagnostics, diagnostics...)
 	if len(diagnostics) > 0 {
 		describeBundles = append(describeBundles, agentruntime.ResourceBundle{Diagnostics: diagnostics})
 	}
@@ -60,10 +69,32 @@ func Distribution() distribution.Distribution {
 		Runtime: launch.NewLocalRuntime(launch.LocalRuntimeConfig{
 			Spec:           spec,
 			Bundles:        runtimeBundles,
+			Root:           startup.Root,
 			Plugins:        localPlugins,
 			ToolProjection: ToolProjectionConfig(),
 		}),
 	}
+}
+
+func newDiscoverCommand(startup startupResources) *cobra.Command {
+	return resourcediscovery.NewCommand(resourcediscovery.CommandOptions{
+		Use:     "discover",
+		Short:   "Discover coder startup resources",
+		Args:    cobra.NoArgs,
+		Default: startup.Root,
+		Discover: func(ctx context.Context, _ string) (resourcediscovery.Result, error) {
+			view := launch.StaticPluginView(ctx, launch.StaticPluginOptions{
+				Bundles: startup.Bundles,
+				Plugins: localPlugins,
+			})
+			return resourcediscovery.Result{
+				Root:            startup.Root,
+				Bundles:         view.Bundles,
+				Diagnostics:     append(startup.Diagnostics, view.Diagnostics...),
+				ImplicitPlugins: view.ImplicitPlugins,
+			}, nil
+		},
+	})
 }
 
 // ToolProjectionConfig returns coder's local tool projection policy.

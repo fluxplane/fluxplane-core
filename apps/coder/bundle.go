@@ -3,6 +3,7 @@ package coder
 
 import (
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -55,7 +56,7 @@ func Bundle() resource.ContributionBundle {
 		).
 		Build()
 
-	return sdk.NewApp(AppName).
+	bundle := sdk.NewApp(AppName).
 		WithSource(resource.SourceRef{
 			ID:       DefaultNamespace,
 			Scope:    resource.ScopeEmbedded,
@@ -85,4 +86,13 @@ func Bundle() resource.ContributionBundle {
 			},
 		}).
 		Build()
+	if len(bundle.Apps) > 0 {
+		bundle.Apps[0].Sources = append(bundle.Apps[0].Sources, coreapp.SourceSpec{
+			Location:  ".agents",
+			Scope:     string(resource.ScopeProject),
+			Ecosystem: "agentdir",
+		})
+		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
+	}
+	return bundle
 }

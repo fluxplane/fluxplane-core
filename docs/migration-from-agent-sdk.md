@@ -804,8 +804,10 @@ Still intentionally incomplete:
   and live session listing only.
 - The engineer app parity plan has Phase 1A pure model support, Phase 1B
   narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
-  agent instantiation through configured sessions. It does not execute prompt
-  commands, execute workflow commands, or activate skills yet.
+  agent instantiation through configured sessions. Prompt commands and workflow
+  commands are still not executed. Skill discovery and trigger activation now
+  exist for composed skill catalogs, including the standalone `coder` app's
+  project and user resource roots.
 - The first live provider adapters are OpenAI Responses, Codex Responses,
   OpenRouter Responses, Anthropic Messages, and MiniMax Messages. They are
   still narrow: no complete WebSocket transport implementation in the native

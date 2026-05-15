@@ -8,6 +8,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 )
 
@@ -54,6 +55,30 @@ func WrapAgent(runtime agent.Agent, state *ActivationState) agent.Agent {
 }
 
 func (a statefulAgent) SkillActivationState() *ActivationState { return a.state }
+
+// ContextProviders forwards session-level context materialization support from
+// the wrapped agent.
+func (a statefulAgent) ContextProviders() []corecontext.Provider {
+	carrier, ok := a.Agent.(interface {
+		ContextProviders() []corecontext.Provider
+	})
+	if !ok || carrier == nil {
+		return nil
+	}
+	return carrier.ContextProviders()
+}
+
+// ProviderIdentity forwards provider transcript identity from the wrapped
+// agent.
+func (a statefulAgent) ProviderIdentity() coreconversation.ProviderIdentity {
+	carrier, ok := a.Agent.(interface {
+		ProviderIdentity() coreconversation.ProviderIdentity
+	})
+	if !ok || carrier == nil {
+		return coreconversation.ProviderIdentity{}
+	}
+	return carrier.ProviderIdentity()
+}
 
 // StateFromAgent returns the activation state attached to agent, when present.
 func StateFromAgent(runtime agent.Agent) (*ActivationState, bool) {

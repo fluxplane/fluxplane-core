@@ -716,6 +716,9 @@ func sortedProviderNames(providers []corecontext.Provider) []string {
 }
 
 func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation) (corecontext.BuildResult, []coreconversation.Item, error) {
+	if err := s.activateTriggeredSkills(pending, observations, in.Events); err != nil {
+		return corecontext.BuildResult{}, nil, err
+	}
 	providers := s.contextProviders()
 	if len(providers) == 0 {
 		return corecontext.BuildResult{}, append([]coreconversation.Item(nil), pending...), nil
@@ -736,6 +739,30 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 		return corecontext.BuildResult{}, nil, err
 	}
 	return result, contextPendingItems(in.ProviderIdentity, pending, result), nil
+}
+
+func (s Session) activateTriggeredSkills(pending []coreconversation.Item, observations []environment.Observation, sink event.Sink) error {
+	return sessionenv.ActivateSkillTriggers(skillTriggerText(pending, observations), s.envConfig(sink))
+}
+
+func skillTriggerText(pending []coreconversation.Item, observations []environment.Observation) string {
+	var parts []string
+	for _, item := range pending {
+		if item.Kind == coreconversation.ItemInput {
+			if text := valueText(item.Content); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	for _, observation := range observations {
+		switch observation.Kind {
+		case "channel.message", "session.continuation":
+			if text := valueText(observation.Content); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (s Session) contextProviders() []corecontext.Provider {

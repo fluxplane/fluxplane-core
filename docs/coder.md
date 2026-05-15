@@ -86,8 +86,13 @@ Inspect the bundled app and agent resources:
 ```bash
 coder describe
 coder describe agent coder
+coder discover
 coder models
 ```
+
+At startup, `coder` includes resources declared by its app discovery policy:
+`<cwd>/.agents`, `$HOME/.agents`, and `$HOME/.claude`. Skills from those roots
+can activate automatically when user input matches their trigger phrases.
 
 ### Model Selection
 
