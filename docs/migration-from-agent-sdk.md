@@ -807,9 +807,9 @@ Still intentionally incomplete:
 - The engineer app parity plan has Phase 1A pure model support, Phase 1B
   narrow adapters, Phase 1C composition catalogs, and manifest-declared LLM
   agent instantiation through configured sessions. Prompt commands and workflow
-  commands are still not executed. Skill discovery and trigger activation now
-  exist for composed skill catalogs, including the standalone `coder` app's
-  project and user resource roots.
+  commands now execute through session orchestration. Skill discovery and
+  trigger activation now exist for composed skill catalogs, including the
+  standalone `coder` app's project and user resource roots.
 - The first live provider adapters are OpenAI Responses, Codex Responses,
   OpenRouter Responses, Anthropic Messages, and MiniMax Messages. They are
   still narrow: no complete WebSocket transport implementation in the native
@@ -1059,12 +1059,18 @@ Parity should be reached in small slices:
 
 11. **Phase 9: Commands and Skills Runtime**
    Execute prompt commands, support skill discovery/activation, and preserve
-   command visibility policies.
+   command visibility policies. Done initially: Markdown prompt commands decode
+   to `TargetPrompt`, render invocation args/input, and execute through the
+   normal session input path so outbound responses are persisted with the
+   thread.
 
 12. **Phase 10: Workflow and Sub-Agent Supervisor**
    Execute the `feature` workflow through child sessions using a generic
    supervisor with capacity, cancellation, progress, parent/child causation,
-   and event linkage.
+   and event linkage. Done initially: workflow-target commands execute
+   operation steps through the operation executor and agent steps through the
+   sub-agent supervisor, with workflow runtime events and persisted command
+   output.
 
 13. **Phase 11: Engineer App Assembly**
    Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`

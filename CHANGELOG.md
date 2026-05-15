@@ -62,6 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Appconfig manifests can now contribute `commands`, `workflows`, and
   declaration-only `operations` either as top-level app fields or standalone
   `kind: command`, `kind: workflow`, and `kind: operation` YAML documents.
+- Markdown prompt commands now execute through session orchestration by
+  rendering invocation args/input into normal agent input turns.
 
 ### Changed
 

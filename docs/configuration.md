@@ -436,6 +436,11 @@ argument-hint: version
 Write release notes for the requested version.
 ```
 
+When a prompt command is invoked with positional arguments, the arguments are
+appended to the prompt. Prompt bodies can also use Go template fields:
+`{{ .Argument }}` for all arguments joined with spaces, `{{ index .Args 0 }}`
+for one argument, and `{{ .Input }}` for structured command input.
+
 YAML commands can target workflows:
 
 ```yaml

@@ -292,6 +292,116 @@ func TestExecuteInboundCommandPersistsFailedOperationOutboundMessage(t *testing.
 	}
 }
 
+func TestExecuteInboundCommandDispatchesPromptCommandAsInput(t *testing.T) {
+	ctx := context.Background()
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"review"},
+		Target: invocation.Target{
+			Kind:   invocation.TargetPrompt,
+			Prompt: "Review the requested change.",
+		},
+		Policy: policy.InvocationPolicy{AllowedCallers: []policy.CallerKind{policy.CallerUser}},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-prompt"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	runtimeAgent := &sequenceAgent{
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "reviewed"}},
+		}},
+	}
+	s := Session{
+		Agent:       runtimeAgent,
+		Commands:    commands,
+		ThreadStore: threadStore,
+		Thread:      corethread.Ref{ID: "thread-prompt"},
+	}
+
+	result := s.ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:     "cmd-1",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"review"},
+			Args: []string{"CHANGELOG.md"},
+		},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if result.Output != "reviewed" {
+		t.Fatalf("output = %#v, want reviewed", result.Output)
+	}
+	if len(runtimeAgent.inputs) != 1 {
+		t.Fatalf("agent inputs len = %d, want 1", len(runtimeAgent.inputs))
+	}
+	observation := runtimeAgent.inputs[0].Observations[0]
+	content, ok := observation.Content.(string)
+	if !ok || !strings.Contains(content, "Review the requested change.") || !strings.Contains(content, "CHANGELOG.md") {
+		t.Fatalf("prompt content = %#v, want prompt plus command args", observation.Content)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-prompt"})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coresession.EventCommandReceived) != 1 {
+		t.Fatalf("command received events = %d, want 1", countEvent(stored.Events, coresession.EventCommandReceived))
+	}
+	if countEvent(stored.Events, coresession.EventInputReceived) != 1 {
+		t.Fatalf("input received events = %d, want 1", countEvent(stored.Events, coresession.EventInputReceived))
+	}
+	if countEvent(stored.Events, coresession.EventOutboundProduced) != 1 {
+		t.Fatalf("outbound events = %d, want 1", countEvent(stored.Events, coresession.EventOutboundProduced))
+	}
+}
+
+func TestExecuteInboundCommandRendersPromptCommandTemplate(t *testing.T) {
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"release"},
+		Target: invocation.Target{
+			Kind:   invocation.TargetPrompt,
+			Prompt: "Write notes for {{ .Argument }} with {{ .Input.tone }} tone.",
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	runtimeAgent := &sequenceAgent{
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}},
+		}},
+	}
+	s := Session{Agent: runtimeAgent, Commands: commands}
+
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:    "cmd-template",
+		Kind:  channel.InboundCommand,
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path:  command.Path{"release"},
+			Args:  []string{"v1.2.3"},
+			Input: map[string]any{"tone": "plain"},
+		},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	got := runtimeAgent.inputs[0].Observations[0].Content
+	if got != "Write notes for v1.2.3 with plain tone." {
+		t.Fatalf("prompt = %#v", got)
+	}
+}
+
 func TestExecuteInboundInputDispatchesAgentMessage(t *testing.T) {
 	s := Session{
 		Agent: fixedAgent{

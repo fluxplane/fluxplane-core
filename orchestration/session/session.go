@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -1702,6 +1704,9 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if spec.Target.Kind == invocation.TargetWorkflow {
 		return s.executeWorkflowCommand(ctx, inbound, resolved.Binding, spec, evaluation)
 	}
+	if spec.Target.Kind == invocation.TargetPrompt {
+		return s.executePromptCommand(ctx, inbound, spec, evaluation)
+	}
 
 	if !sessioncontrol.TargetsOperation(spec) {
 		return CommandResult{
@@ -1753,6 +1758,36 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		status = CommandStatusFailed
 	}
 	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
+}
+
+func (s Session) executePromptCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	content, err := renderPromptCommand(spec, inbound.Command)
+	if err != nil {
+		return commandFailed("prompt_command_render_failed", err.Error(), map[string]any{
+			"path": spec.Path.String(),
+		})
+	}
+	messageInbound := inbound
+	messageInbound.Kind = channel.InboundMessage
+	messageInbound.Command = nil
+	messageInbound.Message = &channel.Message{
+		Content: content,
+		Metadata: map[string]any{
+			"command": spec.Path.String(),
+			"target":  string(invocation.TargetPrompt),
+		},
+	}
+	inputResult := s.executeInboundInput(ctx, messageInbound, inputExecutionOptions{})
+	result := CommandResult{
+		Status: commandStatusForInput(inputResult),
+		Spec:   spec,
+		Policy: evaluation,
+		Output: promptCommandOutput(inputResult),
+	}
+	if inputResult.Error != nil {
+		result.Error = inputResult.Error
+	}
+	return result
 }
 
 func (s Session) executeWorkflowCommand(ctx context.Context, inbound channel.Inbound, binding CommandBinding, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
@@ -1925,6 +1960,86 @@ func firstNonNil(values ...any) any {
 		if value != nil {
 			return value
 		}
+	}
+	return nil
+}
+
+type promptCommandTemplateData struct {
+	Path     string
+	Args     []string
+	Argument string
+	Input    any
+}
+
+func renderPromptCommand(spec command.Spec, invocation *command.Invocation) (string, error) {
+	prompt := strings.TrimSpace(spec.Target.Prompt)
+	if prompt == "" {
+		return "", fmt.Errorf("prompt command target is empty")
+	}
+	if invocation == nil {
+		return prompt, nil
+	}
+	data := promptCommandTemplateData{
+		Path:     spec.Path.String(),
+		Args:     append([]string(nil), invocation.Args...),
+		Argument: strings.Join(invocation.Args, " "),
+		Input:    invocation.Input,
+	}
+	if strings.Contains(prompt, "{{") {
+		tmpl, err := template.New("prompt-command").Option("missingkey=error").Parse(prompt)
+		if err != nil {
+			return "", fmt.Errorf("parse prompt command template: %w", err)
+		}
+		var rendered bytes.Buffer
+		if err := tmpl.Execute(&rendered, data); err != nil {
+			return "", fmt.Errorf("render prompt command template: %w", err)
+		}
+		return strings.TrimSpace(rendered.String()), nil
+	}
+	if len(data.Args) == 0 && data.Input == nil {
+		return prompt, nil
+	}
+	var b strings.Builder
+	b.WriteString(prompt)
+	if len(data.Args) > 0 {
+		b.WriteString("\n\nArguments:\n")
+		b.WriteString(data.Argument)
+	}
+	if data.Input != nil {
+		b.WriteString("\n\nInput:\n")
+		b.WriteString(promptCommandInputString(data.Input))
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+func promptCommandInputString(input any) string {
+	if text, ok := input.(string); ok {
+		return text
+	}
+	data, err := json.MarshalIndent(input, "", "  ")
+	if err != nil {
+		return fmt.Sprint(input)
+	}
+	return string(data)
+}
+
+func commandStatusForInput(result InputResult) CommandStatus {
+	switch result.Status {
+	case InputStatusOK:
+		return CommandStatusOK
+	case InputStatusUnsupported:
+		return CommandStatusUnsupported
+	default:
+		return CommandStatusFailed
+	}
+}
+
+func promptCommandOutput(result InputResult) any {
+	if result.Outbound != nil && result.Outbound.Message != nil {
+		return result.Outbound.Message.Content
+	}
+	if result.Agent.Decision.Message != nil {
+		return result.Agent.Decision.Message.Content
 	}
 	return nil
 }
@@ -2495,15 +2610,15 @@ func commandPathAllowed(allowed []command.Path, path command.Path) bool {
 	return false
 }
 
-// CommandTargetsSession reports whether a command path resolves to a
-// session-target command. It is used by channel harnesses to decide whether a
-// session-specific agent must be resolved before dispatch.
+// CommandTargetsSession reports whether a command path needs session-specific
+// agent/runtime wiring before dispatch.
 func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (bool, error) {
 	resolved, ok, err := resolveCommand(path, resolver, catalog, registry)
 	if err != nil || !ok {
 		return false, err
 	}
-	return sessioncontrol.TargetsSession(resolved.Binding.Spec), nil
+	spec := resolved.Binding.Spec
+	return sessioncontrol.TargetsSession(spec) || spec.Target.Kind == invocation.TargetPrompt, nil
 }
 
 func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {

@@ -895,6 +895,69 @@ func TestHandleInboundContextCommandUsesAgentProvider(t *testing.T) {
 	}
 }
 
+func TestHandleInboundPromptCommandUsesAgentProvider(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"review"},
+		Target: invocation.Target{
+			Kind:   invocation.TargetPrompt,
+			Prompt: "Review {{ .Argument }}.",
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	var providerCalls int
+	agentRuntime := &harnessPromptAgent{response: "reviewed"}
+	service := New(Config{
+		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
+			providerCalls++
+			return agentRuntime, nil
+		}),
+		Commands:    commands,
+		ThreadStore: threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session: coresession.Ref{Name: "coder"},
+		Profile: coresession.Spec{
+			Name:  "coder",
+			Agent: coreagent.Ref{Name: "coder"},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-prompt"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-prompt",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-prompt"},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"review"}, Args: []string{"diff"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if providerCalls != 1 {
+		t.Fatalf("agent provider calls = %d, want 1", providerCalls)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("status = %s, error = %#v", result.Command.Status, result.Command.Error)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "reviewed" {
+		t.Fatalf("outbound = %#v, want reviewed", result.Outbound)
+	}
+	if len(agentRuntime.inputs) != 1 || agentRuntime.inputs[0].Observations[0].Content != "Review diff." {
+		t.Fatalf("agent inputs = %#v, want rendered prompt", agentRuntime.inputs)
+	}
+}
+
 func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -1075,6 +1138,26 @@ func (a harnessProviderAgent) Spec() coreagent.Spec {
 
 func (a harnessProviderAgent) Step(coreagent.Context, coreagent.StepInput) coreagent.StepResult {
 	return coreagent.StepResult{Status: coreagent.StatusOK, Decision: coreagent.Decision{Kind: coreagent.DecisionWait}}
+}
+
+type harnessPromptAgent struct {
+	response string
+	inputs   []coreagent.StepInput
+}
+
+func (a *harnessPromptAgent) Spec() coreagent.Spec {
+	return coreagent.Spec{Name: "coder"}
+}
+
+func (a *harnessPromptAgent) Step(_ coreagent.Context, input coreagent.StepInput) coreagent.StepResult {
+	a.inputs = append(a.inputs, input)
+	return coreagent.StepResult{
+		Status: coreagent.StatusOK,
+		Decision: coreagent.Decision{
+			Kind:    coreagent.DecisionMessage,
+			Message: &coreagent.Message{Content: a.response},
+		},
+	}
 }
 
 type harnessContextProvider struct {
