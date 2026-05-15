@@ -13,7 +13,9 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 	"github.com/fluxplane/agentruntime/plugins/filesystemplugin"
 	"github.com/fluxplane/agentruntime/plugins/gitplugin"
+	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/humanplugin"
+	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/shellplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -39,7 +41,9 @@ func New(sys system.System) Plugin {
 		clarifier = sys.Clarifier()
 	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
+		projectplugin.New(sys),
 		filesystemplugin.New(sys),
+		golangplugin.New(sys),
 		webplugin.New(sys),
 		browserplugin.New(sys),
 		gitplugin.New(sys),

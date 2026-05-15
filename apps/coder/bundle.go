@@ -28,7 +28,8 @@ func Bundle() resource.ContributionBundle {
 	agentSpec := sdk.BuildAgent(AgentName).
 		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
 		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. "+
-			"Prefer native filesystem, git, browser, web_request, and code_execute operations over shell_exec. "+
+			"Prefer native project, Go language, filesystem, git, browser, web_request, and code_execute operations over shell_exec. "+
+			"Use project_inventory/project_docs/project_tasks for workspace structure, and go_project/go_packages/go_outline/go_symbol for Go code navigation. "+
 			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. "+
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
 		AsLLMAgent(DefaultModel).
@@ -41,6 +42,8 @@ func Bundle() resource.ContributionBundle {
 			Stateful: true,
 		}).
 		WithOperations(
+			"project_inventory", "project_files", "project_tasks", "project_docs",
+			"go_project", "go_packages", "go_outline", "go_symbol",
 			"dir_create", "dir_list", "dir_tree",
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
 			"glob", "grep",
@@ -80,6 +83,8 @@ func Bundle() resource.ContributionBundle {
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations: []operation.Ref{
+					{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_tasks"}, {Name: "project_docs"},
+					{Name: "go_project"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"},
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"}, {Name: "git_add"}, {Name: "git_commit"},
 					{Name: "shell_exec"}, {Name: "code_execute"}, {Name: "web_request"},

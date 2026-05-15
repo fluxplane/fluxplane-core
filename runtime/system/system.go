@@ -176,6 +176,7 @@ type WalkOptions struct {
 	ShowHidden    bool
 	MaxEntries    int
 	FilesOnly     bool
+	SkipDirs      []string
 	FilterPattern string // optional glob applied to each entry's workspace-relative path
 }
 
@@ -627,6 +628,7 @@ func (w *HostWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([
 	if limit <= 0 || limit > 10000 {
 		limit = 1000
 	}
+	skipDirs := walkSkipDirs(opts.SkipDirs)
 	var entries []WalkEntry
 	truncated := false
 	err = filepath.WalkDir(root.Abs, func(current string, d fs.DirEntry, walkErr error) error {
@@ -653,6 +655,9 @@ func (w *HostWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if d.IsDir() && skipDirs[d.Name()] {
+			return filepath.SkipDir
 		}
 		if opts.FilesOnly && d.IsDir() {
 			return nil
@@ -691,6 +696,20 @@ func (w *HostWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([
 		return nil
 	})
 	return entries, root, truncated, err
+}
+
+func walkSkipDirs(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 // Glob returns workspace paths matching a slash-style glob under opts.Base.

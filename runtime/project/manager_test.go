@@ -1,0 +1,161 @@
+package project
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	coreproject "github.com/fluxplane/agentruntime/core/project"
+	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/agentruntime/runtime/systemtest"
+)
+
+func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "go.mod", "module example.com/root\n\ngo 1.26\n")
+		writeWorkspaceFile(t, ws, "package.json", `{"name":"root-js","scripts":{"test":"node test.js"}}`)
+		writeWorkspaceFile(t, ws, "Makefile", "build:\n\tgo build ./...\n")
+		writeWorkspaceFile(t, ws, "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    cmds:\n      - go vet ./...\n")
+		writeWorkspaceFile(t, ws, ".git/config", "[core]\n")
+		writeWorkspaceFile(t, ws, ".agents/plans/example.md", "# Plan\n")
+		writeWorkspaceFile(t, ws, ".claude/commands/check.md", "# Check\n")
+		writeWorkspaceFile(t, ws, "README.md", "# Root\n\n## Setup\n")
+		writeWorkspaceFile(t, ws, "docs/guide.md", "# Guide\n\n## Install\n")
+		writeWorkspaceFile(t, ws, "tools/go.mod", "module example.com/tools\n\ngo 1.26\n")
+		writeWorkspaceFile(t, ws, "go.work", "go 1.26\n\nuse (\n\t.\n\t./tools\n)\n")
+		for i := 0; i < 20; i++ {
+			writeWorkspaceFile(t, ws, filepath.Join(".cache", "go-build", string(rune('a'+i)), "entry.txt"), "noise")
+		}
+
+		manager := NewManager(ws)
+		inventory, rebuilt, err := manager.Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+		if err != nil {
+			t.Fatalf("Inventory: %v", err)
+		}
+		if !rebuilt {
+			t.Fatal("Inventory rebuilt = false, want true")
+		}
+		if len(inventory.Projects) != 2 {
+			t.Fatalf("projects = %#v, want root and tools", inventory.Projects)
+		}
+		root := projectByRoot(t, inventory, "")
+		if !hasFacet(root, coreproject.FacetGoModule) || !hasFacet(root, coreproject.FacetGoWorkspace) || !hasFacet(root, coreproject.FacetNodePackage) || !hasFacet(root, coreproject.FacetMakefile) || !hasFacet(root, coreproject.FacetTaskfile) || !hasFacet(root, coreproject.FacetMarkdownDocs) || !hasFacet(root, coreproject.FacetAgentsDir) || !hasFacet(root, coreproject.FacetClaudeDir) || !hasFacet(root, coreproject.FacetGitRepo) {
+			t.Fatalf("root facets = %#v", root.Facets)
+		}
+		if !hasDocument(root, "docs/guide.md") {
+			t.Fatalf("root documents = %#v, want nested docs/guide.md attached to root", root.Facets)
+		}
+		tools := projectByRoot(t, inventory, "tools")
+		if tools.ParentID != root.ID {
+			t.Fatalf("tools parent = %q, want %q", tools.ParentID, root.ID)
+		}
+		bareIDProject, _, err := manager.Project(context.Background(), coreproject.ProjectQuery{ProjectID: "tools"})
+		if err != nil {
+			t.Fatalf("Project bare id: %v", err)
+		}
+		if bareIDProject.ID != tools.ID {
+			t.Fatalf("bare id project = %q, want %q", bareIDProject.ID, tools.ID)
+		}
+
+		limited, _, err := manager.Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true, MaxResults: 1})
+		if err != nil {
+			t.Fatalf("Inventory limited: %v", err)
+		}
+		if len(limited.Projects) != 1 || !hasFacet(limited.Projects[0], coreproject.FacetGoModule) {
+			t.Fatalf("limited projects = %#v, want one discovered Go project", limited.Projects)
+		}
+
+		inventory, rebuilt, err = manager.Inventory(context.Background(), coreproject.InventoryQuery{})
+		if err != nil {
+			t.Fatalf("Inventory cached: %v", err)
+		}
+		if rebuilt {
+			t.Fatal("Inventory rebuilt = true, want memory reuse")
+		}
+	})
+}
+
+func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "docs/guide.md", "# Guide\n")
+		inventory, _, err := NewManager(ws).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+		if err != nil {
+			t.Fatalf("Inventory: %v", err)
+		}
+		if len(inventory.Projects) != 1 || inventory.Projects[0].Root != "docs" || !hasDocument(inventory.Projects[0], "docs/guide.md") {
+			t.Fatalf("inventory = %#v, want docs-only project", inventory)
+		}
+	})
+}
+
+func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
+	t.Helper()
+	t.Run("memory", func(t *testing.T) {
+		fn(t, systemtest.NewMemory().Workspace())
+	})
+	t.Run("host", func(t *testing.T) {
+		sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+		if err != nil {
+			t.Fatalf("NewHost: %v", err)
+		}
+		fn(t, sys.Workspace())
+	})
+}
+
+func writeWorkspaceFile(t *testing.T, ws system.Workspace, rel, content string) {
+	t.Helper()
+	if _, err := ws.WriteFile(context.Background(), rel, []byte(content), 0644, true); err != nil {
+		t.Fatalf("WriteFile(%s): %v", rel, err)
+	}
+}
+
+func projectByRoot(t *testing.T, inventory coreproject.Inventory, root string) coreproject.Project {
+	t.Helper()
+	for _, project := range inventory.Projects {
+		if project.Root == root {
+			return project
+		}
+	}
+	t.Fatalf("project root %q not found in %#v", root, inventory.Projects)
+	return coreproject.Project{}
+}
+
+func hasFacet(project coreproject.Project, kind coreproject.FacetKind) bool {
+	for _, facet := range project.Facets {
+		if facet.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDocument(project coreproject.Project, path string) bool {
+	for _, facet := range project.Facets {
+		for _, doc := range facet.Documents {
+			if doc.Path == path {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestManagerHostWorkspaceDoesNotDependOnCWD(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/host\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	inventory, _, err := NewManager(sys.Workspace()).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	project := projectByRoot(t, inventory, "")
+	if project.Name != "example.com/host" {
+		t.Fatalf("project name = %q, want module path", project.Name)
+	}
+}

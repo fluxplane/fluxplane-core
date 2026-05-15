@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a first design note for a future `golangplugin` with Go module/package
   discovery, outlines, symbol lookup, references, and refactoring-oriented read
   operations.
+- Added Workspace-native project and Go language read operations for project
+  inventory, task/doc discovery, Go package grouping, outlines, and symbol
+  lookup.
+- Project inventory now reports `.agents` and `.claude` directories as
+  first-class project facets.
 - Added the `evaluator` app distribution and `cmd/evaluator` entrypoint for
   evidence-backed evaluation of AgentRuntime apps over the public channel
   protocol, including structured `evaluator target` flags and a deterministic

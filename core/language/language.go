@@ -1,0 +1,247 @@
+// Package language defines inert language-support models shared by plugins.
+package language
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+// LanguageID identifies a programming or document language.
+type LanguageID string
+
+const (
+	LanguageGo LanguageID = "go"
+)
+
+// Capability describes a language provider feature.
+type Capability string
+
+const (
+	CapabilityProject     Capability = "project"
+	CapabilityPackage     Capability = "package"
+	CapabilityOutline     Capability = "outline"
+	CapabilitySymbol      Capability = "symbol"
+	CapabilityReferences  Capability = "references"
+	CapabilityCalls       Capability = "calls"
+	CapabilityImports     Capability = "imports"
+	CapabilityDiagnostics Capability = "diagnostics"
+	CapabilityFormat      Capability = "format"
+	CapabilityRename      Capability = "rename"
+)
+
+// ProviderName identifies a language-support provider.
+type ProviderName string
+
+// ProviderSpec describes a language provider without binding it to IO.
+type ProviderSpec struct {
+	Name         ProviderName `json:"name"`
+	Language     LanguageID   `json:"language"`
+	Description  string       `json:"description,omitempty"`
+	Capabilities []Capability `json:"capabilities,omitempty"`
+}
+
+// Validate checks the provider spec has stable identity.
+func (s ProviderSpec) Validate() error {
+	if strings.TrimSpace(string(s.Name)) == "" {
+		return fmt.Errorf("language: provider name is empty")
+	}
+	if strings.TrimSpace(string(s.Language)) == "" {
+		return fmt.Errorf("language: provider language is empty")
+	}
+	return nil
+}
+
+// Position is a one-indexed source position.
+type Position struct {
+	Line   int `json:"line,omitempty"`
+	Column int `json:"column,omitempty"`
+}
+
+// Range is a source span.
+type Range struct {
+	Start Position `json:"start,omitempty"`
+	End   Position `json:"end,omitempty"`
+}
+
+// Location identifies a workspace-relative source range.
+type Location struct {
+	Path  string `json:"path"`
+	Range Range  `json:"range,omitempty"`
+}
+
+// Package describes a language package/module unit.
+type Package struct {
+	ID         string     `json:"id"`
+	Language   LanguageID `json:"language"`
+	Name       string     `json:"name,omitempty"`
+	ImportPath string     `json:"import_path,omitempty"`
+	Dir        string     `json:"dir,omitempty"`
+	Files      []string   `json:"files,omitempty"`
+	Imports    []Import   `json:"imports,omitempty"`
+	TestFor    string     `json:"test_for,omitempty"`
+}
+
+// Document describes one parsed source document.
+type Document struct {
+	Path      string     `json:"path"`
+	Language  LanguageID `json:"language"`
+	PackageID string     `json:"package_id,omitempty"`
+	Outline   Outline    `json:"outline,omitempty"`
+}
+
+// Outline is an ordered symbol outline for one document or package.
+type Outline struct {
+	Path      string     `json:"path,omitempty"`
+	PackageID string     `json:"package_id,omitempty"`
+	Language  LanguageID `json:"language,omitempty"`
+	Symbols   []Symbol   `json:"symbols,omitempty"`
+	Truncated bool       `json:"truncated,omitempty"`
+}
+
+// Diagnostic describes a recoverable language analysis issue.
+type Diagnostic struct {
+	Path     string `json:"path,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+// SymbolKind classifies one language symbol.
+type SymbolKind string
+
+const (
+	SymbolModule    SymbolKind = "module"
+	SymbolPackage   SymbolKind = "package"
+	SymbolType      SymbolKind = "type"
+	SymbolStruct    SymbolKind = "struct"
+	SymbolInterface SymbolKind = "interface"
+	SymbolFunction  SymbolKind = "function"
+	SymbolMethod    SymbolKind = "method"
+	SymbolField     SymbolKind = "field"
+	SymbolConst     SymbolKind = "const"
+	SymbolVar       SymbolKind = "var"
+	SymbolImport    SymbolKind = "import"
+	SymbolNamespace SymbolKind = "namespace"
+)
+
+// Symbol is a language-neutral source declaration.
+type Symbol struct {
+	ID             string     `json:"id,omitempty"`
+	Language       LanguageID `json:"language,omitempty"`
+	Kind           SymbolKind `json:"kind"`
+	Name           string     `json:"name"`
+	Container      string     `json:"container,omitempty"`
+	PackageID      string     `json:"package_id,omitempty"`
+	Location       Location   `json:"location,omitempty"`
+	Range          Range      `json:"range,omitempty"`
+	SelectionRange Range      `json:"selection_range,omitempty"`
+	Signature      string     `json:"signature,omitempty"`
+	Doc            string     `json:"doc,omitempty"`
+	Children       []Symbol   `json:"children,omitempty"`
+}
+
+// Import describes one import edge from a document or package.
+type Import struct {
+	Path       string   `json:"path"`
+	Name       string   `json:"name,omitempty"`
+	SourcePath string   `json:"source_path,omitempty"`
+	PackageID  string   `json:"package_id,omitempty"`
+	Location   Location `json:"location,omitempty"`
+}
+
+// Reference describes a symbol usage site.
+type Reference struct {
+	SymbolID string   `json:"symbol_id,omitempty"`
+	Kind     string   `json:"kind,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Location Location `json:"location,omitempty"`
+	Preview  string   `json:"preview,omitempty"`
+}
+
+// CallEdge describes a caller/callee relationship.
+type CallEdge struct {
+	CallerID string   `json:"caller_id,omitempty"`
+	CalleeID string   `json:"callee_id,omitempty"`
+	Location Location `json:"location,omitempty"`
+}
+
+// ProjectQuery selects language projects.
+type ProjectQuery struct {
+	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path       string     `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to scope discovery."`
+	Refresh    bool       `json:"refresh,omitempty" jsonschema:"description=Rebuild in-memory language view for this request."`
+	MaxResults int        `json:"max_results,omitempty" jsonschema:"description=Maximum results returned."`
+}
+
+// PackageQuery selects language packages.
+type PackageQuery struct {
+	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	ProjectID  string     `json:"project_id,omitempty" jsonschema:"description=Optional project id."`
+	Path       string     `json:"path,omitempty" jsonschema:"description=Workspace-relative module, package, or file path."`
+	Refresh    bool       `json:"refresh,omitempty" jsonschema:"description=Rebuild in-memory language view for this request."`
+	MaxResults int        `json:"max_results,omitempty" jsonschema:"description=Maximum packages returned."`
+}
+
+// OutlineQuery selects a file or package outline.
+type OutlineQuery struct {
+	Language    LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path        string     `json:"path" jsonschema:"description=Workspace-relative Go file or package directory path.,required"`
+	PackageID   string     `json:"package_id,omitempty" jsonschema:"description=Optional package id returned by go_packages."`
+	IncludeDocs bool       `json:"include_docs,omitempty" jsonschema:"description=Include bounded documentation comments."`
+	MaxResults  int        `json:"max_results,omitempty" jsonschema:"description=Maximum symbols returned."`
+	MaxBytes    int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh     bool       `json:"refresh,omitempty" jsonschema:"description=Rebuild in-memory language view for this request."`
+}
+
+// SymbolQuery selects declaration symbols.
+type SymbolQuery struct {
+	Language    LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Query       string     `json:"query,omitempty" jsonschema:"description=Symbol name or substring to search for."`
+	Name        string     `json:"name,omitempty" jsonschema:"description=Exact symbol name filter."`
+	Kind        SymbolKind `json:"kind,omitempty" jsonschema:"description=Optional symbol kind filter."`
+	Path        string     `json:"path,omitempty" jsonschema:"description=Workspace-relative path scope."`
+	PackageID   string     `json:"package_id,omitempty" jsonschema:"description=Optional package id scope."`
+	IncludeDocs bool       `json:"include_docs,omitempty" jsonschema:"description=Include bounded documentation comments."`
+	MaxResults  int        `json:"max_results,omitempty" jsonschema:"description=Maximum symbols returned."`
+	MaxBytes    int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh     bool       `json:"refresh,omitempty" jsonschema:"description=Rebuild in-memory language view for this request."`
+}
+
+// Provider is an execution-neutral language support port.
+type Provider interface {
+	Spec() ProviderSpec
+	Projects(context.Context, ProjectQuery) (ProjectResult, error)
+	Packages(context.Context, PackageQuery) (PackageResult, error)
+	Outline(context.Context, OutlineQuery) (OutlineResult, error)
+	Symbols(context.Context, SymbolQuery) (SymbolResult, error)
+}
+
+// ProjectResult is a language project query result.
+type ProjectResult struct {
+	Projects []any `json:"projects,omitempty"`
+	Indexed  bool  `json:"indexed,omitempty"`
+	Fresh    bool  `json:"fresh,omitempty"`
+}
+
+// PackageResult is a language package query result.
+type PackageResult struct {
+	Packages []Package `json:"packages,omitempty"`
+	Indexed  bool      `json:"indexed,omitempty"`
+	Fresh    bool      `json:"fresh,omitempty"`
+}
+
+// OutlineResult is a language outline query result.
+type OutlineResult struct {
+	Outline     Outline      `json:"outline,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	Indexed     bool         `json:"indexed,omitempty"`
+	Fresh       bool         `json:"fresh,omitempty"`
+}
+
+// SymbolResult is a symbol query result.
+type SymbolResult struct {
+	Symbols     []Symbol     `json:"symbols,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	Indexed     bool         `json:"indexed,omitempty"`
+	Fresh       bool         `json:"fresh,omitempty"`
+}
