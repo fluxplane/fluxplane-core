@@ -18,6 +18,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/orchestration/agentconfig"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
@@ -143,7 +144,7 @@ func TestFilterToolsAllowsDispatchToolWhenAllCasesTargetAllowedOperations(t *tes
 		},
 	}
 
-	filtered := filterTools(spec, []tool.Spec{imageTool})
+	filtered := agentconfig.FilterTools(spec, []tool.Spec{imageTool})
 
 	if len(filtered) != 1 || filtered[0].Name != "image" {
 		t.Fatalf("filtered tools = %#v, want image action tool", filtered)
@@ -166,7 +167,7 @@ func TestFilterToolsRejectsDispatchToolWhenAnyCaseIsNotAllowed(t *testing.T) {
 		Operations: []operation.Ref{{Name: "image_generate"}},
 	}
 
-	filtered := filterTools(spec, []tool.Spec{imageTool})
+	filtered := agentconfig.FilterTools(spec, []tool.Spec{imageTool})
 
 	if len(filtered) != 0 {
 		t.Fatalf("filtered tools = %#v, want action tool rejected", filtered)

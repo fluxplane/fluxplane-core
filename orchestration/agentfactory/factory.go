@@ -8,17 +8,13 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/core/tool"
-	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/agentconfig"
+	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -56,8 +52,8 @@ type ModelResolverWithSpec interface {
 
 // Config configures a composed-agent factory.
 type Config struct {
-	Agents           appcomposition.AgentCatalog
-	Skills           appcomposition.SkillCatalog
+	Agents           resourcecatalog.AgentCatalog
+	Skills           resourcecatalog.SkillCatalog
 	Resolver         *resource.Resolver
 	CommandCatalog   session.CommandCatalog
 	OperationCatalog session.OperationCatalog
@@ -71,8 +67,8 @@ type Config struct {
 
 // Factory builds runnable agents from composed agent specs.
 type Factory struct {
-	agents           appcomposition.AgentCatalog
-	skills           appcomposition.SkillCatalog
+	agents           resourcecatalog.AgentCatalog
+	skills           resourcecatalog.SkillCatalog
 	resolver         *resource.Resolver
 	commandCatalog   session.CommandCatalog
 	operationCatalog session.OperationCatalog
@@ -135,7 +131,7 @@ func (f *Factory) build(ctx context.Context, ref agent.Ref, profile coresession.
 	}
 	switch binding.Spec.Driver.Kind {
 	case "", llmagent.DriverKind:
-		return f.buildLLMAgent(ctx, applySessionProfile(binding.Spec, profile))
+		return f.buildLLMAgent(ctx, agentconfig.ApplySessionProfile(binding.Spec, profile))
 	default:
 		return nil, fmt.Errorf("agentfactory: unsupported agent driver kind %q", binding.Spec.Driver.Kind)
 	}
@@ -153,7 +149,7 @@ func (f *Factory) buildLLMAgent(ctx context.Context, spec agent.Spec) (agent.Age
 	if err != nil {
 		return nil, err
 	}
-	contextProviders := filterContextProviders(spec, f.contextProviders)
+	contextProviders := agentconfig.FilterContextProviders(spec, f.contextProviders)
 	if repo != nil && skillContextAllowed(spec) {
 		contextProviders = append(contextProviders, runtimeskill.NewContextProvider(repo, state))
 	}
@@ -161,7 +157,7 @@ func (f *Factory) buildLLMAgent(ctx context.Context, spec agent.Spec) (agent.Age
 	runtimeAgent, err := llmagent.New(
 		spec,
 		model,
-		llmagent.WithTools(filterTools(spec, projection.Tools)...),
+		llmagent.WithTools(agentconfig.FilterTools(spec, projection.Tools)...),
 		llmagent.WithContextProviders(contextProviders...),
 		llmagent.WithStreamPolicy(f.streamPolicy),
 	)
@@ -206,7 +202,7 @@ func (f *Factory) skillState(spec agent.Spec) (*runtimeskill.Repository, *runtim
 }
 
 func (f *Factory) resolvedSkillSpecs() ([]skill.Spec, error) {
-	byName := map[string][]appcomposition.ResourceBinding[skill.Spec]{}
+	byName := map[string][]resourcecatalog.Binding[skill.Spec]{}
 	for _, binding := range f.skills {
 		name := strings.TrimSpace(string(binding.Spec.Name))
 		if name == "" {
@@ -306,232 +302,5 @@ func (f *Factory) projectTools() toolprojection.Result {
 	cfg.Commands = f.commandCatalog
 	cfg.Operations = f.operationCatalog
 	cfg.ToolSets = f.toolSetCatalog
-	if cfg.Caller.Kind == "" {
-		cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
-	}
-	if cfg.Trust.Kind == "" {
-		cfg.Trust.Kind = policy.TrustInvocation
-	}
-	if cfg.Trust.Level == "" {
-		cfg.Trust.Level = policy.TrustVerified
-	}
-	return toolprojection.Project(cfg)
-}
-
-func filterTools(spec agent.Spec, tools []tool.Spec) []tool.Spec {
-	if len(spec.Tools) == 0 && spec.Commands == nil && len(spec.Operations) == 0 {
-		return tools
-	}
-	allowedTools := map[string]struct{}{}
-	for _, ref := range spec.Tools {
-		if ref.Name != "" {
-			allowedTools[ref.Name] = struct{}{}
-		}
-	}
-	allowedCommands := map[string]struct{}{}
-	for _, ref := range spec.Commands {
-		if ref.Name != "" {
-			allowedCommands[ref.Name] = struct{}{}
-		}
-	}
-	allowedOperations := map[operation.Name]struct{}{}
-	for _, ref := range spec.Operations {
-		if ref.Name != "" {
-			allowedOperations[ref.Name] = struct{}{}
-		}
-	}
-	out := make([]tool.Spec, 0, len(tools))
-	for _, projected := range tools {
-		if toolAllowed(projected, allowedTools, allowedCommands, allowedOperations) {
-			out = append(out, projected)
-		}
-	}
-	return out
-}
-
-func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[string]struct{}, operations map[operation.Name]struct{}) bool {
-	if _, ok := tools[string(projected.Name)]; ok {
-		return true
-	}
-	for ref := range commands {
-		if refMatches(ref, projected.Annotations["command_id"]) || ref == string(projected.Name) {
-			return true
-		}
-	}
-	if _, ok := operations[projected.Target.Operation.Name]; ok {
-		return true
-	}
-	if dispatchAllowedByOperations(projected.Dispatch, operations) {
-		return true
-	}
-	for ref := range operations {
-		if refMatches(string(ref), projected.Annotations["operation_id"]) {
-			return true
-		}
-	}
-	return false
-}
-
-func dispatchAllowedByOperations(dispatch *tool.Dispatch, operations map[operation.Name]struct{}) bool {
-	if dispatch == nil || len(dispatch.Cases) == 0 || len(operations) == 0 {
-		return false
-	}
-	for _, candidate := range dispatch.Cases {
-		if candidate.Target.Kind != invocation.TargetOperation || candidate.Target.Operation.Name == "" {
-			return false
-		}
-		if _, ok := operations[candidate.Target.Operation.Name]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func filterContextProviders(spec agent.Spec, providers []corecontext.Provider) []corecontext.Provider {
-	if len(providers) == 0 {
-		return nil
-	}
-	if spec.Context == nil {
-		return append([]corecontext.Provider(nil), providers...)
-	}
-	allowed := map[corecontext.ProviderName]struct{}{}
-	for _, ref := range spec.Context {
-		if ref.Name != "" {
-			allowed[ref.Name] = struct{}{}
-		}
-	}
-	out := make([]corecontext.Provider, 0, len(providers))
-	for _, provider := range providers {
-		if provider == nil {
-			continue
-		}
-		providerSpec := provider.Spec()
-		if providerSpec.Annotations[corecontext.AnnotationAutoContext] == "true" {
-			out = append(out, provider)
-			continue
-		}
-		if _, ok := allowed[providerSpec.Name]; ok {
-			out = append(out, provider)
-		}
-	}
-	return out
-}
-
-func applySessionProfile(spec agent.Spec, profile coresession.Spec) agent.Spec {
-	if profile.Context != nil {
-		spec.Context = narrowAgentContext(spec.Context, profile.Context)
-	}
-	if profile.Commands != nil {
-		spec.Commands = narrowAgentCommands(spec.Commands, profile.Commands)
-	}
-	if profile.Operations != nil {
-		spec.Operations = narrowAgentOperations(spec.Operations, profile.Operations)
-	}
-	return spec
-}
-
-func narrowAgentContext(base []corecontext.ProviderRef, caps []corecontext.ProviderRef) []corecontext.ProviderRef {
-	if base == nil {
-		return append([]corecontext.ProviderRef(nil), caps...)
-	}
-	allowed := map[corecontext.ProviderName]struct{}{}
-	for _, ref := range caps {
-		if ref.Name != "" {
-			allowed[ref.Name] = struct{}{}
-		}
-	}
-	out := make([]corecontext.ProviderRef, 0, len(base))
-	for _, ref := range base {
-		if _, ok := allowed[ref.Name]; ok {
-			out = append(out, ref)
-		}
-	}
-	return out
-}
-
-func narrowAgentCommands(base []agent.CommandRef, caps []command.Path) []agent.CommandRef {
-	if base == nil {
-		out := make([]agent.CommandRef, 0, len(caps))
-		for _, path := range caps {
-			if ref := commandPathRef(path); ref != "" {
-				out = append(out, agent.CommandRef{Name: ref})
-			}
-		}
-		return out
-	}
-	allowed := map[string]struct{}{}
-	for _, path := range caps {
-		if ref := commandPathRef(path); ref != "" {
-			allowed[ref] = struct{}{}
-		}
-		if display := path.String(); display != "" {
-			allowed[display] = struct{}{}
-		}
-	}
-	out := make([]agent.CommandRef, 0, len(base))
-	for _, ref := range base {
-		if commandRefAllowed(ref.Name, allowed) {
-			out = append(out, ref)
-		}
-	}
-	return out
-}
-
-func commandRefAllowed(ref string, allowed map[string]struct{}) bool {
-	if _, ok := allowed[ref]; ok {
-		return true
-	}
-	for candidate := range allowed {
-		if refMatches(candidate, ref) || refMatches(ref, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
-func narrowAgentOperations(base []operation.Ref, caps []operation.Ref) []operation.Ref {
-	if base == nil {
-		return append([]operation.Ref(nil), caps...)
-	}
-	allowed := map[operation.Name]struct{}{}
-	for _, ref := range caps {
-		if ref.Name != "" {
-			allowed[ref.Name] = struct{}{}
-		}
-	}
-	out := make([]operation.Ref, 0, len(base))
-	for _, ref := range base {
-		if _, ok := allowed[ref.Name]; ok {
-			out = append(out, ref)
-		}
-	}
-	return out
-}
-
-func commandPathRef(path command.Path) string {
-	if len(path) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(path))
-	for _, part := range path {
-		if part != "" {
-			parts = append(parts, part)
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	return strings.Join(parts[:len(parts)-1], ":") + ":" + parts[len(parts)-1]
-}
-
-func refMatches(ref, address string) bool {
-	ref = strings.TrimSpace(ref)
-	address = strings.TrimSpace(address)
-	if ref == "" || address == "" {
-		return false
-	}
-	return ref == address || strings.HasSuffix(address, ":"+ref)
+	return toolprojection.ProjectForAgent(cfg)
 }

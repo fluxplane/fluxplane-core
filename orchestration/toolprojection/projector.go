@@ -110,6 +110,21 @@ func Project(cfg Config) Result {
 	return out
 }
 
+// ProjectForAgent projects tools with the default policy context used by
+// model-facing agent factories.
+func ProjectForAgent(cfg Config) Result {
+	if cfg.Caller.Kind == "" {
+		cfg.Caller = policy.Caller{Kind: policy.CallerAgent}
+	}
+	if cfg.Trust.Kind == "" {
+		cfg.Trust.Kind = policy.TrustInvocation
+	}
+	if cfg.Trust.Level == "" {
+		cfg.Trust.Level = policy.TrustVerified
+	}
+	return Project(cfg)
+}
+
 func projectToolSet(cfg Config, binding session.ToolSetBinding) (tool.Spec, []resource.ResourceID, bool, string) {
 	spec, ok := toolSetSpec(binding.Spec)
 	if !ok {

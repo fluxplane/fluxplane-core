@@ -87,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   automation with a visible Chrome window for smoke testing.
 - Event registry assembly now lives in a dedicated orchestration package,
   reducing app composition fan-out and improving the architecture score.
+- Resource catalog collection, executable app resource binding, agent spec
+  filtering, and session environment wiring now live in focused orchestration
+  packages, bringing the architecture score target to 80.
 - Improved architecture score by moving pure event codec helpers into core and
   removing unused runtime pass-through fields from app composition.
 - Architecture reports now include score penalty explanations so improvement

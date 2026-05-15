@@ -16,7 +16,6 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -26,12 +25,11 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 )
 
 // Session is the first orchestration boundary for the observe-decide-apply
@@ -760,8 +758,7 @@ func (s Session) previewContext(ctx context.Context, input contextPreviewInput) 
 			return contextPreviewData{}, err
 		}
 	}
-	materializer := contextruntime.NewMaterializer(providers, previous)
-	result, err := materializer.Build(s.contextProviderContext(ctx, nil), corecontext.BuildRequest{
+	result, err := sessionenv.BuildContext(providers, previous, s.contextProviderContext(ctx, nil), corecontext.BuildRequest{
 		ThreadID: string(s.Thread.ID),
 		BranchID: string(s.Thread.BranchID),
 		TurnID:   s.RunID,
@@ -776,13 +773,13 @@ func (s Session) previewContext(ctx context.Context, input contextPreviewInput) 
 		mode = "fresh"
 	}
 	data := contextPreviewData{Mode: mode, Key: key, Providers: providerNames}
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementSystem); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementSystem); ok {
 		data.System = text
 	}
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementDeveloper); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementDeveloper); ok {
 		data.Developer = text
 	}
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementUser); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementUser); ok {
 		data.User = text
 	}
 	return data, nil
@@ -813,8 +810,7 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 		return corecontext.BuildResult{}, nil, err
 	}
 	renderCtx := s.contextProviderContext(in.BaseContext, observations)
-	materializer := contextruntime.NewMaterializer(providers, records)
-	result, err := materializer.Build(renderCtx, corecontext.BuildRequest{
+	result, err := sessionenv.BuildContext(providers, records, renderCtx, corecontext.BuildRequest{
 		ThreadID: string(s.Thread.ID),
 		BranchID: string(s.Thread.BranchID),
 		TurnID:   in.ConversationTurnID,
@@ -836,51 +832,7 @@ func (s Session) contextProviders() []corecontext.Provider {
 }
 
 func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation) context.Context {
-	ctx = ensureContext(ctx)
-	ctx = s.withSubagentBaseContext(ctx, "", s.eventSink())
-	ctx = coredatasource.ContextWithDetectionInput(ctx, detectionInputFromObservations(observations))
-	if s.Agent == nil {
-		return ctx
-	}
-	spec := s.Agent.Spec()
-	names := make([]coredatasource.Name, 0, len(spec.Datasources))
-	for _, ref := range spec.Datasources {
-		if ref.Name != "" {
-			names = append(names, ref.Name)
-		}
-	}
-	return coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
-}
-
-func detectionInputFromObservations(observations []environment.Observation) coredatasource.DetectionInput {
-	var sources []coredatasource.DetectionSource
-	for i, observation := range observations {
-		text := contextValueText(observation.Content)
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		sources = append(sources, coredatasource.DetectionSource{
-			ID:       fmt.Sprintf("observation-%d", i),
-			Kind:     observation.Kind,
-			Text:     text,
-			Metadata: observationStringMetadata(observation.Metadata),
-		})
-	}
-	return coredatasource.DetectionInput{Sources: sources}
-}
-
-func observationStringMetadata(values map[string]any) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for key, value := range values {
-		text := strings.TrimSpace(fmt.Sprint(value))
-		if text != "" && text != "<nil>" {
-			out[key] = text
-		}
-	}
-	return out
+	return sessionenv.ContextProviderContext(ctx, s.envConfig(s.eventSink()), observations)
 }
 
 func contextRenderReason(pending []coreconversation.Item, observations []environment.Observation) corecontext.RenderReason {
@@ -956,7 +908,7 @@ func (s Session) commitContextRender(ctx context.Context, result corecontext.Bui
 			TurnID:      result.TurnID,
 			Provider:    block.Provider,
 			Block:       block,
-			Fingerprint: contextruntime.BlockFingerprint(block),
+			Fingerprint: sessionenv.BlockFingerprint(block),
 		})
 	}
 	for _, removed := range result.Removed {
@@ -975,16 +927,16 @@ func contextPendingItems(provider coreconversation.ProviderIdentity, pending []c
 		return out
 	}
 	var prefix []coreconversation.Item
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementSystem); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementSystem); ok {
 		prefix = append(prefix, contextTranscriptItem(provider, "system", text))
 	}
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementDeveloper); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementDeveloper); ok {
 		prefix = append(prefix, contextTranscriptItem(provider, "developer", text))
 	}
 	if len(prefix) > 0 {
 		out = append(prefix, out...)
 	}
-	if text, ok := contextruntime.RenderDiff(result, corecontext.PlacementUser); ok {
+	if text, ok := sessionenv.RenderDiff(result, corecontext.PlacementUser); ok {
 		out = addUserContextDiff(provider, out, text)
 	}
 	return out
@@ -2689,112 +2641,29 @@ func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBindi
 }
 
 func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
-	ctx = s.withSkillAccess(ctx)
-	ctx = s.withDatasourceAccess(ctx)
-	ctx = operation.WithCallID(ctx, callID)
-	ctx = s.withSubagentScope(ctx, callID)
+	ctx = sessionenv.OperationContext(ctx, s.envConfig(ctx.Events()), callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
 }
 
-func (s Session) withSkillAccess(ctx operation.Context) operation.Context {
-	if ctx == nil || s.Agent == nil {
-		return ctx
-	}
-	state, ok := runtimeskill.StateFromAgent(s.Agent)
-	if !ok {
-		return ctx
-	}
-	base := runtimeskill.ContextWithState(ctx, state)
-	return operation.NewContext(base, ctx.Events())
-}
-
-func (s Session) withSubagentScope(ctx operation.Context, callID operation.CallID) operation.Context {
-	if ctx == nil || s.Subagents == nil {
-		return ctx
-	}
-	base := s.withSubagentBaseContext(ctx, callID, ctx.Events())
-	return operation.NewContext(base, ctx.Events())
-}
-
 func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.CallID, events event.Sink) context.Context {
-	if ctx == nil || s.Subagents == nil {
-		return ctx
-	}
-	if events == nil {
-		events = event.Discard()
-	}
-	return subagent.ContextWithScope(ctx, subagent.Scope{
-		Supervisor:     s.Subagents,
-		ParentThreadID: s.Thread.ID,
-		ParentRunID:    s.RunID,
-		ParentCallID:   callID,
-		Policy:         s.Delegation,
-		Events:         events,
-		ThreadStore:    s.ThreadStore,
-		Approver:       approverFromExecutor(s.OperationExecutor),
-	})
-}
-
-// approverFromExecutor extracts the ApprovalGate from an Executor's safety
-// gate when the gate is a SafetyEnvelope. This propagates the parent session's
-// approval policy (e.g. AutoApprover for --yolo) into the sub-agent scope so
-// child sessions inherit it explicitly rather than through implicit shared
-// state.
-func approverFromExecutor(exec operationruntime.Executor) operationruntime.ApprovalGate {
-	if env, ok := exec.Safety.(operationruntime.SafetyEnvelope); ok {
-		return env.Approval
-	}
-	return nil
+	return sessionenv.WithBaseContext(ctx, s.envConfig(events), callID)
 }
 
 func (s Session) replaySkillEvents(ctx context.Context) error {
-	if s.ThreadStore == nil || s.Thread.ID == "" || s.Agent == nil {
-		return nil
-	}
-	state, ok := runtimeskill.StateFromAgent(s.Agent)
-	if !ok {
-		return nil
-	}
-	snapshot, err := s.ThreadStore.Read(persistenceContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
-	if err != nil {
-		if errors.Is(err, corethread.ErrNotFound) {
-			return nil
-		}
-		return err
-	}
-	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
-		runtimeEvent, ok := record.Event.Payload.(coresession.RuntimeEmitted)
-		if !ok {
-			if ptr, ok := record.Event.Payload.(*coresession.RuntimeEmitted); ok && ptr != nil {
-				runtimeEvent = *ptr
-			} else {
-				continue
-			}
-		}
-		if err := state.ApplyNamedEvent(runtimeEvent.Name, runtimeEvent.Payload); err != nil {
-			return err
-		}
-	}
-	return nil
+	return sessionenv.ReplaySkillEvents(ctx, s.envConfig(s.eventSink()))
 }
 
-func (s Session) withDatasourceAccess(ctx operation.Context) operation.Context {
-	if ctx == nil || s.Agent == nil {
-		return ctx
+func (s Session) envConfig(events event.Sink) sessionenv.Config {
+	return sessionenv.Config{
+		Agent:             s.Agent,
+		Subagents:         s.Subagents,
+		Thread:            s.Thread,
+		ThreadStore:       s.ThreadStore,
+		Delegation:        s.Delegation,
+		RunID:             s.RunID,
+		OperationExecutor: s.OperationExecutor,
+		Events:            events,
 	}
-	spec := s.Agent.Spec()
-	names := make([]coredatasource.Name, 0, len(spec.Datasources))
-	for _, ref := range spec.Datasources {
-		if ref.Name != "" {
-			names = append(names, ref.Name)
-		}
-	}
-	base := coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
-	return operation.NewContext(base, ctx.Events())
 }
 
 func operationCallID(runID string, ordinal int) operation.CallID {
