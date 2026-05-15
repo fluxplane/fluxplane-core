@@ -523,7 +523,6 @@ func (r *Renderer) flushMarkdownContent() {
 	}
 }
 
-
 func (r *Renderer) writeContentDelta(text string) {
 	r.flushReasoning()
 	if r.content == nil {
@@ -575,7 +574,6 @@ func (r *Renderer) out() io.Writer {
 	}
 	return r.Out
 }
-
 
 func redactedDebugEvent(event clientapi.Event) clientapi.Event {
 	if event.Runtime == nil || event.Runtime.Name != llmagent.EventModelStreamedName {
