@@ -22,6 +22,10 @@ import (
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 )
 
+// SubagentSupervisor aliases the supervisor type used by session environment
+// wiring.
+type SubagentSupervisor = subagent.Supervisor
+
 // Config carries session state needed to materialize execution contexts.
 type Config struct {
 	Agent             agent.Agent

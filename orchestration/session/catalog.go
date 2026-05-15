@@ -3,14 +3,14 @@ package session
 import (
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 )
 
 // SessionBinding binds a configured session profile to its canonical resource
 // identity.
 type SessionBinding struct {
-	ID   resource.ResourceID
+	ID   sessioncontrol.ResourceID
 	Spec coresession.Spec
 }
 
@@ -24,12 +24,12 @@ func (c SessionCatalog) Resolve(ref string) (SessionBinding, error) {
 	if len(c) == 0 {
 		return SessionBinding{}, fmt.Errorf("session catalog is empty")
 	}
-	index := resource.NewResourceIndex()
+	index := sessioncontrol.NewResourceIndex()
 	for _, binding := range c {
 		index.Add(binding.ID)
 	}
-	resolver := resource.NewResolver(resource.ResolverConfig{Index: index})
-	id, err := resolver.Resolve("session", ref)
+	resolver := sessioncontrol.NewResolver(index)
+	id, err := sessioncontrol.ResolveResource(resolver, "session", ref)
 	if err != nil {
 		return SessionBinding{}, err
 	}

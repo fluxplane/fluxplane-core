@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
@@ -2244,7 +2245,7 @@ func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
 
 	summaryInput := input
 	summaryInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "summary"}}}
-	summaryGoal := stopEvaluatorGoal(summaryInput)
+	summaryGoal := sessioncontrol.StopEvaluatorGoal(summaryInput)
 	if strings.Contains(summaryGoal, "RAW_SECRET_OUTPUT") {
 		t.Fatalf("summary goal leaked raw effect output:\n%s", summaryGoal)
 	}
@@ -2254,7 +2255,7 @@ func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
 
 	inheritInput := input
 	inheritInput.Agent = agent.Spec{Name: "coder", Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{ContextPolicy: "inherit"}}}
-	inheritGoal := stopEvaluatorGoal(inheritInput)
+	inheritGoal := sessioncontrol.StopEvaluatorGoal(inheritInput)
 	if !strings.Contains(inheritGoal, "RAW_SECRET_OUTPUT") {
 		t.Fatalf("inherit goal = %q, want raw effect output", inheritGoal)
 	}

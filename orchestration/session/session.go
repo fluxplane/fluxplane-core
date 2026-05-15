@@ -11,23 +11,17 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/agent"
-	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -40,78 +34,29 @@ type Session struct {
 	Profile           coresession.Spec
 	Commands          *command.Registry
 	Operations        *operation.Registry
-	Resolver          *resource.Resolver
+	Resolver          *sessioncontrol.Resolver
 	CommandCatalog    CommandCatalog
 	OperationCatalog  OperationCatalog
 	OperationExecutor operationruntime.Executor
 	Events            event.Sink
 	ThreadStore       corethread.Store
 	Thread            corethread.Ref
-	Subagents         *subagent.Supervisor
+	Subagents         *sessionenv.SubagentSupervisor
 	Delegation        coresession.DelegationPolicy
 	StopEvaluator     StopEvaluator
 	RunID             string
 }
 
-// StopEvaluator evaluates continuation stop conditions that require model
-// judgment.
-type StopEvaluator interface {
-	EvaluateStopCondition(context.Context, StopEvaluationInput) (StopEvaluation, error)
-}
-
-// StopEvaluationInput describes one outer-loop continuation decision.
-type StopEvaluationInput struct {
-	Agent            agent.Spec
-	Condition        agent.StopConditionSpec
-	Inbound          channel.Inbound
-	AgentResult      agent.StepResult
-	Effects          []environment.EffectResult
-	Completed        int
-	MaxContinuations int
-}
-
-type StopAction string
+type StopEvaluator = sessioncontrol.StopEvaluator
+type StopEvaluationInput = sessioncontrol.StopEvaluationInput
+type StopAction = sessioncontrol.StopAction
+type StopEvaluation = sessioncontrol.StopEvaluation
+type ModelStopEvaluator = sessioncontrol.ModelStopEvaluator
 
 const (
-	StopActionStop     StopAction = "stop"
-	StopActionContinue StopAction = "continue"
+	StopActionStop     = sessioncontrol.StopActionStop
+	StopActionContinue = sessioncontrol.StopActionContinue
 )
-
-// StopEvaluation is the normalized stop-condition decision.
-type StopEvaluation struct {
-	Action              StopAction `json:"action" jsonschema:"description=Whether the parent agent should stop or continue.,enum=stop,enum=continue,required"`
-	Reason              string     `json:"reason,omitempty" jsonschema:"description=Brief reason for the decision."`
-	ContinueInstruction string     `json:"continue_instruction,omitempty" jsonschema:"description=Instruction to send back to the parent agent when action is continue."`
-}
-
-// ModelStopEvaluator evaluates prompt stop conditions with a provider-neutral
-// LLM model and a typed synthetic decision operation.
-type ModelStopEvaluator struct {
-	Model llmagent.Model
-}
-
-// EvaluateStopCondition implements StopEvaluator.
-func (e ModelStopEvaluator) EvaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
-	if e.Model == nil {
-		return StopEvaluation{}, fmt.Errorf("stop evaluator model is nil")
-	}
-	response, err := e.Model.Complete(ctx, llmagent.Request{
-		Agent: evaluatorAgentSpec(input.Agent),
-		Tools: []tool.Spec{continuationDecisionToolSpec()},
-		Goal:  stopEvaluatorGoal(input),
-	})
-	if err != nil {
-		return StopEvaluation{}, err
-	}
-	if len(response.Operations) != 1 {
-		return StopEvaluation{}, fmt.Errorf("stop evaluator must call continuation_decision exactly once")
-	}
-	request := response.Operations[0]
-	if request.Operation.Name != continuationDecisionOperationName {
-		return StopEvaluation{}, fmt.Errorf("stop evaluator called %q, want %q", request.Operation.String(), continuationDecisionOperationName)
-	}
-	return executeContinuationDecision(ctx, request.Input)
-}
 
 const (
 	defaultLLMMaxSteps       = 50
@@ -126,35 +71,9 @@ const (
 	compactPreserveRecentItems  = 16
 )
 
-var contextCommandSpec = command.Spec{
-	Path:        command.Path{"context"},
-	Description: "Preview context that would be sent to the LLM.",
-	Target:      invocation.Target{Kind: invocation.TargetSession},
-	Policy: policy.InvocationPolicy{
-		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
-		RequiredTrust:  policy.TrustVerified,
-	},
-}
-
-var compactCommandSpec = command.Spec{
-	Path:        command.Path{"compact"},
-	Description: "Compact provider transcript replay for the current thread.",
-	Target:      invocation.Target{Kind: invocation.TargetSession},
-	Policy: policy.InvocationPolicy{
-		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
-		RequiredTrust:  policy.TrustVerified,
-	},
-}
-
-var goalCommandSpec = command.Spec{
-	Path:        command.Path{"goal"},
-	Description: "Run a goal-driven task until the goal is complete or the continuation cap is reached.",
-	Target:      invocation.Target{Kind: invocation.TargetSession},
-	Policy: policy.InvocationPolicy{
-		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
-		RequiredTrust:  policy.TrustVerified,
-	},
-}
+var contextCommandSpec = sessioncontrol.ContextCommandSpec
+var compactCommandSpec = sessioncontrol.CompactCommandSpec
+var goalCommandSpec = sessioncontrol.GoalCommandSpec
 
 var builtInSessionCommands = map[string]sessionCommandBinding{
 	contextCommandSpec.Path.String(): {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
@@ -168,8 +87,8 @@ var errCompactUnavailable = errors.New("compact is unavailable without a thread 
 // OperationBinding binds a canonical operation resource to an executable
 // implementation.
 type OperationBinding struct {
-	ID        resource.ResourceID `json:"id"`
-	Operation operation.Operation `json:"-"`
+	ID        sessioncontrol.ResourceID `json:"id"`
+	Operation operation.Operation       `json:"-"`
 }
 
 // OperationCatalog binds canonical operation resource IDs to executable
@@ -178,8 +97,8 @@ type OperationCatalog map[string]OperationBinding
 
 // ToolSetBinding binds a projected tool set to its canonical resource identity.
 type ToolSetBinding struct {
-	ID   resource.ResourceID `json:"id"`
-	Spec any                 `json:"spec"`
+	ID   sessioncontrol.ResourceID `json:"id"`
+	Spec any                       `json:"spec"`
 }
 
 // ToolSetCatalog binds canonical tool set resource IDs to tool set specs.
@@ -187,16 +106,16 @@ type ToolSetCatalog map[string]ToolSetBinding
 
 // CommandBinding binds a command contribution to its resolved target.
 type CommandBinding struct {
-	ID          resource.ResourceID `json:"id"`
-	Spec        command.Spec        `json:"spec"`
-	TargetID    resource.ResourceID `json:"target_id,omitempty"`
-	OperationID resource.ResourceID `json:"operation_id,omitempty"`
+	ID          sessioncontrol.ResourceID `json:"id"`
+	Spec        command.Spec              `json:"spec"`
+	TargetID    sessioncontrol.ResourceID `json:"target_id,omitempty"`
+	OperationID sessioncontrol.ResourceID `json:"operation_id,omitempty"`
 }
 
 // CommandCatalog binds canonical command resource IDs to command specs.
 type CommandCatalog map[string]CommandBinding
 
-type sessionCommandHandler func(Session, context.Context, channel.Inbound, command.Spec, policy.Evaluation) CommandResult
+type sessionCommandHandler func(Session, context.Context, channel.Inbound, command.Spec, sessioncontrol.PolicyEvaluation) CommandResult
 
 type sessionCommandBinding struct {
 	Spec    command.Spec
@@ -264,7 +183,7 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 
 func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
 	if len(s.OperationCatalog) > 0 {
-		binding, err := s.OperationCatalog.Resolve(ref.String(), resource.ResourceID{})
+		binding, err := s.OperationCatalog.Resolve(ref.String(), sessioncontrol.ResourceID{})
 		if err != nil {
 			return operationEffect(operation.Failed("operation_resolution_failed", err.Error(), map[string]any{
 				"operation": ref.String(),
@@ -344,12 +263,12 @@ type CommandError struct {
 
 // CommandResult is the structured outcome of session command dispatch.
 type CommandResult struct {
-	Status CommandStatus             `json:"status"`
-	Spec   command.Spec              `json:"spec,omitempty"`
-	Policy policy.Evaluation         `json:"policy,omitempty"`
-	Effect *environment.EffectResult `json:"effect,omitempty"`
-	Output any                       `json:"output,omitempty"`
-	Error  *CommandError             `json:"error,omitempty"`
+	Status CommandStatus                   `json:"status"`
+	Spec   command.Spec                    `json:"spec,omitempty"`
+	Policy sessioncontrol.PolicyEvaluation `json:"policy,omitempty"`
+	Effect *environment.EffectResult       `json:"effect,omitempty"`
+	Output any                             `json:"output,omitempty"`
+	Error  *CommandError                   `json:"error,omitempty"`
 }
 
 // InputStatus classifies the outcome of conversational input dispatch.
@@ -542,7 +461,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
 		}
-		modelCtx := llmagent.ContextWithMaterializedContext(llmagent.ContextWithTranscript(in.BaseContext, &transcript))
+		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
 		modelCtx = s.withSubagentBaseContext(modelCtx, "", in.Events)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
@@ -688,10 +607,6 @@ func goalStopPrompt(goal string) string {
 
 type providerIdentityAgent interface {
 	ProviderIdentity() coreconversation.ProviderIdentity
-}
-
-type driverSpecAgent interface {
-	DriverSpec() corellmagent.Spec
 }
 
 type contextProviderAgent interface {
@@ -1550,7 +1465,7 @@ func (s Session) maxSteps() int {
 	if spec.Turns.MaxSteps > 0 {
 		return spec.Turns.MaxSteps
 	}
-	if isLLMDriverKind(spec.Driver.Kind) {
+	if sessioncontrol.IsLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMMaxSteps
 	}
 	return 1
@@ -1561,7 +1476,7 @@ func (s Session) failOnStepLimit() bool {
 		return true
 	}
 	spec := s.Agent.Spec()
-	return isLLMDriverKind(spec.Driver.Kind) || spec.Turns.MaxSteps > 0
+	return sessioncontrol.IsLLMDriverKind(spec.Driver.Kind) || spec.Turns.MaxSteps > 0
 }
 
 func (s Session) failOnStepLimitForInput(opts inputExecutionOptions) bool {
@@ -1584,7 +1499,7 @@ func (s Session) maxContinuations() int {
 	if spec.Turns.Continuation.MaxContinuations > 0 {
 		return spec.Turns.Continuation.MaxContinuations
 	}
-	if isLLMDriverKind(spec.Driver.Kind) {
+	if sessioncontrol.IsLLMDriverKind(spec.Driver.Kind) {
 		return defaultLLMContinuations
 	}
 	return 0
@@ -1595,10 +1510,6 @@ func (s Session) maxContinuationsForPolicy(policy agent.ContinuationPolicy) int 
 		return policy.MaxContinuations
 	}
 	return s.maxContinuations()
-}
-
-func isLLMDriverKind(kind agent.DriverKind) bool {
-	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)
 }
 
 type continuationDecision struct {
@@ -1644,174 +1555,7 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 }
 
 func (s Session) evaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
-	return s.evaluateStopConditionSpec(ctx, input.Condition, input)
-}
-
-func (s Session) evaluateStopConditionSpec(ctx context.Context, condition agent.StopConditionSpec, input StopEvaluationInput) (StopEvaluation, error) {
-	switch strings.TrimSpace(condition.Type) {
-	case "":
-		return StopEvaluation{Action: StopActionStop}, nil
-	case "max-continuations":
-		if condition.Max > 0 && input.Completed >= condition.Max {
-			return StopEvaluation{Action: StopActionStop, Reason: "stop condition max reached"}, nil
-		}
-		return StopEvaluation{Action: StopActionContinue, ContinueInstruction: "Continue.", Reason: "max-continuations stop condition requested another continuation"}, nil
-	case "prompt":
-		if s.StopEvaluator == nil {
-			return StopEvaluation{}, fmt.Errorf("prompt stop condition requires a stop evaluator")
-		}
-		input.Condition = condition
-		return s.StopEvaluator.EvaluateStopCondition(ctx, input)
-	case "agent":
-		return StopEvaluation{}, fmt.Errorf("agent stop conditions require typed subagent decision tools and are not implemented")
-	case "or":
-		for _, child := range condition.Conditions {
-			evaluation, err := s.evaluateStopConditionSpec(ctx, child, input)
-			if err != nil {
-				return StopEvaluation{}, err
-			}
-			if evaluation.Action == StopActionContinue {
-				return evaluation, nil
-			}
-		}
-		return StopEvaluation{Action: StopActionStop}, nil
-	case "and":
-		var out StopEvaluation
-		for _, child := range condition.Conditions {
-			evaluation, err := s.evaluateStopConditionSpec(ctx, child, input)
-			if err != nil {
-				return StopEvaluation{}, err
-			}
-			if evaluation.Action != StopActionContinue {
-				return StopEvaluation{Action: StopActionStop, Reason: evaluation.Reason}, nil
-			}
-			out = evaluation
-		}
-		if out.Action == "" {
-			out.Action = StopActionStop
-		}
-		return out, nil
-	default:
-		return StopEvaluation{}, fmt.Errorf("unsupported stop condition type %q", condition.Type)
-	}
-}
-
-func evaluatorAgentSpec(parent agent.Spec) agent.Spec {
-	spec := agent.Spec{
-		Name:      agent.Name(string(parent.Name) + "-stop-evaluator"),
-		System:    stopEvaluatorSystemPrompt(),
-		Inference: parent.Inference,
-	}
-	return spec
-}
-
-const continuationDecisionOperationName operation.Name = "continuation_decision"
-
-func continuationDecisionToolSpec() tool.Spec {
-	spec := continuationDecisionOperation().Spec()
-	return tool.Spec{
-		Name:        tool.Name(spec.Ref.Name),
-		Description: spec.Description,
-		Target:      invocation.Target{Kind: invocation.TargetOperation, Operation: spec.Ref},
-		Input:       spec.Input,
-		Output:      spec.Output,
-	}
-}
-
-func continuationDecisionOperation() operation.Operation {
-	return operationruntime.NewTyped[StopEvaluation, StopEvaluation](operation.Spec{
-		Ref:         operation.Ref{Name: continuationDecisionOperationName},
-		Description: "Return whether the parent agent should stop or continue.",
-	}, func(_ operation.Context, input StopEvaluation) (StopEvaluation, error) {
-		return normalizeStopEvaluation(input)
-	})
-}
-
-func executeContinuationDecision(ctx context.Context, input operation.Value) (StopEvaluation, error) {
-	result := continuationDecisionOperation().Run(operation.NewContext(ctx, event.Discard()), input)
-	if result.Status != operation.StatusOK {
-		if result.Error != nil {
-			return StopEvaluation{}, fmt.Errorf("continuation decision failed: %s", result.Error.Message)
-		}
-		return StopEvaluation{}, fmt.Errorf("continuation decision failed with status %q", result.Status)
-	}
-	out, err := operationruntime.Bind[StopEvaluation](result.Output)
-	if err != nil {
-		return StopEvaluation{}, fmt.Errorf("bind continuation decision output: %w", err)
-	}
-	return normalizeStopEvaluation(out)
-}
-
-func stopEvaluatorSystemPrompt() string {
-	return "You evaluate whether an agent should stop or continue. You must call the continuation_decision tool exactly once. Do not answer in text."
-}
-
-func stopEvaluatorGoal(input StopEvaluationInput) string {
-	var b strings.Builder
-	b.WriteString("Evaluate this continuation stop condition.\n\n")
-	writeStopEvaluationContext(&b, input)
-	fmt.Fprintf(&b, "Completed continuations: %d\n", input.Completed)
-	fmt.Fprintf(&b, "Maximum continuations: %d\n\n", input.MaxContinuations)
-	b.WriteString("Call continuation_decision with action stop or continue.")
-	return b.String()
-}
-
-func writeStopEvaluationContext(b *strings.Builder, input StopEvaluationInput) {
-	policy := strings.TrimSpace(input.Agent.Turns.Continuation.ContextPolicy)
-	if policy == "" {
-		policy = "inherit"
-	}
-	switch policy {
-	case "summary", "new":
-		writeStopEvaluationSummary(b, input)
-	default:
-		writeStopEvaluationInheritedContext(b, input)
-	}
-}
-
-func writeStopEvaluationSummary(b *strings.Builder, input StopEvaluationInput) {
-	if input.Condition.Prompt != "" {
-		b.WriteString("Stop condition:\n")
-		b.WriteString(input.Condition.Prompt)
-		b.WriteString("\n\n")
-	}
-	if input.Inbound.Message != nil {
-		b.WriteString("Original user input:\n")
-		fmt.Fprint(b, input.Inbound.Message.Content)
-		b.WriteString("\n\n")
-	}
-	if input.AgentResult.Decision.Message != nil {
-		b.WriteString("Latest agent response:\n")
-		fmt.Fprint(b, input.AgentResult.Decision.Message.Content)
-		b.WriteString("\n\n")
-	}
-	if len(input.Effects) > 0 {
-		fmt.Fprintf(b, "Operation effects observed: %d\n\n", len(input.Effects))
-	}
-}
-
-func writeStopEvaluationInheritedContext(b *strings.Builder, input StopEvaluationInput) {
-	writeStopEvaluationSummary(b, input)
-	if len(input.Effects) == 0 {
-		return
-	}
-	b.WriteString("Operation effect details:\n")
-	for i, effect := range input.Effects {
-		fmt.Fprintf(b, "- effect %d: %s\n", i+1, truncateText(fmt.Sprint(effect.Result.Output), 2000))
-		if effect.Result.Error != nil {
-			fmt.Fprintf(b, "  error: %s\n", truncateText(effect.Result.Error.Message, 1000))
-		}
-	}
-	b.WriteString("\n")
-}
-
-func normalizeStopEvaluation(out StopEvaluation) (StopEvaluation, error) {
-	action := StopAction(strings.ToLower(strings.TrimSpace(string(out.Action))))
-	if action != StopActionStop && action != StopActionContinue {
-		return StopEvaluation{}, fmt.Errorf("stop evaluation action must be stop or continue")
-	}
-	out.Action = action
-	return out, nil
+	return sessioncontrol.EvaluateStopCondition(ctx, input.Condition, input, s.StopEvaluator)
 }
 
 func continuationLimitResult(agentResult agent.StepResult, effects []environment.EffectResult, max int) InputResult {
@@ -1894,17 +1638,17 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if spec.Path.String() == "" {
 		spec.Path = inbound.Command.Path
 	}
-	evaluation := policy.EvaluateInvocation(spec.Policy, inbound.Caller, inbound.Trust)
-	switch evaluation.Decision {
-	case policy.DecisionDeny:
+	evaluation := sessioncontrol.EvaluateInvocation(spec, inbound.Caller, inbound.Trust)
+	switch {
+	case sessioncontrol.PolicyDenied(evaluation):
 		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
-	case policy.DecisionApprovalRequired:
+	case sessioncontrol.PolicyApprovalRequired(evaluation):
 		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
 	}
 
-	if spec.Target.Kind == invocation.TargetSession {
+	if sessioncontrol.TargetsSession(spec) {
 		if resolved.SessionHandler == nil {
 			return CommandResult{
 				Status: CommandStatusUnsupported,
@@ -1922,7 +1666,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return resolved.SessionHandler(s, ctx, inbound, spec, evaluation)
 	}
 
-	if spec.Target.Kind != invocation.TargetOperation {
+	if !sessioncontrol.TargetsOperation(spec) {
 		return CommandResult{
 			Status: CommandStatusUnsupported,
 			Spec:   spec,
@@ -1974,7 +1718,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
 }
 
-func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
 	input, err := parseContextPreviewCommand(*inbound.Command)
 	if err != nil {
 		return CommandResult{
@@ -2016,7 +1760,7 @@ func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbo
 	}
 }
 
-func (s Session) executeGoalCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+func (s Session) executeGoalCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
 	input, err := parseGoalCommandInput(*inbound.Command)
 	if err != nil {
 		return CommandResult{
@@ -2232,7 +1976,7 @@ type compactBudget struct {
 	TriggerPercent int
 }
 
-func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation policy.Evaluation) CommandResult {
+func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
 	input, err := parseCompactCommand(*inbound.Command)
 	if err != nil {
 		return CommandResult{
@@ -2374,20 +2118,7 @@ func (s Session) modelContextTokens() int {
 }
 
 func (s Session) outputReserveTokens() int {
-	reserve := compactSafetyMarginTokens
-	if s.Agent == nil {
-		return reserve
-	}
-	spec := s.Agent.Spec()
-	reserve = maxInt(reserve, spec.Inference.MaxOutputTokens)
-	if value := intAnnotation(spec.Inference.Annotations, "llm.max_output_tokens"); value > 0 {
-		reserve = maxInt(reserve, value)
-	}
-	if driver, ok := s.Agent.(driverSpecAgent); ok {
-		driverSpec := driver.DriverSpec()
-		reserve = maxInt(reserve, driverSpec.Inference.MaxOutputTokens)
-	}
-	return reserve
+	return sessioncontrol.OutputReserveTokens(s.Agent, compactSafetyMarginTokens)
 }
 
 func (s Session) compactableTranscript(ctx context.Context) (coreconversation.Transcript, error) {
@@ -2459,13 +2190,6 @@ func intAnnotation(values map[string]string, key string) int {
 		return 0
 	}
 	return value
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func renderCompactReport(report compactReport, dryRun bool) string {
@@ -2563,19 +2287,19 @@ func commandPathAllowed(allowed []command.Path, path command.Path) bool {
 // CommandTargetsSession reports whether a command path resolves to a
 // session-target command. It is used by channel harnesses to decide whether a
 // session-specific agent must be resolved before dispatch.
-func CommandTargetsSession(path command.Path, resolver *resource.Resolver, catalog CommandCatalog, registry *command.Registry) (bool, error) {
+func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (bool, error) {
 	resolved, ok, err := resolveCommand(path, resolver, catalog, registry)
 	if err != nil || !ok {
 		return false, err
 	}
-	return resolved.Binding.Spec.Target.Kind == invocation.TargetSession, nil
+	return sessioncontrol.TargetsSession(resolved.Binding.Spec), nil
 }
 
 func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {
 	return resolveCommand(path, s.Resolver, s.CommandCatalog, s.Commands)
 }
 
-func resolveCommand(path command.Path, resolver *resource.Resolver, catalog CommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
+func resolveCommand(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
 	if sessionCommand, ok := builtInSessionCommands[path.String()]; ok {
 		return resolvedCommand{
 			Binding: CommandBinding{
@@ -2595,7 +2319,7 @@ func resolveCommand(path command.Path, resolver *resource.Resolver, catalog Comm
 	return resolvedCommand{}, false, nil
 }
 
-func resolveCommandBinding(path command.Path, resolver *resource.Resolver, catalog CommandCatalog) (CommandBinding, bool, error) {
+func resolveCommandBinding(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog) (CommandBinding, bool, error) {
 	if resolver == nil || len(catalog) == 0 {
 		return CommandBinding{}, false, nil
 	}
@@ -2689,23 +2413,23 @@ func operationEffect(result operation.Result) environment.EffectResult {
 }
 
 // Resolve resolves an executable operation binding from catalog.
-func (c OperationCatalog) Resolve(ref string, scope resource.ResourceID) (OperationBinding, error) {
+func (c OperationCatalog) Resolve(ref string, scope sessioncontrol.ResourceID) (OperationBinding, error) {
 	if len(c) == 0 {
 		return OperationBinding{}, fmt.Errorf("operation catalog is empty")
 	}
-	index := resource.NewResourceIndex()
+	index := sessioncontrol.NewResourceIndex()
 	for _, binding := range c {
 		index.Add(binding.ID)
 	}
-	resolver := resource.NewResolver(resource.ResolverConfig{Index: index})
+	resolver := sessioncontrol.NewResolver(index)
 	var (
-		id  resource.ResourceID
+		id  sessioncontrol.ResourceID
 		err error
 	)
 	if scope.IsZero() {
-		id, err = resolver.Resolve("operation", ref)
+		id, err = sessioncontrol.ResolveResource(resolver, "operation", ref)
 	} else {
-		id, err = resolver.ResolveInScope("operation", ref, scope)
+		id, err = sessioncontrol.ResolveResourceInScope(resolver, "operation", ref, scope)
 	}
 	if err != nil {
 		return OperationBinding{}, err
