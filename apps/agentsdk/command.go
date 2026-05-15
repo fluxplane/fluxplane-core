@@ -10,7 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
@@ -69,7 +69,7 @@ func mustTerminalEventRegistry() *coreevent.Registry {
 }
 
 func terminalEventRegistry() (*coreevent.Registry, error) {
-	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
+	registry, err := eventregistry.New(eventregistry.Config{EventTypes: eventcatalog.All()})
 	if err != nil {
 		return nil, err
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
@@ -233,7 +234,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
 	}
-	eventRegistry, err := app.NewEventRegistry(app.EventRegistryConfig{Bundles: bundles, EventTypes: eventcatalog.All()})
+	eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: eventcatalog.All()})
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err

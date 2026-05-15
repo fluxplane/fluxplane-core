@@ -17,6 +17,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
@@ -134,7 +135,7 @@ func TestComposeBuildsEventRegistryFromPluginContributions(t *testing.T) {
 }
 
 func TestNewEventRegistryRejectsDuplicateEventNames(t *testing.T) {
-	_, err := NewEventRegistry(EventRegistryConfig{
+	_, err := eventregistry.New(eventregistry.Config{
 		EventTypes: []coreevent.Event{testPluginEvent{}, testPluginEvent{}},
 	})
 	if err == nil {

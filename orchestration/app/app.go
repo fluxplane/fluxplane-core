@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -100,7 +101,7 @@ func Compose(cfg Config) (Composition, error) {
 	for _, bundle := range bundles {
 		diagnostics = append(diagnostics, bundle.Diagnostics...)
 	}
-	eventRegistry, err := NewEventRegistry(EventRegistryConfig{Bundles: bundles, EventTypes: cfg.EventTypes})
+	eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: cfg.EventTypes})
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
 		return Composition{Diagnostics: diagnostics}, err

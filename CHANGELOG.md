@@ -85,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Local launches can set `AGENTRUNTIME_BROWSER_HEADLESS=false` to run browser
   automation with a visible Chrome window for smoke testing.
+- Event registry assembly now lives in a dedicated orchestration package,
+  reducing app composition fan-out and improving the architecture score.
 - Improved architecture score by moving pure event codec helpers into core and
   removing unused runtime pass-through fields from app composition.
 - Architecture reports now include score penalty explanations so improvement

@@ -15,10 +15,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
@@ -229,7 +229,7 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 func TestDatasourceIndexDevIncludesSessionHistoryCorpus(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
-	registry, err := app.NewEventRegistry(app.EventRegistryConfig{EventTypes: eventcatalog.All()})
+	registry, err := eventregistry.New(eventregistry.Config{EventTypes: eventcatalog.All()})
 	if err != nil {
 		t.Fatalf("NewEventRegistry: %v", err)
 	}

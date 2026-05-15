@@ -1,4 +1,5 @@
-package app
+// Package eventregistry assembles event decoder registries for composed apps.
+package eventregistry
 
 import (
 	"fmt"
@@ -17,14 +18,14 @@ import (
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-// EventRegistryConfig describes event payload types visible to an app.
-type EventRegistryConfig struct {
+// Config describes event payload types visible to an app.
+type Config struct {
 	Bundles    []resource.ContributionBundle
 	EventTypes []event.Event
 }
 
-// NewEventRegistry builds a decoder registry for runtime event payloads.
-func NewEventRegistry(cfg EventRegistryConfig) (*event.Registry, error) {
+// New builds a decoder registry for runtime event payloads.
+func New(cfg Config) (*event.Registry, error) {
 	registry := event.NewRegistry()
 	if err := corethread.RegisterEvents(registry); err != nil {
 		return nil, fmt.Errorf("app: register thread events: %w", err)
@@ -92,4 +93,17 @@ func defaultEventTypes() []event.Event {
 		subagent.Failed{},
 		subagent.Cancelled{},
 	}
+}
+
+func sourceLabel(source resource.SourceRef) string {
+	if source.ID != "" {
+		return source.ID
+	}
+	if source.Location != "" {
+		return source.Location
+	}
+	if source.Ref != "" {
+		return source.Ref
+	}
+	return "unknown source"
 }

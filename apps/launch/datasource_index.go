@@ -11,8 +11,8 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
@@ -87,7 +87,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
-		eventRegistry, err := app.NewEventRegistry(app.EventRegistryConfig{Bundles: bundles, EventTypes: eventcatalog.All()})
+		eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: eventcatalog.All()})
 		if err != nil {
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err
