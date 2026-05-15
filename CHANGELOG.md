@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the `evaluator` app distribution and `cmd/evaluator` entrypoint for
+  evidence-backed evaluation of AgentRuntime apps over the public channel
+  protocol, including structured `evaluator target` flags and a deterministic
+  Unix-socket launch/serve E2E test.
+- `coder serve` starts coder over a local Unix socket without requiring an app
+  manifest; `--socket` defaults to `auto`, `--model` accepts provider-qualified
+  selections such as `codex/gpt-5.5`, `--yolo` is forwarded to served runtime
+  sessions, and startup output prints evaluator-friendly target connection
+  details.
+- Local launch/serve options can inject a model resolver for deterministic app
+  tests without changing production defaults.
 - `coder` now loads startup resources declared by its app discovery policy,
   including `<cwd>/.agents`, `$HOME/.agents`, and `$HOME/.claude`; `coder
   discover` uses the shared resource discovery command renderer.

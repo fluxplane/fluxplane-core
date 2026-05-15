@@ -18,18 +18,42 @@ import (
 	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
 	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/user"
+	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
+
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	"github.com/fluxplane/agentruntime/orchestration/daemon"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	orchestrationdistribution "github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 type Options struct {
-	AppDir   string
-	Debug    bool
-	Dev      bool
-	AuthPath string
+	AppDir        string
+	Debug         bool
+	Yolo          bool
+	Dev           bool
+	AuthPath      string
+	ModelResolver agentfactory.ModelResolver
+}
+
+type ServeDistributionOptions struct {
+	Root                string
+	Spec                coredistribution.Spec
+	Bundles             []resource.ContributionBundle
+	Launch              orchestrationdistribution.LaunchConfig
+	AuthPath            string
+	Debug               bool
+	Yolo                bool
+	Dev                 bool
+	Plugins             func(system.System) []pluginhost.Plugin
+	ToolProjection      agentruntime.ToolProjectionConfig
+	ModelResolver       agentfactory.ModelResolver
+	AllowPrivateNetwork bool
 }
 
 func Serve(ctx context.Context, opts Options) error {
@@ -41,21 +65,41 @@ func Serve(ctx context.Context, opts Options) error {
 	if err := validateServeLaunch(loaded, opts.AppDir); err != nil {
 		return err
 	}
-	runtime, err := Launch(ctx, RuntimeOptions{
+	return ServeDistribution(ctx, ServeDistributionOptions{
 		Root:                loaded.Root,
 		Spec:                loaded.Distribution.Spec,
 		Bundles:             loaded.Distribution.Bundles,
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
 		Debug:               opts.Debug,
+		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
+		ModelResolver:       opts.ModelResolver,
 		AllowPrivateNetwork: true,
+	})
+}
+
+func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error {
+	configureServeLogging(opts.Debug)
+	runtime, err := Launch(ctx, RuntimeOptions{
+		Root:                opts.Root,
+		Spec:                opts.Spec,
+		Bundles:             opts.Bundles,
+		Launch:              opts.Launch,
+		AuthPath:            opts.AuthPath,
+		Debug:               opts.Debug,
+		Yolo:                opts.Yolo,
+		Dev:                 opts.Dev,
+		Plugins:             opts.Plugins,
+		ToolProjection:      opts.ToolProjection,
+		ModelResolver:       opts.ModelResolver,
+		AllowPrivateNetwork: opts.AllowPrivateNetwork,
 	})
 	if err != nil {
 		return err
 	}
 	defer runtime.Close()
-	channels, err := serveChannels(ctx, loaded.Launch.Channels, opts, runtime.Dispatcher)
+	channels, err := serveChannels(ctx, opts.Launch.Channels, Options{AuthPath: opts.AuthPath, Debug: opts.Debug}, runtime.Dispatcher)
 	if err != nil {
 		return err
 	}
@@ -67,13 +111,13 @@ func Serve(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	if err := startServeListeners(ctx, loaded.Launch.Listeners, loaded.Launch.Channels, runtime.Service, host); err != nil {
+	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, runtime.Service, host); err != nil {
 		return err
 	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 	if opts.Debug {
-		_, _ = fmt.Fprintf(os.Stderr, "agentsdk serve loaded %s\n", loaded.Manifest)
+		_, _ = fmt.Fprintf(os.Stderr, "agentsdk serve loaded %s\n", opts.Root)
 	}
 	if len(channels) == 0 {
 		<-runCtx.Done()
@@ -90,7 +134,7 @@ func Serve(ctx context.Context, opts Options) error {
 	return nil
 }
 
-func validateServeLaunch(loaded distribution.Loaded, initPath string) error {
+func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath string) error {
 	if len(loaded.Launch.Listeners) == 0 && len(loaded.Launch.Channels) == 0 {
 		if loaded.Manifest == "" {
 			if strings.TrimSpace(initPath) == "" {
@@ -103,7 +147,7 @@ func validateServeLaunch(loaded distribution.Loaded, initPath string) error {
 	return nil
 }
 
-func serveChannels(ctx context.Context, docs []distribution.Channel, opts Options, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
+func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, opts Options, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	store := connectauth.NewStore(opts.AuthPath)
 	for _, doc := range docs {
@@ -150,7 +194,7 @@ func configureServeLogging(debug bool) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 }
 
-func slackAccess(doc distribution.Access) slackplugin.AccessPolicy {
+func slackAccess(doc orchestrationdistribution.Access) slackplugin.AccessPolicy {
 	return slackplugin.AccessPolicy{
 		Mode:             doc.Mode,
 		AllowUsers:       append([]string(nil), doc.AllowUsers...),
@@ -177,7 +221,7 @@ func userTrust(raw string) user.TrustLevel {
 	}
 }
 
-func startServeListeners(ctx context.Context, listeners []distribution.Listener, channels []distribution.Channel, client agentruntime.ChannelClient, host *daemon.Host) error {
+func startServeListeners(ctx context.Context, listeners []orchestrationdistribution.Listener, channels []orchestrationdistribution.Channel, client agentruntime.ChannelClient, host *daemon.Host) error {
 	needsDirect := map[string]bool{}
 	for _, ch := range channels {
 		if ch.Type == "direct" && ch.Listener != "" {

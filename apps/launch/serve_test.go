@@ -86,3 +86,21 @@ func TestServeCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 		t.Fatalf("app dir = %q, want .", got.AppDir)
 	}
 }
+
+func TestServeCommandForwardsYolo(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--yolo"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !got.Yolo {
+		t.Fatalf("yolo = false, want true")
+	}
+}

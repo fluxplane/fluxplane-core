@@ -20,7 +20,7 @@ func TestRootCommandHasExpectedCommands(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "init", "build", "run", "serve", "models", "connect", "remote", "discover"} {
+	for _, want := range []string{"coder", "evaluator", "init", "build", "run", "serve", "models", "connect", "remote", "discover"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}

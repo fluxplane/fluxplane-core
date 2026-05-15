@@ -8,6 +8,7 @@ import (
 
 type serveCommandOptions struct {
 	debug    bool
+	yolo     bool
 	dev      bool
 	authPath string
 }
@@ -35,12 +36,14 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 			return runner(cmd.Context(), Options{
 				AppDir:   path,
 				Debug:    opts.debug,
+				Yolo:     opts.yolo,
 				Dev:      opts.dev,
 				AuthPath: opts.authPath,
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print daemon startup details")
+	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served sessions")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	return cmd

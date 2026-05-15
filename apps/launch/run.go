@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -51,6 +52,7 @@ type LocalRuntimeConfig struct {
 	Bundles             []resource.ContributionBundle
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
+	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 	Launch              distribution.LaunchConfig
 	AuthPath            string
@@ -81,6 +83,7 @@ type RuntimeOptions struct {
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
+	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 }
 
@@ -154,6 +157,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Dev:                 cfg.Dev || req.Dev,
 		Plugins:             cfg.Plugins,
 		ToolProjection:      cfg.ToolProjection,
+		ModelResolver:       cfg.ModelResolver,
 		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
 	})
 	if err != nil {
@@ -301,7 +305,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
-		LLMModelResolver: distrun.ModelResolver{
+		LLMModelResolver: firstModelResolver(opts.ModelResolver, distrun.ModelResolver{
 			Provider:        opts.Provider,
 			Model:           opts.Model,
 			Thinking:        opts.Thinking,
@@ -313,7 +317,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			Debug:           opts.Debug,
 			ProviderSpecs:   composition.LLMProviderSpecs,
 			ModelAliases:    composition.LLMModelAliases,
-		},
+		}),
 		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
 		ToolProjection: firstToolProjection(opts.ToolProjection, agentruntime.ToolProjectionConfig{
 			AllowSideEffects:      true,

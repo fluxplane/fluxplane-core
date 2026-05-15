@@ -27,6 +27,7 @@ func NewCommand() *cobra.Command {
 	startup := loadStartupResources(context.Background())
 	cmd := distcli.NewCommand(distributionFromStartup(startup))
 	cmd.AddCommand(newDiscoverCommand(startup))
+	cmd.AddCommand(newServeCommand(startup))
 	return cmd
 }
 

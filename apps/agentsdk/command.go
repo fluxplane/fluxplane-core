@@ -8,6 +8,7 @@ import (
 	connectcli "github.com/fluxplane/agentruntime/adapters/connectors/cli"
 	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
 	"github.com/fluxplane/agentruntime/apps/coder"
+	"github.com/fluxplane/agentruntime/apps/evaluator"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
@@ -34,6 +35,7 @@ func NewCommand() *cobra.Command {
 		SilenceErrors: true,
 	}
 	cmd.AddCommand(coder.NewCommand())
+	cmd.AddCommand(evaluator.NewCommand())
 	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(launch.NewRunCommand())
