@@ -245,6 +245,7 @@ func (p *Plugin) dispatchStep(ctx operation.Context, scope subagent.Scope, planI
 				emitEvent(ctx, StepProgressed{PlanID: planID, StepID: step.ID, Message: progressed.Message})
 			}
 		}),
+		Approver: scope.Approver,
 	})
 	if err != nil {
 		return err

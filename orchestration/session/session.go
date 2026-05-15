@@ -446,7 +446,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			State:               state,
 			Effects:             effects,
 			MaxSteps:            s.maxSteps(),
-			FailOnStepLimit:     s.failOnStepLimit(),
+			FailOnStepLimit:     s.failOnStepLimitForInput(opts),
 			ProviderIdentity:    s.providerIdentity(),
 			ConversationTurnID:  inbound.ID,
 		})
@@ -1612,6 +1612,18 @@ func (s Session) failOnStepLimit() bool {
 	return isLLMDriverKind(spec.Driver.Kind) || spec.Turns.MaxSteps > 0
 }
 
+func (s Session) failOnStepLimitForInput(opts inputExecutionOptions) bool {
+	if s.Agent == nil {
+		return true
+	}
+	spec := s.Agent.Spec()
+	continuation := continuationPolicyForInput(opts, spec)
+	if strings.TrimSpace(continuation.StopCondition.Type) != "" {
+		return false
+	}
+	return s.failOnStepLimit()
+}
+
 func (s Session) maxContinuations() int {
 	if s.Agent == nil {
 		return 0
@@ -2719,7 +2731,20 @@ func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.C
 		Policy:         s.Delegation,
 		Events:         events,
 		ThreadStore:    s.ThreadStore,
+		Approver:       approverFromExecutor(s.OperationExecutor),
 	})
+}
+
+// approverFromExecutor extracts the ApprovalGate from an Executor's safety
+// gate when the gate is a SafetyEnvelope. This propagates the parent session's
+// approval policy (e.g. AutoApprover for --yolo) into the sub-agent scope so
+// child sessions inherit it explicitly rather than through implicit shared
+// state.
+func approverFromExecutor(exec operationruntime.Executor) operationruntime.ApprovalGate {
+	if env, ok := exec.Safety.(operationruntime.SafetyEnvelope); ok {
+		return env.Approval
+	}
+	return nil
 }
 
 func (s Session) replaySkillEvents(ctx context.Context) error {

@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 type contextKey struct{}
@@ -20,6 +21,10 @@ type Scope struct {
 	Policy         coresession.DelegationPolicy
 	Events         event.Sink
 	ThreadStore    corethread.Store
+	// Approver is the parent session's approval gate. It is propagated into
+	// child sessions so that runtime approval policy (e.g. --yolo /
+	// AutoApprover) is inherited rather than silently reset.
+	Approver operationruntime.ApprovalGate
 }
 
 // ContextWithScope attaches sub-agent supervisor scope to ctx.

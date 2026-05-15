@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // ID identifies one supervised child run.
@@ -65,6 +66,9 @@ type OpenRequest struct {
 	Profile      coresession.Spec
 	Conversation channel.ConversationRef
 	Metadata     map[string]string
+	// Approver carries the parent session's approval gate so child sessions
+	// inherit the same approval policy (e.g. AutoApprover for --yolo).
+	Approver operationruntime.ApprovalGate
 }
 
 type Session interface {
@@ -110,6 +114,10 @@ type SpawnRequest struct {
 	ParentCallID   operation.CallID
 	Metadata       map[string]string
 	Events         event.Sink
+	// Approver is the parent session's approval gate. When set, it is forwarded
+	// to the child session so that approval policy (e.g. AutoApprover for
+	// --yolo) is inherited rather than silently reset to the default.
+	Approver operationruntime.ApprovalGate
 }
 
 // Handle is a snapshot of one child task.
@@ -242,6 +250,7 @@ func (s *Supervisor) Prepare(ctx context.Context, req SpawnRequest) (PreparedSpa
 		Session:      profile,
 		Profile:      effectiveProfile,
 		Conversation: channel.ConversationRef{ID: string(req.ID)},
+		Approver:     req.Approver,
 		Metadata: map[string]string{
 			"parent_thread_id": string(req.ParentThreadID),
 			"parent_run_id":    req.ParentRunID,

@@ -13,6 +13,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // ChannelClient opens and discovers sessions through one channel transport.
@@ -49,6 +50,11 @@ type OpenRequest struct {
 	Conversation channel.ConversationRef `json:"conversation,omitempty"`
 	ThreadID     corethread.ID           `json:"thread_id,omitempty"`
 	Metadata     map[string]string       `json:"metadata,omitempty"`
+	// Approver is an optional in-process approval gate override. It is not
+	// serialised and only applies to direct (non-remote) channel clients. Sub-
+	// agent supervisors use it to propagate the parent session's approval policy
+	// (e.g. AutoApprover for --yolo) into child sessions.
+	Approver operationruntime.ApprovalGate `json:"-"`
 }
 
 // ResumeRequest resumes a known session/thread.

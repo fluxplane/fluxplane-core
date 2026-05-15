@@ -65,6 +65,7 @@ type Service struct {
 	mu          sync.Mutex
 	bindings    map[bindingKey]corethread.Ref
 	profiles    map[corethread.ID]coresession.Spec
+	approvers   map[corethread.ID]operationruntime.ApprovalGate
 	subscribers map[corethread.ID]map[int]*subscriber
 	nextSub     int
 }
@@ -111,6 +112,10 @@ type OpenSessionRequest struct {
 	Conversation channel.ConversationRef
 	ThreadID     corethread.ID
 	Metadata     map[string]string
+	// Approver overrides the executor's approval gate for this session. It is
+	// used by the sub-agent supervisor to propagate the parent's approval policy
+	// (e.g. AutoApprover for --yolo) into child sessions.
+	Approver operationruntime.ApprovalGate
 }
 
 // ListSessionsRequest filters harness session bindings.
@@ -147,6 +152,9 @@ func (s *Service) OpenSession(ctx context.Context, req OpenSessionRequest) (Sess
 	}
 	if req.Profile.Name != "" {
 		s.bindProfile(ref.ID, req.Profile)
+	}
+	if req.Approver != nil {
+		s.bindApprover(ref.ID, req.Approver)
 	}
 	return SessionInfo{
 		Session:      req.Session,
@@ -320,6 +328,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		return InboundResult{Session: info}, err
 	}
 	profile, _, _ := s.profileForInfo(info)
+	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
 		Agent:             agentRuntime,
 		Profile:           profile,
@@ -328,8 +337,8 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Resolver:          s.resolver,
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
-		OperationExecutor: s.operationExecutor,
-		Events:            s.runtimeEventSink(ctx, info, runID),
+		OperationExecutor: s.executorForInfo(info),
+		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
 		Subagents:         s.currentSubagents(),
@@ -338,6 +347,9 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
+	if err := runtimeFailures.Err(); err != nil {
+		return InboundResult{Session: info, Input: result, Outbound: result.Outbound}, err
+	}
 	s.publish(info.Thread.ID, clientapi.Event{
 		Kind:    clientapi.EventInputCompleted,
 		RunID:   runID,
@@ -381,6 +393,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 			return InboundResult{Session: info}, err
 		}
 	}
+	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
 		Agent:             agentRuntime,
 		Profile:           profile,
@@ -389,8 +402,8 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Resolver:          s.resolver,
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
-		OperationExecutor: s.operationExecutor,
-		Events:            s.runtimeEventSink(ctx, info, runID),
+		OperationExecutor: s.executorForInfo(info),
+		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
 		Subagents:         s.currentSubagents(),
@@ -399,6 +412,9 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		RunID:             string(runID),
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
+	if err := runtimeFailures.Err(); err != nil {
+		return InboundResult{Session: info, Command: result}, err
+	}
 	s.publish(info.Thread.ID, clientapi.Event{
 		Kind:    clientapi.EventCommandCompleted,
 		RunID:   runID,
@@ -580,6 +596,42 @@ func (s *Service) bindProfile(threadID corethread.ID, spec coresession.Spec) {
 	s.mu.Unlock()
 }
 
+// bindApprover stores a per-thread approval gate override. Sub-agent child
+// sessions call this during Open so that every subsequent run on that thread
+// uses the parent's approval policy (e.g. AutoApprover for --yolo).
+func (s *Service) bindApprover(threadID corethread.ID, approver operationruntime.ApprovalGate) {
+	if s == nil || threadID == "" || approver == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.approvers == nil {
+		s.approvers = map[corethread.ID]operationruntime.ApprovalGate{}
+	}
+	s.approvers[threadID] = approver
+	s.mu.Unlock()
+}
+
+// executorForInfo returns the effective executor for a session. When the
+// thread has a bound approval gate override it replaces the safety envelope's
+// Approval field so that child sessions inherit the parent's approval policy.
+func (s *Service) executorForInfo(info SessionInfo) operationruntime.Executor {
+	if s == nil {
+		return s.operationExecutor
+	}
+	s.mu.Lock()
+	approver, hasOverride := s.approvers[info.Thread.ID]
+	s.mu.Unlock()
+	if !hasOverride {
+		return s.operationExecutor
+	}
+	exec := s.operationExecutor
+	if env, ok := exec.Safety.(operationruntime.SafetyEnvelope); ok {
+		env.Approval = approver
+		exec.Safety = env
+	}
+	return exec
+}
+
 func (s *Service) profileForInfo(info SessionInfo) (coresession.Spec, bool, error) {
 	if s == nil {
 		return coresession.Spec{}, false, nil
@@ -676,6 +728,10 @@ func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
 }
 
 func (s *Service) runtimeEventSink(ctx context.Context, info SessionInfo, runID clientapi.RunID) coreevent.Sink {
+	return s.runtimeEventSinkWithFailures(ctx, info, runID, nil)
+}
+
+func (s *Service) runtimeEventSinkWithFailures(ctx context.Context, info SessionInfo, runID clientapi.RunID, failures *runtimeEventPersistenceFailures) coreevent.Sink {
 	return coreevent.SinkFunc(func(payload coreevent.Event) {
 		if payload == nil {
 			return
@@ -687,7 +743,14 @@ func (s *Service) runtimeEventSink(ctx context.Context, info SessionInfo, runID 
 			}
 			return
 		}
-		s.persistRuntimeEvent(ctx, info, runID, payload)
+		if err := s.persistRuntimeEvent(ctx, info, runID, payload); err != nil {
+			err = runtimeEventPersistenceError(payload, err)
+			if failures != nil {
+				failures.Record(err)
+			}
+			s.publishRuntimeEventPersistenceFailure(info, runID, err)
+			return
+		}
 		s.publish(info.Thread.ID, clientapi.Event{
 			Kind:    clientapi.EventRuntimeEmitted,
 			RunID:   runID,
@@ -703,30 +766,98 @@ func (s *Service) runtimeEventSink(ctx context.Context, info SessionInfo, runID 
 	})
 }
 
-func (s *Service) persistRuntimeEvent(ctx context.Context, info SessionInfo, runID clientapi.RunID, payload coreevent.Event) {
-	if s == nil || s.threadStore == nil || info.Thread.ID == "" || payload == nil {
+type runtimeEventPersistenceFailures struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (f *runtimeEventPersistenceFailures) Record(err error) {
+	if f == nil || err == nil {
 		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err == nil {
+		f.err = err
+	}
+}
+
+func (f *runtimeEventPersistenceFailures) Err() error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.err
+}
+
+func (s *Service) persistRuntimeEvent(ctx context.Context, info SessionInfo, runID clientapi.RunID, payload coreevent.Event) error {
+	if s == nil || s.threadStore == nil || info.Thread.ID == "" || payload == nil {
+		return nil
 	}
 	name := payload.EventName()
 	if !shouldPersistRuntimeEvent(name) {
+		return nil
+	}
+	return retryRuntimeEventAppend(ctx, func(appendCtx context.Context) error {
+		_, err := s.threadStore.Append(appendCtx, info.Thread, corethread.AppendRecord{
+			Event: coreevent.Record{
+				Name: coresession.EventRuntimeEmitted,
+				Payload: coresession.RuntimeEmitted{
+					RunID:   string(runID),
+					Name:    name,
+					Payload: payload,
+				},
+				Scope: coreevent.Scope{ThreadID: string(info.Thread.ID)},
+			},
+		})
+		return err
+	})
+}
+
+func runtimeEventPersistenceError(payload coreevent.Event, err error) error {
+	name := coreevent.Name("")
+	if payload != nil {
+		name = payload.EventName()
+	}
+	return fmt.Errorf("harness: persist runtime event %q: %w", name, err)
+}
+
+func (s *Service) publishRuntimeEventPersistenceFailure(info SessionInfo, runID clientapi.RunID, err error) {
+	if s == nil || err == nil {
 		return
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	} else {
-		ctx = context.WithoutCancel(ctx)
-	}
-	_, _ = s.threadStore.Append(ctx, info.Thread, corethread.AppendRecord{
-		Event: coreevent.Record{
-			Name: coresession.EventRuntimeEmitted,
-			Payload: coresession.RuntimeEmitted{
-				RunID:   string(runID),
-				Name:    name,
-				Payload: payload,
-			},
-			Scope: coreevent.Scope{ThreadID: string(info.Thread.ID)},
-		},
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventRunFailed,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+		Error:   err,
 	})
+}
+
+func retryRuntimeEventAppend(ctx context.Context, append func(context.Context) error) error {
+	if append == nil {
+		return nil
+	}
+	var last error
+	for attempt := 0; attempt < 8; attempt++ {
+		if err := append(runtimeEventPersistenceContext(ctx)); err != nil {
+			last = err
+			if !errors.Is(err, coreevent.ErrAppendConflict) {
+				return err
+			}
+			continue
+		}
+		return nil
+	}
+	return last
+}
+
+func runtimeEventPersistenceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {

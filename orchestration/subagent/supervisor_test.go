@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 func TestSupervisorSpawnWaitsForChildResultAndEmitsEvents(t *testing.T) {
@@ -247,12 +248,32 @@ func (r fakeRun) Wait(context.Context) (RunResult, error) {
 	return RunResult{Text: r.result}, nil
 }
 
+func TestSupervisorForwardsApproverToChildSession(t *testing.T) {
+	client := &recordingClient{result: "done"}
+	supervisor := New(Config{Client: client})
+	approver := operationruntime.AutoApprover{}
+	_, err := supervisor.Spawn(context.Background(), SpawnRequest{
+		Profile:  coresession.Ref{Name: "worker"},
+		Task:     "do it",
+		Policy:   coresession.DelegationPolicy{AllowedProfiles: []coresession.Ref{{Name: "worker"}}},
+		Approver: approver,
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if _, ok := client.approver.(operationruntime.AutoApprover); !ok {
+		t.Fatalf("child session approver = %T, want AutoApprover", client.approver)
+	}
+}
+
 type recordingClient struct {
-	result  string
-	profile coresession.Spec
+	result   string
+	profile  coresession.Spec
+	approver operationruntime.ApprovalGate
 }
 
 func (c *recordingClient) Open(_ context.Context, req OpenRequest) (Session, error) {
 	c.profile = req.Profile
+	c.approver = req.Approver
 	return fakeSession{result: c.result}, nil
 }

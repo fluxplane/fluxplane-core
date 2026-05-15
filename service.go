@@ -193,6 +193,7 @@ func (c subagentClient) Open(ctx context.Context, req subagent.OpenRequest) (sub
 		Profile:      req.Profile,
 		Conversation: req.Conversation,
 		Metadata:     req.Metadata,
+		Approver:     req.Approver,
 	})
 	if err != nil {
 		return nil, err

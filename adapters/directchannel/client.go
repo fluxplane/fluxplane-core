@@ -69,6 +69,7 @@ func (c *Client) Open(ctx context.Context, req clientapi.OpenRequest) (clientapi
 		Conversation: req.Conversation,
 		ThreadID:     req.ThreadID,
 		Metadata:     req.Metadata,
+		Approver:     req.Approver,
 	})
 	if err != nil {
 		return nil, err

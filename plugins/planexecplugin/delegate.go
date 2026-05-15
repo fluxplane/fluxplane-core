@@ -125,6 +125,7 @@ func (p *Plugin) delegateSpawn(ctx operation.Context, scope subagent.Scope, inpu
 		ParentCallID:   scope.ParentCallID,
 		Metadata:       input.Metadata,
 		Events:         scope.Events,
+		Approver:       scope.Approver,
 	})
 	if err != nil {
 		return operation.Failed("delegate_spawn_failed", err.Error(), delegateSpawnFailureDetails(input, scope.Policy))
