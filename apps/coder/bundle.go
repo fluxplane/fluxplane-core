@@ -29,6 +29,7 @@ func Bundle() resource.ContributionBundle {
 		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
 		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. "+
 			"Prefer native filesystem, git, browser, web_request, and code_execute operations over shell_exec. "+
+			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. "+
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
 		AsLLMAgent(DefaultModel).
 		WithMaxOutputTokens(4096).
@@ -41,7 +42,7 @@ func Bundle() resource.ContributionBundle {
 		}).
 		WithOperations(
 			"dir_create", "dir_list", "dir_tree",
-			"file_read", "file_create", "file_patch", "file_delete", "file_stat", "file_copy", "file_move",
+			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
 			"glob", "grep",
 			"web_request",
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
@@ -79,7 +80,7 @@ func Bundle() resource.ContributionBundle {
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations: []operation.Ref{
-					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_patch"},
+					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"}, {Name: "git_add"}, {Name: "git_commit"},
 					{Name: "shell_exec"}, {Name: "code_execute"}, {Name: "web_request"},
 				},

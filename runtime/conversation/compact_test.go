@@ -14,14 +14,14 @@ func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) 
 		Items: []coreconversation.Item{{
 			Kind:    coreconversation.ItemToolResult,
 			CallID:  "call_1",
-			Name:    "file_patch",
+			Name:    "file_edit",
 			Content: large,
 			Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
 		}},
 		NewItems: []coreconversation.Item{{
 			Kind:    coreconversation.ItemToolResult,
 			CallID:  "call_1",
-			Name:    "file_patch",
+			Name:    "file_edit",
 			Content: large,
 			Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
 		}},
@@ -35,7 +35,7 @@ func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) 
 	if item.Native != nil {
 		t.Fatalf("native = %s, want cleared", item.Native)
 	}
-	if !strings.Contains(item.Content.(string), "file_patch result omitted") {
+	if !strings.Contains(item.Content.(string), "file_edit result omitted") {
 		t.Fatalf("content = %#v, want compact tool result", item.Content)
 	}
 	if item.Metadata["compaction"] != "tool_result_summary" {
@@ -88,8 +88,8 @@ func TestCompactTranscriptDropsOldCompletedToolPairs(t *testing.T) {
 		Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses"},
 		Items: []coreconversation.Item{
 			{Kind: coreconversation.ItemInput, Role: "user", Content: strings.Repeat("old user ", 200)},
-			{Kind: coreconversation.ItemOutput, Role: "assistant", CallID: "call_1", Name: "file_patch", Native: []byte(strings.Repeat("tool call ", 400))},
-			{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "file_patch", Content: strings.Repeat("tool result ", 400)},
+			{Kind: coreconversation.ItemOutput, Role: "assistant", CallID: "call_1", Name: "file_edit", Native: []byte(strings.Repeat("tool call ", 400))},
+			{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "file_edit", Content: strings.Repeat("tool result ", 400)},
 			{Kind: coreconversation.ItemOutput, Role: "assistant", Content: strings.Repeat("old answer ", 200)},
 			{Kind: coreconversation.ItemInput, Role: "user", Content: "current"},
 		},

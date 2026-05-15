@@ -121,6 +121,7 @@ func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
 		"code",
 		"filesystem",
 		"file_create",
+		"file_edit",
 		PlanExecPlugin,
 		"agents",
 		"explorer",

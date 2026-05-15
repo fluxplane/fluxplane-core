@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ const (
 	DirTreeOp     = "dir_tree"
 	FileReadOp    = "file_read"
 	FileCreateOp  = "file_create"
-	FilePatchOp   = "file_patch"
+	FileEditOp    = "file_edit"
 	FileDeleteOp  = "file_delete"
 	FileStatOp    = "file_stat"
 	FileCopyOp    = "file_copy"
@@ -60,6 +61,10 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Name:        Name,
 			Description: "Workspace filesystem operations.",
 			Operations:  refs(specs),
+		}, {
+			Name:        FileEditOp,
+			Description: "Existing-file content edit operation.",
+			Operations:  []operation.Ref{{Name: FileEditOp}},
 		}},
 		Operations: specs,
 	}, nil
@@ -77,7 +82,7 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[dirTreeInput, operation.Rendered](specByName(DirTreeOp), func(ctx operation.Context, req dirTreeInput) operation.Result { return p.dirTree(ws)(ctx, req) }),
 		operationruntime.NewTypedResult[fileReadInput, operation.Rendered](specByName(FileReadOp), func(ctx operation.Context, req fileReadInput) operation.Result { return p.fileRead(ws)(ctx, req) }),
 		operationruntime.NewTypedResult[fileCreateInput, operation.Rendered](specByName(FileCreateOp), func(ctx operation.Context, req fileCreateInput) operation.Result { return p.fileCreate(ws)(ctx, req) }),
-		operationruntime.NewTypedResult[filePatchInput, operation.Rendered](specByName(FilePatchOp), func(ctx operation.Context, req filePatchInput) operation.Result { return p.filePatch(ws)(ctx, req) }),
+		operationruntime.NewTypedResult[fileEditInput, operation.Rendered](specByName(FileEditOp), func(ctx operation.Context, req fileEditInput) operation.Result { return p.fileEdit(ws)(ctx, req) }),
 		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileDeleteOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileDelete(ws)(ctx, req) }),
 		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileStatOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileStat(ws)(ctx, req) }),
 		operationruntime.NewTypedResult[copyMoveInput, operation.Rendered](specByName(FileCopyOp), func(ctx operation.Context, req copyMoveInput) operation.Result { return p.fileCopy(ws)(ctx, req) }),
@@ -94,7 +99,7 @@ func specs() []operation.Spec {
 		spec[dirTreeInput, operation.Rendered](DirTreeOp, "Render a bounded workspace directory tree.", operation.EffectFilesystem, operation.EffectReadExternal),
 		spec[fileReadInput, operation.Rendered](FileReadOp, "Read a bounded workspace file with optional line ranges.", operation.EffectFilesystem, operation.EffectReadExternal),
 		spec[fileCreateInput, operation.Rendered](FileCreateOp, "Create or overwrite a workspace file, creating parent directories.", operation.EffectFilesystem, operation.EffectCreate, operation.EffectWriteExternal),
-		spec[filePatchInput, operation.Rendered](FilePatchOp, "Patch a workspace file with exact text replacements, optionally dry-run.", operation.EffectFilesystem, operation.EffectUpdate, operation.EffectWriteExternal),
+		fileEditSpec(),
 		spec[pathInput, operation.Rendered](FileDeleteOp, "Delete one workspace file or empty directory.", operation.EffectFilesystem, operation.EffectDelete, operation.EffectWriteExternal, operation.EffectDestructive),
 		spec[pathInput, operation.Rendered](FileStatOp, "Stat one workspace path.", operation.EffectFilesystem, operation.EffectReadExternal),
 		spec[copyMoveInput, operation.Rendered](FileCopyOp, "Copy one workspace file to another path.", operation.EffectFilesystem, operation.EffectCreate, operation.EffectWriteExternal),
@@ -124,6 +129,34 @@ func spec[I, O any](name, description string, effects ...operation.Effect) opera
 			Risk:        risk,
 		},
 	})
+}
+
+func fileEditSpec() operation.Spec {
+	input := operationruntime.WithArrayItems(
+		operationruntime.TypeOf[fileEditInput]("file_edit_input"),
+		"operations",
+		operationruntime.OneOf(
+			operationruntime.SchemaFor[editPatchOp](),
+			operationruntime.SchemaFor[editLineInsertAfterOp](),
+			operationruntime.SchemaFor[editLineInsertBeforeOp](),
+			operationruntime.SchemaFor[editRangeReplaceOp](),
+			operationruntime.SchemaFor[editRangeDeleteOp](),
+			operationruntime.SchemaFor[editAppendOp](),
+			operationruntime.SchemaFor[editPrependOp](),
+		),
+	)
+	input.Description = "Existing-file edit request. Use file_create for new files or whole-file creation. All line numbers and exact-text patches refer to the original file; operations are merged, not applied sequentially."
+	return operation.Spec{
+		Ref:         operation.Ref{Name: FileEditOp},
+		Description: "Edit an existing workspace file by merging non-overlapping atomic changes resolved against the original file.",
+		Input:       input,
+		Output:      operationruntime.TypeOf[operation.Rendered]("file_edit_output"),
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectFilesystem, operation.EffectUpdate, operation.EffectWriteExternal},
+			Risk:        operation.RiskMedium,
+		},
+	}
 }
 
 func specByName(name string) operation.Spec {
@@ -330,75 +363,160 @@ func (p Plugin) fileCreate(ws system.Workspace) operation.Handler {
 	}
 }
 
-type filePatchInput struct {
-	Path    string      `json:"path" jsonschema:"description=File path to patch. Globs are not expanded here.,required"`
-	Old     string      `json:"old,omitempty" jsonschema:"description=Single old text to replace."`
-	New     string      `json:"new,omitempty" jsonschema:"description=Single replacement text."`
-	Patches []textPatch `json:"patches,omitempty" jsonschema:"description=Exact text replacements to apply in order."`
-	DryRun  bool        `json:"dry_run,omitempty" jsonschema:"description=Return diff without writing changes."`
+type fileEditInput struct {
+	Path       string            `json:"path" jsonschema:"description=Existing workspace file path to edit. The file must already exist; use file_create for new files or whole-file creation.,required"`
+	DryRun     bool              `json:"dry_run,omitempty" jsonschema:"description=When true, validate and render the planned edit without writing the file."`
+	DiffMode   string            `json:"diff_mode,omitempty" jsonschema:"description=Controls response diff verbosity only. full (default) returns the final unified diff against the original file; atomic returns one unified diff per atomic operation against the original file; none returns no diff.,enum=full,enum=atomic,enum=none"`
+	Operations []json.RawMessage `json:"operations" jsonschema:"description=Ordered atomic edits. All line numbers and exact-text patches refer to the original file. Every operation is resolved against the original file before any changes are merged. Operations must target non-overlapping original ranges; same-boundary inserts are applied in request order.,required,minItems=1"`
 }
 
-type textPatch struct {
-	Old string `json:"old" jsonschema:"description=Exact old text.,required"`
-	New string `json:"new" jsonschema:"description=Replacement text.,required"`
+type editOpHead struct {
+	Op string `json:"op"`
 }
 
-// patchStatus reports the outcome of one patch application.
-type patchStatus struct {
-	Matched bool   `json:"matched"`
-	Line    int    `json:"line"`   // 1-based line where old text was found; -1 when not found
-	Reason  string `json:"reason"` // empty on success
+type editPatchOp struct {
+	Op  string  `json:"op" jsonschema:"description=Exact-text replacement operation.,enum=patch,required"`
+	Old *string `json:"old" jsonschema:"description=Exact text to find in the original file. The first match is replaced once; empty text is invalid.,required"`
+	New *string `json:"new" jsonschema:"description=Replacement text.,required"`
 }
 
-func (p Plugin) filePatch(ws system.Workspace) operation.Handler {
+type editLineInsertAfterOp struct {
+	Op      string  `json:"op" jsonschema:"description=Insert content after a 1-indexed line in the original file.,enum=insert_after,required"`
+	Line    int     `json:"line" jsonschema:"description=Original 1-indexed line after which content is inserted.,minimum=1,required"`
+	Content *string `json:"content" jsonschema:"description=Content to insert exactly as provided.,required"`
+}
+
+type editLineInsertBeforeOp struct {
+	Op      string  `json:"op" jsonschema:"description=Insert content before a 1-indexed line in the original file.,enum=insert_before,required"`
+	Line    int     `json:"line" jsonschema:"description=Original 1-indexed line before which content is inserted.,minimum=1,required"`
+	Content *string `json:"content" jsonschema:"description=Content to insert exactly as provided.,required"`
+}
+
+type editRangeReplaceOp struct {
+	Op        string  `json:"op" jsonschema:"description=Replace an inclusive original line range.,enum=replace_range,required"`
+	StartLine int     `json:"start_line" jsonschema:"description=First original 1-indexed line to replace.,minimum=1,required"`
+	EndLine   int     `json:"end_line" jsonschema:"description=Last original 1-indexed line to replace inclusive.,minimum=1,required"`
+	Content   *string `json:"content" jsonschema:"description=Replacement content for the whole line range.,required"`
+}
+
+type editRangeDeleteOp struct {
+	Op        string `json:"op" jsonschema:"description=Delete an inclusive original line range.,enum=delete_range,required"`
+	StartLine int    `json:"start_line" jsonschema:"description=First original 1-indexed line to delete.,minimum=1,required"`
+	EndLine   int    `json:"end_line" jsonschema:"description=Last original 1-indexed line to delete inclusive.,minimum=1,required"`
+}
+
+type editAppendOp struct {
+	Op      string  `json:"op" jsonschema:"description=Append content at end of file.,enum=append,required"`
+	Content *string `json:"content" jsonschema:"description=Content to append exactly as provided.,required"`
+}
+
+type editPrependOp struct {
+	Op      string  `json:"op" jsonschema:"description=Prepend content at beginning of file.,enum=prepend,required"`
+	Content *string `json:"content" jsonschema:"description=Content to prepend exactly as provided.,required"`
+}
+
+type editFragment struct {
+	Index     int    `json:"index"`
+	Op        string `json:"op"`
+	Start     int    `json:"start_byte"`
+	End       int    `json:"end_byte"`
+	New       string `json:"-"`
+	Line      int    `json:"line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	OldText   string `json:"old_text,omitempty"`
+	Applied   bool   `json:"applied"`
+	Reason    string `json:"reason,omitempty"`
+	Diff      string `json:"diff,omitempty"`
+	SortOrder int    `json:"-"`
+}
+
+func (p Plugin) fileEdit(ws system.Workspace) operation.Handler {
 	return func(ctx operation.Context, input operation.Value) operation.Result {
-		var req filePatchInput
+		var req fileEditInput
 		if err := decode(input, &req); err != nil || strings.TrimSpace(req.Path) == "" {
-			return operation.Failed("invalid_file_patch_input", "path is required", nil)
+			return operation.Failed("invalid_file_edit_input", "path is required", nil)
 		}
-		if len(req.Patches) == 0 && (req.Old != "" || req.New != "") {
-			req.Patches = []textPatch{{Old: req.Old, New: req.New}}
+		if len(req.Operations) == 0 {
+			return operation.Failed("invalid_file_edit_input", "at least one operation is required", nil)
 		}
-		if len(req.Patches) == 0 {
-			return operation.Failed("invalid_file_patch_input", "at least one patch is required", nil)
+		diffMode := strings.TrimSpace(req.DiffMode)
+		if diffMode == "" {
+			diffMode = "full"
+		}
+		switch diffMode {
+		case "full", "atomic", "none":
+		default:
+			return operation.Failed("invalid_file_edit_input", "diff_mode must be full, atomic, or none", map[string]any{"diff_mode": req.DiffMode})
 		}
 		fileData, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxWriteBytes)
 		if err != nil {
-			return operation.Failed("file_patch_failed", err.Error(), nil)
+			return operation.Failed("file_edit_failed", err.Error(), nil)
 		}
 		if truncated {
-			return operation.Failed("file_patch_too_large", "file exceeds patch read limit", map[string]any{"path": resolved.Rel, "max_bytes": maxWriteBytes})
+			return operation.Failed("file_edit_too_large", "file exceeds edit read limit", map[string]any{"path": resolved.Rel, "max_bytes": maxWriteBytes})
 		}
 		before := string(fileData)
-		after := before
-		statuses := make([]patchStatus, len(req.Patches))
-		for i, patch := range req.Patches {
-			if patch.Old == "" {
-				return operation.Failed("invalid_file_patch_input", fmt.Sprintf("patch %d old text is empty", i), nil)
+		lineIndex := buildLineIndex(before)
+		fragments := make([]editFragment, 0, len(req.Operations))
+		for i, raw := range req.Operations {
+			fragment, err := resolveEditOperation(i, before, lineIndex, raw)
+			if err != nil {
+				return operation.Failed("invalid_file_edit_operation", err.Error(), map[string]any{"path": resolved.Rel, "index": i})
 			}
-			if !strings.Contains(after, patch.Old) {
-				statuses[i] = patchStatus{Matched: false, Line: -1, Reason: "old text not found"}
-				return operation.Failed("file_patch_no_match",
-					fmt.Sprintf("patch %d old text was not found", i),
-					map[string]any{"path": resolved.Rel, "patches": statuses[:i+1]})
-			}
-			statuses[i] = patchStatus{Matched: true, Line: findLine(after, patch.Old), Reason: ""}
-			after = strings.Replace(after, patch.Old, patch.New, 1)
+			fragments = append(fragments, fragment)
 		}
-		diff := unifiedDiff(resolved.Rel, before, after)
+		if err := validateEditFragments(fragments); err != nil {
+			return operation.Failed("file_edit_overlap", err.Error(), map[string]any{"path": resolved.Rel, "operations": fragments})
+		}
+		after := mergeEditFragments(before, fragments)
+		if len(after) > maxWriteBytes {
+			return operation.Rejected("file_edit_too_large", "edited content exceeds write limit", map[string]any{"path": resolved.Rel, "max_bytes": maxWriteBytes})
+		}
+		fullDiff := unifiedDiff(resolved.Rel, before, after)
+		if diffMode == "atomic" {
+			for i := range fragments {
+				fragments[i].Diff = unifiedDiff(resolved.Rel, before, mergeEditFragments(before, []editFragment{fragments[i]}))
+			}
+		}
+		for i := range fragments {
+			fragments[i].Applied = true
+		}
 		if !req.DryRun {
 			if _, err := ws.WriteFile(ctx, req.Path, []byte(after), 0644, true); err != nil {
-				return operation.Failed("file_patch_failed", err.Error(), nil)
+				return operation.Failed("file_edit_failed", err.Error(), nil)
 			}
-			recordUsage(ctx, FilePatchOp, resolved.Rel, usage.DirectionWrite, float64(len(after)))
+			recordUsage(ctx, FileEditOp, resolved.Rel, usage.DirectionWrite, float64(len(after)))
 		}
-		action := "Would patch"
+		action := "Would edit"
 		if !req.DryRun {
-			action = "Patched"
+			action = "Edited"
 		}
-		text := fmt.Sprintf("%s %s\n\n%s", action, displayPath(resolved), diff)
-		modelText := fmt.Sprintf("%s %s: %d replacement(s) applied. Diff omitted from model transcript; use git_diff or file_read if exact content is needed.", action, displayPath(resolved), len(req.Patches))
-		return operation.OK(operation.Rendered{Text: text, Model: modelText, Data: map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "patches": statuses, "diff": diff}})
+		data := map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "diff_mode": diffMode, "operations": fragments}
+		text := fmt.Sprintf("%s %s: %d operation(s) resolved against the original file.", action, displayPath(resolved), len(fragments))
+		switch diffMode {
+		case "full":
+			data["diff"] = fullDiff
+			if fullDiff != "" {
+				text += "\n\n" + fullDiff
+			}
+		case "atomic":
+			atomicDiffs := make([]string, 0, len(fragments))
+			for _, fragment := range fragments {
+				atomicDiffs = append(atomicDiffs, fragment.Diff)
+			}
+			data["atomic_diffs"] = atomicDiffs
+			var blocks []string
+			for _, fragment := range fragments {
+				if fragment.Diff != "" {
+					blocks = append(blocks, fmt.Sprintf("# operation %d (%s)\n%s", fragment.Index, fragment.Op, fragment.Diff))
+				}
+			}
+			if len(blocks) > 0 {
+				text += "\n\n" + strings.Join(blocks, "\n")
+			}
+		}
+		modelText := fmt.Sprintf("%s %s: %d operation(s) applied against original file coordinates. Diff mode: %s.", action, displayPath(resolved), len(fragments), diffMode)
+		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Model: modelText, Data: data})
 	}
 }
 
@@ -780,6 +898,217 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+type fileLineIndex struct {
+	starts []int
+	ends   []int
+}
+
+func buildLineIndex(content string) fileLineIndex {
+	if content == "" {
+		return fileLineIndex{}
+	}
+	starts := []int{0}
+	for i := 0; i < len(content); i++ {
+		if content[i] == '\n' && i+1 < len(content) {
+			starts = append(starts, i+1)
+		}
+	}
+	ends := make([]int, len(starts))
+	for i := range starts {
+		if i+1 < len(starts) {
+			ends[i] = starts[i+1]
+		} else {
+			ends[i] = len(content)
+		}
+	}
+	return fileLineIndex{starts: starts, ends: ends}
+}
+
+func (idx fileLineIndex) lineStart(line int) (int, error) {
+	if line < 1 || line > len(idx.starts) {
+		return 0, fmt.Errorf("line %d is outside original file line range 1-%d", line, len(idx.starts))
+	}
+	return idx.starts[line-1], nil
+}
+
+func (idx fileLineIndex) lineEnd(line int) (int, error) {
+	if line < 1 || line > len(idx.ends) {
+		return 0, fmt.Errorf("line %d is outside original file line range 1-%d", line, len(idx.ends))
+	}
+	return idx.ends[line-1], nil
+}
+
+func resolveEditOperation(index int, original string, lineIndex fileLineIndex, raw json.RawMessage) (editFragment, error) {
+	var head editOpHead
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return editFragment{}, fmt.Errorf("operation %d must be an object: %w", index, err)
+	}
+	op := strings.TrimSpace(head.Op)
+	if op == "" {
+		return editFragment{}, fmt.Errorf("operation %d op is required", index)
+	}
+	switch op {
+	case "patch":
+		var req editPatchOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d patch: %w", index, err)
+		}
+		if req.Old == nil {
+			return editFragment{}, fmt.Errorf("operation %d patch old text is required", index)
+		}
+		if req.New == nil {
+			return editFragment{}, fmt.Errorf("operation %d patch new text is required", index)
+		}
+		if *req.Old == "" {
+			return editFragment{}, fmt.Errorf("operation %d patch old text is empty", index)
+		}
+		start := strings.Index(original, *req.Old)
+		if start < 0 {
+			return editFragment{Index: index, Op: op, Start: -1, End: -1, Applied: false, Reason: "old text not found"}, fmt.Errorf("operation %d patch old text was not found", index)
+		}
+		return editFragment{Index: index, Op: op, Start: start, End: start + len(*req.Old), New: *req.New, Line: findLine(original, *req.Old), OldText: *req.Old, SortOrder: index}, nil
+	case "insert_after":
+		var req editLineInsertAfterOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.Content == nil {
+			return editFragment{}, fmt.Errorf("operation %d %s content is required", index, op)
+		}
+		pos, err := lineIndex.lineEnd(req.Line)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		return editFragment{Index: index, Op: op, Start: pos, End: pos, New: *req.Content, Line: req.Line, SortOrder: index}, nil
+	case "insert_before":
+		var req editLineInsertBeforeOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.Content == nil {
+			return editFragment{}, fmt.Errorf("operation %d %s content is required", index, op)
+		}
+		pos, err := lineIndex.lineStart(req.Line)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		return editFragment{Index: index, Op: op, Start: pos, End: pos, New: *req.Content, Line: req.Line, SortOrder: index}, nil
+	case "replace_range":
+		var req editRangeReplaceOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.Content == nil {
+			return editFragment{}, fmt.Errorf("operation %d %s content is required", index, op)
+		}
+		if req.StartLine <= 0 || req.EndLine <= 0 || req.StartLine > req.EndLine {
+			return editFragment{}, fmt.Errorf("operation %d %s requires start_line <= end_line and both >= 1", index, op)
+		}
+		start, err := lineIndex.lineStart(req.StartLine)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		end, err := lineIndex.lineEnd(req.EndLine)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		return editFragment{Index: index, Op: op, Start: start, End: end, New: *req.Content, Line: req.StartLine, EndLine: req.EndLine, OldText: original[start:end], SortOrder: index}, nil
+	case "delete_range":
+		var req editRangeDeleteOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.StartLine <= 0 || req.EndLine <= 0 || req.StartLine > req.EndLine {
+			return editFragment{}, fmt.Errorf("operation %d %s requires start_line <= end_line and both >= 1", index, op)
+		}
+		start, err := lineIndex.lineStart(req.StartLine)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		end, err := lineIndex.lineEnd(req.EndLine)
+		if err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		return editFragment{Index: index, Op: op, Start: start, End: end, New: "", Line: req.StartLine, EndLine: req.EndLine, OldText: original[start:end], SortOrder: index}, nil
+	case "append":
+		var req editAppendOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.Content == nil {
+			return editFragment{}, fmt.Errorf("operation %d %s content is required", index, op)
+		}
+		pos := len(original)
+		return editFragment{Index: index, Op: op, Start: pos, End: pos, New: *req.Content, SortOrder: index}, nil
+	case "prepend":
+		var req editPrependOp
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return editFragment{}, fmt.Errorf("operation %d %s: %w", index, op, err)
+		}
+		if req.Content == nil {
+			return editFragment{}, fmt.Errorf("operation %d %s content is required", index, op)
+		}
+		return editFragment{Index: index, Op: op, Start: 0, End: 0, New: *req.Content, SortOrder: index}, nil
+	default:
+		return editFragment{}, fmt.Errorf("operation %d has unknown op %q", index, op)
+	}
+}
+
+func validateEditFragments(fragments []editFragment) error {
+	for i := 0; i < len(fragments); i++ {
+		for j := i + 1; j < len(fragments); j++ {
+			if editFragmentsConflict(fragments[i], fragments[j]) {
+				return fmt.Errorf("operation %d (%s) overlaps operation %d (%s)", fragments[i].Index, fragments[i].Op, fragments[j].Index, fragments[j].Op)
+			}
+		}
+	}
+	return nil
+}
+
+func editFragmentsConflict(a, b editFragment) bool {
+	aInsert := a.Start == a.End
+	bInsert := b.Start == b.End
+	if aInsert && bInsert {
+		return false
+	}
+	if !aInsert && !bInsert {
+		return a.Start < b.End && b.Start < a.End
+	}
+	if aInsert {
+		return b.Start < a.Start && a.Start < b.End
+	}
+	return a.Start < b.Start && b.Start < a.End
+}
+
+func mergeEditFragments(original string, fragments []editFragment) string {
+	ordered := append([]editFragment(nil), fragments...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Start != ordered[j].Start {
+			return ordered[i].Start < ordered[j].Start
+		}
+		iInsert := ordered[i].Start == ordered[i].End
+		jInsert := ordered[j].Start == ordered[j].End
+		if iInsert != jInsert {
+			return iInsert
+		}
+		return ordered[i].SortOrder < ordered[j].SortOrder
+	})
+	var out strings.Builder
+	cursor := 0
+	for _, fragment := range ordered {
+		if fragment.Start > cursor {
+			out.WriteString(original[cursor:fragment.Start])
+			cursor = fragment.Start
+		}
+		out.WriteString(fragment.New)
+		if fragment.End > cursor {
+			cursor = fragment.End
+		}
+	}
+	out.WriteString(original[cursor:])
+	return out.String()
 }
 
 // diffOp kinds.

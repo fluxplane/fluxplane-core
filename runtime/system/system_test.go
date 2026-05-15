@@ -101,6 +101,38 @@ func TestHostWorkspaceReadFileLinesPastInitialWindow(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceGlobMatchesRootLevelGlobstar(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"README.md", "eval-review.md", filepath.Join("docs", "README.md")} {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sys, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	matches, _, err := sys.Workspace().Glob(context.Background(), "**/*.md", GlobOptions{Base: ".", MaxResults: 20})
+	if err != nil {
+		t.Fatalf("Glob **/*.md: %v", err)
+	}
+	if !resolvedContains(matches, "README.md") || !resolvedContains(matches, filepath.ToSlash(filepath.Join("docs", "README.md"))) {
+		t.Fatalf("matches = %#v, want root and nested markdown files", matches)
+	}
+	matches, _, err = sys.Workspace().Glob(context.Background(), "**/eval-review.md", GlobOptions{Base: ".", MaxResults: 20})
+	if err != nil {
+		t.Fatalf("Glob **/eval-review.md: %v", err)
+	}
+	if !resolvedContains(matches, "eval-review.md") {
+		t.Fatalf("matches = %#v, want root eval-review.md", matches)
+	}
+}
+
 func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T) {
 	root := t.TempDir()
 	data := []byte("source")
@@ -337,4 +369,13 @@ func TestHostNetworkRetriesIdempotentRequests(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("calls = %d, want 2", calls)
 	}
+}
+
+func resolvedContains(paths []ResolvedPath, rel string) bool {
+	for _, path := range paths {
+		if path.Rel == rel {
+			return true
+		}
+	}
+	return false
 }

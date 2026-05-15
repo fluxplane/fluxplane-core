@@ -103,7 +103,7 @@ The first standard coding operation batch lives behind `plugins/codingplugin`.
 It aggregates filesystem, web, browser, git, shell, background process, scratch
 code execution, and human clarification operations. These are contributed as
 `operation.Set` groups so a capability can contain multiple atomic operations
-such as `file_read`, `file_patch`, `grep`, and `browser_click`.
+such as `file_read`, `file_edit`, `grep`, and `browser_click`.
 
 The host-backed filesystem boundary currently:
 

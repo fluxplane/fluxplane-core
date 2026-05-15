@@ -53,7 +53,7 @@ func (p *Plugin) Contributions(context.Context, pluginhost.Context) (resource.Co
 				Driver:      agent.DriverSpec{Kind: "llmagent"},
 				Turns:       agent.TurnPolicy{MaxSteps: 50},
 				Operations: []operation.Ref{
-					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_patch"},
+					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"},
 					{Name: "shell_exec"}, {Name: "code_execute"},
 				},

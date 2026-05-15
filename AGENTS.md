@@ -143,6 +143,10 @@ in.
   input/output structs with `json` and `jsonschema` tags and let the typed
   helper generate the `operation.Type` JSON Schema. Hand-written schema
   strings are only for shapes reflection cannot express cleanly.
+- Do not hand-craft JSON Schema as raw strings. For shapes reflection cannot
+  express, use structured schema helpers or typed `JSONSchema()` methods near
+  the Go input type, and keep runtime validation aligned with the advertised
+  schema because core schemas are model-facing contracts, not enforcement.
 
 See [docs/security.md](docs/security.md) for the full safety model.
 

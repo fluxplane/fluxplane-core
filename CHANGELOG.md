@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `file_edit`, an existing-file edit operation with dry-run support,
+  original-file coordinate semantics, merged non-overlapping atomic edits, and
+  configurable full/atomic/no diff output.
+- Added a first design note for a future `golangplugin` with Go module/package
+  discovery, outlines, symbol lookup, references, and refactoring-oriented read
+  operations.
 - Added the `evaluator` app distribution and `cmd/evaluator` entrypoint for
   evidence-backed evaluation of AgentRuntime apps over the public channel
   protocol, including structured `evaluator target` flags and a deterministic
@@ -67,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `coder` now uses `file_edit` for existing-file content edits while keeping
+  `file_create`, `file_copy`, `file_move`, and `file_delete` as separate
+  filesystem operations.
 - `--yolo` now auto-approves local command-risk gates, including commands that
   exceed the default risk threshold, while ACL, sandbox, secret, syntax, and
   plugin hard-deny checks remain enforced.

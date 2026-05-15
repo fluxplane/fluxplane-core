@@ -460,11 +460,11 @@ func TestResponseParamsLeavesLargeReplayToolResultUncompacted(t *testing.T) {
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
 			Items: []coreconversation.Item{
-				{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_patch", Native: []byte(`{"type":"function_call","call_id":"call_1","name":"file_patch","arguments":"{}"}`)},
+				{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_edit", Native: []byte(`{"type":"function_call","call_id":"call_1","name":"file_edit","arguments":"{}"}`)},
 				{
 					Kind:    coreconversation.ItemToolResult,
 					CallID:  "call_1",
-					Name:    "file_patch",
+					Name:    "file_edit",
 					Content: large,
 					Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
 				},
@@ -472,7 +472,7 @@ func TestResponseParamsLeavesLargeReplayToolResultUncompacted(t *testing.T) {
 			NewItems: []coreconversation.Item{{
 				Kind:    coreconversation.ItemToolResult,
 				CallID:  "call_1",
-				Name:    "file_patch",
+				Name:    "file_edit",
 				Content: large,
 				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
 			}},
@@ -488,7 +488,7 @@ func TestResponseParamsLeavesLargeReplayToolResultUncompacted(t *testing.T) {
 	if !strings.Contains(string(raw), "large diff line") {
 		t.Fatalf("params json = %s, want original large tool output", raw)
 	}
-	if strings.Contains(string(raw), "file_patch result omitted") {
+	if strings.Contains(string(raw), "file_edit result omitted") {
 		t.Fatalf("params json = %s, want no provider-local compaction", raw)
 	}
 	if len(sent) != 1 || len(sent[0].Native) == 0 || !strings.Contains(string(sent[0].Native), "large diff line") {

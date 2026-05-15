@@ -121,6 +121,67 @@ func TypeOf[T any](name string) operation.Type {
 	}
 }
 
+// SchemaFor returns a core operation schema for T.
+func SchemaFor[T any]() operation.Schema {
+	return SchemaForType(reflect.TypeOf((*T)(nil)).Elem())
+}
+
+// OneOf returns a JSON Schema oneOf composition over the supplied schemas.
+func OneOf(schemas ...operation.Schema) operation.Schema {
+	cases := make([]any, 0, len(schemas))
+	for _, schema := range schemas {
+		if schema.Format != "" && schema.Format != "json-schema" {
+			continue
+		}
+		var value any
+		if len(schema.Data) == 0 || json.Unmarshal(schema.Data, &value) != nil {
+			continue
+		}
+		cases = append(cases, value)
+	}
+	raw, err := json.Marshal(map[string]any{"oneOf": cases})
+	if err != nil {
+		return operation.Schema{}
+	}
+	return operation.Schema{Format: "json-schema", Data: raw}
+}
+
+// WithArrayItems replaces the JSON Schema items schema of one array property
+// on typ. It is intended for reflected outer structs whose item type needs a
+// composed schema such as oneOf.
+func WithArrayItems(typ operation.Type, property string, items operation.Schema) operation.Type {
+	typ.Schema = schemaWithArrayItems(typ.Schema, property, items)
+	return typ
+}
+
+func schemaWithArrayItems(schema operation.Schema, property string, items operation.Schema) operation.Schema {
+	if schema.Format != "" && schema.Format != "json-schema" {
+		return schema
+	}
+	var root map[string]any
+	if len(schema.Data) == 0 || json.Unmarshal(schema.Data, &root) != nil {
+		return schema
+	}
+	var itemValue any
+	if len(items.Data) == 0 || json.Unmarshal(items.Data, &itemValue) != nil {
+		return schema
+	}
+	properties, ok := root["properties"].(map[string]any)
+	if !ok {
+		return schema
+	}
+	prop, ok := properties[property].(map[string]any)
+	if !ok {
+		return schema
+	}
+	prop["items"] = itemValue
+	raw, err := json.Marshal(root)
+	if err != nil {
+		return schema
+	}
+	return operation.Schema{Format: "json-schema", Data: raw}
+}
+
 // SchemaForType returns an inert JSON Schema document for t when possible.
 func SchemaForType(t reflect.Type) operation.Schema {
 	if t == nil || !jsonSchemaEligible(t, map[reflect.Type]bool{}) {
