@@ -55,7 +55,9 @@ func Discover(ctx context.Context, root string) (Result, error) {
 				}
 			}
 			if app.Discovery.IncludeGlobalUserResources {
-				result.Bundles = append(result.Bundles, loadUserResources(ctx)...)
+				userBundles, userDiagnostics := loadUserResources(ctx)
+				result.Bundles = append(result.Bundles, userBundles...)
+				result.Diagnostics = append(result.Diagnostics, userDiagnostics...)
 			}
 		}
 	}
@@ -126,11 +128,12 @@ func loadSource(ctx context.Context, root string, source coreapp.SourceSpec) (re
 	return bundle, true, nil
 }
 
-func loadUserResources(ctx context.Context) []resource.ContributionBundle {
+func loadUserResources(ctx context.Context) ([]resource.ContributionBundle, []resource.Diagnostic) {
 	var out []resource.ContributionBundle
+	var diagnostics []resource.Diagnostic
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return nil
+		return nil, nil
 	}
 	for _, rel := range []string{".agents", ".claude"} {
 		dir := filepath.Join(home, rel)
@@ -140,13 +143,14 @@ func loadUserResources(ctx context.Context) []resource.ContributionBundle {
 		}
 		bundle, err := agentdir.LoadDir(ctx, dir)
 		if err != nil {
+			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{Location: dir}, err))
 			continue
 		}
 		bundle.Source.Scope = resource.ScopeUser
 		bundle.Source.Trust = policy.Trust{Kind: policy.TrustSource, Level: policy.TrustVerified}
 		out = append(out, bundle)
 	}
-	return out
+	return out, diagnostics
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {

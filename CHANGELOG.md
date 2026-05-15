@@ -61,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `coder` now accepts common Claude-style user resource frontmatter and reports
+  user resource load diagnostics, so `$HOME/.claude` skills are available for
+  explicit REPL activation instead of failing with `skill_state_missing`.
 - Appconfig manifests and agentdir frontmatter now validate raw YAML/JSON
   against generated JSON Schemas before decoding, and continuation caps now
   require an explicit stop condition.

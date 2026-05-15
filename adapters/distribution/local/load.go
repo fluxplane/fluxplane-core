@@ -60,7 +60,9 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 				}
 			}
 			if app.Discovery.IncludeGlobalUserResources {
-				loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, loadUserResources(ctx)...)
+				userBundles, userDiagnostics := loadUserResources(ctx)
+				loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, userBundles...)
+				loaded.Diagnostics = append(loaded.Diagnostics, userDiagnostics...)
 			}
 		}
 	}
@@ -117,7 +119,9 @@ func LoadRequestedResources(ctx context.Context, path string, bundles []resource
 				}
 			}
 			if app.Discovery.IncludeGlobalUserResources {
-				out.Bundles = append(out.Bundles, loadUserResources(ctx)...)
+				userBundles, userDiagnostics := loadUserResources(ctx)
+				out.Bundles = append(out.Bundles, userBundles...)
+				out.Diagnostics = append(out.Diagnostics, userDiagnostics...)
 			}
 		}
 	}
@@ -233,11 +237,12 @@ func loadSource(ctx context.Context, root string, source coreapp.SourceSpec) (re
 	return bundle, true, nil
 }
 
-func loadUserResources(ctx context.Context) []resource.ContributionBundle {
+func loadUserResources(ctx context.Context) ([]resource.ContributionBundle, []resource.Diagnostic) {
 	var out []resource.ContributionBundle
+	var diagnostics []resource.Diagnostic
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return nil
+		return nil, nil
 	}
 	for _, rel := range []string{".agents", ".claude"} {
 		dir := filepath.Join(home, rel)
@@ -247,13 +252,14 @@ func loadUserResources(ctx context.Context) []resource.ContributionBundle {
 		}
 		bundle, err := agentdir.LoadDir(ctx, dir)
 		if err != nil {
+			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{Location: dir}, err))
 			continue
 		}
 		bundle.Source.Scope = resource.ScopeUser
 		bundle.Source.Trust = policy.Trust{Kind: policy.TrustSource, Level: policy.TrustVerified}
 		out = append(out, bundle)
 	}
-	return out
+	return out, diagnostics
 }
 
 func specFor(root string, bundles []resource.ContributionBundle) coredistribution.Spec {

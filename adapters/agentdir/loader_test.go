@@ -11,6 +11,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
 )
 
@@ -210,6 +211,57 @@ description: Evaluate architecture.
 	}
 }
 
+func TestLoadDirAcceptsClaudeStyleAgentAndSkillFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, ".claude")
+	writeFile(t, agentDir, "agents/ticket-implementer.md", `---
+name: ticket-implementer
+description: Ticket implementation agent.
+tools: Bash, Glob, Grep, Read, Edit, Write, Skill
+model: sonnet
+memory: project
+---
+Implement a ticket.
+`)
+	writeFile(t, agentDir, "skills/dex/SKILL.md", `---
+name: dex
+description: Run dex CLI commands.
+user-invocable: true
+---
+Use dex commands.
+`)
+	writeFile(t, agentDir, "skills/golang-pro/SKILL.md", `---
+name: golang-pro
+description: Go specialist.
+metadata:
+  domain: language
+  triggers: Go, Golang, goroutines
+  role: specialist
+---
+Use Go guidance.
+`)
+
+	bundle, err := LoadDir(context.Background(), agentDir)
+	if err != nil {
+		t.Fatalf("LoadDir() error = %v", err)
+	}
+	agent := findAgent(t, bundle.Agents, "ticket-implementer")
+	if len(agent.Tools) != 7 || agent.Tools[0].Name != "Bash" || agent.Tools[6].Name != "Skill" {
+		t.Fatalf("agent tools = %#v", agent.Tools)
+	}
+	dex := findSkill(t, bundle.Skills, "dex")
+	if dex.Metadata["user_invocable"] != "true" {
+		t.Fatalf("dex metadata = %#v, want user_invocable", dex.Metadata)
+	}
+	golang := findSkill(t, bundle.Skills, "golang-pro")
+	if got := golang.Triggers; len(got) != 3 || got[0] != "Go" || got[1] != "Golang" || got[2] != "goroutines" {
+		t.Fatalf("golang triggers = %#v", got)
+	}
+	if golang.Metadata["domain"] != "language" || golang.Metadata["role"] != "specialist" {
+		t.Fatalf("golang metadata = %#v", golang.Metadata)
+	}
+}
+
 func TestDecodeWorkflowRejectsUnknownDependency(t *testing.T) {
 	_, err := DecodeWorkflow("feature.yaml", []byte(`name: feature
 steps:
@@ -290,4 +342,15 @@ func findCommand(t *testing.T, specs []command.Spec, name string) command.Spec {
 	}
 	t.Fatalf("command %q not found", name)
 	return command.Spec{}
+}
+
+func findSkill(t *testing.T, specs []skill.Spec, name string) skill.Spec {
+	t.Helper()
+	for _, spec := range specs {
+		if string(spec.Name) == name {
+			return spec
+		}
+	}
+	t.Fatalf("skill %q not found", name)
+	return skill.Spec{}
 }

@@ -380,10 +380,10 @@ func DecodeAgent(filename string, data []byte) (agent.Spec, error) {
 				StopCondition:    fm.Turns.Continuation.StopCondition.agentSpec(),
 			},
 		},
-		Tools:       toToolRefs(fm.Tools),
-		Commands:    toCommandRefs(fm.Commands),
-		Skills:      toSkillRefs(fm.Skills),
-		Annotations: stringListAnnotations("capabilities", fm.Capabilities),
+		Tools:       toToolRefs(frontmatterStrings(fm.Tools)),
+		Commands:    toCommandRefs(frontmatterStrings(fm.Commands)),
+		Skills:      toSkillRefs(frontmatterStrings(fm.Skills)),
+		Annotations: stringListAnnotations("capabilities", frontmatterStrings(fm.Capabilities)),
 	}
 	if err := spec.Validate(); err != nil {
 		return agent.Spec{}, err
@@ -565,9 +565,9 @@ func DecodeSkill(defaultName, sourceURI string, data []byte) (skill.Spec, error)
 			URI:  sourceURI,
 			Kind: "agentdir",
 		},
-		Triggers:    cleanStrings(fm.Triggers),
+		Triggers:    skillTriggers(fm),
 		Metadata:    skillMetadata(fm),
-		Annotations: stringListAnnotations("allowed_tools", fm.AllowedTools),
+		Annotations: stringListAnnotations("allowed_tools", frontmatterStrings(fm.AllowedTools)),
 	}
 	if err := spec.Validate(); err != nil {
 		return skill.Spec{}, err
@@ -584,10 +584,11 @@ type agentFrontmatter struct {
 	Temperature  float64   `yaml:"temperature"`
 	Thinking     string    `yaml:"thinking"`
 	Effort       string    `yaml:"effort"`
-	Tools        []string  `yaml:"tools"`
-	Skills       []string  `yaml:"skills"`
-	Commands     []string  `yaml:"commands"`
-	Capabilities []string  `yaml:"capabilities"`
+	Memory       string    `yaml:"memory"`
+	Tools        any       `yaml:"tools"`
+	Skills       any       `yaml:"skills"`
+	Commands     any       `yaml:"commands"`
+	Capabilities any       `yaml:"capabilities"`
 }
 
 type turnsYAML struct {
@@ -674,20 +675,22 @@ type workflowStep struct {
 }
 
 type skillFrontmatter struct {
-	Name          string   `yaml:"name"`
-	Description   string   `yaml:"description"`
-	Triggers      []string `yaml:"triggers"`
-	AllowedTools  []string `yaml:"allowed-tools"`
-	License       string   `yaml:"license"`
-	Risk          string   `yaml:"risk"`
-	Compatibility string   `yaml:"compatibility"`
-	Domain        string   `yaml:"domain"`
-	Role          string   `yaml:"role"`
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description"`
+	Triggers      any               `yaml:"triggers"`
+	AllowedTools  any               `yaml:"allowed-tools"`
+	UserInvocable bool              `yaml:"user-invocable"`
+	License       string            `yaml:"license"`
+	Risk          string            `yaml:"risk"`
+	Compatibility string            `yaml:"compatibility"`
+	Domain        string            `yaml:"domain"`
+	Role          string            `yaml:"role"`
+	Metadata      map[string]string `yaml:"metadata"`
 }
 
 type referenceFrontmatter struct {
-	Trigger  string   `yaml:"trigger"`
-	Triggers []string `yaml:"triggers"`
+	Trigger  string `yaml:"trigger"`
+	Triggers any    `yaml:"triggers"`
 }
 
 func decodeFrontmatter[T any](data []byte, out *T) (string, error) {
@@ -889,13 +892,21 @@ func DecodeSkillReference(refPath string, data []byte) (skill.ReferenceSpec, err
 }
 
 func referenceTriggers(fm referenceFrontmatter) []string {
-	if len(fm.Triggers) > 0 {
-		return cleanStrings(fm.Triggers)
+	if triggers := frontmatterStrings(fm.Triggers); len(triggers) > 0 {
+		return triggers
 	}
 	if strings.TrimSpace(fm.Trigger) == "" {
 		return nil
 	}
 	return cleanStrings(strings.Split(fm.Trigger, ","))
+}
+
+func skillTriggers(fm skillFrontmatter) []string {
+	triggers := frontmatterStrings(fm.Triggers)
+	if len(triggers) > 0 {
+		return triggers
+	}
+	return frontmatterStrings(fm.Metadata["triggers"])
 }
 
 func skillMetadata(fm skillFrontmatter) map[string]string {
@@ -905,6 +916,14 @@ func skillMetadata(fm skillFrontmatter) map[string]string {
 		"compatibility": strings.TrimSpace(fm.Compatibility),
 		"domain":        strings.TrimSpace(fm.Domain),
 		"role":          strings.TrimSpace(fm.Role),
+	}
+	for key, value := range fm.Metadata {
+		if _, exists := values[key]; !exists || strings.TrimSpace(values[key]) == "" {
+			values[key] = strings.TrimSpace(value)
+		}
+	}
+	if fm.UserInvocable {
+		values["user_invocable"] = "true"
 	}
 	out := map[string]string{}
 	for key, value := range values {
@@ -916,6 +935,25 @@ func skillMetadata(fm skillFrontmatter) map[string]string {
 		return nil
 	}
 	return out
+}
+
+func frontmatterStrings(value any) []string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []string:
+		return cleanStrings(typed)
+	case string:
+		return cleanStrings(strings.Split(typed, ","))
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			values = append(values, fmt.Sprint(item))
+		}
+		return cleanStrings(values)
+	default:
+		return cleanStrings([]string{fmt.Sprint(typed)})
+	}
 }
 
 func cleanStrings(values []string) []string {

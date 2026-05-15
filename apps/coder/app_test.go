@@ -10,10 +10,12 @@ import (
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	corecommand "github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
@@ -164,6 +166,22 @@ triggers: [claude smoke]
 ---
 Claude skill body.
 `)
+	writeFile(t, home, ".claude/agents/ticket-implementer.md", `---
+name: ticket-implementer
+description: Ticket implementation agent.
+tools: Bash, Glob, Grep, Read, Edit, Write, Skill
+model: sonnet
+memory: project
+---
+Implement a ticket.
+`)
+	writeFile(t, home, ".claude/skills/dex/SKILL.md", `---
+name: dex
+description: Run dex CLI commands.
+user-invocable: true
+---
+Dex skill body.
+`)
 
 	for _, args := range [][]string{
 		{"describe", "-o", "json"},
@@ -178,10 +196,122 @@ Claude skill body.
 			t.Fatalf("Execute %v: %v", args, err)
 		}
 		text := out.String()
-		for _, want := range []string{"project-skill", "home-skill", "claude-skill", ".claude"} {
+		for _, want := range []string{"project-skill", "home-skill", "claude-skill", "ticket-implementer", "dex", ".claude"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%v output missing %q:\n%s", args, want, text)
 			}
+		}
+	}
+}
+
+func TestCoderStartupClaudeSkillsHaveActivationState(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	chdir(t, root)
+	writeFile(t, home, ".claude/agents/ticket-implementer.md", `---
+name: ticket-implementer
+description: Ticket implementation agent.
+tools: Bash, Glob, Grep, Read, Edit, Write, Skill
+model: sonnet
+memory: project
+---
+Implement a ticket.
+`)
+	writeFile(t, home, ".claude/skills/crm/SKILL.md", `---
+name: crm
+description: Use CRM tools.
+user-invocable: true
+---
+CRM skill body.
+`)
+	writeFile(t, home, ".claude/skills/dex/SKILL.md", `---
+name: dex
+description: Run dex CLI commands.
+user-invocable: true
+---
+Dex skill body.
+`)
+
+	startup := loadStartupResources(ctx)
+	if len(startup.Diagnostics) > 0 {
+		t.Fatalf("startup diagnostics = %#v", startup.Diagnostics)
+	}
+	if !bundlesContainSkill(startup.Bundles, "crm") || !bundlesContainSkill(startup.Bundles, "dex") {
+		t.Fatalf("startup bundles missing claude skills: %#v", startup.Bundles)
+	}
+
+	sys, err := system.NewHost(system.Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		calls++
+		if calls == 1 {
+			return llmagent.OperationResponse(coreagent.OperationRequest{
+				Operation: operation.Ref{Name: "skill"},
+				Input: map[string]any{"actions": []map[string]any{
+					{"action": "activate", "skill": "crm"},
+					{"action": "activate", "skill": "dex"},
+				}},
+			}), nil
+		}
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: startup.Bundles,
+		Plugins: localPlugins(sys),
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "claude-skill-state-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("load crm and dex skill"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Input == nil || result.Input.Status != session.InputStatusOK {
+		t.Fatalf("result input = %#v", result.Input)
+	}
+	effects := result.Input.Effects
+	if result.Input.Effect != nil {
+		effects = append(effects, *result.Input.Effect)
+	}
+	if len(effects) == 0 {
+		t.Fatalf("result has no skill operation effects: %#v", result)
+	}
+	text := ""
+	for _, effect := range effects {
+		if effect.Result.IsError() {
+			t.Fatalf("skill effect failed: %#v", effect.Result)
+		}
+		text += "\n" + fmt.Sprintf("%#v", effect.Result.Output)
+	}
+	for _, want := range []string{"active skills", "crm", "dex"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("skill effect output missing %q:\n%s", want, text)
 		}
 	}
 }
@@ -339,6 +469,17 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 		}
 	}
 
+}
+
+func bundlesContainSkill(bundles []resource.ContributionBundle, name string) bool {
+	for _, bundle := range bundles {
+		for _, spec := range bundle.Skills {
+			if string(spec.Name) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
