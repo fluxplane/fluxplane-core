@@ -220,6 +220,166 @@ func TestRuntimeEventSinkPersistsReplayableRuntimeEvents(t *testing.T) {
 	t.Fatalf("replayed events missing persisted runtime event: %#v", replayed)
 }
 
+func TestRuntimeEventSinkRetriesRuntimeEventAppendConflict(t *testing.T) {
+	ctx := context.Background()
+	baseStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	threadStore := &appendFaultThreadStore{
+		Store: baseStore,
+		failures: []error{coreevent.AppendConflict{
+			Stream:   "thread:thread-runtime",
+			Expected: 1,
+			Actual:   2,
+		}},
+	}
+	service := New(Config{ThreadStore: threadStore})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{ThreadID: "thread-runtime"})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if err := service.persistRuntimeEvent(ctx, info, "run-runtime", testPlanRuntimeEvent{Value: "retry me"}); err != nil {
+		t.Fatalf("persistRuntimeEvent: %v", err)
+	}
+	if threadStore.appendCalls != 2 {
+		t.Fatalf("append calls = %d, want 2", threadStore.appendCalls)
+	}
+	snapshot, err := baseStore.Read(ctx, corethread.ReadParams{ID: info.Thread.ID})
+	if err != nil {
+		t.Fatalf("Read thread: %v", err)
+	}
+	for _, record := range snapshot.Events {
+		runtimeEvent, ok := record.Event.Payload.(coresession.RuntimeEmitted)
+		if ok && runtimeEvent.Name == "plan.test" {
+			return
+		}
+	}
+	t.Fatalf("thread events missing retried runtime event: %#v", snapshot.Events)
+}
+
+func TestRuntimeEventSinkPublishesRunFailureOnRuntimeEventAppendError(t *testing.T) {
+	ctx := context.Background()
+	baseStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	threadStore := &appendFaultThreadStore{
+		Store:    baseStore,
+		failures: []error{fmt.Errorf("append failed")},
+	}
+	service := New(Config{ThreadStore: threadStore})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{ThreadID: "thread-runtime"})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 1})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+
+	service.runtimeEventSink(ctx, info, "run-runtime").Emit(testPlanRuntimeEvent{Value: "fail me"})
+
+	select {
+	case event := <-events:
+		if event.Kind != clientapi.EventRunFailed {
+			t.Fatalf("event kind = %s, want %s", event.Kind, clientapi.EventRunFailed)
+		}
+		if event.RunID != "run-runtime" {
+			t.Fatalf("run id = %q, want run-runtime", event.RunID)
+		}
+		if event.Error == nil || !strings.Contains(event.Error.Error(), "append failed") {
+			t.Fatalf("event error = %v, want append failed", event.Error)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for run failure")
+	}
+}
+
+func TestHandleSessionInboundReturnsRuntimeEventAppendError(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "emit_plan"}}, func(ctx operation.Context, _ operation.Value) operation.Result {
+		ctx.Events().Emit(testPlanRuntimeEvent{Value: "fail command"})
+		return operation.OK("ok")
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"emit_plan"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "emit_plan"},
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	baseStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	threadStore := &appendFaultThreadStore{
+		Store:    baseStore,
+		failures: []error{fmt.Errorf("append failed")},
+		failWhen: appendContainsRuntimeEmitted,
+	}
+	service := New(Config{
+		Commands:          commands,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ThreadStore:       threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-runtime-error"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 8})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+
+	_, err = service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-runtime-error",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-runtime-error"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"emit_plan"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist runtime event") {
+		t.Fatalf("HandleSessionInbound error = %v, want runtime persistence error", err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Kind == clientapi.EventRunFailed {
+				if event.Error == nil || !strings.Contains(event.Error.Error(), "append failed") {
+					t.Fatalf("run failure error = %v, want append failed", event.Error)
+				}
+				return
+			}
+			if event.Kind == clientapi.EventRunCompleted {
+				t.Fatal("received run.completed after runtime persistence failure")
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for run failure")
+		}
+	}
+}
+
 func TestOpenSessionConcurrentSameConversationUsesOneThread(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)
@@ -618,6 +778,75 @@ func TestEffectiveProfileRestrictsChildCommands(t *testing.T) {
 	}
 }
 
+func TestOpenSessionApproverIsUsedByChildSession(t *testing.T) {
+	ctx := context.Background()
+	// Register a side-effecting operation that requires approval and a command
+	// that dispatches it.
+	ops := operation.NewRegistry()
+	ranOp := false
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "risky"},
+		Semantics: operation.Semantics{
+			Risk:        operation.RiskHigh,
+			Effects:     operation.EffectSet{operation.EffectNone},
+			Idempotency: operation.IdempotencyIdempotent,
+			Determinism: operation.DeterminismDeterministic,
+		},
+	}, func(_ operation.Context, _ operation.Value) operation.Result {
+		ranOp = true
+		return operation.OK("ok")
+	})); err != nil {
+		t.Fatalf("register risky operation: %v", err)
+	}
+	cmds := command.NewRegistry()
+	if err := cmds.Register(command.Spec{
+		Path: command.Path{"risky"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "risky"},
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register risky command: %v", err)
+	}
+	// Base executor has no approval gate — would block without an override.
+	executor := operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
+		AllowPure:      true,
+		MaxCommandRisk: operation.RiskMedium, // RiskHigh exceeds this, normally denied
+	}))
+	service := New(Config{
+		Commands:          cmds,
+		Operations:        ops,
+		OperationExecutor: executor,
+	})
+	// Open a session with AutoApprover — simulates what --yolo does for a child.
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "approver-test"},
+		Approver:     operationruntime.AutoApprover{},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:      "run-risky",
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:    channel.InboundCommand,
+		Command: &command.Invocation{Path: command.Path{"risky"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("command status = %s error = %#v, want ok (approver should have approved)", result.Command.Status, result.Command.Error)
+	}
+	_ = ranOp // operation ran if approval succeeded
+}
+
 func TestHandleInboundContextCommandUsesAgentProvider(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -771,6 +1000,38 @@ type testPlanRuntimeEvent struct {
 }
 
 func (testPlanRuntimeEvent) EventName() coreevent.Name { return "plan.test" }
+
+type appendFaultThreadStore struct {
+	corethread.Store
+
+	mu          sync.Mutex
+	failures    []error
+	failWhen    func(...corethread.AppendRecord) bool
+	appendCalls int
+}
+
+func (s *appendFaultThreadStore) Append(ctx context.Context, ref corethread.Ref, records ...corethread.AppendRecord) ([]corethread.Record, error) {
+	s.mu.Lock()
+	s.appendCalls++
+	shouldFail := s.failWhen == nil || s.failWhen(records...)
+	if shouldFail && len(s.failures) > 0 {
+		err := s.failures[0]
+		s.failures = s.failures[1:]
+		s.mu.Unlock()
+		return nil, err
+	}
+	s.mu.Unlock()
+	return s.Store.Append(ctx, ref, records...)
+}
+
+func appendContainsRuntimeEmitted(records ...corethread.AppendRecord) bool {
+	for _, record := range records {
+		if record.Event.Name == coresession.EventRuntimeEmitted {
+			return true
+		}
+	}
+	return false
+}
 
 type harnessAgentProviderFunc func(context.Context, coresession.Spec) (coreagent.Agent, error)
 

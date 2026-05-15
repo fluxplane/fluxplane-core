@@ -10,7 +10,8 @@ import (
 
 // Bind binds a command invocation into a struct using command tags.
 // Supported tags are command:"arg" for positional Args and command:"flag=name"
-// for values from Invocation.Input.
+// for values from Invocation.Input. Tags may include default=value to set a
+// value when the invocation does not provide one.
 func Bind[T any](inv Invocation) (T, error) {
 	var zero T
 	typ := reflect.TypeOf((*T)(nil)).Elem()
@@ -42,7 +43,7 @@ func bindStruct(value reflect.Value, inv Invocation) error {
 		if field.PkgPath != "" {
 			continue
 		}
-		source, name, ok, err := parseCommandTag(field.Tag.Get("command"))
+		binding, ok, err := parseCommandBindingTag(field.Tag.Get("command"))
 		if err != nil {
 			return err
 		}
@@ -50,42 +51,85 @@ func bindStruct(value reflect.Value, inv Invocation) error {
 			continue
 		}
 		var values []string
-		switch source {
+		switch binding.source {
+		case "":
 		case "arg":
 			values = append([]string(nil), inv.Args...)
 		case "flag":
-			if raw, ok := flagInput(inv.Input, name); ok {
+			if raw, ok := flagInput(inv.Input, binding.name); ok {
 				values = []string{raw}
 			}
 		default:
-			return fmt.Errorf("command: unsupported binding source %q", source)
+			return fmt.Errorf("command: unsupported binding source %q", binding.source)
+		}
+		if len(values) == 0 && binding.hasDefault {
+			values = []string{binding.defaultValue}
 		}
 		if len(values) == 0 {
 			continue
 		}
 		if err := setFieldValue(value.Field(i), values); err != nil {
-			return fmt.Errorf("command: bind %s %q: %w", source, name, err)
+			return fmt.Errorf("command: bind %s %q: %w", binding.source, binding.name, err)
 		}
 	}
 	return nil
 }
 
 func parseCommandTag(tag string) (source string, name string, ok bool, err error) {
+	binding, ok, err := parseCommandBindingTag(tag)
+	if err != nil || !ok {
+		return "", "", ok, err
+	}
+	return binding.source, binding.name, true, nil
+}
+
+type commandBindingTag struct {
+	source       string
+	name         string
+	defaultValue string
+	hasDefault   bool
+}
+
+func parseCommandBindingTag(tag string) (commandBindingTag, bool, error) {
 	tag = strings.TrimSpace(tag)
 	if tag == "" || tag == "-" {
-		return "", "", false, nil
+		return commandBindingTag{}, false, nil
 	}
-	key, value, found := strings.Cut(tag, "=")
-	if !found {
-		if tag == "arg" {
-			return "arg", "", true, nil
+	parts := strings.Split(tag, ",")
+	binding := commandBindingTag{}
+	for i, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return commandBindingTag{}, false, fmt.Errorf("command: malformed tag %q", tag)
 		}
-		return "", "", false, fmt.Errorf("command: malformed tag %q", tag)
+		key, value, found := strings.Cut(part, "=")
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if !found {
+			if i == 0 && part == "arg" {
+				binding.source = "arg"
+				continue
+			}
+			return commandBindingTag{}, false, fmt.Errorf("command: malformed tag %q", tag)
+		}
+		if key == "" || value == "" {
+			return commandBindingTag{}, false, fmt.Errorf("command: malformed tag %q", tag)
+		}
+		if key == "default" {
+			binding.defaultValue = value
+			binding.hasDefault = true
+			continue
+		}
+		if i != 0 || binding.source != "" {
+			return commandBindingTag{}, false, fmt.Errorf("command: malformed tag %q", tag)
+		}
+		binding.source = key
+		binding.name = value
 	}
-	if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-		return "", "", false, fmt.Errorf("command: malformed tag %q", tag)
+	if binding.source == "" && !binding.hasDefault {
+		return commandBindingTag{}, false, fmt.Errorf("command: malformed tag %q", tag)
 	}
-	return strings.TrimSpace(key), strings.TrimSpace(value), true, nil
+	return binding, true, nil
 }
 
 func flagInput(input any, name string) (string, bool) {

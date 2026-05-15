@@ -409,6 +409,15 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 		}
 		commit := strings.TrimSpace(headResult.Stdout)
 		data["commit"] = commit
+		// When staging only explicit paths (not all), warn about any remaining dirty files
+		// so partial commits are visible to the caller.
+		if req.Stage && !req.All && len(req.Paths) > 0 {
+			if dirty := remainingDirtyFiles(ctx, p.system); len(dirty) > 0 {
+				data["remaining_dirty"] = dirty
+				text := commitText(commit, commitResult) + "\n\n⚠ uncommitted changes remain in: " + strings.Join(dirty, ", ")
+				return operation.OK(operation.Rendered{Text: text, Data: data})
+			}
+		}
 		return operation.OK(operation.Rendered{Text: commitText(commit, commitResult), Data: data})
 	}
 }
@@ -584,4 +593,34 @@ func commitText(commit string, result system.ProcessResult) string {
 		text += "\n" + output
 	}
 	return text
+}
+
+// remainingDirtyFiles returns paths that have unstaged changes or are untracked
+// after a partial commit. It runs git status --porcelain and collects XY codes
+// where the worktree column (Y) is non-space, or the file is untracked (??).
+func remainingDirtyFiles(ctx operation.Context, sys system.System) []string {
+	result, err := sys.Process().Run(ctx, system.ProcessRequest{
+		Command: "git",
+		Args:    []string{"status", "--porcelain"},
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		return nil
+	}
+	var dirty []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		// porcelain format: XY<space>path, where X=index, Y=worktree.
+		xy := line[:2]
+		path := strings.TrimSpace(line[3:])
+		if path == "" {
+			continue
+		}
+		if xy == "??" || xy[1] != ' ' {
+			dirty = append(dirty, path)
+		}
+	}
+	return dirty
 }

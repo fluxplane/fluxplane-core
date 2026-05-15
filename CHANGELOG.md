@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sub-agents spawned via `delegate` or `plan` now inherit the parent session's
+  approval gate (e.g. `--yolo`) through the spawn chain, so child sessions do
+  not re-prompt for approvals already granted by the parent.
 - Added goal-driven local runs through the built-in `/goal` command plus
   `coder --goal` and `agentsdk run --goal`, with a configurable continuation
   cap.
@@ -39,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reflection-based command binding now supports `default=...` tag values, and
+  `/goal` defaults its continuation cap to 10 when no max is provided.
 - Agent loop config now uses `turns.max_steps` and
   `turns.continuation.max_continuations` instead of flat agent policy fields.
 - Continuation prompt stop checks now require the typed

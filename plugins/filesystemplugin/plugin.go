@@ -249,11 +249,13 @@ func (p Plugin) dirTree(ws system.Workspace) operation.Handler {
 }
 
 type fileReadInput struct {
-	Path        string `json:"path" jsonschema:"description=File path to read. Globs are not expanded here.,required"`
-	StartLine   int    `json:"start_line,omitempty" jsonschema:"description=First 1-indexed line to include."`
-	EndLine     int    `json:"end_line,omitempty" jsonschema:"description=Last 1-indexed line to include."`
-	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"description=Include line numbers."`
-	MaxBytes    int64  `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes to read."`
+	Path         string `json:"path" jsonschema:"description=File path to read. Globs are not expanded here.,required"`
+	StartLine    int    `json:"start_line,omitempty" jsonschema:"description=First 1-indexed line to include."`
+	EndLine      int    `json:"end_line,omitempty" jsonschema:"description=Last 1-indexed line to include."`
+	LineNumbers  bool   `json:"line_numbers,omitempty" jsonschema:"description=Include line numbers."`
+	MaxBytes     int64  `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes to read."`
+	Pattern      string `json:"pattern,omitempty" jsonschema:"description=Regular expression to search for. When set, returns matched regions with surrounding context instead of the full file."`
+	ContextLines int    `json:"context_lines,omitempty" jsonschema:"description=Context lines around each match (used with pattern)."`
 }
 
 func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
@@ -265,6 +267,23 @@ func (p Plugin) fileRead(ws system.Workspace) operation.Handler {
 		maxBytes := req.MaxBytes
 		if maxBytes <= 0 || maxBytes > maxReadBytes {
 			maxBytes = maxReadBytes
+		}
+		if strings.TrimSpace(req.Pattern) != "" {
+			re, err := regexp.Compile(req.Pattern)
+			if err != nil {
+				return operation.Failed("invalid_file_read_pattern", err.Error(), nil)
+			}
+			data, _, resolved, err := ws.ReadFile(ctx, req.Path, maxBytes)
+			if err != nil {
+				return operation.Failed("file_read_failed", err.Error(), nil)
+			}
+			recordUsage(ctx, FileReadOp, resolved.Rel, usage.DirectionRead, float64(len(data)))
+			ctxLines := req.ContextLines
+			if ctxLines < 0 {
+				ctxLines = 0
+			}
+			text := renderFilePattern(resolved, string(data), re, ctxLines, req.LineNumbers)
+			return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"path": resolved.Rel}})
 		}
 		if req.StartLine > 0 || req.EndLine > 0 {
 			data, firstLine, truncated, resolved, err := ws.ReadFileLines(ctx, req.Path, req.StartLine, req.EndLine, maxBytes)
@@ -324,6 +343,13 @@ type textPatch struct {
 	New string `json:"new" jsonschema:"description=Replacement text.,required"`
 }
 
+// patchStatus reports the outcome of one patch application.
+type patchStatus struct {
+	Matched bool   `json:"matched"`
+	Line    int    `json:"line"`   // 1-based line where old text was found; -1 when not found
+	Reason  string `json:"reason"` // empty on success
+}
+
 func (p Plugin) filePatch(ws system.Workspace) operation.Handler {
 	return func(ctx operation.Context, input operation.Value) operation.Result {
 		var req filePatchInput
@@ -336,25 +362,30 @@ func (p Plugin) filePatch(ws system.Workspace) operation.Handler {
 		if len(req.Patches) == 0 {
 			return operation.Failed("invalid_file_patch_input", "at least one patch is required", nil)
 		}
-		data, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxWriteBytes)
+		fileData, truncated, resolved, err := ws.ReadFile(ctx, req.Path, maxWriteBytes)
 		if err != nil {
 			return operation.Failed("file_patch_failed", err.Error(), nil)
 		}
 		if truncated {
 			return operation.Failed("file_patch_too_large", "file exceeds patch read limit", map[string]any{"path": resolved.Rel, "max_bytes": maxWriteBytes})
 		}
-		before := string(data)
+		before := string(fileData)
 		after := before
+		statuses := make([]patchStatus, len(req.Patches))
 		for i, patch := range req.Patches {
 			if patch.Old == "" {
 				return operation.Failed("invalid_file_patch_input", fmt.Sprintf("patch %d old text is empty", i), nil)
 			}
 			if !strings.Contains(after, patch.Old) {
-				return operation.Failed("file_patch_no_match", fmt.Sprintf("patch %d old text was not found", i), map[string]any{"path": resolved.Rel})
+				statuses[i] = patchStatus{Matched: false, Line: -1, Reason: "old text not found"}
+				return operation.Failed("file_patch_no_match",
+					fmt.Sprintf("patch %d old text was not found", i),
+					map[string]any{"path": resolved.Rel, "patches": statuses[:i+1]})
 			}
+			statuses[i] = patchStatus{Matched: true, Line: findLine(after, patch.Old), Reason: ""}
 			after = strings.Replace(after, patch.Old, patch.New, 1)
 		}
-		diff := simpleDiff(resolved.Rel, before, after)
+		diff := unifiedDiff(resolved.Rel, before, after)
 		if !req.DryRun {
 			if _, err := ws.WriteFile(ctx, req.Path, []byte(after), 0644, true); err != nil {
 				return operation.Failed("file_patch_failed", err.Error(), nil)
@@ -366,8 +397,8 @@ func (p Plugin) filePatch(ws system.Workspace) operation.Handler {
 			action = "Patched"
 		}
 		text := fmt.Sprintf("%s %s\n\n%s", action, displayPath(resolved), diff)
-		modelText := fmt.Sprintf("%s %s: %d replacement(s) applied. Full diff omitted from model transcript; use git_diff or file_read if exact content is needed.", action, displayPath(resolved), len(req.Patches))
-		return operation.OK(operation.Rendered{Text: text, Model: modelText, Data: map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "diff": diff}})
+		modelText := fmt.Sprintf("%s %s: %d replacement(s) applied. Diff omitted from model transcript; use git_diff or file_read if exact content is needed.", action, displayPath(resolved), len(req.Patches))
+		return operation.OK(operation.Rendered{Text: text, Model: modelText, Data: map[string]any{"path": resolved.Rel, "dry_run": req.DryRun, "patches": statuses, "diff": diff}})
 	}
 }
 
@@ -482,11 +513,16 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 	}
 }
 
+// defaultGrepContextLines is the number of surrounding lines returned when the
+// caller does not explicitly supply context_lines. A non-zero default makes
+// grep results immediately readable without requiring a follow-up file_read.
+const defaultGrepContextLines = 3
+
 type grepInput struct {
 	Pattern      string   `json:"pattern" jsonschema:"description=Regular expression to search for.,required"`
 	Paths        []string `json:"paths,omitempty" jsonschema:"description=Files or directories to search. Defaults to workspace root."`
 	ShowContent  bool     `json:"show_content,omitempty" jsonschema:"description=Include matching line content."`
-	ContextLines int      `json:"context_lines,omitempty" jsonschema:"description=Context lines around matches."`
+	ContextLines *int     `json:"context_lines,omitempty" jsonschema:"description=Context lines around matches. Defaults to 3."`
 	MaxMatches   int      `json:"max_matches,omitempty" jsonschema:"description=Maximum matches to return."`
 }
 
@@ -499,6 +535,13 @@ func (p Plugin) grep(ws system.Workspace) operation.Handler {
 		re, err := regexp.Compile(req.Pattern)
 		if err != nil {
 			return operation.Failed("invalid_grep_pattern", err.Error(), nil)
+		}
+		ctxLines := defaultGrepContextLines
+		if req.ContextLines != nil {
+			ctxLines = *req.ContextLines
+			if ctxLines < 0 {
+				ctxLines = 0
+			}
 		}
 		limit := req.MaxMatches
 		if limit <= 0 || limit > 5000 {
@@ -542,12 +585,12 @@ func (p Plugin) grep(ws system.Workspace) operation.Handler {
 				if err != nil || looksBinary(data) {
 					continue
 				}
-				lines := strings.Split(string(data), "\n")
-				for i, line := range lines {
+				fileLines := strings.Split(string(data), "\n")
+				for i, line := range fileLines {
 					if re.MatchString(line) {
 						item := match{Path: file.Rel, Line: i + 1}
-						if req.ShowContent || req.ContextLines > 0 {
-							item.Text = line
+						if req.ShowContent || ctxLines > 0 || req.ContextLines != nil {
+							item.Text = grepContextBlock(fileLines, i, ctxLines)
 						}
 						matches = append(matches, item)
 						if len(matches) >= limit {
@@ -652,11 +695,267 @@ func renderFileRange(resolved system.ResolvedPath, content string, firstLine int
 	return strings.Join(out, "\n")
 }
 
-func simpleDiff(path, before, after string) string {
+// renderFilePattern searches content for lines matching re and returns a
+// rendered block containing each match region with ctxLines of surrounding
+// context. Adjacent or overlapping regions are merged into a single block.
+func renderFilePattern(resolved system.ResolvedPath, content string, re *regexp.Regexp, ctxLines int, lineNumbers bool) string {
+	lines := strings.Split(content, "\n")
+	n := len(lines)
+
+	// Collect 0-based matched line indices.
+	var matched []int
+	for i, l := range lines {
+		if re.MatchString(l) {
+			matched = append(matched, i)
+		}
+	}
+	if len(matched) == 0 {
+		return fmt.Sprintf("[file: %s, pattern: %s, matches: 0]", displayPath(resolved), re.String())
+	}
+
+	// Merge match indices into [start, end] regions (0-based, inclusive).
+	type region struct{ start, end int }
+	var regions []region
+	cur := region{
+		start: max(0, matched[0]-ctxLines),
+		end:   min(n-1, matched[0]+ctxLines),
+	}
+	for _, idx := range matched[1:] {
+		lo := max(0, idx-ctxLines)
+		hi := min(n-1, idx+ctxLines)
+		if lo <= cur.end+1 {
+			// Adjacent or overlapping — extend current region.
+			if hi > cur.end {
+				cur.end = hi
+			}
+		} else {
+			regions = append(regions, cur)
+			cur = region{lo, hi}
+		}
+	}
+	regions = append(regions, cur)
+
+	var out []string
+	out = append(out, fmt.Sprintf("[file: %s, pattern: %s, matches: %d]", displayPath(resolved), re.String(), len(matched)))
+	for ri, r := range regions {
+		if ri > 0 {
+			out = append(out, "---")
+		}
+		for i := r.start; i <= r.end; i++ {
+			lineNo := i + 1
+			if lineNumbers {
+				out = append(out, fmt.Sprintf("%6d  %s", lineNo, lines[i]))
+			} else {
+				out = append(out, fmt.Sprintf("%d: %s", lineNo, lines[i]))
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// grepContextBlock returns the matched line plus ctxLines of surrounding lines
+// joined into a single string for embedding in a grep match Text field.
+func grepContextBlock(lines []string, matchIdx, ctxLines int) string {
+	lo := max(0, matchIdx-ctxLines)
+	hi := min(len(lines)-1, matchIdx+ctxLines)
+	var sb strings.Builder
+	for i := lo; i <= hi; i++ {
+		if i > lo {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(lines[i])
+	}
+	return sb.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// diffOp kinds.
+const (
+	diffEqual = iota
+	diffDelete
+	diffInsert
+)
+
+type diffLineOp struct {
+	kind    int
+	text    string
+	oldLine int
+	newLine int
+}
+
+// diffLines computes a line-level edit script from a to b using LCS.
+func diffLines(a, b []string) []diffLineOp {
+	n, m := len(a), len(b)
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+			} else if dp[i+1][j] > dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+			} else {
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+	var ops []diffLineOp
+	i, j := 0, 0
+	for i < n || j < m {
+		if i < n && j < m && a[i] == b[j] {
+			ops = append(ops, diffLineOp{diffEqual, a[i], i + 1, j + 1})
+			i++
+			j++
+		} else if j < m && (i >= n || dp[i][j+1] >= dp[i+1][j]) {
+			ops = append(ops, diffLineOp{diffInsert, b[j], 0, j + 1})
+			j++
+		} else {
+			ops = append(ops, diffLineOp{diffDelete, a[i], i + 1, 0})
+			i++
+		}
+	}
+	return ops
+}
+
+// splitDiffLines splits text into lines, stripping the trailing empty element
+// left by a terminal newline.
+func splitDiffLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// unifiedDiff produces a compact unified diff between before and after with
+// 3 lines of context around each changed region.
+func unifiedDiff(path, before, after string) string {
 	if before == after {
 		return ""
 	}
-	return fmt.Sprintf("--- %s\n+++ %s\n@@\n-%s\n+%s", path, path, before, after)
+	const ctxLines = 3
+
+	ops := diffLines(splitDiffLines(before), splitDiffLines(after))
+	total := len(ops)
+
+	// Mark which op indices belong to a hunk (within ctxLines of a change).
+	inHunk := make([]bool, total)
+	for i, op := range ops {
+		if op.kind == diffEqual {
+			continue
+		}
+		lo, hi := i-ctxLines, i+ctxLines
+		if lo < 0 {
+			lo = 0
+		}
+		if hi >= total {
+			hi = total - 1
+		}
+		for k := lo; k <= hi; k++ {
+			inHunk[k] = true
+		}
+	}
+
+	// Group consecutive marked ops into hunks.
+	type hunkOps []diffLineOp
+	var hunks []hunkOps
+	for i := 0; i < total; {
+		if !inHunk[i] {
+			i++
+			continue
+		}
+		start := i
+		for i < total && inHunk[i] {
+			i++
+		}
+		hunks = append(hunks, ops[start:i])
+	}
+	if len(hunks) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "--- %s\n", path)
+	fmt.Fprintf(&sb, "+++ %s\n", path)
+	for _, h := range hunks {
+		oldStart, newStart, oldCount, newCount := 0, 0, 0, 0
+		for _, op := range h {
+			switch op.kind {
+			case diffEqual:
+				if oldStart == 0 {
+					oldStart = op.oldLine
+				}
+				if newStart == 0 {
+					newStart = op.newLine
+				}
+				oldCount++
+				newCount++
+			case diffDelete:
+				if oldStart == 0 {
+					oldStart = op.oldLine
+				}
+				oldCount++
+			case diffInsert:
+				if newStart == 0 {
+					newStart = op.newLine
+				}
+				newCount++
+			}
+		}
+		if oldStart == 0 {
+			oldStart = 1
+		}
+		if newStart == 0 {
+			newStart = 1
+		}
+		fmt.Fprintf(&sb, "@@ -%d,%d +%d,%d @@\n", oldStart, oldCount, newStart, newCount)
+		for _, op := range h {
+			switch op.kind {
+			case diffEqual:
+				fmt.Fprintf(&sb, " %s\n", op.text)
+			case diffDelete:
+				fmt.Fprintf(&sb, "-%s\n", op.text)
+			case diffInsert:
+				fmt.Fprintf(&sb, "+%s\n", op.text)
+			}
+		}
+	}
+	return sb.String()
+}
+
+// findLine returns the 1-based line number at which old first appears in text.
+// Returns -1 if not found.
+func findLine(text, old string) int {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if strings.Contains(line, old) {
+			return i + 1
+		}
+	}
+	// old may span multiple lines; find the first line of the match.
+	idx := strings.Index(text, old)
+	if idx < 0 {
+		return -1
+	}
+	return strings.Count(text[:idx], "\n") + 1
 }
 
 func looksBinary(data []byte) bool {

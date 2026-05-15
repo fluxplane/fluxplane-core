@@ -1618,10 +1618,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 		Name:      "coder",
 		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
 		Inference: agent.InferenceSpec{Model: "gpt-test"},
-		Turns: agent.TurnPolicy{MaxSteps: 2, Continuation: agent.ContinuationPolicy{
-			MaxContinuations: 99,
-			StopCondition:    agent.StopConditionSpec{Type: "max-continuations", Max: 99},
-		}},
+		Turns:     agent.TurnPolicy{MaxSteps: 2},
 	}, model)
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
@@ -2006,6 +2003,100 @@ func TestExecuteInboundCommandGoalUsesPromptContinuation(t *testing.T) {
 	}
 	if evaluator.inputs[0].MaxContinuations != 2 || !strings.Contains(evaluator.inputs[0].Condition.Prompt, "Test coverage has increased to 90%") {
 		t.Fatalf("evaluator input = %#v, want goal prompt and cap", evaluator.inputs[0])
+	}
+}
+
+func TestExecuteInboundCommandGoalContinuesAfterInnerStepLimit(t *testing.T) {
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:  "coder",
+			Turns: agent.TurnPolicy{MaxSteps: 1},
+		},
+		results: []agent.StepResult{
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:       agent.DecisionOperation,
+					Operations: []agent.OperationRequest{{Operation: opRef, Input: "coverage"}},
+				},
+			},
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:    agent.DecisionMessage,
+					Message: &agent.Message{Content: "done"},
+				},
+			},
+		},
+	}
+	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
+		{Action: StopActionContinue, ContinueInstruction: "finish the task", Reason: "tool result needs synthesis"},
+		{Action: StopActionStop, Reason: "done"},
+	}}
+	s := Session{Agent: agentRuntime, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), StopEvaluator: evaluator}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:   "run-goal",
+		Kind: channel.InboundCommand,
+		Caller: policy.Caller{
+			Kind: policy.CallerUser,
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"goal"},
+			Args: []string{"Complete the coverage task"},
+			Input: map[string]any{
+				"max": 2,
+			},
+		},
+	})
+
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q error = %#v, want ok", result.Status, result.Error)
+	}
+	if result.Output != "done" {
+		t.Fatalf("output = %#v, want final goal output", result.Output)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
+	}
+	if len(evaluator.inputs) != 2 {
+		t.Fatalf("evaluator inputs = %d, want two continuation decisions", len(evaluator.inputs))
+	}
+	if result.Error != nil {
+		t.Fatalf("error = %#v, want nil", result.Error)
+	}
+}
+
+func TestParseGoalCommandInputDefaultsMaxContinuations(t *testing.T) {
+	input, err := parseGoalCommandInput(command.Invocation{
+		Path: command.Path{"goal"},
+		Args: []string{"Test coverage has increased to 90%"},
+	})
+	if err != nil {
+		t.Fatalf("parseGoalCommandInput: %v", err)
+	}
+	if input.Goal != "Test coverage has increased to 90%" || input.MaxContinuations != 10 {
+		t.Fatalf("input = %#v, want goal and default cap 10", input)
+	}
+}
+
+func TestParseGoalCommandInputRejectsExplicitZeroMax(t *testing.T) {
+	_, err := parseGoalCommandInput(command.Invocation{
+		Path: command.Path{"goal"},
+		Args: []string{"Test coverage has increased to 90%"},
+		Input: map[string]any{
+			"max": 0,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "max-continuations must be > 0") {
+		t.Fatalf("parseGoalCommandInput error = %v, want explicit zero rejected", err)
 	}
 }
 

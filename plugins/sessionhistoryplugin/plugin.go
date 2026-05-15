@@ -74,7 +74,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 }
 
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
-	return []coredatasource.Provider{provider{threads: p.threads}}, nil
+	return []coredatasource.Provider{provider(p)}, nil
 }
 
 // DatasourceSpec returns the configured dev datasource.

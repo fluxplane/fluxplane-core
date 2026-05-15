@@ -256,7 +256,7 @@ func TestDetectionInputContextRoundTrip(t *testing.T) {
 }
 
 func TestDetectionInputContextNil(t *testing.T) {
-	_, ok := DetectionInputFromContext(nil)
+	_, ok := DetectionInputFromContext(nil) //nolint:staticcheck // nil context handling is the behavior under test.
 	if ok {
 		t.Fatal("DetectionInputFromContext(nil): want ok=false")
 	}
@@ -271,7 +271,7 @@ func TestDetectionInputContextMissing(t *testing.T) {
 
 func TestContextWithDetectionInputNilCtx(t *testing.T) {
 	// nil ctx should not panic — it becomes Background internally.
-	ctx := ContextWithDetectionInput(nil, DetectionInput{MaxRefs: 1})
+	ctx := ContextWithDetectionInput(nil, DetectionInput{MaxRefs: 1}) //nolint:staticcheck // nil context handling is the behavior under test.
 	got, ok := DetectionInputFromContext(ctx)
 	if !ok || got.MaxRefs != 1 {
 		t.Fatalf("ContextWithDetectionInput(nil,...): got=%+v ok=%v", got, ok)
@@ -295,7 +295,7 @@ func TestDetectedRefsContextRoundTrip(t *testing.T) {
 }
 
 func TestDetectedRefsContextNil(t *testing.T) {
-	_, ok := DetectedRefsFromContext(nil)
+	_, ok := DetectedRefsFromContext(nil) //nolint:staticcheck // nil context handling is the behavior under test.
 	if ok {
 		t.Fatal("DetectedRefsFromContext(nil): want ok=false")
 	}
@@ -309,7 +309,7 @@ func TestDetectedRefsContextMissing(t *testing.T) {
 }
 
 func TestContextWithDetectedRefsNilCtx(t *testing.T) {
-	ctx := ContextWithDetectedRefs(nil, []RecordRef{{ID: "x"}})
+	ctx := ContextWithDetectedRefs(nil, []RecordRef{{ID: "x"}}) //nolint:staticcheck // nil context handling is the behavior under test.
 	got, ok := DetectedRefsFromContext(ctx)
 	if !ok || len(got) != 1 {
 		t.Fatalf("ContextWithDetectedRefs(nil,...): got=%v ok=%v", got, ok)
@@ -317,7 +317,7 @@ func TestContextWithDetectedRefsNilCtx(t *testing.T) {
 }
 
 func TestAccessPolicyContextNilCtx(t *testing.T) {
-	ctx := ContextWithAccessPolicy(nil, AccessPolicy{Datasources: []Name{"x"}})
+	ctx := ContextWithAccessPolicy(nil, AccessPolicy{Datasources: []Name{"x"}}) //nolint:staticcheck // nil context handling is the behavior under test.
 	policy, ok := AccessPolicyFromContext(ctx)
 	if !ok || len(policy.Datasources) != 1 {
 		t.Fatalf("ContextWithAccessPolicy(nil,...): got=%v ok=%v", policy, ok)

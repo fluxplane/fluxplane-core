@@ -239,6 +239,84 @@ func TestCommitAutoStagesAll(t *testing.T) {
 	}
 }
 
+func TestCommitPartialPathWarnsAboutRemainingDirtyFiles(t *testing.T) {
+	dir := testRepo(t)
+	ops := testGitOperations(t, dir)
+	writeFile(t, dir, "a.go", "package main\n")
+	writeFile(t, dir, "b.go", "package main\n")
+
+	// commit only a.go, leaving b.go dirty
+	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{
+		Message: "test: add a.go",
+		Stage:   true,
+		Paths:   []string{"a.go"},
+	})
+	commit := requireCommitResult(t, result)
+	if strings.TrimSpace(commit) == "" {
+		t.Fatal("commit hash is empty")
+	}
+
+	// result text must mention the warning
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want Rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "b.go") {
+		t.Fatalf("warning text %q does not mention b.go", rendered.Text)
+	}
+	if !strings.Contains(rendered.Text, "uncommitted changes remain") {
+		t.Fatalf("warning text %q missing expected prefix", rendered.Text)
+	}
+
+	// data must carry remaining_dirty listing b.go
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data = %T, want map", rendered.Data)
+	}
+	dirty, ok := data["remaining_dirty"].([]string)
+	if !ok || len(dirty) == 0 {
+		t.Fatalf("remaining_dirty = %#v, want non-empty []string", data["remaining_dirty"])
+	}
+	found := false
+	for _, f := range dirty {
+		if strings.Contains(f, "b.go") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("remaining_dirty = %v, want entry containing b.go", dirty)
+	}
+}
+
+func TestCommitAllDoesNotWarnWhenNoDirtyFiles(t *testing.T) {
+	dir := testRepo(t)
+	ops := testGitOperations(t, dir)
+	writeFile(t, dir, "a.go", "package main\n")
+	writeFile(t, dir, "b.go", "package main\n")
+
+	// commit all, so nothing should remain dirty
+	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{
+		Message: "test: add all",
+		Stage:   true,
+		All:     true,
+	})
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want Rendered", result.Output)
+	}
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data = %T, want map", rendered.Data)
+	}
+	if _, exists := data["remaining_dirty"]; exists {
+		t.Fatalf("remaining_dirty present in all-commit result, want absent")
+	}
+	if strings.Contains(rendered.Text, "uncommitted") {
+		t.Fatalf("text %q must not contain warning for all-commit", rendered.Text)
+	}
+}
+
 func TestTagCreatesAnnotatedTag(t *testing.T) {
 	dir := testRepo(t)
 	ops := testGitOperations(t, dir)

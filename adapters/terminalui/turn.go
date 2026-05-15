@@ -103,12 +103,72 @@ func ResultError(result clientapi.Result) error {
 		return fmt.Errorf("input failed: %s", result.Input.Status)
 	}
 	if result.Command != nil && result.Command.Status != sessionruntime.CommandStatusOK {
-		if result.Command.Error != nil {
-			return fmt.Errorf("%s: %s", result.Command.Error.Code, result.Command.Error.Message)
-		}
-		return fmt.Errorf("command failed: %s", result.Command.Status)
+		return commandResultError(result.Command)
 	}
 	return nil
+}
+
+// commandResultError converts a non-OK CommandResult into a human-readable
+// error. It surfaces the command path, policy reason, and details so the user
+// understands why the command failed without needing to know internal codes.
+func commandResultError(r *sessionruntime.CommandResult) error {
+	if r == nil {
+		return fmt.Errorf("command failed")
+	}
+	switch r.Status {
+	case sessionruntime.CommandStatusRejected:
+		path := r.Spec.Path.String()
+		if reason := r.Policy.Reason; reason != "" {
+			if path != "" {
+				return fmt.Errorf("command %s rejected: %s", path, reason)
+			}
+			return fmt.Errorf("command rejected: %s", reason)
+		}
+		if path != "" {
+			return fmt.Errorf("command %s rejected", path)
+		}
+		return fmt.Errorf("command rejected")
+	case sessionruntime.CommandStatusApprovalRequired:
+		path := r.Spec.Path.String()
+		if path != "" {
+			return fmt.Errorf("command %s requires approval before it can run", path)
+		}
+		return fmt.Errorf("command requires approval before it can run")
+	}
+	if r.Error != nil {
+		return commandErrorMessage(r.Error)
+	}
+	return fmt.Errorf("command failed: %s", r.Status)
+}
+
+// commandErrorMessage formats a CommandError into a human-readable string,
+// promoting path and relevant details over the raw error code.
+func commandErrorMessage(e *sessionruntime.CommandError) error {
+	if e == nil {
+		return fmt.Errorf("command failed")
+	}
+	path, _ := e.Details["path"].(string)
+	switch e.Code {
+	case "command_not_found":
+		// Message already contains the path (e.g. "command /foo not found").
+		// Fall through to the default message path for a clean display.
+		if path != "" {
+			return fmt.Errorf("%s not found", path)
+		}
+		return fmt.Errorf("command not found")
+	case "unsupported_command_target":
+		target, _ := e.Details["target"].(string)
+		if path != "" && target != "" {
+			return fmt.Errorf("command %s has unsupported target type %q", path, target)
+		}
+		if target != "" {
+			return fmt.Errorf("unsupported command target type %q", target)
+		}
+	}
+	if e.Message != "" {
+		return fmt.Errorf("%s", e.Message)
+	}
+	return fmt.Errorf("%s", e.Code)
 }
 
 func renderOutbound(out io.Writer, result clientapi.Result) {

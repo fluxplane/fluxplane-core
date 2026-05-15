@@ -119,13 +119,29 @@ func replay(snapshot corethread.Snapshot, branchID corethread.BranchID, provider
 			}
 		}
 	}
-	return items, head, nil
+	return filterRepairArtifacts(items), head, nil
 }
 
 func filterCompatible(items []coreconversation.Item, provider coreconversation.ProviderIdentity) []coreconversation.Item {
 	out := make([]coreconversation.Item, 0, len(items))
 	for _, item := range items {
 		if item.Provider.Compatible(provider) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// filterRepairArtifacts drops items that were synthesised by a previous repair
+// pass (identified by a non-empty "repair" metadata key). Repair items are
+// ephemeral scaffolding: the current repair pass regenerates exactly what is
+// needed from the canonical history. Carrying them across turns causes each
+// pass to produce new synthetics on top of old ones, so N retries would embed
+// N layers of synthetic calls instead of one.
+func filterRepairArtifacts(items []coreconversation.Item) []coreconversation.Item {
+	out := make([]coreconversation.Item, 0, len(items))
+	for _, item := range items {
+		if item.Metadata["repair"] == "" {
 			out = append(out, item)
 		}
 	}

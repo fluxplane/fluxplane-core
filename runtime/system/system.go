@@ -172,10 +172,11 @@ type ResolvedPath struct {
 
 // WalkOptions bounds workspace tree traversal.
 type WalkOptions struct {
-	Depth      int
-	ShowHidden bool
-	MaxEntries int
-	FilesOnly  bool
+	Depth         int
+	ShowHidden    bool
+	MaxEntries    int
+	FilesOnly     bool
+	FilterPattern string // optional glob applied to each entry's workspace-relative path
 }
 
 // WalkEntry describes one workspace path discovered by Walk.
@@ -655,6 +656,15 @@ func (w *HostWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([
 		}
 		if opts.FilesOnly && d.IsDir() {
 			return nil
+		}
+		if opts.FilterPattern != "" {
+			if !matchFilterPattern(opts.FilterPattern, relToRoot, d.IsDir()) {
+				if d.IsDir() {
+					// Walk children; they may still match.
+					return nil
+				}
+				return nil
+			}
 		}
 		if len(entries) >= limit {
 			truncated = true
@@ -1655,6 +1665,28 @@ type BrowserArtifact struct {
 type BrowserEvaluateResult struct {
 	SessionID string `json:"session_id"`
 	Value     any    `json:"value,omitempty"`
+}
+
+// matchFilterPattern reports whether relPath (slash-delimited, workspace-relative)
+// matches the glob pattern. For directories, both the path itself and a wildcard
+// suffix are tried so that a pattern like "*.go" still allows walking into
+// directories that may contain matching files.
+func matchFilterPattern(pattern, relPath string, isDir bool) bool {
+	matched, err := filepath.Match(pattern, relPath)
+	if err != nil {
+		return false
+	}
+	if matched {
+		return true
+	}
+	// Also match the base name alone so "*.go" matches "sub/file.go".
+	base := filepath.Base(relPath)
+	if base != relPath {
+		if m, _ := filepath.Match(pattern, base); m {
+			return true
+		}
+	}
+	return false
 }
 
 // Clarifier collects human input through a channel or terminal adapter.
