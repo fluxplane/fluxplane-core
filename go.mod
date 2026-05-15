@@ -118,6 +118,6 @@ require (
 	mvdan.cc/sh/v3 v3.13.1 // indirect
 )
 
-replace github.com/codewandler/connectors => ../../connectors
+replace github.com/codewandler/connectors => ../../codewandler-ai/connectors
 
-replace github.com/codewandler/axon => ../../axon
+replace github.com/codewandler/axon => ../../codewandler-ai/axon

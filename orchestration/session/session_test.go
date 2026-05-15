@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -77,6 +78,59 @@ func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {
 	}
 	if result.Effect == nil || result.Effect.Result.Status != operation.StatusOK {
 		t.Fatalf("effect result = %#v, want ok", result.Effect)
+	}
+}
+
+func TestExecuteInboundCommandLeavesOversizedOperationResult(t *testing.T) {
+	large := strings.Repeat("large command result ", 800)
+	opRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"echo": input, "content": large})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"echo"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: opRef,
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+
+	result := (Session{
+		Commands:          commands,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+	}).ExecuteInboundCommand(context.Background(), channel.Inbound{
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path:  command.Path{"echo"},
+			Input: "hello",
+		},
+	})
+
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if result.Effect == nil {
+		t.Fatalf("effect = nil, want result")
+	}
+	if _, ok := toolResultReplacement(result.Effect.Result); ok {
+		t.Fatalf("command operation result was replaced: %#v", result.Effect.Result)
+	}
+	output, ok := result.Effect.Result.Output.(map[string]any)
+	if !ok || output["content"] != large {
+		t.Fatalf("output = %#v, want original large command result", result.Effect.Result.Output)
 	}
 }
 
@@ -466,6 +520,99 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 	}
 	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 2 {
 		t.Fatalf("stored events = %#v, want two transcript append events", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputReplacesOversizedToolResult(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	large := strings.Repeat("large tool result ", 800)
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input, "content": large})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{
+		Provider: "openai",
+		API:      "openai.responses",
+		Family:   "responses",
+		Model:    "gpt-test",
+	}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		if len(transcripts) == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{
+					Provider: provider,
+					Items: []coreconversation.Item{
+						{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "lookup A100"},
+						{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"},
+					},
+				},
+			}, nil
+		}
+		return llmagent.Response{Message: &agent.Message{Content: "done"}}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{
+		Agent:             runtimeAgent,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+	}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "lookup A100"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(result.Effects) != 1 {
+		t.Fatalf("effects len = %d, want 1", len(result.Effects))
+	}
+	replacement, ok := toolResultReplacement(result.Effects[0].Result)
+	if !ok {
+		t.Fatalf("result = %#v, want replacement", result.Effects[0].Result)
+	}
+	if !strings.HasPrefix(replacement.Path, os.TempDir()) {
+		t.Fatalf("replacement path = %q, want under temp dir %q", replacement.Path, os.TempDir())
+	}
+	data, err := os.ReadFile(replacement.Path)
+	if err != nil {
+		t.Fatalf("read replacement: %v", err)
+	}
+	if !strings.Contains(string(data), large) {
+		t.Fatalf("replacement file missing original result")
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	item, ok := toolResultByCallID(transcripts[1].Items, "call_1")
+	if !ok {
+		t.Fatalf("second transcript items = %#v, want tool result", transcripts[1].Items)
+	}
+	if item.Metadata["replaced"] != "true" || item.Metadata["replacement_path"] != replacement.Path {
+		t.Fatalf("tool result metadata = %#v, want replacement metadata", item.Metadata)
+	}
+	if strings.Contains(valueText(item.Content), large) {
+		t.Fatalf("tool result still contains original content")
+	}
+	if !strings.Contains(valueText(item.Content), replacement.Path) {
+		t.Fatalf("tool result content = %#v, want replacement path", item.Content)
 	}
 }
 
@@ -2491,12 +2638,17 @@ func completedCallIDs(events []event.Event) []operation.CallID {
 }
 
 func hasToolResultCallID(items []coreconversation.Item, callID string) bool {
+	_, ok := toolResultByCallID(items, callID)
+	return ok
+}
+
+func toolResultByCallID(items []coreconversation.Item, callID string) (coreconversation.Item, bool) {
 	for _, item := range items {
 		if item.Kind == coreconversation.ItemToolResult && item.CallID == callID {
-			return true
+			return item, true
 		}
 	}
-	return false
+	return coreconversation.Item{}, false
 }
 
 func hasTranscriptUserContent(items []coreconversation.Item, content string) bool {

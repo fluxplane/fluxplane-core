@@ -1443,8 +1443,35 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 		if opReq.ProviderCallID != "" {
 			effect.Observation.Metadata["provider_call_id"] = opReq.ProviderCallID
 		}
+		effect, replacementErr := replaceOversizedToolResult(agentCtx, effect, opReq.Operation, callID)
+		if replacementErr != nil {
+			effect = operationEffect(operation.Failed("tool_result_replacement_failed", replacementErr.Error(), map[string]any{
+				"operation": opReq.Operation.String(),
+				"call_id":   string(callID),
+			}))
+			effect.Observation.Metadata = map[string]any{
+				"operation": opReq.Operation.String(),
+				"call_id":   string(callID),
+			}
+		}
 		effects = append(effects, effect)
-		toolResults = append(toolResults, operationResultTranscriptItem(provider, opReq, callID, effect.Result))
+		toolResult := operationResultTranscriptItem(provider, opReq, callID, effect.Result)
+		if replacement, ok := toolResultReplacement(effect.Result); ok {
+			if toolResult.Metadata == nil {
+				toolResult.Metadata = map[string]string{}
+			}
+			toolResult.Metadata["replaced"] = "true"
+			toolResult.Metadata["replacement"] = replacement.Kind
+			toolResult.Metadata["replacement_path"] = replacement.Path
+			toolResult.Metadata["replacement_size_bytes"] = fmt.Sprintf("%d", replacement.SizeBytes)
+			toolResult.Metadata["replacement_threshold_bytes"] = fmt.Sprintf("%d", replacement.ThresholdBytes)
+			if effect.Observation.Metadata == nil {
+				effect.Observation.Metadata = map[string]any{}
+			}
+			effect.Observation.Metadata["replaced"] = true
+			effect.Observation.Metadata["replacement"] = replacement
+		}
+		toolResults = append(toolResults, toolResult)
 		completed := coresession.OperationCompleted{
 			RunID:     inbound.ID,
 			CallID:    callID,
@@ -1457,6 +1484,33 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 		s.emitLive(completed)
 	}
 	return effects, toolResults, nil
+}
+
+func replaceOversizedToolResult(ctx operation.Context, effect environment.EffectResult, ref operation.Ref, callID operation.CallID) (environment.EffectResult, error) {
+	result, replacement, err := operationruntime.ReplaceLargeResult(ctx, effect.Result, operationruntime.ReplacementOptions{
+		Operation: ref,
+		CallID:    callID,
+	})
+	if err != nil || replacement == nil {
+		return effect, err
+	}
+	metadata := effect.Observation.Metadata
+	effect = operationEffect(result)
+	effect.Observation.Metadata = metadata
+	return effect, nil
+}
+
+func toolResultReplacement(result operation.Result) (operationruntime.ResultReplacement, bool) {
+	if rendered, ok := result.Output.(operation.Rendered); ok {
+		if replacement, ok := rendered.Data.(operationruntime.ResultReplacement); ok && replacement.Replaced {
+			return replacement, true
+		}
+	}
+	if result.Error == nil || result.Error.Details == nil {
+		return operationruntime.ResultReplacement{}, false
+	}
+	replacement, ok := result.Error.Details["replacement"].(operationruntime.ResultReplacement)
+	return replacement, ok && replacement.Replaced
 }
 
 func (s Session) stepLimitResult(ctx context.Context, inbound channel.Inbound, agentResult agent.StepResult, effects []environment.EffectResult) InputResult {

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cap.
 - Added provider-neutral end-of-turn auto-compaction that checkpoints large
   transcripts after they exceed the configured model context threshold.
+- Model tool-call results over 10 KiB are now replaced with `/tmp` result-file
+  references plus size, digest, and replacement metadata.
 - Added `/compact` and `/compact --dry-run` built-in session commands for
   checkpointing or previewing deterministic provider transcript compaction.
 - Added opt-in runtime workspace roots so local launches can expose named
