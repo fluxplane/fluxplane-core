@@ -43,6 +43,7 @@ type authFile struct {
 type auth struct {
 	mu     sync.Mutex
 	file   authFile
+	raw    map[string]json.RawMessage
 	path   string
 	expiry time.Time
 	client *http.Client
@@ -67,13 +68,17 @@ func loadAuth(path string, client *http.Client) (*auth, error) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, fmt.Errorf("codex: parse auth file: %w", err)
 	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("codex: parse raw auth file: %w", err)
+	}
 	if file.AuthMode != "" && file.AuthMode != authModeChatGPT {
 		return nil, fmt.Errorf("codex: unsupported auth mode %q", file.AuthMode)
 	}
 	if file.Tokens.AccessToken == "" && file.Tokens.RefreshToken == "" {
 		return nil, fmt.Errorf("codex: no tokens in %s", path)
 	}
-	a := &auth{file: file, path: path, client: client}
+	a := &auth{file: file, raw: raw, path: path, client: client}
 	if exp, err := jwtExpiry(file.Tokens.AccessToken); err == nil {
 		a.expiry = exp
 	}
@@ -161,8 +166,71 @@ func (a *auth) saveLocked() {
 		return
 	}
 	a.file.LastRefresh = time.Now().UTC()
-	if data, err := json.MarshalIndent(a.file, "", "  "); err == nil {
-		_ = os.WriteFile(a.path, data, 0o600)
+	raw := a.currentRawLocked()
+	putStringRaw(raw, "auth_mode", a.file.AuthMode)
+	putTimeRaw(raw, "last_refresh", a.file.LastRefresh)
+
+	tokens := rawObject(raw["tokens"])
+	putStringRaw(tokens, "access_token", a.file.Tokens.AccessToken)
+	putStringRaw(tokens, "refresh_token", a.file.Tokens.RefreshToken)
+	putStringRaw(tokens, "account_id", a.file.Tokens.AccountID)
+	putRaw(raw, "tokens", tokens)
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := os.WriteFile(a.path, data, 0o600); err == nil {
+		a.raw = raw
+	}
+}
+
+func (a *auth) currentRawLocked() map[string]json.RawMessage {
+	if data, err := os.ReadFile(a.path); err == nil {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err == nil {
+			return raw
+		}
+	}
+	if a.raw != nil {
+		clone := make(map[string]json.RawMessage, len(a.raw))
+		for key, value := range a.raw {
+			clone[key] = append(json.RawMessage(nil), value...)
+		}
+		return clone
+	}
+	return map[string]json.RawMessage{}
+}
+
+func rawObject(raw json.RawMessage) map[string]json.RawMessage {
+	var obj map[string]json.RawMessage
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &obj)
+	}
+	if obj == nil {
+		obj = map[string]json.RawMessage{}
+	}
+	return obj
+}
+
+func putStringRaw(obj map[string]json.RawMessage, key, value string) {
+	if value == "" {
+		return
+	}
+	putRaw(obj, key, value)
+}
+
+func putTimeRaw(obj map[string]json.RawMessage, key string, value time.Time) {
+	if value.IsZero() {
+		return
+	}
+	putRaw(obj, key, value)
+}
+
+func putRaw(obj map[string]json.RawMessage, key string, value any) {
+	data, err := json.Marshal(value)
+	if err == nil {
+		obj[key] = data
 	}
 }
 
