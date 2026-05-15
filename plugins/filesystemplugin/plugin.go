@@ -515,8 +515,8 @@ func (p Plugin) fileEdit(ws system.Workspace) operation.Handler {
 				text += "\n\n" + strings.Join(blocks, "\n")
 			}
 		}
-		modelText := fmt.Sprintf("%s %s: %d operation(s) applied against original file coordinates. Diff mode: %s.", action, displayPath(resolved), len(fragments), diffMode)
-		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Model: modelText, Data: data})
+		renderedText := strings.TrimSpace(text)
+		return operation.OK(operation.Rendered{Text: renderedText, Model: renderedText, Data: data})
 	}
 }
 

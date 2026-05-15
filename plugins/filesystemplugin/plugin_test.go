@@ -199,7 +199,7 @@ func TestFileEditRejectsFileLargerThanWriteLimitUnchanged(t *testing.T) {
 	})
 }
 
-func TestFileEditFullDiffKeepsDiffOutOfModelText(t *testing.T) {
+func TestFileEditFullDiffIncludesDiffInModelText(t *testing.T) {
 	runFilesystemBackends(t, func(t *testing.T, env *filesystemTestEnv) {
 		env.WriteFile(t, "note.txt", []byte("one\ntwo\nthree\n"))
 		op := env.Operation(t, FileEditOp)
@@ -220,8 +220,8 @@ func TestFileEditFullDiffKeepsDiffOutOfModelText(t *testing.T) {
 		if !strings.Contains(rendered.Text, "--- note.txt") || !strings.Contains(rendered.Text, "-two") || !strings.Contains(rendered.Text, "+changed") {
 			t.Fatalf("text = %q, want unified diff", rendered.Text)
 		}
-		if strings.Contains(rendered.ModelText(), "--- note.txt") || strings.Contains(rendered.ModelText(), "-two") {
-			t.Fatalf("model text = %q, did not want full diff", rendered.ModelText())
+		if !strings.Contains(rendered.ModelText(), "--- note.txt") || !strings.Contains(rendered.ModelText(), "-two") || !strings.Contains(rendered.ModelText(), "+changed") {
+			t.Fatalf("model text = %q, want unified diff", rendered.ModelText())
 		}
 		data, ok := rendered.Data.(map[string]any)
 		if !ok {
@@ -450,6 +450,10 @@ func TestFileEditAtomicAndNoDiffModes(t *testing.T) {
 			t.Fatalf("atomic text = %q, want per-operation diffs", rendered.Text)
 		}
 
+		if !strings.Contains(rendered.ModelText(), "# operation 0 (patch)") || !strings.Contains(rendered.ModelText(), "# operation 1 (append)") {
+			t.Fatalf("atomic model text = %q, want per-operation diffs", rendered.ModelText())
+		}
+
 		none := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
 			"path":      "note.txt",
 			"dry_run":   true,
@@ -465,8 +469,8 @@ func TestFileEditAtomicAndNoDiffModes(t *testing.T) {
 		if !ok {
 			t.Fatalf("output = %#v, want rendered", none.Output)
 		}
-		if strings.Contains(rendered.Text, "--- note.txt") {
-			t.Fatalf("none text = %q, did not want diff", rendered.Text)
+		if strings.Contains(rendered.ModelText(), "--- note.txt") {
+			t.Fatalf("none model text = %q, did not want diff", rendered.ModelText())
 		}
 	})
 }

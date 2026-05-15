@@ -338,6 +338,32 @@ func TestRendererRendersToolTimeline(t *testing.T) {
 	}
 }
 
+func TestRendererRendersOperationDiffDetail(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "file_edit"},
+			Result: &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
+				Text: "Edited note.txt",
+				Data: map[string]any{
+					"path": "note.txt",
+					"diff": "--- note.txt\n+++ note.txt\n@@ -1 +1 @@\n-old\n+new\n",
+				},
+			}},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"✓", "Edited note.txt", "--- note.txt", "+++ note.txt", "-old", "+new"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("operation output = %q, missing %q", got, want)
+		}
+	}
+}
+
 func TestRendererRendersToolTimelineFailure(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)

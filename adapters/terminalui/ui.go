@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codewandler/markdown/stream"
-	mdterminal "github.com/codewandler/markdown/terminal"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -44,8 +42,8 @@ type Renderer struct {
 	starts map[operation.CallID]time.Time
 	plans  map[string]*terminalPlanView
 
-	content *mdterminal.LiveRenderer
-	debug   *mdterminal.LiveRenderer
+	content *markdownLiveRenderer
+	debug   *markdownLiveRenderer
 
 	streamedContent bool
 	reasoningOpen   bool
@@ -110,7 +108,11 @@ func (r *Renderer) Render(event clientapi.Event) {
 		} else {
 			_, _ = fmt.Fprintf(out, "status=%s", status)
 		}
+		details := operationResultMarkdown(*event.Operation.Result)
 		_, _ = fmt.Fprintf(out, " %sduration=%s%s\n", ansiDim, duration.Round(time.Millisecond), ansiReset)
+		if details != "" {
+			_ = RenderMarkdown(out, details)
+		}
 	case clientapi.EventRuntimeEmitted:
 		r.renderRuntime(out, event)
 	}
@@ -521,19 +523,6 @@ func (r *Renderer) flushMarkdownContent() {
 	}
 }
 
-func newMarkdownRenderer(w io.Writer) *mdterminal.LiveRenderer {
-	if w == nil {
-		w = io.Discard
-	}
-	return mdterminal.NewLiveRenderer(w, markdownRendererOptions()...)
-}
-
-func markdownRendererOptions() []mdterminal.RendererOption {
-	return []mdterminal.RendererOption{
-		mdterminal.WithAnsi(mdterminal.AnsiOn),
-		mdterminal.WithParserOptions(stream.WithGFMAutolinks()),
-	}
-}
 
 func (r *Renderer) writeContentDelta(text string) {
 	r.flushReasoning()
@@ -587,14 +576,6 @@ func (r *Renderer) out() io.Writer {
 	return r.Out
 }
 
-// RenderMarkdown renders one complete Markdown document to w.
-func RenderMarkdown(w io.Writer, text string) error {
-	renderer := newMarkdownRenderer(w)
-	if _, err := renderer.Write([]byte(text)); err != nil {
-		return err
-	}
-	return renderer.Flush()
-}
 
 func redactedDebugEvent(event clientapi.Event) clientapi.Event {
 	if event.Runtime == nil || event.Runtime.Name != llmagent.EventModelStreamedName {
@@ -677,6 +658,52 @@ func resultSummary(result operation.Result) string {
 		return paramSummary(value, 240)
 	default:
 		return compact(value, 240)
+	}
+}
+
+func operationResultMarkdown(result operation.Result) string {
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		return ""
+	}
+	data, ok := valueAsMap(rendered.Data)
+	if !ok {
+		return ""
+	}
+	if diff, ok := data["diff"].(string); ok {
+		return fencedCodeBlock("diff", diff)
+	}
+	diffs := terminalStringSlice(data["atomic_diffs"])
+	if len(diffs) == 0 {
+		return ""
+	}
+	blocks := make([]string, 0, len(diffs))
+	for _, diff := range diffs {
+		if block := fencedCodeBlock("diff", diff); block != "" {
+			blocks = append(blocks, block)
+		}
+	}
+	return strings.Join(blocks, "\n")
+}
+
+func terminalStringSlice(value any) []string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			out = append(out, text)
+		}
+		return out
+	default:
+		return nil
 	}
 }
 
