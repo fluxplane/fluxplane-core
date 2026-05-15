@@ -26,6 +26,44 @@ import (
 // wiring.
 type SubagentSupervisor = subagent.Supervisor
 
+// SessionSpec aliases the core session spec used by session orchestration.
+type SessionSpec = coresession.Spec
+
+// DelegationPolicy aliases the core session delegation policy.
+type DelegationPolicy = coresession.DelegationPolicy
+
+type (
+	// InputReceived aliases the persisted session input event.
+	InputReceived = coresession.InputReceived
+	// AgentStepCompleted aliases the persisted agent-step event.
+	AgentStepCompleted = coresession.AgentStepCompleted
+	// OutboundProduced aliases the persisted outbound event.
+	OutboundProduced = coresession.OutboundProduced
+	// CommandReceived aliases the persisted command input event.
+	CommandReceived = coresession.CommandReceived
+	// CommandRejected aliases the persisted command rejection event.
+	CommandRejected = coresession.CommandRejected
+	// OperationRequested aliases the persisted operation request event.
+	OperationRequested = coresession.OperationRequested
+	// OperationCompleted aliases the persisted operation completion event.
+	OperationCompleted = coresession.OperationCompleted
+)
+
+type (
+	// Event aliases a runtime event payload.
+	Event = event.Event
+	// EventSink aliases an event sink.
+	EventSink = event.Sink
+	// EventSinkFunc adapts a function into an event sink.
+	EventSinkFunc = event.SinkFunc
+)
+
+// OperationExecutor aliases the runtime operation executor used by sessions.
+type OperationExecutor = operationruntime.Executor
+
+// ResultReplacement aliases large-result replacement metadata.
+type ResultReplacement = operationruntime.ResultReplacement
+
 // Config carries session state needed to materialize execution contexts.
 type Config struct {
 	Agent             agent.Agent
@@ -34,7 +72,7 @@ type Config struct {
 	ThreadStore       corethread.Store
 	Delegation        coresession.DelegationPolicy
 	RunID             string
-	OperationExecutor operationruntime.Executor
+	OperationExecutor OperationExecutor
 	Events            event.Sink
 }
 
@@ -51,6 +89,37 @@ func RenderDiff(result corecontext.BuildResult, placement corecontext.Placement)
 // BlockFingerprint returns the stable fingerprint for a rendered context block.
 func BlockFingerprint(block corecontext.Block) string {
 	return contextruntime.BlockFingerprint(block)
+}
+
+// DiscardEvents returns an event sink that drops payloads.
+func DiscardEvents() EventSink {
+	return event.Discard()
+}
+
+// ThreadAppendRecords converts event payloads to append records scoped to a
+// thread.
+func ThreadAppendRecords(thread corethread.Ref, payloads ...Event) []corethread.AppendRecord {
+	records := make([]corethread.AppendRecord, 0, len(payloads))
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		records = append(records, corethread.AppendRecord{
+			Event: event.Record{
+				Name:    payload.EventName(),
+				Payload: payload,
+				Scope: event.Scope{
+					ThreadID: string(thread.ID),
+				},
+			},
+		})
+	}
+	return records
+}
+
+// IsAppendConflict reports whether err is an event append conflict.
+func IsAppendConflict(err error) bool {
+	return errors.Is(err, event.ErrAppendConflict)
 }
 
 // OperationContext adds session-scoped skill, datasource, call, and sub-agent
@@ -244,6 +313,14 @@ func ApproverFromExecutor(exec operationruntime.Executor) operationruntime.Appro
 		return env.Approval
 	}
 	return nil
+}
+
+// ReplaceLargeResult applies the runtime large-result replacement policy.
+func ReplaceLargeResult(ctx operation.Context, result operation.Result, ref operation.Ref, callID operation.CallID) (operation.Result, *ResultReplacement, error) {
+	return operationruntime.ReplaceLargeResult(ctx, result, operationruntime.ReplacementOptions{
+		Operation: ref,
+		CallID:    callID,
+	})
 }
 
 func ensureContext(ctx context.Context) context.Context {

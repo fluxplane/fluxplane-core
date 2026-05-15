@@ -3,15 +3,15 @@ package session
 import (
 	"fmt"
 
-	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
+	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 )
 
 // SessionBinding binds a configured session profile to its canonical resource
 // identity.
 type SessionBinding struct {
 	ID   sessioncontrol.ResourceID
-	Spec coresession.Spec
+	Spec sessionenv.SessionSpec
 }
 
 // SessionCatalog contains configured session profiles keyed by canonical

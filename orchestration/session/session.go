@@ -18,19 +18,12 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
-	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
-	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
-	workflowruntime "github.com/fluxplane/agentruntime/orchestration/workflow"
+	"github.com/fluxplane/agentruntime/orchestration/sessionworkflow"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // Session is the first orchestration boundary for the observe-decide-apply
@@ -38,19 +31,19 @@ import (
 // after the core loop is stable.
 type Session struct {
 	Agent             agent.Agent
-	Profile           coresession.Spec
+	Profile           sessionenv.SessionSpec
 	Commands          *command.Registry
 	Operations        *operation.Registry
 	Resolver          *sessioncontrol.Resolver
 	CommandCatalog    CommandCatalog
 	OperationCatalog  OperationCatalog
-	WorkflowCatalog   resourcecatalog.WorkflowCatalog
-	OperationExecutor operationruntime.Executor
-	Events            event.Sink
+	WorkflowCatalog   sessionworkflow.WorkflowCatalog
+	OperationExecutor sessionenv.OperationExecutor
+	Events            sessionenv.EventSink
 	ThreadStore       corethread.Store
 	Thread            corethread.Ref
 	Subagents         *sessionenv.SubagentSupervisor
-	Delegation        coresession.DelegationPolicy
+	Delegation        sessionenv.DelegationPolicy
 	StopEvaluator     StopEvaluator
 	RunID             string
 }
@@ -104,7 +97,7 @@ type OperationBinding struct {
 type OperationCatalog map[string]OperationBinding
 
 // WorkflowCatalog binds canonical workflow resource IDs to workflow specs.
-type WorkflowCatalog = resourcecatalog.WorkflowCatalog
+type WorkflowCatalog = sessionworkflow.WorkflowCatalog
 
 // ToolSetBinding binds a projected tool set to its canonical resource identity.
 type ToolSetBinding struct {
@@ -214,14 +207,14 @@ func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input 
 	return s.executeOperation(ctx, op, input, callID)
 }
 
-func (s Session) eventSink() event.Sink {
+func (s Session) eventSink() sessionenv.EventSink {
 	if s.Events == nil {
-		return event.Discard()
+		return sessionenv.DiscardEvents()
 	}
 	return s.Events
 }
 
-func (s Session) emitLive(payload event.Event) {
+func (s Session) emitLive(payload sessionenv.Event) {
 	if payload == nil {
 		return
 	}
@@ -244,12 +237,12 @@ func ensureContext(ctx context.Context) context.Context {
 
 type agentContext struct {
 	context.Context
-	events event.Sink
+	events sessionenv.EventSink
 }
 
-func (c agentContext) Events() event.Sink {
+func (c agentContext) Events() sessionenv.EventSink {
 	if c.events == nil {
-		return event.Discard()
+		return sessionenv.DiscardEvents()
 	}
 	return c.events
 }
@@ -323,7 +316,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	if err != nil {
 		return inputFailed("thread_history_failed", err.Error(), nil)
 	}
-	if err := s.appendThreadEvents(ctx, coresession.InputReceived{
+	if err := s.appendThreadEvents(ctx, sessionenv.InputReceived{
 		RunID:        inbound.ID,
 		Message:      *inbound.Message,
 		Channel:      inbound.Channel,
@@ -417,7 +410,7 @@ type innerTurnInput struct {
 	Inbound             channel.Inbound
 	BaseContext         context.Context
 	History             []corecontext.Block
-	Events              event.Sink
+	Events              sessionenv.EventSink
 	ConversationErr     *error
 	LocalTranscript     *[]coreconversation.Item
 	LocalContinuation   **coreconversation.ContinuationHandle
@@ -484,7 +477,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		if in.ConversationErr != nil && *in.ConversationErr != nil {
 			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
-		if err := s.appendThreadEvents(ctx, coresession.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
+		if err := s.appendThreadEvents(ctx, sessionenv.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
 		if agentResult.Status != agent.StatusOK {
@@ -752,7 +745,7 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 	return result, contextPendingItems(in.ProviderIdentity, pending, result), nil
 }
 
-func (s Session) activateTriggeredSkills(pending []coreconversation.Item, observations []environment.Observation, sink event.Sink) error {
+func (s Session) activateTriggeredSkills(pending []coreconversation.Item, observations []environment.Observation, sink sessionenv.EventSink) error {
 	return sessionenv.ActivateSkillTriggers(skillTriggerText(pending, observations), s.envConfig(sink))
 }
 
@@ -855,7 +848,7 @@ func (s Session) commitContextRender(ctx context.Context, result corecontext.Bui
 	if result.EmptyDiff() {
 		return nil
 	}
-	events := make([]event.Event, 0, len(result.Added)+len(result.Updated)+len(result.Removed)+1)
+	events := make([]sessionenv.Event, 0, len(result.Added)+len(result.Updated)+len(result.Removed)+1)
 	for _, block := range append(append([]corecontext.Block(nil), result.Added...), result.Updated...) {
 		events = append(events, corecontext.BlockRecorded{
 			TurnID:      result.TurnID,
@@ -1150,9 +1143,9 @@ func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, o
 	return item
 }
 
-func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) event.Sink {
+func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) sessionenv.EventSink {
 	live := s.eventSink()
-	return event.SinkFunc(func(payload event.Event) {
+	return sessionenv.EventSinkFunc(func(payload sessionenv.Event) {
 		if payload == nil {
 			return
 		}
@@ -1261,15 +1254,15 @@ func conversationHistoryText(records []corethread.Record) string {
 	lines := make([]string, 0, len(records))
 	for _, record := range records {
 		switch payload := record.Event.Payload.(type) {
-		case coresession.InputReceived:
+		case sessionenv.InputReceived:
 			if text := valueText(payload.Message.Content); text != "" {
 				lines = append(lines, "User: "+text)
 			}
-		case coresession.OutboundProduced:
+		case sessionenv.OutboundProduced:
 			if text := valueText(payload.Message.Content); text != "" {
 				lines = append(lines, "Agent: "+text)
 			}
-		case coresession.CommandReceived:
+		case sessionenv.CommandReceived:
 			if text := valueText(payload.Command.Input); text != "" {
 				lines = append(lines, "Command "+payload.Command.Path.String()+": "+text)
 			}
@@ -1318,7 +1311,7 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 				Metadata: agentResult.Decision.Message.Metadata,
 			},
 		}
-		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
+		if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
 		return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Outbound: &outbound}
@@ -1332,7 +1325,7 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 			Kind:         channel.OutboundMessage,
 			Message:      &channel.Message{Content: agentResult.Decision.Complete.Output},
 		}
-		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
+		if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{RunID: inbound.ID, Message: *outbound.Message}); err != nil {
 			return inputFailed("thread_append_failed", err.Error(), nil)
 		}
 		return InputResult{Status: InputStatusOK, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Outbound: &outbound}
@@ -1349,7 +1342,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 	provider := s.providerIdentity()
 	for i, opReq := range requests {
 		callID := operationCallID(inbound.ID, startIndex+i+1)
-		requested := coresession.OperationRequested{
+		requested := sessionenv.OperationRequested{
 			RunID:     inbound.ID,
 			CallID:    callID,
 			Operation: opReq.Operation,
@@ -1397,7 +1390,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			effect.Observation.Metadata["replacement"] = replacement
 		}
 		toolResults = append(toolResults, toolResult)
-		completed := coresession.OperationCompleted{
+		completed := sessionenv.OperationCompleted{
 			RunID:     inbound.ID,
 			CallID:    callID,
 			Operation: opReq.Operation,
@@ -1412,10 +1405,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 }
 
 func replaceOversizedToolResult(ctx operation.Context, effect environment.EffectResult, ref operation.Ref, callID operation.CallID) (environment.EffectResult, error) {
-	result, replacement, err := operationruntime.ReplaceLargeResult(ctx, effect.Result, operationruntime.ReplacementOptions{
-		Operation: ref,
-		CallID:    callID,
-	})
+	result, replacement, err := sessionenv.ReplaceLargeResult(ctx, effect.Result, ref, callID)
 	if err != nil || replacement == nil {
 		return effect, err
 	}
@@ -1425,16 +1415,16 @@ func replaceOversizedToolResult(ctx operation.Context, effect environment.Effect
 	return effect, nil
 }
 
-func toolResultReplacement(result operation.Result) (operationruntime.ResultReplacement, bool) {
+func toolResultReplacement(result operation.Result) (sessionenv.ResultReplacement, bool) {
 	if rendered, ok := result.Output.(operation.Rendered); ok {
-		if replacement, ok := rendered.Data.(operationruntime.ResultReplacement); ok && replacement.Replaced {
+		if replacement, ok := rendered.Data.(sessionenv.ResultReplacement); ok && replacement.Replaced {
 			return replacement, true
 		}
 	}
 	if result.Error == nil || result.Error.Details == nil {
-		return operationruntime.ResultReplacement{}, false
+		return sessionenv.ResultReplacement{}, false
 	}
-	replacement, ok := result.Error.Details["replacement"].(operationruntime.ResultReplacement)
+	replacement, ok := result.Error.Details["replacement"].(sessionenv.ResultReplacement)
 	return replacement, ok && replacement.Replaced
 }
 
@@ -1472,7 +1462,7 @@ func (s Session) operationBoundaryResult(ctx context.Context, inbound channel.In
 		return InputResult{Status: status, Agent: agentResult, Error: err}
 	}
 	message := outboundMessageForOperationResult(effect.Result)
-	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{RunID: inbound.ID, Message: message}); err != nil {
 		return inputFailed("thread_append_failed", err.Error(), nil)
 	}
 	status := InputStatusOK
@@ -1654,7 +1644,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 			"path": inbound.Command.Path.String(),
 		})
 	}
-	if err := s.appendThreadEvents(ctx, coresession.CommandReceived{
+	if err := s.appendThreadEvents(ctx, sessionenv.CommandReceived{
 		RunID:        inbound.ID,
 		Command:      *inbound.Command,
 		Channel:      inbound.Channel,
@@ -1679,10 +1669,10 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	evaluation := sessioncontrol.EvaluateInvocation(spec, inbound.Caller, inbound.Trust)
 	switch {
 	case sessioncontrol.PolicyDenied(evaluation):
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		_ = s.appendThreadEvents(ctx, sessionenv.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusRejected, Spec: spec, Policy: evaluation}
 	case sessioncontrol.PolicyApprovalRequired(evaluation):
-		_ = s.appendThreadEvents(ctx, coresession.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
+		_ = s.appendThreadEvents(ctx, sessionenv.CommandRejected{RunID: inbound.ID, Command: *inbound.Command, Reason: evaluation.Reason})
 		return CommandResult{Status: CommandStatusApprovalRequired, Spec: spec, Policy: evaluation}
 	}
 
@@ -1704,10 +1694,10 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		return resolved.SessionHandler(s, ctx, inbound, spec, evaluation)
 	}
 
-	if spec.Target.Kind == invocation.TargetWorkflow {
+	if sessioncontrol.TargetsWorkflow(spec) {
 		return s.executeWorkflowCommand(ctx, inbound, resolved.Binding, spec, evaluation)
 	}
-	if spec.Target.Kind == invocation.TargetPrompt {
+	if sessioncontrol.TargetsPrompt(spec) {
 		return s.executePromptCommand(ctx, inbound, spec, evaluation)
 	}
 
@@ -1732,7 +1722,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 
 	opCtx := operation.NewContext(ensureContext(ctx), s.eventSink())
 	callID := operationCallID(inbound.ID, 1)
-	requested := coresession.OperationRequested{
+	requested := sessionenv.OperationRequested{
 		RunID:     inbound.ID,
 		CallID:    callID,
 		Operation: spec.Target.Operation,
@@ -1743,13 +1733,13 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	}
 	s.emitLive(requested)
 	effect := s.applyBoundOperation(opCtx, resolved.Binding, spec.Target.Operation, inbound.Command.Input, callID)
-	completed := coresession.OperationCompleted{
+	completed := sessionenv.OperationCompleted{
 		RunID:     inbound.ID,
 		CallID:    callID,
 		Operation: spec.Target.Operation,
 		Result:    effect.Result,
 	}
-	if err := s.appendThreadEvents(ctx, completed, coresession.OutboundProduced{
+	if err := s.appendThreadEvents(ctx, completed, sessionenv.OutboundProduced{
 		RunID:   inbound.ID,
 		Message: outboundMessageForOperationResult(effect.Result),
 	}); err != nil {
@@ -1777,7 +1767,7 @@ func (s Session) executePromptCommand(ctx context.Context, inbound channel.Inbou
 		Content: content,
 		Metadata: map[string]any{
 			"command": spec.Path.String(),
-			"target":  string(invocation.TargetPrompt),
+			"target":  sessioncontrol.TargetPromptKind(),
 		},
 	}
 	inputResult := s.executeInboundInput(ctx, messageInbound, inputExecutionOptions{})
@@ -1794,157 +1784,44 @@ func (s Session) executePromptCommand(ctx context.Context, inbound channel.Inbou
 }
 
 func (s Session) executeWorkflowCommand(ctx context.Context, inbound channel.Inbound, binding CommandBinding, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
-	workflowBinding, err := s.resolveWorkflowBinding(binding, spec)
-	if err != nil {
-		return commandFailed("workflow_resolution_failed", err.Error(), map[string]any{
-			"workflow": string(spec.Target.Workflow),
-		})
-	}
-	result := workflowruntime.Run(ctx, workflowruntime.Config{
-		Spec:   workflowBinding.Spec,
-		RunID:  coreworkflow.RunID(inbound.ID),
-		Input:  firstNonNil(inbound.Command.Input, spec.Target.Input),
-		Events: s.eventSink(),
-		RunOperation: func(ctx context.Context, step coreworkflow.Step, input operation.Value, callID operation.CallID) (operation.Result, error) {
-			return s.runWorkflowOperationStep(ctx, inbound.ID, workflowBinding.ID, step, input, callID)
+	result := sessionworkflow.Execute(ctx, sessionworkflow.Config{
+		WorkflowCatalog:   s.WorkflowCatalog,
+		Resolver:          s.Resolver,
+		OperationExecutor: s.OperationExecutor,
+		Subagents:         s.Subagents,
+		Delegation:        s.Delegation,
+		Thread:            s.Thread,
+		Events:            s.eventSink(),
+		AppendEvents:      s.appendThreadEvents,
+		EmitLive:          s.emitLive,
+		ResolveOperation: func(ref string, scope sessioncontrol.ResourceID) (operation.Operation, error) {
+			binding, err := s.OperationCatalog.Resolve(ref, scope)
+			if err != nil {
+				return nil, err
+			}
+			return binding.Operation, nil
 		},
-		RunAgent: func(ctx context.Context, step coreworkflow.Step, input operation.Value) (operation.Value, error) {
-			return s.runWorkflowAgentStep(ctx, inbound.ID, step, input)
-		},
-	})
-	if result.Status == coreworkflow.StatusSucceeded {
-		commandResult := CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: result.Output}
-		if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
-			RunID:   inbound.ID,
-			Message: workflowCommandMessage(commandResult),
-		}); err != nil {
-			return commandFailed("thread_append_failed", err.Error(), nil)
-		}
-		return commandResult
-	}
-	message := "workflow failed"
-	code := "workflow_failed"
-	if result.Status == coreworkflow.StatusCanceled {
-		message = "workflow canceled"
-		code = "workflow_canceled"
-	}
-	if result.Error != nil {
-		message = result.Error.Message
-		if result.Error.Code != "" {
-			code = result.Error.Code
-		}
-	}
+	}, inbound.ID, inbound.Command.Input, binding.TargetID, spec)
 	commandResult := CommandResult{
-		Status: CommandStatusFailed,
+		Status: CommandStatus(result.Status),
 		Spec:   spec,
 		Policy: evaluation,
 		Output: result.Output,
-		Error: &CommandError{
-			Code:    code,
-			Message: message,
-			Details: map[string]any{
-				"workflow": string(workflowBinding.Spec.Name),
-			},
-		},
 	}
-	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+	if result.Error != nil {
+		commandResult.Error = &CommandError{
+			Code:    result.Error.Code,
+			Message: result.Error.Message,
+			Details: result.Error.Details,
+		}
+	}
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{
 		RunID:   inbound.ID,
 		Message: workflowCommandMessage(commandResult),
 	}); err != nil {
 		return commandFailed("thread_append_failed", err.Error(), nil)
 	}
 	return commandResult
-}
-
-func (s Session) resolveWorkflowBinding(binding CommandBinding, spec command.Spec) (resourcecatalog.Binding[coreworkflow.Spec], error) {
-	if !binding.TargetID.IsZero() {
-		if workflowBinding, ok := s.WorkflowCatalog[binding.TargetID.Address()]; ok {
-			return workflowBinding, nil
-		}
-		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow %q is not bound", binding.TargetID.Address())
-	}
-	if s.Resolver == nil {
-		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow resolver is nil")
-	}
-	id, err := s.Resolver.Resolve("workflow", string(spec.Target.Workflow))
-	if err != nil {
-		return resourcecatalog.Binding[coreworkflow.Spec]{}, err
-	}
-	workflowBinding, ok := s.WorkflowCatalog[id.Address()]
-	if !ok {
-		return resourcecatalog.Binding[coreworkflow.Spec]{}, fmt.Errorf("workflow %q is not bound", id.Address())
-	}
-	return workflowBinding, nil
-}
-
-func (s Session) runWorkflowOperationStep(ctx context.Context, runID string, workflowID sessioncontrol.ResourceID, step coreworkflow.Step, input operation.Value, callID operation.CallID) (operation.Result, error) {
-	binding, err := s.OperationCatalog.Resolve(step.Operation.String(), workflowID)
-	if err != nil {
-		return operation.Result{}, err
-	}
-	requested := coresession.OperationRequested{
-		RunID:     runID,
-		CallID:    callID,
-		Operation: step.Operation,
-		Input:     input,
-	}
-	if err := s.appendThreadEvents(ctx, requested); err != nil {
-		return operation.Result{}, err
-	}
-	s.emitLive(requested)
-	effect := s.executeOperation(operation.NewContext(ensureContext(ctx), s.eventSink()), binding.Operation, input, callID)
-	completed := coresession.OperationCompleted{
-		RunID:     runID,
-		CallID:    callID,
-		Operation: step.Operation,
-		Result:    effect.Result,
-	}
-	if err := s.appendThreadEvents(ctx, completed); err != nil {
-		return operation.Result{}, err
-	}
-	s.emitLive(completed)
-	return effect.Result, nil
-}
-
-func (s Session) runWorkflowAgentStep(ctx context.Context, runID string, step coreworkflow.Step, input operation.Value) (operation.Value, error) {
-	if s.Subagents == nil {
-		return nil, fmt.Errorf("workflow agent step %q requires a sub-agent supervisor", step.ID)
-	}
-	task := workflowAgentTask(step, input)
-	prepared, err := s.Subagents.Prepare(ctx, subagent.SpawnRequest{
-		ID:             subagent.ID(string(runID) + ":" + string(step.ID)),
-		Agent:          step.Agent,
-		Task:           task,
-		TaskID:         string(step.ID),
-		Policy:         s.Delegation,
-		ParentThreadID: s.Thread.ID,
-		ParentRunID:    runID,
-		ParentCallID:   operation.CallID(string(runID) + ":workflow:" + string(step.ID)),
-		Events:         s.eventSink(),
-		Approver:       sessionenv.ApproverFromExecutor(s.OperationExecutor),
-	})
-	if err != nil {
-		return nil, err
-	}
-	prepared.Start()
-	result, err := s.Subagents.Wait(ctx, prepared.Handle.ID)
-	if err != nil {
-		return nil, err
-	}
-	if result.Error != "" {
-		return nil, fmt.Errorf("%s", result.Error)
-	}
-	return result.Output, nil
-}
-
-func workflowAgentTask(step coreworkflow.Step, input operation.Value) string {
-	if text, ok := input.(string); ok && strings.TrimSpace(text) != "" {
-		return strings.TrimSpace(text)
-	}
-	if step.ID != "" {
-		return "Run workflow step " + string(step.ID)
-	}
-	return "Run workflow step"
 }
 
 func workflowCommandMessage(result CommandResult) channel.Message {
@@ -1956,15 +1833,6 @@ func workflowCommandMessage(result CommandResult) channel.Message {
 	default:
 		return channel.Message{Content: string(result.Status)}
 	}
-}
-
-func firstNonNil(values ...any) any {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
-	}
-	return nil
 }
 
 type promptCommandTemplateData struct {
@@ -2075,7 +1943,7 @@ func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbo
 		}
 	}
 	text := renderContextPreview(preview)
-	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{
 		RunID:   inbound.ID,
 		Message: channel.Message{Content: text},
 	}); err != nil {
@@ -2354,7 +2222,7 @@ func (s Session) executeCompactCommand(ctx context.Context, inbound channel.Inbo
 		}
 	}
 	text := renderCompactReport(report, input.DryRun)
-	if err := s.appendThreadEvents(ctx, coresession.OutboundProduced{
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{
 		RunID:   inbound.ID,
 		Message: channel.Message{Content: text},
 	}); err != nil {
@@ -2621,7 +2489,7 @@ func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver,
 		return false, err
 	}
 	spec := resolved.Binding.Spec
-	return sessioncontrol.TargetsSession(spec) || spec.Target.Kind == invocation.TargetPrompt, nil
+	return sessioncontrol.TargetsSession(spec) || sessioncontrol.TargetsPrompt(spec), nil
 }
 
 func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {
@@ -2698,7 +2566,7 @@ func (s Session) executeOperation(ctx operation.Context, op operation.Operation,
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
 }
 
-func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.CallID, events event.Sink) context.Context {
+func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.CallID, events sessionenv.EventSink) context.Context {
 	return sessionenv.WithBaseContext(ctx, s.envConfig(events), callID)
 }
 
@@ -2706,7 +2574,7 @@ func (s Session) replaySkillEvents(ctx context.Context) error {
 	return sessionenv.ReplaySkillEvents(ctx, s.envConfig(s.eventSink()))
 }
 
-func (s Session) envConfig(events event.Sink) sessionenv.Config {
+func (s Session) envConfig(events sessionenv.EventSink) sessionenv.Config {
 	return sessionenv.Config{
 		Agent:             s.Agent,
 		Subagents:         s.Subagents,
@@ -2802,25 +2670,11 @@ func commandFailed(code, message string, details map[string]any) CommandResult {
 	}
 }
 
-func (s Session) appendThreadEvents(ctx context.Context, events ...event.Event) error {
+func (s Session) appendThreadEvents(ctx context.Context, events ...sessionenv.Event) error {
 	if s.ThreadStore == nil || s.Thread.ID == "" || len(events) == 0 {
 		return nil
 	}
-	records := make([]corethread.AppendRecord, 0, len(events))
-	for _, payload := range events {
-		if payload == nil {
-			continue
-		}
-		records = append(records, corethread.AppendRecord{
-			Event: event.Record{
-				Name:    payload.EventName(),
-				Payload: payload,
-				Scope: event.Scope{
-					ThreadID: string(s.Thread.ID),
-				},
-			},
-		})
-	}
+	records := sessionenv.ThreadAppendRecords(s.Thread, events...)
 	if len(records) == 0 {
 		return nil
 	}
@@ -2851,7 +2705,7 @@ func retryThreadAppend(ctx context.Context, append func(context.Context) error) 
 	for attempt := 0; attempt < 8; attempt++ {
 		if err := append(persistenceContext(ctx)); err != nil {
 			last = err
-			if !errors.Is(err, event.ErrAppendConflict) {
+			if !sessionenv.IsAppendConflict(err) {
 				return err
 			}
 			continue

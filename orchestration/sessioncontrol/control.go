@@ -193,6 +193,21 @@ func TargetsOperation(spec command.Spec) bool {
 	return spec.Target.Kind == invocation.TargetOperation
 }
 
+// TargetsWorkflow reports whether spec targets a workflow.
+func TargetsWorkflow(spec command.Spec) bool {
+	return spec.Target.Kind == invocation.TargetWorkflow
+}
+
+// TargetsPrompt reports whether spec targets a prompt template.
+func TargetsPrompt(spec command.Spec) bool {
+	return spec.Target.Kind == invocation.TargetPrompt
+}
+
+// TargetPromptKind returns the canonical prompt target kind string.
+func TargetPromptKind() string {
+	return string(invocation.TargetPrompt)
+}
+
 // NewResourceIndex returns an empty core resource index.
 func NewResourceIndex() *resource.ResourceIndex {
 	return resource.NewResourceIndex()
