@@ -3,6 +3,7 @@ package sqleventstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -118,6 +119,20 @@ func TestStoreAppendBatchIsAtomic(t *testing.T) {
 	}
 }
 
+func TestIsSQLiteBusyRecognizesBusyAndLockedErrors(t *testing.T) {
+	for _, code := range []int{sqliteBusyCode, sqliteBusyCode | 2<<8, sqliteLockedCode, sqliteLockedCode | 1<<8} {
+		if !isSQLiteBusy(fmt.Errorf("wrapped: %w", fakeSQLiteError{code: code})) {
+			t.Fatalf("code %d not recognized as busy/locked", code)
+		}
+	}
+	if isSQLiteBusy(fakeSQLiteError{code: 19}) {
+		t.Fatal("constraint error recognized as busy/locked")
+	}
+	if isSQLiteBusy(errors.New("database is locked")) {
+		t.Fatal("plain string error recognized as busy/locked")
+	}
+}
+
 func TestRuntimeThreadStoreOnSQLStore(t *testing.T) {
 	registry := event.NewRegistry()
 	if err := corethread.RegisterEvents(registry); err != nil {
@@ -157,6 +172,14 @@ func TestRuntimeThreadStoreOnSQLStore(t *testing.T) {
 		t.Fatalf("node id = %q, want node-1", read.Events[1].NodeID)
 	}
 }
+
+type fakeSQLiteError struct {
+	code int
+}
+
+func (e fakeSQLiteError) Error() string { return fmt.Sprintf("sqlite code %d", e.code) }
+
+func (e fakeSQLiteError) Code() int { return e.code }
 
 func TestRuntimeThreadStorePersistsAcrossReopen(t *testing.T) {
 	registry := event.NewRegistry()

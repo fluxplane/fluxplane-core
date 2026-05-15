@@ -3,6 +3,7 @@ package sqleventstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,14 @@ import (
 	"github.com/fluxplane/agentruntime/core/eventcodec"
 	"github.com/fluxplane/agentruntime/core/policy"
 	_ "modernc.org/sqlite"
+)
+
+const (
+	sqliteBusyCode       = 5
+	sqliteLockedCode     = 6
+	sqliteWriteAttempts  = 8
+	sqliteWriteRetryBase = 25 * time.Millisecond
+	sqliteWriteRetryMax  = 500 * time.Millisecond
 )
 
 // Store is a SQLite-backed event store.
@@ -95,6 +104,24 @@ func (s *Store) AppendBatch(ctx context.Context, requests ...event.AppendRequest
 		seen[request.Stream] = struct{}{}
 	}
 
+	var last error
+	for attempt := 0; attempt < sqliteWriteAttempts; attempt++ {
+		results, err := s.appendBatchOnce(ctx, requests...)
+		if err == nil {
+			return results, nil
+		}
+		if !isSQLiteBusy(err) {
+			return nil, err
+		}
+		last = err
+		if err := sleepSQLiteWriteRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+	}
+	return nil, last
+}
+
+func (s *Store) appendBatchOnce(ctx context.Context, requests ...event.AppendRequest) ([]event.AppendResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("sqleventstore: begin tx: %w", err)
@@ -120,6 +147,38 @@ func (s *Store) AppendBatch(ctx context.Context, requests ...event.AppendRequest
 		return nil, fmt.Errorf("sqleventstore: commit: %w", err)
 	}
 	return results, nil
+}
+
+func sleepSQLiteWriteRetry(ctx context.Context, attempt int) error {
+	delay := sqliteWriteRetryBase << attempt
+	if delay > sqliteWriteRetryMax {
+		delay = sqliteWriteRetryMax
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+type sqliteErrorCoder interface {
+	Code() int
+}
+
+func isSQLiteBusy(err error) bool {
+	var coded sqliteErrorCoder
+	if !errors.As(err, &coded) {
+		return false
+	}
+	switch coded.Code() & 0xff {
+	case sqliteBusyCode, sqliteLockedCode:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) appendRequest(ctx context.Context, tx *sql.Tx, stmt *sql.Stmt, now time.Time, request event.AppendRequest) (event.AppendResult, error) {
