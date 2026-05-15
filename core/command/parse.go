@@ -72,8 +72,9 @@ func ParseSlash(input string) (Invocation, bool, error) {
 		if strings.HasPrefix(token, "-") {
 			return Invocation{}, false, fmt.Errorf("command: unsupported flag syntax %q", token)
 		}
-		if seenFlag {
+		if seenFlag || !isSlashPathSegment(token) {
 			args = append(args, token)
+			seenFlag = true // once we start collecting args, all subsequent bare tokens are args too
 			continue
 		}
 		if err := validateSlashPathSegment(token); err != nil {
@@ -148,4 +149,19 @@ func validateSlashPathSegment(segment string) error {
 		return fmt.Errorf("command: slash command path segment %q contains /", segment)
 	}
 	return nil
+}
+
+// isSlashPathSegment reports whether token is a simple path segment (no
+// whitespace, no special characters). Quoted strings and multi-word tokens
+// tokenize to values with spaces, which are positional args, not sub-commands.
+func isSlashPathSegment(token string) bool {
+	if token == "" {
+		return false
+	}
+	for _, r := range token {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '/' {
+			return false
+		}
+	}
+	return true
 }

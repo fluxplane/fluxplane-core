@@ -95,6 +95,35 @@ func TestTokenizeUnterminatedSingle(t *testing.T) {
 	}
 }
 
+func TestParseSlashQuotedArgBeforeFlag(t *testing.T) {
+	// /goal "do the thing" should produce path=/goal and args=["do the thing"],
+	// not a sub-path. This was the root cause of the command_not_found bug.
+	inv, ok, err := ParseSlash(`/goal "do the thing"`)
+	if err != nil || !ok {
+		t.Fatalf("ParseSlash: err=%v ok=%v", err, ok)
+	}
+	if inv.Path.String() != "/goal" {
+		t.Fatalf("Path = %q, want '/goal'", inv.Path.String())
+	}
+	if len(inv.Args) != 1 || inv.Args[0] != "do the thing" {
+		t.Fatalf("Args = %v, want [\"do the thing\"]", inv.Args)
+	}
+}
+
+func TestParseSlashMultiQuotedArgs(t *testing.T) {
+	// /goal "first task" "second task" — multiple quoted args, no flags.
+	inv, ok, err := ParseSlash(`/goal "first task" "second task"`)
+	if err != nil || !ok {
+		t.Fatalf("ParseSlash: err=%v ok=%v", err, ok)
+	}
+	if inv.Path.String() != "/goal" {
+		t.Fatalf("Path = %q, want '/goal'", inv.Path.String())
+	}
+	if len(inv.Args) != 2 || inv.Args[0] != "first task" || inv.Args[1] != "second task" {
+		t.Fatalf("Args = %v, want [first task second task]", inv.Args)
+	}
+}
+
 func TestParseSlashArgsAfterFlagWithValue(t *testing.T) {
 	// When a flag consumes its next token as a value (--max 40), subsequent
 	// non-flag tokens go into args because seenFlag=true.
