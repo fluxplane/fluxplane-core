@@ -103,6 +103,9 @@ type OperationBinding struct {
 // implementations.
 type OperationCatalog map[string]OperationBinding
 
+// WorkflowCatalog binds canonical workflow resource IDs to workflow specs.
+type WorkflowCatalog = resourcecatalog.WorkflowCatalog
+
 // ToolSetBinding binds a projected tool set to its canonical resource identity.
 type ToolSetBinding struct {
 	ID   sessioncontrol.ResourceID `json:"id"`

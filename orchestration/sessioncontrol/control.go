@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
-	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
@@ -112,8 +111,8 @@ func IsLLMDriverKind(kind agent.DriverKind) bool {
 	return strings.TrimSpace(string(kind)) == string(llmagent.DriverKind)
 }
 
-type driverSpecAgent interface {
-	DriverSpec() corellmagent.Spec
+type outputReserveAgent interface {
+	OutputReserveTokens() int
 }
 
 // OutputReserveTokens returns the output token reserve for an agent, respecting
@@ -128,9 +127,8 @@ func OutputReserveTokens(agent agent.Agent, minimum int) int {
 	if value := intAnnotation(spec.Inference.Annotations, "llm.max_output_tokens"); value > 0 {
 		reserve = maxInt(reserve, value)
 	}
-	if driver, ok := agent.(driverSpecAgent); ok {
-		driverSpec := driver.DriverSpec()
-		reserve = maxInt(reserve, driverSpec.Inference.MaxOutputTokens)
+	if driver, ok := agent.(outputReserveAgent); ok {
+		reserve = maxInt(reserve, driver.OutputReserveTokens())
 	}
 	return reserve
 }

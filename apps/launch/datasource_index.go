@@ -87,7 +87,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
-		eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: eventcatalog.All()})
+		eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendBundleEventTypes(eventcatalog.All(), bundles)})
 		if err != nil {
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err

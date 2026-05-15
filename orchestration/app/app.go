@@ -68,7 +68,7 @@ func Compose(cfg Config) (Composition, error) {
 	for _, bundle := range bundles {
 		diagnostics = append(diagnostics, bundle.Diagnostics...)
 	}
-	eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: cfg.EventTypes})
+	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendEventTypesFromBundles(cfg.EventTypes, bundles)})
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
 		return Composition{Diagnostics: diagnostics}, err
@@ -116,6 +116,14 @@ func Compose(cfg Config) (Composition, error) {
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,
 	}, nil
+}
+
+func appendEventTypesFromBundles(base []event.Event, bundles []resource.ContributionBundle) []event.Event {
+	out := append([]event.Event(nil), base...)
+	for _, bundle := range bundles {
+		out = append(out, bundle.EventTypes...)
+	}
+	return out
 }
 
 func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []resource.Diagnostic, error) {

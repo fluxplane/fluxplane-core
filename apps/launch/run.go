@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -238,7 +239,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
 	}
-	eventRegistry, err := eventregistry.New(eventregistry.Config{Bundles: bundles, EventTypes: eventcatalog.All()})
+	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendBundleEventTypes(eventcatalog.All(), bundles)})
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
@@ -680,6 +681,14 @@ func cloneBundles(bundles []resource.ContributionBundle) []resource.Contribution
 		out[i].EventTypes = append(out[i].EventTypes[:0:0], bundle.EventTypes...)
 		out[i].Plugins = append(out[i].Plugins[:0:0], bundle.Plugins...)
 		out[i].Diagnostics = append(out[i].Diagnostics[:0:0], bundle.Diagnostics...)
+	}
+	return out
+}
+
+func appendBundleEventTypes(base []event.Event, bundles []resource.ContributionBundle) []event.Event {
+	out := append([]event.Event(nil), base...)
+	for _, bundle := range bundles {
+		out = append(out, bundle.EventTypes...)
 	}
 	return out
 }

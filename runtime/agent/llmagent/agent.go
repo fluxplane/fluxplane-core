@@ -115,6 +115,14 @@ func (a *Agent) DriverSpec() corellmagent.Spec {
 	return a.driver
 }
 
+// OutputReserveTokens reports the driver-specific output token reserve.
+func (a *Agent) OutputReserveTokens() int {
+	if a == nil {
+		return 0
+	}
+	return a.driver.Inference.MaxOutputTokens
+}
+
 // ContextProviders returns the providers configured for session-level context
 // materialization.
 func (a *Agent) ContextProviders() []corecontext.Provider {

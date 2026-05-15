@@ -8,7 +8,6 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -21,7 +20,6 @@ import (
 
 // Config describes event payload types visible to an app.
 type Config struct {
-	Bundles    []resource.ContributionBundle
 	EventTypes []event.Event
 }
 
@@ -45,13 +43,6 @@ func New(cfg Config) (*event.Registry, error) {
 	for _, sample := range cfg.EventTypes {
 		if err := registerEventType(registry, sample); err != nil {
 			return nil, err
-		}
-	}
-	for _, bundle := range cfg.Bundles {
-		for _, sample := range bundle.EventTypes {
-			if err := registerEventType(registry, sample); err != nil {
-				return nil, fmt.Errorf("app: event type from %s: %w", sourceLabel(bundle.Source), err)
-			}
 		}
 	}
 	return registry, nil
@@ -97,17 +88,4 @@ func defaultEventTypes() []event.Event {
 		subagent.Failed{},
 		subagent.Cancelled{},
 	}
-}
-
-func sourceLabel(source resource.SourceRef) string {
-	if source.ID != "" {
-		return source.ID
-	}
-	if source.Location != "" {
-		return source.Location
-	}
-	if source.Ref != "" {
-		return source.Ref
-	}
-	return "unknown source"
 }

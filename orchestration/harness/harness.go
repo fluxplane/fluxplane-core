@@ -18,7 +18,6 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -33,7 +32,7 @@ type Config struct {
 	Resolver          *resource.Resolver
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
-	WorkflowCatalog   resourcecatalog.WorkflowCatalog
+	WorkflowCatalog   session.WorkflowCatalog
 	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
@@ -56,7 +55,7 @@ type Service struct {
 	resolver          *resource.Resolver
 	commandCatalog    session.CommandCatalog
 	operationCatalog  session.OperationCatalog
-	workflowCatalog   resourcecatalog.WorkflowCatalog
+	workflowCatalog   session.WorkflowCatalog
 	sessionCatalog    session.SessionCatalog
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
