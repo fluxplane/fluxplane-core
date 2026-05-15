@@ -122,6 +122,9 @@ func TestCorpusSessionHistoryMessages(t *testing.T) {
 	if !strings.Contains(doc.Body, "corpus marker") || doc.Fingerprint == "" {
 		t.Fatalf("doc = %#v", doc)
 	}
+	if len(doc.Chunks) == 0 || !strings.Contains(doc.Chunks[0].Text, "corpus marker") {
+		t.Fatalf("doc chunks = %#v", doc.Chunks)
+	}
 
 	second, err := corpus.Corpus(ctx, coredatasource.CorpusRequest{Entity: EntityMessage, Cursor: first.NextCursor, Limit: 1})
 	if err != nil {
@@ -129,6 +132,29 @@ func TestCorpusSessionHistoryMessages(t *testing.T) {
 	}
 	if len(second.Documents) != 1 || second.NextCursor != "" || !second.Complete {
 		t.Fatalf("second page = %#v", second)
+	}
+}
+
+func TestCorpusChunksLongSessionHistoryRecords(t *testing.T) {
+	record := coredatasource.Record{
+		ID:         "thread_test:session.message:1",
+		Datasource: DatasourceName,
+		Entity:     EntityMessage,
+		Title:      "long message",
+		Content:    strings.Repeat("alpha beta gamma delta ", 200),
+		URL:        "session://thread_test/session.message/1",
+		Metadata:   map[string]string{"thread_id": "thread_test"},
+	}
+
+	doc := corpusDocument(record)
+
+	if len(doc.Chunks) < 2 {
+		t.Fatalf("chunks len = %d, want multiple bounded chunks", len(doc.Chunks))
+	}
+	for _, chunk := range doc.Chunks {
+		if len([]rune(chunk.Text)) > corpusChunkChars {
+			t.Fatalf("chunk length = %d, want <= %d", len([]rune(chunk.Text)), corpusChunkChars)
+		}
 	}
 }
 

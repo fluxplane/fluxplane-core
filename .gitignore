@@ -13,3 +13,5 @@ coverage.html
 htmlcov/
 dist/
 **/*.tmp
+
+.idea

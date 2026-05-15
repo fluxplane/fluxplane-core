@@ -36,6 +36,9 @@ const (
 
 	defaultSearchLimit = 10
 	maxSearchLimit     = 100
+
+	corpusChunkChars   = 900
+	corpusOverlapChars = 120
 )
 
 var allEntities = []coredatasource.EntityType{
@@ -596,7 +599,59 @@ func corpusDocument(record coredatasource.Record) coredatasource.CorpusDocument 
 		URL:         record.URL,
 		Metadata:    cloneMetadata(record.Metadata),
 		Fingerprint: recordFingerprint(record),
+		Chunks:      corpusChunks(record.Title, body),
 	}
+}
+
+func corpusChunks(title, body string) []coredatasource.CorpusChunk {
+	parts := boundedTextChunks(body, corpusChunkChars, corpusOverlapChars)
+	out := make([]coredatasource.CorpusChunk, 0, len(parts))
+	for i, part := range parts {
+		out = append(out, coredatasource.CorpusChunk{
+			ID:      strconv.Itoa(i),
+			Title:   title,
+			Text:    part.Text,
+			Ordinal: i,
+			Start:   part.Start,
+			End:     part.End,
+		})
+	}
+	return out
+}
+
+type textPart struct {
+	Text  string
+	Start int
+	End   int
+}
+
+func boundedTextChunks(text string, target, overlap int) []textPart {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) == 0 {
+		return nil
+	}
+	if target <= 0 {
+		target = corpusChunkChars
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= target {
+		overlap = target / 5
+	}
+	var out []textPart
+	for start := 0; start < len(runes); {
+		end := start + target
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, textPart{Text: strings.TrimSpace(string(runes[start:end])), Start: start, End: end})
+		if end == len(runes) {
+			break
+		}
+		start = end - overlap
+	}
+	return out
 }
 
 func recordFingerprint(record coredatasource.Record) string {
