@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package/file scope, declaration inclusion, and explicit test-file filtering.
 - Added `go_imports` for parser-only direct and reverse Go import views with
   best-effort stdlib/module-local/external classification.
+- Added `go_implementations` for best-effort AST-only Go interface/concrete
+  implementation lookup.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested
@@ -90,8 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Markdown prompt commands now execute through session orchestration by
   rendering invocation args/input into normal agent input turns.
 
-- Added native `web_search` backed by the Tavily API, plus coder wiring for the
-  `web_search` datasource and generic datasource search/get tools.
+- Added native `web_search` backed by Tavily and keyless DuckDuckGo providers,
+  plus coder wiring for the `web_search` datasource and generic datasource
+  search/get tools.
 
 ### Changed
 
@@ -113,6 +116,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   details, distinguishing the inner agent loop from outer continuation.
 - `.agents/workflows/*.yaml` decoding now supports operation steps with
   `operation`, `input`, and `error-policy` fields in addition to agent steps.
+
+- Web search provider calls now run through a bounded worker pool and the
+  `web_search` datasource delegates to the shared web provider registry instead
+  of carrying provider-specific HTML parsing.
 
 ### Fixed
 

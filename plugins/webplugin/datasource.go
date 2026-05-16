@@ -3,10 +3,7 @@ package webplugin
 import (
 	"context"
 	"fmt"
-	"html"
-	"regexp"
 	"strings"
-	"time"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -77,158 +74,56 @@ func (a *webSearchAccessor) Search(ctx context.Context, req coredatasource.Searc
 	if limit <= 0 {
 		limit = 10
 	}
-	url := searchURL(firstNonEmpty(a.spec.Config["search_url"], "https://html.duckduckgo.com/html/?q={query}"), query)
-	resp, err := a.system.Network().DoHTTP(ctx, system.HTTPRequest{
-		URL:       url,
-		Method:    "GET",
-		Timeout:   30 * time.Second,
-		MaxBytes:  512 * 1024,
-		UserAgent: "agentruntime/0.1",
-	})
-	if err != nil {
-		return coredatasource.SearchResult{}, err
+	providers, errors := selectSearchProviders(ctx, a.system, datasourceSearchProviders(a.spec.Config["providers"]))
+	out := runProviderSearches(ctx, []string{query}, providers, limit, errors)
+	if len(out.Results) == 0 {
+		message := "web search returned no results"
+		if len(out.Errors) > 0 {
+			message = out.Errors[0].Message
+		}
+		return coredatasource.SearchResult{}, fmt.Errorf("%s", message)
 	}
-	records := parseSearchResults(string(resp.Body), limit)
-	for i := range records {
-		records[i].Datasource = a.spec.Name
-		records[i].Entity = SearchResultEntity
-	}
+	records := searchResultSetsToRecords(a.spec.Name, req.Entity, out.Results)
 	return coredatasource.SearchResult{Datasource: a.spec.Name, Entity: req.Entity, Records: records, Total: len(records)}, nil
 }
 
-func searchURL(template, query string) string {
-	escaped := queryEscape(query)
-	if strings.Contains(template, "{query}") {
-		return strings.ReplaceAll(template, "{query}", escaped)
+func datasourceSearchProviders(config string) []string {
+	fields := strings.FieldsFunc(config, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\n' || r == '\t'
+	})
+	providers := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if provider := strings.TrimSpace(field); provider != "" {
+			providers = append(providers, provider)
+		}
 	}
-	separator := "?"
-	if strings.Contains(template, "?") {
-		separator = "&"
-	}
-	return template + separator + "q=" + escaped
+	return providers
 }
 
-func queryEscape(value string) string {
-	const hex = "0123456789ABCDEF"
-	var out strings.Builder
-	for i := 0; i < len(value); i++ {
-		c := value[i]
-		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.', c == '~':
-			out.WriteByte(c)
-		case c == ' ':
-			out.WriteByte('+')
-		default:
-			out.WriteByte('%')
-			out.WriteByte(hex[c>>4])
-			out.WriteByte(hex[c&0x0f])
-		}
-	}
-	return out.String()
-}
-
-var (
-	resultLinkRE = regexp.MustCompile(`(?is)<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>`)
-	snippetRE    = regexp.MustCompile(`(?is)<(?:a|div)[^>]+class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</(?:a|div)>`)
-	tagRE        = regexp.MustCompile(`(?is)<[^>]+>`)
-)
-
-func parseSearchResults(body string, limit int) []coredatasource.Record {
-	matches := resultLinkRE.FindAllStringSubmatchIndex(body, -1)
-	records := make([]coredatasource.Record, 0, minInt(len(matches), limit))
-	for i, match := range matches {
-		if limit > 0 && len(records) >= limit {
-			break
-		}
-		url := normalizeSearchURL(body[match[2]:match[3]])
-		title := cleanHTML(body[match[4]:match[5]])
-		if url == "" || title == "" {
-			continue
-		}
-		nextStart := len(body)
-		if i+1 < len(matches) {
-			nextStart = matches[i+1][0]
-		}
-		window := body[match[1]:nextStart]
-		snippet := ""
-		if snippetMatch := snippetRE.FindStringSubmatch(window); len(snippetMatch) > 1 {
-			snippet = cleanHTML(snippetMatch[1])
-		}
-		records = append(records, coredatasource.Record{
-			ID:       url,
-			URL:      url,
-			Title:    title,
-			Content:  snippet,
-			Metadata: map[string]string{"source": "web"},
-			Raw: SearchResult{
-				URL:     url,
-				Title:   title,
-				Snippet: snippet,
-				Source:  "web",
-			},
-		})
-	}
-	return records
-}
-
-func normalizeSearchURL(raw string) string {
-	value := html.UnescapeString(strings.TrimSpace(raw))
-	if strings.HasPrefix(value, "//") {
-		value = "https:" + value
-	}
-	if idx := strings.Index(value, "uddg="); idx >= 0 {
-		encoded := value[idx+len("uddg="):]
-		if end := strings.IndexByte(encoded, '&'); end >= 0 {
-			encoded = encoded[:end]
-		}
-		if decoded := percentDecode(encoded); decoded != "" {
-			value = decoded
-		}
-	}
-	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
-		return value
-	}
-	return ""
-}
-
-func percentDecode(value string) string {
-	var out strings.Builder
-	for i := 0; i < len(value); i++ {
-		if value[i] == '%' && i+2 < len(value) {
-			hi, okHi := hexValue(value[i+1])
-			lo, okLo := hexValue(value[i+2])
-			if okHi && okLo {
-				out.WriteByte(hi<<4 | lo)
-				i += 2
+func searchResultSetsToRecords(datasource coredatasource.Name, entity coredatasource.EntityType, sets []searchResultSet) []coredatasource.Record {
+	var records []coredatasource.Record
+	for _, set := range sets {
+		for _, result := range set.Results {
+			if strings.TrimSpace(result.URL) == "" {
 				continue
 			}
+			raw := result
+			if strings.TrimSpace(raw.Source) == "" {
+				raw.Source = set.Provider
+			}
+			records = append(records, coredatasource.Record{
+				Datasource: datasource,
+				Entity:     entity,
+				ID:         result.URL,
+				URL:        result.URL,
+				Title:      result.Title,
+				Content:    result.Snippet,
+				Metadata:   map[string]string{"source": raw.Source},
+				Raw:        raw,
+			})
 		}
-		if value[i] == '+' {
-			out.WriteByte(' ')
-			continue
-		}
-		out.WriteByte(value[i])
 	}
-	return out.String()
-}
-
-func hexValue(c byte) (byte, bool) {
-	switch {
-	case c >= '0' && c <= '9':
-		return c - '0', true
-	case c >= 'a' && c <= 'f':
-		return c - 'a' + 10, true
-	case c >= 'A' && c <= 'F':
-		return c - 'A' + 10, true
-	default:
-		return 0, false
-	}
-}
-
-func cleanHTML(value string) string {
-	text := tagRE.ReplaceAllString(value, " ")
-	text = html.UnescapeString(text)
-	return strings.Join(strings.Fields(text), " ")
+	return records
 }
 
 func firstNonEmpty(values ...string) string {

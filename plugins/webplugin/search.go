@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -15,6 +16,7 @@ const (
 	SearchProviderDuckDuckGo = "duckduckgo"
 	defaultSearchMax         = 10
 	maxSearchMax             = 20
+	searchConcurrency        = 4
 )
 
 type SearchProvider interface {
@@ -88,22 +90,7 @@ func (p Plugin) search() operationruntime.TypedResultHandler[searchInput, search
 			return operation.Failed("web_search_provider_unavailable", "no web search provider is available", nil)
 		}
 
-		out := searchOutput{Errors: errors}
-		for _, query := range queries {
-			for _, provider := range providers {
-				result, err := provider.Search(context.Context(ctx), SearchProviderRequest{Query: query, Max: max})
-				if err != nil {
-					out.Errors = append(out.Errors, searchError{Provider: provider.Name(), Query: query, Message: err.Error()})
-					continue
-				}
-				out.Results = append(out.Results, searchResultSet{
-					Provider: firstNonEmpty(result.Provider, provider.Name()),
-					Query:    firstNonEmpty(result.Query, query),
-					Answer:   result.Answer,
-					Results:  result.Results,
-				})
-			}
-		}
+		out := runProviderSearches(context.Context(ctx), queries, providers, max, errors)
 		if len(out.Results) == 0 {
 			message := "web search returned no results"
 			if len(out.Errors) > 0 {
@@ -113,6 +100,68 @@ func (p Plugin) search() operationruntime.TypedResultHandler[searchInput, search
 		}
 		return operation.OK(operation.Rendered{Text: renderSearchResults(out), Data: out})
 	}
+}
+
+type searchTask struct {
+	index    int
+	query    string
+	provider SearchProvider
+}
+
+type searchTaskResult struct {
+	set searchResultSet
+	err searchError
+}
+
+func runProviderSearches(ctx context.Context, queries []string, providers []SearchProvider, max int, initialErrors []searchError) searchOutput {
+	var tasks []searchTask
+	for _, query := range queries {
+		for _, provider := range providers {
+			tasks = append(tasks, searchTask{index: len(tasks), query: query, provider: provider})
+		}
+	}
+
+	results := make([]searchTaskResult, len(tasks))
+	workerCount := searchConcurrency
+	if len(tasks) < workerCount {
+		workerCount = len(tasks)
+	}
+	jobs := make(chan searchTask)
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range jobs {
+				result, err := task.provider.Search(ctx, SearchProviderRequest{Query: task.query, Max: max})
+				if err != nil {
+					results[task.index].err = searchError{Provider: task.provider.Name(), Query: task.query, Message: err.Error()}
+					continue
+				}
+				results[task.index].set = searchResultSet{
+					Provider: firstNonEmpty(result.Provider, task.provider.Name()),
+					Query:    firstNonEmpty(result.Query, task.query),
+					Answer:   result.Answer,
+					Results:  result.Results,
+				}
+			}
+		}()
+	}
+	for _, task := range tasks {
+		jobs <- task
+	}
+	close(jobs)
+	wg.Wait()
+
+	out := searchOutput{Errors: initialErrors}
+	for _, result := range results {
+		if result.err.Message != "" {
+			out.Errors = append(out.Errors, result.err)
+			continue
+		}
+		out.Results = append(out.Results, result.set)
+	}
+	return out
 }
 
 func searchIntent(_ operation.Context, req searchInput) (operation.IntentSet, error) {
@@ -140,6 +189,9 @@ func searchProviders(sys system.System) []SearchProvider {
 	var providers []SearchProvider
 	if tavily := newTavilySearchProvider(sys); tavily.Available(context.Background()) {
 		providers = append(providers, tavily)
+	}
+	if duckduckgo := newDuckDuckGoSearchProvider(sys); duckduckgo.Available(context.Background()) {
+		providers = append(providers, duckduckgo)
 	}
 	return providers
 }
@@ -171,7 +223,7 @@ func selectSearchProviders(ctx context.Context, sys system.System, requested []s
 		case SearchProviderTavily:
 			errors = append(errors, searchError{Provider: name, Message: "web search provider \"tavily\" is not available; TAVILY_API_KEY is not set"})
 		case SearchProviderDuckDuckGo:
-			errors = append(errors, searchError{Provider: name, Message: "web search provider \"duckduckgo\" is not registered yet"})
+			errors = append(errors, searchError{Provider: name, Message: "web search provider \"duckduckgo\" is not available; network is not configured"})
 		default:
 			errors = append(errors, searchError{Provider: name, Message: fmt.Sprintf("unknown web search provider %q", name)})
 		}

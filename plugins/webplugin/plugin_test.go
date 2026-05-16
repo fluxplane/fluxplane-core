@@ -81,6 +81,11 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
+	serverURL := server.URL
+	oldTemplate := duckDuckGoSearchURLTemplate
+	duckDuckGoSearchURLTemplate = serverURL + "/search?q={query}"
+	t.Cleanup(func() { duckDuckGoSearchURLTemplate = oldTemplate })
+
 	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
@@ -91,9 +96,8 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 	}
 	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{
 		Name:     "web",
-		Kind:     "web",
+		Kind:     "web_search",
 		Entities: []coredatasource.EntityType{SearchResultEntity},
-		Config:   map[string]string{"search_url": server.URL + "/search?q={query}"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -191,5 +195,86 @@ func TestWebSearchExplicitTavilyRequiresAPIKey(t *testing.T) {
 	})
 	if !result.IsError() || !strings.Contains(result.Error.Message, "TAVILY_API_KEY") {
 		t.Fatalf("result = %#v, want missing Tavily API key error", result)
+	}
+}
+
+func TestWebSearchUsesDuckDuckGoByDefaultWithoutTavily(t *testing.T) {
+	sys := testSystem{
+		network: &testNetwork{response: system.HTTPResponse{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Body: []byte(`
+<html><body>
+  <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fagent&amp;rut=abc">Agent &amp; Runtime</a>
+  <div class="result__snippet">Useful <b>runtime</b> result.</div>
+</body></html>`),
+		}},
+		env: testEnvironment{},
+	}
+	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	var searchOp operation.Operation
+	for _, op := range ops {
+		if op.Spec().Ref.Name == SearchOp {
+			searchOp = op
+		}
+	}
+	if searchOp == nil {
+		t.Fatal("web_search operation not found")
+	}
+
+	result := searchOp.Run(operation.NewContext(context.Background(), nil), map[string]any{
+		"query": "agent runtime",
+		"max":   3,
+	})
+	if result.IsError() {
+		t.Fatalf("result error = %#v", result.Error)
+	}
+	req := sys.network.lastRequest()
+	if req.Method != "GET" || !strings.Contains(req.URL, "duckduckgo.com/html/") || !strings.Contains(req.URL, "q=agent+runtime") {
+		t.Fatalf("request = %#v, want DuckDuckGo GET", req)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want operation.Rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "Provider: duckduckgo") || !strings.Contains(rendered.Text, "https://example.com/agent") {
+		t.Fatalf("rendered text = %q", rendered.Text)
+	}
+}
+
+func TestWebSearchFiltersDuckDuckGoProvider(t *testing.T) {
+	sys := testSystem{
+		network: &testNetwork{response: system.HTTPResponse{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Body: []byte(`<html><body>
+<a class="result__a" href="https://example.com/ddg">DuckDuckGo Result</a>
+<div class="result__snippet">Snippet</div>
+</body></html>`),
+		}},
+		env: testEnvironment{},
+	}
+	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	var searchOp operation.Operation
+	for _, op := range ops {
+		if op.Spec().Ref.Name == SearchOp {
+			searchOp = op
+		}
+	}
+	result := searchOp.Run(operation.NewContext(context.Background(), nil), map[string]any{
+		"query":     "agent runtime",
+		"providers": []string{"duckduckgo"},
+	})
+	if result.IsError() {
+		t.Fatalf("result error = %#v", result.Error)
+	}
+	if len(sys.network.requests) != 1 {
+		t.Fatalf("requests = %d, want one DuckDuckGo request", len(sys.network.requests))
 	}
 }

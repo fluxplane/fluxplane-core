@@ -330,10 +330,12 @@ func searchSpec() operation.Spec {
    - maximum: 20.
 4. Build available providers from `searchProviders(p.system)`.
 5. Filter by `input.Providers` if provided.
-6. Run each query/provider pair.
+6. Run each query/provider pair in parallel with fixed concurrency `4` across the whole operation (not per provider and not per query). Preserve deterministic output ordering by collecting results back in query/provider order after workers complete.
 7. Return partial results plus errors if some providers fail.
 8. Fail only if all provider/query searches fail or no requested provider is available.
 9. Emit network usage events similarly to `web_request` if response byte counts are available from providers.
+
+Concurrency note: provider searches are independent network calls. Use a small bounded worker pool/semaphore with capacity `4`; do not spawn unbounded goroutines when many queries and providers are requested. Tests should prove the limit is honored.
 
 Renderer should group by query and provider.
 
