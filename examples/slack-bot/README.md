@@ -26,8 +26,9 @@ search results through `datasource_search`; record retrieval uses
 `datasource_get` or `datasource_batch_get` where the entity supports it. Use
 `datasource_relation` for exact Slack channel membership; message search only
 supports observed or inferred participants.
-Web search is exposed only as the `web.search_result` datasource entity; the
-agent does not get the direct `web_request` tool in this example.
+Web search is exposed only through the canonical `web_search` datasource and
+its `web.search_result` entity; the agent does not get the direct `web_request`
+tool in this example.
 
 Slack app requirements:
 

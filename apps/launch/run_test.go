@@ -19,13 +19,16 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
@@ -221,6 +224,45 @@ func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
 	}
 	if !hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
 		t.Fatal("expected datasource search operation")
+	}
+}
+
+func TestLaunchOpensCoderWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
+	withStateDir(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	bundles := []resource.ContributionBundle{{
+		Plugins: []resource.PluginRef{{Name: codingplugin.Name}},
+		Datasources: []coredatasource.Spec{{
+			Name:        "web_search",
+			Description: "Default public web search datasource.",
+			Kind:        "web_search",
+			Entities:    []coredatasource.EntityType{webplugin.SearchResultEntity},
+		}},
+	}}
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	plugins := []pluginhost.Plugin{codingplugin.New(sys)}
+
+	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
+	if err != nil {
+		t.Fatalf("datasourceRegistry: %v", err)
+	}
+	accessor, ok := registry.Get(coredatasource.Name("web_search"))
+	if !ok {
+		t.Fatal("expected web_search datasource accessor")
+	}
+	if got := accessor.Spec().Kind; got != "web_search" {
+		t.Fatalf("kind = %q, want web_search", got)
+	}
+	entities := accessor.Entities()
+	if len(entities) != 1 || entities[0].Type != webplugin.SearchResultEntity {
+		t.Fatalf("entities = %#v, want %s", entities, webplugin.SearchResultEntity)
+	}
+	if _, ok := accessor.(coredatasource.Searcher); !ok {
+		t.Fatalf("accessor = %T, want datasource searcher", accessor)
 	}
 }
 

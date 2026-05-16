@@ -62,8 +62,8 @@ datasources:
     path: .
     include: ["*.md", "*.txt"]
 
-  - name: web-search
-    kind: web
+  - name: web_search
+    kind: web_search
     entities:
       - web.search_result
     description: Public web search results.
@@ -119,7 +119,7 @@ datasources:
   - gitlab
   - jira
   - local-docs
-  - web-search
+  - web_search
 system: |
   You are a helpful Slack assistant. Keep replies concise and format them with
   standard Markdown. Use channel_send only for useful intermediate updates in

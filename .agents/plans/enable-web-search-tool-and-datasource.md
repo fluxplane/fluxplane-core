@@ -53,10 +53,8 @@ Smoke tests run successfully for native and datasource-backed web search through
 
 Known remaining work:
 
-- Run the full project gate (`task verify`) before release if practical.
-- Add/update `apps/launch` coverage specifically for datasource registry opening `web_search` through `codingplugin` forwarding, if not already covered elsewhere.
+- Full project gate `task verify` was run in this follow-up and currently fails in unrelated Go plugin worktree changes: `plugins/golangplugin/plugin.go` references missing `p.goCallers` and `p.goCallees` methods.
 - Consider whether to remove old datasource kind aliases `web` and `websearch` in a separate compatibility cleanup. Current code intentionally keeps them accepted.
-- Optionally update examples such as `examples/slack-bot` from datasource name/kind `web-search`/`web` to `web_search`/`web_search`. This should be a separate example/docs cleanup.
 - Consider provider-level enhancements later:
   - Tavily `include_answer` option.
   - domain include/exclude filters.
@@ -66,10 +64,9 @@ Known remaining work:
 
 Next recommended steps:
 
-1. Audit `apps/launch` tests for explicit `web_search` datasource registry coverage; add a focused test if missing.
-2. Run `task verify` or the closest available full verification target.
+1. Fix or finish the unrelated `plugins/golangplugin` worktree changes so `task verify` can pass.
+2. Re-run `task verify` after the Go plugin worktree is consistent.
 3. Decide whether to keep datasource kind aliases permanently or schedule a compatibility-breaking cleanup.
-4. Update examples/docs to prefer the canonical datasource name/kind `web_search`.
 
 
 ## Goal
@@ -213,14 +210,14 @@ The current datasource provider accepts datasource kinds:
 `examples/slack-bot/agentsdk.app.yaml` already wires web search through datasource search:
 
 ```yaml
-- name: web-search
-  kind: web
+- name: web_search
+  kind: web_search
   entities:
     - web.search_result
   description: Public web search results.
 ```
 
-The Slack bot agent grants datasource access to `web-search` and uses `datasource_search` for `web.search_result`.
+The Slack bot agent grants datasource access to `web_search` and uses `datasource_search` for `web.search_result`.
 
 So the datasource mechanism is not theoretical; it exists and works for at least the Slack bot example.
 
@@ -687,7 +684,7 @@ Do not add `datasource_relation`.
 Update coder prompt to say:
 
 ```text
-Use web_search for general web discovery. Use datasource_search with entities=["web.search_result"] for configured web-search datasource queries. Use web_request only for fetching known URLs, not for search.
+Use web_search for general web discovery. Use datasource_search with entities=["web.search_result"] for configured web_search datasource queries. Use web_request only for fetching known URLs, not for search.
 ```
 
 ## Launch Wiring
@@ -788,9 +785,7 @@ Add/update tests to verify:
 
 ### `examples/slack-bot`
 
-Do not break existing example behavior.
-
-Optionally update later from datasource name `web-search` / kind `web` to `web_search` / kind `web_search`, but that is separate from enabling coder. If changed, update README and tests together.
+Do not break existing example behavior. Keep examples using canonical datasource name/kind `web_search` / `web_search`.
 
 ## Verification
 
@@ -800,10 +795,17 @@ Targeted tests:
 go test ./plugins/webplugin ./plugins/codingplugin ./apps/coder ./apps/launch
 ```
 
-Full gate before commit:
+Full gate attempted in this follow-up:
 
 ```text
 task verify
+```
+
+Current result: fails during `go vet ./...` because of unrelated in-progress Go plugin changes:
+
+```text
+plugins/golangplugin/plugin.go:113:100: p.goCallers undefined (type Plugin has no field or method goCallers)
+plugins/golangplugin/plugin.go:114:100: p.goCallees undefined (type Plugin has no field or method goCallees)
 ```
 
 ## Checklist
@@ -825,6 +827,6 @@ task verify
 - [x] coder prompt says use `web_search` for discovery and `web_request` only for known URLs.
 - [x] tests cover provider registration, Tavily env gating, Tavily request/response mapping, operation availability, datasource wiring, and search parsing.
 - [x] run targeted tests.
-- [ ] run `task verify`.
-- [ ] add explicit launch/datasource-registry coverage for opening `web_search` through codingplugin forwarding if missing.
-- [ ] update examples/docs to prefer canonical `web_search` datasource name/kind.
+- [x] run `task verify` attempt; currently blocked by unrelated `plugins/golangplugin` compile/vet errors.
+- [x] add explicit launch/datasource-registry coverage for opening `web_search` through codingplugin forwarding.
+- [x] update examples/docs to prefer canonical `web_search` datasource name/kind.
