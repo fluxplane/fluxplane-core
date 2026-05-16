@@ -6,9 +6,15 @@ import (
 )
 
 const (
+	EventCreateRequestedName      event.Name = "task.create_requested"
 	EventCreatedName              event.Name = "task.created"
 	EventRevisedName              event.Name = "task.revised"
 	EventStatusChangedName        event.Name = "task.status_changed"
+	EventArtifactAddedName        event.Name = "task.artifact_added"
+	EventArtifactUpdatedName      event.Name = "task.artifact_updated"
+	EventArtifactRemovedName      event.Name = "task.artifact_removed"
+	EventStepStatusChangedName    event.Name = "task.step_status_changed"
+	EventIndexedName              event.Name = "task.indexed"
 	EventExecutionStartedName     event.Name = "task.execution_started"
 	EventExecutionInterruptedName event.Name = "task.execution_interrupted"
 	EventStepDispatchedName       event.Name = "task.step_dispatched"
@@ -20,6 +26,15 @@ const (
 	EventExecutionFailedName      event.Name = "task.execution_failed"
 	EventExecutionCancelledName   event.Name = "task.execution_cancelled"
 )
+
+// CreateRequested records the accepted task creation request before defaults
+// and validation materialize it as a task.
+type CreateRequested struct {
+	TaskID  ID                `json:"task_id,omitempty"`
+	Request TaskCreateRequest `json:"request"`
+}
+
+func (CreateRequested) EventName() event.Name { return EventCreateRequestedName }
 
 // Created records a new task.
 type Created struct {
@@ -47,6 +62,59 @@ type StatusChanged struct {
 }
 
 func (StatusChanged) EventName() event.Name { return EventStatusChangedName }
+
+// ArtifactAdded records a task, execution, or step artifact.
+type ArtifactAdded struct {
+	TaskID      ID           `json:"task_id"`
+	ExecutionID ExecutionID  `json:"execution_id,omitempty"`
+	StepID      StepID       `json:"step_id,omitempty"`
+	Artifact    ArtifactSpec `json:"artifact"`
+}
+
+func (ArtifactAdded) EventName() event.Name { return EventArtifactAddedName }
+
+// ArtifactUpdated records a replacement artifact at the same scope.
+type ArtifactUpdated struct {
+	TaskID      ID           `json:"task_id"`
+	ExecutionID ExecutionID  `json:"execution_id,omitempty"`
+	StepID      StepID       `json:"step_id,omitempty"`
+	ArtifactID  string       `json:"artifact_id"`
+	Artifact    ArtifactSpec `json:"artifact"`
+}
+
+func (ArtifactUpdated) EventName() event.Name { return EventArtifactUpdatedName }
+
+// ArtifactRemoved records an artifact removal at the same scope.
+type ArtifactRemoved struct {
+	TaskID      ID          `json:"task_id"`
+	ExecutionID ExecutionID `json:"execution_id,omitempty"`
+	StepID      StepID      `json:"step_id,omitempty"`
+	ArtifactID  string      `json:"artifact_id"`
+	Reason      string      `json:"reason,omitempty"`
+}
+
+func (ArtifactRemoved) EventName() event.Name { return EventArtifactRemovedName }
+
+// StepStatusChanged records a manual step status transition.
+type StepStatusChanged struct {
+	TaskID      ID              `json:"task_id"`
+	ExecutionID ExecutionID     `json:"execution_id,omitempty"`
+	StepID      StepID          `json:"step_id"`
+	Previous    StepStatus      `json:"previous,omitempty"`
+	Current     StepStatus      `json:"current"`
+	Reason      string          `json:"reason,omitempty"`
+	Output      operation.Value `json:"output,omitempty"`
+}
+
+func (StepStatusChanged) EventName() event.Name { return EventStepStatusChangedName }
+
+// Indexed records the latest compact task summary in the task index stream.
+type Indexed struct {
+	TaskID  ID          `json:"task_id"`
+	Summary TaskSummary `json:"summary"`
+}
+
+func (Indexed) EventName() event.Name { return EventIndexedName }
 
 // ExecutionStarted records a new task execution attempt.
 type ExecutionStarted struct {

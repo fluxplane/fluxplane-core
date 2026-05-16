@@ -308,7 +308,7 @@ func TestDatasourceIndexDevIncludesSessionHistoryCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEventRegistry: %v", err)
 	}
-	store, closeStore, err := openLocalThreadStore(registry)
+	store, _, closeStore, err := openLocalThreadStore(registry)
 	if err != nil {
 		t.Fatalf("openLocalThreadStore: %v", err)
 	}

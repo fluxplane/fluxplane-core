@@ -66,6 +66,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and execution state, shaped for a future `planexecplugin` migration.
 - Task validation now rejects cyclic step dependencies, and task execution
   projection reconciles revised step sets while preserving latest step progress.
+- Added `plugins/taskplugin` with the `/task` command, a dedicated task creator
+  agent/session, `task_create`, grouped `task_modify`, task read/list,
+  artifact read, validation operations, and an event-store-backed runtime task
+  store.
+- Task artifacts now use task-wide unique IDs, step artifacts default to the
+  current or manual execution when no `execution_id` is provided, scoped
+  artifact listings avoid duplicate step entries, and artifact readback
+  includes inline values in model-facing text.
+- Task index writes no longer use a stale shared stream precondition, manual
+  step reopen/progress clears stale terminal metadata, and task lifecycle
+  reopening/forced completion now require explicit `reopen`, `reopen_step`, or
+  `force_overrides` intent.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.

@@ -27,6 +27,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -123,6 +124,7 @@ func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
 		"file_create",
 		"file_edit",
 		PlanExecPlugin,
+		TaskPlugin,
 		"agents",
 		"explorer",
 		"worker",
@@ -353,6 +355,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(sys),
 			planexecplugin.New(),
+			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
 		},
@@ -432,6 +435,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(sys),
 			planexecplugin.New(),
+			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
 		},
@@ -493,7 +497,7 @@ func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)

@@ -78,12 +78,14 @@ Semantic properties:
 
 - has an objective or desired outcome;
 - may have acceptance criteria;
+- may declare required inputs and expected output artifacts;
 - may be assigned to an actor, agent, or worker;
-- may have lifecycle state such as pending, active, blocked, done, failed, or
-  cancelled;
-- may be decomposed into subtasks;
+- may have lifecycle state such as draft, ready, running, blocked, completed,
+  failed, cancelled, or interrupted;
+- may be decomposed into DAG-shaped steps;
 - may be part of a workflow or plan;
-- may have provenance back to a request, session, issue, ticket, or user.
+- may have produced artifacts and provenance back to a request, session, issue,
+  ticket, or user.
 
 Examples:
 
@@ -94,6 +96,14 @@ Examples:
 
 A task is not a tool call. It is the work objective. It may require many tool
 calls and many executions.
+
+In AgentRuntime, durable task state lives in `core/task` and is projected by
+`runtime/task` from task event streams. The first bundled surface is
+`plugins/taskplugin`, which contributes `/task`, a narrow task-creator
+agent/session, and typed operations such as `task_create`, grouped
+`task_modify`, `task_get`, `task_list`, artifact readers, and `task_validate`.
+Task creation returns after recording the task; execution scheduling remains a
+separate follow-up.
 
 ## Command
 
@@ -309,11 +319,11 @@ belong to core, runtime, or orchestration layers.
 
 ### Tasks in AgentRuntime
 
-A durable `core/task` concept should exist only if the runtime needs first-class,
-trackable work objectives with lifecycle, assignment, acceptance criteria, and
-relationships to sessions or workflows.
+`core/task` is the durable work-objective domain for first-class, trackable work
+with lifecycle, assignment, acceptance criteria, artifact contracts, and
+relationships to sessions, workspaces, projects, or workflows.
 
-Today, task-like concepts may be implicit in:
+Task-like concepts may still be implicit in:
 
 - user prompts;
 - session goals;
@@ -321,8 +331,9 @@ Today, task-like concepts may be implicit in:
 - plan steps;
 - workflow steps.
 
-If a future `core/task` is added, it should mean work objective, not tool call,
-command, or operation execution.
+When a task is represented explicitly, it means the work objective, not a tool
+call, command, or operation execution. Runtime task state is inferred from task
+events in the event store; there is no separate task database.
 
 ### Commands in AgentRuntime
 
@@ -410,8 +421,8 @@ Avoid using the terms interchangeably. In particular:
 - do not treat every request as a command;
 - do not treat commands and operations as the same concept;
 - do not use workflow when a single operation or command is meant;
-- do not introduce broad packages such as `core/execution` or `core/task` unless
-  the concept has crisp ownership, lifecycle, and cross-package value.
+- do not introduce broad packages such as `core/execution`; new durable domains
+  need crisp ownership, lifecycle, and cross-package value.
 
 ## Quick distinction checklist
 

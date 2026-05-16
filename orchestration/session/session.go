@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -19,10 +20,13 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coresession "github.com/fluxplane/agentruntime/core/session"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/sessionworkflow"
+	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 )
 
@@ -1678,18 +1682,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 
 	if sessioncontrol.TargetsSession(spec) {
 		if resolved.SessionHandler == nil {
-			return CommandResult{
-				Status: CommandStatusUnsupported,
-				Spec:   spec,
-				Policy: evaluation,
-				Error: &CommandError{
-					Code:    "session_command_handler_missing",
-					Message: "session command has no registered handler",
-					Details: map[string]any{
-						"path": spec.Path.String(),
-					},
-				},
-			}
+			return s.executeTargetSessionCommand(ctx, inbound, spec, evaluation)
 		}
 		return resolved.SessionHandler(s, ctx, inbound, spec, evaluation)
 	}
@@ -1751,6 +1744,125 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 		status = CommandStatusFailed
 	}
 	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
+}
+
+func (s Session) executeTargetSessionCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	if s.Subagents == nil {
+		return commandFailed("session_target_unavailable", "session-targeted command requires a sub-agent supervisor", map[string]any{
+			"path": spec.Path.String(),
+		})
+	}
+	target := strings.TrimSpace(spec.Target.Session)
+	if target == "" {
+		return commandFailed("session_target_empty", "session-targeted command target is empty", map[string]any{
+			"path": spec.Path.String(),
+		})
+	}
+	eventSink := s.eventSink()
+	var mu sync.Mutex
+	var created []coretask.Created
+	recordingEvents := sessionenv.EventSinkFunc(func(payload sessionenv.Event) {
+		if eventSink != nil {
+			eventSink.Emit(payload)
+		}
+		if evt, ok := payload.(coretask.Created); ok {
+			mu.Lock()
+			created = append(created, evt)
+			mu.Unlock()
+		}
+	})
+	task := renderSessionTargetInput(spec, inbound.Command)
+	prepared, err := s.Subagents.Prepare(ctx, subagent.SpawnRequest{
+		ID:             subagent.ID(inbound.ID + ":session:" + target),
+		Profile:        coresession.Ref{Name: coresession.Name(target)},
+		Task:           task,
+		TaskID:         inbound.ID,
+		Policy:         s.Delegation,
+		ParentThreadID: s.Thread.ID,
+		ParentRunID:    inbound.ID,
+		ParentCallID:   operation.CallID(inbound.ID + ":command:" + target),
+		Events:         recordingEvents,
+		Approver:       sessionenv.ApproverFromExecutor(s.OperationExecutor),
+	})
+	if err != nil {
+		return commandFailed("session_target_prepare_failed", err.Error(), map[string]any{
+			"path":    spec.Path.String(),
+			"session": target,
+		})
+	}
+	prepared.Start()
+	result, err := s.Subagents.Wait(ctx, prepared.Handle.ID)
+	if err != nil {
+		return commandFailed("session_target_wait_failed", err.Error(), map[string]any{
+			"path":    spec.Path.String(),
+			"session": target,
+		})
+	}
+	if result.Error != "" {
+		return commandFailed("session_target_failed", result.Error, map[string]any{
+			"path":    spec.Path.String(),
+			"session": target,
+		})
+	}
+	output := strings.TrimSpace(result.Output)
+	if output == "" {
+		mu.Lock()
+		output = sessionTargetCreatedOutput(created)
+		mu.Unlock()
+	}
+	commandResult := CommandResult{
+		Status: CommandStatusOK,
+		Spec:   spec,
+		Policy: evaluation,
+		Output: output,
+	}
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: channel.Message{Content: output},
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	return commandResult
+}
+
+func sessionTargetCreatedOutput(created []coretask.Created) string {
+	if len(created) == 0 {
+		return ""
+	}
+	task := created[len(created)-1].Task
+	if task.ID == "" {
+		task.ID = created[len(created)-1].TaskID
+	}
+	title := strings.TrimSpace(task.Title)
+	if title == "" {
+		title = strings.TrimSpace(task.Objective)
+	}
+	if title == "" {
+		title = "task"
+	}
+	status := task.Status
+	if status == "" {
+		status = coretask.StatusDraft
+	}
+	return fmt.Sprintf("Created task %s: %s (status: %s)", task.ID, title, status)
+}
+
+func renderSessionTargetInput(spec command.Spec, invocation *command.Invocation) string {
+	if invocation == nil {
+		return spec.Path.String()
+	}
+	if text, ok := invocation.Input.(string); ok && strings.TrimSpace(text) != "" {
+		return strings.TrimSpace(text)
+	}
+	if len(invocation.Args) > 0 {
+		return strings.TrimSpace(strings.Join(invocation.Args, " "))
+	}
+	if invocation.Input != nil {
+		if data, err := json.Marshal(invocation.Input); err == nil {
+			return string(data)
+		}
+	}
+	return spec.Path.String()
 }
 
 func (s Session) executePromptCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {

@@ -101,6 +101,7 @@ type Config struct {
 	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
+	EventStore        coreevent.Store
 	ThreadStore       corethread.Store
 	StopEvaluator     session.StopEvaluator
 	Channel           channel.Ref
@@ -131,8 +132,12 @@ func New(cfg Config) (*Service, error) {
 		operations = operation.NewRegistry()
 	}
 	threadStore := cfg.ThreadStore
+	eventStore := cfg.EventStore
 	if threadStore == nil {
-		store, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+		if eventStore == nil {
+			eventStore = eventstore.NewMemoryStore()
+		}
+		store, err := runtimethread.NewStore(eventStore)
 		if err != nil {
 			return nil, fmt.Errorf("agentruntime: create thread store: %w", err)
 		}
@@ -300,6 +305,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor
+	}
+	if cfg.EventStore == nil {
+		cfg.EventStore = composition.EventStore
 	}
 	return New(cfg)
 }

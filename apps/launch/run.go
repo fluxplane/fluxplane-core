@@ -41,6 +41,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -244,7 +245,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	threadStore, closeStore, err := openLocalThreadStore(eventRegistry)
+	threadStore, eventStore, closeStore, err := openLocalThreadStore(eventRegistry)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
@@ -290,6 +291,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Bundles:          bundles,
 		Plugins:          plugins,
 		BundleTransforms: bundleTransforms,
+		EventStore:       eventStore,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:                   localSandbox{Root: root},
 			ACL:                       localACL{},
@@ -306,6 +308,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
+		EventStore:  eventStore,
 		LLMModelResolver: firstModelResolver(opts.ModelResolver, distrun.ModelResolver{
 			Provider:        opts.Provider,
 			Model:           opts.Model,
@@ -392,6 +395,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
 		planexecplugin.New(),
+		taskplugin.New(),
 		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),

@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
+	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -22,6 +23,7 @@ type Config struct {
 	Agent             agent.Agent
 	Operations        []operation.Operation
 	ContextProviders  []corecontext.Provider
+	EventStore        event.Store
 	EventTypes        []event.Event
 	Plugins           []pluginhost.Plugin
 	Bundles           []resource.ContributionBundle
@@ -46,6 +48,7 @@ type Composition struct {
 	appresources.Resources
 	OperationExecutor operationruntime.Executor
 	EventRegistry     *event.Registry
+	EventStore        event.Store
 	Bundles           []resource.ContributionBundle
 	Diagnostics       []resource.Diagnostic
 }
@@ -55,7 +58,10 @@ type Composition struct {
 // declarations; executable operation implementations come from host or plugin
 // code.
 func Compose(cfg Config) (Composition, error) {
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins)
+	if cfg.EventStore == nil {
+		cfg.EventStore = eventstore.NewMemoryStore()
+	}
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -113,6 +119,7 @@ func Compose(cfg Config) (Composition, error) {
 		Resources:            appResources,
 		OperationExecutor:    cfg.OperationExecutor,
 		EventRegistry:        eventRegistry,
+		EventStore:           cfg.EventStore,
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,
 	}, nil
@@ -126,7 +133,7 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
@@ -137,6 +144,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
 		return out, operations, contextProviders, datasourceProviders, diagnostics, err
 	}
+	host.SetEventStore(eventStore)
 	for _, bundle := range bundles {
 		if len(bundle.Plugins) == 0 {
 			continue

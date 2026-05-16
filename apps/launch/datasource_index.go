@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
@@ -92,7 +93,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err
 		}
-		threadStore, closeStore, err := openLocalThreadStore(eventRegistry)
+		threadStore, _, closeStore, err := openLocalThreadStore(eventRegistry)
 		if err != nil {
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err
@@ -120,6 +121,7 @@ func datasourceIndexPlugins(hostSystem system.System, executor connectorplugin.E
 		gitlabplugin.New(executor, connectorInstancesForKind(instances, gitlabplugin.Name)),
 		jiraplugin.New(executor, connectorInstancesForKind(instances, jiraplugin.Name)),
 		planexecplugin.New(),
+		taskplugin.New(),
 		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),

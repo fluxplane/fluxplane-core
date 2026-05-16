@@ -133,6 +133,7 @@ policy descriptors
 resources and contribution bundles
 session specs
 skills
+task specs/events/artifact contracts
 threads
 tools
 usage records
@@ -161,6 +162,7 @@ operation executor and safety envelope
 projection runners
 skill runtime loading
 system boundary interfaces and host implementations
+task event projection and event-store-backed task index/store helpers
 thread stores
 usage tracking
 ```

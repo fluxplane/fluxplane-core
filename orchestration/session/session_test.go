@@ -22,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
@@ -361,6 +362,59 @@ func TestExecuteInboundCommandDispatchesPromptCommandAsInput(t *testing.T) {
 	}
 	if countEvent(stored.Events, coresession.EventOutboundProduced) != 1 {
 		t.Fatalf("outbound events = %d, want 1", countEvent(stored.Events, coresession.EventOutboundProduced))
+	}
+}
+
+func TestExecuteInboundCommandDispatchesSessionTargetToSubagent(t *testing.T) {
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"task"},
+		Target: invocation.Target{
+			Kind:    invocation.TargetSession,
+			Session: "task",
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	client := &sessionTargetClient{output: "created task"}
+	s := Session{
+		Commands: commands,
+		Subagents: subagent.New(subagent.Config{
+			Client:      client,
+			MaxParallel: 1,
+		}),
+		Delegation: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "task"}},
+		},
+	}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:     "run-task",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"task"},
+			Args: []string{"review", "core/task"},
+		},
+	})
+	if result.Status != CommandStatusOK || result.Output != "created task" {
+		t.Fatalf("result = %#v, want session output", result)
+	}
+	if client.input != "review core/task" {
+		t.Fatalf("child input = %q, want joined command args", client.input)
+	}
+}
+
+func TestSessionTargetCreatedOutputFallsBackToTaskEvent(t *testing.T) {
+	output := sessionTargetCreatedOutput([]coretask.Created{{
+		TaskID: "task_1",
+		Task: coretask.Task{
+			Title:  "Find first name",
+			Status: coretask.StatusReady,
+		},
+	}})
+	if output != "Created task task_1: Find first name (status: ready)" {
+		t.Fatalf("output = %q, want task creation summary", output)
 	}
 }
 
@@ -2847,6 +2901,47 @@ func (m sessionIdentifiedModel) Complete(ctx context.Context, req llmagent.Reque
 
 func (m sessionIdentifiedModel) ProviderIdentity(llmagent.Request) coreconversation.ProviderIdentity {
 	return m.identity
+}
+
+type sessionTargetClient struct {
+	input  string
+	output string
+}
+
+func (c *sessionTargetClient) Open(context.Context, subagent.OpenRequest) (subagent.Session, error) {
+	return sessionTargetSession{client: c}, nil
+}
+
+type sessionTargetSession struct {
+	client *sessionTargetClient
+}
+
+func (s sessionTargetSession) Info() subagent.SessionInfo {
+	return subagent.SessionInfo{}
+}
+
+func (s sessionTargetSession) SendInput(_ context.Context, input subagent.Input) (subagent.Run, error) {
+	s.client.input = input.Text
+	events := make(chan subagent.RunEvent)
+	close(events)
+	return sessionTargetRun{output: s.client.output, events: events}, nil
+}
+
+type sessionTargetRun struct {
+	output string
+	events <-chan subagent.RunEvent
+}
+
+func (r sessionTargetRun) ID() string {
+	return "child-run"
+}
+
+func (r sessionTargetRun) Events() <-chan subagent.RunEvent {
+	return r.events
+}
+
+func (r sessionTargetRun) Wait(context.Context) (subagent.RunResult, error) {
+	return subagent.RunResult{Text: r.output}, nil
 }
 
 type fixedAgent struct {

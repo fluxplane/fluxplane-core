@@ -96,6 +96,121 @@ func TestMarkInterruptedOnlyChangesRunningExecution(t *testing.T) {
 	}
 }
 
+func TestProjectAppliesArtifactAdded(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review"}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ArtifactAdded{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Artifact: coretask.ArtifactSpec{Name: "report", Kind: coretask.ArtifactReport}}},
+	})
+	if len(state.Task.Artifacts) != 0 {
+		t.Fatalf("task artifacts = %#v, want none for step artifact", state.Task.Artifacts)
+	}
+	exec := state.Executions["exec_1"]
+	if len(exec.Artifacts) != 0 {
+		t.Fatalf("execution artifacts = %#v, want none for step artifact", exec.Artifacts)
+	}
+	step := exec.Steps["inspect"]
+	if len(step.Artifacts) != 1 || step.Artifacts[0].Kind != coretask.ArtifactReport {
+		t.Fatalf("step artifacts = %#v, want report", step.Artifacts)
+	}
+}
+
+func TestProjectAppliesExecutionArtifactAdded(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review"}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ArtifactAdded{TaskID: "task_1", ExecutionID: "exec_1", Artifact: coretask.ArtifactSpec{Name: "report", Kind: coretask.ArtifactReport}}},
+	})
+	exec := state.Executions["exec_1"]
+	if len(exec.Artifacts) != 1 || exec.Artifacts[0].Name != "report" {
+		t.Fatalf("execution artifacts = %#v, want report", exec.Artifacts)
+	}
+}
+
+func TestProjectAppliesArtifactUpdatedAndRemoved(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review"}}},
+		{Time: base.Add(time.Second), Payload: coretask.ArtifactAdded{TaskID: "task_1", Artifact: coretask.ArtifactSpec{ID: "report", Name: "draft", Kind: coretask.ArtifactReport}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ArtifactUpdated{TaskID: "task_1", ArtifactID: "report", Artifact: coretask.ArtifactSpec{Name: "final", Kind: coretask.ArtifactReport}}},
+		{Time: base.Add(3 * time.Second), Payload: coretask.ArtifactRemoved{TaskID: "task_1", ArtifactID: "report"}},
+	})
+	if len(state.Task.Artifacts) != 0 {
+		t.Fatalf("task artifacts = %#v, want removed artifact", state.Task.Artifacts)
+	}
+}
+
+func TestProjectAppliesStepArtifactUpdatedAndRemoved(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review"}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ArtifactAdded{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Artifact: coretask.ArtifactSpec{ID: "note", Name: "draft", Kind: coretask.ArtifactText}}},
+		{Time: base.Add(3 * time.Second), Payload: coretask.ArtifactUpdated{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", ArtifactID: "note", Artifact: coretask.ArtifactSpec{Name: "final", Kind: coretask.ArtifactText}}},
+	})
+	step := state.Executions["exec_1"].Steps["inspect"]
+	if len(step.Artifacts) != 1 || step.Artifacts[0].ID != "note" || step.Artifacts[0].Name != "final" {
+		t.Fatalf("step artifacts = %#v, want updated note", step.Artifacts)
+	}
+	if len(state.Executions["exec_1"].Artifacts) != 0 {
+		t.Fatalf("execution artifacts = %#v, want no duplicated step artifact", state.Executions["exec_1"].Artifacts)
+	}
+	state = Apply(state, coretask.ArtifactRemoved{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", ArtifactID: "note"}, base.Add(4*time.Second))
+	if len(state.Executions["exec_1"].Steps["inspect"].Artifacts) != 0 {
+		t.Fatalf("step artifacts = %#v, want removed note", state.Executions["exec_1"].Steps["inspect"].Artifacts)
+	}
+}
+
+func TestProjectAppliesStepStatusChanged(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review", Steps: []coretask.Step{{ID: "inspect"}}}}},
+		{Time: base.Add(time.Second), Payload: coretask.StepStatusChanged{TaskID: "task_1", StepID: "inspect", Current: coretask.StepStatusCompleted, Output: "done"}},
+	})
+	if state.CurrentExecution != "manual" {
+		t.Fatalf("current execution = %q, want manual", state.CurrentExecution)
+	}
+	step := state.Executions["manual"].Steps["inspect"]
+	if step.Status != coretask.StepStatusCompleted || step.Output != operation.Value("done") {
+		t.Fatalf("step = %#v, want completed output", step)
+	}
+}
+
+func TestProjectStepStatusChangedClearsTerminalMetadataWhenReopened(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review", Steps: []coretask.Step{{ID: "inspect"}}}}},
+		{Time: base.Add(time.Second), Payload: coretask.StepStatusChanged{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Current: coretask.StepStatusCompleted, Output: "done"}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.StepStatusChanged{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Current: coretask.StepStatusRunning}},
+	})
+	step := state.Executions["exec_1"].Steps["inspect"]
+	if step.Status != coretask.StepStatusRunning {
+		t.Fatalf("step status = %q, want running", step.Status)
+	}
+	if !step.CompletedAt.IsZero() || step.Output != nil || step.Error != nil {
+		t.Fatalf("step = %#v, want cleared terminal metadata", step)
+	}
+}
+
+func TestProjectStepStatusChangedClearsFailureMetadataWhenReopened(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review", Steps: []coretask.Step{{ID: "inspect"}}}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.StepFailed{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Error: &operation.Error{Code: "failed", Message: "failed"}}},
+		{Time: base.Add(3 * time.Second), Payload: coretask.StepStatusChanged{TaskID: "task_1", ExecutionID: "exec_1", StepID: "inspect", Current: coretask.StepStatusWaiting}},
+	})
+	step := state.Executions["exec_1"].Steps["inspect"]
+	if step.Status != coretask.StepStatusWaiting {
+		t.Fatalf("step status = %q, want waiting", step.Status)
+	}
+	if !step.CompletedAt.IsZero() || step.Output != nil || step.Error != nil {
+		t.Fatalf("step = %#v, want cleared terminal metadata", step)
+	}
+}
+
 func TestAllStepsTerminal(t *testing.T) {
 	state := State{
 		Task:             coretask.Task{Steps: []coretask.Step{{ID: "a"}, {ID: "b"}}},

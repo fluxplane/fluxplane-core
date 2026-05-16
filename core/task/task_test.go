@@ -14,10 +14,12 @@ func TestTaskValidateAcceptsPlanexecShapedTask(t *testing.T) {
 		Title:              "Implement feature",
 		Objective:          "Ship the requested feature safely.",
 		AcceptanceCriteria: []string{"tests pass", "design docs updated"},
+		Inputs:             []ArtifactSpec{{Name: "design", Kind: ArtifactReference, Required: true}},
+		Outputs:            []ArtifactSpec{{Name: "patch", Kind: ArtifactPatch, Required: true}},
 		Status:             StatusDraft,
 		Steps: []Step{
 			{ID: "inspect", Title: "Inspect", Profile: "explorer"},
-			{ID: "patch", Title: "Patch", Profile: "worker", DependsOn: []StepID{"inspect"}, AcceptanceCriteria: []string{"focused patch"}},
+			{ID: "patch", Title: "Patch", Profile: "worker", DependsOn: []StepID{"inspect"}, AcceptanceCriteria: []string{"focused patch"}, Outputs: []ArtifactSpec{{Name: "diff", Kind: ArtifactDiff}}},
 		},
 	}
 	if err := task.Validate(); err != nil {

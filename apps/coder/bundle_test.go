@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -27,19 +28,19 @@ func TestBundleComposes(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.AgentSpecs) != 3 {
-		t.Fatalf("agent specs len = %d, want 3", len(composition.AgentSpecs))
+	if len(composition.AgentSpecs) != 4 {
+		t.Fatalf("agent specs len = %d, want 4", len(composition.AgentSpecs))
 	}
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 78 {
-		t.Fatalf("operation specs len = %d, want 78", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 85 {
+		t.Fatalf("operation specs len = %d, want 85", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -65,7 +66,7 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
-	for _, name := range []string{"project_task_run", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
+	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_validate", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
 			t.Fatalf("delegation operations missing %s", name)
 		}

@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 )
 
 // FeatureName identifies a coder-local inert feature preset.
@@ -72,6 +73,8 @@ func defaultDelegationOperationNames() []string {
 		"dir_list", "dir_tree", "file_read", "file_edit",
 		"grep", "glob", "git_status", "git_diff", "git_add", "git_commit",
 		"shell_exec", "code_execute", "web_search", "web_request",
+		taskplugin.TaskCreateOp, taskplugin.TaskModifyOp, taskplugin.TaskGetOp, taskplugin.TaskListOp,
+		taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskValidateOp,
 		"datasource_search", "datasource_get", "datasource_batch_get",
 	} {
 		allowed[name] = true
@@ -126,7 +129,8 @@ func FullLocalCodingFeature() FeatureSpec {
 			"git_status", "git_diff", "git_add", "git_commit", "git_tag", "git_push",
 			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
 			"code_execute",
-			"clarify",
+			"clarify", taskplugin.TaskCreateOp, taskplugin.TaskModifyOp, taskplugin.TaskGetOp, taskplugin.TaskListOp,
+			taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskValidateOp,
 			"delegate", "plan", "skill",
 			"image_generate", "image_understand", "image_providers",
 		},

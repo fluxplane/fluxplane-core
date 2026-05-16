@@ -6,6 +6,7 @@ import (
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -21,7 +22,8 @@ type Manifest struct {
 
 // Context is passed to a plugin when resolving contributions.
 type Context struct {
-	Ref resource.PluginRef `json:"ref"`
+	Ref        resource.PluginRef `json:"ref"`
+	EventStore event.Store        `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -107,7 +109,8 @@ type Resolution struct {
 
 // Host resolves plugin refs through registered plugin implementations.
 type Host struct {
-	plugins map[string]Plugin
+	plugins    map[string]Plugin
+	eventStore event.Store
 }
 
 // New returns a plugin host.
@@ -119,6 +122,13 @@ func New(plugins ...Plugin) (*Host, error) {
 		}
 	}
 	return host, nil
+}
+
+// SetEventStore configures the event store passed to plugin contexts.
+func (h *Host) SetEventStore(store event.Store) {
+	if h != nil {
+		h.eventStore = store
+	}
 }
 
 // Register adds a plugin implementation.
@@ -161,7 +171,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		if !ok {
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", ref.Name)
 		}
-		pluginCtx := Context{Ref: ref}
+		pluginCtx := Context{Ref: ref, EventStore: h.eventStore}
 		bundle, err := plugin.Contributions(ctx, pluginCtx)
 		if err != nil {
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q contributions: %w", ref.Name, err)

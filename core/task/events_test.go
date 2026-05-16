@@ -13,9 +13,15 @@ func TestTaskEventNames(t *testing.T) {
 		got  event.Name
 		want event.Name
 	}{
+		{"CreateRequested", CreateRequested{}.EventName(), EventCreateRequestedName},
 		{"Created", Created{}.EventName(), EventCreatedName},
 		{"Revised", Revised{}.EventName(), EventRevisedName},
 		{"StatusChanged", StatusChanged{}.EventName(), EventStatusChangedName},
+		{"ArtifactAdded", ArtifactAdded{}.EventName(), EventArtifactAddedName},
+		{"ArtifactUpdated", ArtifactUpdated{}.EventName(), EventArtifactUpdatedName},
+		{"ArtifactRemoved", ArtifactRemoved{}.EventName(), EventArtifactRemovedName},
+		{"StepStatusChanged", StepStatusChanged{}.EventName(), EventStepStatusChangedName},
+		{"Indexed", Indexed{}.EventName(), EventIndexedName},
 		{"ExecutionStarted", ExecutionStarted{}.EventName(), EventExecutionStartedName},
 		{"ExecutionInterrupted", ExecutionInterrupted{}.EventName(), EventExecutionInterruptedName},
 		{"StepDispatched", StepDispatched{}.EventName(), EventStepDispatchedName},

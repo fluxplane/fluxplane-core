@@ -59,6 +59,33 @@ func Apply(state State, payload event.Event, at time.Time) State {
 		state.Task.ID = firstTaskID(state.Task.ID, evt.TaskID)
 		state.Task.Status = evt.Current
 		state.Task.UpdatedAt = eventTime(at, state.Task.UpdatedAt)
+	case coretask.ArtifactAdded:
+		state.Task.ID = firstTaskID(state.Task.ID, evt.TaskID)
+		switch {
+		case evt.ExecutionID != "" && evt.StepID != "":
+			exec := state.execution(evt.ExecutionID)
+			step := exec.Steps[evt.StepID]
+			step.StepID = evt.StepID
+			step.Artifacts = appendArtifact(step.Artifacts, evt.Artifact)
+			step.UpdatedAt = eventTime(at, step.UpdatedAt)
+			exec.Steps[evt.StepID] = step
+			state.CurrentExecution = evt.ExecutionID
+			state.setExecution(exec)
+		case evt.ExecutionID != "":
+			exec := state.execution(evt.ExecutionID)
+			exec.Artifacts = appendArtifact(exec.Artifacts, evt.Artifact)
+			state.CurrentExecution = evt.ExecutionID
+			state.setExecution(exec)
+		default:
+			state.Task.Artifacts = appendArtifact(state.Task.Artifacts, evt.Artifact)
+			state.Task.UpdatedAt = eventTime(at, state.Task.UpdatedAt)
+		}
+	case coretask.ArtifactUpdated:
+		state.Task.ID = firstTaskID(state.Task.ID, evt.TaskID)
+		state = updateScopedArtifact(state, evt.ExecutionID, evt.StepID, evt.ArtifactID, evt.Artifact, at)
+	case coretask.ArtifactRemoved:
+		state.Task.ID = firstTaskID(state.Task.ID, evt.TaskID)
+		state = removeScopedArtifact(state, evt.ExecutionID, evt.StepID, evt.ArtifactID, at)
 	case coretask.ExecutionStarted:
 		executionID := evt.ExecutionID
 		if executionID == "" {
@@ -117,6 +144,36 @@ func Apply(state State, payload event.Event, at time.Time) State {
 		step.UpdatedAt = eventTime(at, step.UpdatedAt)
 		exec.Steps[evt.StepID] = step
 		state.CurrentExecution = evt.ExecutionID
+		state.setExecution(exec)
+	case coretask.StepStatusChanged:
+		executionID := evt.ExecutionID
+		if executionID == "" {
+			executionID = state.CurrentExecution
+		}
+		if executionID == "" {
+			executionID = coretask.ExecutionID("manual")
+		}
+		exec := state.execution(executionID)
+		if exec.ID == "" {
+			exec.ID = executionID
+		}
+		if exec.TaskID == "" {
+			exec.TaskID = evt.TaskID
+		}
+		step := exec.Steps[evt.StepID]
+		step.StepID = evt.StepID
+		step.Status = evt.Current
+		step.UpdatedAt = eventTime(at, step.UpdatedAt)
+		if coretask.StepTerminal(evt.Current) {
+			step.Output = evt.Output
+			step.CompletedAt = eventTime(at, step.CompletedAt)
+		} else {
+			step.Output = nil
+			step.CompletedAt = time.Time{}
+			step.Error = nil
+		}
+		exec.Steps[evt.StepID] = step
+		state.CurrentExecution = executionID
 		state.setExecution(exec)
 	case coretask.StepCompleted:
 		state = applyStepTerminal(state, evt.ExecutionID, evt.StepID, coretask.StepStatusCompleted, evt.Output, nil, at)
@@ -370,6 +427,11 @@ func cloneState(in State) State {
 func cloneTask(in coretask.Task) coretask.Task {
 	out := in
 	out.AcceptanceCriteria = append([]string(nil), in.AcceptanceCriteria...)
+	out.Inputs = cloneArtifacts(in.Inputs)
+	out.Outputs = cloneArtifacts(in.Outputs)
+	out.Artifacts = cloneArtifacts(in.Artifacts)
+	out.Scope = append([]string(nil), in.Scope...)
+	out.Constraints = append([]string(nil), in.Constraints...)
 	out.Labels = append([]string(nil), in.Labels...)
 	if len(in.Metadata) > 0 {
 		out.Metadata = map[string]string{}
@@ -382,6 +444,8 @@ func cloneTask(in coretask.Task) coretask.Task {
 		for i, step := range in.Steps {
 			out.Steps[i] = step
 			out.Steps[i].AcceptanceCriteria = append([]string(nil), step.AcceptanceCriteria...)
+			out.Steps[i].Inputs = cloneArtifacts(step.Inputs)
+			out.Steps[i].Outputs = cloneArtifacts(step.Outputs)
 			out.Steps[i].DependsOn = append([]coretask.StepID(nil), step.DependsOn...)
 			out.Steps[i].Scope = append([]string(nil), step.Scope...)
 			if len(step.Metadata) > 0 {
@@ -398,6 +462,7 @@ func cloneTask(in coretask.Task) coretask.Task {
 func cloneExecution(in coretask.Execution) coretask.Execution {
 	out := in
 	out.Steps = cloneStepExecutions(in.Steps)
+	out.Artifacts = cloneArtifacts(in.Artifacts)
 	if len(in.Metadata) > 0 {
 		out.Metadata = map[string]string{}
 		for k, v := range in.Metadata {
@@ -413,10 +478,107 @@ func cloneStepExecutions(in map[coretask.StepID]coretask.StepExecution) map[core
 	}
 	out := make(map[coretask.StepID]coretask.StepExecution, len(in))
 	for id, step := range in {
+		step.Artifacts = cloneArtifacts(step.Artifacts)
 		if len(step.Metadata) > 0 {
 			step.Metadata = cloneStringMap(step.Metadata)
 		}
 		out[id] = step
+	}
+	return out
+}
+
+func appendArtifact(in []coretask.ArtifactSpec, artifact coretask.ArtifactSpec) []coretask.ArtifactSpec {
+	out := cloneArtifacts(in)
+	out = append(out, cloneArtifact(artifact))
+	return out
+}
+
+func updateScopedArtifact(state State, executionID coretask.ExecutionID, stepID coretask.StepID, artifactID string, artifact coretask.ArtifactSpec, at time.Time) State {
+	switch {
+	case executionID != "" && stepID != "":
+		exec := state.execution(executionID)
+		step := exec.Steps[stepID]
+		step.StepID = stepID
+		step.Artifacts = updateArtifact(step.Artifacts, artifactID, artifact)
+		step.UpdatedAt = eventTime(at, step.UpdatedAt)
+		exec.Steps[stepID] = step
+		state.CurrentExecution = executionID
+		state.setExecution(exec)
+	case executionID != "":
+		exec := state.execution(executionID)
+		exec.Artifacts = updateArtifact(exec.Artifacts, artifactID, artifact)
+		state.CurrentExecution = executionID
+		state.setExecution(exec)
+	default:
+		state.Task.Artifacts = updateArtifact(state.Task.Artifacts, artifactID, artifact)
+		state.Task.UpdatedAt = eventTime(at, state.Task.UpdatedAt)
+	}
+	return state
+}
+
+func removeScopedArtifact(state State, executionID coretask.ExecutionID, stepID coretask.StepID, artifactID string, at time.Time) State {
+	switch {
+	case executionID != "" && stepID != "":
+		exec := state.execution(executionID)
+		step := exec.Steps[stepID]
+		step.StepID = stepID
+		step.Artifacts = removeArtifact(step.Artifacts, artifactID)
+		step.UpdatedAt = eventTime(at, step.UpdatedAt)
+		exec.Steps[stepID] = step
+		state.CurrentExecution = executionID
+		state.setExecution(exec)
+	case executionID != "":
+		exec := state.execution(executionID)
+		exec.Artifacts = removeArtifact(exec.Artifacts, artifactID)
+		state.CurrentExecution = executionID
+		state.setExecution(exec)
+	default:
+		state.Task.Artifacts = removeArtifact(state.Task.Artifacts, artifactID)
+		state.Task.UpdatedAt = eventTime(at, state.Task.UpdatedAt)
+	}
+	return state
+}
+
+func updateArtifact(in []coretask.ArtifactSpec, artifactID string, artifact coretask.ArtifactSpec) []coretask.ArtifactSpec {
+	out := cloneArtifacts(in)
+	for i := range out {
+		if out[i].ID == artifactID {
+			if artifact.ID == "" {
+				artifact.ID = artifactID
+			}
+			out[i] = cloneArtifact(artifact)
+			return out
+		}
+	}
+	return out
+}
+
+func removeArtifact(in []coretask.ArtifactSpec, artifactID string) []coretask.ArtifactSpec {
+	out := make([]coretask.ArtifactSpec, 0, len(in))
+	for _, artifact := range in {
+		if artifact.ID == artifactID {
+			continue
+		}
+		out = append(out, cloneArtifact(artifact))
+	}
+	return out
+}
+
+func cloneArtifacts(in []coretask.ArtifactSpec) []coretask.ArtifactSpec {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]coretask.ArtifactSpec, len(in))
+	for i, artifact := range in {
+		out[i] = cloneArtifact(artifact)
+	}
+	return out
+}
+
+func cloneArtifact(in coretask.ArtifactSpec) coretask.ArtifactSpec {
+	out := in
+	if len(in.Metadata) > 0 {
+		out.Metadata = cloneStringMap(in.Metadata)
 	}
 	return out
 }

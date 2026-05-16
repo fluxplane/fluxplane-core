@@ -13,21 +13,21 @@ import (
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
 
-func openLocalThreadStore(registry *event.Registry) (corethread.Store, func(), error) {
+func openLocalThreadStore(registry *event.Registry) (corethread.Store, event.Store, func(), error) {
 	path, err := defaultEventStorePath()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	events, err := sqleventstore.Open(path, registry)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	threads, err := runtimethread.NewStore(events)
 	if err != nil {
 		_ = events.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return threads, func() { _ = events.Close() }, nil
+	return threads, events, func() { _ = events.Close() }, nil
 }
 
 func defaultEventStorePath() (string, error) {

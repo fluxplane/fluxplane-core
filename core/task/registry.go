@@ -12,9 +12,15 @@ func RegisterEvents(registry *event.Registry) error {
 		return fmt.Errorf("task: event registry is nil")
 	}
 	for _, sample := range []event.Event{
+		CreateRequested{},
 		Created{},
 		Revised{},
 		StatusChanged{},
+		ArtifactAdded{},
+		ArtifactUpdated{},
+		ArtifactRemoved{},
+		StepStatusChanged{},
+		Indexed{},
 		ExecutionStarted{},
 		ExecutionInterrupted{},
 		StepDispatched{},
