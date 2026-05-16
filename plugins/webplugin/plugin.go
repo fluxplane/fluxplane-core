@@ -19,6 +19,7 @@ import (
 const (
 	Name         = "web"
 	RequestOp    = "web_request"
+	SearchOp     = "web_search"
 	maxBodyBytes = 5 * 1024 * 1024
 )
 
@@ -40,10 +41,11 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 // Contributions returns web specs.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	spec := requestSpec()
+	request := requestSpec()
+	search := searchSpec()
 	return resource.ContributionBundle{
-		OperationSets: []operation.Set{{Name: Name, Description: "Outbound web operations.", Operations: []operation.Ref{spec.Ref}}},
-		Operations:    []operation.Spec{spec},
+		OperationSets: []operation.Set{{Name: Name, Description: "Outbound web operations.", Operations: []operation.Ref{request.Ref, search.Ref}}},
+		Operations:    []operation.Spec{request, search},
 	}, nil
 }
 
@@ -52,7 +54,10 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	if p.system == nil {
 		return nil, fmt.Errorf("webplugin: system is nil")
 	}
-	return []operation.Operation{operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent))}, nil
+	return []operation.Operation{
+		operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent)),
+		operationruntime.NewTypedResult[searchInput, searchOutput](searchSpec(), p.search(), operationruntime.WithIntent(searchIntent)),
+	}, nil
 }
 
 func requestSpec() operation.Spec {

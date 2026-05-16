@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -34,6 +35,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
 func New(sys system.System) Plugin {
@@ -100,6 +102,22 @@ func (p Plugin) ContextProviders(ctx context.Context, pluginCtx pluginhost.Conte
 			seen[name] = true
 			out = append(out, provider)
 		}
+	}
+	return out, nil
+}
+
+func (p Plugin) DatasourceProviders(ctx context.Context, pluginCtx pluginhost.Context) ([]coredatasource.Provider, error) {
+	var out []coredatasource.Provider
+	for _, plugin := range p.plugins {
+		contributor, ok := plugin.(pluginhost.DatasourceProviderContributor)
+		if !ok {
+			continue
+		}
+		providers, err := contributor.DatasourceProviders(ctx, pluginCtx)
+		if err != nil {
+			return nil, fmt.Errorf("codingplugin: %s datasource providers: %w", plugin.Manifest().Name, err)
+		}
+		out = append(out, providers...)
 	}
 	return out, nil
 }

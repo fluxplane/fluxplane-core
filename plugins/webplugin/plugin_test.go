@@ -118,3 +118,78 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 		t.Fatalf("record = %#v", record)
 	}
 }
+
+func TestWebSearchUsesTavilyProvider(t *testing.T) {
+	sys := testSystem{
+		network: &testNetwork{response: system.HTTPResponse{
+			Status:     "200 OK",
+			StatusCode: 200,
+			Body: []byte(`{
+				"query":"agent runtime",
+				"results":[{"title":"Agent Runtime","url":"https://example.com/runtime","content":"Runtime search result.","score":0.9}],
+				"response_time":0.1
+			}`),
+		}},
+		env: testEnvironment{"TAVILY_API_KEY": "tvly-test"},
+	}
+	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	var searchOp operation.Operation
+	for _, op := range ops {
+		if op.Spec().Ref.Name == SearchOp {
+			searchOp = op
+		}
+	}
+	if searchOp == nil {
+		t.Fatal("web_search operation not found")
+	}
+
+	result := searchOp.Run(operation.NewContext(context.Background(), nil), map[string]any{
+		"queries":   []string{"agent runtime"},
+		"providers": []string{"tavily"},
+		"max":       3,
+	})
+	if result.IsError() {
+		t.Fatalf("result error = %#v", result.Error)
+	}
+	req := sys.network.lastRequest()
+	if req.URL != tavilySearchURL || req.Method != "POST" {
+		t.Fatalf("request = %#v, want Tavily POST", req)
+	}
+	if req.Headers["Authorization"] != "Bearer tvly-test" || req.Headers["Content-Type"] != "application/json" {
+		t.Fatalf("headers = %#v, want Tavily bearer/json", req.Headers)
+	}
+	if !strings.Contains(req.Body, `"query":"agent runtime"`) || !strings.Contains(req.Body, `"max_results":3`) || !strings.Contains(req.Body, `"search_depth":"basic"`) {
+		t.Fatalf("body = %s, want Tavily low-cost payload", req.Body)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %T, want operation.Rendered", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "Agent Runtime") || !strings.Contains(rendered.Text, "https://example.com/runtime") {
+		t.Fatalf("rendered text = %q", rendered.Text)
+	}
+}
+
+func TestWebSearchExplicitTavilyRequiresAPIKey(t *testing.T) {
+	sys := testSystem{network: &testNetwork{}, env: testEnvironment{}}
+	ops, err := New(sys).Operations(context.Background(), zeroPluginContext())
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	var searchOp operation.Operation
+	for _, op := range ops {
+		if op.Spec().Ref.Name == SearchOp {
+			searchOp = op
+		}
+	}
+	result := searchOp.Run(operation.NewContext(context.Background(), nil), map[string]any{
+		"query":     "agent runtime",
+		"providers": []string{"tavily"},
+	})
+	if !result.IsError() || !strings.Contains(result.Error.Message, "TAVILY_API_KEY") {
+		t.Fatalf("result = %#v, want missing Tavily API key error", result)
+	}
+}

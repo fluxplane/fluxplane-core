@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -296,6 +297,23 @@ func (b *AgentBuilder) WithOperation(name string) *AgentBuilder {
 func (b *AgentBuilder) WithOperations(names ...string) *AgentBuilder {
 	for _, name := range names {
 		b = b.WithOperation(name)
+	}
+	return b
+}
+
+// WithDatasource grants the agent access to a datasource by name.
+func (b *AgentBuilder) WithDatasource(name string) *AgentBuilder {
+	if b == nil {
+		return b
+	}
+	b.spec.Datasources = append(b.spec.Datasources, coredatasource.Ref{Name: coredatasource.Name(name)})
+	return b
+}
+
+// WithDatasources grants the agent access to datasources by name.
+func (b *AgentBuilder) WithDatasources(names ...string) *AgentBuilder {
+	for _, name := range names {
+		b = b.WithDatasource(name)
 	}
 	return b
 }

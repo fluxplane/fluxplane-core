@@ -88,6 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Markdown prompt commands now execute through session orchestration by
   rendering invocation args/input into normal agent input turns.
 
+- Added native `web_search` backed by the Tavily API, plus coder wiring for the
+  `web_search` datasource and generic datasource search/get tools.
+
 ### Changed
 
 - `coder` now uses `file_edit` for existing-file content edits while keeping
