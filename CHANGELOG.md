@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added first-class workspace modeling with `core/workspace`, runtime workspace
+  resolution, declaration loading from `.agents/workspaces.json`, and project
+  inventory scoping by `workspace.ID`.
+- Workspace declarations loaded from `.agents/workspaces.json` are validated,
+  invalid declarations are surfaced as warnings, local fallback identities are
+  marked ephemeral, and project inventory now rejects workspace-scoped requests
+  on unscoped managers.
 
 - Added `file_edit`, an existing-file edit operation with dry-run support,
   original-file coordinate semantics, merged non-overlapping atomic edits, and

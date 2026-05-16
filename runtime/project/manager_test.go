@@ -224,3 +224,12 @@ func TestManagerHostWorkspaceDoesNotDependOnCWD(t *testing.T) {
 		t.Fatalf("project name = %q, want module path", project.Name)
 	}
 }
+func TestManagerRejectsWorkspaceIDWhenUnscoped(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		manager := NewManager(ws)
+		_, _, err := manager.Inventory(context.Background(), coreproject.InventoryQuery{WorkspaceID: "workspace:configured:other"})
+		if err == nil {
+			t.Fatal("Inventory: want workspace mismatch error")
+		}
+	})
+}

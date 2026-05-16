@@ -7,6 +7,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/workspace"
 )
 
 // ID identifies one detected project within a workspace inventory.
@@ -42,12 +43,13 @@ const (
 
 // Inventory is one bounded snapshot of detected workspace projects.
 type Inventory struct {
-	Root      string    `json:"root,omitempty"`
-	Projects  []Project `json:"projects,omitempty"`
-	Signals   []Signal  `json:"signals,omitempty"`
-	Truncated bool      `json:"truncated,omitempty"`
-	Summary   Summary   `json:"summary,omitempty"`
-	Warnings  []Warning `json:"warnings,omitempty"`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty"`
+	Root        string       `json:"root,omitempty"`
+	Projects    []Project    `json:"projects,omitempty"`
+	Signals     []Signal     `json:"signals,omitempty"`
+	Truncated   bool         `json:"truncated,omitempty"`
+	Summary     Summary      `json:"summary,omitempty"`
+	Warnings    []Warning    `json:"warnings,omitempty"`
 }
 
 // Summary contains coarse inventory counts.
@@ -58,15 +60,16 @@ type Summary struct {
 
 // Project represents a detected workspace unit.
 type Project struct {
-	ID       ID        `json:"id"`
-	Root     string    `json:"root"`
-	Name     string    `json:"name,omitempty"`
-	Kind     string    `json:"kind,omitempty"`
-	ParentID ID        `json:"parent_id,omitempty"`
-	Facets   []Facet   `json:"facets,omitempty"`
-	Signals  []Signal  `json:"signals,omitempty"`
-	Files    []FileRef `json:"files,omitempty"`
-	Warnings []Warning `json:"warnings,omitempty"`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty"`
+	ID          ID           `json:"id"`
+	Root        string       `json:"root"`
+	Name        string       `json:"name,omitempty"`
+	Kind        string       `json:"kind,omitempty"`
+	ParentID    ID           `json:"parent_id,omitempty"`
+	Facets      []Facet      `json:"facets,omitempty"`
+	Signals     []Signal     `json:"signals,omitempty"`
+	Files       []FileRef    `json:"files,omitempty"`
+	Warnings    []Warning    `json:"warnings,omitempty"`
 }
 
 // Validate checks the project has stable identity and root fields.
@@ -155,22 +158,24 @@ type Warning struct {
 // Signal records an inert workspace/project hint used for capability
 // selection. Discovery does not activate plugins or operations directly.
 type Signal struct {
-	Kind       string              `json:"kind"`
-	Path       string              `json:"path,omitempty"`
-	ProjectID  ID                  `json:"project_id,omitempty"`
-	Language   language.LanguageID `json:"language,omitempty"`
-	Toolchain  string              `json:"toolchain,omitempty"`
-	Confidence float64             `json:"confidence,omitempty"`
-	Metadata   map[string]string   `json:"metadata,omitempty"`
+	WorkspaceID workspace.ID        `json:"workspace_id,omitempty"`
+	Kind        string              `json:"kind"`
+	Path        string              `json:"path,omitempty"`
+	ProjectID   ID                  `json:"project_id,omitempty"`
+	Language    language.LanguageID `json:"language,omitempty"`
+	Toolchain   string              `json:"toolchain,omitempty"`
+	Confidence  float64             `json:"confidence,omitempty"`
+	Metadata    map[string]string   `json:"metadata,omitempty"`
 }
 
 // SignalsObserved records a project signal inventory refresh.
 type SignalsObserved struct {
-	WorkspaceRoot string   `json:"workspace_root,omitempty"`
-	Scope         string   `json:"scope,omitempty"`
-	ProjectID     ID       `json:"project_id,omitempty"`
-	Signals       []Signal `json:"signals,omitempty"`
-	Truncated     bool     `json:"truncated,omitempty"`
+	WorkspaceID   workspace.ID `json:"workspace_id,omitempty"`
+	WorkspaceRoot string       `json:"workspace_root,omitempty"`
+	Scope         string       `json:"scope,omitempty"`
+	ProjectID     ID           `json:"project_id,omitempty"`
+	Signals       []Signal     `json:"signals,omitempty"`
+	Truncated     bool         `json:"truncated,omitempty"`
 }
 
 // EventSignalsObserved is emitted when project inventory discovers signals.
@@ -181,41 +186,46 @@ func (SignalsObserved) EventName() event.Name { return EventSignalsObserved }
 
 // InventoryQuery bounds project inventory discovery.
 type InventoryQuery struct {
-	Refresh    bool `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
-	MaxResults int  `json:"max_results,omitempty" jsonschema:"description=Maximum number of projects or records returned."`
-	MaxBytes   int  `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from any one manifest or document."`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope project inventory."`
+	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+	MaxResults  int          `json:"max_results,omitempty" jsonschema:"description=Maximum number of projects or records returned."`
+	MaxBytes    int          `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from any one manifest or document."`
 }
 
 // ProjectQuery selects one project.
 type ProjectQuery struct {
-	ProjectID ID     `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
-	Path      string `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
-	Refresh   bool   `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope project selection."`
+	ProjectID   ID           `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
+	Path        string       `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
+	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
 }
 
 // FilesQuery bounds project file listing.
 type FilesQuery struct {
-	ProjectID  ID     `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
-	Path       string `json:"path,omitempty" jsonschema:"description=Workspace-relative project path."`
-	FacetKind  string `json:"facet_kind,omitempty" jsonschema:"description=Optional facet kind filter."`
-	Depth      int    `json:"depth,omitempty" jsonschema:"description=Maximum recursion depth."`
-	MaxResults int    `json:"max_results,omitempty" jsonschema:"description=Maximum file entries returned."`
-	Refresh    bool   `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope project file listing."`
+	ProjectID   ID           `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
+	Path        string       `json:"path,omitempty" jsonschema:"description=Workspace-relative project path."`
+	FacetKind   string       `json:"facet_kind,omitempty" jsonschema:"description=Optional facet kind filter."`
+	Depth       int          `json:"depth,omitempty" jsonschema:"description=Maximum recursion depth."`
+	MaxResults  int          `json:"max_results,omitempty" jsonschema:"description=Maximum file entries returned."`
+	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
 }
 
 // TasksQuery selects project task entries.
 type TasksQuery struct {
-	ProjectID ID     `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
-	Path      string `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
-	Kind      string `json:"kind,omitempty" jsonschema:"description=Optional task kind filter such as makefile, taskfile, or package_script."`
-	Refresh   bool   `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope task discovery."`
+	ProjectID   ID           `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
+	Path        string       `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
+	Kind        string       `json:"kind,omitempty" jsonschema:"description=Optional task kind filter such as makefile, taskfile, or package_script."`
+	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
 }
 
 // DocsQuery selects markdown document outlines.
 type DocsQuery struct {
-	ProjectID  ID     `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
-	Path       string `json:"path,omitempty" jsonschema:"description=Workspace-relative project or markdown file path."`
-	MaxResults int    `json:"max_results,omitempty" jsonschema:"description=Maximum document outlines returned."`
-	MaxBytes   int    `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each markdown file."`
-	Refresh    bool   `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope document discovery."`
+	ProjectID   ID           `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
+	Path        string       `json:"path,omitempty" jsonschema:"description=Workspace-relative project or markdown file path."`
+	MaxResults  int          `json:"max_results,omitempty" jsonschema:"description=Maximum document outlines returned."`
+	MaxBytes    int          `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each markdown file."`
+	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
 }

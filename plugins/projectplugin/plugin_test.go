@@ -24,6 +24,17 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if !strings.Contains(inventory.Text, ". [project:.]") || !strings.Contains(inventory.Text, "go_module go.mod") || !strings.Contains(inventory.Text, "node_package package.json") || !strings.Contains(inventory.Text, "agents_dir .agents") || !strings.Contains(inventory.Text, "claude_dir .claude") {
 			t.Fatalf("inventory text = %q", inventory.Text)
 		}
+		data, ok := inventory.Data.(map[string]any)
+		if !ok {
+			t.Fatalf("inventory data = %#v, want map", inventory.Data)
+		}
+		summary, ok := data["inventory"].(inventorySummary)
+		if !ok {
+			t.Fatalf("inventory summary = %#v, want inventorySummary", data["inventory"])
+		}
+		if summary.WorkspaceID == "" || len(summary.Signals) == 0 || summary.Signals[0].WorkspaceID == "" {
+			t.Fatalf("summary = %#v, want workspace ids", summary)
+		}
 
 		tasks := runProjectOp(t, sys, TasksOp, map[string]any{})
 		if !strings.Contains(tasks.Text, "test (package_script)") {
@@ -64,6 +75,44 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 			t.Fatalf("blocks = %#v", blocks)
 		}
 	})
+}
+
+func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
+	sys := systemtest.NewMemory()
+	plugin := New(sys)
+	writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
+	writeProjectFile(t, sys.Workspace(), ".agents/workspaces.json", `{"workspaces":[{"id":"workspace:configured:test","roots":[{"path":"/memory-workspace"}]}]}`)
+
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	var inventory operation.Rendered
+	for _, op := range ops {
+		if string(op.Spec().Ref.Name) != InventoryOp {
+			continue
+		}
+		result := op.Run(operation.NewContext(context.Background(), nil), map[string]any{"refresh": true})
+		if result.Status != operation.StatusOK {
+			t.Fatalf("inventory status = %s error = %#v", result.Status, result.Error)
+		}
+		var ok bool
+		inventory, ok = result.Output.(operation.Rendered)
+		if !ok {
+			t.Fatalf("inventory output = %#v, want rendered", result.Output)
+		}
+	}
+	data, ok := inventory.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("inventory data = %#v, want map", inventory.Data)
+	}
+	summary, ok := data["inventory"].(inventorySummary)
+	if !ok {
+		t.Fatalf("summary = %#v, want inventorySummary", data["inventory"])
+	}
+	if summary.WorkspaceID != "workspace:configured:test" {
+		t.Fatalf("workspace id = %q, want declared workspace", summary.WorkspaceID)
+	}
 }
 
 func runProjectPluginBackends(t *testing.T, fn func(*testing.T, system.System)) {

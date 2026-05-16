@@ -11,10 +11,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeproject "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
+	runtimeworkspace "github.com/fluxplane/agentruntime/runtime/workspace"
 )
 
 const (
@@ -29,21 +31,24 @@ const (
 
 // Plugin contributes Workspace project inventory operations.
 type Plugin struct {
-	system  system.System
-	manager *runtimeproject.Manager
+	system           system.System
+	manager          *runtimeproject.Manager
+	workspaceManager *runtimeworkspace.Manager
+	workspaceID      coreworkspace.ID
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 
-// New returns a project inventory plugin.
 func New(sys system.System) Plugin {
-	var manager *runtimeproject.Manager
-	if sys != nil && sys.Workspace() != nil {
-		manager = runtimeproject.NewManager(sys.Workspace())
-	}
-	return Plugin{system: sys, manager: manager}
+	return NewWithWorkspaceManager(sys, runtimeworkspace.NewManager(), "")
+}
+
+// NewWithWorkspaceManager returns a project inventory plugin using workspace
+// resolution from the supplied manager.
+func NewWithWorkspaceManager(sys system.System, workspaceManager *runtimeworkspace.Manager, explicitWorkspaceID coreworkspace.ID) Plugin {
+	return Plugin{system: sys, workspaceManager: workspaceManager, workspaceID: explicitWorkspaceID}
 }
 
 // Manifest returns plugin metadata.
@@ -66,26 +71,24 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	}, nil
 }
 
-// ContextProviders returns executable project context providers.
-func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
+func (p Plugin) ContextProviders(ctx context.Context, _ pluginhost.Context) ([]corecontext.Provider, error) {
 	if p.system == nil || p.system.Workspace() == nil {
 		return nil, nil
 	}
-	manager := p.manager
+	manager := p.projectManager(ctx)
 	if manager == nil {
-		manager = runtimeproject.NewManager(p.system.Workspace())
+		return nil, nil
 	}
 	return []corecontext.Provider{summaryProvider{manager: manager}}, nil
 }
 
-// Operations returns executable project operations.
-func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+func (p Plugin) Operations(ctx context.Context, _ pluginhost.Context) ([]operation.Operation, error) {
 	if p.system == nil || p.system.Workspace() == nil {
 		return nil, fmt.Errorf("projectplugin: system workspace is nil")
 	}
-	manager := p.manager
+	manager := p.projectManager(ctx)
 	if manager == nil {
-		manager = runtimeproject.NewManager(p.system.Workspace())
+		return nil, fmt.Errorf("projectplugin: project manager is nil")
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[coreproject.InventoryQuery, operation.Rendered](specByName(InventoryOp), p.inventory(manager)),
@@ -93,6 +96,24 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[coreproject.TasksQuery, operation.Rendered](specByName(TasksOp), p.tasks(manager)),
 		operationruntime.NewTypedResult[coreproject.DocsQuery, operation.Rendered](specByName(DocsOp), p.docs(manager)),
 	}, nil
+}
+
+func (p Plugin) projectManager(ctx context.Context) *runtimeproject.Manager {
+	if p.manager != nil {
+		return p.manager
+	}
+	if p.system == nil || p.system.Workspace() == nil {
+		return nil
+	}
+	workspaceManager := p.workspaceManager
+	if workspaceManager == nil {
+		workspaceManager = runtimeworkspace.NewManager()
+	}
+	result, err := workspaceManager.ResolveSystemWorkspace(ctx, p.system.Workspace(), p.workspaceID)
+	if err != nil || result.Selection.Active == "" {
+		return runtimeproject.NewManager(p.system.Workspace())
+	}
+	return runtimeproject.NewManagerForWorkspace(p.system.Workspace(), result.Selection.Active)
 }
 
 func specs() []operation.Spec {
@@ -259,6 +280,7 @@ func (p Plugin) inventory(manager *runtimeproject.Manager) operationruntime.Type
 		}
 		if rebuilt || req.Refresh {
 			ctx.Events().Emit(coreproject.SignalsObserved{
+				WorkspaceID:   inventory.WorkspaceID,
 				WorkspaceRoot: p.system.Workspace().Root(),
 				Scope:         ".",
 				Signals:       inventory.Signals,
@@ -278,14 +300,15 @@ func (p Plugin) inventory(manager *runtimeproject.Manager) operationruntime.Type
 }
 
 type inventorySummary struct {
-	Root      string               `json:"root,omitempty"`
-	Projects  []projectSummary     `json:"projects,omitempty"`
-	Signals   []coreproject.Signal `json:"signals,omitempty"`
-	Truncated bool                 `json:"truncated,omitempty"`
+	WorkspaceID coreworkspace.ID     `json:"workspace_id,omitempty"`
+	Root        string               `json:"root,omitempty"`
+	Projects    []projectSummary     `json:"projects,omitempty"`
+	Signals     []coreproject.Signal `json:"signals,omitempty"`
+	Truncated   bool                 `json:"truncated,omitempty"`
 }
 
 func compactInventory(inventory coreproject.Inventory) inventorySummary {
-	out := inventorySummary{Root: inventory.Root, Signals: inventory.Signals, Truncated: inventory.Truncated}
+	out := inventorySummary{WorkspaceID: inventory.WorkspaceID, Root: inventory.Root, Signals: inventory.Signals, Truncated: inventory.Truncated}
 	for _, project := range inventory.Projects {
 		out.Projects = append(out.Projects, compactProject(project))
 	}
@@ -294,7 +317,7 @@ func compactInventory(inventory coreproject.Inventory) inventorySummary {
 
 func (p Plugin) files(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[coreproject.FilesQuery, operation.Rendered] {
 	return func(ctx operation.Context, req coreproject.FilesQuery) operation.Result {
-		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
+		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{WorkspaceID: req.WorkspaceID, ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
 		if err != nil {
 			return operation.Failed("project_files_failed", err.Error(), nil)
 		}
@@ -333,7 +356,7 @@ func (p Plugin) files(manager *runtimeproject.Manager) operationruntime.TypedRes
 
 func (p Plugin) tasks(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[coreproject.TasksQuery, operation.Rendered] {
 	return func(ctx operation.Context, req coreproject.TasksQuery) operation.Result {
-		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
+		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{WorkspaceID: req.WorkspaceID, ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
 		if err != nil {
 			return operation.Failed("project_tasks_failed", err.Error(), nil)
 		}
@@ -361,7 +384,7 @@ func (p Plugin) tasks(manager *runtimeproject.Manager) operationruntime.TypedRes
 
 func (p Plugin) docs(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[coreproject.DocsQuery, operation.Rendered] {
 	return func(ctx operation.Context, req coreproject.DocsQuery) operation.Result {
-		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
+		project, rebuilt, err := manager.Project(ctx, coreproject.ProjectQuery{WorkspaceID: req.WorkspaceID, ProjectID: req.ProjectID, Path: req.Path, Refresh: req.Refresh})
 		if err != nil {
 			return operation.Failed("project_docs_failed", err.Error(), nil)
 		}
@@ -398,11 +421,12 @@ func (p Plugin) docs(manager *runtimeproject.Manager) operationruntime.TypedResu
 }
 
 type projectSummary struct {
-	ID     coreproject.ID `json:"id"`
-	Root   string         `json:"root,omitempty"`
-	Name   string         `json:"name,omitempty"`
-	Kind   string         `json:"kind,omitempty"`
-	Facets []facetSummary `json:"facets,omitempty"`
+	WorkspaceID coreworkspace.ID `json:"workspace_id,omitempty"`
+	ID          coreproject.ID   `json:"id"`
+	Root        string           `json:"root,omitempty"`
+	Name        string           `json:"name,omitempty"`
+	Kind        string           `json:"kind,omitempty"`
+	Facets      []facetSummary   `json:"facets,omitempty"`
 }
 
 type facetSummary struct {
@@ -411,7 +435,7 @@ type facetSummary struct {
 }
 
 func compactProject(project coreproject.Project) projectSummary {
-	out := projectSummary{ID: project.ID, Root: project.Root, Name: project.Name, Kind: project.Kind}
+	out := projectSummary{WorkspaceID: project.WorkspaceID, ID: project.ID, Root: project.Root, Name: project.Name, Kind: project.Kind}
 	for _, facet := range project.Facets {
 		out.Facets = append(out.Facets, facetSummary{Kind: string(facet.Kind), Path: facet.Manifest.Path})
 	}

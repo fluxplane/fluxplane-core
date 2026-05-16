@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	coreproject "github.com/fluxplane/agentruntime/core/project"
+	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/yuin/goldmark"
 	goldast "github.com/yuin/goldmark/ast"
@@ -27,15 +28,22 @@ const (
 
 // Manager keeps a process-local, memory-only project inventory.
 type Manager struct {
-	workspace system.Workspace
-	mu        sync.Mutex
-	inventory coreproject.Inventory
-	built     bool
+	workspace   system.Workspace
+	workspaceID coreworkspace.ID
+	mu          sync.Mutex
+	inventory   coreproject.Inventory
+	built       bool
 }
 
 // NewManager returns a Workspace-backed project inventory manager.
 func NewManager(workspace system.Workspace) *Manager {
 	return &Manager{workspace: workspace}
+}
+
+// NewManagerForWorkspace returns a Workspace-backed project inventory manager
+// associated with a resolved core workspace id.
+func NewManagerForWorkspace(workspace system.Workspace, workspaceID coreworkspace.ID) *Manager {
+	return &Manager{workspace: workspace, workspaceID: workspaceID}
 }
 
 // Inventory returns a detected project inventory, rebuilding when requested.
@@ -45,10 +53,16 @@ func (m *Manager) Inventory(ctx context.Context, req coreproject.InventoryQuery)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if req.WorkspaceID != "" && m.workspaceID == "" {
+		return coreproject.Inventory{}, false, fmt.Errorf("project: workspace %q was requested from an unscoped project manager", req.WorkspaceID)
+	}
+	if req.WorkspaceID != "" && req.WorkspaceID != m.workspaceID {
+		return coreproject.Inventory{}, false, fmt.Errorf("project: workspace %q is not managed by this project manager", req.WorkspaceID)
+	}
 	if m.built && !req.Refresh {
 		return m.inventory, false, nil
 	}
-	inventory, err := scan(ctx, m.workspace, req)
+	inventory, err := scan(ctx, m.workspace, req, m.workspaceID)
 	if err != nil {
 		return coreproject.Inventory{}, false, err
 	}
@@ -59,7 +73,16 @@ func (m *Manager) Inventory(ctx context.Context, req coreproject.InventoryQuery)
 
 // Project selects a project by id or nearest path.
 func (m *Manager) Project(ctx context.Context, req coreproject.ProjectQuery) (coreproject.Project, bool, error) {
-	inv, rebuilt, err := m.Inventory(ctx, coreproject.InventoryQuery{Refresh: req.Refresh})
+	if m == nil || m.workspace == nil {
+		return coreproject.Project{}, false, fmt.Errorf("project: workspace is nil")
+	}
+	if req.WorkspaceID != "" && m.workspaceID == "" {
+		return coreproject.Project{}, false, fmt.Errorf("project: workspace %q was requested from an unscoped project manager", req.WorkspaceID)
+	}
+	if req.WorkspaceID != "" && req.WorkspaceID != m.workspaceID {
+		return coreproject.Project{}, false, fmt.Errorf("project: workspace %q is not managed by this project manager", req.WorkspaceID)
+	}
+	inv, rebuilt, err := m.Inventory(ctx, coreproject.InventoryQuery{WorkspaceID: req.WorkspaceID, Refresh: req.Refresh})
 	if err != nil {
 		return coreproject.Project{}, rebuilt, err
 	}
@@ -85,7 +108,7 @@ func (m *Manager) Project(ctx context.Context, req coreproject.ProjectQuery) (co
 	return project, rebuilt, nil
 }
 
-func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQuery) (coreproject.Inventory, error) {
+func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQuery, workspaceID coreworkspace.ID) (coreproject.Inventory, error) {
 	maxBytes := req.MaxBytes
 	if maxBytes <= 0 || maxBytes > defaultMaxBytes {
 		maxBytes = defaultMaxBytes
@@ -153,7 +176,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		}
 	}
 	attachMarkdown(builders, markdown)
-	projects := finalize(builders)
+	projects := finalize(builders, workspaceID)
 	setParents(projects)
 	sort.SliceStable(projects, func(i, j int) bool { return projects[i].Root < projects[j].Root })
 	limit := req.MaxResults
@@ -161,12 +184,13 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		projects = projects[:limit]
 		truncated = true
 	}
-	signals := attachSignals(projects)
+	signals := attachSignals(projects, workspaceID)
 	return coreproject.Inventory{
-		Root:      ".",
-		Projects:  projects,
-		Signals:   signals,
-		Truncated: truncated,
+		WorkspaceID: workspaceID,
+		Root:        ".",
+		Projects:    projects,
+		Signals:     signals,
+		Truncated:   truncated,
 		Summary: coreproject.Summary{
 			ProjectCount: len(projects),
 			FacetCounts:  facetCounts(projects),
@@ -422,7 +446,7 @@ func manifest(path, kind string, status coreproject.ParseStatus, summary map[str
 	return coreproject.Manifest{Path: cleanRel(path), Kind: kind, Status: status, Summary: summary, Error: msg}
 }
 
-func finalize(builders map[string]*projectBuilder) []coreproject.Project {
+func finalize(builders map[string]*projectBuilder, workspaceID coreworkspace.ID) []coreproject.Project {
 	roots := make([]string, 0, len(builders))
 	for root := range builders {
 		roots = append(roots, root)
@@ -438,23 +462,24 @@ func finalize(builders map[string]*projectBuilder) []coreproject.Project {
 			return builder.facets[i].Kind < builder.facets[j].Kind
 		})
 		project := coreproject.Project{
-			ID:     coreproject.ID(projectID(root)),
-			Root:   root,
-			Name:   projectName(root, builder.facets),
-			Kind:   projectKind(builder.facets),
-			Facets: builder.facets,
+			WorkspaceID: workspaceID,
+			ID:          coreproject.ID(projectID(root)),
+			Root:        root,
+			Name:        projectName(root, builder.facets),
+			Kind:        projectKind(builder.facets),
+			Facets:      builder.facets,
 		}
 		projects = append(projects, project)
 	}
 	return projects
 }
 
-func attachSignals(projects []coreproject.Project) []coreproject.Signal {
+func attachSignals(projects []coreproject.Project, workspaceID coreworkspace.ID) []coreproject.Signal {
 	var out []coreproject.Signal
 	for i := range projects {
 		project := &projects[i]
 		for _, facet := range project.Facets {
-			for _, signal := range signalsForFacet(project.ID, facet) {
+			for _, signal := range signalsForFacet(project.ID, facet, workspaceID) {
 				project.Signals = append(project.Signals, signal)
 				out = append(out, signal)
 			}
@@ -472,13 +497,14 @@ func attachSignals(projects []coreproject.Project) []coreproject.Signal {
 	return out
 }
 
-func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet) []coreproject.Signal {
+func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet, workspaceID coreworkspace.ID) []coreproject.Signal {
 	base := coreproject.Signal{
-		Kind:       "manifest",
-		Path:       facet.Manifest.Path,
-		ProjectID:  projectID,
-		Confidence: 1,
-		Metadata:   map[string]string{"facet": string(facet.Kind), "manifest_kind": facet.Manifest.Kind},
+		WorkspaceID: workspaceID,
+		Kind:        "manifest",
+		Path:        facet.Manifest.Path,
+		ProjectID:   projectID,
+		Confidence:  1,
+		Metadata:    map[string]string{"facet": string(facet.Kind), "manifest_kind": facet.Manifest.Kind},
 	}
 	switch facet.Kind {
 	case coreproject.FacetGoModule:
