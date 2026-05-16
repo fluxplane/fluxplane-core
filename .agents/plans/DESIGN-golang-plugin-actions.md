@@ -108,20 +108,20 @@ Initial operations:
 - `go_outline`: return a bounded outline for a Go file or package: types,
   funcs, methods, consts, vars, line positions, signatures, docs when small.
 - `go_symbol`: find declaration symbols by name, package, kind, or file path.
+- `go_definition`: AST/package-level declaration lookup from a source position.
+- `go_symbol_info`: compact AST/package-level symbol detail from a source
+  position, with enclosing declaration fallback.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
 Later operations:
 
-- `go_definition`: position-based declaration lookup from a use site.
 - `go_references`: bounded position-based reference lookup with explicit
   confidence/completeness metadata.
 - `go_imports`: direct import views and reverse importers from parsed files.
 - `go_implementations`: interface/type implementation lookup.
 - `go_callers` and `go_callees`: bounded static call hierarchy with explicit
   limitations.
-- `go_hover` or `go_symbol_info`: compact type/signature/doc summary for the
-  symbol at a position.
 - `go_doc`: package or symbol documentation, possibly with `system.Process`
   fallback.
 
@@ -136,8 +136,11 @@ resolved precisely.
 
 Add read-only navigation operations in this order:
 
-- `go_definition`: resolve the declaration for the identifier, selector, import
-  path, package declaration, or doc link at a source position.
+- `go_definition`: resolve the AST/package-level declaration for the
+  identifier, selector, import path, or package declaration at a source
+  position.
+- `go_symbol_info`: return compact type, signature, constant value,
+  documentation, and method/field summary for the symbol at a position.
 - `go_references`: return bounded references to the selected symbol, with
   `include_declaration`, `scope`, `include_tests`, and result limits.
 - `go_imports`: return direct imports and reverse importers, separating
@@ -146,8 +149,6 @@ Add read-only navigation operations in this order:
   interfaces satisfied by a type, and matching interface/concrete methods.
 - `go_callers` and `go_callees`: return static call hierarchy edges for the
   selected function or method.
-- `go_hover` or `go_symbol_info`: return a compact type, signature, constant
-  value, documentation, and method-set summary for the symbol at a position.
 
 Every navigation result must include source ranges, line previews, package
 identity, test/generated-file flags, and stable best-effort symbol IDs where
@@ -160,8 +161,10 @@ pretend to be fully semantic. Interface dispatch, function values, reflection,
 build tags, generated code, cgo, and dependencies outside the workspace should
 be surfaced as limitations unless the backend later adds type-aware support.
 
-Navigation queries must be bounded by `max_results`, `max_files`, `max_bytes`,
-and explicit scope (`file`, `package`, `module`, or `workspace`). Defaults
+The first `go_definition`/`go_symbol_info` slice supports `file` and
+same-directory `package` scopes only. Later reference/call operations can add
+`module` or `workspace` scopes when their broader scan behavior is explicit.
+Navigation queries must be bounded by `max_results` and `max_bytes`. Defaults
 should favor useful local context over whole-workspace scans.
 
 ## Automatic Context Providers
@@ -316,6 +319,17 @@ First implementation slice:
    index path is proven.
 5. Consider `go_test` and `go_list` wrappers after read/navigation tools are
    stable.
+
+Navigation implementation slice:
+
+1. Add `go_definition` and `go_symbol_info`.
+2. Keep resolution AST/package-level only with `resolution_mode: ast`,
+   `complete: false`, and explicit limitation warnings.
+3. Support package declarations, imports, top-level declarations, local vars,
+   parameters, receivers, range vars, obvious local receiver selectors, and
+   struct/interface fields.
+4. Defer `go_references`, import graph views, call hierarchy, implementation
+   lookup, type checking, and process wrappers.
 
 Current context/markdown implementation slice:
 

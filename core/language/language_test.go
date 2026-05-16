@@ -39,3 +39,25 @@ func TestMarkdownModels(t *testing.T) {
 		t.Fatalf("link = %#v", link)
 	}
 }
+
+func TestNavigationModels(t *testing.T) {
+	result := NavigationResult{
+		Target: NavigationTarget{
+			Text:     "Run",
+			NodeKind: "ident",
+			Location: Location{Path: "service.go", Range: Range{
+				Start: Position{Line: 10, Column: 5},
+				End:   Position{Line: 10, Column: 8},
+			}},
+		},
+		Symbols:        []Symbol{{Kind: SymbolMethod, Name: "Service.Run", Language: LanguageGo}},
+		ResolutionMode: "ast",
+		Warnings:       []string{"no type checking"},
+	}
+	if result.Target.Location.Path != "service.go" || result.Symbols[0].Kind != SymbolMethod {
+		t.Fatalf("navigation result = %#v", result)
+	}
+	if NavigationScopePackage != "package" || CapabilityDefinition != "definition" || CapabilitySymbolInfo != "symbol_info" {
+		t.Fatalf("navigation constants changed")
+	}
+}

@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Workspace-native project and Go language read operations for project
   inventory, task/doc discovery, Go package grouping, outlines, and symbol
   lookup.
+- Added Go source navigation operations `go_definition` and `go_symbol_info`
+  for AST/package-level declaration lookup and compact symbol details.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested

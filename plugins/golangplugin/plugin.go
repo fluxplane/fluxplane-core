@@ -29,6 +29,8 @@ const (
 	PackagesOp         = "go_packages"
 	OutlineOp          = "go_outline"
 	SymbolOp           = "go_symbol"
+	DefinitionOp       = "go_definition"
+	SymbolInfoOp       = "go_symbol_info"
 	SummaryProvider    = "go.summary"
 	defaultMaxResults  = 200
 	defaultSourceBytes = 512 * 1024
@@ -65,7 +67,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
 		OperationSets: []operation.Set{{
 			Name:        Name,
-			Description: "Go project, package, outline, and symbol read operations.",
+			Description: "Go project, package, outline, symbol, and navigation read operations.",
 			Operations:  refs(specs),
 		}},
 		Operations: specs,
@@ -98,6 +100,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[language.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
 		operationruntime.NewTypedResult[language.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
 		operationruntime.NewTypedResult[language.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
+		operationruntime.NewTypedResult[language.NavigationQuery, operation.Rendered](specByName(DefinitionOp), p.goDefinition()),
+		operationruntime.NewTypedResult[language.NavigationQuery, operation.Rendered](specByName(SymbolInfoOp), p.goSymbolInfo()),
 	}, nil
 }
 
@@ -107,6 +111,8 @@ func specs() []operation.Spec {
 		spec[language.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
 		spec[language.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
 		spec[language.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
+		spec[language.NavigationQuery](DefinitionOp, "Resolve the AST/package-level Go declaration for an identifier, import, or package token at a source position. This is parser-based and reports incomplete semantic limitations."),
+		spec[language.NavigationQuery](SymbolInfoOp, "Return compact AST/package-level Go symbol information for a source position, falling back to the enclosing declaration when no identifier definition resolves."),
 	}
 }
 
@@ -209,7 +215,7 @@ func renderGoSummary(projects []coreproject.Project, pkgs []language.Package) st
 			lines = append(lines, "- command entrypoints: "+strings.Join(cmds, ", "))
 		}
 	}
-	lines = append(lines, "Use go_project, go_packages, go_outline, and go_symbol for details.")
+	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, and go_symbol_info for details.")
 	return strings.Join(lines, "\n")
 }
 

@@ -23,6 +23,8 @@ const (
 	CapabilityPackage     Capability = "package"
 	CapabilityOutline     Capability = "outline"
 	CapabilitySymbol      Capability = "symbol"
+	CapabilityDefinition  Capability = "definition"
+	CapabilitySymbolInfo  Capability = "symbol_info"
 	CapabilityReferences  Capability = "references"
 	CapabilityCalls       Capability = "calls"
 	CapabilityImports     Capability = "imports"
@@ -211,6 +213,51 @@ type Symbol struct {
 	Signature      string     `json:"signature,omitempty"`
 	Doc            string     `json:"doc,omitempty"`
 	Children       []Symbol   `json:"children,omitempty"`
+}
+
+// NavigationScope bounds a position-based navigation lookup.
+type NavigationScope string
+
+const (
+	NavigationScopeFile    NavigationScope = "file"
+	NavigationScopePackage NavigationScope = "package"
+)
+
+// NavigationQuery selects a source position for language navigation.
+type NavigationQuery struct {
+	Language    LanguageID      `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path        string          `json:"path" jsonschema:"description=Workspace-relative Go source file path.,required"`
+	Line        int             `json:"line,omitempty" jsonschema:"description=1-indexed source line. Required unless offset is set."`
+	Column      int             `json:"column,omitempty" jsonschema:"description=1-indexed byte column. Required unless offset is set."`
+	Offset      *int            `json:"offset,omitempty" jsonschema:"description=0-indexed byte offset. Takes precedence over line and column."`
+	Scope       NavigationScope `json:"scope,omitempty" jsonschema:"description=Lookup scope. Defaults to package.,enum=file,enum=package"`
+	IncludeDocs bool            `json:"include_docs,omitempty" jsonschema:"description=Include bounded documentation comments."`
+	MaxResults  int             `json:"max_results,omitempty" jsonschema:"description=Maximum symbols or locations returned."`
+	MaxBytes    int             `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh     bool            `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
+// NavigationTarget describes the source token selected by a navigation query.
+type NavigationTarget struct {
+	Text            string   `json:"text,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	NodeKind        string   `json:"node_kind,omitempty"`
+	PackageID       string   `json:"package_id,omitempty"`
+	Location        Location `json:"location,omitempty"`
+	EnclosingSymbol *Symbol  `json:"enclosing_symbol,omitempty"`
+}
+
+// NavigationResult is the structured result of a position-based language lookup.
+type NavigationResult struct {
+	Target         NavigationTarget `json:"target,omitempty"`
+	Symbols        []Symbol         `json:"symbols,omitempty"`
+	Locations      []Location       `json:"locations,omitempty"`
+	Diagnostics    []Diagnostic     `json:"diagnostics,omitempty"`
+	ResolutionMode string           `json:"resolution_mode,omitempty"`
+	Complete       bool             `json:"complete,omitempty"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	Indexed        bool             `json:"indexed,omitempty"`
+	Fresh          bool             `json:"fresh,omitempty"`
 }
 
 // Import describes one import edge from a document or package.
