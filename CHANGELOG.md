@@ -28,7 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation lookup.
 - Added `go_callers` and `go_callees` for bounded AST-only Go direct call
   hierarchy lookup.
-- `coder` now exposes `go_callers` and `go_callees` to delegated child agents.
+- Added `go_info`, `go_env`, and `go_version` for read-only process-backed Go
+  toolchain orientation.
+- `coder` now exposes `go_info`, `go_env`, `go_version`, `go_callers`, and
+  `go_callees` to delegated child agents.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested

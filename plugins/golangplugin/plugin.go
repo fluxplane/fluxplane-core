@@ -26,6 +26,9 @@ import (
 const (
 	Name               = "golang"
 	ProjectOp          = "go_project"
+	InfoOp             = "go_info"
+	EnvOp              = "go_env"
+	VersionOp          = "go_version"
 	PackagesOp         = "go_packages"
 	OutlineOp          = "go_outline"
 	SymbolOp           = "go_symbol"
@@ -102,6 +105,9 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	}
 	return []operation.Operation{
 		operationruntime.NewTypedResult[language.ProjectQuery, operation.Rendered](specByName(ProjectOp), p.goProject(manager)),
+		operationruntime.NewTypedResult[language.GoInfoQuery, operation.Rendered](specByName(InfoOp), p.goInfo(), operationruntime.WithIntent(goInfoIntent)),
+		operationruntime.NewTypedResult[language.GoEnvQuery, operation.Rendered](specByName(EnvOp), p.goEnv(), operationruntime.WithIntent(goEnvIntent)),
+		operationruntime.NewTypedResult[language.GoVersionQuery, operation.Rendered](specByName(VersionOp), p.goVersion(), operationruntime.WithIntent(goVersionIntent)),
 		operationruntime.NewTypedResult[language.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
 		operationruntime.NewTypedResult[language.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
 		operationruntime.NewTypedResult[language.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
@@ -118,6 +124,9 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 func specs() []operation.Spec {
 	return []operation.Spec{
 		spec[language.ProjectQuery](ProjectOp, "Summarize Go modules and go.work workspaces detected from Workspace project inventory. Uses memory-only refresh and reads only through the Workspace boundary."),
+		specWithSemantics[language.GoInfoQuery](InfoOp, "Return curated Go toolchain orientation including version, target, module/workspace paths, proxy/private settings, and cache/tool directories.", goToolReadSemantics()),
+		specWithSemantics[language.GoEnvQuery](EnvOp, "Return read-only structured go env values. Supports curated, explicit, all, and changed views; does not support go env -w or -u.", goToolReadSemantics()),
+		specWithSemantics[language.GoVersionQuery](VersionOp, "Return go version output for the toolchain or workspace-relative binaries with optional module build information.", goToolReadSemantics()),
 		spec[language.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
 		spec[language.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
 		spec[language.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
@@ -132,16 +141,29 @@ func specs() []operation.Spec {
 }
 
 func spec[I any](name, description string) operation.Spec {
+	return specWithSemantics[I](name, description, operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectFilesystem, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyIdempotent,
+		Risk:        operation.RiskLow,
+	})
+}
+
+func specWithSemantics[I any](name, description string, semantics operation.Semantics) operation.Spec {
 	return operationruntime.WithTypedContract[I, operation.Rendered](operation.Spec{
 		Ref:         operation.Ref{Name: operation.Name(name)},
 		Description: description,
-		Semantics: operation.Semantics{
-			Determinism: operation.DeterminismNonDeterministic,
-			Effects:     operation.EffectSet{operation.EffectFilesystem, operation.EffectReadExternal},
-			Idempotency: operation.IdempotencyIdempotent,
-			Risk:        operation.RiskLow,
-		},
+		Semantics:   semantics,
 	})
+}
+
+func goToolReadSemantics() operation.Semantics {
+	return operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyIdempotent,
+		Risk:        operation.RiskLow,
+	}
 }
 
 func specByName(name string) operation.Spec {

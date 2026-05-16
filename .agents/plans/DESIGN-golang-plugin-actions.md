@@ -21,7 +21,8 @@ Current implementation status:
 | `go_imports` | Implemented; parser-only direct and reverse import edges |
 | `go_implementations` | Implemented; host workspaces prefer `go/packages` + `go/types` type-checked matching with AST fallback |
 | `go_callers` / `go_callees` | Implemented and exposed to coder delegation; AST-only direct calls with package/module scope and explicit limitations |
-| Next | `go_info`, `go_env`, `go_version`, `go_doc`, and `go_list` |
+| `go_info`, `go_env`, `go_version` | Implemented; read-only process-backed Go toolchain orientation |
+| Next | `go_doc` and `go_list` |
 | Toolchain actions | `go_test`, `go_fmt`, `go_vet`, and `go_build` |
 | Toolchain follow-up | `go_install` |
 | Deferred | Abstract code-editing/refactor operations tracked separately in `2026-05-16-1425-code-edit.md` |
@@ -37,13 +38,14 @@ Completed:
   for virtual workspaces and method-correspondence lookups.
 - Type-checked zero-match implementation results are authoritative and do not
   fall back to AST name matching.
+- Read-only process-backed `go_info`, `go_env`, and `go_version` operations.
 - Coder delegation exposes `go_callers` and `go_callees`.
 - Generic code editing/refactoring scope is split into
   `2026-05-16-1425-code-edit.md`.
 
 Remaining:
 
-- Implement `go_info`, `go_env`, `go_version`, `go_doc`, and `go_list`.
+- Implement `go_doc` and `go_list`.
 - Implement process-backed `go_test`, `go_fmt`, `go_vet`, and `go_build`.
 - Add `go_install` after the safer wrappers, defaulting to dry-run first.
 - Decide whether `go_callers` / `go_callees` need type-aware resolution before
@@ -51,15 +53,13 @@ Remaining:
 
 Next steps:
 
-1. Add shared direct-argv helpers for bounded `go` process execution through
-   `runtime/system.Process`.
-2. Add `go_info`, `go_env`, and `go_version` as the first read-only toolchain
-   operations.
-3. Add `go_doc` and `go_list`, then reuse their process/parsing helpers for
+1. Add `go_doc` and `go_list`, reusing the shared bounded direct-argv helpers
+   introduced for `go_info`, `go_env`, and `go_version`.
+2. Reuse the process/parsing helpers from the read-only toolchain operations for
    `go_test`, `go_vet`, and `go_build`.
-4. Add `go_fmt` only as an explicit side-effecting operation with dry-run
+3. Add `go_fmt` only as an explicit side-effecting operation with dry-run
    support.
-5. Revisit `go_install` after the safer command wrappers have tests and
+4. Revisit `go_install` after the safer command wrappers have tests and
    operation policy coverage.
 
 ## Summary
@@ -602,7 +602,8 @@ First implementation slice:
 6. Add `go_callers` / `go_callees` once implementation lookup is stable.
 7. Upgrade `go_implementations` with a type-aware backend for host workspaces.
 8. Add read-only Go toolchain orientation: `go_info`, `go_env`,
-   `go_version`, `go_doc`, and `go_list`.
+   `go_version`, `go_doc`, and `go_list`. Status: `go_info`, `go_env`, and
+   `go_version` are implemented; `go_doc` and `go_list` remain.
 9. Add process-backed checks and explicit formatting: `go_test`, `go_fmt`,
    `go_vet`, and `go_build`.
 10. Add `go_install` after the safer command wrappers, defaulting to dry-run
@@ -638,8 +639,10 @@ Current context/markdown implementation slice:
 Go toolchain implementation slice:
 
 1. Add shared direct-argv helpers for bounded `go` process execution through
-   `runtime/system.Process`.
-2. Add `go_info`, `go_env`, and `go_version` with read-only semantics.
+   `runtime/system.Process`. Status: implemented for the initial read-only
+   toolchain operations.
+2. Add `go_info`, `go_env`, and `go_version` with read-only semantics. Status:
+   implemented.
 3. Add `go_doc` and `go_list`, parsing JSON where the Go command supports it.
 4. Add `go_test`, `go_vet`, and `go_build` using bounded output and structured
    summaries.

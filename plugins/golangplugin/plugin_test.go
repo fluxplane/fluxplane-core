@@ -394,6 +394,64 @@ func (Service) Stop() error {
 	})
 }
 
+func TestGoToolchainInfoEnvVersionWithHostWorkspace(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/toolchain\n\ngo 1.26\n")
+
+	infoRendered := runGoOp(t, sys, InfoOp, map[string]any{"include_raw_env": true})
+	info := goInfoResultFromRendered(t, infoRendered)
+	if !strings.Contains(info.Version["go"], "go version") || info.Target["goos"] == "" || info.Target["goarch"] == "" {
+		t.Fatalf("go info = %#v, want version and target", info)
+	}
+	if info.RawEnv["GOVERSION"] == "" {
+		t.Fatalf("go info raw env = %#v, want GOVERSION", info.RawEnv)
+	}
+	if _, ok := info.Network["goproxy"].(language.GoProxyConfig); !ok {
+		t.Fatalf("go info network = %#v, want parsed goproxy", info.Network)
+	}
+
+	envRendered := runGoOp(t, sys, EnvOp, map[string]any{"vars": []string{"GOOS", "GOARCH"}})
+	env := goEnvResultFromRendered(t, envRendered)
+	if env.Values["GOOS"] == "" || env.Values["GOARCH"] == "" {
+		t.Fatalf("go env values = %#v, want GOOS and GOARCH", env.Values)
+	}
+	if _, ok := env.Values["GOPATH"]; ok {
+		t.Fatalf("go env values = %#v, want only requested vars", env.Values)
+	}
+
+	changed := runGoOp(t, sys, EnvOp, map[string]any{"changed": true})
+	if !goEnvResultFromRendered(t, changed).Changed {
+		t.Fatalf("changed go env = %#v, want changed result", changed.Data)
+	}
+
+	versionRendered := runGoOp(t, sys, VersionOp, map[string]any{})
+	version := goVersionResultFromRendered(t, versionRendered)
+	if !strings.Contains(version.Version, "go version") {
+		t.Fatalf("go version = %#v, want toolchain version", version)
+	}
+
+	invalid := runGoResult(t, sys, EnvOp, map[string]any{"changed": true, "vars": []string{"GOOS"}})
+	if invalid.Status != operation.StatusFailed || invalid.Error == nil || !strings.Contains(invalid.Error.Message, "vars cannot be combined") {
+		t.Fatalf("invalid go env result = %#v, want changed+vars failure", invalid)
+	}
+}
+
+func TestGoProxyParsing(t *testing.T) {
+	proxy := parseGoProxy("https://primary|https://fallback,direct")
+	if proxy.Raw != "https://primary|https://fallback,direct" || len(proxy.Groups) != 2 {
+		t.Fatalf("proxy = %#v, want two fallback groups", proxy)
+	}
+	if got := strings.Join(proxy.Groups[0].Entries, ","); got != "https://primary,https://fallback" {
+		t.Fatalf("first proxy group = %q, want pipe entries preserved", got)
+	}
+	if got := strings.Join(proxy.Groups[1].Entries, ","); got != "direct" {
+		t.Fatalf("second proxy group = %q, want direct", got)
+	}
+}
+
 func TestGoImplementationsUsesTypeCheckedHostBackend(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
@@ -850,6 +908,45 @@ func implementationResultFromRendered(t *testing.T, rendered operation.Rendered)
 		t.Fatalf("implementations data = %#v, want language.ImplementationResult", data["implementations"])
 	}
 	return implementations
+}
+
+func goInfoResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoInfoResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	info, ok := data["info"].(language.GoInfoResult)
+	if !ok {
+		t.Fatalf("info data = %#v, want language.GoInfoResult", data["info"])
+	}
+	return info
+}
+
+func goEnvResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoEnvResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	env, ok := data["env"].(language.GoEnvResult)
+	if !ok {
+		t.Fatalf("env data = %#v, want language.GoEnvResult", data["env"])
+	}
+	return env
+}
+
+func goVersionResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoVersionResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	version, ok := data["version"].(language.GoVersionResult)
+	if !ok {
+		t.Fatalf("version data = %#v, want language.GoVersionResult", data["version"])
+	}
+	return version
 }
 
 func runGoResult(t *testing.T, sys system.System, name string, input map[string]any) operation.Result {

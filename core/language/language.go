@@ -458,6 +458,135 @@ type CallResult struct {
 	Fresh          bool             `json:"fresh,omitempty"`
 }
 
+// GoInfoQuery selects curated Go toolchain orientation details.
+type GoInfoQuery struct {
+	Language       LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go commands."`
+	IncludePrivate *bool      `json:"include_private,omitempty" jsonschema:"description=Include parsed GOPRIVATE/GONOPROXY/GONOSUMDB and proxy/sumdb settings. Defaults to true."`
+	IncludePaths   *bool      `json:"include_paths,omitempty" jsonschema:"description=Include GOROOT/GOPATH/GOMOD/GOWORK/cache/tool directories. Defaults to true."`
+	IncludeRawEnv  bool       `json:"include_raw_env,omitempty" jsonschema:"description=Include selected raw go env values in the response."`
+	MaxBytes       int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured per go command."`
+}
+
+// GoEnvQuery selects read-only go env values.
+type GoEnvQuery struct {
+	Language LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path     string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go env."`
+	Vars     []string   `json:"vars,omitempty" jsonschema:"description=Specific go env variable names. Defaults to the curated go_info set."`
+	All      bool       `json:"all,omitempty" jsonschema:"description=Return all go env -json values."`
+	Changed  bool       `json:"changed,omitempty" jsonschema:"description=Return only values changed from defaults, equivalent to go env -changed -json."`
+	Redact   *bool      `json:"redact,omitempty" jsonschema:"description=Redact sensitive-looking values. Defaults to true."`
+	MaxBytes int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoVersionQuery selects Go toolchain or binary build version details.
+type GoVersionQuery struct {
+	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path       string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go version."`
+	Files      []string   `json:"files,omitempty" jsonschema:"description=Optional workspace-relative binary files to inspect."`
+	ModuleInfo bool       `json:"module_info,omitempty" jsonschema:"description=Include embedded module build info, equivalent to go version -m."`
+	JSON       bool       `json:"json,omitempty" jsonschema:"description=Request JSON build info when module_info is true."`
+	Verbose    bool       `json:"verbose,omitempty" jsonschema:"description=Report unrecognized files when inspecting explicit files or directories."`
+	MaxResults int        `json:"max_results,omitempty" jsonschema:"description=Maximum inspected file records returned."`
+	MaxBytes   int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoDocQuery selects package or symbol documentation from go doc.
+type GoDocQuery struct {
+	Language          LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path              string     `json:"path,omitempty" jsonschema:"description=Workspace-relative Go file or directory used as the go doc working directory."`
+	Line              int        `json:"line,omitempty" jsonschema:"description=1-indexed source line for position-based symbol docs."`
+	Column            int        `json:"column,omitempty" jsonschema:"description=1-indexed byte column for position-based symbol docs."`
+	Offset            *int       `json:"offset,omitempty" jsonschema:"description=0-indexed byte offset. Takes precedence over line and column."`
+	Package           string     `json:"package,omitempty" jsonschema:"description=Optional package import path or suffix."`
+	Symbol            string     `json:"symbol,omitempty" jsonschema:"description=Optional symbol, method, or field selector."`
+	All               bool       `json:"all,omitempty" jsonschema:"description=Show all package documentation, equivalent to go doc -all."`
+	Short             bool       `json:"short,omitempty" jsonschema:"description=Show one-line symbol summaries, equivalent to go doc -short."`
+	Source            bool       `json:"source,omitempty" jsonschema:"description=Show source for the selected symbol, equivalent to go doc -src."`
+	IncludeUnexported bool       `json:"include_unexported,omitempty" jsonschema:"description=Include unexported docs, equivalent to go doc -u."`
+	IncludeCmd        bool       `json:"include_cmd,omitempty" jsonschema:"description=Treat package main like a regular package, equivalent to go doc -cmd."`
+	MaxBytes          int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoListQuery selects package or module metadata from go list.
+type GoListQuery struct {
+	Language      LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path          string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go list."`
+	Patterns      []string   `json:"patterns,omitempty" jsonschema:"description=Package or module patterns. Defaults to [\".\"]."`
+	Modules       bool       `json:"modules,omitempty" jsonschema:"description=List modules instead of packages, equivalent to go list -m."`
+	Deps          bool       `json:"deps,omitempty" jsonschema:"description=Include dependencies, equivalent to go list -deps."`
+	Test          bool       `json:"test,omitempty" jsonschema:"description=Include test packages, equivalent to go list -test."`
+	Compiled      bool       `json:"compiled,omitempty" jsonschema:"description=Include compiled go files, equivalent to go list -compiled."`
+	Find          bool       `json:"find,omitempty" jsonschema:"description=Identify packages without resolving dependencies, equivalent to go list -find."`
+	IncludeErrors bool       `json:"include_errors,omitempty" jsonschema:"description=Return erroneous packages in structured output, equivalent to go list -e."`
+	MaxResults    int        `json:"max_results,omitempty" jsonschema:"description=Maximum package/module records returned."`
+	MaxBytes      int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoProxyConfig is a parsed GOPROXY-style value.
+type GoProxyConfig struct {
+	Raw    string         `json:"raw,omitempty"`
+	Groups []GoProxyGroup `json:"groups,omitempty"`
+}
+
+// GoProxyGroup contains pipe-separated proxies within one comma fallback group.
+type GoProxyGroup struct {
+	Entries []string `json:"entries,omitempty"`
+}
+
+// GoInfoResult contains curated Go toolchain orientation.
+type GoInfoResult struct {
+	Version     map[string]string   `json:"version,omitempty"`
+	Target      map[string]string   `json:"target,omitempty"`
+	Workspace   map[string]string   `json:"workspace,omitempty"`
+	Paths       map[string]string   `json:"paths,omitempty"`
+	Modules     map[string]string   `json:"modules,omitempty"`
+	Network     map[string]any      `json:"network,omitempty"`
+	Private     map[string][]string `json:"private,omitempty"`
+	RawEnv      map[string]string   `json:"raw_env,omitempty"`
+	Diagnostics []Diagnostic        `json:"diagnostics,omitempty"`
+}
+
+// GoEnvResult contains read-only go env values.
+type GoEnvResult struct {
+	Values      map[string]string `json:"values,omitempty"`
+	All         bool              `json:"all,omitempty"`
+	Changed     bool              `json:"changed,omitempty"`
+	Diagnostics []Diagnostic      `json:"diagnostics,omitempty"`
+}
+
+// GoVersionRecord contains one go version record.
+type GoVersionRecord struct {
+	Path      string         `json:"path,omitempty"`
+	Version   string         `json:"version,omitempty"`
+	Raw       string         `json:"raw,omitempty"`
+	BuildInfo map[string]any `json:"build_info,omitempty"`
+}
+
+// GoVersionResult contains Go toolchain or binary build version details.
+type GoVersionResult struct {
+	Version     string            `json:"version,omitempty"`
+	Records     []GoVersionRecord `json:"records,omitempty"`
+	Diagnostics []Diagnostic      `json:"diagnostics,omitempty"`
+}
+
+// GoDocResult contains go doc output and selection metadata.
+type GoDocResult struct {
+	Text        string       `json:"text,omitempty"`
+	Package     string       `json:"package,omitempty"`
+	Symbol      string       `json:"symbol,omitempty"`
+	Workdir     string       `json:"workdir,omitempty"`
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+}
+
+// GoListResult contains structured go list package or module records.
+type GoListResult struct {
+	Records     []map[string]any `json:"records,omitempty"`
+	Modules     bool             `json:"modules,omitempty"`
+	Diagnostics []Diagnostic     `json:"diagnostics,omitempty"`
+	Complete    bool             `json:"complete,omitempty"`
+}
+
 // ProjectQuery selects language projects.
 type ProjectQuery struct {
 	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
