@@ -4,9 +4,12 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
@@ -115,6 +118,47 @@ func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	}
 }
 
+func TestProjectTaskRunDryRunAndExecution(t *testing.T) {
+	base := systemtest.NewMemory()
+	proc := &fakeTaskProcess{result: system.ProcessResult{
+		Command:  "task",
+		Args:     []string{"--taskfile", "Taskfile.yaml", "lint"},
+		Stdout:   "ok\n",
+		ExitCode: 0,
+		Duration: 25 * time.Millisecond,
+	}}
+	sys := taskRunSystem{MemorySystem: base, process: proc}
+	writeProjectFile(t, sys.Workspace(), "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    desc: Run lint\n    cmds:\n      - go vet ./...\n")
+
+	dryRun := runProjectTaskOp(t, sys, map[string]any{"name": "lint", "kind": "taskfile", "dry_run": true})
+	if !dryRun.DryRun || dryRun.Executable != "task" || !sameStrings(dryRun.Args, []string{"--taskfile", "Taskfile.yaml", "lint"}) {
+		t.Fatalf("dry run = %#v", dryRun)
+	}
+	dryRunOp := findProjectOp(t, sys, TaskRunOp)
+	intents, ok, err := operation.IntentFor(operation.NewContext(context.Background(), nil), dryRunOp, map[string]any{"name": "lint", "kind": "taskfile", "dry_run": true})
+	if err != nil {
+		t.Fatalf("IntentFor dry run: %v", err)
+	}
+	if !ok || len(intents.Operations) != 1 {
+		t.Fatalf("dry run intents = %#v ok=%v, want one process intent", intents, ok)
+	}
+	if proc.startCount != 0 {
+		t.Fatalf("process start count = %d, want 0 for dry run", proc.startCount)
+	}
+
+	var events []coreevent.Event
+	result := runProjectTaskOpWithEvents(t, sys, map[string]any{"task_id": "taskfile:Taskfile.yaml:lint"}, &events)
+	if result.Stdout != "ok\n" || result.ExitCode != 0 {
+		t.Fatalf("result = %#v, want process output", result)
+	}
+	if proc.request.Command != "task" || !sameStrings(proc.request.Args, []string{"--taskfile", "Taskfile.yaml", "lint"}) {
+		t.Fatalf("process request = %#v", proc.request)
+	}
+	if len(events) == 0 {
+		t.Fatalf("events = %#v, want forwarded process and usage events", events)
+	}
+}
+
 func runProjectPluginBackends(t *testing.T, fn func(*testing.T, system.System)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
@@ -150,6 +194,115 @@ func runProjectOp(t *testing.T, sys system.System, name string, input map[string
 	}
 	t.Fatalf("operation %s not found", name)
 	return operation.Rendered{}
+}
+
+func runProjectTaskOp(t *testing.T, sys system.System, input map[string]any) coreproject.TaskRunResult {
+	t.Helper()
+	var events []coreevent.Event
+	return runProjectTaskOpWithEvents(t, sys, input, &events)
+}
+
+func runProjectTaskOpWithEvents(t *testing.T, sys system.System, input map[string]any, events *[]coreevent.Event) coreproject.TaskRunResult {
+	t.Helper()
+	op := findProjectOp(t, sys, TaskRunOp)
+	ctx := operation.NewContext(context.Background(), coreevent.SinkFunc(func(event coreevent.Event) {
+		*events = append(*events, event)
+	}))
+	result := op.Run(ctx, input)
+	if result.Status != operation.StatusOK {
+		t.Fatalf("%s status = %s error = %#v output = %#v", TaskRunOp, result.Status, result.Error, result.Output)
+	}
+	out, ok := result.Output.(coreproject.TaskRunResult)
+	if !ok {
+		t.Fatalf("%s output = %#v, want TaskRunResult", TaskRunOp, result.Output)
+	}
+	return out
+}
+
+func findProjectOp(t *testing.T, sys system.System, name string) operation.Operation {
+	t.Helper()
+	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	for _, op := range ops {
+		if string(op.Spec().Ref.Name) == name {
+			return op
+		}
+	}
+	t.Fatalf("operation %s not found", name)
+	return nil
+}
+
+type taskRunSystem struct {
+	*systemtest.MemorySystem
+	process *fakeTaskProcess
+}
+
+func (s taskRunSystem) Process() system.ProcessManager { return s.process }
+
+type fakeTaskProcess struct {
+	request    system.ProcessRequest
+	result     system.ProcessResult
+	startCount int
+}
+
+func (p *fakeTaskProcess) Run(_ context.Context, req system.ProcessRequest) (system.ProcessResult, error) {
+	p.request = req
+	return p.result, nil
+}
+
+func (p *fakeTaskProcess) Start(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, error) {
+	p.startCount++
+	p.request = req
+	events := make(chan system.ProcessEvent, 2)
+	events <- system.ProcessEvent{ProcessID: "test-process", Kind: "output", Stream: "stdout", Data: p.result.Stdout, Time: time.Now()}
+	close(events)
+	result := p.result
+	result.Command = req.Command
+	result.Args = append([]string(nil), req.Args...)
+	result.Workdir = req.Workdir
+	return fakeTaskHandle{request: req, result: result, events: events}, nil
+}
+
+func (p *fakeTaskProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
+
+func (p *fakeTaskProcess) Status(context.Context, string) (system.ProcessInfo, error) {
+	return system.ProcessInfo{}, nil
+}
+
+func (p *fakeTaskProcess) Output(context.Context, string) (system.ProcessOutput, error) {
+	return system.ProcessOutput{}, nil
+}
+
+func (p *fakeTaskProcess) Kill(context.Context, string) error { return nil }
+
+type fakeTaskHandle struct {
+	request system.ProcessRequest
+	result  system.ProcessResult
+	events  <-chan system.ProcessEvent
+}
+
+func (h fakeTaskHandle) ID() string { return "test-process" }
+
+func (h fakeTaskHandle) Info() system.ProcessInfo {
+	return system.ProcessInfo{ID: h.ID(), Command: h.request.Command, Args: h.request.Args, Workdir: h.request.Workdir, Running: true}
+}
+
+func (h fakeTaskHandle) Events() <-chan system.ProcessEvent { return h.events }
+
+func (h fakeTaskHandle) Wait(context.Context) (system.ProcessResult, error) { return h.result, nil }
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func writeProjectFile(t *testing.T, ws system.Workspace, rel, content string) {

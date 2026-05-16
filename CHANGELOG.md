@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   invalid declarations are surfaced as warnings, local fallback identities are
   marked ephemeral, and project inventory now rejects workspace-scoped requests
   on unscoped managers.
+- Added `docs/concepts.md`, defining the semantic differences between requests,
+  tasks, commands, workflows, operations, and executions and mapping them to
+  AgentRuntime package responsibilities.
 
 - Added `file_edit`, an existing-file edit operation with dry-run support,
   original-file coordinate semantics, merged non-overlapping atomic edits, and
@@ -56,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bundle.
 - Project inventory signals now respect bounded `max_results` queries, and
   binary-free toolchain specs remain available without process support.
+- Added workspace-scoped `project_task_run` for discovered Makefile, Taskfile,
+  and `package.json` tasks, with dry-run command resolution, managed process
+  execution, and coder/delegation exposure.
+- Added neutral `core/task` and `runtime/task` foundations for user-facing task
+  and execution state, shaped for a future `planexecplugin` migration.
+- Task validation now rejects cyclic step dependencies, and task execution
+  projection reconciles revised step sets while preserving latest step progress.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.

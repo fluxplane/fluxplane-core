@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/usage"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
@@ -34,6 +35,9 @@ func New(cfg Config) (*event.Registry, error) {
 	}
 	if err := coreworkflow.RegisterEvents(registry); err != nil {
 		return nil, fmt.Errorf("app: register workflow events: %w", err)
+	}
+	if err := coretask.RegisterEvents(registry); err != nil {
+		return nil, fmt.Errorf("app: register task events: %w", err)
 	}
 	for _, sample := range defaultEventTypes() {
 		if err := registerEventType(registry, sample); err != nil {

@@ -19,6 +19,7 @@ import (
 	goldast "github.com/yuin/goldmark/ast"
 	goldtext "github.com/yuin/goldmark/text"
 	"golang.org/x/mod/modfile"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -106,6 +107,40 @@ func (m *Manager) Project(ctx context.Context, req coreproject.ProjectQuery) (co
 		return coreproject.Project{}, rebuilt, fs.ErrNotExist
 	}
 	return project, rebuilt, nil
+}
+
+// TaskRunSelection records a selected task and the direct process invocation
+// needed to run it.
+type TaskRunSelection struct {
+	Project    coreproject.Project
+	Task       coreproject.Task
+	Executable string
+	Args       []string
+	Workdir    string
+}
+
+// ResolveTaskRun selects a discovered task and prepares a no-shell process
+// invocation for it.
+func (m *Manager) ResolveTaskRun(ctx context.Context, req coreproject.TaskRunRequest) (TaskRunSelection, bool, error) {
+	project, rebuilt, err := m.Project(ctx, coreproject.ProjectQuery{WorkspaceID: req.WorkspaceID, ProjectID: req.ProjectID, Path: req.Path})
+	if err != nil {
+		return TaskRunSelection{}, rebuilt, err
+	}
+	task, err := selectTask(project, req)
+	if err != nil {
+		return TaskRunSelection{}, rebuilt, err
+	}
+	executable, args, err := taskCommand(task, req.Args)
+	if err != nil {
+		return TaskRunSelection{}, rebuilt, err
+	}
+	return TaskRunSelection{
+		Project:    project,
+		Task:       task,
+		Executable: executable,
+		Args:       args,
+		Workdir:    task.Workdir,
+	}, rebuilt, nil
 }
 
 func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQuery, workspaceID coreworkspace.ID) (coreproject.Inventory, error) {
@@ -353,7 +388,20 @@ func addPackageJSON(ctx context.Context, ws system.Workspace, builders map[strin
 			}
 			sort.Strings(keys)
 			for _, key := range keys {
-				tasks = append(tasks, coreproject.Task{Name: key, Kind: "package_script", Command: raw.Scripts[key], Path: rel})
+				manager := nodePackageManager(ctx, ws, dir)
+				args := []string{"run", key}
+				tasks = append(tasks, coreproject.Task{
+					ID:          taskID("package_script", rel, key),
+					Name:        key,
+					Kind:        "package_script",
+					Command:     manager + " run " + key,
+					Path:        rel,
+					Workdir:     dir,
+					Executable:  manager,
+					Args:        args,
+					Description: raw.Scripts[key],
+					Metadata:    map[string]string{"runner": "package_script", "package_manager": manager},
+				})
 			}
 		}
 	}
@@ -374,7 +422,10 @@ func addTaskfile(ctx context.Context, ws system.Workspace, builders map[string]*
 	if err != nil {
 		status, msg = coreproject.ParseStatusFailed, err.Error()
 	} else {
-		tasks = parseTaskfileTasks(string(data), rel)
+		tasks, err = parseTaskfileTasks(data, rel)
+		if err != nil {
+			status, msg = coreproject.ParseStatusFailed, err.Error()
+		}
 	}
 	builderFor(builders, dir).addFacet(coreproject.Facet{
 		Kind:     coreproject.FacetTaskfile,
@@ -670,6 +721,107 @@ func cleanRel(raw string) string {
 	return strings.TrimPrefix(clean, "./")
 }
 
+func taskID(kind, rel, name string) coreproject.TaskID {
+	return coreproject.TaskID(strings.Join([]string{kind, cleanRel(rel), strings.TrimSpace(name)}, ":"))
+}
+
+func selectTask(project coreproject.Project, req coreproject.TaskRunRequest) (coreproject.Task, error) {
+	var matches []coreproject.Task
+	for _, facet := range project.Facets {
+		for _, task := range facet.Tasks {
+			if req.TaskID != "" {
+				if task.ID == req.TaskID {
+					return task, nil
+				}
+				continue
+			}
+			if strings.TrimSpace(req.Name) == "" {
+				continue
+			}
+			if task.Name != strings.TrimSpace(req.Name) {
+				continue
+			}
+			if req.Kind != "" && task.Kind != strings.TrimSpace(req.Kind) {
+				continue
+			}
+			matches = append(matches, task)
+		}
+	}
+	if req.TaskID != "" {
+		return coreproject.Task{}, fmt.Errorf("project: task_id %q not found in %s", req.TaskID, project.ID)
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return coreproject.Task{}, fmt.Errorf("project: task_id or name is required")
+	}
+	if len(matches) == 0 {
+		if req.Kind != "" {
+			return coreproject.Task{}, fmt.Errorf("project: task %q of kind %q not found in %s", req.Name, req.Kind, project.ID)
+		}
+		return coreproject.Task{}, fmt.Errorf("project: task %q not found in %s", req.Name, project.ID)
+	}
+	if len(matches) > 1 {
+		var ids []string
+		for _, task := range matches {
+			ids = append(ids, string(task.ID))
+		}
+		sort.Strings(ids)
+		return coreproject.Task{}, fmt.Errorf("project: task %q is ambiguous; select task_id or kind (%s)", req.Name, strings.Join(ids, ", "))
+	}
+	return matches[0], nil
+}
+
+func taskCommand(task coreproject.Task, extraArgs []string) (string, []string, error) {
+	executable := strings.TrimSpace(task.Executable)
+	if executable == "" {
+		return "", nil, fmt.Errorf("project: task %q has no executable", task.ID)
+	}
+	args := append([]string(nil), task.Args...)
+	if len(extraArgs) > 0 {
+		switch task.Kind {
+		case "taskfile", "package_script":
+			args = append(args, "--")
+		}
+		args = append(args, extraArgs...)
+	}
+	return executable, args, nil
+}
+
+func nodePackageManager(ctx context.Context, ws system.Workspace, dir string) string {
+	for _, candidate := range ancestorDirs(dir) {
+		if hasWorkspaceFile(ctx, ws, path.Join(candidate, "pnpm-lock.yaml")) {
+			return "pnpm"
+		}
+		if hasWorkspaceFile(ctx, ws, path.Join(candidate, "yarn.lock")) {
+			return "yarn"
+		}
+		if hasWorkspaceFile(ctx, ws, path.Join(candidate, "package-lock.json")) {
+			return "npm"
+		}
+	}
+	return "npm"
+}
+
+func ancestorDirs(dir string) []string {
+	current := cleanRel(dir)
+	var out []string
+	for {
+		out = append(out, current)
+		if current == "" {
+			return out
+		}
+		parent := path.Dir(current)
+		if parent == "." {
+			parent = ""
+		}
+		current = parent
+	}
+}
+
+func hasWorkspaceFile(ctx context.Context, ws system.Workspace, rel string) bool {
+	info, _, err := ws.Stat(ctx, cleanRel(rel))
+	return err == nil && info != nil && !info.IsDir()
+}
+
 func noisyDirs() []string {
 	return []string{".git", ".cache", "node_modules", "vendor", "dist", "build", "target", "tmp"}
 }
@@ -679,6 +831,11 @@ var makeTargetRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+)\s*:(?:\s|$)`)
 func parseMakeTargets(content, rel string) []coreproject.Task {
 	var out []coreproject.Task
 	seen := map[string]bool{}
+	base := path.Base(rel)
+	workdir := path.Dir(rel)
+	if workdir == "." {
+		workdir = ""
+	}
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ".") {
@@ -689,35 +846,80 @@ func parseMakeTargets(content, rel string) []coreproject.Task {
 			continue
 		}
 		seen[match[1]] = true
-		out = append(out, coreproject.Task{Name: match[1], Kind: "makefile", Command: "make " + match[1], Path: rel})
+		out = append(out, coreproject.Task{
+			ID:         taskID("makefile", rel, match[1]),
+			Name:       match[1],
+			Kind:       "makefile",
+			Command:    "make " + match[1],
+			Path:       rel,
+			Workdir:    workdir,
+			Executable: "make",
+			Args:       []string{"-f", base, match[1]},
+			Metadata:   map[string]string{"runner": "makefile"},
+		})
 	}
 	return out
 }
 
-func parseTaskfileTasks(content, rel string) []coreproject.Task {
-	var out []coreproject.Task
-	inTasks := false
-	for _, line := range strings.Split(content, "\n") {
-		if strings.TrimSpace(line) == "tasks:" {
-			inTasks = true
-			continue
-		}
-		if !inTasks {
-			continue
-		}
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
-		if !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "    ") {
-			continue
-		}
-		name := strings.TrimSuffix(strings.TrimSpace(line), ":")
-		if name == "" || strings.Contains(name, " ") {
-			continue
-		}
-		out = append(out, coreproject.Task{Name: name, Kind: "taskfile", Command: "task " + name, Path: rel})
+func parseTaskfileTasks(content []byte, rel string) ([]coreproject.Task, error) {
+	var raw struct {
+		Tasks map[string]yaml.Node `yaml:"tasks"`
 	}
-	return out
+	if err := yaml.Unmarshal(content, &raw); err != nil {
+		return nil, err
+	}
+	var out []coreproject.Task
+	names := make([]string, 0, len(raw.Tasks))
+	for name := range raw.Tasks {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	base := path.Base(rel)
+	workdir := path.Dir(rel)
+	if workdir == "." {
+		workdir = ""
+	}
+	for _, name := range names {
+		description := taskfileDescription(raw.Tasks[name])
+		out = append(out, coreproject.Task{
+			ID:          taskID("taskfile", rel, name),
+			Name:        name,
+			Kind:        "taskfile",
+			Command:     "task " + name,
+			Path:        rel,
+			Workdir:     workdir,
+			Executable:  "task",
+			Args:        []string{"--taskfile", base, name},
+			Description: description,
+			Metadata:    map[string]string{"runner": "taskfile"},
+		})
+	}
+	return out, nil
+}
+
+func taskfileDescription(node yaml.Node) string {
+	if node.Kind != yaml.MappingNode {
+		return ""
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i]
+		value := node.Content[i+1]
+		if key == nil || value == nil || value.Kind != yaml.ScalarNode {
+			continue
+		}
+		switch key.Value {
+		case "desc":
+			return strings.TrimSpace(value.Value)
+		case "summary":
+			if strings.TrimSpace(value.Value) != "" {
+				return strings.TrimSpace(value.Value)
+			}
+		}
+	}
+	return ""
 }
 
 func parseMarkdownOutline(source []byte) []coreproject.Heading {

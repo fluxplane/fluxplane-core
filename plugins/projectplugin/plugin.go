@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/usage"
 	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -24,9 +26,16 @@ const (
 	InventoryOp     = "project_inventory"
 	FilesOp         = "project_files"
 	TasksOp         = "project_tasks"
+	TaskRunOp       = "project_task_run"
 	DocsOp          = "project_docs"
 	SummaryProvider = "project.summary"
 	defaultMaxFiles = 500
+)
+
+const (
+	defaultTaskTimeout     = 30 * time.Second
+	defaultTaskOutputBytes = 64 * 1024
+	maxTaskTimeout         = 10 * time.Minute
 )
 
 // Plugin contributes Workspace project inventory operations.
@@ -94,6 +103,7 @@ func (p Plugin) Operations(ctx context.Context, _ pluginhost.Context) ([]operati
 		operationruntime.NewTypedResult[coreproject.InventoryQuery, operation.Rendered](specByName(InventoryOp), p.inventory(manager)),
 		operationruntime.NewTypedResult[coreproject.FilesQuery, operation.Rendered](specByName(FilesOp), p.files(manager)),
 		operationruntime.NewTypedResult[coreproject.TasksQuery, operation.Rendered](specByName(TasksOp), p.tasks(manager)),
+		operationruntime.NewTypedResult[coreproject.TaskRunRequest, coreproject.TaskRunResult](specByName(TaskRunOp), p.taskRun(manager), operationruntime.WithIntent(p.taskRunIntent(manager))),
 		operationruntime.NewTypedResult[coreproject.DocsQuery, operation.Rendered](specByName(DocsOp), p.docs(manager)),
 	}, nil
 }
@@ -121,6 +131,7 @@ func specs() []operation.Spec {
 		spec[coreproject.InventoryQuery](InventoryOp, "Discover Workspace projects and facets such as go.mod, go.work, package.json, Makefile, Taskfile.yaml, and markdown docs. The inventory is memory-only; refresh rebuilds it for this plugin instance."),
 		spec[coreproject.FilesQuery](FilesOp, "List a bounded project file tree scoped to a detected project or path. This is read-only and uses Workspace-relative paths."),
 		spec[coreproject.TasksQuery](TasksOp, "List cheap project task entry points discovered from Makefiles, Taskfiles, and package.json scripts."),
+		taskRunSpec(),
 		spec[coreproject.DocsQuery](DocsOp, "Return markdown document heading outlines discovered in the Workspace project inventory."),
 	}
 }
@@ -134,6 +145,19 @@ func spec[I any](name, description string) operation.Spec {
 			Effects:     operation.EffectSet{operation.EffectFilesystem, operation.EffectReadExternal},
 			Idempotency: operation.IdempotencyIdempotent,
 			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func taskRunSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coreproject.TaskRunRequest, coreproject.TaskRunResult](operation.Spec{
+		Ref:         operation.Ref{Name: operation.Name(TaskRunOp)},
+		Description: "Run one discovered project task from a Makefile, Taskfile, or package.json script through the managed process boundary. Use dry_run to resolve the command without executing it.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal},
+			Idempotency: operation.IdempotencyUnknown,
+			Risk:        operation.RiskMedium,
 		},
 	})
 }
@@ -380,6 +404,138 @@ func (p Plugin) tasks(manager *runtimeproject.Manager) operationruntime.TypedRes
 		}
 		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"project": compactProject(project), "tasks": tasks, "rebuilt": rebuilt}})
 	}
+}
+
+func (p Plugin) taskRun(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[coreproject.TaskRunRequest, coreproject.TaskRunResult] {
+	return func(ctx operation.Context, req coreproject.TaskRunRequest) operation.Result {
+		selection, _, err := manager.ResolveTaskRun(ctx, req)
+		if err != nil {
+			return operation.Failed("project_task_run_failed", err.Error(), nil)
+		}
+		result := taskRunResult(selection, req)
+		if req.DryRun {
+			result.DryRun = true
+			return operation.OK(result)
+		}
+		if p.system == nil || p.system.Process() == nil {
+			result.Diagnostics = append(result.Diagnostics, coreproject.Warning{Code: "process_unavailable", Message: "project task execution requires a process manager"})
+			return taskRunFailed("process manager is unavailable", result)
+		}
+		processReq := system.ProcessRequest{
+			Command:   selection.Executable,
+			Args:      selection.Args,
+			Workdir:   selection.Workdir,
+			Env:       system.DefaultProcessEnv(),
+			Timeout:   taskTimeout(req.TimeoutMS),
+			MaxStdout: taskOutputBytes(req.MaxOutputBytes),
+			MaxStderr: taskOutputBytes(req.MaxOutputBytes),
+		}
+		handle, err := p.system.Process().Start(ctx, processReq)
+		if err != nil {
+			return taskRunFailed(err.Error(), result)
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for event := range handle.Events() {
+				ctx.Events().Emit(event)
+			}
+		}()
+		processResult, waitErr := handle.Wait(ctx)
+		<-done
+		emitTaskProcessUsage(ctx, processResult)
+		result.Executable = processResult.Command
+		result.Args = processResult.Args
+		result.Workdir = processResult.Workdir
+		result.Stdout = processResult.Stdout
+		result.Stderr = processResult.Stderr
+		result.ExitCode = processResult.ExitCode
+		result.TimedOut = processResult.TimedOut
+		result.StdoutTruncated = processResult.StdoutTruncated
+		result.StderrTruncated = processResult.StderrTruncated
+		result.DurationMS = processResult.Duration.Milliseconds()
+		if waitErr != nil {
+			return taskRunFailed(waitErr.Error(), result)
+		}
+		return operation.OK(result)
+	}
+}
+
+func taskRunFailed(message string, result coreproject.TaskRunResult) operation.Result {
+	return operation.Result{
+		Status: operation.StatusFailed,
+		Output: result,
+		Error:  &operation.Error{Code: "project_task_run_failed", Message: message},
+	}
+}
+
+func (p Plugin) taskRunIntent(manager *runtimeproject.Manager) operationruntime.TypedIntentHandler[coreproject.TaskRunRequest] {
+	return func(ctx operation.Context, req coreproject.TaskRunRequest) (operation.IntentSet, error) {
+		selection, _, err := manager.ResolveTaskRun(ctx, req)
+		if err != nil {
+			return operation.IntentSet{}, err
+		}
+		return operation.IntentSet{Operations: []operation.IntentOperation{processIntent(selection.Executable, selection.Args, selection.Workdir)}}, nil
+	}
+}
+
+func taskRunResult(selection runtimeproject.TaskRunSelection, req coreproject.TaskRunRequest) coreproject.TaskRunResult {
+	return coreproject.TaskRunResult{
+		WorkspaceID: selection.Project.WorkspaceID,
+		ProjectID:   selection.Project.ID,
+		ProjectRoot: selection.Project.Root,
+		Task:        selection.Task,
+		Executable:  selection.Executable,
+		Args:        append([]string(nil), selection.Args...),
+		Workdir:     selection.Workdir,
+		DryRun:      req.DryRun,
+	}
+}
+
+func taskTimeout(timeoutMS int) time.Duration {
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = defaultTaskTimeout
+	}
+	if timeout > maxTaskTimeout {
+		timeout = maxTaskTimeout
+	}
+	return timeout
+}
+
+func taskOutputBytes(max int) int {
+	if max <= 0 || max > defaultTaskOutputBytes {
+		return defaultTaskOutputBytes
+	}
+	return max
+}
+
+func processIntent(command string, args []string, workdir string) operation.IntentOperation {
+	arguments := make([]operation.Argument, 0, len(args))
+	for _, arg := range args {
+		arguments = append(arguments, operation.Argument(arg))
+	}
+	return operation.IntentOperation{
+		Behavior:  operation.IntentCommandExecution,
+		Target:    operation.ProcessTarget{Command: operation.Command(command), Args: arguments, Workdir: operation.Workdir(workdir)},
+		Role:      operation.IntentRoleProcessCommand,
+		Certainty: operation.IntentCertain,
+	}
+}
+
+func emitTaskProcessUsage(ctx operation.Context, result system.ProcessResult) {
+	ctx.Events().Emit(usage.Recorded{
+		Source: TaskRunOp,
+		Subject: usage.Subject{
+			Kind: usage.SubjectProcess,
+			Name: result.Command,
+		},
+		Measurements: []usage.Measurement{
+			{Metric: usage.MetricWallTime, Quantity: float64(result.Duration.Milliseconds()), Unit: usage.UnitMillisecond},
+			{Metric: usage.MetricFileBytes, Quantity: float64(len(result.Stdout)), Unit: usage.UnitByte, Direction: usage.DirectionOutput, Dimensions: map[string]string{"stream": "stdout"}},
+			{Metric: usage.MetricFileBytes, Quantity: float64(len(result.Stderr)), Unit: usage.UnitByte, Direction: usage.DirectionOutput, Dimensions: map[string]string{"stream": "stderr"}},
+		},
+	})
 }
 
 func (p Plugin) docs(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[coreproject.DocsQuery, operation.Rendered] {

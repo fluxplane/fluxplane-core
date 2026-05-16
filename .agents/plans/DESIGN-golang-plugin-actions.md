@@ -10,6 +10,10 @@ projection is tracked in
 [`2026-05-16-language-toolchain-activation.md`](../designs/2026-05-16-language-toolchain-activation.md).
 Generic code-editing and refactoring direction has moved to
 [`2026-05-16-1425-code-edit.md`](../designs/2026-05-16-1425-code-edit.md).
+Generic project task execution is tracked separately from the Go plugin in
+[`2026-05-16-project-task-execution.md`](../designs/2026-05-16-project-task-execution.md).
+The broader user-facing task/execution domain for future plan execution lives
+in [`2026-05-16-core-task-domain.md`](../designs/2026-05-16-core-task-domain.md).
 
 Current implementation status:
 
@@ -30,6 +34,8 @@ Current implementation status:
 | `go_fmt` | Implemented; defaults to dry-run and supports explicit formatting writes |
 | `go_install` | Implemented; defaults to dry-run with restricted environment overrides |
 | Follow-up | Language/toolchain activation design in `2026-05-16-language-toolchain-activation.md` implemented |
+| Project task execution | Implemented in `projectplugin` as `project_task_run`; intentionally outside the Go plugin |
+| Core task domain | Implemented as a foundation for future `planexecplugin` migration |
 | Deferred | Abstract code-editing/refactor operations tracked separately in `2026-05-16-1425-code-edit.md` |
 
 ## Current Progress
@@ -58,12 +64,17 @@ Completed:
   events, and coder feature expansion. Review fixes ensure bounded inventories
   do not leak signals for omitted projects and binary-free toolchain specs do
   not require process support.
+- Workspace-scoped project task execution is implemented in `projectplugin`
+  with stable task IDs, dry-run command resolution, managed process execution,
+  and coder exposure.
+- The neutral `core/task` and `runtime/task` foundation is implemented for
+  future plan execution migration.
 - Generic code editing/refactoring scope is split into
   `2026-05-16-1425-code-edit.md`.
 
 Remaining:
 
-- No implementation tasks remain for the current roadmap slice.
+- No implementation tasks remain for the current Go-only roadmap slice.
 - Type-aware `go_callers` / `go_callees` is not required for this roadmap slice;
   current operations intentionally remain AST-only and report limitations.
 - Scaling beyond Go/Markdown should reuse the implemented
@@ -72,14 +83,15 @@ Remaining:
 Next steps:
 
 1. Add the next language/toolchain plugin using the implemented activation
-   pattern, or continue with the separate abstract code-editing design.
+   pattern, continue with the separate abstract code-editing design, or expand
+   generic project task runner metadata outside the Go plugin.
 
 ## Summary
 
 Add generic project inventory and language-support models, then add
 `projectplugin` and `golangplugin` as the first read-only implementations.
 `projectplugin` owns workspace facts such as manifests, Makefiles, Taskfiles,
-and markdown document outlines. `golangplugin` owns Go-specific source
+project task execution, and markdown document outlines. `golangplugin` owns Go-specific source
 structure such as modules, packages, outlines, and declaration symbols.
 `codingplugin` also contributes compact automatic context providers so new
 turns receive project and Go orientation before the model asks for a tool.

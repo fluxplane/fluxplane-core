@@ -95,6 +95,79 @@ func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
 	})
 }
 
+func TestManagerResolvesProjectTaskRunCommands(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "package.json", `{"name":"app","scripts":{"test":"vitest run"}}`)
+		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+		writeWorkspaceFile(t, ws, "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    desc: Run lint\n    cmds:\n      - go vet ./...\n")
+		writeWorkspaceFile(t, ws, "Makefile", "build:\n\tgo build ./...\n")
+
+		manager := NewManager(ws)
+		selection, _, err := manager.ResolveTaskRun(context.Background(), coreproject.TaskRunRequest{Name: "lint", Kind: "taskfile", Args: []string{"./..."}})
+		if err != nil {
+			t.Fatalf("ResolveTaskRun taskfile: %v", err)
+		}
+		if selection.Task.ID != "taskfile:Taskfile.yaml:lint" || selection.Task.Description != "Run lint" {
+			t.Fatalf("task = %#v, want stable id and description", selection.Task)
+		}
+		if selection.Executable != "task" || !sameStrings(selection.Args, []string{"--taskfile", "Taskfile.yaml", "lint", "--", "./..."}) {
+			t.Fatalf("taskfile command = %s %#v", selection.Executable, selection.Args)
+		}
+
+		selection, _, err = manager.ResolveTaskRun(context.Background(), coreproject.TaskRunRequest{Name: "test", Args: []string{"--watch=false"}})
+		if err != nil {
+			t.Fatalf("ResolveTaskRun package script: %v", err)
+		}
+		if selection.Executable != "pnpm" || !sameStrings(selection.Args, []string{"run", "test", "--", "--watch=false"}) {
+			t.Fatalf("package command = %s %#v", selection.Executable, selection.Args)
+		}
+
+		selection, _, err = manager.ResolveTaskRun(context.Background(), coreproject.TaskRunRequest{TaskID: "makefile:Makefile:build", Args: []string{"VAR=1"}})
+		if err != nil {
+			t.Fatalf("ResolveTaskRun makefile: %v", err)
+		}
+		if selection.Executable != "make" || !sameStrings(selection.Args, []string{"-f", "Makefile", "build", "VAR=1"}) {
+			t.Fatalf("make command = %s %#v", selection.Executable, selection.Args)
+		}
+	})
+}
+
+func TestManagerResolvesPackageManagerFromAncestorLockfile(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+		writeWorkspaceFile(t, ws, "apps/web/package.json", `{"name":"web","scripts":{"test":"vitest run"}}`)
+
+		manager := NewManager(ws)
+		selection, _, err := manager.ResolveTaskRun(context.Background(), coreproject.TaskRunRequest{Path: "apps/web", Name: "test", Args: []string{"--run"}})
+		if err != nil {
+			t.Fatalf("ResolveTaskRun nested package script: %v", err)
+		}
+		if selection.Executable != "pnpm" || selection.Task.Metadata["package_manager"] != "pnpm" {
+			t.Fatalf("selection = %#v, want ancestor pnpm lockfile to select pnpm", selection)
+		}
+		if !sameStrings(selection.Args, []string{"run", "test", "--", "--run"}) {
+			t.Fatalf("package command args = %#v", selection.Args)
+		}
+	})
+}
+
+func TestManagerPrefersNearestPackageLockOverAncestorLockfile(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+		writeWorkspaceFile(t, ws, "apps/web/package-lock.json", `{"lockfileVersion":3}`)
+		writeWorkspaceFile(t, ws, "apps/web/package.json", `{"name":"web","scripts":{"test":"node test.js"}}`)
+
+		manager := NewManager(ws)
+		selection, _, err := manager.ResolveTaskRun(context.Background(), coreproject.TaskRunRequest{Path: "apps/web", Name: "test"})
+		if err != nil {
+			t.Fatalf("ResolveTaskRun nested package script: %v", err)
+		}
+		if selection.Executable != "npm" || selection.Task.Metadata["package_manager"] != "npm" {
+			t.Fatalf("selection = %#v, want nearest package-lock to select npm", selection)
+		}
+	})
+}
+
 func TestParseMarkdownOutlineUsesMarkdownAST(t *testing.T) {
 	outline := parseMarkdownOutline([]byte(`# Root *Title*
 
@@ -204,6 +277,18 @@ func hasDocument(project coreproject.Project, path string) bool {
 		}
 	}
 	return false
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestManagerHostWorkspaceDoesNotDependOnCWD(t *testing.T) {

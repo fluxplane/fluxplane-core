@@ -127,6 +127,36 @@ Concept rules cut across layers. They constrain how specific concepts are
 shaped and where their logic lives, regardless of which layer the code is
 in.
 
+### Concept Vocabulary
+
+Use the vocabulary in [docs/concepts.md](docs/concepts.md) when naming or
+placing new code. If a change blurs two concepts, split the shapes instead of
+choosing a vague generic package.
+
+- A `Request` is a boundary ask from a user, model, protocol, or provider.
+  Keep request DTOs near adapters/orchestration unless they are stable
+  model-facing contracts. Translate requests into canonical messages,
+  `command.Invocation`s, operation inputs, or workflow/session submissions.
+- A `Task` is a work objective with lifecycle, assignment, or acceptance
+  criteria. Do not use `task` to mean a tool call, command, or process run.
+  Add a first-class `core/task` only if durable task lifecycle is actually
+  needed across packages.
+- A `Command` is a parsed imperative control instruction with a known handler.
+  `core/command` owns command syntax/invocation contracts; UI/adapters do not
+  own command semantics.
+- An `Operation` is a callable capability/tool contract. `core/operation`
+  owns specs and schemas; runtime/plugins/adapters implement execution behind
+  the safety envelope.
+- A `Workflow` is a multi-step process shape. `core/workflow` stays inert;
+  runtime/orchestration owns workflow runs and state transitions.
+- An `Execution` or `Run` is one runtime attempt. Do not put execution state in
+  `Spec` types. Do not create broad `core/execution` abstractions unless a
+  stable cross-runtime record is required.
+
+Quick gate before adding a concept: ask whether it is a boundary ask, work
+objective, imperative control instruction, callable capability, process spec,
+or runtime attempt. If several answers apply, model those parts separately.
+
 ### Operations and Safety
 
 - All side-effecting operations enter through

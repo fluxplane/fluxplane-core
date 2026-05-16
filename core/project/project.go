@@ -115,12 +115,19 @@ type Manifest struct {
 	Error   string            `json:"error,omitempty"`
 }
 
+// TaskID identifies a discovered task within a project inventory.
+type TaskID string
+
 // Task records a discovered project task entry point.
 type Task struct {
+	ID          TaskID            `json:"id,omitempty"`
 	Name        string            `json:"name"`
 	Kind        string            `json:"kind,omitempty"`
 	Command     string            `json:"command,omitempty"`
 	Path        string            `json:"path,omitempty"`
+	Workdir     string            `json:"workdir,omitempty"`
+	Executable  string            `json:"executable,omitempty"`
+	Args        []string          `json:"args,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
@@ -218,6 +225,40 @@ type TasksQuery struct {
 	Path        string       `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
 	Kind        string       `json:"kind,omitempty" jsonschema:"description=Optional task kind filter such as makefile, taskfile, or package_script."`
 	Refresh     bool         `json:"refresh,omitempty" jsonschema:"description=Force rebuilding in-memory project inventory for this request."`
+}
+
+// TaskRunRequest selects and runs one discovered project task.
+type TaskRunRequest struct {
+	WorkspaceID    workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Workspace id used to scope task execution."`
+	ProjectID      ID           `json:"project_id,omitempty" jsonschema:"description=Project id returned by project_inventory."`
+	Path           string       `json:"path,omitempty" jsonschema:"description=Workspace-relative path used to find the nearest project."`
+	TaskID         TaskID       `json:"task_id,omitempty" jsonschema:"description=Stable task id returned by project_tasks."`
+	Name           string       `json:"name,omitempty" jsonschema:"description=Task name when task_id is not supplied."`
+	Kind           string       `json:"kind,omitempty" jsonschema:"description=Optional task kind disambiguator such as makefile, taskfile, or package_script."`
+	Args           []string     `json:"args,omitempty" jsonschema:"description=Extra arguments passed directly to the task runner without a shell."`
+	TimeoutMS      int          `json:"timeout_ms,omitempty" jsonschema:"description=Execution timeout in milliseconds."`
+	MaxOutputBytes int          `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum bytes captured per output stream."`
+	DryRun         bool         `json:"dry_run,omitempty" jsonschema:"description=Resolve and return the task command without executing it."`
+}
+
+// TaskRunResult records a resolved or executed project task command.
+type TaskRunResult struct {
+	WorkspaceID     workspace.ID `json:"workspace_id,omitempty"`
+	ProjectID       ID           `json:"project_id,omitempty"`
+	ProjectRoot     string       `json:"project_root,omitempty"`
+	Task            Task         `json:"task,omitempty"`
+	Executable      string       `json:"executable,omitempty"`
+	Args            []string     `json:"args,omitempty"`
+	Workdir         string       `json:"workdir,omitempty"`
+	Stdout          string       `json:"stdout,omitempty"`
+	Stderr          string       `json:"stderr,omitempty"`
+	ExitCode        int          `json:"exit_code"`
+	TimedOut        bool         `json:"timed_out,omitempty"`
+	StdoutTruncated bool         `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool         `json:"stderr_truncated,omitempty"`
+	DurationMS      int64        `json:"duration_ms,omitempty"`
+	DryRun          bool         `json:"dry_run,omitempty"`
+	Diagnostics     []Warning    `json:"diagnostics,omitempty"`
 }
 
 // DocsQuery selects markdown document outlines.

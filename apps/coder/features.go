@@ -68,7 +68,7 @@ func fullCapabilityOperationNames() []string {
 func defaultDelegationOperationNames() []string {
 	allowed := map[string]bool{}
 	for _, name := range []string{
-		projectplugin.InventoryOp, projectplugin.FilesOp, projectplugin.TasksOp, projectplugin.DocsOp,
+		projectplugin.InventoryOp, projectplugin.FilesOp, projectplugin.TasksOp, projectplugin.TaskRunOp, projectplugin.DocsOp,
 		"dir_list", "dir_tree", "file_read", "file_edit",
 		"grep", "glob", "git_status", "git_diff", "git_add", "git_commit",
 		"shell_exec", "code_execute", "web_search", "web_request",
@@ -95,7 +95,7 @@ func defaultDelegationOperationNames() []string {
 func ProjectSignalsFeature() FeatureSpec {
 	return FeatureSpec{
 		Name:       FeatureProjectSignals,
-		Operations: []string{projectplugin.InventoryOp, projectplugin.FilesOp, projectplugin.TasksOp, projectplugin.DocsOp},
+		Operations: []string{projectplugin.InventoryOp, projectplugin.FilesOp, projectplugin.TasksOp, projectplugin.TaskRunOp, projectplugin.DocsOp},
 	}
 }
 
