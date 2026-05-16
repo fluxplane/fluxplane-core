@@ -22,7 +22,12 @@ func RootOnly() {}
 `)
 		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", `package service
 
-import "context"
+import (
+	"context"
+	alias "example.com/ext/lib"
+	"example.com/app/pkg/model"
+	"fmt"
+)
 
 // DefaultName is the fallback name.
 const DefaultName = "world"
@@ -48,9 +53,47 @@ func (s *Service) Run(ctx context.Context) error {
 	return nil
 }
 `)
+		writeGoFile(t, sys.Workspace(), "pkg/service/extra.go", `package service
+
+import "strings"
+
+func Extra() {
+	_ = strings.TrimSpace
+}
+`)
 		writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", `package service
 
+import "testing"
+
 func TestRun() {}
+
+func TestExtra(t *testing.T) {}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/service/child/child.go", `package service
+
+import "bytes"
+
+func ChildOnly() {
+	_ = bytes.Buffer{}
+}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/model/model.go", `package model
+
+type Model struct{}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/consumer/consumer.go", `package consumer
+
+import "example.com/app/pkg/service"
+
+func Use() {
+	service.Extra()
+}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/other/other.go", `package other
+
+import "example.com/ext/lib"
+
+func Other() {}
 `)
 		writeGoFile(t, sys.Workspace(), "tools/go.mod", "module example.com/tools\n\ngo 1.26\n")
 		writeGoFile(t, sys.Workspace(), "tools/tool.go", `package tools
@@ -134,6 +177,48 @@ func Good() {}
 		if strings.Contains(vendorSymbols.Text, "VendoredRoot") || strings.Contains(vendorSymbols.Text, "VendoredNested") {
 			t.Fatalf("vendor symbols text = %q, want vendored symbols excluded", vendorSymbols.Text)
 		}
+		fileImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service/service.go", "direction": "direct"})
+		for _, want := range []string{"context [stdlib]", "fmt [stdlib]", "example.com/app/pkg/model [module_local]", "alias example.com/ext/lib [external]"} {
+			if !strings.Contains(fileImports.Text, want) {
+				t.Fatalf("file imports text = %q, want %q", fileImports.Text, want)
+			}
+		}
+		packageImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service", "direction": "direct", "include_tests": false})
+		if !strings.Contains(packageImports.Text, "strings [stdlib]") || strings.Contains(packageImports.Text, "testing [stdlib") || strings.Contains(packageImports.Text, "child/child.go") {
+			t.Fatalf("package imports text = %q, want exact package imports without tests or nested package", packageImports.Text)
+		}
+		packageImportsWithTests := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service", "direction": "direct", "include_tests": true})
+		if !strings.Contains(packageImportsWithTests.Text, "testing [stdlib test]") {
+			t.Fatalf("package imports with tests text = %q, want test imports", packageImportsWithTests.Text)
+		}
+		packageIDImports := runGoOp(t, sys, ImportsOp, map[string]any{"package_id": "go:package:pkg/service:service", "direction": "direct", "include_tests": false})
+		if !strings.Contains(packageIDImports.Text, "pkg/service/service.go") || strings.Contains(packageIDImports.Text, "pkg/service/child/child.go") {
+			t.Fatalf("package_id imports text = %q, want exact package only", packageIDImports.Text)
+		}
+		reverseImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": ".", "direction": "reverse", "import_path": "example.com/app/pkg/service", "include_tests": false})
+		if !strings.Contains(reverseImports.Text, "Reverse target: example.com/app/pkg/service") || !strings.Contains(reverseImports.Text, "pkg/consumer/consumer.go") || strings.Contains(reverseImports.Text, "vendor") {
+			t.Fatalf("reverse imports text = %q, want consumer importer and no vendor", reverseImports.Text)
+		}
+		moduleDirectImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": ".", "direction": "direct", "include_tests": false})
+		if !strings.Contains(moduleDirectImports.Text, "pkg/consumer/consumer.go") || !strings.Contains(moduleDirectImports.Text, "pkg/service/service.go") || strings.Contains(moduleDirectImports.Text, "vendor") {
+			t.Fatalf("module direct imports text = %q, want module-scoped imports and no vendor", moduleDirectImports.Text)
+		}
+		derivedReverseImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service/service.go", "direction": "reverse", "include_tests": false})
+		if !strings.Contains(derivedReverseImports.Text, "Reverse target: example.com/app/pkg/service") || !strings.Contains(derivedReverseImports.Text, "pkg/consumer/consumer.go") {
+			t.Fatalf("derived reverse imports text = %q, want module-derived target and consumer importer", derivedReverseImports.Text)
+		}
+		packageDerivedReverseImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service", "direction": "reverse", "include_tests": false})
+		if !strings.Contains(packageDerivedReverseImports.Text, "Reverse target: example.com/app/pkg/service") || !strings.Contains(packageDerivedReverseImports.Text, "pkg/consumer/consumer.go") {
+			t.Fatalf("package-derived reverse imports text = %q, want module-scoped consumer importer", packageDerivedReverseImports.Text)
+		}
+		packageIDDerivedReverseImports := runGoOp(t, sys, ImportsOp, map[string]any{"package_id": "go:package:pkg/service:service", "direction": "reverse", "include_tests": false})
+		if !strings.Contains(packageIDDerivedReverseImports.Text, "Reverse target: example.com/app/pkg/service") || !strings.Contains(packageIDDerivedReverseImports.Text, "pkg/consumer/consumer.go") {
+			t.Fatalf("package_id-derived reverse imports text = %q, want module-scoped consumer importer", packageIDDerivedReverseImports.Text)
+		}
+		invalidImportDirection := runGoResult(t, sys, ImportsOp, map[string]any{"path": "pkg/service", "direction": "sideways"})
+		if invalidImportDirection.Status != operation.StatusFailed || invalidImportDirection.Error == nil || !strings.Contains(invalidImportDirection.Error.Message, "unsupported import direction") {
+			t.Fatalf("invalid import direction result = %#v, want unsupported direction failure", invalidImportDirection)
+		}
 		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
 		if err != nil {
 			t.Fatalf("ContextProviders: %v", err)
@@ -147,6 +232,27 @@ func Good() {}
 		}
 		if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "Go workspace summary:") || !strings.Contains(blocks[0].Content, "go_packages") {
 			t.Fatalf("blocks = %#v", blocks)
+		}
+	})
+}
+
+func TestGoImportsClassifiesDotlessModuleLocalImports(t *testing.T) {
+	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+		writeGoFile(t, sys.Workspace(), "go.mod", "module app\n\ngo 1.26\n")
+		writeGoFile(t, sys.Workspace(), "pkg/model/model.go", `package model
+
+type Model struct{}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", `package service
+
+import "app/pkg/model"
+
+func Use(model.Model) {}
+`)
+
+		imports := runGoOp(t, sys, ImportsOp, map[string]any{"path": "pkg/service/service.go", "direction": "direct"})
+		if !strings.Contains(imports.Text, "app/pkg/model [module_local]") || strings.Contains(imports.Text, "app/pkg/model [stdlib]") {
+			t.Fatalf("dotless module imports text = %q, want module_local classification", imports.Text)
 		}
 	})
 }

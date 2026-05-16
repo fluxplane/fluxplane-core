@@ -2,8 +2,23 @@
 
 ## Status
 
-Implemented first read-only slice. Updated direction: no Axon dependency for
-project or Go language support.
+Implemented first read-only slice plus parser-only Go navigation, references,
+and import views. Updated direction: no Axon dependency for project or Go
+language support.
+
+Current implementation status:
+
+| Area | Status |
+|---|---|
+| Project inventory/read ops | Implemented |
+| `project.summary`, `go.summary` | Implemented |
+| Markdown outline/link/diagnostics plugin | Implemented |
+| Go project/package/outline/symbol ops | Implemented |
+| `go_definition`, `go_symbol_info` | Implemented |
+| `go_references` | Implemented; package scope is constrained to exact package directory/package ID |
+| `go_imports` | Implemented; parser-only direct and reverse import edges |
+| `go_implementations`, `go_callers`, `go_callees`, `go_doc` | Deferred |
+| `go_test`, `go_list`, `go_fmt` | Deferred command/mutation wrappers |
 
 ## Summary
 
@@ -114,12 +129,13 @@ Initial operations:
 - `go_references`: bounded AST/package-level reference lookup from a source
   position, with package/file scope, declaration inclusion, and test-file
   filtering.
+- `go_imports`: parser-only direct and reverse import views with test-file
+  filtering and best-effort stdlib/module-local/external classification.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
 Later operations:
 
-- `go_imports`: direct import views and reverse importers from parsed files.
 - `go_implementations`: interface/type implementation lookup.
 - `go_callers` and `go_callees`: bounded static call hierarchy with explicit
   limitations.
@@ -175,6 +191,12 @@ declarations, locals, parameters, receivers, range vars, obvious local receiver
 selectors, struct/interface fields, and composite literal field keys. It does
 not resolve external package selectors, interface dispatch, function values, or
 workspace-wide references.
+
+The first `go_imports` slice is parser-only. Direct mode returns import edges
+from a selected file or exact package directory/package ID. Reverse mode scans a
+bounded requested path scope for importers of an explicit `import_path`, or a
+module-derived selected package import path when one is available. It does not
+run `go list`, resolve build tags, or consult the module graph.
 
 ## Automatic Context Providers
 
@@ -290,7 +312,8 @@ Use table-driven tests with temporary Go modules:
 - package listing with normal and `_test` packages;
 - file outline for funcs, methods, structs, interfaces, consts, and vars;
 - symbol lookup across packages;
-- references and call graph for a small multi-file module;
+- references and imports for a small multi-file module;
+- call graph for a small multi-file module once call operations exist;
 - markdown outline availability if the design later adds generic project
   outline operations through language plugins;
 - automatic context provider aggregation through `codingplugin`;
@@ -324,8 +347,7 @@ First implementation slice:
   `go_project`, `go_packages`, `go_outline`, and `go_symbol`.
 2. Use Workspace-native parsers and shared core DTOs.
 3. Add the plugins to `codingplugin.New` after the core read operations pass.
-4. Add `go_references`, then `go_callers`, `go_callees`, and `go_imports` once
-   the navigation path is proven.
+4. Add `go_references` and `go_imports` once the navigation path is proven.
 5. Consider `go_test` and `go_list` wrappers after read/navigation tools are
    stable.
 
@@ -339,8 +361,9 @@ Navigation implementation slice:
    struct/interface fields.
 4. Add `go_references` on the same parser-only foundation with package/file
    scope, declaration inclusion, and test-file filtering.
-5. Defer import graph views, call hierarchy, implementation lookup, type
-   checking, and process wrappers.
+5. Add parser-only `go_imports` with direct and reverse import edges.
+6. Defer call hierarchy, implementation lookup, type checking, and process
+   wrappers.
 
 Current context/markdown implementation slice:
 
@@ -357,8 +380,8 @@ Current context/markdown implementation slice:
   operation-triggered?
 - Should future operations become language-agnostic wrappers over provider
   implementations, or should language-specific tool names remain model-facing?
-- When references/callers/callees arrive, how much type resolution is worth
-  doing without `go/packages`?
+- When callers/callees and implementations arrive, how much type resolution is
+  worth doing without `go/packages`?
 
 ## REVIEW #1
 
@@ -382,3 +405,13 @@ Reviewer findings recorded before fixes:
 
 Status: resolved with regression tests in `runtime/project` and
 `plugins/golangplugin`.
+
+## REVIEW #2
+
+Reviewer findings recorded before fixes:
+
+- P2: `go_references` package scope could include nested directories with the
+  same Go package name. Fix: constrain reference scan files to the selected
+  package directory and package ID before matching references.
+
+Status: resolved with regression coverage in `plugins/golangplugin`.

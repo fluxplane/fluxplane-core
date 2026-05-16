@@ -288,13 +288,61 @@ type ReferenceResult struct {
 	Fresh          bool             `json:"fresh,omitempty"`
 }
 
+// ImportDirection selects which import relationships to return.
+type ImportDirection string
+
+const (
+	ImportDirectionDirect  ImportDirection = "direct"
+	ImportDirectionReverse ImportDirection = "reverse"
+	ImportDirectionBoth    ImportDirection = "both"
+)
+
+// ImportClass is a best-effort import target classification.
+type ImportClass string
+
+const (
+	ImportClassStdlib      ImportClass = "stdlib"
+	ImportClassModuleLocal ImportClass = "module_local"
+	ImportClassExternal    ImportClass = "external"
+	ImportClassUnknown     ImportClass = "unknown"
+)
+
+// ImportQuery selects direct and reverse language import edges.
+type ImportQuery struct {
+	Language     LanguageID      `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path         string          `json:"path,omitempty" jsonschema:"description=Workspace-relative Go file, package directory, module, or project path."`
+	PackageID    string          `json:"package_id,omitempty" jsonschema:"description=Optional package id returned by go_packages."`
+	ImportPath   string          `json:"import_path,omitempty" jsonschema:"description=Optional import path filter, primarily for reverse import lookup."`
+	Direction    ImportDirection `json:"direction,omitempty" jsonschema:"description=Import relationship direction. Defaults to both.,enum=direct,enum=reverse,enum=both"`
+	IncludeTests *bool           `json:"include_tests,omitempty" jsonschema:"description=Include _test.go files. Defaults to true."`
+	MaxResults   int             `json:"max_results,omitempty" jsonschema:"description=Maximum import edges returned."`
+	MaxBytes     int             `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh      bool            `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
+// ImportResult contains direct and reverse import edges.
+type ImportResult struct {
+	DirectImports    []Import     `json:"direct_imports,omitempty"`
+	ReverseImporters []Import     `json:"reverse_importers,omitempty"`
+	TargetImportPath string       `json:"target_import_path,omitempty"`
+	Diagnostics      []Diagnostic `json:"diagnostics,omitempty"`
+	ResolutionMode   string       `json:"resolution_mode,omitempty"`
+	Complete         bool         `json:"complete,omitempty"`
+	Warnings         []string     `json:"warnings,omitempty"`
+	Indexed          bool         `json:"indexed,omitempty"`
+	Fresh            bool         `json:"fresh,omitempty"`
+}
+
 // Import describes one import edge from a document or package.
 type Import struct {
-	Path       string   `json:"path"`
-	Name       string   `json:"name,omitempty"`
-	SourcePath string   `json:"source_path,omitempty"`
-	PackageID  string   `json:"package_id,omitempty"`
-	Location   Location `json:"location,omitempty"`
+	Path        string      `json:"path"`
+	Name        string      `json:"name,omitempty"`
+	SourcePath  string      `json:"source_path,omitempty"`
+	PackageID   string      `json:"package_id,omitempty"`
+	PackageName string      `json:"package_name,omitempty"`
+	Class       ImportClass `json:"class,omitempty"`
+	Test        bool        `json:"test,omitempty"`
+	Location    Location    `json:"location,omitempty"`
 }
 
 // Reference describes a symbol usage site.
@@ -362,6 +410,7 @@ type Provider interface {
 	Packages(context.Context, PackageQuery) (PackageResult, error)
 	Outline(context.Context, OutlineQuery) (OutlineResult, error)
 	Symbols(context.Context, SymbolQuery) (SymbolResult, error)
+	Imports(context.Context, ImportQuery) (ImportResult, error)
 }
 
 // ProjectResult is a language project query result.
