@@ -222,6 +222,18 @@ func UseOther() {
 		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/nav\n\ngo 1.26\n")
 		writeGoFile(t, sys.Workspace(), "pkg/nav/defs.go", defs)
 		writeGoFile(t, sys.Workspace(), "pkg/nav/use.go", use)
+		writeGoFile(t, sys.Workspace(), "pkg/nav/use_test.go", `package nav
+
+func TestEnabled() {
+	_ = Enabled
+}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/nav/child/child.go", `package nav
+
+func ChildUse() {
+	_ = Enabled
+}
+`)
 
 		for _, tc := range []struct {
 			name   string
@@ -294,6 +306,57 @@ func UseOther() {
 		invalid := runGoResult(t, sys, DefinitionOp, map[string]any{"path": "pkg/nav/use.go"})
 		if invalid.Status != operation.StatusFailed || invalid.Error == nil || !strings.Contains(invalid.Error.Message, "line and column") {
 			t.Fatalf("invalid navigation result = %#v", invalid)
+		}
+
+		line, column = goPosition(t, use, "NewService")
+		newServiceRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "include_declaration": true})
+		for _, want := range []string{"symbol: function NewService", "declaration NewService", "reference NewService", "defs.go", "use.go"} {
+			if !strings.Contains(newServiceRefs.Text, want) {
+				t.Fatalf("NewService references text = %q, want %q", newServiceRefs.Text, want)
+			}
+		}
+
+		fileScopedRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "scope": "file", "include_declaration": true})
+		if strings.Contains(fileScopedRefs.Text, "declaration NewService") || !strings.Contains(fileScopedRefs.Text, "reference NewService") {
+			t.Fatalf("file-scoped references text = %q, want only use.go reference", fileScopedRefs.Text)
+		}
+
+		line, column = goPosition(t, use, "Run")
+		runRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "include_declaration": true})
+		if !strings.Contains(runRefs.Text, "method Service.Run") || !strings.Contains(runRefs.Text, "declaration Service.Run") || !strings.Contains(runRefs.Text, "reference Service.Run") || strings.Contains(runRefs.Text, "Other.Run") {
+			t.Fatalf("Run references text = %q, want Service.Run references only", runRefs.Text)
+		}
+
+		line, column = goPosition(t, use, "Name")
+		fieldRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "include_declaration": true})
+		if !strings.Contains(fieldRefs.Text, "field Name") || !strings.Contains(fieldRefs.Text, "declaration Name") || !strings.Contains(fieldRefs.Text, "reference Name") || strings.Contains(fieldRefs.Text, "Other struct") {
+			t.Fatalf("field references text = %q, want Service.Name references only", fieldRefs.Text)
+		}
+
+		line, column = goPosition(t, use, "Enabled")
+		withoutTests := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "include_tests": false})
+		if strings.Contains(withoutTests.Text, "use_test.go") {
+			t.Fatalf("references without tests text = %q, want test file excluded", withoutTests.Text)
+		}
+		withTests := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/use.go", "line": line, "column": column, "include_tests": true})
+		if !strings.Contains(withTests.Text, "use_test.go") {
+			t.Fatalf("references with tests text = %q, want test file included", withTests.Text)
+		}
+		if strings.Contains(withTests.Text, "child/child.go") {
+			t.Fatalf("references with nested same-name package text = %q, want child package excluded", withTests.Text)
+		}
+
+		line, column = goPosition(t, defs, "_ = x\n}")
+		innerUseLine, _ := goPosition(t, defs, "_ = x\n\t}")
+		shadowRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/defs.go", "line": line, "column": column + len("_ = "), "include_declaration": true})
+		if !strings.Contains(shadowRefs.Text, "x := 0") || strings.Contains(shadowRefs.Text, fmt.Sprintf("defs.go:%d:", innerUseLine)) {
+			t.Fatalf("shadow references text = %q, want outer x only", shadowRefs.Text)
+		}
+
+		line, column = goPosition(t, defs, "Context)")
+		externalRefs := runGoOp(t, sys, ReferencesOp, map[string]any{"path": "pkg/nav/defs.go", "line": line, "column": column})
+		if !strings.Contains(externalRefs.Text, "external_selector") || !strings.Contains(externalRefs.Text, "no AST-level references found") {
+			t.Fatalf("external selector references text = %q, want unresolved external selector", externalRefs.Text)
 		}
 	})
 }

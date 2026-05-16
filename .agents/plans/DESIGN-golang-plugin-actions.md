@@ -111,13 +111,14 @@ Initial operations:
 - `go_definition`: AST/package-level declaration lookup from a source position.
 - `go_symbol_info`: compact AST/package-level symbol detail from a source
   position, with enclosing declaration fallback.
+- `go_references`: bounded AST/package-level reference lookup from a source
+  position, with package/file scope, declaration inclusion, and test-file
+  filtering.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
 Later operations:
 
-- `go_references`: bounded position-based reference lookup with explicit
-  confidence/completeness metadata.
 - `go_imports`: direct import views and reverse importers from parsed files.
 - `go_implementations`: interface/type implementation lookup.
 - `go_callers` and `go_callees`: bounded static call hierarchy with explicit
@@ -166,6 +167,14 @@ same-directory `package` scopes only. Later reference/call operations can add
 `module` or `workspace` scopes when their broader scan behavior is explicit.
 Navigation queries must be bounded by `max_results` and `max_bytes`. Defaults
 should favor useful local context over whole-workspace scans.
+
+The first `go_references` slice is also AST/package-level. It resolves the
+selected symbol with same-directory package context, then applies the requested
+reference scan scope. It supports package declarations, imports, top-level
+declarations, locals, parameters, receivers, range vars, obvious local receiver
+selectors, struct/interface fields, and composite literal field keys. It does
+not resolve external package selectors, interface dispatch, function values, or
+workspace-wide references.
 
 ## Automatic Context Providers
 
@@ -315,8 +324,8 @@ First implementation slice:
   `go_project`, `go_packages`, `go_outline`, and `go_symbol`.
 2. Use Workspace-native parsers and shared core DTOs.
 3. Add the plugins to `codingplugin.New` after the core read operations pass.
-4. Add `go_references`, `go_callers`, `go_callees`, and `go_imports` once the
-   index path is proven.
+4. Add `go_references`, then `go_callers`, `go_callees`, and `go_imports` once
+   the navigation path is proven.
 5. Consider `go_test` and `go_list` wrappers after read/navigation tools are
    stable.
 
@@ -328,8 +337,10 @@ Navigation implementation slice:
 3. Support package declarations, imports, top-level declarations, local vars,
    parameters, receivers, range vars, obvious local receiver selectors, and
    struct/interface fields.
-4. Defer `go_references`, import graph views, call hierarchy, implementation
-   lookup, type checking, and process wrappers.
+4. Add `go_references` on the same parser-only foundation with package/file
+   scope, declaration inclusion, and test-file filtering.
+5. Defer import graph views, call hierarchy, implementation lookup, type
+   checking, and process wrappers.
 
 Current context/markdown implementation slice:
 

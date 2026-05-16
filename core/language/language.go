@@ -260,6 +260,34 @@ type NavigationResult struct {
 	Fresh          bool             `json:"fresh,omitempty"`
 }
 
+// ReferenceQuery selects a source position for language reference lookup.
+type ReferenceQuery struct {
+	Language           LanguageID      `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path               string          `json:"path" jsonschema:"description=Workspace-relative source file path.,required"`
+	Line               int             `json:"line,omitempty" jsonschema:"description=1-indexed source line. Required unless offset is set."`
+	Column             int             `json:"column,omitempty" jsonschema:"description=1-indexed byte column. Required unless offset is set."`
+	Offset             *int            `json:"offset,omitempty" jsonschema:"description=0-indexed byte offset. Takes precedence over line and column. Offset 0 is valid."`
+	Scope              NavigationScope `json:"scope,omitempty" jsonschema:"description=Reference scan scope. Defaults to package.,enum=file,enum=package"`
+	IncludeDeclaration bool            `json:"include_declaration,omitempty" jsonschema:"description=Include the selected symbol declaration as a reference result."`
+	IncludeTests       *bool           `json:"include_tests,omitempty" jsonschema:"description=Include _test.go files in package-scope scans. Defaults to true."`
+	MaxResults         int             `json:"max_results,omitempty" jsonschema:"description=Maximum references returned."`
+	MaxBytes           int             `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh            bool            `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
+// ReferenceResult is the structured result of a position-based reference lookup.
+type ReferenceResult struct {
+	Target         NavigationTarget `json:"target,omitempty"`
+	Symbol         Symbol           `json:"symbol,omitempty"`
+	References     []Reference      `json:"references,omitempty"`
+	Diagnostics    []Diagnostic     `json:"diagnostics,omitempty"`
+	ResolutionMode string           `json:"resolution_mode,omitempty"`
+	Complete       bool             `json:"complete,omitempty"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	Indexed        bool             `json:"indexed,omitempty"`
+	Fresh          bool             `json:"fresh,omitempty"`
+}
+
 // Import describes one import edge from a document or package.
 type Import struct {
 	Path       string   `json:"path"`

@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lookup.
 - Added Go source navigation operations `go_definition` and `go_symbol_info`
   for AST/package-level declaration lookup and compact symbol details.
+- Added `go_references` for bounded AST/package-level Go reference lookup with
+  package/file scope, declaration inclusion, and explicit test-file filtering.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested
