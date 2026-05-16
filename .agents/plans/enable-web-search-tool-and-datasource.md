@@ -2,6 +2,76 @@
 
 Date: 2026-05-16
 
+## Progress Update - 2026-05-16
+
+Implemented and committed in `6fd5c5a feat: add duckduckgo web search provider`:
+
+- Native `web_search` operation exists in `plugins/webplugin/search.go` with:
+  - `query` and `queries` input support.
+  - optional `providers` filter.
+  - `max` default/clamp behavior.
+  - grouped provider/query output and partial provider errors.
+- Provider interface and deterministic provider registry are implemented.
+- Tavily provider is implemented in `plugins/webplugin/search_tavily.go`:
+  - reads `TAVILY_API_KEY` through `system.Environment()`.
+  - uses `system.Network().DoHTTP`.
+  - sends low-cost `POST https://api.tavily.com/search` requests.
+  - maps Tavily results into shared `SearchResult` values.
+- Keyless DuckDuckGo provider is implemented in `plugins/webplugin/search_duckduckgo.go`:
+  - default provider when network is available.
+  - uses `https://html.duckduckgo.com/html/?q={query}`.
+  - contains DuckDuckGo-specific URL escaping, HTML parsing, redirect normalization, percent decoding, and HTML cleanup.
+- Native provider execution is bounded:
+  - fixed worker concurrency: `4` across the whole operation.
+  - deterministic output order is preserved by collecting indexed task results.
+- `plugins/webplugin/datasource.go` is now a thin datasource adapter:
+  - no DuckDuckGo parser/helpers.
+  - no `search_url` config.
+  - optional provider restriction through `spec.Config["providers"]` only.
+  - delegates search execution to the shared provider registry/orchestration.
+  - converts shared `SearchResult` values into `coredatasource.Record` values.
+- Coder/coding app integration was already in the working tree before this update:
+  - `codingplugin` forwards child `DatasourceProviderContributor`s.
+  - SDK has `WithDatasource` / `WithDatasources`.
+  - coder bundle exposes `web_search`, `datasource_search`, `datasource_get`, and `datasource_batch_get`.
+  - coder bundle grants datasource access to `web_search` and defines the default `web_search` datasource spec.
+  - coder prompt distinguishes `web_search`, datasource-backed web search, and `web_request`.
+- Tests added/updated for:
+  - DuckDuckGo native provider fallback without Tavily.
+  - explicit `providers=["duckduckgo"]`.
+  - bounded provider concurrency and ordering.
+  - datasource search through the shared registry.
+  - existing Tavily request/response behavior.
+
+Verification run:
+
+```text
+go test ./plugins/webplugin ./plugins/codingplugin ./apps/coder ./apps/launch
+```
+
+Smoke tests run successfully for native and datasource-backed web search through `go run ./cmd/coder --model=codex --input ...`.
+
+Known remaining work:
+
+- Run the full project gate (`task verify`) before release if practical.
+- Add/update `apps/launch` coverage specifically for datasource registry opening `web_search` through `codingplugin` forwarding, if not already covered elsewhere.
+- Consider whether to remove old datasource kind aliases `web` and `websearch` in a separate compatibility cleanup. Current code intentionally keeps them accepted.
+- Optionally update examples such as `examples/slack-bot` from datasource name/kind `web-search`/`web` to `web_search`/`web_search`. This should be a separate example/docs cleanup.
+- Consider provider-level enhancements later:
+  - Tavily `include_answer` option.
+  - domain include/exclude filters.
+  - country/news/topic options.
+  - provider-specific rate-limit/error classification.
+- Consider adding network usage accounting for provider searches if byte counts are needed in operation events.
+
+Next recommended steps:
+
+1. Audit `apps/launch` tests for explicit `web_search` datasource registry coverage; add a focused test if missing.
+2. Run `task verify` or the closest available full verification target.
+3. Decide whether to keep datasource kind aliases permanently or schedule a compatibility-breaking cleanup.
+4. Update examples/docs to prefer the canonical datasource name/kind `web_search`.
+
+
 ## Goal
 
 Expose web search from `plugins/webplugin` in two ways:
@@ -94,47 +164,43 @@ Use low-cost defaults for the initial implementation:
 
 Native `max` maps to Tavily `max_results` and must be clamped to Tavily's max of `20`.
 
-### Phase 2: free ready-to-go providers
+### Phase 2: keyless DuckDuckGo provider
 
-Add free/easy providers as follow-up work after Tavily-backed `web_search` works. Candidates:
+DuckDuckGo HTML search is now implemented as a keyless native provider in `plugins/webplugin/search_duckduckgo.go`.
 
-- DuckDuckGo HTML provider, using the parser already present in `plugins/webplugin/datasource.go`.
-- Other no-key or free-tier providers if they fit the project safety and reliability requirements.
+Important ownership rule:
 
-The provider architecture should be designed now so free providers can be registered later without changing the public operation shape.
+- DuckDuckGo-specific URL construction, HTML parsing, redirect normalization, percent decoding, and HTML cleanup belong in `search_duckduckgo.go`.
+- `datasource.go` must remain provider-agnostic and only adapt shared search results into datasource records.
+- Other no-key or free-tier providers can be added later if they fit the project safety and reliability requirements.
 
 ### Provider defaults
 
-Initial default behavior is fixed for implementation:
+Current default behavior:
 
-- Native `web_search` defaults to `tavily` when `TAVILY_API_KEY` is set.
+- Native `web_search` registers Tavily first when `TAVILY_API_KEY` is set.
+- Native `web_search` also registers keyless DuckDuckGo when `system.Network()` is available.
 - If no native provider is available, `web_search` returns a clear provider-unavailable failure.
 - Do not silently use `web_request` as a fallback for search.
-- Existing datasource search can continue to use the current DuckDuckGo HTML implementation during phase 1.
-- Refactoring DuckDuckGo into the shared provider registry is follow-up work, unless it is trivial after Tavily lands.
+- Datasource-backed web search delegates to the same provider registry.
 
 ## What Already Works Today
 
-### Existing web datasource provider
+### Current web datasource provider
 
-`plugins/webplugin/datasource.go` already implements a web search datasource provider:
+`plugins/webplugin/datasource.go` implements a web search datasource provider:
 
 - entity: `web.search_result`
 - struct: `SearchResult`
 - provider/accessor:
   - `webSearchProvider`
   - `webSearchAccessor.Search`
-- default search backend:
-  - DuckDuckGo HTML endpoint: `https://html.duckduckgo.com/html/?q={query}`
-- configurable datasource field:
-  - `search_url`, via `spec.Config["search_url"]`
-- helper functions already present:
-  - `searchURL`
-  - `queryEscape`
-  - `parseSearchResults`
-  - `normalizeSearchURL`
-  - `percentDecode`
-  - `cleanHTML`
+- search backend:
+  - delegates to the shared native web search provider registry.
+  - by default this uses available providers, currently Tavily when configured and DuckDuckGo when network is available.
+- datasource config:
+  - `providers`: optional comma/whitespace-separated provider restriction, for example `tavily,duckduckgo`.
+  - There is intentionally no datasource `search_url` override; provider details belong in provider implementations.
 
 The current datasource provider accepts datasource kinds:
 
@@ -158,21 +224,19 @@ The Slack bot agent grants datasource access to `web-search` and uses `datasourc
 
 So the datasource mechanism is not theoretical; it exists and works for at least the Slack bot example.
 
-### Existing coder gap
+### Current coder status
 
-The coder app currently does not get web search because:
+The coder app now exposes both native and datasource-backed web search:
 
-- `apps/coder/bundle.go` exposes `web_request`, but not `web_search`.
-- coder bundle has no default `web_search` datasource spec.
-- coder agent has no datasource ref granting access to a web search datasource.
-- coder agent does not expose `datasource_search`.
-- `plugins/codingplugin` includes `webplugin.New(sys)`, but does not currently forward datasource provider contributions from child plugins.
+- `apps/coder/bundle.go` exposes `web_search`.
+- coder bundle defines a default datasource named `web_search`.
+- coder agent has datasource ref granting access to `web_search`.
+- coder agent exposes `datasource_search`, `datasource_get`, and `datasource_batch_get`.
+- `plugins/codingplugin` forwards datasource provider contributions from child plugins.
 
 ### Tavily status in repo
 
-Searches for `Tavily`, `tavily`, and `TAVILY_API_KEY` found no current implementation in this checkout.
-
-That means Tavily support must be added as part of this feature, but the runtime environment is expected to have `TAVILY_API_KEY` available.
+Tavily support is implemented in `plugins/webplugin/search_tavily.go` and is available when `TAVILY_API_KEY` is visible through `system.Environment()`.
 
 ## Target Architecture in `plugins/webplugin`
 
@@ -183,8 +247,8 @@ Suggested files:
 ```text
 plugins/webplugin/search.go            # native operation, provider interface, registry/orchestration
 plugins/webplugin/search_tavily.go     # Tavily provider, env-gated by TAVILY_API_KEY
-plugins/webplugin/search_duckduckgo.go # follow-up free provider using existing parser/helpers
-plugins/webplugin/datasource.go        # existing DuckDuckGo-backed datasource remains working in phase 1
+plugins/webplugin/search_duckduckgo.go # keyless DuckDuckGo provider and DuckDuckGo-specific parsing helpers
+plugins/webplugin/datasource.go        # datasource adapter delegating to the shared provider registry
 ```
 
 Do not import `os` directly from plugin code. Provider availability must read env through:
@@ -238,7 +302,9 @@ func searchProviders(sys system.System) []SearchProvider {
 	if tavily := newTavilySearchProvider(sys); tavily.Available(context.Background()) {
 		providers = append(providers, tavily)
 	}
-	// Follow-up: append free/no-key providers such as DuckDuckGo here.
+	if duckduckgo := newDuckDuckGoSearchProvider(sys); duckduckgo.Available(context.Background()) {
+		providers = append(providers, duckduckgo)
+	}
 	return providers
 }
 ```
@@ -413,18 +479,21 @@ web search provider "tavily" is not available; TAVILY_API_KEY is not set
 
 Handle non-2xx Tavily responses with clear error messages, including `401`, `429`, `432`, and `433` where possible.
 
-## DuckDuckGo / Free Provider Follow-up
+### Current DuckDuckGo / Free Provider
 
-The existing datasource code already uses DuckDuckGo HTML as a no-key backend. As follow-up, refactor it into a provider implementation:
+DuckDuckGo has been refactored into a native keyless provider:
 
 ```text
 plugins/webplugin/search_duckduckgo.go
 ```
 
-It should reuse existing parser helpers from `datasource.go`:
+DuckDuckGo-specific code lives in that provider file, not in `datasource.go`:
 
-- `searchURL`
-- `parseSearchResults`
+- search URL construction and query escaping.
+- DuckDuckGo HTML result parsing.
+- DuckDuckGo redirect URL normalization through `uddg`.
+- percent decoding.
+- HTML cleanup.
 
 Default endpoint:
 
@@ -434,13 +503,12 @@ https://html.duckduckgo.com/html/?q={query}
 
 Provider behavior:
 
+- name: `duckduckgo`.
 - available if `system.Network()` exists.
 - uses GET.
-- max bytes: current datasource uses `512 * 1024`; keep that unless changing intentionally.
-- timeout: current datasource uses 30 seconds; keep that unless changing intentionally.
-- user agent: current code uses `agentruntime/0.1`; keep or centralize.
-
-Do this after Tavily if web search capability is needed first to research provider behavior and reliability.
+- max bytes: `512 * 1024`.
+- timeout: 30 seconds.
+- user agent: `agentruntime/0.1`.
 
 ## Datasource Integration
 
@@ -472,26 +540,29 @@ if spec.Kind != "web" && spec.Kind != "websearch" && spec.Kind != "web_search" {
 }
 ```
 
-### Datasource provider phase 1 behavior
+### Datasource provider current behavior
 
-For phase 1, keep the existing datasource search behavior working and add the coder datasource wiring around it:
+The datasource path delegates to the shared provider registry:
 
-- Native `web_search` uses Tavily through the new provider system.
-- Existing datasource search remains DuckDuckGo-backed through `webSearchAccessor.Search`.
-- Do not block the first implementation on fully merging DuckDuckGo into the provider registry.
+- Native `web_search` and datasource search use the same provider implementations.
+- Default datasource behavior uses available providers.
+- DuckDuckGo is available by default when network exists.
+- Tavily is available when `TAVILY_API_KEY` is set.
+- Datasource search has no provider-specific HTML parsing.
+- Datasource search has no `search_url` config.
 
-Follow-up: refactor `webSearchAccessor.Search` to call the shared search subsystem once free/no-key providers are added to the registry.
+Current datasource behavior:
 
-Current datasource behavior must remain valid:
-
-- `spec.Config["search_url"]` can continue to override DuckDuckGo URL for the DuckDuckGo provider path if retained.
+- Optional `spec.Config["providers"]` restricts providers, for example `tavily,duckduckgo`.
 - `req.Limit` maps to provider request `Max`.
-- datasource result records should still be `coredatasource.Record` with:
-  - `ID`: URL
-  - `URL`: URL
-  - `Title`: title
-  - `Content`: snippet
-  - `Raw`: `SearchResult`
+- datasource result records are `coredatasource.Record` with:
+  - `Datasource`: datasource name.
+  - `Entity`: `web.search_result`.
+  - `ID`: URL.
+  - `URL`: URL.
+  - `Title`: title.
+  - `Content`: snippet.
+  - `Raw`: `SearchResult`.
 
 Provider selection for datasource path:
 
@@ -502,8 +573,7 @@ Provider selection for datasource path:
     providers: tavily,duckduckgo
   ```
 
-- If no provider config is present during phase 1, keep existing DuckDuckGo datasource behavior.
-- Follow-up provider-registry datasource behavior should use default available providers.
+- If no provider config is present, use the default available provider registry.
 
 ### Avoid `datasource_relation`
 
@@ -666,9 +736,12 @@ Cover:
 - Tavily response maps `title`, `url`, `content`, `score` into search results.
 - datasource search still works.
 
-Follow-up free provider tests:
+DuckDuckGo provider tests:
 
 - DuckDuckGo provider parses mocked HTML into `SearchResult` values.
+- Native `web_search` falls back to DuckDuckGo when Tavily is unavailable.
+- Explicit `providers=["duckduckgo"]` works.
+- Provider execution honors fixed concurrency and preserves output order.
 
 ### `plugins/codingplugin`
 
@@ -735,20 +808,23 @@ task verify
 
 ## Checklist
 
-- [ ] Add `plugins/webplugin/search.go` with native operation, provider interface, provider registry, and shared orchestration.
-- [ ] Add Tavily provider gated by `TAVILY_API_KEY` through `system.Environment()`.
-- [ ] Tavily provider uses `POST https://api.tavily.com/search` with bearer auth and low-cost defaults.
-- [ ] Defer DuckDuckGo/free provider registry implementation to follow-up while keeping existing DuckDuckGo datasource working.
-- [ ] Keep existing datasource search working in phase 1; refactor datasource search to reuse shared search providers as follow-up.
-- [ ] Use coder datasource name `web_search`, not `web`.
-- [ ] Do not add `datasource_relation` for coder web search.
-- [ ] `codingplugin` forwards `DatasourceProviderContributor`.
-- [ ] SDK gets `WithDatasource` / `WithDatasources`.
-- [ ] coder bundle defines datasource spec `web_search`.
-- [ ] coder agent grants datasource access to `web_search`.
-- [ ] coder agent exposes `web_search`.
-- [ ] coder agent exposes `datasource_search`, `datasource_get`, `datasource_batch_get`.
-- [ ] coder prompt says use `web_search` for discovery and `web_request` only for known URLs.
-- [ ] tests cover provider registration, Tavily env gating, Tavily request/response mapping, operation availability, datasource wiring, and search parsing.
-- [ ] run targeted tests.
+- [x] Add `plugins/webplugin/search.go` with native operation, provider interface, provider registry, and shared orchestration.
+- [x] Add Tavily provider gated by `TAVILY_API_KEY` through `system.Environment()`.
+- [x] Tavily provider uses `POST https://api.tavily.com/search` with bearer auth and low-cost defaults.
+- [x] Add DuckDuckGo/free provider registry implementation.
+- [x] Keep existing datasource search working and refactor datasource search to reuse shared search providers.
+- [x] Remove datasource `search_url` config; provider details live in provider implementations.
+- [x] Use coder datasource name `web_search`, not `web`.
+- [x] Do not add `datasource_relation` for coder web search.
+- [x] `codingplugin` forwards `DatasourceProviderContributor`.
+- [x] SDK gets `WithDatasource` / `WithDatasources`.
+- [x] coder bundle defines datasource spec `web_search`.
+- [x] coder agent grants datasource access to `web_search`.
+- [x] coder agent exposes `web_search`.
+- [x] coder agent exposes `datasource_search`, `datasource_get`, `datasource_batch_get`.
+- [x] coder prompt says use `web_search` for discovery and `web_request` only for known URLs.
+- [x] tests cover provider registration, Tavily env gating, Tavily request/response mapping, operation availability, datasource wiring, and search parsing.
+- [x] run targeted tests.
 - [ ] run `task verify`.
+- [ ] add explicit launch/datasource-registry coverage for opening `web_search` through codingplugin forwarding if missing.
+- [ ] update examples/docs to prefer canonical `web_search` datasource name/kind.
