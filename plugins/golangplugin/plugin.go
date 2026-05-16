@@ -29,6 +29,13 @@ const (
 	InfoOp             = "go_info"
 	EnvOp              = "go_env"
 	VersionOp          = "go_version"
+	DocOp              = "go_doc"
+	ListOp             = "go_list"
+	TestOp             = "go_test"
+	FmtOp              = "go_fmt"
+	VetOp              = "go_vet"
+	BuildOp            = "go_build"
+	InstallOp          = "go_install"
 	PackagesOp         = "go_packages"
 	OutlineOp          = "go_outline"
 	SymbolOp           = "go_symbol"
@@ -108,6 +115,13 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[language.GoInfoQuery, operation.Rendered](specByName(InfoOp), p.goInfo(), operationruntime.WithIntent(goInfoIntent)),
 		operationruntime.NewTypedResult[language.GoEnvQuery, operation.Rendered](specByName(EnvOp), p.goEnv(), operationruntime.WithIntent(goEnvIntent)),
 		operationruntime.NewTypedResult[language.GoVersionQuery, operation.Rendered](specByName(VersionOp), p.goVersion(), operationruntime.WithIntent(goVersionIntent)),
+		operationruntime.NewTypedResult[language.GoDocQuery, operation.Rendered](specByName(DocOp), p.goDoc(), operationruntime.WithIntent(goDocIntent)),
+		operationruntime.NewTypedResult[language.GoListQuery, operation.Rendered](specByName(ListOp), p.goList(), operationruntime.WithIntent(goListIntent)),
+		operationruntime.NewTypedResult[language.GoTestQuery, operation.Rendered](specByName(TestOp), p.goTest(), operationruntime.WithIntent(goTestIntent)),
+		operationruntime.NewTypedResult[language.GoFmtQuery, operation.Rendered](specByName(FmtOp), p.goFmt(), operationruntime.WithIntent(goFmtIntent)),
+		operationruntime.NewTypedResult[language.GoVetQuery, operation.Rendered](specByName(VetOp), p.goVet(), operationruntime.WithIntent(goVetIntent)),
+		operationruntime.NewTypedResult[language.GoBuildQuery, operation.Rendered](specByName(BuildOp), p.goBuild(), operationruntime.WithIntent(goBuildIntent)),
+		operationruntime.NewTypedResult[language.GoInstallQuery, operation.Rendered](specByName(InstallOp), p.goInstall(), operationruntime.WithIntent(goInstallIntent)),
 		operationruntime.NewTypedResult[language.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
 		operationruntime.NewTypedResult[language.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
 		operationruntime.NewTypedResult[language.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
@@ -127,6 +141,13 @@ func specs() []operation.Spec {
 		specWithSemantics[language.GoInfoQuery](InfoOp, "Return curated Go toolchain orientation including version, target, module/workspace paths, proxy/private settings, and cache/tool directories.", goToolReadSemantics()),
 		specWithSemantics[language.GoEnvQuery](EnvOp, "Return read-only structured go env values. Supports curated, explicit, all, and changed views; does not support go env -w or -u.", goToolReadSemantics()),
 		specWithSemantics[language.GoVersionQuery](VersionOp, "Return go version output for the toolchain or workspace-relative binaries with optional module build information.", goToolReadSemantics()),
+		specWithSemantics[language.GoDocQuery](DocOp, "Return package or symbol documentation through go doc. Supports explicit package/symbol selectors or position-derived source symbols.", goToolReadSemantics()),
+		specWithSemantics[language.GoListQuery](ListOp, "Return structured go list -json package or module metadata for explicit package/module patterns.", goToolReadSemantics()),
+		specWithSemantics[language.GoTestQuery](TestOp, "Run go test -json for selected package patterns and return structured package/test summaries.", goToolCheckSemantics()),
+		specWithSemantics[language.GoFmtQuery](FmtOp, "Run go fmt for selected package patterns. Defaults to dry-run preview and requires explicit dry_run=false for formatting writes.", goToolMutatingSemantics()),
+		specWithSemantics[language.GoVetQuery](VetOp, "Run go vet for selected package patterns and return diagnostics. Fix and vettool execution are unsupported.", goToolCheckSemantics()),
+		specWithSemantics[language.GoBuildQuery](BuildOp, "Run go build as a compile check for selected package patterns. Output artifact placement is unsupported.", goToolCheckSemantics()),
+		specWithSemantics[language.GoInstallQuery](InstallOp, "Run go install for explicit packages. Defaults to dry-run preview and restricts environment overrides.", goToolInstallSemantics()),
 		spec[language.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
 		spec[language.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
 		spec[language.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
@@ -163,6 +184,33 @@ func goToolReadSemantics() operation.Semantics {
 		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal},
 		Idempotency: operation.IdempotencyIdempotent,
 		Risk:        operation.RiskLow,
+	}
+}
+
+func goToolCheckSemantics() operation.Semantics {
+	return operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyIdempotent,
+		Risk:        operation.RiskMedium,
+	}
+}
+
+func goToolMutatingSemantics() operation.Semantics {
+	return operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectUpdate, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyIdempotent,
+		Risk:        operation.RiskMedium,
+	}
+}
+
+func goToolInstallSemantics() operation.Semantics {
+	return operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectWriteExternal, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyNonIdempotent,
+		Risk:        operation.RiskHigh,
 	}
 }
 
@@ -252,7 +300,7 @@ func renderGoSummary(projects []coreproject.Project, pkgs []language.Package) st
 			lines = append(lines, "- command entrypoints: "+strings.Join(cmds, ", "))
 		}
 	}
-	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, go_imports, go_implementations, go_callers, and go_callees for details.")
+	lines = append(lines, "Use go_info, go_env, go_version, go_doc, go_list, go_test, go_fmt, go_vet, go_build, go_install, go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, go_imports, go_implementations, go_callers, and go_callees for details.")
 	return strings.Join(lines, "\n")
 }
 

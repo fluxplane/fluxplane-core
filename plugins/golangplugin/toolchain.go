@@ -1,6 +1,7 @@
 package golangplugin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -209,7 +210,248 @@ func (p Plugin) goVersion() operationruntime.TypedResultHandler[language.GoVersi
 	}
 }
 
+func (p Plugin) goDoc() operationruntime.TypedResultHandler[language.GoDocQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoDocQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_doc_input", err.Error(), nil)
+		}
+		workdir, args, selector, diagnostics, err := p.goDocRequest(ctx, req)
+		if err != nil {
+			return operation.Failed("invalid_go_doc_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, workdir, args, req.MaxBytes, defaultToolchainTimeout)
+		if err != nil && run.Command == "" {
+			return operation.Failed("go_doc_failed", err.Error(), processData(run))
+		}
+		if err != nil && strings.TrimSpace(run.Stderr) != "" {
+			diagnostics = append(diagnostics, language.Diagnostic{Severity: "warning", Code: "go_doc_output", Message: strings.TrimSpace(run.Stderr)})
+		}
+		result := language.GoDocResult{
+			Text:        strings.TrimSpace(run.Stdout),
+			Package:     strings.TrimSpace(req.Package),
+			Symbol:      selector,
+			Workdir:     cleanRel(workdir),
+			Diagnostics: diagnostics,
+		}
+		lines := []string{"Go doc"}
+		if result.Package != "" {
+			lines = append(lines, "- package: "+result.Package)
+		}
+		if result.Symbol != "" {
+			lines = append(lines, "- symbol: "+result.Symbol)
+		}
+		if result.Text != "" {
+			lines = append(lines, result.Text)
+		}
+		if len(result.Diagnostics) > 0 {
+			lines = append(lines, fmt.Sprintf("Diagnostics: %d", len(result.Diagnostics)))
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"doc": result, "diagnostics": result.Diagnostics}})
+	}
+}
+
+func (p Plugin) goList() operationruntime.TypedResultHandler[language.GoListQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoListQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_list_input", err.Error(), nil)
+		}
+		args, patterns, err := goListArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_list_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxBytes, defaultToolchainTimeout)
+		if err != nil {
+			return operation.Failed("go_list_failed", err.Error(), processData(run))
+		}
+		records, diagnostics, complete := parseGoListJSON(run.Stdout, req.MaxResults)
+		result := language.GoListResult{
+			Records:     records,
+			Modules:     req.Modules,
+			Diagnostics: diagnostics,
+			Complete:    complete,
+		}
+		lines := []string{fmt.Sprintf("Go list: %d record(s)", len(result.Records))}
+		if req.Modules {
+			lines[0] = fmt.Sprintf("Go list modules: %d record(s)", len(result.Records))
+		}
+		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
+		for _, record := range result.Records {
+			if req.Modules {
+				lines = append(lines, "- "+goListRecordString(record, "Path"))
+			} else {
+				lines = append(lines, "- "+goListRecordString(record, "ImportPath"))
+			}
+			if len(lines) >= 12 {
+				break
+			}
+		}
+		if len(result.Diagnostics) > 0 {
+			lines = append(lines, fmt.Sprintf("Diagnostics: %d", len(result.Diagnostics)))
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"list": result, "records": result.Records, "diagnostics": result.Diagnostics}})
+	}
+}
+
+func (p Plugin) goTest() operationruntime.TypedResultHandler[language.GoTestQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoTestQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_test_input", err.Error(), nil)
+		}
+		args, patterns, err := goTestArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_test_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil && run.Command == "" {
+			return operation.Failed("go_test_failed", err.Error(), processData(run))
+		}
+		result := parseGoTestJSON(run.Stdout)
+		result.Passed = err == nil
+		if run.Stderr != "" {
+			result.Diagnostics = append(result.Diagnostics, language.Diagnostic{Severity: "error", Code: "go_test_stderr", Message: strings.TrimSpace(run.Stderr)})
+		}
+		lines := []string{fmt.Sprintf("Go test: %s", passFail(result.Passed))}
+		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
+		for _, pkg := range result.Packages {
+			line := fmt.Sprintf("- %s: %s", pkg.Package, emptyDefault(pkg.Status, "unknown"))
+			if pkg.Passed > 0 || pkg.Failed > 0 || pkg.Skipped > 0 {
+				line += fmt.Sprintf(" (pass=%d fail=%d skip=%d)", pkg.Passed, pkg.Failed, pkg.Skipped)
+			}
+			lines = append(lines, line)
+		}
+		if len(result.Diagnostics) > 0 {
+			lines = append(lines, fmt.Sprintf("Diagnostics: %d", len(result.Diagnostics)))
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"test": result, "packages": result.Packages, "diagnostics": result.Diagnostics}})
+	}
+}
+
+func (p Plugin) goVet() operationruntime.TypedResultHandler[language.GoVetQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoVetQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_vet_input", err.Error(), nil)
+		}
+		args, patterns, err := goVetArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_vet_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil && run.Command == "" {
+			return operation.Failed("go_vet_failed", err.Error(), processData(run))
+		}
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		diagnostics := parseGoVetOutput(output, req.JSON)
+		result := language.GoVetResult{Diagnostics: diagnostics, Output: output, Passed: err == nil && len(diagnostics) == 0}
+		lines := []string{fmt.Sprintf("Go vet: %s", passFail(result.Passed))}
+		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
+		for _, diag := range diagnostics {
+			lines = append(lines, "- "+diagnosticLine(diag))
+			if len(lines) >= 12 {
+				break
+			}
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"vet": result, "diagnostics": result.Diagnostics}})
+	}
+}
+
+func (p Plugin) goBuild() operationruntime.TypedResultHandler[language.GoBuildQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoBuildQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_build_input", err.Error(), nil)
+		}
+		args, patterns, err := goBuildArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_build_input", err.Error(), nil)
+		}
+		if len(patterns) == 1 && !strings.Contains(patterns[0], "...") {
+			listRun, listErr := p.runGoTool(ctx, req.Path, []string{"list", "-json", patterns[0]}, req.MaxOutputBytes, defaultToolchainTimeout)
+			records, _, _ := parseGoListJSON(listRun.Stdout, 1)
+			if listErr == nil && len(records) == 1 && goListRecordString(records[0], "Name") == "main" {
+				scratch, err := p.system.Workspace().CreateScratch(ctx, "agentruntime-go-build-*")
+				if err != nil {
+					return operation.Failed("go_build_failed", err.Error(), nil)
+				}
+				defer func() { _ = scratch.RemoveAll(context.Background()) }()
+				args = append([]string{"build", "-o", strings.TrimRight(scratch.Root(), "/") + "/main"}, args[1:]...)
+			}
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil && run.Command == "" {
+			return operation.Failed("go_build_failed", err.Error(), processData(run))
+		}
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		result := language.GoBuildResult{Diagnostics: diagnosticsFromText(output, "go_build_output"), Output: output, Passed: err == nil}
+		lines := []string{fmt.Sprintf("Go build: %s", passFail(result.Passed))}
+		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
+		for _, diag := range result.Diagnostics {
+			lines = append(lines, "- "+diagnosticLine(diag))
+			if len(lines) >= 12 {
+				break
+			}
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"build": result, "diagnostics": result.Diagnostics}})
+	}
+}
+
+func (p Plugin) goFmt() operationruntime.TypedResultHandler[language.GoFmtQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoFmtQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_fmt_input", err.Error(), nil)
+		}
+		args, patterns, dryRun, err := goFmtArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_fmt_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil {
+			return operation.Failed("go_fmt_failed", err.Error(), processData(run))
+		}
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		files := parseGoFmtFiles(output, dryRun)
+		result := language.GoFmtResult{Files: files, Output: output, DryRun: dryRun, WouldWrite: dryRun && len(files) > 0, Changed: !dryRun && len(files) > 0}
+		lines := []string{fmt.Sprintf("Go fmt: %d file(s)", len(files))}
+		if dryRun {
+			lines[0] = fmt.Sprintf("Go fmt dry-run: %d file(s)", len(files))
+		}
+		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
+		for _, file := range files {
+			lines = append(lines, "- "+file)
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"fmt": result, "files": result.Files}})
+	}
+}
+
+func (p Plugin) goInstall() operationruntime.TypedResultHandler[language.GoInstallQuery, operation.Rendered] {
+	return func(ctx operation.Context, req language.GoInstallQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_install_input", err.Error(), nil)
+		}
+		args, packages, dryRun, env, err := goInstallArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_install_input", err.Error(), nil)
+		}
+		run, err := p.runGoToolEnv(ctx, req.Path, args, env, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil {
+			return operation.Failed("go_install_failed", err.Error(), processData(run))
+		}
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		result := language.GoInstallResult{Packages: packages, Output: output, DryRun: dryRun, Installed: !dryRun}
+		lines := []string{"Go install"}
+		if dryRun {
+			lines[0] = "Go install dry-run"
+		}
+		for _, pkg := range packages {
+			lines = append(lines, "- "+pkg)
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"install": result, "packages": result.Packages}})
+	}
+}
+
 func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
+	return p.runGoToolEnv(ctx, workdir, args, nil, maxBytesValue, timeout)
+}
+
+func (p Plugin) runGoToolEnv(ctx operation.Context, workdir string, args []string, env []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
 	if p.system == nil || p.system.Process() == nil {
 		return system.ProcessResult{}, fmt.Errorf("golangplugin: system process is nil")
 	}
@@ -222,7 +464,7 @@ func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, 
 		Command:   "go",
 		Args:      append([]string(nil), args...),
 		Workdir:   rel,
-		Env:       system.DefaultProcessEnv(),
+		Env:       append(system.DefaultProcessEnv(), env...),
 		Timeout:   timeout,
 		MaxStdout: limit,
 		MaxStderr: limit,
@@ -262,6 +504,62 @@ func goVersionIntent(_ operation.Context, req language.GoVersionQuery) (operatio
 	return goToolIntentSet(req.Path, args)
 }
 
+func goDocIntent(_ operation.Context, req language.GoDocQuery) (operation.IntentSet, error) {
+	workdir, args, err := goDocArgs(req, "")
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(workdir, args)
+}
+
+func goListIntent(_ operation.Context, req language.GoListQuery) (operation.IntentSet, error) {
+	args, _, err := goListArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goTestIntent(_ operation.Context, req language.GoTestQuery) (operation.IntentSet, error) {
+	args, _, err := goTestArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goVetIntent(_ operation.Context, req language.GoVetQuery) (operation.IntentSet, error) {
+	args, _, err := goVetArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goBuildIntent(_ operation.Context, req language.GoBuildQuery) (operation.IntentSet, error) {
+	args, _, err := goBuildArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goFmtIntent(_ operation.Context, req language.GoFmtQuery) (operation.IntentSet, error) {
+	args, _, _, err := goFmtArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goInstallIntent(_ operation.Context, req language.GoInstallQuery) (operation.IntentSet, error) {
+	args, _, _, _, err := goInstallArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
 func goToolIntentSet(workdir string, commands ...[]string) (operation.IntentSet, error) {
 	if _, err := cleanOptionalWorkspacePath(workdir); err != nil {
 		return operation.IntentSet{}, err
@@ -292,6 +590,707 @@ func goProcessIntent(args ...string) operation.IntentOperation {
 		Role:      operation.IntentRoleProcessCommand,
 		Certainty: operation.IntentCertain,
 	}
+}
+
+func (p Plugin) goDocRequest(ctx context.Context, req language.GoDocQuery) (string, []string, string, []language.Diagnostic, error) {
+	selector := strings.TrimSpace(req.Symbol)
+	var diagnostics []language.Diagnostic
+	if selector == "" && req.Path != "" && (req.Offset != nil || req.Line > 0 || req.Column > 0) {
+		nav, err := p.resolveNavigation(ctx, language.NavigationQuery{
+			Language:    req.Language,
+			Path:        req.Path,
+			Line:        req.Line,
+			Column:      req.Column,
+			Offset:      req.Offset,
+			Scope:       language.NavigationScopePackage,
+			IncludeDocs: true,
+			MaxResults:  1,
+			MaxBytes:    req.MaxBytes,
+		}, true)
+		if err != nil {
+			diagnostics = append(diagnostics, language.Diagnostic{Path: cleanRel(req.Path), Severity: "warning", Code: "go_doc_position_resolution_failed", Message: err.Error()})
+		} else if len(nav.Symbols) > 0 {
+			selector = goDocSymbolSelector(nav.Symbols[0])
+		} else if nav.Target.Name != "" {
+			selector = nav.Target.Name
+		}
+	}
+	workdir, args, err := goDocArgs(req, selector)
+	return workdir, args, selector, diagnostics, err
+}
+
+func goDocArgs(req language.GoDocQuery, resolvedSymbol string) (string, []string, error) {
+	workdir, err := goDocWorkdir(req.Path)
+	if err != nil {
+		return "", nil, err
+	}
+	args := []string{"doc"}
+	if req.All {
+		args = append(args, "-all")
+	}
+	if req.Short {
+		args = append(args, "-short")
+	}
+	if req.Source {
+		args = append(args, "-src")
+	}
+	if req.IncludeUnexported {
+		args = append(args, "-u")
+	}
+	if req.IncludeCmd {
+		args = append(args, "-cmd")
+	}
+	pkg := strings.TrimSpace(req.Package)
+	symbol := strings.TrimSpace(req.Symbol)
+	if symbol == "" {
+		symbol = strings.TrimSpace(resolvedSymbol)
+	}
+	if err := validateGoDocSelector(pkg, "package"); err != nil {
+		return "", nil, err
+	}
+	if err := validateGoDocSelector(symbol, "symbol"); err != nil {
+		return "", nil, err
+	}
+	if pkg != "" {
+		args = append(args, pkg)
+	}
+	if symbol != "" {
+		args = append(args, symbol)
+	}
+	return workdir, args, nil
+}
+
+func goDocWorkdir(raw string) (string, error) {
+	rel, err := cleanOptionalWorkspacePath(raw)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(rel, ".go") {
+		return pathDir(rel), nil
+	}
+	return rel, nil
+}
+
+func validateGoDocSelector(value, label string) error {
+	if value == "" {
+		return nil
+	}
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%s selector %q must not start with '-'", label, value)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(";&|<>`$\\", r) {
+			return fmt.Errorf("%s selector %q contains unsupported character %q", label, value, r)
+		}
+	}
+	return nil
+}
+
+func goDocSymbolSelector(symbol language.Symbol) string {
+	name := strings.TrimSpace(symbol.Name)
+	if name == "" {
+		return ""
+	}
+	if symbol.Kind == language.SymbolField && symbol.Container != "" {
+		return strings.TrimSpace(symbol.Container) + "." + name
+	}
+	return name
+}
+
+func goListArgs(req language.GoListQuery) ([]string, []string, error) {
+	args := []string{"list", "-json"}
+	if req.IncludeErrors {
+		args = append(args, "-e")
+	}
+	if req.Modules {
+		args = append(args, "-m")
+	}
+	if req.Deps {
+		args = append(args, "-deps")
+	}
+	if req.Test {
+		args = append(args, "-test")
+	}
+	if req.Compiled {
+		args = append(args, "-compiled")
+	}
+	if req.Find {
+		args = append(args, "-find")
+	}
+	patterns := append([]string(nil), req.Patterns...)
+	if len(patterns) == 0 {
+		patterns = []string{"."}
+	}
+	if err := validateGoPatterns(patterns); err != nil {
+		return nil, nil, err
+	}
+	for _, pattern := range patterns {
+		if req.Modules && pattern == "." {
+			continue
+		}
+		args = append(args, pattern)
+	}
+	return args, patterns, nil
+}
+
+func goTestArgs(req language.GoTestQuery) ([]string, []string, error) {
+	args := []string{"test", "-json"}
+	if req.Run != "" {
+		if err := validateGoFlagValue(req.Run, "run"); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-run="+req.Run)
+	}
+	if req.Skip != "" {
+		if err := validateGoFlagValue(req.Skip, "skip"); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-skip="+req.Skip)
+	}
+	if req.Short {
+		args = append(args, "-short")
+	}
+	if req.Failfast {
+		args = append(args, "-failfast")
+	}
+	if req.Count != nil {
+		if *req.Count < 0 {
+			return nil, nil, fmt.Errorf("count must be >= 0")
+		}
+		args = append(args, fmt.Sprintf("-count=%d", *req.Count))
+	}
+	if req.Timeout != "" {
+		if err := validateGoDuration(req.Timeout, "timeout"); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-timeout="+req.Timeout)
+	}
+	switch strings.TrimSpace(req.Vet) {
+	case "", "default":
+	case "off", "all":
+		args = append(args, "-vet="+req.Vet)
+	default:
+		return nil, nil, fmt.Errorf("unsupported vet mode %q", req.Vet)
+	}
+	if req.Race {
+		args = append(args, "-race")
+	}
+	if req.Cover {
+		args = append(args, "-cover")
+	}
+	patterns, err := defaultGoPatterns(req.Patterns)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, patterns...)
+	return args, patterns, nil
+}
+
+func goVetArgs(req language.GoVetQuery) ([]string, []string, error) {
+	if req.Fix {
+		return nil, nil, fmt.Errorf("fix is unsupported for go_vet")
+	}
+	if req.Diff {
+		return nil, nil, fmt.Errorf("diff is unsupported for go_vet")
+	}
+	if strings.TrimSpace(req.Vettool) != "" {
+		return nil, nil, fmt.Errorf("vettool is unsupported for go_vet")
+	}
+	args := []string{"vet"}
+	if req.JSON {
+		args = append(args, "-json")
+	}
+	if len(req.Tags) > 0 {
+		tags, err := validateGoTags(req.Tags)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-tags="+strings.Join(tags, ","))
+	}
+	patterns, err := defaultGoPatterns(req.Patterns)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, patterns...)
+	return args, patterns, nil
+}
+
+func goBuildArgs(req language.GoBuildQuery) ([]string, []string, error) {
+	if strings.TrimSpace(req.Output) != "" {
+		return nil, nil, fmt.Errorf("output is unsupported for go_build")
+	}
+	args := []string{"build"}
+	if len(req.Tags) > 0 {
+		tags, err := validateGoTags(req.Tags)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-tags="+strings.Join(tags, ","))
+	}
+	if req.Race {
+		args = append(args, "-race")
+	}
+	if req.Cover {
+		args = append(args, "-cover")
+	}
+	if req.Trimpath {
+		args = append(args, "-trimpath")
+	}
+	if req.Mod != "" {
+		if err := validateGoModMode(req.Mod); err != nil {
+			return nil, nil, err
+		}
+		args = append(args, "-mod="+req.Mod)
+	}
+	patterns, err := defaultGoPatterns(req.Patterns)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, patterns...)
+	return args, patterns, nil
+}
+
+func goFmtArgs(req language.GoFmtQuery) ([]string, []string, bool, error) {
+	dryRun := boolDefault(req.DryRun, true)
+	args := []string{"fmt"}
+	if dryRun {
+		args = append(args, "-n")
+	}
+	if req.Trace {
+		args = append(args, "-x")
+	}
+	if req.Mod != "" {
+		if err := validateGoModMode(req.Mod); err != nil {
+			return nil, nil, false, err
+		}
+		args = append(args, "-mod="+req.Mod)
+	}
+	patterns, err := defaultGoPatterns(req.Patterns)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	args = append(args, patterns...)
+	return args, patterns, dryRun, nil
+}
+
+func goInstallArgs(req language.GoInstallQuery) ([]string, []string, bool, []string, error) {
+	dryRun := boolDefault(req.DryRun, true)
+	args := []string{"install"}
+	if dryRun {
+		args = append(args, "-n")
+	}
+	if req.Trace {
+		args = append(args, "-x")
+	}
+	if len(req.Tags) > 0 {
+		tags, err := validateGoTags(req.Tags)
+		if err != nil {
+			return nil, nil, false, nil, err
+		}
+		args = append(args, "-tags="+strings.Join(tags, ","))
+	}
+	if req.Race {
+		args = append(args, "-race")
+	}
+	if req.Trimpath {
+		args = append(args, "-trimpath")
+	}
+	version := strings.TrimSpace(req.Version)
+	if version != "" {
+		if err := validateGoFlagValue(version, "version"); err != nil {
+			return nil, nil, false, nil, err
+		}
+		if req.Mod != "" {
+			return nil, nil, false, nil, fmt.Errorf("mod is unsupported when version is set")
+		}
+	} else if req.Mod != "" {
+		if err := validateGoModMode(req.Mod); err != nil {
+			return nil, nil, false, nil, err
+		}
+		args = append(args, "-mod="+req.Mod)
+	}
+	packages := append([]string(nil), req.Packages...)
+	if len(packages) == 0 {
+		return nil, nil, false, nil, fmt.Errorf("packages are required")
+	}
+	if err := validateGoPatterns(packages); err != nil {
+		return nil, nil, false, nil, err
+	}
+	if version != "" {
+		for i, pkg := range packages {
+			packages[i] = pkg + "@" + version
+		}
+	}
+	env, err := goInstallEnv(req.Env)
+	if err != nil {
+		return nil, nil, false, nil, err
+	}
+	args = append(args, packages...)
+	return args, packages, dryRun, env, nil
+}
+
+func defaultGoPatterns(patterns []string) ([]string, error) {
+	out := append([]string(nil), patterns...)
+	if len(out) == 0 {
+		out = []string{"."}
+	}
+	if err := validateGoPatterns(out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func validateGoPatterns(patterns []string) error {
+	for _, pattern := range patterns {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return fmt.Errorf("go pattern is empty")
+		}
+		if strings.HasPrefix(trimmed, "-") {
+			return fmt.Errorf("go pattern %q must not start with '-'", pattern)
+		}
+		for _, r := range trimmed {
+			if r < 0x20 || r == 0x7f || strings.ContainsRune(";&|<>`$\\", r) {
+				return fmt.Errorf("go pattern %q contains unsupported character %q", pattern, r)
+			}
+		}
+	}
+	return nil
+}
+
+func validateGoTags(tags []string) ([]string, error) {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed == "" {
+			return nil, fmt.Errorf("build tag is empty")
+		}
+		if err := validateGoFlagValue(trimmed, "tag"); err != nil {
+			return nil, err
+		}
+		out = append(out, trimmed)
+	}
+	return out, nil
+}
+
+func validateGoModMode(value string) error {
+	switch strings.TrimSpace(value) {
+	case "readonly", "vendor", "mod":
+		return nil
+	default:
+		return fmt.Errorf("unsupported mod mode %q", value)
+	}
+}
+
+func validateGoDuration(value, label string) error {
+	if _, err := time.ParseDuration(value); err != nil {
+		return fmt.Errorf("invalid %s duration %q: %w", label, value, err)
+	}
+	return validateGoFlagValue(value, label)
+}
+
+func validateGoFlagValue(value, label string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is empty", label)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(";&|<>`$\\", r) {
+			return fmt.Errorf("%s %q contains unsupported character %q", label, value, r)
+		}
+	}
+	return nil
+}
+
+func goInstallEnv(values map[string]string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	allowed := map[string]bool{"GOBIN": true, "GOPATH": true, "GOOS": true, "GOARCH": true, "CGO_ENABLED": true}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if !allowed[key] {
+			return nil, fmt.Errorf("env key %q is unsupported for go_install", key)
+		}
+		value := values[key]
+		if strings.ContainsAny(value, "\x00\n\r") {
+			return nil, fmt.Errorf("env value for %s contains unsupported control character", key)
+		}
+		out = append(out, key+"="+value)
+	}
+	return out, nil
+}
+
+func parseGoListJSON(raw string, maxResultsValue int) ([]map[string]any, []language.Diagnostic, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil, true
+	}
+	limit := maxResults(maxResultsValue)
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.UseNumber()
+	var records []map[string]any
+	var diagnostics []language.Diagnostic
+	complete := true
+	for {
+		var record map[string]any
+		if err := decoder.Decode(&record); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return records, append(diagnostics, language.Diagnostic{Severity: "warning", Code: "go_list_parse_failed", Message: err.Error()}), false
+		}
+		if len(records) < limit {
+			records = append(records, record)
+			diagnostics = append(diagnostics, goListDiagnostics(record)...)
+			continue
+		}
+		complete = false
+	}
+	return records, diagnostics, complete
+}
+
+func goListDiagnostics(record map[string]any) []language.Diagnostic {
+	var diagnostics []language.Diagnostic
+	if errObj, ok := record["Error"]; ok {
+		if diag, ok := goListErrorDiagnostic(record, errObj, "go_list_error"); ok {
+			diagnostics = append(diagnostics, diag)
+		}
+	}
+	if deps, ok := record["DepsErrors"].([]any); ok {
+		for _, depErr := range deps {
+			if diag, ok := goListErrorDiagnostic(record, depErr, "go_list_deps_error"); ok {
+				diagnostics = append(diagnostics, diag)
+			}
+		}
+	}
+	return diagnostics
+}
+
+func goListErrorDiagnostic(record map[string]any, raw any, code string) (language.Diagnostic, bool) {
+	errMap, ok := raw.(map[string]any)
+	if !ok {
+		msg := strings.TrimSpace(fmt.Sprint(raw))
+		if msg == "" {
+			return language.Diagnostic{}, false
+		}
+		return language.Diagnostic{Path: goListRecordString(record, "Dir"), Severity: "error", Code: code, Message: msg}, true
+	}
+	msg := goListAnyString(errMap["Err"])
+	if msg == "" {
+		msg = strings.TrimSpace(fmt.Sprint(raw))
+	}
+	diag := language.Diagnostic{
+		Path:     goListRecordString(record, "Dir"),
+		Severity: "error",
+		Code:     code,
+		Message:  msg,
+	}
+	if pos := goListAnyString(errMap["Pos"]); pos != "" {
+		diag.Message = pos + ": " + diag.Message
+	}
+	return diag, diag.Message != ""
+}
+
+func goListRecordString(record map[string]any, key string) string {
+	if value := goListAnyString(record[key]); value != "" {
+		return value
+	}
+	switch key {
+	case "ImportPath":
+		return goListAnyString(record["Path"])
+	case "Path":
+		return goListAnyString(record["ImportPath"])
+	}
+	return ""
+}
+
+func goListAnyString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	case nil:
+		return ""
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func parseGoTestJSON(raw string) language.GoTestResult {
+	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(raw)))
+	decoder.UseNumber()
+	packages := map[string]*language.GoTestPackageResult{}
+	var order []string
+	var events []map[string]any
+	var diagnostics []language.Diagnostic
+	complete := true
+	for {
+		var event map[string]any
+		if err := decoder.Decode(&event); err != nil {
+			if err == io.EOF {
+				break
+			}
+			if strings.TrimSpace(raw) != "" {
+				diagnostics = append(diagnostics, language.Diagnostic{Severity: "warning", Code: "go_test_parse_failed", Message: err.Error()})
+			}
+			complete = false
+			break
+		}
+		events = append(events, event)
+		pkgName := goListAnyString(event["Package"])
+		if pkgName == "" {
+			continue
+		}
+		pkg := packages[pkgName]
+		if pkg == nil {
+			pkg = &language.GoTestPackageResult{Package: pkgName}
+			packages[pkgName] = pkg
+			order = append(order, pkgName)
+		}
+		action := goListAnyString(event["Action"])
+		testName := goListAnyString(event["Test"])
+		if elapsed, ok := event["Elapsed"].(json.Number); ok {
+			if value, err := elapsed.Float64(); err == nil {
+				pkg.Elapsed = value
+			}
+		}
+		if output := strings.TrimSpace(goListAnyString(event["Output"])); output != "" && len(pkg.Output) < 20 {
+			pkg.Output = append(pkg.Output, output)
+		}
+		switch action {
+		case "pass":
+			if testName == "" {
+				pkg.Status = "pass"
+			} else {
+				pkg.Passed++
+			}
+		case "fail":
+			if testName == "" {
+				pkg.Status = "fail"
+			} else {
+				pkg.Failed++
+			}
+		case "skip":
+			if testName == "" {
+				pkg.Status = "skip"
+			} else {
+				pkg.Skipped++
+			}
+		}
+	}
+	out := make([]language.GoTestPackageResult, 0, len(order))
+	for _, pkgName := range order {
+		out = append(out, *packages[pkgName])
+	}
+	return language.GoTestResult{Packages: out, Events: events, Diagnostics: diagnostics, Complete: complete}
+}
+
+func parseGoVetOutput(raw string, jsonMode bool) []language.Diagnostic {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	if jsonMode {
+		var root map[string]map[string][]map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &root); err == nil {
+			var diagnostics []language.Diagnostic
+			for pkg, analyzers := range root {
+				for analyzer, entries := range analyzers {
+					for _, entry := range entries {
+						message := goListAnyString(entry["message"])
+						if message == "" {
+							continue
+						}
+						diag := language.Diagnostic{
+							Path:     trimVetPath(goListAnyString(entry["posn"])),
+							Severity: "warning",
+							Code:     "go_vet_" + analyzer,
+							Message:  message,
+						}
+						if diag.Path == "" {
+							diag.Path = pkg
+						}
+						diagnostics = append(diagnostics, diag)
+					}
+				}
+			}
+			return diagnostics
+		}
+	}
+	return diagnosticsFromText(trimmed, "go_vet_output")
+}
+
+func diagnosticsFromText(raw, code string) []language.Diagnostic {
+	var diagnostics []language.Diagnostic
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		diagnostics = append(diagnostics, language.Diagnostic{Severity: "error", Code: code, Message: line})
+	}
+	return diagnostics
+}
+
+func diagnosticLine(diag language.Diagnostic) string {
+	if diag.Path != "" {
+		return diag.Path + ": " + diag.Message
+	}
+	return diag.Message
+}
+
+func trimVetPath(pos string) string {
+	if pos == "" {
+		return ""
+	}
+	cleaned := strings.ReplaceAll(pos, "\\", "/")
+	idx := strings.Index(cleaned, "/pkg/")
+	if idx >= 0 {
+		return strings.TrimPrefix(cleaned[idx+1:], "/")
+	}
+	return cleaned
+}
+
+func parseGoFmtFiles(raw string, dryRun bool) []string {
+	seen := map[string]bool{}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if dryRun {
+			fields := strings.Fields(line)
+			for _, field := range fields {
+				if strings.HasSuffix(field, ".go") {
+					file := strings.Trim(field, "\"'")
+					if !seen[file] {
+						seen[file] = true
+						files = append(files, file)
+					}
+				}
+			}
+			continue
+		}
+		if !seen[line] {
+			seen[line] = true
+			files = append(files, line)
+		}
+	}
+	return files
+}
+
+func passFail(ok bool) string {
+	if ok {
+		return "pass"
+	}
+	return "fail"
 }
 
 func parseGoEnvOutput(raw string) (map[string]string, []language.Diagnostic) {

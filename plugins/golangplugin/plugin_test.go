@@ -452,6 +452,242 @@ func TestGoProxyParsing(t *testing.T) {
 	}
 }
 
+func TestGoToolchainDocListWithHostWorkspace(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/doclist\n\ngo 1.26\n")
+	service := `// Package service documents service behavior.
+package service
+
+// Service runs work.
+type Service struct {
+	// Name is the display name.
+	Name string
+}
+
+// Run executes the service.
+func (Service) Run() {}
+
+// hidden is not exported.
+type hidden struct{}
+`
+	writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
+	writeGoFile(t, sys.Workspace(), "pkg/broken/broken.go", `package broken
+
+import _ "example.com/missing"
+`)
+
+	doc := runGoOp(t, sys, DocOp, map[string]any{"path": "pkg/service", "symbol": "Service"})
+	if !strings.Contains(doc.Text, "type Service struct") || !strings.Contains(doc.Text, "Service runs work.") {
+		t.Fatalf("go doc text = %q, want Service docs", doc.Text)
+	}
+	docData := goDocResultFromRendered(t, doc)
+	if docData.Symbol != "Service" || docData.Workdir != "pkg/service" {
+		t.Fatalf("go doc data = %#v, want Service in pkg/service", docData)
+	}
+
+	line, column := goPosition(t, service, "Service struct")
+	positionDoc := runGoOp(t, sys, DocOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column})
+	if !strings.Contains(positionDoc.Text, "type Service struct") || goDocResultFromRendered(t, positionDoc).Symbol != "Service" {
+		t.Fatalf("position go doc text = %q, want position-derived Service docs", positionDoc.Text)
+	}
+	unexportedDoc := runGoOp(t, sys, DocOp, map[string]any{"path": "pkg/service", "symbol": "hidden", "include_unexported": true})
+	if !strings.Contains(unexportedDoc.Text, "type hidden struct") || !strings.Contains(unexportedDoc.Text, "hidden is not exported") {
+		t.Fatalf("unexported go doc text = %q, want hidden docs", unexportedDoc.Text)
+	}
+	missingDoc := runGoOp(t, sys, DocOp, map[string]any{"path": "pkg/service", "symbol": "Missing"})
+	if len(goDocResultFromRendered(t, missingDoc).Diagnostics) == 0 {
+		t.Fatalf("missing go doc text = %q, want no-doc diagnostics", missingDoc.Text)
+	}
+
+	list := runGoOp(t, sys, ListOp, map[string]any{"patterns": []string{"./pkg/service"}})
+	listData := goListResultFromRendered(t, list)
+	if len(listData.Records) != 1 || goListRecordString(listData.Records[0], "ImportPath") != "example.com/doclist/pkg/service" {
+		t.Fatalf("go list data = %#v, want service package record", listData)
+	}
+	if !listData.Complete {
+		t.Fatalf("go list complete = false, want true")
+	}
+
+	modules := runGoOp(t, sys, ListOp, map[string]any{"modules": true, "patterns": []string{"."}})
+	moduleData := goListResultFromRendered(t, modules)
+	if len(moduleData.Records) != 1 || goListRecordString(moduleData.Records[0], "Path") != "example.com/doclist" {
+		t.Fatalf("go list modules data = %#v, want root module", moduleData)
+	}
+	writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", `package service
+
+import "testing"
+
+func TestService(t *testing.T) {}
+`)
+	testList := runGoOp(t, sys, ListOp, map[string]any{"patterns": []string{"./pkg/service"}, "test": true})
+	foundTestRecord := false
+	for _, record := range goListResultFromRendered(t, testList).Records {
+		if goListRecordString(record, "ForTest") == "example.com/doclist/pkg/service" {
+			foundTestRecord = true
+		}
+	}
+	if !foundTestRecord {
+		t.Fatalf("go list test data = %#v, want test package metadata", goListResultFromRendered(t, testList))
+	}
+
+	broken := runGoOp(t, sys, ListOp, map[string]any{"patterns": []string{"./pkg/broken"}, "include_errors": true})
+	if len(goListResultFromRendered(t, broken).Diagnostics) == 0 {
+		t.Fatalf("broken go list text = %q, want diagnostics", broken.Text)
+	}
+
+	invalid := runGoResult(t, sys, ListOp, map[string]any{"patterns": []string{"-bad"}})
+	if invalid.Status != operation.StatusFailed || invalid.Error == nil || !strings.Contains(invalid.Error.Message, "must not start") {
+		t.Fatalf("invalid go list result = %#v, want rejected pattern", invalid)
+	}
+}
+
+func TestGoToolchainCheckFmtInstallWithHostWorkspace(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/checks\n\ngo 1.26\n")
+	writeGoFile(t, sys.Workspace(), "pkg/checks/checks.go", `package checks
+
+func Add(a, b int) int { return a + b }
+`)
+	writeGoFile(t, sys.Workspace(), "pkg/checks/checks_test.go", `package checks
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(1, 2) != 3 {
+		t.Fatal("bad add")
+	}
+}
+
+func TestFail(t *testing.T) {
+	t.Fatal("intentional failure")
+}
+`)
+	writeGoFile(t, sys.Workspace(), "pkg/vet/vet.go", `package vet
+
+import "fmt"
+
+func Bad() {
+	fmt.Printf("%d", "x")
+}
+`)
+	writeGoFile(t, sys.Workspace(), "pkg/badbuild/bad.go", `package badbuild
+
+func Broken() {
+	_ = missing
+}
+`)
+	writeGoFile(t, sys.Workspace(), "pkg/format/format.go", "package format\n\nfunc Bad( ){ }\n")
+	writeGoFile(t, sys.Workspace(), "cmd/tool/main.go", `package main
+
+func main() {}
+`)
+
+	testResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "run": "TestAdd", "count": 1})
+	testData := goTestResultFromRendered(t, testResult)
+	if !testData.Passed || len(testData.Packages) != 1 || testData.Packages[0].Passed != 1 {
+		t.Fatalf("go test data = %#v, want passing TestAdd", testData)
+	}
+	failResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "run": "TestFail", "count": 1})
+	failData := goTestResultFromRendered(t, failResult)
+	if failData.Passed || len(failData.Packages) != 1 || failData.Packages[0].Failed != 1 {
+		t.Fatalf("go test fail data = %#v, want structured test failure", failData)
+	}
+	compileResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/badbuild"}})
+	if goTestResultFromRendered(t, compileResult).Passed || !strings.Contains(compileResult.Text, "fail") {
+		t.Fatalf("go test compile text = %q, want compile failure summary", compileResult.Text)
+	}
+	invalidTimeout := runGoResult(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "timeout": "soon"})
+	if invalidTimeout.Status != operation.StatusFailed || invalidTimeout.Error == nil || !strings.Contains(invalidTimeout.Error.Message, "duration") {
+		t.Fatalf("invalid timeout result = %#v, want duration validation", invalidTimeout)
+	}
+
+	vetResult := runGoOp(t, sys, VetOp, map[string]any{"patterns": []string{"./pkg/vet"}, "json": true})
+	vetData := goVetResultFromRendered(t, vetResult)
+	if vetData.Passed || len(vetData.Diagnostics) == 0 || !strings.Contains(vetData.Diagnostics[0].Message, "Printf") {
+		t.Fatalf("go vet data = %#v, want printf diagnostic", vetData)
+	}
+	invalidVet := runGoResult(t, sys, VetOp, map[string]any{"patterns": []string{"./pkg/vet"}, "fix": true})
+	if invalidVet.Status != operation.StatusFailed || invalidVet.Error == nil || !strings.Contains(invalidVet.Error.Message, "unsupported") {
+		t.Fatalf("invalid vet result = %#v, want unsupported fix", invalidVet)
+	}
+	invalidVetDiff := runGoResult(t, sys, VetOp, map[string]any{"patterns": []string{"./pkg/vet"}, "diff": true})
+	if invalidVetDiff.Status != operation.StatusFailed || invalidVetDiff.Error == nil || !strings.Contains(invalidVetDiff.Error.Message, "unsupported") {
+		t.Fatalf("invalid vet diff result = %#v, want unsupported diff", invalidVetDiff)
+	}
+
+	buildOK := runGoOp(t, sys, BuildOp, map[string]any{"patterns": []string{"./pkg/checks"}})
+	if !goBuildResultFromRendered(t, buildOK).Passed {
+		t.Fatalf("go build ok text = %q, want pass", buildOK.Text)
+	}
+	buildBad := runGoOp(t, sys, BuildOp, map[string]any{"patterns": []string{"./pkg/badbuild"}})
+	if goBuildResultFromRendered(t, buildBad).Passed || !strings.Contains(buildBad.Text, "undefined: missing") {
+		t.Fatalf("go build bad text = %q, want compile diagnostic", buildBad.Text)
+	}
+
+	fmtDryRun := runGoOp(t, sys, FmtOp, map[string]any{"patterns": []string{"./pkg/format"}})
+	fmtDryRunData := goFmtResultFromRendered(t, fmtDryRun)
+	if !fmtDryRunData.DryRun || !fmtDryRunData.WouldWrite || len(fmtDryRunData.Files) == 0 {
+		t.Fatalf("go fmt dry-run data = %#v, want would-write files", fmtDryRunData)
+	}
+	falseValue := false
+	fmtReal := runGoOp(t, sys, FmtOp, map[string]any{"patterns": []string{"./pkg/format"}, "dry_run": falseValue})
+	if !goFmtResultFromRendered(t, fmtReal).Changed {
+		t.Fatalf("go fmt real text = %q, want changed file", fmtReal.Text)
+	}
+	formatted, _, _, err := sys.Workspace().ReadFile(context.Background(), "pkg/format/format.go", 1024)
+	if err != nil {
+		t.Fatalf("ReadFile formatted: %v", err)
+	}
+	if !strings.Contains(string(formatted), "func Bad() {}") {
+		t.Fatalf("formatted file = %q, want gofmt output", string(formatted))
+	}
+
+	install := runGoOp(t, sys, InstallOp, map[string]any{"packages": []string{"./cmd/tool"}})
+	installData := goInstallResultFromRendered(t, install)
+	if !installData.DryRun || installData.Installed {
+		t.Fatalf("go install data = %#v, want dry-run only", installData)
+	}
+	installArgs, installPackages, _, _, err := goInstallArgs(language.GoInstallQuery{Packages: []string{"example.com/tool"}, Version: "v1.2.3"})
+	if err != nil {
+		t.Fatalf("goInstallArgs version: %v", err)
+	}
+	if !strings.Contains(strings.Join(installArgs, " "), "example.com/tool@v1.2.3") || installPackages[0] != "example.com/tool@v1.2.3" {
+		t.Fatalf("versioned install args = %#v packages = %#v, want pkg@version", installArgs, installPackages)
+	}
+	emptyInstall := runGoResult(t, sys, InstallOp, map[string]any{})
+	if emptyInstall.Status != operation.StatusFailed || emptyInstall.Error == nil || !strings.Contains(emptyInstall.Error.Message, "packages are required") {
+		t.Fatalf("empty install result = %#v, want package validation", emptyInstall)
+	}
+	invalidInstall := runGoResult(t, sys, InstallOp, map[string]any{"packages": []string{"./cmd/tool"}, "env": map[string]string{"PATH": "/tmp"}})
+	if invalidInstall.Status != operation.StatusFailed || invalidInstall.Error == nil || !strings.Contains(invalidInstall.Error.Message, "unsupported") {
+		t.Fatalf("invalid install result = %#v, want rejected env", invalidInstall)
+	}
+	installBin := t.TempDir()
+	realInstall := runGoOp(t, sys, InstallOp, map[string]any{"packages": []string{"./cmd/tool"}, "dry_run": falseValue, "env": map[string]string{"GOBIN": installBin}})
+	if !goInstallResultFromRendered(t, realInstall).Installed {
+		t.Fatalf("real install text = %q, want installed result", realInstall.Text)
+	}
+
+	buildBinary, err := sys.Process().Run(context.Background(), system.ProcessRequest{
+		Command: "go",
+		Args:    []string{"build", "-o", "toolbin", "./cmd/tool"},
+		Env:     system.DefaultProcessEnv(),
+	})
+	if err != nil {
+		t.Fatalf("build test binary: %v output=%#v", err, buildBinary)
+	}
+	version := runGoOp(t, sys, VersionOp, map[string]any{"files": []string{"toolbin"}, "module_info": true})
+	if records := goVersionResultFromRendered(t, version).Records; len(records) != 1 || records[0].Path != "example.com/checks/cmd/tool" {
+		t.Fatalf("go version records = %#v, want module build info for tool", records)
+	}
+}
+
 func TestGoImplementationsUsesTypeCheckedHostBackend(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
@@ -947,6 +1183,97 @@ func goVersionResultFromRendered(t *testing.T, rendered operation.Rendered) lang
 		t.Fatalf("version data = %#v, want language.GoVersionResult", data["version"])
 	}
 	return version
+}
+
+func goDocResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoDocResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	doc, ok := data["doc"].(language.GoDocResult)
+	if !ok {
+		t.Fatalf("doc data = %#v, want language.GoDocResult", data["doc"])
+	}
+	return doc
+}
+
+func goListResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoListResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	list, ok := data["list"].(language.GoListResult)
+	if !ok {
+		t.Fatalf("list data = %#v, want language.GoListResult", data["list"])
+	}
+	return list
+}
+
+func goTestResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoTestResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["test"].(language.GoTestResult)
+	if !ok {
+		t.Fatalf("test data = %#v, want language.GoTestResult", data["test"])
+	}
+	return result
+}
+
+func goVetResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoVetResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["vet"].(language.GoVetResult)
+	if !ok {
+		t.Fatalf("vet data = %#v, want language.GoVetResult", data["vet"])
+	}
+	return result
+}
+
+func goBuildResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoBuildResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["build"].(language.GoBuildResult)
+	if !ok {
+		t.Fatalf("build data = %#v, want language.GoBuildResult", data["build"])
+	}
+	return result
+}
+
+func goFmtResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoFmtResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["fmt"].(language.GoFmtResult)
+	if !ok {
+		t.Fatalf("fmt data = %#v, want language.GoFmtResult", data["fmt"])
+	}
+	return result
+}
+
+func goInstallResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoInstallResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["install"].(language.GoInstallResult)
+	if !ok {
+		t.Fatalf("install data = %#v, want language.GoInstallResult", data["install"])
+	}
+	return result
 }
 
 func runGoResult(t *testing.T, sys system.System, name string, input map[string]any) operation.Result {

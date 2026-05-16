@@ -30,7 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchy lookup.
 - Added `go_info`, `go_env`, and `go_version` for read-only process-backed Go
   toolchain orientation.
-- `coder` now exposes `go_info`, `go_env`, `go_version`, `go_callers`, and
+- Added `go_doc` and `go_list` for process-backed Go documentation lookup and
+  structured `go list -json` package/module metadata.
+- Added `go_test`, `go_fmt`, `go_vet`, `go_build`, and `go_install` as
+  structured Go toolchain operations with bounded output, dry-run defaults for
+  formatting/installing, and explicit unsupported-scope validation.
+- `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
+  `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.

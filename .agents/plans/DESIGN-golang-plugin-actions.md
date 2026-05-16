@@ -22,9 +22,11 @@ Current implementation status:
 | `go_implementations` | Implemented; host workspaces prefer `go/packages` + `go/types` type-checked matching with AST fallback |
 | `go_callers` / `go_callees` | Implemented and exposed to coder delegation; AST-only direct calls with package/module scope and explicit limitations |
 | `go_info`, `go_env`, `go_version` | Implemented; read-only process-backed Go toolchain orientation |
-| Next | `go_doc` and `go_list` |
-| Toolchain actions | `go_test`, `go_fmt`, `go_vet`, and `go_build` |
-| Toolchain follow-up | `go_install` |
+| `go_doc`, `go_list` | Implemented; process-backed docs plus structured `go list -json` package/module metadata |
+| `go_test`, `go_vet`, `go_build` | Implemented; process-backed checks return structured pass/fail summaries and diagnostics |
+| `go_fmt` | Implemented; defaults to dry-run and supports explicit formatting writes |
+| `go_install` | Implemented; defaults to dry-run with restricted environment overrides |
+| Next | Review feedback only |
 | Deferred | Abstract code-editing/refactor operations tracked separately in `2026-05-16-1425-code-edit.md` |
 
 ## Current Progress
@@ -39,28 +41,27 @@ Completed:
 - Type-checked zero-match implementation results are authoritative and do not
   fall back to AST name matching.
 - Read-only process-backed `go_info`, `go_env`, and `go_version` operations.
+- Process-backed `go_doc` and `go_list` operations, including position-derived
+  documentation lookup and structured `go list -json` parsing.
+- Process-backed `go_test`, `go_vet`, and `go_build` checks with bounded output
+  and structured summaries/diagnostics.
+- Explicit `go_fmt` formatting with dry-run default and real formatting when
+  requested.
+- Explicit `go_install` with dry-run default and restricted environment
+  overrides.
 - Coder delegation exposes `go_callers` and `go_callees`.
 - Generic code editing/refactoring scope is split into
   `2026-05-16-1425-code-edit.md`.
 
 Remaining:
 
-- Implement `go_doc` and `go_list`.
-- Implement process-backed `go_test`, `go_fmt`, `go_vet`, and `go_build`.
-- Add `go_install` after the safer wrappers, defaulting to dry-run first.
-- Decide whether `go_callers` / `go_callees` need type-aware resolution before
-  or after the toolchain operation slice.
+- No implementation tasks remain for the current roadmap slice.
+- Type-aware `go_callers` / `go_callees` is not required for this roadmap slice;
+  current operations intentionally remain AST-only and report limitations.
 
 Next steps:
 
-1. Add `go_doc` and `go_list`, reusing the shared bounded direct-argv helpers
-   introduced for `go_info`, `go_env`, and `go_version`.
-2. Reuse the process/parsing helpers from the read-only toolchain operations for
-   `go_test`, `go_vet`, and `go_build`.
-3. Add `go_fmt` only as an explicit side-effecting operation with dry-run
-   support.
-4. Revisit `go_install` after the safer command wrappers have tests and
-   operation policy coverage.
+1. Address review feedback if any functional gaps are found.
 
 ## Summary
 
@@ -185,7 +186,7 @@ Initial operations:
 - `go.summary` context provider with compact module/package/command
   orientation.
 
-Next operations:
+Implemented operation set:
 
 - `go_info`: compact Go toolchain orientation for agents, aggregating version,
   curated environment, module/workspace paths, proxy/private settings, cache
@@ -602,12 +603,12 @@ First implementation slice:
 6. Add `go_callers` / `go_callees` once implementation lookup is stable.
 7. Upgrade `go_implementations` with a type-aware backend for host workspaces.
 8. Add read-only Go toolchain orientation: `go_info`, `go_env`,
-   `go_version`, `go_doc`, and `go_list`. Status: `go_info`, `go_env`, and
-   `go_version` are implemented; `go_doc` and `go_list` remain.
+   `go_version`, `go_doc`, and `go_list`. Status: implemented.
 9. Add process-backed checks and explicit formatting: `go_test`, `go_fmt`,
-   `go_vet`, and `go_build`.
+   `go_vet`, and `go_build`. Status: implemented.
 10. Add `go_install` after the safer command wrappers, defaulting to dry-run
    and supporting isolated temp `GOBIN` tests before normal install writes.
+   Status: implemented.
 
 Navigation implementation slice:
 
@@ -644,11 +645,13 @@ Go toolchain implementation slice:
 2. Add `go_info`, `go_env`, and `go_version` with read-only semantics. Status:
    implemented.
 3. Add `go_doc` and `go_list`, parsing JSON where the Go command supports it.
+   Status: implemented.
 4. Add `go_test`, `go_vet`, and `go_build` using bounded output and structured
-   summaries.
+   summaries. Status: implemented.
 5. Add `go_fmt` as an explicit mutating operation with dry-run support.
+   Status: implemented.
 6. Add `go_install` as a follow-up high-risk operation with dry-run-first
-   behavior and restricted environment overrides.
+   behavior and restricted environment overrides. Status: implemented.
 
 ## Open Questions
 
@@ -656,10 +659,10 @@ Go toolchain implementation slice:
   operation-triggered?
 - Should future operations become language-agnostic wrappers over provider
   implementations, or should language-specific tool names remain model-facing?
-- How much type resolution should `go_callers` / `go_callees` gain before
-  process-backed `go list` / `go test` wrappers?
-- Should `go_install` ever default to real execution, or should it remain
-  dry-run by default unless the caller supplies an isolated `GOBIN`?
+- Future precision upgrade: decide how much type resolution `go_callers` /
+  `go_callees` should gain after the AST-only direct-call implementation.
+- `go_install` remains dry-run by default; real execution requires explicit
+  `dry_run=false` and should use an isolated `GOBIN` when possible.
 
 ## REVIEW #1
 

@@ -36,8 +36,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 70 {
-		t.Fatalf("operation specs len = %d, want 70", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 77 {
+		t.Fatalf("operation specs len = %d, want 77", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -60,7 +60,7 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
-	for _, name := range []string{"go_info", "go_env", "go_version", "go_callers", "go_callees"} {
+	for _, name := range []string{"go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
 			t.Fatalf("delegation operations missing %s", name)
 		}

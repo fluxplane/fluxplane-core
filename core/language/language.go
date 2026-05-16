@@ -587,6 +587,128 @@ type GoListResult struct {
 	Complete    bool             `json:"complete,omitempty"`
 }
 
+// GoTestQuery selects structured go test execution.
+type GoTestQuery struct {
+	Language       LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go test."`
+	Patterns       []string   `json:"patterns,omitempty" jsonschema:"description=Package patterns. Defaults to [\".\"]."`
+	Run            string     `json:"run,omitempty" jsonschema:"description=Run only tests matching this regular expression."`
+	Skip           string     `json:"skip,omitempty" jsonschema:"description=Skip tests matching this regular expression."`
+	Short          bool       `json:"short,omitempty" jsonschema:"description=Tell long-running tests to shorten execution."`
+	Failfast       bool       `json:"failfast,omitempty" jsonschema:"description=Stop after the first package test failure."`
+	Count          *int       `json:"count,omitempty" jsonschema:"description=Run each test and benchmark n times."`
+	Timeout        string     `json:"timeout,omitempty" jsonschema:"description=Go duration timeout such as 30s or 2m."`
+	Vet            string     `json:"vet,omitempty" jsonschema:"description=Vet mode: default, off, or all."`
+	Race           bool       `json:"race,omitempty" jsonschema:"description=Enable the race detector."`
+	Cover          bool       `json:"cover,omitempty" jsonschema:"description=Enable coverage analysis."`
+	MaxOutputBytes int        `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoTestPackageResult summarizes go test events for one package.
+type GoTestPackageResult struct {
+	Package string   `json:"package,omitempty"`
+	Status  string   `json:"status,omitempty"`
+	Elapsed float64  `json:"elapsed,omitempty"`
+	Passed  int      `json:"passed,omitempty"`
+	Failed  int      `json:"failed,omitempty"`
+	Skipped int      `json:"skipped,omitempty"`
+	Output  []string `json:"output,omitempty"`
+}
+
+// GoTestResult contains structured go test output.
+type GoTestResult struct {
+	Packages    []GoTestPackageResult `json:"packages,omitempty"`
+	Events      []map[string]any      `json:"events,omitempty"`
+	Diagnostics []Diagnostic          `json:"diagnostics,omitempty"`
+	Passed      bool                  `json:"passed,omitempty"`
+	Complete    bool                  `json:"complete,omitempty"`
+}
+
+// GoVetQuery selects go vet diagnostics.
+type GoVetQuery struct {
+	Language       LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go vet."`
+	Patterns       []string   `json:"patterns,omitempty" jsonschema:"description=Package patterns. Defaults to [\".\"]."`
+	Tags           []string   `json:"tags,omitempty" jsonschema:"description=Optional build tags."`
+	JSON           bool       `json:"json,omitempty" jsonschema:"description=Request go vet JSON diagnostics."`
+	Diff           bool       `json:"diff,omitempty" jsonschema:"description=Unsupported in this milestone."`
+	Fix            bool       `json:"fix,omitempty" jsonschema:"description=Unsupported in this milestone."`
+	Vettool        string     `json:"vettool,omitempty" jsonschema:"description=Unsupported in this milestone."`
+	MaxOutputBytes int        `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoVetResult contains go vet diagnostics.
+type GoVetResult struct {
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	Output      string       `json:"output,omitempty"`
+	Passed      bool         `json:"passed,omitempty"`
+}
+
+// GoBuildQuery selects go build compile checks.
+type GoBuildQuery struct {
+	Language       LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go build."`
+	Patterns       []string   `json:"patterns,omitempty" jsonschema:"description=Package patterns. Defaults to [\".\"]."`
+	Tags           []string   `json:"tags,omitempty" jsonschema:"description=Optional build tags."`
+	Race           bool       `json:"race,omitempty" jsonschema:"description=Enable the race detector."`
+	Cover          bool       `json:"cover,omitempty" jsonschema:"description=Enable coverage analysis."`
+	Trimpath       bool       `json:"trimpath,omitempty" jsonschema:"description=Remove filesystem paths from resulting executable metadata."`
+	Mod            string     `json:"mod,omitempty" jsonschema:"description=Module download mode: readonly, vendor, or mod."`
+	Output         string     `json:"output,omitempty" jsonschema:"description=Unsupported in v1."`
+	MaxOutputBytes int        `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoBuildResult contains go build compile-check output.
+type GoBuildResult struct {
+	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
+	Output      string       `json:"output,omitempty"`
+	Passed      bool         `json:"passed,omitempty"`
+}
+
+// GoFmtQuery selects explicit go fmt formatting.
+type GoFmtQuery struct {
+	Language       LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string     `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go fmt."`
+	Patterns       []string   `json:"patterns,omitempty" jsonschema:"description=Package patterns. Defaults to [\".\"]."`
+	DryRun         *bool      `json:"dry_run,omitempty" jsonschema:"description=Preview formatting with go fmt -n. Defaults to true."`
+	Trace          bool       `json:"trace,omitempty" jsonschema:"description=Print commands as they are executed, equivalent to -x."`
+	Mod            string     `json:"mod,omitempty" jsonschema:"description=Module download mode: readonly, vendor, or mod."`
+	MaxOutputBytes int        `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoFmtResult contains go fmt output.
+type GoFmtResult struct {
+	Files      []string `json:"files,omitempty"`
+	Output     string   `json:"output,omitempty"`
+	DryRun     bool     `json:"dry_run,omitempty"`
+	WouldWrite bool     `json:"would_write,omitempty"`
+	Changed    bool     `json:"changed,omitempty"`
+}
+
+// GoInstallQuery selects explicit go install execution.
+type GoInstallQuery struct {
+	Language       LanguageID        `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string            `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go install."`
+	Packages       []string          `json:"packages" jsonschema:"description=Package paths or patterns to install.,required"`
+	Version        string            `json:"version,omitempty" jsonschema:"description=Optional shared version suffix such as latest or v1.2.3."`
+	DryRun         *bool             `json:"dry_run,omitempty" jsonschema:"description=Preview install with go install -n. Defaults to true."`
+	Trace          bool              `json:"trace,omitempty" jsonschema:"description=Print commands as they are executed, equivalent to -x."`
+	Tags           []string          `json:"tags,omitempty" jsonschema:"description=Optional build tags."`
+	Race           bool              `json:"race,omitempty" jsonschema:"description=Enable the race detector."`
+	Trimpath       bool              `json:"trimpath,omitempty" jsonschema:"description=Remove filesystem paths from resulting executable metadata."`
+	Mod            string            `json:"mod,omitempty" jsonschema:"description=Module download mode when version is empty: readonly, vendor, or mod."`
+	Env            map[string]string `json:"env,omitempty" jsonschema:"description=Restricted environment overrides. Allowed keys: GOBIN, GOPATH, GOOS, GOARCH, CGO_ENABLED."`
+	MaxOutputBytes int               `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoInstallResult contains go install output.
+type GoInstallResult struct {
+	Packages  []string `json:"packages,omitempty"`
+	Output    string   `json:"output,omitempty"`
+	DryRun    bool     `json:"dry_run,omitempty"`
+	Installed bool     `json:"installed,omitempty"`
+}
+
 // ProjectQuery selects language projects.
 type ProjectQuery struct {
 	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
