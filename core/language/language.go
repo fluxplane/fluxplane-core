@@ -409,11 +409,53 @@ type Reference struct {
 	Preview  string   `json:"preview,omitempty"`
 }
 
+// CallScope bounds a call hierarchy lookup.
+type CallScope string
+
+const (
+	CallScopeFile    CallScope = "file"
+	CallScopePackage CallScope = "package"
+	CallScopeModule  CallScope = "module"
+)
+
+// CallQuery selects a source position for language call hierarchy lookup.
+type CallQuery struct {
+	Language     LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path         string     `json:"path" jsonschema:"description=Workspace-relative Go source file path.,required"`
+	Line         int        `json:"line,omitempty" jsonschema:"description=1-indexed source line. Required unless offset is set."`
+	Column       int        `json:"column,omitempty" jsonschema:"description=1-indexed byte column. Required unless offset is set."`
+	Offset       *int       `json:"offset,omitempty" jsonschema:"description=0-indexed byte offset. Takes precedence over line and column. Offset 0 is valid."`
+	Scope        CallScope  `json:"scope,omitempty" jsonschema:"description=Call scan scope. Defaults to package.,enum=file,enum=package,enum=module"`
+	IncludeTests *bool      `json:"include_tests,omitempty" jsonschema:"description=Include _test.go files in package/module scans. Defaults to true."`
+	MaxResults   int        `json:"max_results,omitempty" jsonschema:"description=Maximum call edges returned."`
+	MaxBytes     int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh      bool       `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
 // CallEdge describes a caller/callee relationship.
 type CallEdge struct {
 	CallerID string   `json:"caller_id,omitempty"`
 	CalleeID string   `json:"callee_id,omitempty"`
+	Caller   Symbol   `json:"caller,omitempty"`
+	Callee   Symbol   `json:"callee,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Kind     string   `json:"kind,omitempty"`
 	Location Location `json:"location,omitempty"`
+	Preview  string   `json:"preview,omitempty"`
+}
+
+// CallResult contains caller and callee hierarchy edges.
+type CallResult struct {
+	Target         NavigationTarget `json:"target,omitempty"`
+	Symbol         Symbol           `json:"symbol,omitempty"`
+	Callers        []CallEdge       `json:"callers,omitempty"`
+	Callees        []CallEdge       `json:"callees,omitempty"`
+	Diagnostics    []Diagnostic     `json:"diagnostics,omitempty"`
+	ResolutionMode string           `json:"resolution_mode,omitempty"`
+	Complete       bool             `json:"complete,omitempty"`
+	Warnings       []string         `json:"warnings,omitempty"`
+	Indexed        bool             `json:"indexed,omitempty"`
+	Fresh          bool             `json:"fresh,omitempty"`
 }
 
 // ProjectQuery selects language projects.
@@ -467,6 +509,7 @@ type Provider interface {
 	Symbols(context.Context, SymbolQuery) (SymbolResult, error)
 	Imports(context.Context, ImportQuery) (ImportResult, error)
 	Implementations(context.Context, ImplementationQuery) (ImplementationResult, error)
+	Calls(context.Context, CallQuery) (CallResult, error)
 }
 
 // ProjectResult is a language project query result.

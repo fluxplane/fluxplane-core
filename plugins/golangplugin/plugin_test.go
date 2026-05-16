@@ -379,6 +379,122 @@ func (Service) Stop() error {
 	})
 }
 
+func TestGoCallOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
+	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+		service := `package service
+
+type Service struct{}
+
+func NewService() *Service {
+	return &Service{}
+}
+
+func (s *Service) Run() {
+	helper()
+	s.Stop()
+}
+
+func (s *Service) Stop() {}
+
+func helper() {}
+`
+		use := `package service
+
+func Use() {
+	svc := NewService()
+	svc.Run()
+	helper()
+}
+
+func Wrapper() {
+	Use()
+}
+`
+		testUse := `package service
+
+func TestUse() {
+	Use()
+}
+`
+		externalTestUse := `package service_test
+
+import "example.com/calls/pkg/service"
+
+func TestExternalUse() {
+	_ = service.NewService()
+}
+`
+		consumer := `package consumer
+
+import "example.com/calls/pkg/service"
+
+func Cross() {
+	_ = service.NewService()
+}
+`
+		child := `package service
+
+func Child() {
+	_ = NewService
+}
+`
+		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/calls\n\ngo 1.26\n")
+		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
+		writeGoFile(t, sys.Workspace(), "pkg/service/use.go", use)
+		writeGoFile(t, sys.Workspace(), "pkg/service/use_test.go", testUse)
+		writeGoFile(t, sys.Workspace(), "pkg/service/zz_external_test.go", externalTestUse)
+		writeGoFile(t, sys.Workspace(), "pkg/consumer/consumer.go", consumer)
+		writeGoFile(t, sys.Workspace(), "pkg/service/child/child.go", child)
+
+		line, column := goPosition(t, service, "Run() {")
+		callees := runGoOp(t, sys, CalleesOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column})
+		for _, want := range []string{"symbol: method Service.Run", "callee Service.Run -> helper", "callee Service.Run -> Service.Stop"} {
+			if !strings.Contains(callees.Text, want) {
+				t.Fatalf("callees text = %q, want %q", callees.Text, want)
+			}
+		}
+		if !strings.Contains(callees.Text, "Warning: AST-only") {
+			t.Fatalf("callees text = %q, want AST limitation warning", callees.Text)
+		}
+
+		line, column = goPosition(t, service, "NewService")
+		packageCallers := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column, "include_tests": false})
+		if !strings.Contains(packageCallers.Text, "caller Use -> NewService") || strings.Contains(packageCallers.Text, "Cross") || strings.Contains(packageCallers.Text, "child/child.go") || strings.Contains(packageCallers.Text, "use_test.go") {
+			t.Fatalf("package callers text = %q, want same package non-test callers only", packageCallers.Text)
+		}
+
+		moduleCallers := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column, "scope": "module", "include_tests": false})
+		if !strings.Contains(moduleCallers.Text, "caller Use -> NewService") || !strings.Contains(moduleCallers.Text, "caller Cross -> NewService") || strings.Contains(moduleCallers.Text, "child/child.go") {
+			t.Fatalf("module callers text = %q, want package and module-local import callers", moduleCallers.Text)
+		}
+		moduleCallersWithDefaultTests := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column, "scope": "module"})
+		if !strings.Contains(moduleCallersWithDefaultTests.Text, "caller Cross -> NewService") || !strings.Contains(moduleCallersWithDefaultTests.Text, "caller TestExternalUse -> NewService") {
+			t.Fatalf("module callers with default tests text = %q, want production package ID preserved with external tests", moduleCallersWithDefaultTests.Text)
+		}
+
+		line, column = goPosition(t, consumer, "NewService")
+		selectorCallers := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/consumer/consumer.go", "line": line, "column": column, "scope": "module", "include_tests": false})
+		if !strings.Contains(selectorCallers.Text, "symbol: function NewService") || !strings.Contains(selectorCallers.Text, "caller Cross -> NewService") {
+			t.Fatalf("selector callers text = %q, want module-local selector to resolve to function", selectorCallers.Text)
+		}
+
+		line, column = goPosition(t, use, "Use() {")
+		callersWithTests := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/service/use.go", "line": line, "column": column, "include_tests": true})
+		if !strings.Contains(callersWithTests.Text, "caller Wrapper -> Use") || !strings.Contains(callersWithTests.Text, "caller TestUse -> Use") {
+			t.Fatalf("callers with tests text = %q, want production and test callers", callersWithTests.Text)
+		}
+		callersWithoutTests := runGoOp(t, sys, CallersOp, map[string]any{"path": "pkg/service/use.go", "line": line, "column": column, "include_tests": false})
+		if strings.Contains(callersWithoutTests.Text, "TestUse") {
+			t.Fatalf("callers without tests text = %q, want tests excluded", callersWithoutTests.Text)
+		}
+
+		invalid := runGoResult(t, sys, CallersOp, map[string]any{"path": "pkg/service/use.go", "line": 1, "column": 1, "scope": "workspace"})
+		if invalid.Status != operation.StatusFailed || invalid.Error == nil || !strings.Contains(invalid.Error.Message, "unsupported call scope") {
+			t.Fatalf("invalid callers result = %#v, want unsupported scope failure", invalid)
+		}
+	})
+}
+
 func TestGoNavigationOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
 		defs := `package nav

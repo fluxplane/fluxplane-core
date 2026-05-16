@@ -34,6 +34,8 @@ const (
 	ReferencesOp       = "go_references"
 	ImportsOp          = "go_imports"
 	ImplementationsOp  = "go_implementations"
+	CallersOp          = "go_callers"
+	CalleesOp          = "go_callees"
 	SummaryProvider    = "go.summary"
 	defaultMaxResults  = 200
 	defaultSourceBytes = 512 * 1024
@@ -108,6 +110,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[language.ReferenceQuery, operation.Rendered](specByName(ReferencesOp), p.goReferences()),
 		operationruntime.NewTypedResult[language.ImportQuery, operation.Rendered](specByName(ImportsOp), p.goImports()),
 		operationruntime.NewTypedResult[language.ImplementationQuery, operation.Rendered](specByName(ImplementationsOp), p.goImplementations()),
+		operationruntime.NewTypedResult[language.CallQuery, operation.Rendered](specByName(CallersOp), p.goCallers()),
+		operationruntime.NewTypedResult[language.CallQuery, operation.Rendered](specByName(CalleesOp), p.goCallees()),
 	}, nil
 }
 
@@ -122,6 +126,8 @@ func specs() []operation.Spec {
 		spec[language.ReferenceQuery](ReferencesOp, "Return bounded AST/package-level Go references for the selected symbol at a source position. Scope defaults to the same package directory, include_tests defaults to true, and results report parser-only limitations."),
 		spec[language.ImportQuery](ImportsOp, "Return direct and reverse Go import edges from parser-only source reads. Direction defaults to both, include_tests defaults to true, and reverse lookups stay bounded to the requested path scope."),
 		spec[language.ImplementationQuery](ImplementationsOp, "Return best-effort AST-only Go implementation relationships for a selected interface, concrete type, or method. Scope defaults to the selected package; module scope is supported."),
+		spec[language.CallQuery](CallersOp, "Return bounded AST-only direct callers for the selected Go function or method. Scope defaults to package, include_tests defaults to true, and module scope is best-effort for module-local function selectors."),
+		spec[language.CallQuery](CalleesOp, "Return bounded AST-only direct callees from the selected Go function or method body. Scope defaults to package, include_tests defaults to true, and unresolved external/function-value calls are reported as limitations."),
 	}
 }
 
@@ -224,7 +230,7 @@ func renderGoSummary(projects []coreproject.Project, pkgs []language.Package) st
 			lines = append(lines, "- command entrypoints: "+strings.Join(cmds, ", "))
 		}
 	}
-	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, go_imports, and go_implementations for details.")
+	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, go_imports, go_implementations, go_callers, and go_callees for details.")
 	return strings.Join(lines, "\n")
 }
 

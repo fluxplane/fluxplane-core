@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   best-effort stdlib/module-local/external classification.
 - Added `go_implementations` for best-effort AST-only Go interface/concrete
   implementation lookup.
+- Added `go_callers` and `go_callees` for bounded AST-only Go direct call
+  hierarchy lookup.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested

@@ -3,8 +3,8 @@
 ## Status
 
 Implemented first read-only slice plus parser-only Go navigation, references,
-import views, and implementation lookup. Updated direction: no Axon dependency
-for project or Go language support.
+import views, implementation lookup, and direct call hierarchy. Updated
+direction: no Axon dependency for project or Go language support.
 
 Current implementation status:
 
@@ -18,8 +18,9 @@ Current implementation status:
 | `go_references` | Implemented; package scope is constrained to exact package directory/package ID |
 | `go_imports` | Implemented; parser-only direct and reverse import edges |
 | `go_implementations` | Implemented; AST-only package-qualified method-name matching |
-| Next | `go_callers` / `go_callees` |
-| Remaining | `go_doc`, `go_test`, `go_list`, `go_fmt` |
+| `go_callers` / `go_callees` | Implemented; AST-only direct calls with package/module scope and explicit limitations |
+| Next | `go_doc`, then `go_test` / `go_list` |
+| Remaining | `go_fmt` and future Go-aware code edit/refactor operations |
 
 ## Summary
 
@@ -134,13 +135,13 @@ Initial operations:
   filtering and best-effort stdlib/module-local/external classification.
 - `go_implementations`: best-effort AST-only interface/concrete type
   implementation lookup from a selected source position.
+- `go_callers` and `go_callees`: bounded AST-only direct call hierarchy lookup
+  for selected functions and methods.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
 Later operations:
 
-- `go_callers` and `go_callees`: bounded static call hierarchy with explicit
-  limitations.
 - `go_doc`: package or symbol documentation, possibly with `system.Process`
   fallback.
 
@@ -200,13 +201,20 @@ bounded requested path scope for importers of an explicit `import_path`, or a
 module-derived selected package import path when one is available. It does not
 run `go list`, resolve build tags, or consult the module graph.
 
-The first `go_implementations` slice is also parser-only. It resolves a selected
-interface, concrete type, or method, then compares explicit method names in
-package or module scope. It reports value, pointer, and method-correspondence
-relationships, but does not type-check signatures, embedded/promoted methods,
-aliases, generic constraints, build tags, cgo, or external packages.
-Implementation indexes use package-qualified type keys so same-name types in
-different packages do not merge method sets.
+The first `go_implementations` slice is also parser-only. It resolves a
+selected interface, concrete type, or method, then compares explicit method
+names in package or module scope. It reports value, pointer, and
+method-correspondence relationships, but does not type-check signatures,
+embedded/promoted methods, aliases, generic constraints, build tags, cgo, or
+external packages. Implementation indexes use package-qualified type keys so
+same-name types in different packages do not merge method sets.
+
+The first `go_callers` / `go_callees` slice is parser-only direct-call
+hierarchy. It resolves selected functions and methods, supports file/package
+scope plus best-effort module scope for module-local package function
+selectors, and reports AST-only limitations for interface dispatch, function
+values, reflection, external packages, build tags, cgo, and full type-checked
+resolution.
 
 ## Automatic Context Providers
 
@@ -299,18 +307,21 @@ operates on existing files only.
 
 Future Go-aware mutation should be exposed as separate operations, for example:
 
-- `go_rename_symbol`
-- `go_add_function`
-- `go_replace_function_body`
-- `go_add_method`
 - `go_update_imports`
+- `go_replace_function_body`
+- `go_add_function`
+- `go_add_method`
+- `go_rename_symbol`
 
 These should be designed as Go operations with AST/package semantics, not line
 number semantics. They must resolve against the current indexed source, produce
 a dry-run diff by default, and route final writes through `system.Workspace`.
 
-For the first plugin version, keep these as non-goals. Build reliable read and
-navigation operations first.
+For the first plugin version, keep these as non-goals until `go_doc`,
+`go_test`, and `go_list` are in place. The recommended edit rollout is:
+`go_update_imports`, `go_replace_function_body`, `go_add_function`,
+`go_add_method`, then `go_rename_symbol` last because cross-file rename needs
+the highest correctness bar.
 
 ## Tests
 
@@ -323,7 +334,8 @@ Use table-driven tests with temporary Go modules:
 - file outline for funcs, methods, structs, interfaces, consts, and vars;
 - symbol lookup across packages;
 - references, imports, and implementation lookup for a small multi-file module;
-- call graph for a small multi-file module once call operations exist;
+- call graph for a small multi-file module, including same-package calls,
+  module-local import selectors, test filtering, and nested package exclusion;
 - markdown outline availability if the design later adds generic project
   outline operations through language plugins;
 - automatic context provider aggregation through `codingplugin`;
@@ -359,7 +371,8 @@ First implementation slice:
 3. Add the plugins to `codingplugin.New` after the core read operations pass.
 4. Add `go_references` and `go_imports` once the navigation path is proven.
 5. Add `go_implementations` once import/reference navigation is stable.
-6. Consider `go_test` and `go_list` wrappers after read/navigation tools are
+6. Add `go_callers` / `go_callees` once implementation lookup is stable.
+7. Consider `go_doc`, `go_test`, and `go_list` wrappers after read/navigation tools are
    stable.
 
 Navigation implementation slice:
@@ -375,7 +388,8 @@ Navigation implementation slice:
 5. Add parser-only `go_imports` with direct and reverse import edges.
 6. Add parser-only `go_implementations` with package/module method-name
    matching.
-7. Defer call hierarchy, type checking, and process wrappers.
+7. Add parser-only `go_callers` / `go_callees` with direct call edges.
+8. Defer type checking and process wrappers.
 
 Current context/markdown implementation slice:
 
@@ -449,5 +463,17 @@ Reviewer findings recorded before fixes:
 - P2: dotless module paths such as `module app` were misclassified as stdlib.
   Fix: classify known module-path prefixes before applying the stdlib
   heuristic.
+
+Status: resolved with regression coverage in `plugins/golangplugin`.
+
+## REVIEW #5
+
+Reviewer findings recorded before fixes:
+
+- P2: `go_callers` / `go_callees` module-scope selector resolution could map a
+  module-local import path to an external `_test` package ID when
+  `include_tests` defaulted to true. Fix: preserve production package IDs for
+  import selector lookup and never let `package foo_test` overwrite the
+  production `package foo` mapping.
 
 Status: resolved with regression coverage in `plugins/golangplugin`.
