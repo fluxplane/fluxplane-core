@@ -60,6 +60,11 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
+	for _, name := range []string{"go_callers", "go_callees"} {
+		if !operationRefsContain(session.Delegation.Operations, name) {
+			t.Fatalf("delegation operations missing %s", name)
+		}
+	}
 	worker := composition.AgentSpecs[1]
 	if len(worker.Commands) != 0 {
 		t.Fatalf("worker commands len = %d, want 0", len(worker.Commands))
@@ -90,6 +95,15 @@ func agentHasDatasource(spec agent.Spec, name string) bool {
 func hasDatasourceSpec(specs []coredatasource.Spec, name, kind string) bool {
 	for _, spec := range specs {
 		if spec.Name == coredatasource.Name(name) && spec.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func operationRefsContain(refs []operation.Ref, name string) bool {
+	for _, ref := range refs {
+		if ref.Name == operation.Name(name) {
 			return true
 		}
 	}

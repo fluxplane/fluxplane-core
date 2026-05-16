@@ -2,9 +2,11 @@
 
 ## Status
 
-Implemented first read-only slice plus parser-only Go navigation, references,
-import views, implementation lookup, and direct call hierarchy. Updated
-direction: no Axon dependency for project or Go language support.
+Implemented first read-only slice plus Go navigation, references, import views,
+implementation lookup, and direct call hierarchy. Updated direction: no Axon
+dependency for project or Go language support. Generic code-editing and
+refactoring direction has moved to
+[`2026-05-16-1425-code-edit.md`](../designs/2026-05-16-1425-code-edit.md).
 
 Current implementation status:
 
@@ -17,10 +19,48 @@ Current implementation status:
 | `go_definition`, `go_symbol_info` | Implemented |
 | `go_references` | Implemented; package scope is constrained to exact package directory/package ID |
 | `go_imports` | Implemented; parser-only direct and reverse import edges |
-| `go_implementations` | Implemented; AST-only package-qualified method-name matching |
-| `go_callers` / `go_callees` | Implemented; AST-only direct calls with package/module scope and explicit limitations |
-| Next | `go_doc`, then `go_test` / `go_list` |
-| Remaining | `go_fmt` and future Go-aware code edit/refactor operations |
+| `go_implementations` | Implemented; host workspaces prefer `go/packages` + `go/types` type-checked matching with AST fallback |
+| `go_callers` / `go_callees` | Implemented and exposed to coder delegation; AST-only direct calls with package/module scope and explicit limitations |
+| Next | `go_info`, `go_env`, `go_version`, `go_doc`, and `go_list` |
+| Toolchain actions | `go_test`, `go_fmt`, `go_vet`, and `go_build` |
+| Toolchain follow-up | `go_install` |
+| Deferred | Abstract code-editing/refactor operations tracked separately in `2026-05-16-1425-code-edit.md` |
+
+## Current Progress
+
+Completed:
+
+- Go project/package/outline/symbol discovery.
+- Position-based definition, symbol info, references, imports,
+  implementations, callers, and callees.
+- Type-aware `go_implementations` for host workspaces, with clean AST fallback
+  for virtual workspaces and method-correspondence lookups.
+- Type-checked zero-match implementation results are authoritative and do not
+  fall back to AST name matching.
+- Coder delegation exposes `go_callers` and `go_callees`.
+- Generic code editing/refactoring scope is split into
+  `2026-05-16-1425-code-edit.md`.
+
+Remaining:
+
+- Implement `go_info`, `go_env`, `go_version`, `go_doc`, and `go_list`.
+- Implement process-backed `go_test`, `go_fmt`, `go_vet`, and `go_build`.
+- Add `go_install` after the safer wrappers, defaulting to dry-run first.
+- Decide whether `go_callers` / `go_callees` need type-aware resolution before
+  or after the toolchain operation slice.
+
+Next steps:
+
+1. Add shared direct-argv helpers for bounded `go` process execution through
+   `runtime/system.Process`.
+2. Add `go_info`, `go_env`, and `go_version` as the first read-only toolchain
+   operations.
+3. Add `go_doc` and `go_list`, then reuse their process/parsing helpers for
+   `go_test`, `go_vet`, and `go_build`.
+4. Add `go_fmt` only as an explicit side-effecting operation with dry-run
+   support.
+5. Revisit `go_install` after the safer command wrappers have tests and
+   operation policy coverage.
 
 ## Summary
 
@@ -34,10 +74,12 @@ turns receive project and Go orientation before the model asks for a tool.
 Markdown gets its own language-support plugin for accurate document outlines,
 link listing, and local-only diagnostics.
 
-The first version is Workspace-native, memory-only, and does not use Axon.
-Axon remains useful prior art for vocabulary and future feature shape, but it
-must not be imported by `plugins/golangplugin` or the project/language core
-models.
+The first version is Workspace-native and does not use Axon. Project inventory
+remains process-local memory only. Go operations should read through
+`runtime/system.Workspace` unless a specific semantic backend requires host Go
+tooling; today that exception is `go_implementations`, which can use
+`go/packages` / `go/types` for host workspaces and falls back to parser-only
+matching when semantic loading is unavailable.
 
 ## Motivation
 
@@ -113,8 +155,10 @@ edges.
 
 Create `plugins/golangplugin` with `Name = "golang"` and an operation set named
 `golang`. The plugin depends on `runtime/system.System` for workspace access and
-uses `go/parser`, `go/ast`, `go/token`, and `golang.org/x/mod/modfile`. It does
-not use Axon, `go/packages`, `os`, or direct host filesystem walking.
+uses `go/parser`, `go/ast`, `go/token`, `golang.org/x/mod/modfile`, and targeted
+`go/packages` / `go/types` loading where semantic Go answers require type
+identity. It does not use Axon, `os`, or direct host filesystem walking for the
+Workspace-native parser paths.
 
 Initial operations:
 
@@ -133,17 +177,34 @@ Initial operations:
   filtering.
 - `go_imports`: parser-only direct and reverse import views with test-file
   filtering and best-effort stdlib/module-local/external classification.
-- `go_implementations`: best-effort AST-only interface/concrete type
-  implementation lookup from a selected source position.
+- `go_implementations`: interface/concrete type implementation lookup from a
+  selected source position; host workspaces prefer type-checked matching and
+  memory workspaces fall back to AST/package-qualified method-name matching.
 - `go_callers` and `go_callees`: bounded AST-only direct call hierarchy lookup
   for selected functions and methods.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
-Later operations:
+Next operations:
 
+- `go_info`: compact Go toolchain orientation for agents, aggregating version,
+  curated environment, module/workspace paths, proxy/private settings, cache
+  dirs, and diagnostics.
+- `go_env`: structured read-only `go env -json` wrapper for selected variables
+  or the full Go environment; mutating `go env -w` and `go env -u` are out of
+  scope.
+- `go_version`: explicit `go version` wrapper, including optional
+  workspace-relative binary build-info inspection.
 - `go_doc`: package or symbol documentation, possibly with `system.Process`
   fallback.
+- `go_list`: structured `go list -json` package/module metadata wrapper.
+- `go_test`: structured `go test -json` execution summaries.
+- `go_fmt`: explicit `go fmt` formatting operation with dry-run support.
+- `go_vet`: structured `go vet` diagnostics; `-fix` is out of scope.
+- `go_build`: compile-check wrapper; output artifact placement is out of
+  scope for the first slice.
+- `go_install`: follow-up explicit installer operation; default to dry-run
+  first because it can write outside the workspace and download modules.
 
 ### Navigation Requirements
 
@@ -201,13 +262,14 @@ bounded requested path scope for importers of an explicit `import_path`, or a
 module-derived selected package import path when one is available. It does not
 run `go list`, resolve build tags, or consult the module graph.
 
-The first `go_implementations` slice is also parser-only. It resolves a
-selected interface, concrete type, or method, then compares explicit method
-names in package or module scope. It reports value, pointer, and
-method-correspondence relationships, but does not type-check signatures,
-embedded/promoted methods, aliases, generic constraints, build tags, cgo, or
-external packages. Implementation indexes use package-qualified type keys so
-same-name types in different packages do not merge method sets.
+The current `go_implementations` slice resolves a selected interface, concrete
+type, or method. For host workspaces and type selections, it first loads package
+or module scope with `go/packages` and checks interface satisfaction with
+`go/types`, including pointer/value method sets, aliases, type identity, and
+embedded/promoted methods. If type loading is unavailable or the selected
+symbol is a method, it falls back to parser-only package-qualified method-name
+matching. Results must report `resolution_mode` and diagnostics so callers can
+distinguish type-checked answers from best-effort AST answers.
 
 The first `go_callers` / `go_callees` slice is parser-only direct-call
 hierarchy. It resolves selected functions and methods, supports file/package
@@ -255,13 +317,162 @@ files and missing markdown anchors are reported as errors, and anchors on
 non-markdown files are warnings.
 
 
-Command-like helpers can be added once the read path exists:
+## Go Environment And Toolchain Introspection
 
-- `go_test`: structured wrapper around `go test` with package list, timeout,
-  env passthrough policy, and summarized failures.
-- `go_list`: structured wrapper around `go list` for package metadata.
-- `go_fmt`: optional later operation; formatting mutates files and should be
-  treated as an explicit side-effecting operation, not hidden inside reads.
+`go_info` is the default quick-orientation operation for Go agents. It should
+run `go version` and `go env -json`, then return a curated object rather than
+a raw environment dump:
+
+- `version`: `GOVERSION` plus the `go version` text.
+- `target`: `GOOS`, `GOARCH`, `GOHOSTOS`, `GOHOSTARCH`, `CGO_ENABLED`.
+- `workspace`: selected working directory, `GOMOD`, and `GOWORK`.
+- `paths`: `GOROOT`, `GOPATH`, `GOBIN`, `GOMODCACHE`, `GOCACHE`, `GOTOOLDIR`.
+- `modules`: `GO111MODULE`, `GOTOOLCHAIN`, `GOFLAGS`.
+- `network`: raw and parsed `GOPROXY`, `GOSUMDB`, `GOINSECURE`.
+- `private`: parsed `GOPRIVATE`, `GONOPROXY`, `GONOSUMDB`.
+- `diagnostics`: process or parsing warnings.
+
+Parse comma-separated private settings into lists. For `GOPROXY`, preserve the
+raw value and expose a parsed chain that distinguishes comma fallbacks from pipe
+fallback groups.
+
+`go_env` is the lower-level read-only environment wrapper. It supports
+`go env -json`, explicit variable selection, and `go env -changed -json`, but
+must not expose `go env -w` or `go env -u`.
+
+`go_version` is the explicit version wrapper. With no files, it reports the
+toolchain version. With workspace-relative files, it may run `go version -m`
+and parse binary build metadata. It must not recursively scan large directories
+by default.
+
+## Go Toolchain Operation Scope
+
+The Go plugin may expose selected `go <command>` operations as structured
+operations. The immediate toolchain surface is:
+
+- `go_doc`: documentation lookup for a package or symbol.
+- `go_list`: package/module metadata.
+- `go_test`: structured test execution.
+- `go_fmt`: explicit formatting mutation with dry-run support.
+- `go_vet`: diagnostics, with `-fix` excluded from this slice.
+- `go_build`: compile checks, with output artifact placement excluded from v1.
+
+`go_install` is a follow-up operation. It belongs in Go-plugin scope, but it is
+higher risk because it writes binaries outside the workspace by default and may
+download modules.
+
+Deferred commands:
+
+- `go_generate`: can execute arbitrary generators and mutate source.
+- `go_fix`: mutates source.
+- `go_get`, `go_mod_*`, `go_work_*`: mutate module/workspace dependency state.
+- `go_run`: executes project code.
+- `go_clean`: deletes build artifacts and caches.
+- `go_telemetry`, `go_bug`: process/global environment surfaces, not coding
+  context primitives.
+- arbitrary `go_tool`: too broad for the first structured operation set.
+
+## Toolchain Operation Parameters
+
+`go_info` input:
+
+- `path`: workspace-relative working directory.
+- `include_private`: default true; includes parsed private/proxy/sumdb config
+  but no secrets.
+- `include_paths`: default true; includes GOROOT/GOPATH/GOMOD/GOWORK/cache/tool
+  dirs.
+- `include_raw_env`: default false; when true embeds selected raw `go env`
+  values.
+- `max_bytes`: bound raw output capture.
+
+`go_env` input:
+
+- `path`: workspace-relative working directory.
+- `vars`: optional env var names; default is the curated `go_info` set.
+- `all`: when true, return all `go env -json`.
+- `changed`: maps to `go env -changed -json`.
+- `redact`: default true; redact sensitive-looking values if new env keys are
+  added later.
+- Explicitly unsupported: write, unset, and any `GOENV` mutation.
+
+`go_version` input:
+
+- `path`: workspace-relative working directory.
+- `files`: optional workspace-relative binary files.
+- `module_info`: maps to `go version -m`.
+- `json`: enabled internally when `module_info` is true.
+- `verbose`: maps to `-v`, only for explicit file or directory inspection.
+- `max_results`, `max_bytes`.
+
+`go_doc` input:
+
+- `path`: workspace-relative file or directory.
+- `line`, `column`, `offset`: optional source-position selector.
+- `package`: optional import path or package suffix.
+- `symbol`: optional symbol, method, or field selector.
+- `all`, `short`, `source`, `include_unexported`, `include_cmd`.
+- `max_bytes`.
+
+`go_list` input:
+
+- `path`: workspace-relative working directory.
+- `patterns`: package/module patterns; default `["."]`.
+- `modules`, `deps`, `test`, `compiled`, `find`, `include_errors`.
+- `max_results`, `max_bytes`.
+- Always invoke with `-json` internally and parse structured output.
+
+`go_test` input:
+
+- `path`: workspace-relative working directory.
+- `patterns`: package patterns; default `["."]`.
+- `run`, `skip`, `short`, `failfast`, `count`, `timeout`.
+- `vet`: `default`, `off`, or `all`.
+- `race`, `cover`.
+- `max_output_bytes`.
+- Prefer `-json` internally and summarize package/test events.
+
+`go_fmt` input:
+
+- `path`: workspace-relative working directory.
+- `patterns`: package patterns; default `["."]`.
+- `dry_run`: when true, run `go fmt -n`; when false, run `go fmt`.
+- `trace`: maps to `-x`.
+- `mod`: optional `readonly`, `vendor`, or `mod`.
+- Output changed or would-change file paths.
+
+`go_vet` input:
+
+- `path`: workspace-relative working directory.
+- `patterns`: package patterns; default `["."]`.
+- `tags`: optional build tags.
+- `json`: enabled internally where supported.
+- `diff`: optional dry-run patch output.
+- `fix`: unsupported in this milestone.
+- `vettool`: unsupported in this milestone.
+- `max_output_bytes`.
+
+`go_build` input:
+
+- `path`: workspace-relative working directory.
+- `patterns`: package patterns; default `["."]`.
+- `tags`: optional build tags.
+- `race`, `cover`, `trimpath`.
+- `mod`: optional `readonly`, `vendor`, or `mod`.
+- `output`: unsupported in v1.
+- `max_output_bytes`.
+
+`go_install` input:
+
+- `path`: workspace-relative working directory.
+- `packages`: package paths or patterns; required.
+- `version`: optional shared suffix such as `latest` or `v1.2.3`; when set,
+  render every package as `pkg@version`.
+- `dry_run`: default true in the first implementation; maps to `go install -n`.
+- `trace`, `tags`, `race`, `trimpath`.
+- `mod`: allowed only when `version` is empty.
+- restricted env allowlist: `GOBIN`, `GOPATH`, `GOOS`, `GOARCH`,
+  `CGO_ENABLED`.
+- `max_output_bytes`.
 
 ## Operation Contracts
 
@@ -273,8 +484,18 @@ Keep model-facing inputs small and explicit:
   text;
 - large results are bounded by `max_results`, `max_bytes`, or `max_depth`;
 - refresh means rebuild the current in-memory view for the plugin instance;
-- read operations are low risk and filesystem-read only;
-- command wrappers declare process intent and use `system.Process`.
+- parser read operations are low risk and filesystem-read only;
+- toolchain wrappers declare process intent and use `system.Process`;
+- no toolchain operation accepts shell fragments;
+- toolchain operations build direct `go` argv arrays only;
+- process output is bounded through `MaxStdout`, `MaxStderr`, and timeout;
+- `go_doc`, `go_env`, `go_info`, `go_version`, and `go_list` are low-risk
+  process reads;
+- `go_test`, `go_vet`, and `go_build` are medium-risk process checks;
+- `go_fmt` is medium-risk and declares filesystem update effects when not
+  dry-run;
+- `go_install` is high-risk unless constrained to dry-run or an isolated temp
+  `GOBIN`.
 
 The first version should not expose raw Axon graph nodes as the public schema.
 Convert Axon data into stable Go-specific DTOs so the plugin can change the
@@ -300,28 +521,16 @@ If other plugins need richer shared project state later, expand
 `runtime/project` behind neutral core DTOs rather than introducing a
 language-specific manager first.
 
-## Editing and Refactoring Direction
+## Code Editing Scope
 
-Do not put AST editing into `file_edit`. `file_edit` remains file-oriented and
-operates on existing files only.
-
-Future Go-aware mutation should be exposed as separate operations, for example:
-
-- `go_update_imports`
-- `go_replace_function_body`
-- `go_add_function`
-- `go_add_method`
-- `go_rename_symbol`
-
-These should be designed as Go operations with AST/package semantics, not line
-number semantics. They must resolve against the current indexed source, produce
-a dry-run diff by default, and route final writes through `system.Workspace`.
-
-For the first plugin version, keep these as non-goals until `go_doc`,
-`go_test`, and `go_list` are in place. The recommended edit rollout is:
-`go_update_imports`, `go_replace_function_body`, `go_add_function`,
-`go_add_method`, then `go_rename_symbol` last because cross-file rename needs
-the highest correctness bar.
+Generic code editing and language-aware refactoring are tracked separately in
+[`2026-05-16-1425-code-edit.md`](../designs/2026-05-16-1425-code-edit.md).
+This plan stays focused on project inventory, Go structural reads, navigation,
+documentation, and explicit process-backed Go toolchain commands. `go_fmt` is
+in scope here because it is an explicit formatting command, not a hidden edit
+or refactor primitive. Future Go-aware edit operations can consume the Go
+read/navigation capabilities from this plan, but they should not expand the
+scope of the current project+Go roadmap.
 
 ## Tests
 
@@ -334,6 +543,9 @@ Use table-driven tests with temporary Go modules:
 - file outline for funcs, methods, structs, interfaces, consts, and vars;
 - symbol lookup across packages;
 - references, imports, and implementation lookup for a small multi-file module;
+- type-checked implementation lookup for host workspaces, including aliases,
+  pointer/value method sets, and embedded/promoted methods, with AST fallback
+  preserved for memory workspaces and method selections;
 - call graph for a small multi-file module, including same-package calls,
   module-local import selectors, test filtering, and nested package exclusion;
 - markdown outline availability if the design later adds generic project
@@ -345,19 +557,35 @@ Use table-driven tests with temporary Go modules:
 - stale/refresh behavior;
 - operation schema documentation for path bounds, result bounds, and refresh.
 
-For command wrappers:
+For Go toolchain wrappers:
 
-- `go_test` success and failure summaries;
-- timeout behavior;
-- process intent declaration;
-- no direct `os/exec` use in the plugin.
+- `go_info`: curated fields present, parsed proxy/private lists, and no full
+  raw environment dump by default.
+- `go_env`: curated vars, explicit vars, all vars, changed mode, and rejection
+  of write/unset inputs.
+- `go_version`: toolchain version, binary module-info path, and max output
+  bounds.
+- `go_doc`: package docs, symbol docs, unexported docs, and no-doc diagnostics.
+- `go_list`: package metadata, module metadata, test packages, and broken
+  package diagnostics.
+- `go_test`: pass, fail, compile error, `-run`, timeout, and JSON event
+  parsing.
+- `go_fmt`: dry-run command reporting and real formatting mutation in a temp
+  workspace.
+- `go_vet`: JSON diagnostics, `-diff`, and rejection of `fix`.
+- `go_build`: successful compile check and compile failure diagnostics.
+- `go_install`: dry-run local main package, `pkg@version` rendering, rejected
+  mixed/empty package input, restricted env allowlist, and real install only
+  into an isolated temp `GOBIN`.
+- timeout behavior, process intent declaration, output truncation, and no
+  direct `os/exec` use in the plugin.
 
 Run at minimum:
 
 ```bash
-go test ./plugins/golangplugin ./plugins/codingplugin
+env GOCACHE=/tmp/go-cache go test ./plugins/golangplugin ./plugins/codingplugin ./apps/coder
 go test ./plugins/markdownplugin
-task verify
+env -u TAVILY_API_KEY GOCACHE=/tmp/go-cache task verify
 ```
 
 ## Rollout
@@ -372,8 +600,13 @@ First implementation slice:
 4. Add `go_references` and `go_imports` once the navigation path is proven.
 5. Add `go_implementations` once import/reference navigation is stable.
 6. Add `go_callers` / `go_callees` once implementation lookup is stable.
-7. Consider `go_doc`, `go_test`, and `go_list` wrappers after read/navigation tools are
-   stable.
+7. Upgrade `go_implementations` with a type-aware backend for host workspaces.
+8. Add read-only Go toolchain orientation: `go_info`, `go_env`,
+   `go_version`, `go_doc`, and `go_list`.
+9. Add process-backed checks and explicit formatting: `go_test`, `go_fmt`,
+   `go_vet`, and `go_build`.
+10. Add `go_install` after the safer command wrappers, defaulting to dry-run
+   and supporting isolated temp `GOBIN` tests before normal install writes.
 
 Navigation implementation slice:
 
@@ -388,8 +621,10 @@ Navigation implementation slice:
 5. Add parser-only `go_imports` with direct and reverse import edges.
 6. Add parser-only `go_implementations` with package/module method-name
    matching.
-7. Add parser-only `go_callers` / `go_callees` with direct call edges.
-8. Defer type checking and process wrappers.
+7. Upgrade type selections in `go_implementations` to prefer
+   `go/packages` / `go/types` when host package loading is available.
+8. Add parser-only `go_callers` / `go_callees` with direct call edges.
+9. Defer further type checking and process wrappers.
 
 Current context/markdown implementation slice:
 
@@ -400,14 +635,28 @@ Current context/markdown implementation slice:
 4. Expose markdown operations through the coder app and delegation operation
    allowlist.
 
+Go toolchain implementation slice:
+
+1. Add shared direct-argv helpers for bounded `go` process execution through
+   `runtime/system.Process`.
+2. Add `go_info`, `go_env`, and `go_version` with read-only semantics.
+3. Add `go_doc` and `go_list`, parsing JSON where the Go command supports it.
+4. Add `go_test`, `go_vet`, and `go_build` using bounded output and structured
+   summaries.
+5. Add `go_fmt` as an explicit mutating operation with dry-run support.
+6. Add `go_install` as a follow-up high-risk operation with dry-run-first
+   behavior and restricted environment overrides.
+
 ## Open Questions
 
 - Should `coder` warm project inventory during startup, or keep it strictly
   operation-triggered?
 - Should future operations become language-agnostic wrappers over provider
   implementations, or should language-specific tool names remain model-facing?
-- When callers/callees arrive, how much type resolution is worth doing without
-  `go/packages`?
+- How much type resolution should `go_callers` / `go_callees` gain before
+  process-backed `go list` / `go test` wrappers?
+- Should `go_install` ever default to real execution, or should it remain
+  dry-run by default unless the caller supplies an isolated `GOBIN`?
 
 ## REVIEW #1
 
@@ -477,3 +726,50 @@ Reviewer findings recorded before fixes:
   production `package foo` mapping.
 
 Status: resolved with regression coverage in `plugins/golangplugin`.
+
+## REVIEW #6
+
+Review input: `go-plugin-review.md`.
+
+Reviewer findings recorded before fixes:
+
+- `go_implementations` could not reliably answer "find implementations of
+  interface X" for cross-package interfaces because its AST-only method-name
+  matcher missed type identity, imported aliases, embedded/promoted methods,
+  generic method sets, build constraints, and precise pointer/value receiver
+  semantics. The concrete motivating case was `core/datasource.Provider`,
+  where likely providers existed but module-scope lookup did not find them
+  authoritatively.
+
+Fix:
+
+- Add a type-aware `go_implementations` backend for host workspaces using
+  `go/packages` and `go/types`.
+- Keep the existing AST matcher as fallback for memory workspaces, package load
+  failures, and method-correspondence lookups.
+- Report `resolution_mode`, warnings, and package-load diagnostics so callers
+  can tell semantic answers from best-effort parser answers.
+
+Status: implemented with regression coverage for aliases, promoted methods,
+and pointer/value method-set matching in `plugins/golangplugin`.
+
+## REVIEW #7
+
+Reviewer findings recorded before fixes:
+
+- P2: a successful type-checked lookup with zero matches returned `ok=false`,
+  causing `go_implementations` to fall back to AST method-name matching and
+  report false positives that `go/types` had already rejected.
+- P2: virtual workspaces such as `systemtest.MemoryWorkspace` still attempted
+  `go/packages` loading against fake host paths like `/memory-workspace`,
+  producing bogus package-load diagnostics before AST fallback.
+
+Fix:
+
+- Treat host type-checked zero-match results as authoritative typed results.
+- Skip `go/packages` unless the workspace is backed by `runtime/system.HostWorkspace`.
+- Render type-checked no-match results as type-checked no matches instead of
+  AST-level no matches.
+
+Status: resolved with regression coverage for incompatible method signatures
+and clean virtual-workspace AST fallback in `plugins/golangplugin`.

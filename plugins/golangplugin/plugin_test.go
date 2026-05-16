@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -318,15 +319,29 @@ func (TestImpl) TestHook() {}
 
 		line, column := goPosition(t, contract, "Runner interface")
 		runnerModule := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
-		for _, want := range []string{"pointer Service implements Runner", "value Sibling implements Runner", "matched: Run, Stop", "missing_methods"} {
+		for _, want := range []string{"pointer Service implements Runner", "value Sibling implements Runner", "matched: Run, Stop"} {
 			if !strings.Contains(runnerModule.Text, want) {
 				t.Fatalf("runner module implementations text = %q, want %q", runnerModule.Text, want)
 			}
 		}
+		if implementationResultFromRendered(t, runnerModule).ResolutionMode == "ast" && !strings.Contains(runnerModule.Text, "missing_methods") {
+			t.Fatalf("runner module implementations text = %q, want AST partial-match diagnostics", runnerModule.Text)
+		}
+		if strings.Contains(runnerModule.Text, "packages_load") || strings.Contains(runnerModule.Text, "typecheck_unavailable") {
+			t.Fatalf("runner module implementations text = %q, want clean AST fallback for virtual workspaces", runnerModule.Text)
+		}
 
 		runnerPackage := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column})
-		if strings.Contains(runnerPackage.Text, "Service implements Runner") || !strings.Contains(runnerPackage.Text, "no AST-level implementation matches") {
+		if strings.Contains(runnerPackage.Text, "Service implements Runner") {
 			t.Fatalf("runner package implementations text = %q, want package scope only", runnerPackage.Text)
+		}
+		packageImplementations := implementationResultFromRendered(t, runnerPackage)
+		if packageImplementations.ResolutionMode == "type_checked" {
+			if !strings.Contains(runnerPackage.Text, "no type-checked implementation matches") {
+				t.Fatalf("runner package implementations text = %q, want type-checked no-match result", runnerPackage.Text)
+			}
+		} else if !strings.Contains(runnerPackage.Text, "no AST-level implementation matches") {
+			t.Fatalf("runner package implementations text = %q, want AST no-match result", runnerPackage.Text)
 		}
 
 		writeGoFile(t, sys.Workspace(), "pkg/splitrun/service.go", `package splitrun
@@ -377,6 +392,98 @@ func (Service) Stop() error {
 			t.Fatalf("invalid implementations result = %#v, want unsupported scope failure", invalid)
 		}
 	})
+}
+
+func TestGoImplementationsUsesTypeCheckedHostBackend(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	contract := `package api
+
+import "context"
+
+type Accessor interface {
+	Open(context.Context) error
+	Close() error
+}
+`
+	impl := `package impl
+
+import (
+	ctx "context"
+	"example.com/typeimpl/pkg/api"
+)
+
+type closer struct{}
+
+func (closer) Close() error {
+	return nil
+}
+
+type Provider struct {
+	closer
+}
+
+func (*Provider) Open(ctx.Context) error {
+	return nil
+}
+
+var _ api.Accessor = (*Provider)(nil)
+`
+	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/typeimpl\n\ngo 1.26\n")
+	writeGoFile(t, sys.Workspace(), "pkg/api/api.go", contract)
+	writeGoFile(t, sys.Workspace(), "pkg/impl/impl.go", impl)
+
+	line, column := goPosition(t, contract, "Accessor interface")
+	rendered := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/api/api.go", "line": line, "column": column, "scope": "module"})
+	implementations := implementationResultFromRendered(t, rendered)
+	if implementations.ResolutionMode != "type_checked" {
+		t.Fatalf("resolution mode = %q, want type_checked; text = %q", implementations.ResolutionMode, rendered.Text)
+	}
+	if !strings.Contains(rendered.Text, "pointer Provider implements Accessor") || !strings.Contains(rendered.Text, "matched: Close, Open") {
+		t.Fatalf("type-checked implementation text = %q, want promoted method implementation match", rendered.Text)
+	}
+	if strings.Contains(rendered.Text, "AST-only implementations") {
+		t.Fatalf("type-checked implementation text = %q, want no AST-only implementation warning", rendered.Text)
+	}
+}
+
+func TestGoImplementationsTypeCheckedZeroMatchesDoNotFallbackToAST(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	contract := `package contract
+
+type Runner interface {
+	Run(int) error
+}
+`
+	impl := `package impl
+
+type BadRunner struct{}
+
+func (BadRunner) Run(string) error {
+	return nil
+}
+`
+	writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/mismatch\n\ngo 1.26\n")
+	writeGoFile(t, sys.Workspace(), "pkg/contract/contract.go", contract)
+	writeGoFile(t, sys.Workspace(), "pkg/impl/impl.go", impl)
+
+	line, column := goPosition(t, contract, "Runner interface")
+	rendered := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
+	implementations := implementationResultFromRendered(t, rendered)
+	if implementations.ResolutionMode != "type_checked" {
+		t.Fatalf("resolution mode = %q, want type_checked; text = %q", implementations.ResolutionMode, rendered.Text)
+	}
+	if len(implementations.Matches) != 0 {
+		t.Fatalf("matches = %#v, want none for incompatible method signatures", implementations.Matches)
+	}
+	if strings.Contains(rendered.Text, "BadRunner implements Runner") || !strings.Contains(rendered.Text, "no type-checked implementation matches") {
+		t.Fatalf("type-checked zero-match text = %q, want no AST fallback false positive", rendered.Text)
+	}
 }
 
 func TestGoCallOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
@@ -730,6 +837,19 @@ func runGoOp(t *testing.T, sys system.System, name string, input map[string]any)
 		t.Fatalf("%s output = %#v, want Rendered", name, result.Output)
 	}
 	return rendered
+}
+
+func implementationResultFromRendered(t *testing.T, rendered operation.Rendered) language.ImplementationResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	implementations, ok := data["implementations"].(language.ImplementationResult)
+	if !ok {
+		t.Fatalf("implementations data = %#v, want language.ImplementationResult", data["implementations"])
+	}
+	return implementations
 }
 
 func runGoResult(t *testing.T, sys system.System, name string, input map[string]any) operation.Result {

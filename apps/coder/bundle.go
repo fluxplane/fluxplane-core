@@ -91,7 +91,7 @@ func Bundle() resource.ContributionBundle {
 				DefaultTimeout:  "10m",
 				Operations: []operation.Ref{
 					{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_tasks"}, {Name: "project_docs"},
-					{Name: "go_project"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"}, {Name: "go_definition"}, {Name: "go_symbol_info"}, {Name: "go_references"}, {Name: "go_imports"}, {Name: "go_implementations"},
+					{Name: "go_project"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"}, {Name: "go_definition"}, {Name: "go_symbol_info"}, {Name: "go_references"}, {Name: "go_imports"}, {Name: "go_implementations"}, {Name: "go_callers"}, {Name: "go_callees"},
 					{Name: "markdown_outline"}, {Name: "markdown_links"}, {Name: "markdown_diagnostics"},
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"}, {Name: "git_add"}, {Name: "git_commit"},

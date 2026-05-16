@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation lookup.
 - Added `go_callers` and `go_callees` for bounded AST-only Go direct call
   hierarchy lookup.
+- `coder` now exposes `go_callers` and `go_callees` to delegated child agents.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested
@@ -100,6 +101,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `go_implementations` now prefers a type-checked `go/packages` / `go/types`
+  backend for host workspaces, with the previous AST matcher kept as fallback.
+- Expanded the Go plugin roadmap with planned `go_info`, `go_env`,
+  `go_version`, and structured Go toolchain operations including explicit
+  formatting and install follow-up semantics.
 - `coder` now uses `file_edit` for existing-file content edits while keeping
   `file_create`, `file_copy`, `file_move`, and `file_delete` as separate
   filesystem operations.
@@ -125,6 +131,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Type-checked `go_implementations` zero-match results are now authoritative,
+  and virtual workspaces skip `go/packages` instead of reporting bogus host
+  filesystem diagnostics before AST fallback.
 - Appconfig multi-segment command paths now derive matching command resource
   names, so composed commands like `/foo/bar` resolve as `foo:bar` at runtime.
 - `coder` now accepts common Claude-style user resource frontmatter and reports

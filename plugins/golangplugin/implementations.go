@@ -46,6 +46,15 @@ func (p Plugin) goImplementations() operationruntime.TypedResultHandler[language
 			return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"implementations": result, "diagnostics": result.Diagnostics, "warnings": result.Warnings}})
 		}
 		result.Symbol = nav.Symbols[0]
+		if typedResult, ok, diagnostics := p.typeCheckedImplementations(ctx, req, nav.Symbols[0]); ok {
+			typedResult.Target = nav.Target
+			typedResult.Diagnostics = append(append([]language.Diagnostic{}, nav.Diagnostics...), append(diagnostics, typedResult.Diagnostics...)...)
+			typedResult.Warnings = append([]string{}, typedResult.Warnings...)
+			lines := renderImplementations(typedResult)
+			return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"implementations": typedResult, "matches": typedResult.Matches, "diagnostics": typedResult.Diagnostics, "warnings": typedResult.Warnings}})
+		} else {
+			result.Diagnostics = append(result.Diagnostics, diagnostics...)
+		}
 
 		selected, err := p.parseGoSource(ctx, cleanRel(req.Path), maxBytes(req.MaxBytes))
 		if err != nil {
@@ -441,7 +450,12 @@ func renderImplementations(result language.ImplementationResult) []string {
 		}
 	}
 	if len(result.Matches) == 0 {
-		lines = append(lines, "- no AST-level implementation matches found")
+		switch result.ResolutionMode {
+		case "type_checked":
+			lines = append(lines, "- no type-checked implementation matches found")
+		default:
+			lines = append(lines, "- no AST-level implementation matches found")
+		}
 	}
 	for _, diag := range result.Diagnostics {
 		lines = append(lines, fmt.Sprintf("Diagnostic: %s %s %s", diag.Severity, diag.Code, diag.Message))
