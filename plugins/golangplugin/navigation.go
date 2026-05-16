@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -28,7 +29,7 @@ type parsedGoFile struct {
 type navigationContext struct {
 	selected     parsedGoFile
 	position     token.Pos
-	target       language.NavigationTarget
+	target       golang.NavigationTarget
 	targetIdent  *ast.Ident
 	targetImport *ast.ImportSpec
 	enclosing    *language.Symbol
@@ -39,8 +40,8 @@ type navigationContext struct {
 	maxResults   int
 }
 
-func (p Plugin) goDefinition() operationruntime.TypedResultHandler[language.NavigationQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.NavigationQuery) operation.Result {
+func (p Plugin) goDefinition() operationruntime.TypedResultHandler[golang.NavigationQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.NavigationQuery) operation.Result {
 		result, err := p.resolveNavigation(ctx, req, false)
 		if err != nil {
 			return operation.Failed("go_definition_failed", err.Error(), nil)
@@ -50,8 +51,8 @@ func (p Plugin) goDefinition() operationruntime.TypedResultHandler[language.Navi
 	}
 }
 
-func (p Plugin) goSymbolInfo() operationruntime.TypedResultHandler[language.NavigationQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.NavigationQuery) operation.Result {
+func (p Plugin) goSymbolInfo() operationruntime.TypedResultHandler[golang.NavigationQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.NavigationQuery) operation.Result {
 		result, err := p.resolveNavigation(ctx, req, true)
 		if err != nil {
 			return operation.Failed("go_symbol_info_failed", err.Error(), nil)
@@ -61,21 +62,21 @@ func (p Plugin) goSymbolInfo() operationruntime.TypedResultHandler[language.Navi
 	}
 }
 
-func (p Plugin) resolveNavigation(ctx context.Context, req language.NavigationQuery, fallbackEnclosing bool) (language.NavigationResult, error) {
+func (p Plugin) resolveNavigation(ctx context.Context, req golang.NavigationQuery, fallbackEnclosing bool) (golang.NavigationResult, error) {
 	if err := validateNavigationQuery(req); err != nil {
-		return language.NavigationResult{}, err
+		return golang.NavigationResult{}, err
 	}
 	rel := cleanRel(req.Path)
 	if isVendoredPath(rel) {
-		return language.NavigationResult{}, fmt.Errorf("path is vendored and excluded from Go navigation")
+		return golang.NavigationResult{}, fmt.Errorf("path is vendored and excluded from Go navigation")
 	}
 	selected, err := p.parseGoSource(ctx, rel, maxBytes(req.MaxBytes))
 	if err != nil {
-		return language.NavigationResult{}, err
+		return golang.NavigationResult{}, err
 	}
 	pos, err := navigationPosition(selected, req)
 	if err != nil {
-		return language.NavigationResult{}, err
+		return golang.NavigationResult{}, err
 	}
 	nav := navigationContext{
 		selected:   selected,
@@ -116,7 +117,7 @@ func (p Plugin) resolveNavigation(ctx context.Context, req language.NavigationQu
 	return nav.result(nil), nil
 }
 
-func validateNavigationQuery(req language.NavigationQuery) error {
+func validateNavigationQuery(req golang.NavigationQuery) error {
 	if err := validateGoLanguage(req.Language); err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func validateNavigationQuery(req language.NavigationQuery) error {
 		return fmt.Errorf("line and column are required unless offset is set")
 	}
 	switch req.Scope {
-	case "", language.NavigationScopePackage, language.NavigationScopeFile:
+	case "", golang.NavigationScopePackage, golang.NavigationScopeFile:
 		return nil
 	default:
 		return fmt.Errorf("unsupported navigation scope %q", req.Scope)
@@ -159,7 +160,7 @@ func (p Plugin) parseGoSource(ctx context.Context, rel string, readLimit int) (p
 	return parsedGoFile{rel: rel, fset: fset, file: file, data: data, pkgID: packageID(pathDir(rel), file.Name.Name)}, nil
 }
 
-func navigationPosition(parsed parsedGoFile, req language.NavigationQuery) (token.Pos, error) {
+func navigationPosition(parsed parsedGoFile, req golang.NavigationQuery) (token.Pos, error) {
 	file := parsed.fset.File(parsed.file.Package)
 	if file == nil {
 		return token.NoPos, fmt.Errorf("source position metadata is unavailable")
@@ -211,9 +212,9 @@ func offsetForLineColumn(data []byte, line, column int) (int, error) {
 	return 0, fmt.Errorf("line %d is outside file bounds", line)
 }
 
-func (f parsedGoFile) navigationTarget(pos token.Pos) (language.NavigationTarget, *ast.Ident, *ast.ImportSpec) {
+func (f parsedGoFile) navigationTarget(pos token.Pos) (golang.NavigationTarget, *ast.Ident, *ast.ImportSpec) {
 	if imp := importAt(f.file, pos); imp != nil {
-		target := language.NavigationTarget{
+		target := golang.NavigationTarget{
 			Text:      strings.Trim(imp.Path.Value, `"`),
 			Name:      importName(imp),
 			NodeKind:  "import",
@@ -223,7 +224,7 @@ func (f parsedGoFile) navigationTarget(pos token.Pos) (language.NavigationTarget
 		return target, nil, imp
 	}
 	if f.file.Name != nil && containsToken(f.file.Name.Pos(), f.file.Name.End(), pos) {
-		target := language.NavigationTarget{
+		target := golang.NavigationTarget{
 			Text:      f.file.Name.Name,
 			Name:      f.file.Name.Name,
 			NodeKind:  "package",
@@ -234,14 +235,14 @@ func (f parsedGoFile) navigationTarget(pos token.Pos) (language.NavigationTarget
 	}
 	ident := identAt(f.file, pos)
 	if ident == nil {
-		target := language.NavigationTarget{
+		target := golang.NavigationTarget{
 			NodeKind:  "position",
 			PackageID: f.pkgID,
 			Location:  location(f.fset, f.rel, pos, pos),
 		}
 		return target, nil, nil
 	}
-	target := language.NavigationTarget{
+	target := golang.NavigationTarget{
 		Text:      ident.Name,
 		Name:      ident.Name,
 		NodeKind:  "ident",
@@ -251,9 +252,9 @@ func (f parsedGoFile) navigationTarget(pos token.Pos) (language.NavigationTarget
 	return target, ident, nil
 }
 
-func (p Plugin) navigationFiles(ctx context.Context, selected parsedGoFile, req language.NavigationQuery) ([]parsedGoFile, []language.Diagnostic) {
+func (p Plugin) navigationFiles(ctx context.Context, selected parsedGoFile, req golang.NavigationQuery) ([]parsedGoFile, []language.Diagnostic) {
 	files := []string{selected.rel}
-	if req.Scope == "" || req.Scope == language.NavigationScopePackage {
+	if req.Scope == "" || req.Scope == golang.NavigationScopePackage {
 		if scoped, err := p.goFilesForPath(ctx, pathDir(selected.rel)); err == nil {
 			files = scoped
 		}
@@ -404,7 +405,7 @@ func (n navigationContext) findSymbol(name string) (language.Symbol, bool) {
 	return matches[0], true
 }
 
-func (n navigationContext) result(symbols []language.Symbol) language.NavigationResult {
+func (n navigationContext) result(symbols []language.Symbol) golang.NavigationResult {
 	if len(symbols) > n.maxResults {
 		symbols = symbols[:n.maxResults]
 	}
@@ -412,7 +413,7 @@ func (n navigationContext) result(symbols []language.Symbol) language.Navigation
 	for _, symbol := range symbols {
 		locations = append(locations, symbol.Location)
 	}
-	return language.NavigationResult{
+	return golang.NavigationResult{
 		Target:         n.target,
 		Symbols:        symbols,
 		Locations:      locations,
@@ -878,7 +879,7 @@ func containsToken(start, end, pos token.Pos) bool {
 	return start.IsValid() && end.IsValid() && pos >= start && pos <= end
 }
 
-func renderNavigation(title string, result language.NavigationResult, includeDocs bool) []string {
+func renderNavigation(title string, result golang.NavigationResult, includeDocs bool) []string {
 	target := result.Target.Name
 	if target == "" {
 		target = result.Target.Text

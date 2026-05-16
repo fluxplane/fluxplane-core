@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -24,8 +25,8 @@ type implementationSymbol struct {
 	symbol language.Symbol
 }
 
-func (p Plugin) goImplementations() operationruntime.TypedResultHandler[language.ImplementationQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.ImplementationQuery) operation.Result {
+func (p Plugin) goImplementations() operationruntime.TypedResultHandler[golang.ImplementationQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.ImplementationQuery) operation.Result {
 		if err := validateImplementationQuery(req); err != nil {
 			return operation.Failed("invalid_go_implementations_input", err.Error(), nil)
 		}
@@ -33,7 +34,7 @@ func (p Plugin) goImplementations() operationruntime.TypedResultHandler[language
 		if err != nil {
 			return operation.Failed("go_implementations_failed", err.Error(), nil)
 		}
-		result := language.ImplementationResult{
+		result := golang.ImplementationResult{
 			Target:         nav.Target,
 			Diagnostics:    nav.Diagnostics,
 			ResolutionMode: "ast",
@@ -72,7 +73,7 @@ func (p Plugin) goImplementations() operationruntime.TypedResultHandler[language
 	}
 }
 
-func validateImplementationQuery(req language.ImplementationQuery) error {
+func validateImplementationQuery(req golang.ImplementationQuery) error {
 	if err := validateGoLanguage(req.Language); err != nil {
 		return err
 	}
@@ -86,30 +87,30 @@ func validateImplementationQuery(req language.ImplementationQuery) error {
 		return fmt.Errorf("line and column are required unless offset is set")
 	}
 	switch req.Scope {
-	case "", language.ImplementationScopePackage, language.ImplementationScopeModule:
+	case "", golang.ImplementationScopePackage, golang.ImplementationScopeModule:
 		return nil
 	default:
 		return fmt.Errorf("unsupported implementation scope %q", req.Scope)
 	}
 }
 
-func implementationNavigationQuery(req language.ImplementationQuery) language.NavigationQuery {
-	return language.NavigationQuery{
+func implementationNavigationQuery(req golang.ImplementationQuery) golang.NavigationQuery {
+	return golang.NavigationQuery{
 		Language:   req.Language,
 		Path:       req.Path,
 		Line:       req.Line,
 		Column:     req.Column,
 		Offset:     req.Offset,
-		Scope:      language.NavigationScopePackage,
+		Scope:      golang.NavigationScopePackage,
 		MaxResults: 1,
 		MaxBytes:   req.MaxBytes,
 		Refresh:    req.Refresh,
 	}
 }
 
-func (p Plugin) implementationFiles(ctx context.Context, selected parsedGoFile, req language.ImplementationQuery) ([]parsedGoFile, []language.Diagnostic) {
+func (p Plugin) implementationFiles(ctx context.Context, selected parsedGoFile, req golang.ImplementationQuery) ([]parsedGoFile, []language.Diagnostic) {
 	includeTests := includeReferenceTests(req.IncludeTests)
-	if req.Scope == language.ImplementationScopeModule {
+	if req.Scope == golang.ImplementationScopeModule {
 		root, modulePath := p.nearestModule(ctx, selected.rel)
 		if modulePath == "" {
 			root = pathDir(selected.rel)
@@ -123,7 +124,7 @@ func (p Plugin) implementationFiles(ctx context.Context, selected parsedGoFile, 
 		}
 		return p.parseImplementationFiles(ctx, selected, files, includeTests, req.MaxBytes)
 	}
-	files, diagnostics := p.navigationFiles(ctx, selected, language.NavigationQuery{Path: selected.rel, Scope: language.NavigationScopePackage, MaxBytes: req.MaxBytes})
+	files, diagnostics := p.navigationFiles(ctx, selected, golang.NavigationQuery{Path: selected.rel, Scope: golang.NavigationScopePackage, MaxBytes: req.MaxBytes})
 	files = filterReferencePackageFiles(files, selected)
 	files = filterImplementationTestFiles(files, includeTests, selected.rel)
 	return files, diagnostics
@@ -192,7 +193,7 @@ func indexImplementationSymbols(files []parsedGoFile) implementationContext {
 	return index
 }
 
-func findImplementationMatches(index implementationContext, selected language.Symbol, limit int) ([]language.ImplementationMatch, []language.Diagnostic) {
+func findImplementationMatches(index implementationContext, selected language.Symbol, limit int) ([]golang.ImplementationMatch, []language.Diagnostic) {
 	switch selected.Kind {
 	case language.SymbolInterface:
 		return matchesForInterface(index, selected, limit)
@@ -205,9 +206,9 @@ func findImplementationMatches(index implementationContext, selected language.Sy
 	}
 }
 
-func matchesForInterface(index implementationContext, iface language.Symbol, limit int) ([]language.ImplementationMatch, []language.Diagnostic) {
+func matchesForInterface(index implementationContext, iface language.Symbol, limit int) ([]golang.ImplementationMatch, []language.Diagnostic) {
 	required := interfaceMethodNames(iface)
-	var matches []language.ImplementationMatch
+	var matches []golang.ImplementationMatch
 	var diagnostics []language.Diagnostic
 	for _, concrete := range sortedImplementationSymbols(index.concretes) {
 		match, missing, partial := implementationMatch(iface, concrete.symbol, index.methods[concrete.key], required)
@@ -225,9 +226,9 @@ func matchesForInterface(index implementationContext, iface language.Symbol, lim
 	return matches, diagnostics
 }
 
-func matchesForConcrete(index implementationContext, concrete language.Symbol, limit int) ([]language.ImplementationMatch, []language.Diagnostic) {
+func matchesForConcrete(index implementationContext, concrete language.Symbol, limit int) ([]golang.ImplementationMatch, []language.Diagnostic) {
 	methods := index.methods[implementationTypeKey(concrete)]
-	var matches []language.ImplementationMatch
+	var matches []golang.ImplementationMatch
 	var diagnostics []language.Diagnostic
 	for _, iface := range sortedImplementationSymbols(index.interfaces) {
 		match, missing, partial := implementationMatch(iface.symbol, concrete, methods, interfaceMethodNames(iface.symbol))
@@ -245,7 +246,7 @@ func matchesForConcrete(index implementationContext, concrete language.Symbol, l
 	return matches, diagnostics
 }
 
-func matchesForMethod(index implementationContext, method language.Symbol, limit int) ([]language.ImplementationMatch, []language.Diagnostic) {
+func matchesForMethod(index implementationContext, method language.Symbol, limit int) ([]golang.ImplementationMatch, []language.Diagnostic) {
 	methodKey := implementationContainerKey(method)
 	if iface, ok := index.interfaces[methodKey]; ok {
 		return methodMatchesForInterfaceMethod(index, iface, method, limit), nil
@@ -257,15 +258,15 @@ func matchesForMethod(index implementationContext, method language.Symbol, limit
 	return methodMatchesForConcreteMethod(index, concrete, method, limit), nil
 }
 
-func implementationMatch(iface language.Symbol, concrete language.Symbol, methods []language.Symbol, required []string) (language.ImplementationMatch, []string, bool) {
+func implementationMatch(iface language.Symbol, concrete language.Symbol, methods []language.Symbol, required []string) (golang.ImplementationMatch, []string, bool) {
 	valueMethods, pointerMethods := methodNameSets(methods)
 	missing := missingMethods(pointerMethods, required)
 	matched := matchedMethods(pointerMethods, required)
-	relation := language.ImplementationRelationPointer
+	relation := golang.ImplementationRelationPointer
 	if len(missing) == 0 && len(missingMethods(valueMethods, required)) == 0 {
-		relation = language.ImplementationRelationValue
+		relation = golang.ImplementationRelationValue
 	}
-	match := language.ImplementationMatch{
+	match := golang.ImplementationMatch{
 		Interface:      iface,
 		Concrete:       concrete,
 		Relation:       relation,
@@ -276,15 +277,15 @@ func implementationMatch(iface language.Symbol, concrete language.Symbol, method
 	return match, missing, len(matched) > 0
 }
 
-func methodMatchesForInterfaceMethod(index implementationContext, iface language.Symbol, method language.Symbol, limit int) []language.ImplementationMatch {
+func methodMatchesForInterfaceMethod(index implementationContext, iface language.Symbol, method language.Symbol, limit int) []golang.ImplementationMatch {
 	required := interfaceMethodNames(iface)
-	var matches []language.ImplementationMatch
+	var matches []golang.ImplementationMatch
 	for _, concrete := range sortedImplementationSymbols(index.concretes) {
 		match, missing, _ := implementationMatch(iface, concrete.symbol, index.methods[concrete.key], required)
 		if len(missing) > 0 || !containsString(match.MatchedMethods, method.Name) {
 			continue
 		}
-		match.Relation = language.ImplementationRelationMethodCorrespondence
+		match.Relation = golang.ImplementationRelationMethodCorrespondence
 		match.MatchedMethods = []string{method.Name}
 		match.Locations = append(match.Locations, method.Location)
 		if concreteMethod := methodByName(index.methods[concrete.key], method.Name); concreteMethod != nil {
@@ -298,15 +299,15 @@ func methodMatchesForInterfaceMethod(index implementationContext, iface language
 	return matches
 }
 
-func methodMatchesForConcreteMethod(index implementationContext, concrete language.Symbol, method language.Symbol, limit int) []language.ImplementationMatch {
+func methodMatchesForConcreteMethod(index implementationContext, concrete language.Symbol, method language.Symbol, limit int) []golang.ImplementationMatch {
 	methodName := bareSymbolName(method)
-	var matches []language.ImplementationMatch
+	var matches []golang.ImplementationMatch
 	for _, iface := range sortedImplementationSymbols(index.interfaces) {
 		match, missing, _ := implementationMatch(iface.symbol, concrete, index.methods[implementationTypeKey(concrete)], interfaceMethodNames(iface.symbol))
 		if len(missing) > 0 || !containsString(match.MatchedMethods, methodName) {
 			continue
 		}
-		match.Relation = language.ImplementationRelationMethodCorrespondence
+		match.Relation = golang.ImplementationRelationMethodCorrespondence
 		match.MatchedMethods = []string{methodName}
 		match.Locations = append(match.Locations, method.Location)
 		if ifaceMethod := interfaceMethodByName(iface.symbol, methodName); ifaceMethod != nil {
@@ -428,7 +429,7 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func renderImplementations(result language.ImplementationResult) []string {
+func renderImplementations(result golang.ImplementationResult) []string {
 	target := result.Target.Name
 	if target == "" {
 		target = result.Target.Text

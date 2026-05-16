@@ -9,6 +9,7 @@ import (
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/language"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -54,6 +55,9 @@ type WorkflowCatalog map[string]Binding[workflow.Spec]
 // OperationSetCatalog indexes named operation capability sets.
 type OperationSetCatalog map[string]Binding[operation.Set]
 
+// ToolchainCatalog indexes toolchain specs by canonical resource ID address.
+type ToolchainCatalog map[string]Binding[language.ToolchainSpec]
+
 // Catalogs groups all inert resource spec catalogs.
 type Catalogs struct {
 	AppCatalog           AppCatalog
@@ -65,6 +69,7 @@ type Catalogs struct {
 	LLMModelAliasCatalog LLMModelAliasCatalog
 	WorkflowCatalog      WorkflowCatalog
 	OperationSetCatalog  OperationSetCatalog
+	ToolchainCatalog     ToolchainCatalog
 }
 
 // Specs groups the ordered inert specs collected from resource bundles.
@@ -78,6 +83,7 @@ type Specs struct {
 	LLMModelAliases  []corellm.ModelAliasSpec
 	WorkflowSpecs    []workflow.Spec
 	OperationSets    []operation.Set
+	Toolchains       []language.ToolchainSpec
 }
 
 // Collect validates, indexes, and returns inert resource catalogs and specs.
@@ -118,6 +124,10 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 	if err != nil {
 		return Catalogs{}, Specs{}, diag, err
 	}
+	toolchainCatalog, toolchains, diag, err := collectToolchains(bundles, index)
+	if err != nil {
+		return Catalogs{}, Specs{}, diag, err
+	}
 	return Catalogs{
 			AppCatalog:           appCatalog,
 			AgentCatalog:         agentCatalog,
@@ -128,6 +138,7 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 			LLMModelAliasCatalog: llmModelAliasCatalog,
 			WorkflowCatalog:      workflowCatalog,
 			OperationSetCatalog:  operationSetCatalog,
+			ToolchainCatalog:     toolchainCatalog,
 		}, Specs{
 			AppSpecs:         appSpecs,
 			AgentSpecs:       agentSpecs,
@@ -138,6 +149,7 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 			LLMModelAliases:  llmModelAliases,
 			WorkflowSpecs:    workflowSpecs,
 			OperationSets:    operationSets,
+			Toolchains:       toolchains,
 		}, resource.Diagnostic{}, nil
 }
 
@@ -286,6 +298,18 @@ func collectOperationSets(bundles []resource.ContributionBundle, index *resource
 		func(spec operation.Set) error { return spec.Validate() },
 	)
 	return OperationSetCatalog(catalog), specs, diag, err
+}
+
+func collectToolchains(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (ToolchainCatalog, []language.ToolchainSpec, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"toolchain",
+		func(bundle resource.ContributionBundle) []language.ToolchainSpec { return bundle.Toolchains },
+		func(spec language.ToolchainSpec, _ resource.SourceRef) string { return spec.ID },
+		func(spec language.ToolchainSpec) error { return spec.Validate() },
+	)
+	return ToolchainCatalog(catalog), specs, diag, err
 }
 
 func appResourceName(spec coreapp.Spec, source resource.SourceRef) string {

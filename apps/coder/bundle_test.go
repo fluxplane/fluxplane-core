@@ -5,7 +5,9 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -74,6 +76,43 @@ func TestBundleComposes(t *testing.T) {
 	}
 }
 
+func TestFeatureExpansionUsesSignalsAndToolchainAvailability(t *testing.T) {
+	ops := expandOperations(OperationExpansionConfig{
+		Features: []FeatureSpec{LanguageSupportFeature(), AvailableToolchainsFeature()},
+		Activation: ActivationInput{
+			ProjectSignals: []coreproject.Signal{{Language: "go", Toolchain: "go"}, {Language: "markdown"}},
+			ToolchainStatuses: []language.ToolchainStatus{{
+				ID:        "go",
+				Available: false,
+			}},
+			OperationSets: builtinLanguageOperationSets(),
+		},
+	})
+	if !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
+		t.Fatalf("ops = %#v, want parser and markdown operations from signals", ops)
+	}
+	if containsName(ops, "go_test") {
+		t.Fatalf("ops = %#v, want unavailable go toolchain operations omitted", ops)
+	}
+
+	ops = expandOperations(OperationExpansionConfig{
+		Features: []FeatureSpec{LanguageSupportFeature(), AvailableToolchainsFeature()},
+		Activation: ActivationInput{
+			ProjectSignals:    []coreproject.Signal{{Language: "go", Toolchain: "go"}},
+			ToolchainStatuses: []language.ToolchainStatus{{ID: "go", Available: true}},
+			OperationSets:     builtinLanguageOperationSets(),
+		},
+		Add:    []string{"custom_op"},
+		Remove: []string{"go_fmt"},
+	})
+	if !containsName(ops, "go_test") || !containsName(ops, "custom_op") {
+		t.Fatalf("ops = %#v, want available toolchain and explicit add", ops)
+	}
+	if containsName(ops, "go_fmt") {
+		t.Fatalf("ops = %#v, want explicit removal to win", ops)
+	}
+}
+
 func agentHasOperation(spec agent.Spec, name string) bool {
 	for _, ref := range spec.Operations {
 		if ref.Name == operation.Name(name) {
@@ -104,6 +143,15 @@ func hasDatasourceSpec(specs []coredatasource.Spec, name, kind string) bool {
 func operationRefsContain(refs []operation.Ref, name string) bool {
 	for _, ref := range refs {
 		if ref.Name == operation.Name(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsName(names []string, name string) bool {
+	for _, current := range names {
+		if current == name {
 			return true
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	corelanguage "github.com/fluxplane/agentruntime/core/language"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -39,6 +40,7 @@ func TestRenderTreeShowsEveryContributionKind(t *testing.T) {
 		"commands",
 		"workflows",
 		"operation_sets",
+		"toolchains",
 		"operations",
 		"datasources",
 		"llm providers",
@@ -48,6 +50,7 @@ func TestRenderTreeShowsEveryContributionKind(t *testing.T) {
 		"plugins",
 		"test.event",
 		"lookup-set",
+		"go",
 		"lookup",
 		"gpt-test",
 		"standalone",
@@ -147,8 +150,8 @@ func TestRenderTreeLabelsImplicitPlugins(t *testing.T) {
 
 func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	out := NewOutput([]resource.ContributionBundle{testBundle()}, nil)
-	if len(out.Resources) != 15 {
-		t.Fatalf("resources len = %d, want 15", len(out.Resources))
+	if len(out.Resources) != 16 {
+		t.Fatalf("resources len = %d, want 16", len(out.Resources))
 	}
 	assertLen(t, "sources", len(out.Sources), 1)
 	assertLen(t, "apps", len(out.Apps), 1)
@@ -157,6 +160,7 @@ func TestNewOutputIncludesEveryContributionKind(t *testing.T) {
 	assertLen(t, "commands", len(out.Commands), 1)
 	assertLen(t, "workflows", len(out.Workflows), 1)
 	assertLen(t, "operation_sets", len(out.OperationSets), 1)
+	assertLen(t, "toolchains", len(out.Toolchains), 1)
 	assertLen(t, "operations", len(out.Operations), 2)
 	assertLen(t, "datasources", len(out.Datasources), 1)
 	assertLen(t, "llm_providers", len(out.LLMProviders), 1)
@@ -216,6 +220,9 @@ func testBundle() resource.ContributionBundle {
 		OperationSets: []operation.Set{{
 			Name:       "lookup-set",
 			Operations: []operation.Ref{{Name: "lookup"}},
+		}},
+		Toolchains: []corelanguage.ToolchainSpec{{
+			ID: "go",
 		}},
 		Operations: []operation.Spec{{
 			Ref: operation.Ref{Name: "lookup"},

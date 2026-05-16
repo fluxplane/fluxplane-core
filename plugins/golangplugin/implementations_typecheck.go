@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	runtimesystem "github.com/fluxplane/agentruntime/runtime/system"
 	"golang.org/x/tools/go/packages"
 )
@@ -27,15 +28,15 @@ type typeCheckedImplementationIndex struct {
 	workspaceRoot string
 }
 
-func (p Plugin) typeCheckedImplementations(ctx context.Context, req language.ImplementationQuery, selected language.Symbol) (language.ImplementationResult, bool, []language.Diagnostic) {
+func (p Plugin) typeCheckedImplementations(ctx context.Context, req golang.ImplementationQuery, selected language.Symbol) (golang.ImplementationResult, bool, []language.Diagnostic) {
 	if selected.Kind == language.SymbolMethod {
-		return language.ImplementationResult{}, false, nil
+		return golang.ImplementationResult{}, false, nil
 	}
 	index, ok := p.typeCheckedImplementationIndex(ctx, req, selected)
 	if !ok || index.selected == nil {
-		return language.ImplementationResult{}, false, index.diagnostics
+		return golang.ImplementationResult{}, false, index.diagnostics
 	}
-	result := language.ImplementationResult{
+	result := golang.ImplementationResult{
 		Symbol:         index.symbols[index.selected],
 		ResolutionMode: "type_checked",
 		Complete:       index.complete,
@@ -47,7 +48,7 @@ func (p Plugin) typeCheckedImplementations(ctx context.Context, req language.Imp
 	return result, true, nil
 }
 
-func (p Plugin) typeCheckedImplementationIndex(ctx context.Context, req language.ImplementationQuery, selected language.Symbol) (typeCheckedImplementationIndex, bool) {
+func (p Plugin) typeCheckedImplementationIndex(ctx context.Context, req golang.ImplementationQuery, selected language.Symbol) (typeCheckedImplementationIndex, bool) {
 	root := ""
 	if p.system != nil && p.system.Workspace() != nil {
 		root = p.system.Workspace().Root()
@@ -62,7 +63,7 @@ func (p Plugin) typeCheckedImplementationIndex(ctx context.Context, req language
 	selectedRel := cleanRel(req.Path)
 	dir := filepath.Join(root, pathDir(selectedRel))
 	patterns := []string{"."}
-	if req.Scope == language.ImplementationScopeModule {
+	if req.Scope == golang.ImplementationScopeModule {
 		moduleRoot, _ := p.nearestModule(ctx, selectedRel)
 		dir = filepath.Join(root, cleanRel(moduleRoot))
 		patterns = []string{"./..."}
@@ -138,7 +139,7 @@ func fmtPosition(pos language.Position) string {
 	return fmt.Sprintf("%d:%d", pos.Line, pos.Column)
 }
 
-func (idx typeCheckedImplementationIndex) typeCheckedMatches(limit int) []language.ImplementationMatch {
+func (idx typeCheckedImplementationIndex) typeCheckedMatches(limit int) []golang.ImplementationMatch {
 	selectedType := idx.selected.Type()
 	if iface, ok := selectedType.Underlying().(*types.Interface); ok {
 		return idx.typeCheckedMatchesForInterface(idx.selected, iface.Complete(), limit)
@@ -150,8 +151,8 @@ func (idx typeCheckedImplementationIndex) typeCheckedMatches(limit int) []langua
 	return idx.typeCheckedMatchesForConcrete(idx.selected, selectedNamed, limit)
 }
 
-func (idx typeCheckedImplementationIndex) typeCheckedMatchesForInterface(ifaceObj *types.TypeName, iface *types.Interface, limit int) []language.ImplementationMatch {
-	var matches []language.ImplementationMatch
+func (idx typeCheckedImplementationIndex) typeCheckedMatchesForInterface(ifaceObj *types.TypeName, iface *types.Interface, limit int) []golang.ImplementationMatch {
+	var matches []golang.ImplementationMatch
 	for _, candidate := range idx.sortedTypeNames() {
 		if candidate == ifaceObj {
 			continue
@@ -170,8 +171,8 @@ func (idx typeCheckedImplementationIndex) typeCheckedMatchesForInterface(ifaceOb
 	return matches
 }
 
-func (idx typeCheckedImplementationIndex) typeCheckedMatchesForConcrete(concreteObj *types.TypeName, concrete *types.Named, limit int) []language.ImplementationMatch {
-	var matches []language.ImplementationMatch
+func (idx typeCheckedImplementationIndex) typeCheckedMatchesForConcrete(concreteObj *types.TypeName, concrete *types.Named, limit int) []golang.ImplementationMatch {
+	var matches []golang.ImplementationMatch
 	for _, candidate := range idx.sortedTypeNames() {
 		if candidate == concreteObj || !isInterfaceType(candidate.Type()) {
 			continue
@@ -187,19 +188,19 @@ func (idx typeCheckedImplementationIndex) typeCheckedMatchesForConcrete(concrete
 	return matches
 }
 
-func (idx typeCheckedImplementationIndex) typeCheckedMatch(ifaceObj *types.TypeName, iface *types.Interface, concreteObj *types.TypeName, concrete *types.Named) (language.ImplementationMatch, bool) {
-	var relation language.ImplementationRelation
+func (idx typeCheckedImplementationIndex) typeCheckedMatch(ifaceObj *types.TypeName, iface *types.Interface, concreteObj *types.TypeName, concrete *types.Named) (golang.ImplementationMatch, bool) {
+	var relation golang.ImplementationRelation
 	switch {
 	case safeImplements(concrete, iface):
-		relation = language.ImplementationRelationValue
+		relation = golang.ImplementationRelationValue
 	case safeImplements(types.NewPointer(concrete), iface):
-		relation = language.ImplementationRelationPointer
+		relation = golang.ImplementationRelationPointer
 	default:
-		return language.ImplementationMatch{}, false
+		return golang.ImplementationMatch{}, false
 	}
 	ifaceSymbol := idx.symbols[ifaceObj]
 	concreteSymbol := idx.symbols[concreteObj]
-	return language.ImplementationMatch{
+	return golang.ImplementationMatch{
 		Interface:      ifaceSymbol,
 		Concrete:       concreteSymbol,
 		Relation:       relation,

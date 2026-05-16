@@ -12,6 +12,7 @@ import (
 	corecommand "github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/language"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -31,6 +32,7 @@ type Output struct {
 	Commands         []corecommand.Spec         `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Workflows        []workflow.Spec            `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	OperationSets    []operation.Set            `json:"operation_sets,omitempty" yaml:"operation_sets,omitempty"`
+	Toolchains       []language.ToolchainSpec   `json:"toolchains,omitempty" yaml:"toolchains,omitempty"`
 	ToolSets         []tool.Set                 `json:"tool_sets,omitempty" yaml:"tool_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty" yaml:"datasources,omitempty"`
@@ -63,6 +65,7 @@ func NewOutput(bundles []resource.ContributionBundle, diagnostics []resource.Dia
 		out.Commands = append(out.Commands, bundle.Commands...)
 		out.Workflows = append(out.Workflows, bundle.Workflows...)
 		out.OperationSets = append(out.OperationSets, bundle.OperationSets...)
+		out.Toolchains = append(out.Toolchains, bundle.Toolchains...)
 		out.ToolSets = append(out.ToolSets, bundle.ToolSets...)
 		out.Operations = append(out.Operations, bundle.Operations...)
 		out.Datasources = append(out.Datasources, bundle.Datasources...)
@@ -103,6 +106,9 @@ func ResourceIDs(bundles []resource.ContributionBundle) []resource.ResourceID {
 		}
 		for _, spec := range bundle.OperationSets {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "operation_set", spec.Name))
+		}
+		for _, spec := range bundle.Toolchains {
+			ids = append(ids, resource.DeriveResourceID(bundle.Source, "toolchain", spec.ID))
 		}
 		for _, spec := range bundle.ToolSets {
 			ids = append(ids, resource.DeriveResourceID(bundle.Source, "tool_set", spec.Name))
@@ -321,6 +327,7 @@ func contributionKinds() []string {
 		"command",
 		"workflow",
 		"operation_set",
+		"toolchain",
 		"tool_set",
 		"operation",
 		"datasource",
@@ -592,6 +599,8 @@ func pluralKind(kind string) string {
 		return "llm model aliases"
 	case "tool_set":
 		return "tool sets"
+	case "toolchain":
+		return "toolchains"
 	default:
 		return kind + "s"
 	}

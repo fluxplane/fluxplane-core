@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -409,7 +409,7 @@ func TestGoToolchainInfoEnvVersionWithHostWorkspace(t *testing.T) {
 	if info.RawEnv["GOVERSION"] == "" {
 		t.Fatalf("go info raw env = %#v, want GOVERSION", info.RawEnv)
 	}
-	if _, ok := info.Network["goproxy"].(language.GoProxyConfig); !ok {
+	if _, ok := info.Network["goproxy"].(golang.GoProxyConfig); !ok {
 		t.Fatalf("go info network = %#v, want parsed goproxy", info.Network)
 	}
 
@@ -653,7 +653,7 @@ func main() {}
 	if !installData.DryRun || installData.Installed {
 		t.Fatalf("go install data = %#v, want dry-run only", installData)
 	}
-	installArgs, installPackages, _, _, err := goInstallArgs(language.GoInstallQuery{Packages: []string{"example.com/tool"}, Version: "v1.2.3"})
+	installArgs, installPackages, _, _, err := goInstallArgs(golang.GoInstallQuery{Packages: []string{"example.com/tool"}, Version: "v1.2.3"})
 	if err != nil {
 		t.Fatalf("goInstallArgs version: %v", err)
 	}
@@ -1133,145 +1133,145 @@ func runGoOp(t *testing.T, sys system.System, name string, input map[string]any)
 	return rendered
 }
 
-func implementationResultFromRendered(t *testing.T, rendered operation.Rendered) language.ImplementationResult {
+func implementationResultFromRendered(t *testing.T, rendered operation.Rendered) golang.ImplementationResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	implementations, ok := data["implementations"].(language.ImplementationResult)
+	implementations, ok := data["implementations"].(golang.ImplementationResult)
 	if !ok {
-		t.Fatalf("implementations data = %#v, want language.ImplementationResult", data["implementations"])
+		t.Fatalf("implementations data = %#v, want golang.ImplementationResult", data["implementations"])
 	}
 	return implementations
 }
 
-func goInfoResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoInfoResult {
+func goInfoResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoInfoResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	info, ok := data["info"].(language.GoInfoResult)
+	info, ok := data["info"].(golang.GoInfoResult)
 	if !ok {
-		t.Fatalf("info data = %#v, want language.GoInfoResult", data["info"])
+		t.Fatalf("info data = %#v, want golang.GoInfoResult", data["info"])
 	}
 	return info
 }
 
-func goEnvResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoEnvResult {
+func goEnvResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoEnvResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	env, ok := data["env"].(language.GoEnvResult)
+	env, ok := data["env"].(golang.GoEnvResult)
 	if !ok {
-		t.Fatalf("env data = %#v, want language.GoEnvResult", data["env"])
+		t.Fatalf("env data = %#v, want golang.GoEnvResult", data["env"])
 	}
 	return env
 }
 
-func goVersionResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoVersionResult {
+func goVersionResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoVersionResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	version, ok := data["version"].(language.GoVersionResult)
+	version, ok := data["version"].(golang.GoVersionResult)
 	if !ok {
-		t.Fatalf("version data = %#v, want language.GoVersionResult", data["version"])
+		t.Fatalf("version data = %#v, want golang.GoVersionResult", data["version"])
 	}
 	return version
 }
 
-func goDocResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoDocResult {
+func goDocResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoDocResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	doc, ok := data["doc"].(language.GoDocResult)
+	doc, ok := data["doc"].(golang.GoDocResult)
 	if !ok {
-		t.Fatalf("doc data = %#v, want language.GoDocResult", data["doc"])
+		t.Fatalf("doc data = %#v, want golang.GoDocResult", data["doc"])
 	}
 	return doc
 }
 
-func goListResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoListResult {
+func goListResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoListResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	list, ok := data["list"].(language.GoListResult)
+	list, ok := data["list"].(golang.GoListResult)
 	if !ok {
-		t.Fatalf("list data = %#v, want language.GoListResult", data["list"])
+		t.Fatalf("list data = %#v, want golang.GoListResult", data["list"])
 	}
 	return list
 }
 
-func goTestResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoTestResult {
+func goTestResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoTestResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	result, ok := data["test"].(language.GoTestResult)
+	result, ok := data["test"].(golang.GoTestResult)
 	if !ok {
-		t.Fatalf("test data = %#v, want language.GoTestResult", data["test"])
+		t.Fatalf("test data = %#v, want golang.GoTestResult", data["test"])
 	}
 	return result
 }
 
-func goVetResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoVetResult {
+func goVetResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoVetResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	result, ok := data["vet"].(language.GoVetResult)
+	result, ok := data["vet"].(golang.GoVetResult)
 	if !ok {
-		t.Fatalf("vet data = %#v, want language.GoVetResult", data["vet"])
+		t.Fatalf("vet data = %#v, want golang.GoVetResult", data["vet"])
 	}
 	return result
 }
 
-func goBuildResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoBuildResult {
+func goBuildResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoBuildResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	result, ok := data["build"].(language.GoBuildResult)
+	result, ok := data["build"].(golang.GoBuildResult)
 	if !ok {
-		t.Fatalf("build data = %#v, want language.GoBuildResult", data["build"])
+		t.Fatalf("build data = %#v, want golang.GoBuildResult", data["build"])
 	}
 	return result
 }
 
-func goFmtResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoFmtResult {
+func goFmtResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoFmtResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	result, ok := data["fmt"].(language.GoFmtResult)
+	result, ok := data["fmt"].(golang.GoFmtResult)
 	if !ok {
-		t.Fatalf("fmt data = %#v, want language.GoFmtResult", data["fmt"])
+		t.Fatalf("fmt data = %#v, want golang.GoFmtResult", data["fmt"])
 	}
 	return result
 }
 
-func goInstallResultFromRendered(t *testing.T, rendered operation.Rendered) language.GoInstallResult {
+func goInstallResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoInstallResult {
 	t.Helper()
 	data, ok := rendered.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("rendered data = %#v, want map", rendered.Data)
 	}
-	result, ok := data["install"].(language.GoInstallResult)
+	result, ok := data["install"].(golang.GoInstallResult)
 	if !ok {
-		t.Fatalf("install data = %#v, want language.GoInstallResult", data["install"])
+		t.Fatalf("install data = %#v, want golang.GoInstallResult", data["install"])
 	}
 	return result
 }

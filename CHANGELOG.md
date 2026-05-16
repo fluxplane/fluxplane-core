@@ -35,6 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `go_test`, `go_fmt`, `go_vet`, `go_build`, and `go_install` as
   structured Go toolchain operations with bounded output, dry-run defaults for
   formatting/installing, and explicit unsupported-scope validation.
+- Added a follow-up language/toolchain activation design for splitting
+  language-specific contracts, modeling inert toolchains, project signals,
+  activation events, and coder capability projection.
+- Split Go and Markdown language contracts into `core/language/golang` and
+  `core/language/markdown`, keeping root `core/language` focused on neutral
+  source concepts and inert toolchain metadata.
+- Added project discovery signals, language toolchain specs/statuses,
+  activation events, and a runtime toolchain status resolver that probes
+  through `runtime/system.System`.
+- Coder operation selection now uses feature/toolchain expansion for Go and
+  Markdown language support while preserving the full-capability default
+  bundle.
+- Project inventory signals now respect bounded `max_results` queries, and
+  binary-free toolchain specs remain available without process support.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.

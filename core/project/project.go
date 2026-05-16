@@ -4,6 +4,9 @@ package project
 import (
 	"fmt"
 	"strings"
+
+	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/language"
 )
 
 // ID identifies one detected project within a workspace inventory.
@@ -13,16 +16,19 @@ type ID string
 type FacetKind string
 
 const (
-	FacetGoModule     FacetKind = "go_module"
-	FacetGoWorkspace  FacetKind = "go_workspace"
-	FacetNodePackage  FacetKind = "node_package"
-	FacetTaskfile     FacetKind = "taskfile"
-	FacetMakefile     FacetKind = "makefile"
-	FacetMarkdownDocs FacetKind = "markdown_docs"
-	FacetAgentsDir    FacetKind = "agents_dir"
-	FacetClaudeDir    FacetKind = "claude_dir"
-	FacetGitRepo      FacetKind = "git_repo"
-	FacetCI           FacetKind = "ci"
+	FacetGoModule      FacetKind = "go_module"
+	FacetGoWorkspace   FacetKind = "go_workspace"
+	FacetNodePackage   FacetKind = "node_package"
+	FacetTaskfile      FacetKind = "taskfile"
+	FacetMakefile      FacetKind = "makefile"
+	FacetMarkdownDocs  FacetKind = "markdown_docs"
+	FacetNodeLockfile  FacetKind = "node_lockfile"
+	FacetCargoManifest FacetKind = "cargo_manifest"
+	FacetCargoLockfile FacetKind = "cargo_lockfile"
+	FacetAgentsDir     FacetKind = "agents_dir"
+	FacetClaudeDir     FacetKind = "claude_dir"
+	FacetGitRepo       FacetKind = "git_repo"
+	FacetCI            FacetKind = "ci"
 )
 
 // ParseStatus describes whether a manifest was parsed successfully.
@@ -38,6 +44,7 @@ const (
 type Inventory struct {
 	Root      string    `json:"root,omitempty"`
 	Projects  []Project `json:"projects,omitempty"`
+	Signals   []Signal  `json:"signals,omitempty"`
 	Truncated bool      `json:"truncated,omitempty"`
 	Summary   Summary   `json:"summary,omitempty"`
 	Warnings  []Warning `json:"warnings,omitempty"`
@@ -57,6 +64,7 @@ type Project struct {
 	Kind     string    `json:"kind,omitempty"`
 	ParentID ID        `json:"parent_id,omitempty"`
 	Facets   []Facet   `json:"facets,omitempty"`
+	Signals  []Signal  `json:"signals,omitempty"`
 	Files    []FileRef `json:"files,omitempty"`
 	Warnings []Warning `json:"warnings,omitempty"`
 }
@@ -143,6 +151,33 @@ type Warning struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 }
+
+// Signal records an inert workspace/project hint used for capability
+// selection. Discovery does not activate plugins or operations directly.
+type Signal struct {
+	Kind       string              `json:"kind"`
+	Path       string              `json:"path,omitempty"`
+	ProjectID  ID                  `json:"project_id,omitempty"`
+	Language   language.LanguageID `json:"language,omitempty"`
+	Toolchain  string              `json:"toolchain,omitempty"`
+	Confidence float64             `json:"confidence,omitempty"`
+	Metadata   map[string]string   `json:"metadata,omitempty"`
+}
+
+// SignalsObserved records a project signal inventory refresh.
+type SignalsObserved struct {
+	WorkspaceRoot string   `json:"workspace_root,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+	ProjectID     ID       `json:"project_id,omitempty"`
+	Signals       []Signal `json:"signals,omitempty"`
+	Truncated     bool     `json:"truncated,omitempty"`
+}
+
+// EventSignalsObserved is emitted when project inventory discovers signals.
+const EventSignalsObserved event.Name = "project.signals_observed"
+
+// EventName returns the typed event name.
+func (SignalsObserved) EventName() event.Name { return EventSignalsObserved }
 
 // InventoryQuery bounds project inventory discovery.
 type InventoryQuery struct {

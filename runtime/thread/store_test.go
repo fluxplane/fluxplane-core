@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
+	corelanguage "github.com/fluxplane/agentruntime/core/language"
+	coreproject "github.com/fluxplane/agentruntime/core/project"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	runtimeprojection "github.com/fluxplane/agentruntime/runtime/projection"
@@ -14,6 +16,49 @@ import (
 
 type messageAdded struct {
 	Text string `json:"text,omitempty"`
+}
+
+func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+	if _, err := store.Create(ctx, corethread.CreateParams{ID: "thread-activation"}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	_, err = store.Append(ctx, corethread.Ref{ID: "thread-activation", BranchID: corethread.MainBranch},
+		corethread.AppendRecord{
+			NodeID: "signals",
+			Event: event.Record{Payload: coreproject.SignalsObserved{
+				Signals: []coreproject.Signal{{Kind: "manifest", Path: "go.mod", Language: "go", Toolchain: "go"}},
+			}},
+		},
+		corethread.AppendRecord{
+			NodeID:       "status",
+			ParentNodeID: "signals",
+			Event: event.Record{Payload: corelanguage.ToolchainStatusObserved{
+				Status: corelanguage.ToolchainStatus{ID: "go", Available: true},
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+	read, err := store.Read(ctx, corethread.ReadParams{ID: "thread-activation"})
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	visible, err := read.EventsForBranch(corethread.MainBranch)
+	if err != nil {
+		t.Fatalf("EventsForBranch returned error: %v", err)
+	}
+	if _, ok := visible[1].Event.Payload.(coreproject.SignalsObserved); !ok {
+		t.Fatalf("event[1] payload = %T, want project.SignalsObserved", visible[1].Event.Payload)
+	}
+	if payload, ok := visible[2].Event.Payload.(corelanguage.ToolchainStatusObserved); !ok || !payload.Status.Available {
+		t.Fatalf("event[2] payload = %#v, want available toolchain status", visible[2].Event.Payload)
+	}
 }
 
 func (messageAdded) EventName() event.Name { return "message.added" }

@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/markdown"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -22,9 +23,9 @@ import (
 
 const (
 	Name               = "markdown"
-	OutlineOp          = "markdown_outline"
-	LinksOp            = "markdown_links"
-	DiagnosticsOp      = "markdown_diagnostics"
+	OutlineOp          = markdown.OutlineOp
+	LinksOp            = markdown.LinksOp
+	DiagnosticsOp      = markdown.DiagnosticsOp
 	defaultMaxResults  = 200
 	defaultSourceBytes = 128 * 1024
 )
@@ -66,9 +67,9 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		return nil, fmt.Errorf("markdownplugin: system workspace is nil")
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[language.MarkdownQuery, operation.Rendered](specByName(OutlineOp), p.outline),
-		operationruntime.NewTypedResult[language.MarkdownQuery, operation.Rendered](specByName(LinksOp), p.links),
-		operationruntime.NewTypedResult[language.MarkdownQuery, operation.Rendered](specByName(DiagnosticsOp), p.diagnostics),
+		operationruntime.NewTypedResult[markdown.Query, operation.Rendered](specByName(OutlineOp), p.outline),
+		operationruntime.NewTypedResult[markdown.Query, operation.Rendered](specByName(LinksOp), p.links),
+		operationruntime.NewTypedResult[markdown.Query, operation.Rendered](specByName(DiagnosticsOp), p.diagnostics),
 	}, nil
 }
 
@@ -81,7 +82,7 @@ func specs() []operation.Spec {
 }
 
 func spec(name, description string) operation.Spec {
-	return operationruntime.WithTypedContract[language.MarkdownQuery, operation.Rendered](operation.Spec{
+	return operationruntime.WithTypedContract[markdown.Query, operation.Rendered](operation.Spec{
 		Ref:         operation.Ref{Name: operation.Name(name)},
 		Description: description,
 		Semantics: operation.Semantics{
@@ -110,7 +111,7 @@ func refs(specs []operation.Spec) []operation.Ref {
 	return out
 }
 
-func (p Plugin) outline(ctx operation.Context, req language.MarkdownQuery) operation.Result {
+func (p Plugin) outline(ctx operation.Context, req markdown.Query) operation.Result {
 	if err := validateMarkdownQuery(req); err != nil {
 		return operation.Failed("invalid_markdown_outline_input", err.Error(), nil)
 	}
@@ -118,7 +119,7 @@ func (p Plugin) outline(ctx operation.Context, req language.MarkdownQuery) opera
 	if err != nil {
 		return operation.Failed("markdown_outline_failed", err.Error(), nil)
 	}
-	var outlines []language.MarkdownOutline
+	var outlines []markdown.Outline
 	for _, file := range files {
 		parsed, err := p.parse(ctx, file, maxBytes(req.MaxBytes))
 		if err != nil {
@@ -134,7 +135,7 @@ func (p Plugin) outline(ctx operation.Context, req language.MarkdownQuery) opera
 	return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"outlines": outlines}})
 }
 
-func (p Plugin) links(ctx operation.Context, req language.MarkdownQuery) operation.Result {
+func (p Plugin) links(ctx operation.Context, req markdown.Query) operation.Result {
 	if err := validateMarkdownQuery(req); err != nil {
 		return operation.Failed("invalid_markdown_links_input", err.Error(), nil)
 	}
@@ -149,7 +150,7 @@ func (p Plugin) links(ctx operation.Context, req language.MarkdownQuery) operati
 	return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"links": links}})
 }
 
-func (p Plugin) diagnostics(ctx operation.Context, req language.MarkdownQuery) operation.Result {
+func (p Plugin) diagnostics(ctx operation.Context, req markdown.Query) operation.Result {
 	if err := validateMarkdownQuery(req); err != nil {
 		return operation.Failed("invalid_markdown_diagnostics_input", err.Error(), nil)
 	}
@@ -165,12 +166,12 @@ func (p Plugin) diagnostics(ctx operation.Context, req language.MarkdownQuery) o
 	return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"diagnostics": diagnostics, "links": links}})
 }
 
-func (p Plugin) collectLinks(ctx context.Context, req language.MarkdownQuery) ([]language.MarkdownLink, error) {
+func (p Plugin) collectLinks(ctx context.Context, req markdown.Query) ([]markdown.Link, error) {
 	files, err := p.markdownFiles(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	var out []language.MarkdownLink
+	var out []markdown.Link
 	for _, file := range files {
 		parsed, err := p.parse(ctx, file, maxBytes(req.MaxBytes))
 		if err != nil {
@@ -181,7 +182,7 @@ func (p Plugin) collectLinks(ctx context.Context, req language.MarkdownQuery) ([
 	return out, nil
 }
 
-func (p Plugin) markdownFiles(ctx context.Context, req language.MarkdownQuery) ([]string, error) {
+func (p Plugin) markdownFiles(ctx context.Context, req markdown.Query) ([]string, error) {
 	rel := cleanRel(req.Path)
 	if strings.TrimSpace(req.Path) == "." {
 		rel = "."
@@ -214,8 +215,8 @@ func (p Plugin) markdownFiles(ctx context.Context, req language.MarkdownQuery) (
 }
 
 type parsedMarkdown struct {
-	Outline language.MarkdownOutline
-	Links   []language.MarkdownLink
+	Outline markdown.Outline
+	Links   []markdown.Link
 }
 
 func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMarkdown, error) {
@@ -225,15 +226,15 @@ func (p Plugin) parse(ctx context.Context, rel string, maxBytes int) (parsedMark
 	}
 	doc := goldmark.New().Parser().Parse(goldtext.NewReader(data))
 	headings := markdownHeadings(doc, data)
-	outline := language.MarkdownOutline{Path: rel, Headings: headings, Truncated: truncated}
+	outline := markdown.Outline{Path: rel, Headings: headings, Truncated: truncated}
 	if title, ok := markdownTitle(headings); ok {
 		outline.Title = title.Title
 	}
 	return parsedMarkdown{Outline: outline, Links: markdownLinks(doc, data, rel)}, nil
 }
 
-func markdownHeadings(doc goldast.Node, source []byte) []language.MarkdownHeading {
-	var flat []language.MarkdownHeading
+func markdownHeadings(doc goldast.Node, source []byte) []markdown.Heading {
+	var flat []markdown.Heading
 	seen := map[string]int{}
 	_ = goldast.Walk(doc, func(node goldast.Node, entering bool) (goldast.WalkStatus, error) {
 		if !entering {
@@ -248,14 +249,14 @@ func markdownHeadings(doc goldast.Node, source []byte) []language.MarkdownHeadin
 			return goldast.WalkContinue, nil
 		}
 		anchor := uniqueAnchor(title, seen)
-		flat = append(flat, language.MarkdownHeading{Level: heading.Level, Title: title, Line: nodeLine(heading, source), Anchor: anchor})
+		flat = append(flat, markdown.Heading{Level: heading.Level, Title: title, Line: nodeLine(heading, source), Anchor: anchor})
 		return goldast.WalkSkipChildren, nil
 	})
 	return nestHeadings(flat)
 }
 
-func markdownLinks(doc goldast.Node, source []byte, rel string) []language.MarkdownLink {
-	var out []language.MarkdownLink
+func markdownLinks(doc goldast.Node, source []byte, rel string) []markdown.Link {
+	var out []markdown.Link
 	currentHeading := ""
 	_ = goldast.Walk(doc, func(node goldast.Node, entering bool) (goldast.WalkStatus, error) {
 		if !entering {
@@ -281,8 +282,8 @@ func markdownLinks(doc goldast.Node, source []byte, rel string) []language.Markd
 	return out
 }
 
-func markdownLink(sourcePath string, line int, text, target string, image bool, heading string) language.MarkdownLink {
-	link := language.MarkdownLink{Path: sourcePath, Line: line, Text: text, Target: target, Image: image, Heading: heading}
+func markdownLink(sourcePath string, line int, text, target string, image bool, heading string) markdown.Link {
+	link := markdown.Link{Path: sourcePath, Line: line, Text: text, Target: target, Image: image, Heading: heading}
 	kind, targetPath, fragment := classifyTarget(sourcePath, target)
 	link.Kind = kind
 	link.TargetPath = targetPath
@@ -290,22 +291,22 @@ func markdownLink(sourcePath string, line int, text, target string, image bool, 
 	return link
 }
 
-func classifyTarget(sourcePath, raw string) (language.MarkdownLinkKind, string, string) {
+func classifyTarget(sourcePath, raw string) (markdown.LinkKind, string, string) {
 	if strings.TrimSpace(raw) == "" {
-		return language.MarkdownLinkOther, "", ""
+		return markdown.LinkOther, "", ""
 	}
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" && parsed.Scheme == "" {
-		return language.MarkdownLinkExternal, "", parsed.Fragment
+		return markdown.LinkExternal, "", parsed.Fragment
 	}
 	if err == nil && parsed.Scheme != "" {
 		if parsed.Scheme == "http" || parsed.Scheme == "https" {
-			return language.MarkdownLinkExternal, "", parsed.Fragment
+			return markdown.LinkExternal, "", parsed.Fragment
 		}
-		return language.MarkdownLinkOther, "", parsed.Fragment
+		return markdown.LinkOther, "", parsed.Fragment
 	}
 	if strings.HasPrefix(raw, "#") {
-		return language.MarkdownLinkAnchor, sourcePath, strings.TrimPrefix(raw, "#")
+		return markdown.LinkAnchor, sourcePath, strings.TrimPrefix(raw, "#")
 	}
 	pathPart := raw
 	fragment := ""
@@ -323,19 +324,19 @@ func classifyTarget(sourcePath, raw string) (language.MarkdownLinkKind, string, 
 		targetPath = cleanRel(path.Join(path.Dir(sourcePath), targetPath))
 	}
 	if fragment != "" && targetPath == sourcePath {
-		return language.MarkdownLinkAnchor, targetPath, fragment
+		return markdown.LinkAnchor, targetPath, fragment
 	}
-	return language.MarkdownLinkLocal, targetPath, fragment
+	return markdown.LinkLocal, targetPath, fragment
 }
 
-func (p Plugin) checkLinks(ctx context.Context, links []language.MarkdownLink, maxBytes int) []language.Diagnostic {
+func (p Plugin) checkLinks(ctx context.Context, links []markdown.Link, maxBytes int) []language.Diagnostic {
 	anchorCache := map[string]map[string]bool{}
 	var out []language.Diagnostic
 	for _, link := range links {
 		switch link.Kind {
-		case language.MarkdownLinkExternal, language.MarkdownLinkOther:
+		case markdown.LinkExternal, markdown.LinkOther:
 			out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "info", Code: "unchecked_link", Message: "external or non-file link was not checked", Target: link.Target})
-		case language.MarkdownLinkAnchor, language.MarkdownLinkLocal:
+		case markdown.LinkAnchor, markdown.LinkLocal:
 			if link.TargetPath == "" {
 				out = append(out, language.Diagnostic{Path: link.Path, Line: link.Line, Severity: "error", Code: "missing_target", Message: "link target is empty", Target: link.Target})
 				continue
@@ -370,7 +371,7 @@ func (p Plugin) checkLinks(ctx context.Context, links []language.MarkdownLink, m
 	return out
 }
 
-func validateMarkdownQuery(req language.MarkdownQuery) error {
+func validateMarkdownQuery(req markdown.Query) error {
 	if req.Language != "" && req.Language != language.LanguageMarkdown {
 		return fmt.Errorf("unsupported language %q; this operation only supports %q", req.Language, language.LanguageMarkdown)
 	}
@@ -414,11 +415,11 @@ func nodeLine(node goldast.Node, source []byte) int {
 	return 0
 }
 
-func nestHeadings(flat []language.MarkdownHeading) []language.MarkdownHeading {
-	var roots []language.MarkdownHeading
+func nestHeadings(flat []markdown.Heading) []markdown.Heading {
+	var roots []markdown.Heading
 	type stackEntry struct {
 		level    int
-		children *[]language.MarkdownHeading
+		children *[]markdown.Heading
 	}
 	stack := []stackEntry{{level: 0, children: &roots}}
 	for _, heading := range flat {
@@ -434,10 +435,10 @@ func nestHeadings(flat []language.MarkdownHeading) []language.MarkdownHeading {
 	return roots
 }
 
-func markdownTitle(headings []language.MarkdownHeading) (language.MarkdownHeading, bool) {
-	var first *language.MarkdownHeading
-	var walk func([]language.MarkdownHeading) (language.MarkdownHeading, bool)
-	walk = func(items []language.MarkdownHeading) (language.MarkdownHeading, bool) {
+func markdownTitle(headings []markdown.Heading) (markdown.Heading, bool) {
+	var first *markdown.Heading
+	var walk func([]markdown.Heading) (markdown.Heading, bool)
+	walk = func(items []markdown.Heading) (markdown.Heading, bool) {
 		for i := range items {
 			if first == nil {
 				first = &items[i]
@@ -449,7 +450,7 @@ func markdownTitle(headings []language.MarkdownHeading) (language.MarkdownHeadin
 				return heading, true
 			}
 		}
-		return language.MarkdownHeading{}, false
+		return markdown.Heading{}, false
 	}
 	if heading, ok := walk(headings); ok {
 		return heading, true
@@ -457,13 +458,13 @@ func markdownTitle(headings []language.MarkdownHeading) (language.MarkdownHeadin
 	if first != nil {
 		return *first, true
 	}
-	return language.MarkdownHeading{}, false
+	return markdown.Heading{}, false
 }
 
-func renderMarkdownHeadings(headings []language.MarkdownHeading, depth, limit int) []string {
+func renderMarkdownHeadings(headings []markdown.Heading, depth, limit int) []string {
 	var lines []string
-	var walk func([]language.MarkdownHeading, int)
-	walk = func(items []language.MarkdownHeading, currentDepth int) {
+	var walk func([]markdown.Heading, int)
+	walk = func(items []markdown.Heading, currentDepth int) {
 		for _, heading := range items {
 			if limit > 0 && len(lines) >= limit {
 				return
@@ -476,10 +477,10 @@ func renderMarkdownHeadings(headings []language.MarkdownHeading, depth, limit in
 	return lines
 }
 
-func headingAnchors(headings []language.MarkdownHeading) map[string]bool {
+func headingAnchors(headings []markdown.Heading) map[string]bool {
 	out := map[string]bool{}
-	var walk func([]language.MarkdownHeading)
-	walk = func(items []language.MarkdownHeading) {
+	var walk func([]markdown.Heading)
+	walk = func(items []markdown.Heading) {
 		for _, heading := range items {
 			out[normalizeAnchor(heading.Anchor)] = true
 			out[normalizeAnchor(heading.Title)] = true
@@ -525,7 +526,7 @@ func normalizeAnchor(raw string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-func linkKindLabel(link language.MarkdownLink) string {
+func linkKindLabel(link markdown.Link) string {
 	if link.Image {
 		return string(link.Kind) + " image"
 	}

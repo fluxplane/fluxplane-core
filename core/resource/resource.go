@@ -7,6 +7,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/language"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -69,6 +70,7 @@ type ContributionBundle struct {
 	Apps             []coreapp.Spec             `json:"apps,omitempty"`
 	Agents           []agent.Spec               `json:"agents,omitempty"`
 	OperationSets    []operation.Set            `json:"operation_sets,omitempty"`
+	Toolchains       []language.ToolchainSpec   `json:"toolchains,omitempty"`
 	ToolSets         []tool.Set                 `json:"tool_sets,omitempty"`
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
@@ -92,6 +94,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Apps = append(b.Apps, other.Apps...)
 	b.Agents = append(b.Agents, other.Agents...)
 	b.OperationSets = append(b.OperationSets, other.OperationSets...)
+	b.Toolchains = append(b.Toolchains, other.Toolchains...)
 	b.ToolSets = append(b.ToolSets, other.ToolSets...)
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)

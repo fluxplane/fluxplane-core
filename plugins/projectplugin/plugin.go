@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -61,6 +62,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Operations:  refs(specs),
 		}},
 		Operations: specs,
+		EventTypes: []coreevent.Event{coreproject.SignalsObserved{}},
 	}, nil
 }
 
@@ -255,6 +257,14 @@ func (p Plugin) inventory(manager *runtimeproject.Manager) operationruntime.Type
 		if err != nil {
 			return operation.Failed("project_inventory_failed", err.Error(), nil)
 		}
+		if rebuilt || req.Refresh {
+			ctx.Events().Emit(coreproject.SignalsObserved{
+				WorkspaceRoot: p.system.Workspace().Root(),
+				Scope:         ".",
+				Signals:       inventory.Signals,
+				Truncated:     inventory.Truncated,
+			})
+		}
 		lines := []string{fmt.Sprintf("Projects: %d", len(inventory.Projects))}
 		for _, project := range inventory.Projects {
 			lines = append(lines, fmt.Sprintf("- %s [%s] (%s): %s", displayRoot(project.Root), project.ID, project.Kind, project.Name))
@@ -268,13 +278,14 @@ func (p Plugin) inventory(manager *runtimeproject.Manager) operationruntime.Type
 }
 
 type inventorySummary struct {
-	Root      string           `json:"root,omitempty"`
-	Projects  []projectSummary `json:"projects,omitempty"`
-	Truncated bool             `json:"truncated,omitempty"`
+	Root      string               `json:"root,omitempty"`
+	Projects  []projectSummary     `json:"projects,omitempty"`
+	Signals   []coreproject.Signal `json:"signals,omitempty"`
+	Truncated bool                 `json:"truncated,omitempty"`
 }
 
 func compactInventory(inventory coreproject.Inventory) inventorySummary {
-	out := inventorySummary{Root: inventory.Root, Truncated: inventory.Truncated}
+	out := inventorySummary{Root: inventory.Root, Signals: inventory.Signals, Truncated: inventory.Truncated}
 	for _, project := range inventory.Projects {
 		out.Projects = append(out.Projects, compactProject(project))
 	}

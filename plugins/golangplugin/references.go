@@ -8,22 +8,23 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
-func (p Plugin) goReferences() operationruntime.TypedResultHandler[language.ReferenceQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.ReferenceQuery) operation.Result {
+func (p Plugin) goReferences() operationruntime.TypedResultHandler[golang.ReferenceQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.ReferenceQuery) operation.Result {
 		navReq := referenceNavigationQuery(req)
 		resolveReq := navReq
-		if resolveReq.Scope == language.NavigationScopeFile {
-			resolveReq.Scope = language.NavigationScopePackage
+		if resolveReq.Scope == golang.NavigationScopeFile {
+			resolveReq.Scope = golang.NavigationScopePackage
 		}
 		nav, err := p.resolveNavigation(ctx, resolveReq, false)
 		if err != nil {
 			return operation.Failed("go_references_failed", err.Error(), nil)
 		}
-		result := language.ReferenceResult{
+		result := golang.ReferenceResult{
 			Target:         nav.Target,
 			Diagnostics:    nav.Diagnostics,
 			ResolutionMode: "ast",
@@ -55,8 +56,8 @@ func (p Plugin) goReferences() operationruntime.TypedResultHandler[language.Refe
 	}
 }
 
-func referenceNavigationQuery(req language.ReferenceQuery) language.NavigationQuery {
-	return language.NavigationQuery{
+func referenceNavigationQuery(req golang.ReferenceQuery) golang.NavigationQuery {
+	return golang.NavigationQuery{
 		Language:   req.Language,
 		Path:       req.Path,
 		Line:       req.Line,
@@ -347,7 +348,7 @@ func linePreview(data []byte, line int) string {
 	return strings.TrimSpace(lines[line-1])
 }
 
-func renderReferences(title string, result language.ReferenceResult) []string {
+func renderReferences(title string, result golang.ReferenceResult) []string {
 	target := result.Target.Name
 	if target == "" {
 		target = result.Target.Text

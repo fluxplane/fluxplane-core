@@ -46,6 +46,9 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if !hasDocument(root, "docs/guide.md") {
 			t.Fatalf("root documents = %#v, want nested docs/guide.md attached to root", root.Facets)
 		}
+		if !hasSignal(inventory.Signals, "go", "go", "go.mod") || !hasSignal(inventory.Signals, "markdown", "", "README.md") {
+			t.Fatalf("signals = %#v, want go and markdown project signals", inventory.Signals)
+		}
 		tools := projectByRoot(t, inventory, "tools")
 		if tools.ParentID != root.ID {
 			t.Fatalf("tools parent = %q, want %q", tools.ParentID, root.ID)
@@ -64,6 +67,9 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 		}
 		if len(limited.Projects) != 1 || !hasFacet(limited.Projects[0], coreproject.FacetGoModule) {
 			t.Fatalf("limited projects = %#v, want one discovered Go project", limited.Projects)
+		}
+		if hasSignalProject(limited.Signals, tools.ID) {
+			t.Fatalf("limited signals = %#v, want no signals for omitted project %s", limited.Signals, tools.ID)
 		}
 
 		inventory, rebuilt, err = manager.Inventory(context.Background(), coreproject.InventoryQuery{})
@@ -165,6 +171,24 @@ func projectByRoot(t *testing.T, inventory coreproject.Inventory, root string) c
 func hasFacet(project coreproject.Project, kind coreproject.FacetKind) bool {
 	for _, facet := range project.Facets {
 		if facet.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSignal(signals []coreproject.Signal, language, toolchain, path string) bool {
+	for _, signal := range signals {
+		if string(signal.Language) == language && signal.Toolchain == toolchain && signal.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSignalProject(signals []coreproject.Signal, projectID coreproject.ID) bool {
+	for _, signal := range signals {
+		if signal.ProjectID == projectID {
 			return true
 		}
 	}

@@ -13,7 +13,9 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -25,28 +27,30 @@ import (
 
 const (
 	Name               = "golang"
-	ProjectOp          = "go_project"
-	InfoOp             = "go_info"
-	EnvOp              = "go_env"
-	VersionOp          = "go_version"
-	DocOp              = "go_doc"
-	ListOp             = "go_list"
-	TestOp             = "go_test"
-	FmtOp              = "go_fmt"
-	VetOp              = "go_vet"
-	BuildOp            = "go_build"
-	InstallOp          = "go_install"
-	PackagesOp         = "go_packages"
-	OutlineOp          = "go_outline"
-	SymbolOp           = "go_symbol"
-	DefinitionOp       = "go_definition"
-	SymbolInfoOp       = "go_symbol_info"
-	ReferencesOp       = "go_references"
-	ImportsOp          = "go_imports"
-	ImplementationsOp  = "go_implementations"
-	CallersOp          = "go_callers"
-	CalleesOp          = "go_callees"
-	SummaryProvider    = "go.summary"
+	ParserSet          = "golang.parser"
+	ToolchainSet       = "golang.toolchain"
+	ProjectOp          = golang.ProjectOp
+	InfoOp             = golang.InfoOp
+	EnvOp              = golang.EnvOp
+	VersionOp          = golang.VersionOp
+	DocOp              = golang.DocOp
+	ListOp             = golang.ListOp
+	TestOp             = golang.TestOp
+	FmtOp              = golang.FmtOp
+	VetOp              = golang.VetOp
+	BuildOp            = golang.BuildOp
+	InstallOp          = golang.InstallOp
+	PackagesOp         = golang.PackagesOp
+	OutlineOp          = golang.OutlineOp
+	SymbolOp           = golang.SymbolOp
+	DefinitionOp       = golang.DefinitionOp
+	SymbolInfoOp       = golang.SymbolInfoOp
+	ReferencesOp       = golang.ReferencesOp
+	ImportsOp          = golang.ImportsOp
+	ImplementationsOp  = golang.ImplementationsOp
+	CallersOp          = golang.CallersOp
+	CalleesOp          = golang.CalleesOp
+	SummaryProvider    = golang.SummaryProvider
 	defaultMaxResults  = 200
 	defaultSourceBytes = 512 * 1024
 )
@@ -78,14 +82,25 @@ func (Plugin) Manifest() pluginhost.Manifest {
 // Contributions returns Go operation specs.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	specs := specs()
+	parserRefs := refsByName(specs, parserOperationNames())
+	toolchainRefs := refsByName(specs, toolchainOperationNames())
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
-		OperationSets: []operation.Set{{
-			Name:        Name,
-			Description: "Go project, package, outline, symbol, navigation, reference, import, and implementation read operations.",
-			Operations:  refs(specs),
-		}},
+		OperationSets: []operation.Set{
+			{
+				Name:        ParserSet,
+				Description: "Go parser and workspace language operations that do not require the go binary.",
+				Operations:  parserRefs,
+			},
+			{
+				Name:        ToolchainSet,
+				Description: "Go toolchain operations backed by external go commands.",
+				Operations:  toolchainRefs,
+			},
+		},
+		Toolchains: []language.ToolchainSpec{goToolchainSpec(toolchainRefs)},
 		Operations: specs,
+		EventTypes: []coreevent.Event{language.ToolchainStatusObserved{}},
 	}, nil
 }
 
@@ -111,53 +126,53 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		manager = runtimeproject.NewManager(p.system.Workspace())
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[language.ProjectQuery, operation.Rendered](specByName(ProjectOp), p.goProject(manager)),
-		operationruntime.NewTypedResult[language.GoInfoQuery, operation.Rendered](specByName(InfoOp), p.goInfo(), operationruntime.WithIntent(goInfoIntent)),
-		operationruntime.NewTypedResult[language.GoEnvQuery, operation.Rendered](specByName(EnvOp), p.goEnv(), operationruntime.WithIntent(goEnvIntent)),
-		operationruntime.NewTypedResult[language.GoVersionQuery, operation.Rendered](specByName(VersionOp), p.goVersion(), operationruntime.WithIntent(goVersionIntent)),
-		operationruntime.NewTypedResult[language.GoDocQuery, operation.Rendered](specByName(DocOp), p.goDoc(), operationruntime.WithIntent(goDocIntent)),
-		operationruntime.NewTypedResult[language.GoListQuery, operation.Rendered](specByName(ListOp), p.goList(), operationruntime.WithIntent(goListIntent)),
-		operationruntime.NewTypedResult[language.GoTestQuery, operation.Rendered](specByName(TestOp), p.goTest(), operationruntime.WithIntent(goTestIntent)),
-		operationruntime.NewTypedResult[language.GoFmtQuery, operation.Rendered](specByName(FmtOp), p.goFmt(), operationruntime.WithIntent(goFmtIntent)),
-		operationruntime.NewTypedResult[language.GoVetQuery, operation.Rendered](specByName(VetOp), p.goVet(), operationruntime.WithIntent(goVetIntent)),
-		operationruntime.NewTypedResult[language.GoBuildQuery, operation.Rendered](specByName(BuildOp), p.goBuild(), operationruntime.WithIntent(goBuildIntent)),
-		operationruntime.NewTypedResult[language.GoInstallQuery, operation.Rendered](specByName(InstallOp), p.goInstall(), operationruntime.WithIntent(goInstallIntent)),
-		operationruntime.NewTypedResult[language.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
-		operationruntime.NewTypedResult[language.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
-		operationruntime.NewTypedResult[language.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
-		operationruntime.NewTypedResult[language.NavigationQuery, operation.Rendered](specByName(DefinitionOp), p.goDefinition()),
-		operationruntime.NewTypedResult[language.NavigationQuery, operation.Rendered](specByName(SymbolInfoOp), p.goSymbolInfo()),
-		operationruntime.NewTypedResult[language.ReferenceQuery, operation.Rendered](specByName(ReferencesOp), p.goReferences()),
-		operationruntime.NewTypedResult[language.ImportQuery, operation.Rendered](specByName(ImportsOp), p.goImports()),
-		operationruntime.NewTypedResult[language.ImplementationQuery, operation.Rendered](specByName(ImplementationsOp), p.goImplementations()),
-		operationruntime.NewTypedResult[language.CallQuery, operation.Rendered](specByName(CallersOp), p.goCallers()),
-		operationruntime.NewTypedResult[language.CallQuery, operation.Rendered](specByName(CalleesOp), p.goCallees()),
+		operationruntime.NewTypedResult[golang.ProjectQuery, operation.Rendered](specByName(ProjectOp), p.goProject(manager)),
+		operationruntime.NewTypedResult[golang.GoInfoQuery, operation.Rendered](specByName(InfoOp), p.goInfo(), operationruntime.WithIntent(goInfoIntent)),
+		operationruntime.NewTypedResult[golang.GoEnvQuery, operation.Rendered](specByName(EnvOp), p.goEnv(), operationruntime.WithIntent(goEnvIntent)),
+		operationruntime.NewTypedResult[golang.GoVersionQuery, operation.Rendered](specByName(VersionOp), p.goVersion(), operationruntime.WithIntent(goVersionIntent)),
+		operationruntime.NewTypedResult[golang.GoDocQuery, operation.Rendered](specByName(DocOp), p.goDoc(), operationruntime.WithIntent(goDocIntent)),
+		operationruntime.NewTypedResult[golang.GoListQuery, operation.Rendered](specByName(ListOp), p.goList(), operationruntime.WithIntent(goListIntent)),
+		operationruntime.NewTypedResult[golang.GoTestQuery, operation.Rendered](specByName(TestOp), p.goTest(), operationruntime.WithIntent(goTestIntent)),
+		operationruntime.NewTypedResult[golang.GoFmtQuery, operation.Rendered](specByName(FmtOp), p.goFmt(), operationruntime.WithIntent(goFmtIntent)),
+		operationruntime.NewTypedResult[golang.GoVetQuery, operation.Rendered](specByName(VetOp), p.goVet(), operationruntime.WithIntent(goVetIntent)),
+		operationruntime.NewTypedResult[golang.GoBuildQuery, operation.Rendered](specByName(BuildOp), p.goBuild(), operationruntime.WithIntent(goBuildIntent)),
+		operationruntime.NewTypedResult[golang.GoInstallQuery, operation.Rendered](specByName(InstallOp), p.goInstall(), operationruntime.WithIntent(goInstallIntent)),
+		operationruntime.NewTypedResult[golang.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
+		operationruntime.NewTypedResult[golang.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
+		operationruntime.NewTypedResult[golang.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
+		operationruntime.NewTypedResult[golang.NavigationQuery, operation.Rendered](specByName(DefinitionOp), p.goDefinition()),
+		operationruntime.NewTypedResult[golang.NavigationQuery, operation.Rendered](specByName(SymbolInfoOp), p.goSymbolInfo()),
+		operationruntime.NewTypedResult[golang.ReferenceQuery, operation.Rendered](specByName(ReferencesOp), p.goReferences()),
+		operationruntime.NewTypedResult[golang.ImportQuery, operation.Rendered](specByName(ImportsOp), p.goImports()),
+		operationruntime.NewTypedResult[golang.ImplementationQuery, operation.Rendered](specByName(ImplementationsOp), p.goImplementations()),
+		operationruntime.NewTypedResult[golang.CallQuery, operation.Rendered](specByName(CallersOp), p.goCallers()),
+		operationruntime.NewTypedResult[golang.CallQuery, operation.Rendered](specByName(CalleesOp), p.goCallees()),
 	}, nil
 }
 
 func specs() []operation.Spec {
 	return []operation.Spec{
-		spec[language.ProjectQuery](ProjectOp, "Summarize Go modules and go.work workspaces detected from Workspace project inventory. Uses memory-only refresh and reads only through the Workspace boundary."),
-		specWithSemantics[language.GoInfoQuery](InfoOp, "Return curated Go toolchain orientation including version, target, module/workspace paths, proxy/private settings, and cache/tool directories.", goToolReadSemantics()),
-		specWithSemantics[language.GoEnvQuery](EnvOp, "Return read-only structured go env values. Supports curated, explicit, all, and changed views; does not support go env -w or -u.", goToolReadSemantics()),
-		specWithSemantics[language.GoVersionQuery](VersionOp, "Return go version output for the toolchain or workspace-relative binaries with optional module build information.", goToolReadSemantics()),
-		specWithSemantics[language.GoDocQuery](DocOp, "Return package or symbol documentation through go doc. Supports explicit package/symbol selectors or position-derived source symbols.", goToolReadSemantics()),
-		specWithSemantics[language.GoListQuery](ListOp, "Return structured go list -json package or module metadata for explicit package/module patterns.", goToolReadSemantics()),
-		specWithSemantics[language.GoTestQuery](TestOp, "Run go test -json for selected package patterns and return structured package/test summaries.", goToolCheckSemantics()),
-		specWithSemantics[language.GoFmtQuery](FmtOp, "Run go fmt for selected package patterns. Defaults to dry-run preview and requires explicit dry_run=false for formatting writes.", goToolMutatingSemantics()),
-		specWithSemantics[language.GoVetQuery](VetOp, "Run go vet for selected package patterns and return diagnostics. Fix and vettool execution are unsupported.", goToolCheckSemantics()),
-		specWithSemantics[language.GoBuildQuery](BuildOp, "Run go build as a compile check for selected package patterns. Output artifact placement is unsupported.", goToolCheckSemantics()),
-		specWithSemantics[language.GoInstallQuery](InstallOp, "Run go install for explicit packages. Defaults to dry-run preview and restricts environment overrides.", goToolInstallSemantics()),
-		spec[language.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
-		spec[language.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
-		spec[language.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
-		spec[language.NavigationQuery](DefinitionOp, "Resolve the AST/package-level Go declaration for an identifier, import, or package token at a source position. This is parser-based and reports incomplete semantic limitations."),
-		spec[language.NavigationQuery](SymbolInfoOp, "Return compact AST/package-level Go symbol information for a source position, falling back to the enclosing declaration when no identifier definition resolves."),
-		spec[language.ReferenceQuery](ReferencesOp, "Return bounded AST/package-level Go references for the selected symbol at a source position. Scope defaults to the same package directory, include_tests defaults to true, and results report parser-only limitations."),
-		spec[language.ImportQuery](ImportsOp, "Return direct and reverse Go import edges from parser-only source reads. Direction defaults to both, include_tests defaults to true, and reverse lookups stay bounded to the requested path scope."),
-		spec[language.ImplementationQuery](ImplementationsOp, "Return best-effort AST-only Go implementation relationships for a selected interface, concrete type, or method. Scope defaults to the selected package; module scope is supported."),
-		spec[language.CallQuery](CallersOp, "Return bounded AST-only direct callers for the selected Go function or method. Scope defaults to package, include_tests defaults to true, and module scope is best-effort for module-local function selectors."),
-		spec[language.CallQuery](CalleesOp, "Return bounded AST-only direct callees from the selected Go function or method body. Scope defaults to package, include_tests defaults to true, and unresolved external/function-value calls are reported as limitations."),
+		spec[golang.ProjectQuery](ProjectOp, "Summarize Go modules and go.work workspaces detected from Workspace project inventory. Uses memory-only refresh and reads only through the Workspace boundary."),
+		specWithSemantics[golang.GoInfoQuery](InfoOp, "Return curated Go toolchain orientation including version, target, module/workspace paths, proxy/private settings, and cache/tool directories.", goToolReadSemantics()),
+		specWithSemantics[golang.GoEnvQuery](EnvOp, "Return read-only structured go env values. Supports curated, explicit, all, and changed views; does not support go env -w or -u.", goToolReadSemantics()),
+		specWithSemantics[golang.GoVersionQuery](VersionOp, "Return go version output for the toolchain or workspace-relative binaries with optional module build information.", goToolReadSemantics()),
+		specWithSemantics[golang.GoDocQuery](DocOp, "Return package or symbol documentation through go doc. Supports explicit package/symbol selectors or position-derived source symbols.", goToolReadSemantics()),
+		specWithSemantics[golang.GoListQuery](ListOp, "Return structured go list -json package or module metadata for explicit package/module patterns.", goToolReadSemantics()),
+		specWithSemantics[golang.GoTestQuery](TestOp, "Run go test -json for selected package patterns and return structured package/test summaries.", goToolCheckSemantics()),
+		specWithSemantics[golang.GoFmtQuery](FmtOp, "Run go fmt for selected package patterns. Defaults to dry-run preview and requires explicit dry_run=false for formatting writes.", goToolMutatingSemantics()),
+		specWithSemantics[golang.GoVetQuery](VetOp, "Run go vet for selected package patterns and return diagnostics. Fix and vettool execution are unsupported.", goToolCheckSemantics()),
+		specWithSemantics[golang.GoBuildQuery](BuildOp, "Run go build as a compile check for selected package patterns. Output artifact placement is unsupported.", goToolCheckSemantics()),
+		specWithSemantics[golang.GoInstallQuery](InstallOp, "Run go install for explicit packages. Defaults to dry-run preview and restricts environment overrides.", goToolInstallSemantics()),
+		spec[golang.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
+		spec[golang.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
+		spec[golang.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
+		spec[golang.NavigationQuery](DefinitionOp, "Resolve the AST/package-level Go declaration for an identifier, import, or package token at a source position. This is parser-based and reports incomplete semantic limitations."),
+		spec[golang.NavigationQuery](SymbolInfoOp, "Return compact AST/package-level Go symbol information for a source position, falling back to the enclosing declaration when no identifier definition resolves."),
+		spec[golang.ReferenceQuery](ReferencesOp, "Return bounded AST/package-level Go references for the selected symbol at a source position. Scope defaults to the same package directory, include_tests defaults to true, and results report parser-only limitations."),
+		spec[golang.ImportQuery](ImportsOp, "Return direct and reverse Go import edges from parser-only source reads. Direction defaults to both, include_tests defaults to true, and reverse lookups stay bounded to the requested path scope."),
+		spec[golang.ImplementationQuery](ImplementationsOp, "Return best-effort AST-only Go implementation relationships for a selected interface, concrete type, or method. Scope defaults to the selected package; module scope is supported."),
+		spec[golang.CallQuery](CallersOp, "Return bounded AST-only direct callers for the selected Go function or method. Scope defaults to package, include_tests defaults to true, and module scope is best-effort for module-local function selectors."),
+		spec[golang.CallQuery](CalleesOp, "Return bounded AST-only direct callees from the selected Go function or method body. Scope defaults to package, include_tests defaults to true, and unresolved external/function-value calls are reported as limitations."),
 	}
 }
 
@@ -223,12 +238,51 @@ func specByName(name string) operation.Spec {
 	return operation.Spec{Ref: operation.Ref{Name: operation.Name(name)}}
 }
 
-func refs(specs []operation.Spec) []operation.Ref {
-	out := make([]operation.Ref, 0, len(specs))
+func refsByName(specs []operation.Spec, names []string) []operation.Ref {
+	allowed := map[string]bool{}
+	for _, name := range names {
+		allowed[name] = true
+	}
+	var out []operation.Ref
 	for _, spec := range specs {
-		out = append(out, spec.Ref)
+		if allowed[string(spec.Ref.Name)] {
+			out = append(out, spec.Ref)
+		}
 	}
 	return out
+}
+
+func parserOperationNames() []string {
+	return []string{
+		ProjectOp, PackagesOp, OutlineOp, SymbolOp, DefinitionOp, SymbolInfoOp,
+		ReferencesOp, ImportsOp, ImplementationsOp, CallersOp, CalleesOp,
+	}
+}
+
+func toolchainOperationNames() []string {
+	return []string{InfoOp, EnvOp, VersionOp, DocOp, ListOp, TestOp, FmtOp, VetOp, BuildOp, InstallOp}
+}
+
+func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {
+	return language.ToolchainSpec{
+		ID:               "go",
+		DisplayName:      "Go",
+		Languages:        []language.LanguageID{language.LanguageGo},
+		RequiredBinaries: []language.ToolchainBinarySpec{{Name: "go", VersionArgs: []string{"version"}}},
+		Capabilities: []language.ToolchainCapability{
+			language.ToolchainCapabilityPackageInfo,
+			language.ToolchainCapabilityDoc,
+			language.ToolchainCapabilityList,
+			language.ToolchainCapabilityTest,
+			language.ToolchainCapabilityFormat,
+			language.ToolchainCapabilityLint,
+			language.ToolchainCapabilityBuild,
+			language.ToolchainCapabilityInstall,
+		},
+		OperationSets:     []string{ToolchainSet},
+		Operations:        ops,
+		ActivationSignals: []string{"go.mod", "go.work"},
+	}
 }
 
 func summaryContextSpec() corecontext.ProviderSpec {
@@ -341,8 +395,8 @@ func commandPackages(pkgs []language.Package, limit int) []string {
 	return out
 }
 
-func (p Plugin) goProject(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[language.ProjectQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.ProjectQuery) operation.Result {
+func (p Plugin) goProject(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[golang.ProjectQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.ProjectQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_project_input", err.Error(), nil)
 		}
@@ -385,8 +439,8 @@ func (p Plugin) goProject(manager *runtimeproject.Manager) operationruntime.Type
 	}
 }
 
-func (p Plugin) goPackages(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[language.PackageQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.PackageQuery) operation.Result {
+func (p Plugin) goPackages(manager *runtimeproject.Manager) operationruntime.TypedResultHandler[golang.PackageQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.PackageQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_packages_input", err.Error(), nil)
 		}
@@ -406,7 +460,7 @@ func (p Plugin) goPackages(manager *runtimeproject.Manager) operationruntime.Typ
 	}
 }
 
-func (p Plugin) packageScope(ctx context.Context, manager *runtimeproject.Manager, req language.PackageQuery) (string, error) {
+func (p Plugin) packageScope(ctx context.Context, manager *runtimeproject.Manager, req golang.PackageQuery) (string, error) {
 	if strings.TrimSpace(req.Path) != "" {
 		return req.Path, nil
 	}
@@ -423,8 +477,8 @@ func (p Plugin) packageScope(ctx context.Context, manager *runtimeproject.Manage
 	return project.Root, nil
 }
 
-func (p Plugin) goOutline() operationruntime.TypedResultHandler[language.OutlineQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.OutlineQuery) operation.Result {
+func (p Plugin) goOutline() operationruntime.TypedResultHandler[golang.OutlineQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.OutlineQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_outline_input", err.Error(), nil)
 		}
@@ -480,8 +534,8 @@ func (p Plugin) goOutline() operationruntime.TypedResultHandler[language.Outline
 	}
 }
 
-func (p Plugin) goSymbol() operationruntime.TypedResultHandler[language.SymbolQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.SymbolQuery) operation.Result {
+func (p Plugin) goSymbol() operationruntime.TypedResultHandler[golang.SymbolQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.SymbolQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_symbol_input", err.Error(), nil)
 		}
@@ -805,7 +859,7 @@ func flattenSymbols(symbols []language.Symbol) []language.Symbol {
 	return out
 }
 
-func symbolMatches(symbol language.Symbol, req language.SymbolQuery) bool {
+func symbolMatches(symbol language.Symbol, req golang.SymbolQuery) bool {
 	if req.Kind != "" && !strings.EqualFold(string(symbol.Kind), string(req.Kind)) {
 		return false
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -21,16 +22,16 @@ type callIndex struct {
 	importPathPackageID map[string]string
 }
 
-func (p Plugin) goCallers() operationruntime.TypedResultHandler[language.CallQuery, operation.Rendered] {
+func (p Plugin) goCallers() operationruntime.TypedResultHandler[golang.CallQuery, operation.Rendered] {
 	return p.goCalls(true)
 }
 
-func (p Plugin) goCallees() operationruntime.TypedResultHandler[language.CallQuery, operation.Rendered] {
+func (p Plugin) goCallees() operationruntime.TypedResultHandler[golang.CallQuery, operation.Rendered] {
 	return p.goCalls(false)
 }
 
-func (p Plugin) goCalls(callers bool) operationruntime.TypedResultHandler[language.CallQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.CallQuery) operation.Result {
+func (p Plugin) goCalls(callers bool) operationruntime.TypedResultHandler[golang.CallQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.CallQuery) operation.Result {
 		if err := validateCallQuery(req); err != nil {
 			return operation.Failed("invalid_go_calls_input", err.Error(), nil)
 		}
@@ -38,7 +39,7 @@ func (p Plugin) goCalls(callers bool) operationruntime.TypedResultHandler[langua
 		if err != nil {
 			return operation.Failed("go_calls_failed", err.Error(), nil)
 		}
-		result := language.CallResult{
+		result := golang.CallResult{
 			Target:         nav.Target,
 			Diagnostics:    nav.Diagnostics,
 			ResolutionMode: "ast",
@@ -83,7 +84,7 @@ func (p Plugin) goCalls(callers bool) operationruntime.TypedResultHandler[langua
 	}
 }
 
-func validateCallQuery(req language.CallQuery) error {
+func validateCallQuery(req golang.CallQuery) error {
 	if err := validateGoLanguage(req.Language); err != nil {
 		return err
 	}
@@ -97,21 +98,21 @@ func validateCallQuery(req language.CallQuery) error {
 		return fmt.Errorf("line and column are required unless offset is set")
 	}
 	switch req.Scope {
-	case "", language.CallScopeFile, language.CallScopePackage, language.CallScopeModule:
+	case "", golang.CallScopeFile, golang.CallScopePackage, golang.CallScopeModule:
 		return nil
 	default:
 		return fmt.Errorf("unsupported call scope %q", req.Scope)
 	}
 }
 
-func callNavigationQuery(req language.CallQuery) language.NavigationQuery {
-	return language.NavigationQuery{
+func callNavigationQuery(req golang.CallQuery) golang.NavigationQuery {
+	return golang.NavigationQuery{
 		Language:   req.Language,
 		Path:       req.Path,
 		Line:       req.Line,
 		Column:     req.Column,
 		Offset:     req.Offset,
-		Scope:      language.NavigationScopePackage,
+		Scope:      golang.NavigationScopePackage,
 		MaxResults: 1,
 		MaxBytes:   req.MaxBytes,
 		Refresh:    req.Refresh,
@@ -127,12 +128,12 @@ func firstCallable(symbols []language.Symbol) *language.Symbol {
 	return nil
 }
 
-func (p Plugin) callFiles(ctx context.Context, selected parsedGoFile, req language.CallQuery) ([]parsedGoFile, []language.Diagnostic) {
+func (p Plugin) callFiles(ctx context.Context, selected parsedGoFile, req golang.CallQuery) ([]parsedGoFile, []language.Diagnostic) {
 	includeTests := includeReferenceTests(req.IncludeTests)
 	switch req.Scope {
-	case language.CallScopeFile:
+	case golang.CallScopeFile:
 		return []parsedGoFile{selected}, nil
-	case language.CallScopeModule:
+	case golang.CallScopeModule:
 		root, modulePath := p.nearestModule(ctx, selected.rel)
 		if modulePath == "" {
 			root = pathDir(selected.rel)
@@ -146,7 +147,7 @@ func (p Plugin) callFiles(ctx context.Context, selected parsedGoFile, req langua
 		}
 		return p.parseImplementationFiles(ctx, selected, files, includeTests, req.MaxBytes)
 	default:
-		files, diagnostics := p.navigationFiles(ctx, selected, language.NavigationQuery{Path: selected.rel, Scope: language.NavigationScopePackage, MaxBytes: req.MaxBytes})
+		files, diagnostics := p.navigationFiles(ctx, selected, golang.NavigationQuery{Path: selected.rel, Scope: golang.NavigationScopePackage, MaxBytes: req.MaxBytes})
 		files = filterReferencePackageFiles(files, selected)
 		files = filterImplementationTestFiles(files, includeTests, selected.rel)
 		return files, diagnostics
@@ -201,15 +202,15 @@ func (p Plugin) packageImportPath(ctx context.Context, dir string) string {
 	return ""
 }
 
-func collectCallEdges(files []parsedGoFile, index callIndex, selected language.Symbol, callers bool, limit int) ([]language.CallEdge, bool) {
-	var edges []language.CallEdge
+func collectCallEdges(files []parsedGoFile, index callIndex, selected language.Symbol, callers bool, limit int) ([]golang.CallEdge, bool) {
+	var edges []golang.CallEdge
 	for _, file := range files {
 		edges = append(edges, fileCallEdges(file, index)...)
 	}
 	edges = uniqueCallEdges(edges)
 	sortCallEdges(edges)
 
-	var out []language.CallEdge
+	var out []golang.CallEdge
 	for _, edge := range edges {
 		if callers && edge.CalleeID != selected.ID {
 			continue
@@ -225,8 +226,8 @@ func collectCallEdges(files []parsedGoFile, index callIndex, selected language.S
 	return out, false
 }
 
-func fileCallEdges(parsed parsedGoFile, index callIndex) []language.CallEdge {
-	var edges []language.CallEdge
+func fileCallEdges(parsed parsedGoFile, index callIndex) []golang.CallEdge {
+	var edges []golang.CallEdge
 	for _, decl := range parsed.file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
@@ -242,7 +243,7 @@ func fileCallEdges(parsed parsedGoFile, index callIndex) []language.CallEdge {
 				if !ok {
 					return true
 				}
-				edges = append(edges, language.CallEdge{
+				edges = append(edges, golang.CallEdge{
 					CallerID: caller.ID,
 					CalleeID: callee.ID,
 					Caller:   caller,
@@ -330,9 +331,9 @@ func callMethodKey(packageID, container, name string) string {
 	return packageID + "\x00" + container + "." + name
 }
 
-func uniqueCallEdges(edges []language.CallEdge) []language.CallEdge {
+func uniqueCallEdges(edges []golang.CallEdge) []golang.CallEdge {
 	seen := map[string]bool{}
-	out := make([]language.CallEdge, 0, len(edges))
+	out := make([]golang.CallEdge, 0, len(edges))
 	for _, edge := range edges {
 		key := fmt.Sprintf("%s:%s:%s:%d:%d", edge.CallerID, edge.CalleeID, edge.Location.Path, edge.Location.Range.Start.Line, edge.Location.Range.Start.Column)
 		if seen[key] {
@@ -344,7 +345,7 @@ func uniqueCallEdges(edges []language.CallEdge) []language.CallEdge {
 	return out
 }
 
-func sortCallEdges(edges []language.CallEdge) {
+func sortCallEdges(edges []golang.CallEdge) {
 	sort.SliceStable(edges, func(i, j int) bool {
 		if edges[i].Location.Path == edges[j].Location.Path {
 			if edges[i].Location.Range.Start.Line == edges[j].Location.Range.Start.Line {
@@ -363,7 +364,7 @@ func callTitle(callers bool) string {
 	return "Go callees"
 }
 
-func renderCalls(title string, result language.CallResult, callers bool) []string {
+func renderCalls(title string, result golang.CallResult, callers bool) []string {
 	target := result.Target.Name
 	if target == "" {
 		target = result.Target.Text

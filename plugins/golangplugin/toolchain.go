@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -44,8 +45,8 @@ var curatedGoEnvVars = []string{
 	"GONOSUMDB",
 }
 
-func (p Plugin) goInfo() operationruntime.TypedResultHandler[language.GoInfoQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoInfoQuery) operation.Result {
+func (p Plugin) goInfo() operationruntime.TypedResultHandler[golang.GoInfoQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoInfoQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_info_input", err.Error(), nil)
 		}
@@ -58,7 +59,7 @@ func (p Plugin) goInfo() operationruntime.TypedResultHandler[language.GoInfoQuer
 			return operation.Failed("go_info_failed", err.Error(), processData(envRun))
 		}
 		env, diagnostics := parseGoEnvOutput(envRun.Stdout)
-		result := language.GoInfoResult{
+		result := golang.GoInfoResult{
 			Version: map[string]string{
 				"go":        strings.TrimSpace(versionRun.Stdout),
 				"goversion": env["GOVERSION"],
@@ -113,15 +114,15 @@ func (p Plugin) goInfo() operationruntime.TypedResultHandler[language.GoInfoQuer
 		if result.Workspace != nil {
 			lines = append(lines, "- module: "+emptyDefault(result.Workspace["gomod"], "(none)"))
 		}
-		if proxy, ok := result.Network["goproxy"].(language.GoProxyConfig); ok && proxy.Raw != "" {
+		if proxy, ok := result.Network["goproxy"].(golang.GoProxyConfig); ok && proxy.Raw != "" {
 			lines = append(lines, "- proxy: "+proxy.Raw)
 		}
 		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"info": result, "diagnostics": result.Diagnostics}})
 	}
 }
 
-func (p Plugin) goEnv() operationruntime.TypedResultHandler[language.GoEnvQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoEnvQuery) operation.Result {
+func (p Plugin) goEnv() operationruntime.TypedResultHandler[golang.GoEnvQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoEnvQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_env_input", err.Error(), nil)
 		}
@@ -150,7 +151,7 @@ func (p Plugin) goEnv() operationruntime.TypedResultHandler[language.GoEnvQuery,
 		if boolDefault(req.Redact, true) {
 			values = redactGoEnv(values)
 		}
-		result := language.GoEnvResult{Values: values, All: req.All, Changed: req.Changed, Diagnostics: diagnostics}
+		result := golang.GoEnvResult{Values: values, All: req.All, Changed: req.Changed, Diagnostics: diagnostics}
 		lines := []string{fmt.Sprintf("Go env: %d values", len(values))}
 		for _, key := range sortedMapKeys(values) {
 			lines = append(lines, fmt.Sprintf("- %s=%s", key, values[key]))
@@ -162,8 +163,8 @@ func (p Plugin) goEnv() operationruntime.TypedResultHandler[language.GoEnvQuery,
 	}
 }
 
-func (p Plugin) goVersion() operationruntime.TypedResultHandler[language.GoVersionQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoVersionQuery) operation.Result {
+func (p Plugin) goVersion() operationruntime.TypedResultHandler[golang.GoVersionQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoVersionQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_version_input", err.Error(), nil)
 		}
@@ -186,7 +187,7 @@ func (p Plugin) goVersion() operationruntime.TypedResultHandler[language.GoVersi
 		if err != nil {
 			return operation.Failed("go_version_failed", err.Error(), processData(run))
 		}
-		result := language.GoVersionResult{}
+		result := golang.GoVersionResult{}
 		if req.ModuleInfo || req.JSON {
 			result.Records, result.Diagnostics = parseGoVersionJSON(run.Stdout)
 		} else {
@@ -210,8 +211,8 @@ func (p Plugin) goVersion() operationruntime.TypedResultHandler[language.GoVersi
 	}
 }
 
-func (p Plugin) goDoc() operationruntime.TypedResultHandler[language.GoDocQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoDocQuery) operation.Result {
+func (p Plugin) goDoc() operationruntime.TypedResultHandler[golang.GoDocQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoDocQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_doc_input", err.Error(), nil)
 		}
@@ -226,7 +227,7 @@ func (p Plugin) goDoc() operationruntime.TypedResultHandler[language.GoDocQuery,
 		if err != nil && strings.TrimSpace(run.Stderr) != "" {
 			diagnostics = append(diagnostics, language.Diagnostic{Severity: "warning", Code: "go_doc_output", Message: strings.TrimSpace(run.Stderr)})
 		}
-		result := language.GoDocResult{
+		result := golang.GoDocResult{
 			Text:        strings.TrimSpace(run.Stdout),
 			Package:     strings.TrimSpace(req.Package),
 			Symbol:      selector,
@@ -250,8 +251,8 @@ func (p Plugin) goDoc() operationruntime.TypedResultHandler[language.GoDocQuery,
 	}
 }
 
-func (p Plugin) goList() operationruntime.TypedResultHandler[language.GoListQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoListQuery) operation.Result {
+func (p Plugin) goList() operationruntime.TypedResultHandler[golang.GoListQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoListQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_list_input", err.Error(), nil)
 		}
@@ -264,7 +265,7 @@ func (p Plugin) goList() operationruntime.TypedResultHandler[language.GoListQuer
 			return operation.Failed("go_list_failed", err.Error(), processData(run))
 		}
 		records, diagnostics, complete := parseGoListJSON(run.Stdout, req.MaxResults)
-		result := language.GoListResult{
+		result := golang.GoListResult{
 			Records:     records,
 			Modules:     req.Modules,
 			Diagnostics: diagnostics,
@@ -292,8 +293,8 @@ func (p Plugin) goList() operationruntime.TypedResultHandler[language.GoListQuer
 	}
 }
 
-func (p Plugin) goTest() operationruntime.TypedResultHandler[language.GoTestQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoTestQuery) operation.Result {
+func (p Plugin) goTest() operationruntime.TypedResultHandler[golang.GoTestQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoTestQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_test_input", err.Error(), nil)
 		}
@@ -326,8 +327,8 @@ func (p Plugin) goTest() operationruntime.TypedResultHandler[language.GoTestQuer
 	}
 }
 
-func (p Plugin) goVet() operationruntime.TypedResultHandler[language.GoVetQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoVetQuery) operation.Result {
+func (p Plugin) goVet() operationruntime.TypedResultHandler[golang.GoVetQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoVetQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_vet_input", err.Error(), nil)
 		}
@@ -341,7 +342,7 @@ func (p Plugin) goVet() operationruntime.TypedResultHandler[language.GoVetQuery,
 		}
 		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
 		diagnostics := parseGoVetOutput(output, req.JSON)
-		result := language.GoVetResult{Diagnostics: diagnostics, Output: output, Passed: err == nil && len(diagnostics) == 0}
+		result := golang.GoVetResult{Diagnostics: diagnostics, Output: output, Passed: err == nil && len(diagnostics) == 0}
 		lines := []string{fmt.Sprintf("Go vet: %s", passFail(result.Passed))}
 		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
 		for _, diag := range diagnostics {
@@ -354,8 +355,8 @@ func (p Plugin) goVet() operationruntime.TypedResultHandler[language.GoVetQuery,
 	}
 }
 
-func (p Plugin) goBuild() operationruntime.TypedResultHandler[language.GoBuildQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoBuildQuery) operation.Result {
+func (p Plugin) goBuild() operationruntime.TypedResultHandler[golang.GoBuildQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoBuildQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_build_input", err.Error(), nil)
 		}
@@ -380,7 +381,7 @@ func (p Plugin) goBuild() operationruntime.TypedResultHandler[language.GoBuildQu
 			return operation.Failed("go_build_failed", err.Error(), processData(run))
 		}
 		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
-		result := language.GoBuildResult{Diagnostics: diagnosticsFromText(output, "go_build_output"), Output: output, Passed: err == nil}
+		result := golang.GoBuildResult{Diagnostics: diagnosticsFromText(output, "go_build_output"), Output: output, Passed: err == nil}
 		lines := []string{fmt.Sprintf("Go build: %s", passFail(result.Passed))}
 		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
 		for _, diag := range result.Diagnostics {
@@ -393,8 +394,8 @@ func (p Plugin) goBuild() operationruntime.TypedResultHandler[language.GoBuildQu
 	}
 }
 
-func (p Plugin) goFmt() operationruntime.TypedResultHandler[language.GoFmtQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoFmtQuery) operation.Result {
+func (p Plugin) goFmt() operationruntime.TypedResultHandler[golang.GoFmtQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoFmtQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_fmt_input", err.Error(), nil)
 		}
@@ -408,7 +409,7 @@ func (p Plugin) goFmt() operationruntime.TypedResultHandler[language.GoFmtQuery,
 		}
 		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
 		files := parseGoFmtFiles(output, dryRun)
-		result := language.GoFmtResult{Files: files, Output: output, DryRun: dryRun, WouldWrite: dryRun && len(files) > 0, Changed: !dryRun && len(files) > 0}
+		result := golang.GoFmtResult{Files: files, Output: output, DryRun: dryRun, WouldWrite: dryRun && len(files) > 0, Changed: !dryRun && len(files) > 0}
 		lines := []string{fmt.Sprintf("Go fmt: %d file(s)", len(files))}
 		if dryRun {
 			lines[0] = fmt.Sprintf("Go fmt dry-run: %d file(s)", len(files))
@@ -421,8 +422,8 @@ func (p Plugin) goFmt() operationruntime.TypedResultHandler[language.GoFmtQuery,
 	}
 }
 
-func (p Plugin) goInstall() operationruntime.TypedResultHandler[language.GoInstallQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.GoInstallQuery) operation.Result {
+func (p Plugin) goInstall() operationruntime.TypedResultHandler[golang.GoInstallQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoInstallQuery) operation.Result {
 		if err := validateGoLanguage(req.Language); err != nil {
 			return operation.Failed("invalid_go_install_input", err.Error(), nil)
 		}
@@ -435,7 +436,7 @@ func (p Plugin) goInstall() operationruntime.TypedResultHandler[language.GoInsta
 			return operation.Failed("go_install_failed", err.Error(), processData(run))
 		}
 		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
-		result := language.GoInstallResult{Packages: packages, Output: output, DryRun: dryRun, Installed: !dryRun}
+		result := golang.GoInstallResult{Packages: packages, Output: output, DryRun: dryRun, Installed: !dryRun}
 		lines := []string{"Go install"}
 		if dryRun {
 			lines[0] = "Go install dry-run"
@@ -471,11 +472,11 @@ func (p Plugin) runGoToolEnv(ctx operation.Context, workdir string, args []strin
 	})
 }
 
-func goInfoIntent(_ operation.Context, req language.GoInfoQuery) (operation.IntentSet, error) {
+func goInfoIntent(_ operation.Context, req golang.GoInfoQuery) (operation.IntentSet, error) {
 	return goToolIntentSet(req.Path, []string{"version"}, append([]string{"env", "-json"}, curatedGoEnvVars...))
 }
 
-func goEnvIntent(_ operation.Context, req language.GoEnvQuery) (operation.IntentSet, error) {
+func goEnvIntent(_ operation.Context, req golang.GoEnvQuery) (operation.IntentSet, error) {
 	args := []string{"env", "-json"}
 	if req.Changed {
 		args = append(args, "-changed")
@@ -488,7 +489,7 @@ func goEnvIntent(_ operation.Context, req language.GoEnvQuery) (operation.Intent
 	return goToolIntentSet(req.Path, args)
 }
 
-func goVersionIntent(_ operation.Context, req language.GoVersionQuery) (operation.IntentSet, error) {
+func goVersionIntent(_ operation.Context, req golang.GoVersionQuery) (operation.IntentSet, error) {
 	args := []string{"version"}
 	if req.ModuleInfo || req.JSON {
 		args = append(args, "-m", "-json")
@@ -504,7 +505,7 @@ func goVersionIntent(_ operation.Context, req language.GoVersionQuery) (operatio
 	return goToolIntentSet(req.Path, args)
 }
 
-func goDocIntent(_ operation.Context, req language.GoDocQuery) (operation.IntentSet, error) {
+func goDocIntent(_ operation.Context, req golang.GoDocQuery) (operation.IntentSet, error) {
 	workdir, args, err := goDocArgs(req, "")
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -512,7 +513,7 @@ func goDocIntent(_ operation.Context, req language.GoDocQuery) (operation.Intent
 	return goToolIntentSet(workdir, args)
 }
 
-func goListIntent(_ operation.Context, req language.GoListQuery) (operation.IntentSet, error) {
+func goListIntent(_ operation.Context, req golang.GoListQuery) (operation.IntentSet, error) {
 	args, _, err := goListArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -520,7 +521,7 @@ func goListIntent(_ operation.Context, req language.GoListQuery) (operation.Inte
 	return goToolIntentSet(req.Path, args)
 }
 
-func goTestIntent(_ operation.Context, req language.GoTestQuery) (operation.IntentSet, error) {
+func goTestIntent(_ operation.Context, req golang.GoTestQuery) (operation.IntentSet, error) {
 	args, _, err := goTestArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -528,7 +529,7 @@ func goTestIntent(_ operation.Context, req language.GoTestQuery) (operation.Inte
 	return goToolIntentSet(req.Path, args)
 }
 
-func goVetIntent(_ operation.Context, req language.GoVetQuery) (operation.IntentSet, error) {
+func goVetIntent(_ operation.Context, req golang.GoVetQuery) (operation.IntentSet, error) {
 	args, _, err := goVetArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -536,7 +537,7 @@ func goVetIntent(_ operation.Context, req language.GoVetQuery) (operation.Intent
 	return goToolIntentSet(req.Path, args)
 }
 
-func goBuildIntent(_ operation.Context, req language.GoBuildQuery) (operation.IntentSet, error) {
+func goBuildIntent(_ operation.Context, req golang.GoBuildQuery) (operation.IntentSet, error) {
 	args, _, err := goBuildArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -544,7 +545,7 @@ func goBuildIntent(_ operation.Context, req language.GoBuildQuery) (operation.In
 	return goToolIntentSet(req.Path, args)
 }
 
-func goFmtIntent(_ operation.Context, req language.GoFmtQuery) (operation.IntentSet, error) {
+func goFmtIntent(_ operation.Context, req golang.GoFmtQuery) (operation.IntentSet, error) {
 	args, _, _, err := goFmtArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -552,7 +553,7 @@ func goFmtIntent(_ operation.Context, req language.GoFmtQuery) (operation.Intent
 	return goToolIntentSet(req.Path, args)
 }
 
-func goInstallIntent(_ operation.Context, req language.GoInstallQuery) (operation.IntentSet, error) {
+func goInstallIntent(_ operation.Context, req golang.GoInstallQuery) (operation.IntentSet, error) {
 	args, _, _, _, err := goInstallArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
@@ -592,17 +593,17 @@ func goProcessIntent(args ...string) operation.IntentOperation {
 	}
 }
 
-func (p Plugin) goDocRequest(ctx context.Context, req language.GoDocQuery) (string, []string, string, []language.Diagnostic, error) {
+func (p Plugin) goDocRequest(ctx context.Context, req golang.GoDocQuery) (string, []string, string, []language.Diagnostic, error) {
 	selector := strings.TrimSpace(req.Symbol)
 	var diagnostics []language.Diagnostic
 	if selector == "" && req.Path != "" && (req.Offset != nil || req.Line > 0 || req.Column > 0) {
-		nav, err := p.resolveNavigation(ctx, language.NavigationQuery{
+		nav, err := p.resolveNavigation(ctx, golang.NavigationQuery{
 			Language:    req.Language,
 			Path:        req.Path,
 			Line:        req.Line,
 			Column:      req.Column,
 			Offset:      req.Offset,
-			Scope:       language.NavigationScopePackage,
+			Scope:       golang.NavigationScopePackage,
 			IncludeDocs: true,
 			MaxResults:  1,
 			MaxBytes:    req.MaxBytes,
@@ -619,7 +620,7 @@ func (p Plugin) goDocRequest(ctx context.Context, req language.GoDocQuery) (stri
 	return workdir, args, selector, diagnostics, err
 }
 
-func goDocArgs(req language.GoDocQuery, resolvedSymbol string) (string, []string, error) {
+func goDocArgs(req golang.GoDocQuery, resolvedSymbol string) (string, []string, error) {
 	workdir, err := goDocWorkdir(req.Path)
 	if err != nil {
 		return "", nil, err
@@ -697,7 +698,7 @@ func goDocSymbolSelector(symbol language.Symbol) string {
 	return name
 }
 
-func goListArgs(req language.GoListQuery) ([]string, []string, error) {
+func goListArgs(req golang.GoListQuery) ([]string, []string, error) {
 	args := []string{"list", "-json"}
 	if req.IncludeErrors {
 		args = append(args, "-e")
@@ -733,7 +734,7 @@ func goListArgs(req language.GoListQuery) ([]string, []string, error) {
 	return args, patterns, nil
 }
 
-func goTestArgs(req language.GoTestQuery) ([]string, []string, error) {
+func goTestArgs(req golang.GoTestQuery) ([]string, []string, error) {
 	args := []string{"test", "-json"}
 	if req.Run != "" {
 		if err := validateGoFlagValue(req.Run, "run"); err != nil {
@@ -786,7 +787,7 @@ func goTestArgs(req language.GoTestQuery) ([]string, []string, error) {
 	return args, patterns, nil
 }
 
-func goVetArgs(req language.GoVetQuery) ([]string, []string, error) {
+func goVetArgs(req golang.GoVetQuery) ([]string, []string, error) {
 	if req.Fix {
 		return nil, nil, fmt.Errorf("fix is unsupported for go_vet")
 	}
@@ -815,7 +816,7 @@ func goVetArgs(req language.GoVetQuery) ([]string, []string, error) {
 	return args, patterns, nil
 }
 
-func goBuildArgs(req language.GoBuildQuery) ([]string, []string, error) {
+func goBuildArgs(req golang.GoBuildQuery) ([]string, []string, error) {
 	if strings.TrimSpace(req.Output) != "" {
 		return nil, nil, fmt.Errorf("output is unsupported for go_build")
 	}
@@ -850,7 +851,7 @@ func goBuildArgs(req language.GoBuildQuery) ([]string, []string, error) {
 	return args, patterns, nil
 }
 
-func goFmtArgs(req language.GoFmtQuery) ([]string, []string, bool, error) {
+func goFmtArgs(req golang.GoFmtQuery) ([]string, []string, bool, error) {
 	dryRun := boolDefault(req.DryRun, true)
 	args := []string{"fmt"}
 	if dryRun {
@@ -873,7 +874,7 @@ func goFmtArgs(req language.GoFmtQuery) ([]string, []string, bool, error) {
 	return args, patterns, dryRun, nil
 }
 
-func goInstallArgs(req language.GoInstallQuery) ([]string, []string, bool, []string, error) {
+func goInstallArgs(req golang.GoInstallQuery) ([]string, []string, bool, []string, error) {
 	dryRun := boolDefault(req.DryRun, true)
 	args := []string{"install"}
 	if dryRun {
@@ -1122,10 +1123,10 @@ func goListAnyString(value any) string {
 	}
 }
 
-func parseGoTestJSON(raw string) language.GoTestResult {
+func parseGoTestJSON(raw string) golang.GoTestResult {
 	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(raw)))
 	decoder.UseNumber()
-	packages := map[string]*language.GoTestPackageResult{}
+	packages := map[string]*golang.GoTestPackageResult{}
 	var order []string
 	var events []map[string]any
 	var diagnostics []language.Diagnostic
@@ -1149,7 +1150,7 @@ func parseGoTestJSON(raw string) language.GoTestResult {
 		}
 		pkg := packages[pkgName]
 		if pkg == nil {
-			pkg = &language.GoTestPackageResult{Package: pkgName}
+			pkg = &golang.GoTestPackageResult{Package: pkgName}
 			packages[pkgName] = pkg
 			order = append(order, pkgName)
 		}
@@ -1184,11 +1185,11 @@ func parseGoTestJSON(raw string) language.GoTestResult {
 			}
 		}
 	}
-	out := make([]language.GoTestPackageResult, 0, len(order))
+	out := make([]golang.GoTestPackageResult, 0, len(order))
 	for _, pkgName := range order {
 		out = append(out, *packages[pkgName])
 	}
-	return language.GoTestResult{Packages: out, Events: events, Diagnostics: diagnostics, Complete: complete}
+	return golang.GoTestResult{Packages: out, Events: events, Diagnostics: diagnostics, Complete: complete}
 }
 
 func parseGoVetOutput(raw string, jsonMode bool) []language.Diagnostic {
@@ -1311,8 +1312,8 @@ func parseGoEnvOutput(raw string) (map[string]string, []language.Diagnostic) {
 	return values, nil
 }
 
-func parseGoProxy(raw string) language.GoProxyConfig {
-	cfg := language.GoProxyConfig{Raw: strings.TrimSpace(raw)}
+func parseGoProxy(raw string) golang.GoProxyConfig {
+	cfg := golang.GoProxyConfig{Raw: strings.TrimSpace(raw)}
 	if cfg.Raw == "" {
 		return cfg
 	}
@@ -1324,7 +1325,7 @@ func parseGoProxy(raw string) language.GoProxyConfig {
 			}
 		}
 		if len(entries) > 0 {
-			cfg.Groups = append(cfg.Groups, language.GoProxyGroup{Entries: entries})
+			cfg.Groups = append(cfg.Groups, golang.GoProxyGroup{Entries: entries})
 		}
 	}
 	return cfg
@@ -1377,24 +1378,24 @@ func validateGoEnvVars(vars []string) error {
 	return nil
 }
 
-func parseGoVersionLines(raw string) []language.GoVersionRecord {
-	var records []language.GoVersionRecord
+func parseGoVersionLines(raw string) []golang.GoVersionRecord {
+	var records []golang.GoVersionRecord
 	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
-			records = append(records, language.GoVersionRecord{Path: strings.TrimSuffix(fields[0], ":"), Version: fields[1], Raw: line})
+			records = append(records, golang.GoVersionRecord{Path: strings.TrimSuffix(fields[0], ":"), Version: fields[1], Raw: line})
 		}
 	}
 	return records
 }
 
-func parseGoVersionJSON(raw string) ([]language.GoVersionRecord, []language.Diagnostic) {
+func parseGoVersionJSON(raw string) ([]golang.GoVersionRecord, []language.Diagnostic) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return nil, nil
 	}
 	decoder := json.NewDecoder(strings.NewReader(trimmed))
-	var records []language.GoVersionRecord
+	var records []golang.GoVersionRecord
 	for {
 		var obj map[string]any
 		if err := decoder.Decode(&obj); err != nil {
@@ -1403,7 +1404,7 @@ func parseGoVersionJSON(raw string) ([]language.GoVersionRecord, []language.Diag
 			}
 			return records, []language.Diagnostic{{Severity: "warning", Code: "go_version_parse_failed", Message: err.Error()}}
 		}
-		record := language.GoVersionRecord{BuildInfo: obj}
+		record := golang.GoVersionRecord{BuildInfo: obj}
 		if pathValue, ok := obj["Path"].(string); ok {
 			record.Path = pathValue
 		}

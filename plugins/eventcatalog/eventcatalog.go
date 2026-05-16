@@ -4,6 +4,8 @@ package eventcatalog
 
 import (
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/plugins/humanplugin"
 	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 )
@@ -11,6 +13,8 @@ import (
 // All returns every first-party plugin event payload type known to this binary.
 func All() []event.Event {
 	return []event.Event{
+		project.SignalsObserved{},
+		language.ToolchainStatusObserved{},
 		humanplugin.ClarificationRequested{},
 		humanplugin.ClarificationCompleted{},
 		planexecplugin.PlanCreated{},

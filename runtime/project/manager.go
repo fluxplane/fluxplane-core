@@ -134,6 +134,12 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 			addGoWork(ctx, ws, builders, dir, rel, maxBytes)
 		case name == "package.json":
 			addPackageJSON(ctx, ws, builders, dir, rel, maxBytes)
+		case name == "package-lock.json" || name == "pnpm-lock.yaml" || name == "yarn.lock":
+			addSimpleFacet(builders, dir, rel, coreproject.FacetNodeLockfile, name)
+		case name == "Cargo.toml":
+			addSimpleFacet(builders, dir, rel, coreproject.FacetCargoManifest, "cargo.toml")
+		case name == "Cargo.lock":
+			addSimpleFacet(builders, dir, rel, coreproject.FacetCargoLockfile, "cargo.lock")
 		case name == "Taskfile.yaml" || name == "Taskfile.yml":
 			addTaskfile(ctx, ws, builders, dir, rel, maxBytes)
 		case name == "Makefile" || name == "makefile":
@@ -155,9 +161,11 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		projects = projects[:limit]
 		truncated = true
 	}
+	signals := attachSignals(projects)
 	return coreproject.Inventory{
 		Root:      ".",
 		Projects:  projects,
+		Signals:   signals,
 		Truncated: truncated,
 		Summary: coreproject.Summary{
 			ProjectCount: len(projects),
@@ -222,6 +230,13 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 	if _, _, err := ws.Stat(ctx, ".github/workflows"); err == nil {
 		builderFor(builders, "").addFacet(coreproject.Facet{Kind: coreproject.FacetCI, Manifest: manifest(".github/workflows", "github_workflow", coreproject.ParseStatusUnsupported, nil, "")})
 	}
+}
+
+func addSimpleFacet(builders map[string]*projectBuilder, dir, rel string, kind coreproject.FacetKind, manifestKind string) {
+	builderFor(builders, dir).addFacet(coreproject.Facet{
+		Kind:     kind,
+		Manifest: manifest(rel, manifestKind, coreproject.ParseStatusParsed, nil, ""),
+	})
 }
 
 func addResourceDir(builders map[string]*projectBuilder, dir, rel string, kind coreproject.FacetKind, manifestKind string) {
@@ -432,6 +447,87 @@ func finalize(builders map[string]*projectBuilder) []coreproject.Project {
 		projects = append(projects, project)
 	}
 	return projects
+}
+
+func attachSignals(projects []coreproject.Project) []coreproject.Signal {
+	var out []coreproject.Signal
+	for i := range projects {
+		project := &projects[i]
+		for _, facet := range project.Facets {
+			for _, signal := range signalsForFacet(project.ID, facet) {
+				project.Signals = append(project.Signals, signal)
+				out = append(out, signal)
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].ProjectID == out[j].ProjectID {
+			if out[i].Kind == out[j].Kind {
+				return out[i].Path < out[j].Path
+			}
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].ProjectID < out[j].ProjectID
+	})
+	return out
+}
+
+func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet) []coreproject.Signal {
+	base := coreproject.Signal{
+		Kind:       "manifest",
+		Path:       facet.Manifest.Path,
+		ProjectID:  projectID,
+		Confidence: 1,
+		Metadata:   map[string]string{"facet": string(facet.Kind), "manifest_kind": facet.Manifest.Kind},
+	}
+	switch facet.Kind {
+	case coreproject.FacetGoModule:
+		base.Language = "go"
+		base.Toolchain = "go"
+		base.Metadata["name"] = "go.mod"
+	case coreproject.FacetGoWorkspace:
+		base.Language = "go"
+		base.Toolchain = "go"
+		base.Metadata["name"] = "go.work"
+	case coreproject.FacetNodePackage:
+		base.Language = "javascript"
+		base.Toolchain = "node"
+		base.Metadata["name"] = "package.json"
+	case coreproject.FacetNodeLockfile:
+		base.Language = "javascript"
+		base.Toolchain = nodeLockToolchain(facet.Manifest.Path)
+		base.Metadata["name"] = path.Base(facet.Manifest.Path)
+	case coreproject.FacetCargoManifest:
+		base.Language = "rust"
+		base.Toolchain = "cargo"
+		base.Metadata["name"] = "Cargo.toml"
+	case coreproject.FacetCargoLockfile:
+		base.Language = "rust"
+		base.Toolchain = "cargo"
+		base.Metadata["name"] = "Cargo.lock"
+	case coreproject.FacetMarkdownDocs:
+		base.Kind = "documentation"
+		base.Language = "markdown"
+		base.Metadata["name"] = "markdown"
+	case coreproject.FacetTaskfile, coreproject.FacetMakefile:
+		base.Kind = "task"
+	case coreproject.FacetCI:
+		base.Kind = "ci"
+	default:
+		return nil
+	}
+	return []coreproject.Signal{base}
+}
+
+func nodeLockToolchain(rel string) string {
+	switch path.Base(rel) {
+	case "pnpm-lock.yaml":
+		return "pnpm"
+	case "yarn.lock":
+		return "yarn"
+	default:
+		return "npm"
+	}
 }
 
 func setParents(projects []coreproject.Project) {

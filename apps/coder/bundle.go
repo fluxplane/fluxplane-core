@@ -27,14 +27,16 @@ const (
 // Bundle returns pure app resource declarations. Runtime implementations are
 // supplied by the host command.
 func Bundle() resource.ContributionBundle {
+	operations := fullCapabilityOperationNames()
+	delegationOperations := defaultDelegationOperationNames()
 	agentSpec := sdk.BuildAgent(AgentName).
 		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
-		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. "+
-			"Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec. "+
-			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web_search datasource queries, and web_request only for fetching known URLs. "+
-			"Use project_inventory/project_docs/project_tasks for workspace structure, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation. "+
-			"Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks. "+
-			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. "+
+		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. " +
+			"Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec. " +
+			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web_search datasource queries, and web_request only for fetching known URLs. " +
+			"Use project_inventory/project_docs/project_tasks for workspace structure, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation. " +
+			"Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks. " +
+			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. " +
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
 		AsLLMAgent(DefaultModel).
 		WithMaxOutputTokens(4096).
@@ -45,25 +47,7 @@ func Bundle() resource.ContributionBundle {
 			Social:   true,
 			Stateful: true,
 		}).
-		WithOperations(
-			"project_inventory", "project_files", "project_tasks", "project_docs",
-			"go_project", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_packages", "go_outline", "go_symbol", "go_definition", "go_symbol_info", "go_references", "go_imports", "go_implementations", "go_callers", "go_callees",
-			"markdown_outline", "markdown_links", "markdown_diagnostics",
-			"dir_create", "dir_list", "dir_tree",
-			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
-			"glob", "grep",
-			"web_search", "web_request",
-			"datasource_search", "datasource_get", "datasource_batch_get",
-			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
-			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",
-			"browser_hover", "browser_back", "browser_forward", "browser_pdf", "browser_close",
-			"git_status", "git_diff", "git_add", "git_commit", "git_tag", "git_push",
-			"shell_exec", "process_start", "process_list", "process_status", "process_output", "process_kill",
-			"code_execute",
-			"clarify",
-			"delegate", "plan", "skill",
-			"image_generate", "image_understand", "image_providers",
-		).
+		WithOperations(operations...).
 		WithDatasource("web_search").
 		Build()
 
@@ -89,15 +73,7 @@ func Bundle() resource.ContributionBundle {
 				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
-				Operations: []operation.Ref{
-					{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_tasks"}, {Name: "project_docs"},
-					{Name: "go_project"}, {Name: "go_info"}, {Name: "go_env"}, {Name: "go_version"}, {Name: "go_doc"}, {Name: "go_list"}, {Name: "go_test"}, {Name: "go_fmt"}, {Name: "go_vet"}, {Name: "go_build"}, {Name: "go_install"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"}, {Name: "go_definition"}, {Name: "go_symbol_info"}, {Name: "go_references"}, {Name: "go_imports"}, {Name: "go_implementations"}, {Name: "go_callers"}, {Name: "go_callees"},
-					{Name: "markdown_outline"}, {Name: "markdown_links"}, {Name: "markdown_diagnostics"},
-					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
-					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"}, {Name: "git_add"}, {Name: "git_commit"},
-					{Name: "shell_exec"}, {Name: "code_execute"}, {Name: "web_search"}, {Name: "web_request"},
-					{Name: "datasource_search"}, {Name: "datasource_get"}, {Name: "datasource_batch_get"},
-				},
+				Operations:      operationRefs(delegationOperations),
 			},
 		}).
 		Build()
@@ -116,4 +92,12 @@ func Bundle() resource.ContributionBundle {
 		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
 	}
 	return bundle
+}
+
+func operationRefs(names []string) []operation.Ref {
+	out := make([]operation.Ref, 0, len(names))
+	for _, name := range names {
+		out = append(out, operation.Ref{Name: operation.Name(name)})
+	}
+	return out
 }

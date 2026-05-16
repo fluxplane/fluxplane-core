@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"golang.org/x/mod/modfile"
@@ -24,16 +25,16 @@ type parsedImportFile struct {
 	imports []language.Import
 }
 
-func (p Plugin) goImports() operationruntime.TypedResultHandler[language.ImportQuery, operation.Rendered] {
-	return func(ctx operation.Context, req language.ImportQuery) operation.Result {
+func (p Plugin) goImports() operationruntime.TypedResultHandler[golang.ImportQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.ImportQuery) operation.Result {
 		if err := validateImportQuery(req); err != nil {
 			return operation.Failed("invalid_go_imports_input", err.Error(), nil)
 		}
 		direction := req.Direction
 		if direction == "" {
-			direction = language.ImportDirectionBoth
+			direction = golang.ImportDirectionBoth
 		}
-		result := language.ImportResult{
+		result := golang.ImportResult{
 			ResolutionMode: "ast",
 			Complete:       false,
 			Warnings:       []string{importResolutionWarning},
@@ -41,7 +42,7 @@ func (p Plugin) goImports() operationruntime.TypedResultHandler[language.ImportQ
 		max := maxResults(req.MaxResults)
 		includeTests := includeReferenceTests(req.IncludeTests)
 
-		if direction == language.ImportDirectionDirect || direction == language.ImportDirectionBoth {
+		if direction == golang.ImportDirectionDirect || direction == golang.ImportDirectionBoth {
 			files, err := p.directImportFiles(ctx, req, includeTests)
 			if err != nil {
 				return operation.Failed("go_imports_failed", err.Error(), nil)
@@ -51,7 +52,7 @@ func (p Plugin) goImports() operationruntime.TypedResultHandler[language.ImportQ
 			result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		}
 
-		if direction == language.ImportDirectionReverse || direction == language.ImportDirectionBoth {
+		if direction == golang.ImportDirectionReverse || direction == golang.ImportDirectionBoth {
 			target := strings.TrimSpace(req.ImportPath)
 			derivedTarget := target == ""
 			if target == "" {
@@ -80,26 +81,26 @@ func (p Plugin) goImports() operationruntime.TypedResultHandler[language.ImportQ
 	}
 }
 
-func validateImportQuery(req language.ImportQuery) error {
+func validateImportQuery(req golang.ImportQuery) error {
 	if err := validateGoLanguage(req.Language); err != nil {
 		return err
 	}
 	switch req.Direction {
-	case "", language.ImportDirectionDirect, language.ImportDirectionReverse, language.ImportDirectionBoth:
+	case "", golang.ImportDirectionDirect, golang.ImportDirectionReverse, golang.ImportDirectionBoth:
 		return nil
 	default:
 		return fmt.Errorf("unsupported import direction %q", req.Direction)
 	}
 }
 
-func importSelectionPath(req language.ImportQuery) string {
+func importSelectionPath(req golang.ImportQuery) string {
 	if strings.TrimSpace(req.Path) != "" {
 		return cleanRel(req.Path)
 	}
 	return packagePath(req.PackageID)
 }
 
-func (p Plugin) directImportFiles(ctx context.Context, req language.ImportQuery, includeTests bool) ([]string, error) {
+func (p Plugin) directImportFiles(ctx context.Context, req golang.ImportQuery, includeTests bool) ([]string, error) {
 	rel := importSelectionPath(req)
 	if rel == "" {
 		rel = "."
@@ -165,7 +166,7 @@ func (p Plugin) hasGoMod(ctx context.Context, dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func (p Plugin) reverseImportFiles(ctx context.Context, req language.ImportQuery, includeTests bool, derivedTarget bool) ([]string, error) {
+func (p Plugin) reverseImportFiles(ctx context.Context, req golang.ImportQuery, includeTests bool, derivedTarget bool) ([]string, error) {
 	root := cleanRel(req.Path)
 	if root == "" {
 		root = packagePath(req.PackageID)
@@ -381,7 +382,7 @@ func sortImports(imports []language.Import) {
 	})
 }
 
-func renderImports(result language.ImportResult) []string {
+func renderImports(result golang.ImportResult) []string {
 	lines := []string{fmt.Sprintf("Go imports: direct=%d reverse=%d", len(result.DirectImports), len(result.ReverseImporters))}
 	if len(result.DirectImports) > 0 {
 		lines = append(lines, "Direct imports:")

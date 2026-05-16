@@ -4,8 +4,11 @@
 
 Implemented first read-only slice plus Go navigation, references, import views,
 implementation lookup, and direct call hierarchy. Updated direction: no Axon
-dependency for project or Go language support. Generic code-editing and
-refactoring direction has moved to
+dependency for project or Go language support. Follow-up scalability work for
+language-specific contracts, toolchain activation, events, and coder capability
+projection is tracked in
+[`2026-05-16-language-toolchain-activation.md`](../designs/2026-05-16-language-toolchain-activation.md).
+Generic code-editing and refactoring direction has moved to
 [`2026-05-16-1425-code-edit.md`](../designs/2026-05-16-1425-code-edit.md).
 
 Current implementation status:
@@ -26,7 +29,7 @@ Current implementation status:
 | `go_test`, `go_vet`, `go_build` | Implemented; process-backed checks return structured pass/fail summaries and diagnostics |
 | `go_fmt` | Implemented; defaults to dry-run and supports explicit formatting writes |
 | `go_install` | Implemented; defaults to dry-run with restricted environment overrides |
-| Next | Review feedback only |
+| Follow-up | Language/toolchain activation design in `2026-05-16-language-toolchain-activation.md` implemented |
 | Deferred | Abstract code-editing/refactor operations tracked separately in `2026-05-16-1425-code-edit.md` |
 
 ## Current Progress
@@ -50,6 +53,11 @@ Completed:
 - Explicit `go_install` with dry-run default and restricted environment
   overrides.
 - Coder delegation exposes `go_callers` and `go_callees`.
+- Language/toolchain activation follow-up is implemented, including separated
+  Go/Markdown contracts, project signals, toolchain specs/statuses, activation
+  events, and coder feature expansion. Review fixes ensure bounded inventories
+  do not leak signals for omitted projects and binary-free toolchain specs do
+  not require process support.
 - Generic code editing/refactoring scope is split into
   `2026-05-16-1425-code-edit.md`.
 
@@ -58,10 +66,13 @@ Remaining:
 - No implementation tasks remain for the current roadmap slice.
 - Type-aware `go_callers` / `go_callees` is not required for this roadmap slice;
   current operations intentionally remain AST-only and report limitations.
+- Scaling beyond Go/Markdown should reuse the implemented
+  `2026-05-16-language-toolchain-activation.md` pattern.
 
 Next steps:
 
-1. Address review feedback if any functional gaps are found.
+1. Add the next language/toolchain plugin using the implemented activation
+   pattern, or continue with the separate abstract code-editing design.
 
 ## Summary
 
