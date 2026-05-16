@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/gitplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/humanplugin"
+	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/shellplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -44,6 +45,7 @@ func New(sys system.System) Plugin {
 		projectplugin.New(sys),
 		filesystemplugin.New(sys),
 		golangplugin.New(sys),
+		markdownplugin.New(sys),
 		webplugin.New(sys),
 		browserplugin.New(sys),
 		gitplugin.New(sys),
@@ -72,11 +74,34 @@ func (p Plugin) Contributions(ctx context.Context, pluginCtx pluginhost.Context)
 	return out, nil
 }
 
-func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
+func (p Plugin) ContextProviders(ctx context.Context, pluginCtx pluginhost.Context) ([]corecontext.Provider, error) {
 	if p.system == nil || p.system.Workspace() == nil {
 		return nil, nil
 	}
-	return []corecontext.Provider{agentsContextProvider{workspace: p.system.Workspace()}}, nil
+	out := []corecontext.Provider{agentsContextProvider{workspace: p.system.Workspace()}}
+	seen := map[corecontext.ProviderName]bool{AgentsContextProvider: true}
+	for _, plugin := range p.plugins {
+		contributor, ok := plugin.(pluginhost.ContextProviderContributor)
+		if !ok {
+			continue
+		}
+		providers, err := contributor.ContextProviders(ctx, pluginCtx)
+		if err != nil {
+			return nil, fmt.Errorf("codingplugin: %s context providers: %w", plugin.Manifest().Name, err)
+		}
+		for _, provider := range providers {
+			if provider == nil {
+				continue
+			}
+			name := provider.Spec().Name
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			out = append(out, provider)
+		}
+	}
+	return out, nil
 }
 
 // Operations returns aggregate operation implementations.

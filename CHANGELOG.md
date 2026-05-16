@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lookup.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
+- Project documentation outlines now use goldmark AST parsing and return nested
+  heading trees instead of line-scanning markdown text.
+- Added automatic `project.summary` and `go.summary` context providers, and
+  `codingplugin` now aggregates child plugin context providers alongside
+  `AGENTS.md`.
+- Added `plugins/markdownplugin` with `markdown_outline`, `markdown_links`, and
+  local-only `markdown_diagnostics` for markdown document structure and link
+  checks.
 - Added the `evaluator` app distribution and `cmd/evaluator` entrypoint for
   evidence-backed evaluation of AgentRuntime apps over the public channel
   protocol, including structured `evaluator target` flags and a deterministic

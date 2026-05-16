@@ -124,9 +124,10 @@ type DocumentOutline struct {
 
 // Heading is one markdown heading.
 type Heading struct {
-	Level int    `json:"level"`
-	Title string `json:"title"`
-	Line  int    `json:"line,omitempty"`
+	Level    int       `json:"level"`
+	Title    string    `json:"title"`
+	Line     int       `json:"line,omitempty"`
+	Children []Heading `json:"children,omitempty"`
 }
 
 // FileRef is a bounded project file reference.

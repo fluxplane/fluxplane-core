@@ -89,6 +89,47 @@ func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
 	})
 }
 
+func TestParseMarkdownOutlineUsesMarkdownAST(t *testing.T) {
+	outline := parseMarkdownOutline([]byte(`# Root *Title*
+
+Intro
+
+## Child [Link](https://example.com)
+
+` + "```go\n# Not a heading\n```\n" + `
+### Grand` + "`code`" + `
+
+Setext
+------
+
+#### Skipped
+`))
+	if len(outline) != 1 {
+		t.Fatalf("outline = %#v, want one root", outline)
+	}
+	root := outline[0]
+	if root.Level != 1 || root.Title != "Root Title" || root.Line != 1 {
+		t.Fatalf("root = %#v", root)
+	}
+	if len(root.Children) != 2 {
+		t.Fatalf("root children = %#v, want child and setext", root.Children)
+	}
+	child := root.Children[0]
+	if child.Level != 2 || child.Title != "Child Link" || len(child.Children) != 1 {
+		t.Fatalf("child = %#v", child)
+	}
+	if child.Children[0].Level != 3 || child.Children[0].Title != "Grandcode" {
+		t.Fatalf("grandchild = %#v", child.Children[0])
+	}
+	setext := root.Children[1]
+	if setext.Level != 2 || setext.Title != "Setext" || len(setext.Children) != 1 {
+		t.Fatalf("setext = %#v", setext)
+	}
+	if setext.Children[0].Level != 4 || setext.Children[0].Title != "Skipped" {
+		t.Fatalf("skipped child = %#v", setext.Children[0])
+	}
+}
+
 func runManagerBackends(t *testing.T, fn func(*testing.T, system.Workspace)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {

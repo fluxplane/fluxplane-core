@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -21,6 +22,7 @@ const (
 	FilesOp         = "project_files"
 	TasksOp         = "project_tasks"
 	DocsOp          = "project_docs"
+	SummaryProvider = "project.summary"
 	defaultMaxFiles = 500
 )
 
@@ -32,6 +34,7 @@ type Plugin struct {
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
+var _ pluginhost.ContextProviderContributor = Plugin{}
 
 // New returns a project inventory plugin.
 func New(sys system.System) Plugin {
@@ -51,6 +54,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	specs := specs()
 	return resource.ContributionBundle{
+		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Workspace project inventory and outline operations.",
@@ -58,6 +62,18 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		}},
 		Operations: specs,
 	}, nil
+}
+
+// ContextProviders returns executable project context providers.
+func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
+	if p.system == nil || p.system.Workspace() == nil {
+		return nil, nil
+	}
+	manager := p.manager
+	if manager == nil {
+		manager = runtimeproject.NewManager(p.system.Workspace())
+	}
+	return []corecontext.Provider{summaryProvider{manager: manager}}, nil
 }
 
 // Operations returns executable project operations.
@@ -112,6 +128,123 @@ func refs(specs []operation.Spec) []operation.Ref {
 	out := make([]operation.Ref, 0, len(specs))
 	for _, spec := range specs {
 		out = append(out, spec.Ref)
+	}
+	return out
+}
+
+func summaryContextSpec() corecontext.ProviderSpec {
+	return corecontext.ProviderSpec{
+		Name:             SummaryProvider,
+		Description:      "Compact Workspace project orientation.",
+		Kinds:            []corecontext.BlockKind{corecontext.BlockText},
+		DefaultPlacement: corecontext.PlacementSystem,
+		Annotations:      map[string]string{corecontext.AnnotationAutoContext: "true"},
+	}
+}
+
+type summaryProvider struct {
+	manager *runtimeproject.Manager
+}
+
+func (p summaryProvider) Spec() corecontext.ProviderSpec { return summaryContextSpec() }
+
+func (p summaryProvider) Build(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+	if p.manager == nil {
+		return nil, nil
+	}
+	inventory, _, err := p.manager.Inventory(ctx, coreproject.InventoryQuery{})
+	if err != nil || len(inventory.Projects) == 0 {
+		return nil, nil
+	}
+	content := renderProjectSummary(inventory)
+	if strings.TrimSpace(content) == "" {
+		return nil, nil
+	}
+	return []corecontext.Block{{
+		ID:        SummaryProvider,
+		Provider:  SummaryProvider,
+		Kind:      corecontext.BlockText,
+		Placement: corecontext.PlacementSystem,
+		Title:     "Project Summary",
+		Content:   content,
+		MediaType: "text/plain",
+		Freshness: corecontext.FreshnessDynamic,
+	}}, nil
+}
+
+func renderProjectSummary(inventory coreproject.Inventory) string {
+	var lines []string
+	lines = append(lines, "Workspace project summary:")
+	for i, project := range inventory.Projects {
+		if i >= 5 {
+			lines = append(lines, fmt.Sprintf("- other projects: %d more", len(inventory.Projects)-i))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("- %s [%s] %s", displayRoot(project.Root), project.ID, project.Name))
+		facets := facetLabels(project.Facets)
+		if len(facets) > 0 {
+			lines = append(lines, "  facets: "+strings.Join(facets, ", "))
+		}
+		if docs := firstDocuments(project, 4); len(docs) > 0 {
+			lines = append(lines, "  docs: "+strings.Join(docs, ", "))
+		}
+		if tasks := taskSources(project, 4); len(tasks) > 0 {
+			lines = append(lines, "  tasks: "+strings.Join(tasks, ", "))
+		}
+	}
+	lines = append(lines, "Use project_inventory, project_docs, project_tasks, and project_files for details.")
+	return strings.Join(lines, "\n")
+}
+
+func facetLabels(facets []coreproject.Facet) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, facet := range facets {
+		label := string(facet.Kind)
+		if facet.Manifest.Path != "" {
+			label += " " + facet.Manifest.Path
+		}
+		if !seen[label] {
+			out = append(out, label)
+			seen[label] = true
+		}
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func firstDocuments(project coreproject.Project, limit int) []string {
+	var out []string
+	for _, facet := range project.Facets {
+		for _, doc := range facet.Documents {
+			out = append(out, doc.Path)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func taskSources(project coreproject.Project, limit int) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, facet := range project.Facets {
+		for _, task := range facet.Tasks {
+			label := task.Kind
+			if label == "" {
+				label = task.Path
+			}
+			if label != "" && !seen[label] {
+				out = append(out, label)
+				seen[label] = true
+				if len(out) >= limit {
+					return out
+				}
+			}
+		}
 	}
 	return out
 }
@@ -247,9 +380,7 @@ func (p Plugin) docs(manager *runtimeproject.Manager) operationruntime.TypedResu
 		lines := []string{fmt.Sprintf("Project docs: %s", displayRoot(project.Root))}
 		for _, doc := range docs {
 			lines = append(lines, "- "+doc.Path)
-			for _, heading := range boundedHeadings(doc.Headings, 20) {
-				lines = append(lines, fmt.Sprintf("  %s %s", strings.Repeat("#", heading.Level), heading.Title))
-			}
+			lines = append(lines, renderHeadings(doc.Headings, 1, 20)...)
 		}
 		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"project": compactProject(project), "documents": compactDocuments(docs), "rebuilt": rebuilt}})
 	}
@@ -279,17 +410,47 @@ func compactProject(project coreproject.Project) projectSummary {
 func compactDocuments(docs []coreproject.DocumentOutline) []coreproject.DocumentOutline {
 	out := make([]coreproject.DocumentOutline, 0, len(docs))
 	for _, doc := range docs {
-		doc.Headings = boundedHeadings(doc.Headings, 20)
+		doc.Headings = boundedHeadingTree(doc.Headings, 20)
 		out = append(out, doc)
 	}
 	return out
 }
 
-func boundedHeadings(headings []coreproject.Heading, limit int) []coreproject.Heading {
-	if limit > 0 && len(headings) > limit {
-		return headings[:limit]
+func renderHeadings(headings []coreproject.Heading, depth, limit int) []string {
+	var lines []string
+	var walk func([]coreproject.Heading, int)
+	walk = func(items []coreproject.Heading, currentDepth int) {
+		for _, heading := range items {
+			if limit > 0 && len(lines) >= limit {
+				return
+			}
+			lines = append(lines, fmt.Sprintf("%s%s %s", strings.Repeat("  ", currentDepth), strings.Repeat("#", heading.Level), heading.Title))
+			walk(heading.Children, currentDepth+1)
+		}
 	}
-	return headings
+	walk(headings, depth)
+	return lines
+}
+
+func boundedHeadingTree(headings []coreproject.Heading, limit int) []coreproject.Heading {
+	if limit <= 0 {
+		return headings
+	}
+	remaining := limit
+	var copyTree func([]coreproject.Heading) []coreproject.Heading
+	copyTree = func(items []coreproject.Heading) []coreproject.Heading {
+		out := make([]coreproject.Heading, 0, len(items))
+		for _, heading := range items {
+			if remaining <= 0 {
+				break
+			}
+			remaining--
+			heading.Children = copyTree(heading.Children)
+			out = append(out, heading)
+		}
+		return out
+	}
+	return copyTree(headings)
 }
 
 func fileMatchesFacet(rel, facet string) bool {

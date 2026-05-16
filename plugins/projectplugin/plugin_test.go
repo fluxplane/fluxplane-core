@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -17,7 +18,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		writeProjectFile(t, sys.Workspace(), "package.json", `{"name":"app","scripts":{"test":"node test.js"}}`)
 		writeProjectFile(t, sys.Workspace(), ".agents/plans/example.md", "# Plan\n")
 		writeProjectFile(t, sys.Workspace(), ".claude/commands/check.md", "# Check\n")
-		writeProjectFile(t, sys.Workspace(), "README.md", "# App\n\n## Usage\n")
+		writeProjectFile(t, sys.Workspace(), "README.md", "# App\n\n## Usage\n\n### CLI\n")
 
 		inventory := runProjectOp(t, sys, InventoryOp, map[string]any{"refresh": true})
 		if !strings.Contains(inventory.Text, ". [project:.]") || !strings.Contains(inventory.Text, "go_module go.mod") || !strings.Contains(inventory.Text, "node_package package.json") || !strings.Contains(inventory.Text, "agents_dir .agents") || !strings.Contains(inventory.Text, "claude_dir .claude") {
@@ -30,7 +31,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		}
 
 		docs := runProjectOp(t, sys, DocsOp, map[string]any{})
-		if !strings.Contains(docs.Text, "# App") || !strings.Contains(docs.Text, "## Usage") {
+		if !strings.Contains(docs.Text, "# App") || !strings.Contains(docs.Text, "## Usage") || !strings.Contains(docs.Text, "### CLI") {
 			t.Fatalf("docs text = %q", docs.Text)
 		}
 		bareIDFiles := runProjectOp(t, sys, FilesOp, map[string]any{"project_id": ".", "max_results": 20})
@@ -44,6 +45,23 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		agentFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "agents_dir", "max_results": 10})
 		if !strings.Contains(agentFiles.Text, ".agents/plans/example.md") || strings.Contains(agentFiles.Text, ".claude/commands/check.md") {
 			t.Fatalf("agent facet files text = %q", agentFiles.Text)
+		}
+		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
+		if err != nil {
+			t.Fatalf("ContextProviders: %v", err)
+		}
+		if len(providers) != 1 {
+			t.Fatalf("context providers len = %d, want 1", len(providers))
+		}
+		if providers[0].Spec().Annotations[corecontext.AnnotationAutoContext] != "true" {
+			t.Fatalf("provider spec = %#v, want auto context", providers[0].Spec())
+		}
+		blocks, err := providers[0].Build(context.Background(), corecontext.Request{})
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "Workspace project summary:") || !strings.Contains(blocks[0].Content, "project_inventory") {
+			t.Fatalf("blocks = %#v", blocks)
 		}
 	})
 }

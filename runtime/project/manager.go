@@ -14,6 +14,9 @@ import (
 
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/yuin/goldmark"
+	goldast "github.com/yuin/goldmark/ast"
+	goldtext "github.com/yuin/goldmark/text"
 	"golang.org/x/mod/modfile"
 )
 
@@ -371,9 +374,9 @@ func readMarkdown(ctx context.Context, ws system.Workspace, dir, rel string, max
 	if err != nil {
 		status, msg = coreproject.ParseStatusFailed, err.Error()
 	} else {
-		doc.Headings = parseMarkdownHeadings(string(data))
-		if len(doc.Headings) > 0 {
-			doc.Title = doc.Headings[0].Title
+		doc.Headings = parseMarkdownOutline(data)
+		if heading, ok := documentTitle(doc.Headings); ok {
+			doc.Title = heading.Title
 		}
 	}
 	return markdownFacet{dir: dir, facet: coreproject.Facet{
@@ -595,25 +598,99 @@ func parseTaskfileTasks(content, rel string) []coreproject.Task {
 	return out
 }
 
-func parseMarkdownHeadings(content string) []coreproject.Heading {
-	var out []coreproject.Heading
-	for i, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "#") {
-			continue
+func parseMarkdownOutline(source []byte) []coreproject.Heading {
+	doc := goldmark.New().Parser().Parse(goldtext.NewReader(source))
+	var flat []coreproject.Heading
+	_ = goldast.Walk(doc, func(node goldast.Node, entering bool) (goldast.WalkStatus, error) {
+		if !entering {
+			return goldast.WalkContinue, nil
 		}
-		level := 0
-		for level < len(trimmed) && trimmed[level] == '#' {
-			level++
+		heading, ok := node.(*goldast.Heading)
+		if !ok {
+			return goldast.WalkContinue, nil
 		}
-		if level == 0 || level > 6 || level >= len(trimmed) || trimmed[level] != ' ' {
-			continue
-		}
-		title := strings.TrimSpace(trimmed[level:])
+		title := markdownNodeText(heading, source)
 		if title == "" {
-			continue
+			return goldast.WalkContinue, nil
 		}
-		out = append(out, coreproject.Heading{Level: level, Title: title, Line: i + 1})
+		flat = append(flat, coreproject.Heading{Level: heading.Level, Title: title, Line: markdownNodeLine(heading, source)})
+		return goldast.WalkSkipChildren, nil
+	})
+	return nestHeadings(flat)
+}
+
+func markdownNodeText(node goldast.Node, source []byte) string {
+	var parts []string
+	_ = goldast.Walk(node, func(child goldast.Node, entering bool) (goldast.WalkStatus, error) {
+		if !entering || child == node {
+			return goldast.WalkContinue, nil
+		}
+		switch n := child.(type) {
+		case *goldast.Text:
+			parts = append(parts, string(n.Value(source)))
+		case *goldast.String:
+			parts = append(parts, string(n.Value))
+		}
+		return goldast.WalkContinue, nil
+	})
+	return strings.Join(strings.Fields(strings.Join(parts, "")), " ")
+}
+
+func markdownNodeLine(node goldast.Node, source []byte) int {
+	lines := node.Lines()
+	if lines == nil || lines.Len() == 0 {
+		return 0
 	}
-	return out
+	segment := lines.At(0)
+	if segment.Start < 0 || segment.Start > len(source) {
+		return 0
+	}
+	return 1 + strings.Count(string(source[:segment.Start]), "\n")
+}
+
+func nestHeadings(flat []coreproject.Heading) []coreproject.Heading {
+	var roots []coreproject.Heading
+	type stackEntry struct {
+		level    int
+		children *[]coreproject.Heading
+	}
+	stack := []stackEntry{{level: 0, children: &roots}}
+	for _, heading := range flat {
+		heading.Children = nil
+		for len(stack) > 1 && stack[len(stack)-1].level >= heading.Level {
+			stack = stack[:len(stack)-1]
+		}
+		parent := stack[len(stack)-1]
+		*parent.children = append(*parent.children, heading)
+		idx := len(*parent.children) - 1
+		childPtr := &(*parent.children)[idx].Children
+		stack = append(stack, stackEntry{level: heading.Level, children: childPtr})
+	}
+	return roots
+}
+
+func documentTitle(headings []coreproject.Heading) (coreproject.Heading, bool) {
+	var first *coreproject.Heading
+	var walk func([]coreproject.Heading) (coreproject.Heading, bool)
+	walk = func(items []coreproject.Heading) (coreproject.Heading, bool) {
+		for i := range items {
+			if first == nil {
+				first = &items[i]
+			}
+			if items[i].Level == 1 {
+				return items[i], true
+			}
+			if heading, ok := walk(items[i].Children); ok {
+				return heading, true
+			}
+		}
+		return coreproject.Heading{}, false
+	}
+	if heading, ok := walk(headings); ok {
+		return heading, true
+	}
+	if first != nil {
+		return *first, true
+	}
+	return coreproject.Heading{}, false
 }

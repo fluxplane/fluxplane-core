@@ -17,3 +17,25 @@ func TestSharedSymbolKinds(t *testing.T) {
 		t.Fatalf("symbol = %#v", s)
 	}
 }
+
+func TestMarkdownModels(t *testing.T) {
+	outline := MarkdownOutline{
+		Path: "README.md",
+		Headings: []MarkdownHeading{{
+			Level:  1,
+			Title:  "Readme",
+			Anchor: "readme",
+			Children: []MarkdownHeading{{
+				Level: 2,
+				Title: "Install",
+			}},
+		}},
+	}
+	if outline.Headings[0].Children[0].Title != "Install" {
+		t.Fatalf("outline = %#v", outline)
+	}
+	link := MarkdownLink{Path: "README.md", Target: "#install", Kind: MarkdownLinkAnchor}
+	if link.Kind != "anchor" || link.Target != "#install" {
+		t.Fatalf("link = %#v", link)
+	}
+}

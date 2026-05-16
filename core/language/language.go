@@ -11,7 +11,8 @@ import (
 type LanguageID string
 
 const (
-	LanguageGo LanguageID = "go"
+	LanguageGo       LanguageID = "go"
+	LanguageMarkdown LanguageID = "markdown"
 )
 
 // Capability describes a language provider feature.
@@ -103,7 +104,79 @@ type Outline struct {
 type Diagnostic struct {
 	Path     string `json:"path,omitempty"`
 	Severity string `json:"severity,omitempty"`
+	Code     string `json:"code,omitempty"`
 	Message  string `json:"message,omitempty"`
+	Target   string `json:"target,omitempty"`
+	Line     int    `json:"line,omitempty"`
+}
+
+// MarkdownHeading is one markdown heading in a nested document outline.
+type MarkdownHeading struct {
+	Level    int               `json:"level"`
+	Title    string            `json:"title"`
+	Line     int               `json:"line,omitempty"`
+	Anchor   string            `json:"anchor,omitempty"`
+	Children []MarkdownHeading `json:"children,omitempty"`
+}
+
+// MarkdownOutline is a parsed markdown document outline.
+type MarkdownOutline struct {
+	Path      string            `json:"path"`
+	Title     string            `json:"title,omitempty"`
+	Headings  []MarkdownHeading `json:"headings,omitempty"`
+	Truncated bool              `json:"truncated,omitempty"`
+}
+
+// MarkdownLinkKind classifies a markdown link target.
+type MarkdownLinkKind string
+
+const (
+	MarkdownLinkLocal    MarkdownLinkKind = "local"
+	MarkdownLinkExternal MarkdownLinkKind = "external"
+	MarkdownLinkAnchor   MarkdownLinkKind = "anchor"
+	MarkdownLinkOther    MarkdownLinkKind = "other"
+)
+
+// MarkdownLink records one markdown link or image target.
+type MarkdownLink struct {
+	Path       string           `json:"path"`
+	Line       int              `json:"line,omitempty"`
+	Text       string           `json:"text,omitempty"`
+	Target     string           `json:"target"`
+	Kind       MarkdownLinkKind `json:"kind"`
+	Image      bool             `json:"image,omitempty"`
+	Heading    string           `json:"heading,omitempty"`
+	TargetPath string           `json:"target_path,omitempty"`
+	Fragment   string           `json:"fragment,omitempty"`
+}
+
+// MarkdownQuery selects markdown files or directories.
+type MarkdownQuery struct {
+	Language   LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to markdown."`
+	Path       string     `json:"path" jsonschema:"description=Workspace-relative markdown file or directory path.,required"`
+	MaxResults int        `json:"max_results,omitempty" jsonschema:"description=Maximum records returned."`
+	MaxBytes   int        `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each markdown file."`
+	Refresh    bool       `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
+// MarkdownOutlineResult contains markdown outlines.
+type MarkdownOutlineResult struct {
+	Outlines []MarkdownOutline `json:"outlines,omitempty"`
+	Indexed  bool              `json:"indexed,omitempty"`
+	Fresh    bool              `json:"fresh,omitempty"`
+}
+
+// MarkdownLinksResult contains markdown links.
+type MarkdownLinksResult struct {
+	Links []MarkdownLink `json:"links,omitempty"`
+	Fresh bool           `json:"fresh,omitempty"`
+}
+
+// MarkdownDiagnosticsResult contains markdown diagnostics.
+type MarkdownDiagnosticsResult struct {
+	Diagnostics []Diagnostic   `json:"diagnostics,omitempty"`
+	Links       []MarkdownLink `json:"links,omitempty"`
+	Fresh       bool           `json:"fresh,omitempty"`
 }
 
 // SymbolKind classifies one language symbol.

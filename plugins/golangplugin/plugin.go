@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
@@ -28,6 +29,7 @@ const (
 	PackagesOp         = "go_packages"
 	OutlineOp          = "go_outline"
 	SymbolOp           = "go_symbol"
+	SummaryProvider    = "go.summary"
 	defaultMaxResults  = 200
 	defaultSourceBytes = 512 * 1024
 )
@@ -40,6 +42,7 @@ type Plugin struct {
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
+var _ pluginhost.ContextProviderContributor = Plugin{}
 
 // New returns a Go language plugin.
 func New(sys system.System) Plugin {
@@ -59,6 +62,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	specs := specs()
 	return resource.ContributionBundle{
+		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Go project, package, outline, and symbol read operations.",
@@ -66,6 +70,18 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		}},
 		Operations: specs,
 	}, nil
+}
+
+// ContextProviders returns executable Go context providers.
+func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
+	if p.system == nil || p.system.Workspace() == nil {
+		return nil, nil
+	}
+	manager := p.manager
+	if manager == nil {
+		manager = runtimeproject.NewManager(p.system.Workspace())
+	}
+	return []corecontext.Provider{summaryProvider{plugin: p, manager: manager}}, nil
 }
 
 // Operations returns executable Go operations.
@@ -120,6 +136,116 @@ func refs(specs []operation.Spec) []operation.Ref {
 	out := make([]operation.Ref, 0, len(specs))
 	for _, spec := range specs {
 		out = append(out, spec.Ref)
+	}
+	return out
+}
+
+func summaryContextSpec() corecontext.ProviderSpec {
+	return corecontext.ProviderSpec{
+		Name:             SummaryProvider,
+		Description:      "Compact Go module and package orientation.",
+		Kinds:            []corecontext.BlockKind{corecontext.BlockText},
+		DefaultPlacement: corecontext.PlacementSystem,
+		Annotations:      map[string]string{corecontext.AnnotationAutoContext: "true"},
+	}
+}
+
+type summaryProvider struct {
+	plugin  Plugin
+	manager *runtimeproject.Manager
+}
+
+func (p summaryProvider) Spec() corecontext.ProviderSpec { return summaryContextSpec() }
+
+func (p summaryProvider) Build(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+	if p.plugin.system == nil || p.manager == nil {
+		return nil, nil
+	}
+	inventory, _, err := p.manager.Inventory(ctx, coreproject.InventoryQuery{})
+	if err != nil {
+		return nil, nil
+	}
+	var projects []coreproject.Project
+	for _, project := range inventory.Projects {
+		if hasGoFacet(project) {
+			projects = append(projects, project)
+		}
+	}
+	pkgs, _ := p.plugin.collectPackages(ctx, ".", 40, maxBytes(0))
+	if len(projects) == 0 && len(pkgs) == 0 {
+		return nil, nil
+	}
+	content := renderGoSummary(projects, pkgs)
+	return []corecontext.Block{{
+		ID:        SummaryProvider,
+		Provider:  SummaryProvider,
+		Kind:      corecontext.BlockText,
+		Placement: corecontext.PlacementSystem,
+		Title:     "Go Summary",
+		Content:   content,
+		MediaType: "text/plain",
+		Freshness: corecontext.FreshnessDynamic,
+	}}, nil
+}
+
+func renderGoSummary(projects []coreproject.Project, pkgs []language.Package) string {
+	lines := []string{"Go workspace summary:"}
+	if len(projects) > 0 {
+		lines = append(lines, "- modules/workspaces:")
+		for i, project := range projects {
+			if i >= 5 {
+				lines = append(lines, fmt.Sprintf("  - %d more", len(projects)-i))
+				break
+			}
+			lines = append(lines, fmt.Sprintf("  - %s [%s] %s", displayRoot(project.Root), project.ID, project.Name))
+		}
+	}
+	if len(pkgs) > 0 {
+		lines = append(lines, fmt.Sprintf("- packages discovered: %d", len(pkgs)))
+		if groups := packageGroups(pkgs, 8); len(groups) > 0 {
+			lines = append(lines, "- package dirs: "+strings.Join(groups, ", "))
+		}
+		if cmds := commandPackages(pkgs, 6); len(cmds) > 0 {
+			lines = append(lines, "- command entrypoints: "+strings.Join(cmds, ", "))
+		}
+	}
+	lines = append(lines, "Use go_project, go_packages, go_outline, and go_symbol for details.")
+	return strings.Join(lines, "\n")
+}
+
+func packageGroups(pkgs []language.Package, limit int) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, pkg := range pkgs {
+		dir := pkg.Dir
+		if dir == "" {
+			dir = "."
+		}
+		group := dir
+		if strings.Contains(dir, "/") {
+			group = strings.SplitN(dir, "/", 2)[0] + "/*"
+		}
+		if !seen[group] {
+			out = append(out, group)
+			seen[group] = true
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func commandPackages(pkgs []language.Package, limit int) []string {
+	var out []string
+	for _, pkg := range pkgs {
+		if pkg.Name != "main" || !strings.HasPrefix(pkg.Dir, "cmd/") {
+			continue
+		}
+		out = append(out, pkg.Dir)
+		if len(out) >= limit {
+			return out
+		}
 	}
 	return out
 }

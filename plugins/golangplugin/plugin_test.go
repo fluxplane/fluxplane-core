@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -131,6 +132,20 @@ func Good() {}
 		vendorSymbols := runGoOp(t, sys, SymbolOp, map[string]any{"query": "Vendored", "path": ".", "max_results": 10})
 		if strings.Contains(vendorSymbols.Text, "VendoredRoot") || strings.Contains(vendorSymbols.Text, "VendoredNested") {
 			t.Fatalf("vendor symbols text = %q, want vendored symbols excluded", vendorSymbols.Text)
+		}
+		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
+		if err != nil {
+			t.Fatalf("ContextProviders: %v", err)
+		}
+		if len(providers) != 1 || providers[0].Spec().Annotations[corecontext.AnnotationAutoContext] != "true" {
+			t.Fatalf("providers = %#v, want one auto provider", providers)
+		}
+		blocks, err := providers[0].Build(context.Background(), corecontext.Request{})
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "Go workspace summary:") || !strings.Contains(blocks[0].Content, "go_packages") {
+			t.Fatalf("blocks = %#v", blocks)
 		}
 	})
 }

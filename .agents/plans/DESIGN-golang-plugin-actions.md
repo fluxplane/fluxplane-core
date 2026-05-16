@@ -12,6 +12,10 @@ Add generic project inventory and language-support models, then add
 `projectplugin` owns workspace facts such as manifests, Makefiles, Taskfiles,
 and markdown document outlines. `golangplugin` owns Go-specific source
 structure such as modules, packages, outlines, and declaration symbols.
+`codingplugin` also contributes compact automatic context providers so new
+turns receive project and Go orientation before the model asks for a tool.
+Markdown gets its own language-support plugin for accurate document outlines,
+link listing, and local-only diagnostics.
 
 The first version is Workspace-native, memory-only, and does not use Axon.
 Axon remains useful prior art for vocabulary and future feature shape, but it
@@ -71,7 +75,9 @@ manifests, such as `go.mod` plus `package.json`, is one project with multiple
 facets. Nested manifests become child projects. `go.work` is a Go workspace
 facet and links related module directories when cheaply parseable. Agent
 resource directories such as `.agents` and `.claude` are also project facets on
-their owning project, not separate project roots.
+their owning project, not separate project roots. Markdown document outlines are
+parsed with goldmark and stored as nested heading trees so fenced code,
+Setext headings, and inline markup are handled by a real Markdown parser.
 
 `plugins/projectplugin` exposes project inventory operations:
 
@@ -79,6 +85,8 @@ their owning project, not separate project roots.
 - `project_files`
 - `project_tasks`
 - `project_docs`
+- `project.summary` context provider with a compact project/facet/docs/tasks
+  orientation block
 
 `core/language` defines inert language DTOs: provider metadata, positions,
 ranges, packages, documents, outlines, symbols, imports, references, and call
@@ -100,15 +108,100 @@ Initial operations:
 - `go_outline`: return a bounded outline for a Go file or package: types,
   funcs, methods, consts, vars, line positions, signatures, docs when small.
 - `go_symbol`: find declaration symbols by name, package, kind, or file path.
+- `go.summary` context provider with compact module/package/command
+  orientation.
 
 Later operations:
 
-- `go_references`: best-effort AST usage search.
-- `go_callers` and `go_callees`: static call extraction when local semantics are
-  stable enough.
+- `go_definition`: position-based declaration lookup from a use site.
+- `go_references`: bounded position-based reference lookup with explicit
+  confidence/completeness metadata.
 - `go_imports`: direct import views and reverse importers from parsed files.
+- `go_implementations`: interface/type implementation lookup.
+- `go_callers` and `go_callees`: bounded static call hierarchy with explicit
+  limitations.
+- `go_hover` or `go_symbol_info`: compact type/signature/doc summary for the
+  symbol at a position.
 - `go_doc`: package or symbol documentation, possibly with `system.Process`
   fallback.
+
+### Navigation Requirements
+
+Go navigation operations should prefer position-based selectors over name-based
+selectors. Name/package/kind filters are useful for discovery, but reference,
+definition, implementation, caller, and callee queries must accept a
+workspace-relative `path` plus `line`/`column` or byte offset so overloaded
+names, methods, fields, locals, imports, and shadowed identifiers can be
+resolved precisely.
+
+Add read-only navigation operations in this order:
+
+- `go_definition`: resolve the declaration for the identifier, selector, import
+  path, package declaration, or doc link at a source position.
+- `go_references`: return bounded references to the selected symbol, with
+  `include_declaration`, `scope`, `include_tests`, and result limits.
+- `go_imports`: return direct imports and reverse importers, separating
+  production/test imports and standard-library/module-local/external imports.
+- `go_implementations`: find workspace types implementing an interface,
+  interfaces satisfied by a type, and matching interface/concrete methods.
+- `go_callers` and `go_callees`: return static call hierarchy edges for the
+  selected function or method.
+- `go_hover` or `go_symbol_info`: return a compact type, signature, constant
+  value, documentation, and method-set summary for the symbol at a position.
+
+Every navigation result must include source ranges, line previews, package
+identity, test/generated-file flags, and stable best-effort symbol IDs where
+available. Results must also report resolution mode and completeness, for
+example `lexical`, `ast`, `package`, or `type_checked`, plus warnings for known
+limitations.
+
+The first implementation may be AST/package based and incomplete. It must not
+pretend to be fully semantic. Interface dispatch, function values, reflection,
+build tags, generated code, cgo, and dependencies outside the workspace should
+be surfaced as limitations unless the backend later adds type-aware support.
+
+Navigation queries must be bounded by `max_results`, `max_files`, `max_bytes`,
+and explicit scope (`file`, `package`, `module`, or `workspace`). Defaults
+should favor useful local context over whole-workspace scans.
+
+## Automatic Context Providers
+
+`project.summary` and `go.summary` are system-placement text context providers
+annotated with `agentruntime.auto_context=true`. This lets agent configuration
+include the summaries even when the visible agent spec has a tight context
+provider allowlist.
+
+The summaries are intentionally small hints, not indexes:
+
+- project summary: first few detected projects, facets, docs, and task sources;
+- Go summary: first few Go modules/workspaces, discovered package groups, and
+  command package directories;
+- both point the model at the richer operations to request details.
+
+`codingplugin` aggregates executable context providers from child plugins in
+addition to `agents.md`, so apps can opt into `WithPlugin("coding")` and receive
+the same project/go orientation implementations as the standalone plugins.
+
+## Markdown Language Support
+
+Markdown support is a separate language-support plugin, not a project-specific
+special case. It uses goldmark for parsing so headings are accurate for ATX,
+Setext, inline markup, and fenced-code edge cases.
+
+Initial operations:
+
+- `markdown_outline`: parse one markdown file or a markdown tree and return
+  nested heading outlines.
+- `markdown_links`: list links and images with source path, line, enclosing
+  heading, target kind, normalized target path, and fragment.
+- `markdown_diagnostics`: run local-only diagnostics for workspace-relative
+  file links and markdown heading anchors.
+
+Diagnostics do not perform network checks. External URLs and other non-file
+targets are reported as unchecked informational diagnostics. Local missing
+files and missing markdown anchors are reported as errors, and anchors on
+non-markdown files are warnings.
+
 
 Command-like helpers can be added once the read path exists:
 
@@ -187,7 +280,11 @@ Use table-driven tests with temporary Go modules:
 - symbol lookup across packages;
 - references and call graph for a small multi-file module;
 - markdown outline availability if the design later adds generic project
-  outline operations through Axon;
+  outline operations through language plugins;
+- automatic context provider aggregation through `codingplugin`;
+- markdown outline parsing through goldmark, including Setext headings, inline
+  markup, fenced-code exclusion, local links, missing files, missing anchors,
+  and unchecked external links;
 - stale/refresh behavior;
 - operation schema documentation for path bounds, result bounds, and refresh.
 
@@ -202,6 +299,7 @@ Run at minimum:
 
 ```bash
 go test ./plugins/golangplugin ./plugins/codingplugin
+go test ./plugins/markdownplugin
 task verify
 ```
 
@@ -218,6 +316,15 @@ First implementation slice:
    index path is proven.
 5. Consider `go_test` and `go_list` wrappers after read/navigation tools are
    stable.
+
+Current context/markdown implementation slice:
+
+1. Add `project.summary` and `go.summary` as auto context providers.
+2. Aggregate child context providers from `codingplugin`.
+3. Add `plugins/markdownplugin` with `markdown_outline`, `markdown_links`, and
+   `markdown_diagnostics`.
+4. Expose markdown operations through the coder app and delegation operation
+   allowlist.
 
 ## Open Questions
 
