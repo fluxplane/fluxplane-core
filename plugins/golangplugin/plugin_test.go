@@ -257,6 +257,128 @@ func Use(model.Model) {}
 	})
 }
 
+func TestGoImplementationOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
+	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+		contract := `package contract
+
+type Runner interface {
+	Run() error
+	Stop() error
+}
+
+type OnlyRun interface {
+	Run() error
+}
+
+type TestOnly interface {
+	TestHook()
+}
+`
+		service := `package service
+
+type Service struct{}
+
+func (Service) Run() error {
+	return nil
+}
+
+func (*Service) Stop() error {
+	return nil
+}
+
+type Broken struct{}
+
+func (Broken) Run() error {
+	return nil
+}
+`
+		sibling := `package sibling
+
+type Sibling struct{}
+
+func (Sibling) Run() error {
+	return nil
+}
+
+func (Sibling) Stop() error {
+	return nil
+}
+`
+		testImpl := `package service
+
+type TestImpl struct{}
+
+func (TestImpl) TestHook() {}
+`
+		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/impl\n\ngo 1.26\n")
+		writeGoFile(t, sys.Workspace(), "pkg/contract/contract.go", contract)
+		writeGoFile(t, sys.Workspace(), "pkg/service/service.go", service)
+		writeGoFile(t, sys.Workspace(), "pkg/service/service_test.go", testImpl)
+		writeGoFile(t, sys.Workspace(), "pkg/sibling/sibling.go", sibling)
+
+		line, column := goPosition(t, contract, "Runner interface")
+		runnerModule := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
+		for _, want := range []string{"pointer Service implements Runner", "value Sibling implements Runner", "matched: Run, Stop", "missing_methods"} {
+			if !strings.Contains(runnerModule.Text, want) {
+				t.Fatalf("runner module implementations text = %q, want %q", runnerModule.Text, want)
+			}
+		}
+
+		runnerPackage := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column})
+		if strings.Contains(runnerPackage.Text, "Service implements Runner") || !strings.Contains(runnerPackage.Text, "no AST-level implementation matches") {
+			t.Fatalf("runner package implementations text = %q, want package scope only", runnerPackage.Text)
+		}
+
+		writeGoFile(t, sys.Workspace(), "pkg/splitrun/service.go", `package splitrun
+
+type Service struct{}
+
+func (Service) Run() error {
+	return nil
+}
+`)
+		writeGoFile(t, sys.Workspace(), "pkg/splitstop/service.go", `package splitstop
+
+type Service struct{}
+
+func (Service) Stop() error {
+	return nil
+}
+`)
+		splitModule := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
+		if strings.Contains(splitModule.Text, "splitrun") || strings.Contains(splitModule.Text, "splitstop") {
+			t.Fatalf("split package implementations text = %q, want same bare type names kept package-qualified", splitModule.Text)
+		}
+
+		line, column = goPosition(t, service, "Service struct")
+		serviceModule := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/service/service.go", "line": line, "column": column, "scope": "module"})
+		if !strings.Contains(serviceModule.Text, "pointer Service implements Runner") || !strings.Contains(serviceModule.Text, "value Service implements OnlyRun") {
+			t.Fatalf("service module implementations text = %q, want pointer Runner and value OnlyRun matches", serviceModule.Text)
+		}
+
+		line, column = goPosition(t, contract, "Run() error")
+		methodMatches := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module"})
+		if !strings.Contains(methodMatches.Text, "method_correspondence Service implements Runner") || !strings.Contains(methodMatches.Text, "matched: Run") {
+			t.Fatalf("method correspondence text = %q, want Run method correspondences", methodMatches.Text)
+		}
+
+		line, column = goPosition(t, contract, "TestOnly interface")
+		withoutTests := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module", "include_tests": false})
+		if strings.Contains(withoutTests.Text, "TestImpl implements TestOnly") {
+			t.Fatalf("implementations without tests text = %q, want test implementation excluded", withoutTests.Text)
+		}
+		withTests := runGoOp(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": line, "column": column, "scope": "module", "include_tests": true})
+		if !strings.Contains(withTests.Text, "value TestImpl implements TestOnly") {
+			t.Fatalf("implementations with tests text = %q, want test implementation included", withTests.Text)
+		}
+
+		invalid := runGoResult(t, sys, ImplementationsOp, map[string]any{"path": "pkg/contract/contract.go", "line": 1, "column": 1, "scope": "workspace"})
+		if invalid.Status != operation.StatusFailed || invalid.Error == nil || !strings.Contains(invalid.Error.Message, "unsupported implementation scope") {
+			t.Fatalf("invalid implementations result = %#v, want unsupported scope failure", invalid)
+		}
+	})
+}
+
 func TestGoNavigationOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
 		defs := `package nav

@@ -33,6 +33,7 @@ const (
 	SymbolInfoOp       = "go_symbol_info"
 	ReferencesOp       = "go_references"
 	ImportsOp          = "go_imports"
+	ImplementationsOp  = "go_implementations"
 	SummaryProvider    = "go.summary"
 	defaultMaxResults  = 200
 	defaultSourceBytes = 512 * 1024
@@ -69,7 +70,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
 		OperationSets: []operation.Set{{
 			Name:        Name,
-			Description: "Go project, package, outline, symbol, navigation, reference, and import read operations.",
+			Description: "Go project, package, outline, symbol, navigation, reference, import, and implementation read operations.",
 			Operations:  refs(specs),
 		}},
 		Operations: specs,
@@ -106,6 +107,7 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[language.NavigationQuery, operation.Rendered](specByName(SymbolInfoOp), p.goSymbolInfo()),
 		operationruntime.NewTypedResult[language.ReferenceQuery, operation.Rendered](specByName(ReferencesOp), p.goReferences()),
 		operationruntime.NewTypedResult[language.ImportQuery, operation.Rendered](specByName(ImportsOp), p.goImports()),
+		operationruntime.NewTypedResult[language.ImplementationQuery, operation.Rendered](specByName(ImplementationsOp), p.goImplementations()),
 	}, nil
 }
 
@@ -119,6 +121,7 @@ func specs() []operation.Spec {
 		spec[language.NavigationQuery](SymbolInfoOp, "Return compact AST/package-level Go symbol information for a source position, falling back to the enclosing declaration when no identifier definition resolves."),
 		spec[language.ReferenceQuery](ReferencesOp, "Return bounded AST/package-level Go references for the selected symbol at a source position. Scope defaults to the same package directory, include_tests defaults to true, and results report parser-only limitations."),
 		spec[language.ImportQuery](ImportsOp, "Return direct and reverse Go import edges from parser-only source reads. Direction defaults to both, include_tests defaults to true, and reverse lookups stay bounded to the requested path scope."),
+		spec[language.ImplementationQuery](ImplementationsOp, "Return best-effort AST-only Go implementation relationships for a selected interface, concrete type, or method. Scope defaults to the selected package; module scope is supported."),
 	}
 }
 
@@ -221,7 +224,7 @@ func renderGoSummary(projects []coreproject.Project, pkgs []language.Package) st
 			lines = append(lines, "- command entrypoints: "+strings.Join(cmds, ", "))
 		}
 	}
-	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, and go_imports for details.")
+	lines = append(lines, "Use go_project, go_packages, go_outline, go_symbol, go_definition, go_symbol_info, go_references, go_imports, and go_implementations for details.")
 	return strings.Join(lines, "\n")
 }
 

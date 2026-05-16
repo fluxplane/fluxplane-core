@@ -32,7 +32,7 @@ func Bundle() resource.ContributionBundle {
 		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. "+
 			"Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec. "+
 			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web-search datasource queries, and web_request only for fetching known URLs. "+
-			"Use project_inventory/project_docs/project_tasks for workspace structure, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports for Go code navigation. "+
+			"Use project_inventory/project_docs/project_tasks for workspace structure, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations for Go code navigation. "+
 			"Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks. "+
 			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. "+
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
@@ -47,7 +47,7 @@ func Bundle() resource.ContributionBundle {
 		}).
 		WithOperations(
 			"project_inventory", "project_files", "project_tasks", "project_docs",
-			"go_project", "go_packages", "go_outline", "go_symbol", "go_definition", "go_symbol_info", "go_references", "go_imports",
+			"go_project", "go_packages", "go_outline", "go_symbol", "go_definition", "go_symbol_info", "go_references", "go_imports", "go_implementations",
 			"markdown_outline", "markdown_links", "markdown_diagnostics",
 			"dir_create", "dir_list", "dir_tree",
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
@@ -91,7 +91,7 @@ func Bundle() resource.ContributionBundle {
 				DefaultTimeout:  "10m",
 				Operations: []operation.Ref{
 					{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_tasks"}, {Name: "project_docs"},
-					{Name: "go_project"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"}, {Name: "go_definition"}, {Name: "go_symbol_info"}, {Name: "go_references"}, {Name: "go_imports"},
+					{Name: "go_project"}, {Name: "go_packages"}, {Name: "go_outline"}, {Name: "go_symbol"}, {Name: "go_definition"}, {Name: "go_symbol_info"}, {Name: "go_references"}, {Name: "go_imports"}, {Name: "go_implementations"},
 					{Name: "markdown_outline"}, {Name: "markdown_links"}, {Name: "markdown_diagnostics"},
 					{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 					{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"}, {Name: "git_add"}, {Name: "git_commit"},

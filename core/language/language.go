@@ -19,18 +19,19 @@ const (
 type Capability string
 
 const (
-	CapabilityProject     Capability = "project"
-	CapabilityPackage     Capability = "package"
-	CapabilityOutline     Capability = "outline"
-	CapabilitySymbol      Capability = "symbol"
-	CapabilityDefinition  Capability = "definition"
-	CapabilitySymbolInfo  Capability = "symbol_info"
-	CapabilityReferences  Capability = "references"
-	CapabilityCalls       Capability = "calls"
-	CapabilityImports     Capability = "imports"
-	CapabilityDiagnostics Capability = "diagnostics"
-	CapabilityFormat      Capability = "format"
-	CapabilityRename      Capability = "rename"
+	CapabilityProject         Capability = "project"
+	CapabilityPackage         Capability = "package"
+	CapabilityOutline         Capability = "outline"
+	CapabilitySymbol          Capability = "symbol"
+	CapabilityDefinition      Capability = "definition"
+	CapabilitySymbolInfo      Capability = "symbol_info"
+	CapabilityReferences      Capability = "references"
+	CapabilityImplementations Capability = "implementations"
+	CapabilityCalls           Capability = "calls"
+	CapabilityImports         Capability = "imports"
+	CapabilityDiagnostics     Capability = "diagnostics"
+	CapabilityFormat          Capability = "format"
+	CapabilityRename          Capability = "rename"
 )
 
 // ProviderName identifies a language-support provider.
@@ -333,6 +334,60 @@ type ImportResult struct {
 	Fresh            bool         `json:"fresh,omitempty"`
 }
 
+// ImplementationScope bounds an implementation lookup.
+type ImplementationScope string
+
+const (
+	ImplementationScopePackage ImplementationScope = "package"
+	ImplementationScopeModule  ImplementationScope = "module"
+)
+
+// ImplementationRelation describes a best-effort implementation relationship.
+type ImplementationRelation string
+
+const (
+	ImplementationRelationValue                ImplementationRelation = "value"
+	ImplementationRelationPointer              ImplementationRelation = "pointer"
+	ImplementationRelationMethodCorrespondence ImplementationRelation = "method_correspondence"
+)
+
+// ImplementationQuery selects a source position for implementation lookup.
+type ImplementationQuery struct {
+	Language     LanguageID          `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
+	Path         string              `json:"path" jsonschema:"description=Workspace-relative Go source file path.,required"`
+	Line         int                 `json:"line,omitempty" jsonschema:"description=1-indexed source line. Required unless offset is set."`
+	Column       int                 `json:"column,omitempty" jsonschema:"description=1-indexed byte column. Required unless offset is set."`
+	Offset       *int                `json:"offset,omitempty" jsonschema:"description=0-indexed byte offset. Takes precedence over line and column. Offset 0 is valid."`
+	Scope        ImplementationScope `json:"scope,omitempty" jsonschema:"description=Lookup scope. Defaults to package.,enum=package,enum=module"`
+	IncludeTests *bool               `json:"include_tests,omitempty" jsonschema:"description=Include _test.go files. Defaults to true."`
+	MaxResults   int                 `json:"max_results,omitempty" jsonschema:"description=Maximum implementation matches returned."`
+	MaxBytes     int                 `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes read from each source file."`
+	Refresh      bool                `json:"refresh,omitempty" jsonschema:"description=Reserved for memory-backed language views."`
+}
+
+// ImplementationMatch describes one best-effort implementation relationship.
+type ImplementationMatch struct {
+	Interface      Symbol                 `json:"interface,omitempty"`
+	Concrete       Symbol                 `json:"concrete,omitempty"`
+	Relation       ImplementationRelation `json:"relation,omitempty"`
+	MatchedMethods []string               `json:"matched_methods,omitempty"`
+	MissingMethods []string               `json:"missing_methods,omitempty"`
+	Locations      []Location             `json:"locations,omitempty"`
+}
+
+// ImplementationResult contains implementation lookup matches.
+type ImplementationResult struct {
+	Target         NavigationTarget      `json:"target,omitempty"`
+	Symbol         Symbol                `json:"symbol,omitempty"`
+	Matches        []ImplementationMatch `json:"matches,omitempty"`
+	Diagnostics    []Diagnostic          `json:"diagnostics,omitempty"`
+	ResolutionMode string                `json:"resolution_mode,omitempty"`
+	Complete       bool                  `json:"complete,omitempty"`
+	Warnings       []string              `json:"warnings,omitempty"`
+	Indexed        bool                  `json:"indexed,omitempty"`
+	Fresh          bool                  `json:"fresh,omitempty"`
+}
+
 // Import describes one import edge from a document or package.
 type Import struct {
 	Path        string      `json:"path"`
@@ -411,6 +466,7 @@ type Provider interface {
 	Outline(context.Context, OutlineQuery) (OutlineResult, error)
 	Symbols(context.Context, SymbolQuery) (SymbolResult, error)
 	Imports(context.Context, ImportQuery) (ImportResult, error)
+	Implementations(context.Context, ImplementationQuery) (ImplementationResult, error)
 }
 
 // ProjectResult is a language project query result.

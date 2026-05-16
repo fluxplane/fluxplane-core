@@ -36,8 +36,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 64 {
-		t.Fatalf("operation specs len = %d, want 64", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 65 {
+		t.Fatalf("operation specs len = %d, want 65", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)

@@ -3,8 +3,8 @@
 ## Status
 
 Implemented first read-only slice plus parser-only Go navigation, references,
-and import views. Updated direction: no Axon dependency for project or Go
-language support.
+import views, and implementation lookup. Updated direction: no Axon dependency
+for project or Go language support.
 
 Current implementation status:
 
@@ -17,8 +17,9 @@ Current implementation status:
 | `go_definition`, `go_symbol_info` | Implemented |
 | `go_references` | Implemented; package scope is constrained to exact package directory/package ID |
 | `go_imports` | Implemented; parser-only direct and reverse import edges |
-| `go_implementations`, `go_callers`, `go_callees`, `go_doc` | Deferred |
-| `go_test`, `go_list`, `go_fmt` | Deferred command/mutation wrappers |
+| `go_implementations` | Implemented; AST-only package-qualified method-name matching |
+| Next | `go_callers` / `go_callees` |
+| Remaining | `go_doc`, `go_test`, `go_list`, `go_fmt` |
 
 ## Summary
 
@@ -131,12 +132,13 @@ Initial operations:
   filtering.
 - `go_imports`: parser-only direct and reverse import views with test-file
   filtering and best-effort stdlib/module-local/external classification.
+- `go_implementations`: best-effort AST-only interface/concrete type
+  implementation lookup from a selected source position.
 - `go.summary` context provider with compact module/package/command
   orientation.
 
 Later operations:
 
-- `go_implementations`: interface/type implementation lookup.
 - `go_callers` and `go_callees`: bounded static call hierarchy with explicit
   limitations.
 - `go_doc`: package or symbol documentation, possibly with `system.Process`
@@ -197,6 +199,14 @@ from a selected file or exact package directory/package ID. Reverse mode scans a
 bounded requested path scope for importers of an explicit `import_path`, or a
 module-derived selected package import path when one is available. It does not
 run `go list`, resolve build tags, or consult the module graph.
+
+The first `go_implementations` slice is also parser-only. It resolves a selected
+interface, concrete type, or method, then compares explicit method names in
+package or module scope. It reports value, pointer, and method-correspondence
+relationships, but does not type-check signatures, embedded/promoted methods,
+aliases, generic constraints, build tags, cgo, or external packages.
+Implementation indexes use package-qualified type keys so same-name types in
+different packages do not merge method sets.
 
 ## Automatic Context Providers
 
@@ -312,7 +322,7 @@ Use table-driven tests with temporary Go modules:
 - package listing with normal and `_test` packages;
 - file outline for funcs, methods, structs, interfaces, consts, and vars;
 - symbol lookup across packages;
-- references and imports for a small multi-file module;
+- references, imports, and implementation lookup for a small multi-file module;
 - call graph for a small multi-file module once call operations exist;
 - markdown outline availability if the design later adds generic project
   outline operations through language plugins;
@@ -348,7 +358,8 @@ First implementation slice:
 2. Use Workspace-native parsers and shared core DTOs.
 3. Add the plugins to `codingplugin.New` after the core read operations pass.
 4. Add `go_references` and `go_imports` once the navigation path is proven.
-5. Consider `go_test` and `go_list` wrappers after read/navigation tools are
+5. Add `go_implementations` once import/reference navigation is stable.
+6. Consider `go_test` and `go_list` wrappers after read/navigation tools are
    stable.
 
 Navigation implementation slice:
@@ -362,8 +373,9 @@ Navigation implementation slice:
 4. Add `go_references` on the same parser-only foundation with package/file
    scope, declaration inclusion, and test-file filtering.
 5. Add parser-only `go_imports` with direct and reverse import edges.
-6. Defer call hierarchy, implementation lookup, type checking, and process
-   wrappers.
+6. Add parser-only `go_implementations` with package/module method-name
+   matching.
+7. Defer call hierarchy, type checking, and process wrappers.
 
 Current context/markdown implementation slice:
 
@@ -380,8 +392,8 @@ Current context/markdown implementation slice:
   operation-triggered?
 - Should future operations become language-agnostic wrappers over provider
   implementations, or should language-specific tool names remain model-facing?
-- When callers/callees and implementations arrive, how much type resolution is
-  worth doing without `go/packages`?
+- When callers/callees arrive, how much type resolution is worth doing without
+  `go/packages`?
 
 ## REVIEW #1
 
@@ -413,5 +425,29 @@ Reviewer findings recorded before fixes:
 - P2: `go_references` package scope could include nested directories with the
   same Go package name. Fix: constrain reference scan files to the selected
   package directory and package ID before matching references.
+
+Status: resolved with regression coverage in `plugins/golangplugin`.
+
+## REVIEW #4
+
+Reviewer findings recorded before fixes:
+
+- P2: `go_implementations` keyed interfaces, concrete types, and method sets by
+  bare type name, so module-scope lookups could merge same-name types from
+  different packages. Fix: key implementation indexes by package ID plus type
+  name.
+
+Status: resolved with regression coverage in `plugins/golangplugin`.
+
+## REVIEW #3
+
+Reviewer findings recorded before fixes:
+
+- P2: `go_imports` did not widen package-directory/package-id derived reverse
+  lookups to the enclosing module. Fix: when reverse target is derived, scan
+  the nearest module root for importers.
+- P2: dotless module paths such as `module app` were misclassified as stdlib.
+  Fix: classify known module-path prefixes before applying the stdlib
+  heuristic.
 
 Status: resolved with regression coverage in `plugins/golangplugin`.
