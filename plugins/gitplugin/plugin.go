@@ -74,7 +74,7 @@ func statusSpec() operation.Spec {
 func diffSpec() operation.Spec {
 	return operationruntime.WithTypedContract[diffInput, map[string]any](operation.Spec{
 		Ref:         operation.Ref{Name: DiffOp},
-		Description: "Show git diff for the workspace.",
+		Description: "Show git diff for the workspace, with optional compact stat/name views and bounded output.",
 		Semantics:   operation.Semantics{Determinism: operation.DeterminismNonDeterministic, Effects: operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectReadExternal}, Risk: operation.RiskLow},
 	})
 }
@@ -175,16 +175,9 @@ func statusIntent(operation.Context, statusInput) (operation.IntentSet, error) {
 }
 
 func diffIntent(_ operation.Context, req diffInput) (operation.IntentSet, error) {
-	args := []string{"diff"}
-	if req.Staged {
-		args = append(args, "--staged")
-	}
-	if strings.TrimSpace(req.Ref) != "" {
-		args = append(args, req.Ref)
-	}
-	if len(req.Paths) > 0 {
-		args = append(args, "--")
-		args = append(args, req.Paths...)
+	args, err := gitDiffArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
 	}
 	ops := []operation.IntentOperation{
 		processIntent("git", args...),
@@ -194,7 +187,6 @@ func diffIntent(_ operation.Context, req diffInput) (operation.IntentSet, error)
 	}
 	return operation.IntentSet{Operations: ops}, nil
 }
-
 func addIntent(_ operation.Context, req addInput) (operation.IntentSet, error) {
 	args, result := gitAddArgs(req.All, req.Paths, "invalid_git_add_input")
 	if result.IsError() {
@@ -325,35 +317,96 @@ func (p Plugin) status() operationruntime.TypedResultHandler[statusInput, map[st
 }
 
 type diffInput struct {
-	Staged bool     `json:"staged,omitempty" jsonschema:"description=Show staged changes instead of unstaged changes."`
-	Ref    string   `json:"ref,omitempty" jsonschema:"description=Optional ref or ref range."`
-	Paths  []string `json:"paths,omitempty" jsonschema:"description=Limit diff to paths."`
+	Staged    bool     `json:"staged,omitempty" jsonschema:"description=Show staged changes instead of unstaged changes."`
+	Ref       string   `json:"ref,omitempty" jsonschema:"description=Optional ref or ref range."`
+	Paths     []string `json:"paths,omitempty" jsonschema:"description=Limit diff to paths."`
+	StatOnly  bool     `json:"stat_only,omitempty" jsonschema:"description=Show only diffstat instead of full patch."`
+	NamesOnly bool     `json:"names_only,omitempty" jsonschema:"description=Show only changed file names instead of full patch."`
+	MaxBytes  int      `json:"max_bytes,omitempty" jsonschema:"description=Maximum diff text bytes returned. Defaults to a compact provider-safe limit."`
 }
 
 func (p Plugin) diff() operationruntime.TypedResultHandler[diffInput, map[string]any] {
 	return func(ctx operation.Context, req diffInput) operation.Result {
-		args := []string{"diff"}
-		if req.Staged {
-			args = append(args, "--staged")
+		args, err := gitDiffArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_git_diff_input", err.Error(), nil)
 		}
-		if strings.TrimSpace(req.Ref) != "" {
-			args = append(args, req.Ref)
-		}
-		if len(req.Paths) > 0 {
-			args = append(args, "--")
-			args = append(args, req.Paths...)
-		}
+		maxBytes := gitDiffMaxBytes(req)
 		result, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: args, Timeout: 30 * time.Second, MaxStdout: 256 * 1024})
-		data := map[string]any{"stdout": result.Stdout, "stderr": result.Stderr, "exit_code": result.ExitCode}
+		text, truncated := capGitDiffText(strings.TrimSpace(result.Stdout), maxBytes)
+		mode := gitDiffMode(req)
+		data := map[string]any{"stdout": text, "stderr": result.Stderr, "exit_code": result.ExitCode, "mode": mode, "truncated": truncated, "max_bytes": maxBytes}
 		if err != nil {
 			return operation.Failed("git_diff_failed", err.Error(), data)
 		}
-		text := strings.TrimSpace(result.Stdout)
 		if text == "" {
 			text = "No changes."
 		}
+		if truncated {
+			text += "\n\n[git diff truncated; narrow paths or use stat_only, names_only, or a larger max_bytes.]"
+		}
 		return operation.OK(operation.Rendered{Text: text, Data: data})
 	}
+}
+
+const (
+	defaultGitDiffMaxBytes = 32 * 1024
+	maximumGitDiffMaxBytes = 128 * 1024
+)
+
+func gitDiffArgs(req diffInput) ([]string, error) {
+	if req.StatOnly && req.NamesOnly {
+		return nil, fmt.Errorf("stat_only and names_only cannot be combined")
+	}
+	args := []string{"diff"}
+	if req.Staged {
+		args = append(args, "--staged")
+	}
+	switch {
+	case req.StatOnly:
+		args = append(args, "--stat")
+	case req.NamesOnly:
+		args = append(args, "--name-only")
+	}
+	if strings.TrimSpace(req.Ref) != "" {
+		args = append(args, req.Ref)
+	}
+	if len(req.Paths) > 0 {
+		args = append(args, "--")
+		args = append(args, req.Paths...)
+	}
+	return args, nil
+}
+
+func gitDiffMode(req diffInput) string {
+	switch {
+	case req.StatOnly:
+		return "stat"
+	case req.NamesOnly:
+		return "names"
+	default:
+		return "patch"
+	}
+}
+
+func gitDiffMaxBytes(req diffInput) int {
+	if req.MaxBytes <= 0 {
+		return defaultGitDiffMaxBytes
+	}
+	if req.MaxBytes > maximumGitDiffMaxBytes {
+		return maximumGitDiffMaxBytes
+	}
+	return req.MaxBytes
+}
+
+func capGitDiffText(text string, maxBytes int) (string, bool) {
+	if maxBytes <= 0 || len(text) <= maxBytes {
+		return text, false
+	}
+	if maxBytes < 4 {
+		return text[:maxBytes], true
+	}
+	return text[:maxBytes-3] + "...", true
 }
 
 func (p Plugin) add() operationruntime.TypedResultHandler[addInput, map[string]any] {
@@ -370,7 +423,6 @@ func (p Plugin) add() operationruntime.TypedResultHandler[addInput, map[string]a
 		return operation.OK(operation.Rendered{Text: processText(run, "Staged changes."), Data: data})
 	}
 }
-
 func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[string]any] {
 	return func(ctx operation.Context, req commitInput) operation.Result {
 		message := strings.TrimSpace(req.Message)

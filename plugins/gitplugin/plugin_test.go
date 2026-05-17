@@ -118,6 +118,53 @@ func TestCommitRejectsEmptyMessage(t *testing.T) {
 	}
 }
 
+func TestDiffCompactModesAndBoundsOutput(t *testing.T) {
+	dir := testRepo(t)
+	ops := testGitOperations(t, dir)
+	writeFile(t, dir, "file.txt", "hello\n")
+	runGit(t, dir, "add", "file.txt")
+	runGit(t, dir, "commit", "-m", "test: add file")
+	writeFile(t, dir, "file.txt", strings.Repeat("changed line\n", 20))
+	writeFile(t, dir, "other.txt", "new\n")
+
+	ctx := operation.NewContext(context.Background(), event.Discard())
+	stat := requireRenderedResult(t, ops[DiffOp].Run(ctx, diffInput{StatOnly: true}))
+	if !strings.Contains(stat.Text, "file.txt") || strings.Contains(stat.Text, "@@") {
+		t.Fatalf("stat diff text = %q, want diffstat without patch hunks", stat.Text)
+	}
+	if got := renderedDataString(t, stat, "mode"); got != "stat" {
+		t.Fatalf("stat mode = %q, want stat", got)
+	}
+
+	names := requireRenderedResult(t, ops[DiffOp].Run(ctx, diffInput{NamesOnly: true}))
+	if strings.TrimSpace(names.Text) != "file.txt" || strings.Contains(names.Text, "@@") {
+		t.Fatalf("names diff text = %q, want only file.txt", names.Text)
+	}
+	if got := renderedDataString(t, names, "mode"); got != "names" {
+		t.Fatalf("names mode = %q, want names", got)
+	}
+
+	truncated := requireRenderedResult(t, ops[DiffOp].Run(ctx, diffInput{MaxBytes: 40}))
+	if !strings.Contains(truncated.Text, "[git diff truncated") {
+		t.Fatalf("truncated diff text = %q, want truncation note", truncated.Text)
+	}
+	data, ok := truncated.Data.(map[string]any)
+	if !ok || data["truncated"] != true {
+		t.Fatalf("truncated diff data = %#v, want truncated=true", truncated.Data)
+	}
+}
+
+func TestDiffRejectsConflictingCompactModes(t *testing.T) {
+	ops := testGitOperations(t, t.TempDir())
+	result := ops[DiffOp].Run(operation.NewContext(context.Background(), event.Discard()), diffInput{StatOnly: true, NamesOnly: true})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
+	}
+	if result.Error == nil || result.Error.Code != "invalid_git_diff_input" {
+		t.Fatalf("error = %#v, want invalid_git_diff_input", result.Error)
+	}
+}
+
 func TestCommitRejectsPathsWithoutStage(t *testing.T) {
 	ops := testGitOperations(t, t.TempDir())
 	result := ops[CommitOp].Run(operation.NewContext(context.Background(), event.Discard()), commitInput{
@@ -538,6 +585,28 @@ func requireCommitResult(t *testing.T, result operation.Result) string {
 		t.Fatalf("commit missing from data %#v", data)
 	}
 	return commit
+}
+
+func requireRenderedResult(t *testing.T, result operation.Result) operation.Rendered {
+	t.Helper()
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v, want ok", result)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want operation.Rendered", result.Output)
+	}
+	return rendered
+}
+
+func renderedDataString(t *testing.T, rendered operation.Rendered, key string) string {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data = %#v, want map", rendered.Data)
+	}
+	value, _ := data[key].(string)
+	return value
 }
 
 func gitOutput(t *testing.T, dir string, args ...string) string {
