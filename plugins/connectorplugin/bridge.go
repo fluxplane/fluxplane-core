@@ -9,6 +9,7 @@ import (
 
 	connectoroperation "github.com/codewandler/connectors/operation"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -61,7 +62,7 @@ func Operations(executor Executor, instances []Instance, actions []Action) ([]op
 		action := materialized.action
 		toolName := materialized.toolName
 		spec := action.operationSpec(toolName)
-		out = append(out, operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
+		op := operation.New(spec, func(ctx operation.Context, input operation.Value) operation.Result {
 			params, err := inputMap(input)
 			if err != nil {
 				return operation.Failed("invalid_"+toolName+"_input", err.Error(), nil)
@@ -92,9 +93,22 @@ func Operations(executor Executor, instances []Instance, actions []Action) ([]op
 				HTTPStatus: result.HTTPStatus,
 				Data:       result.Data,
 			})
-		}))
+		})
+		out = append(out, connectorOperation{Operation: op, instanceID: instance.ID})
 	}
 	return out, nil
+}
+
+type connectorOperation struct {
+	operation.Operation
+	instanceID string
+}
+
+func (o connectorOperation) Access(operation.Context, operation.Value) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{{
+		Resource: policy.ResourceRef{Kind: policy.ResourceConnector, Name: o.instanceID},
+		Action:   policy.ActionConnectorUse,
+	}}, nil
 }
 
 // ToolName returns the materialized tool name for one instance/action pair.

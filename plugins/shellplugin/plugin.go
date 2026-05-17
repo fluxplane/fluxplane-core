@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -56,8 +57,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		return nil, fmt.Errorf("shellplugin: system is nil")
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ExecOp), p.exec(), operationruntime.WithIntent(execIntent)),
-		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ProcessStartOp), p.start(), operationruntime.WithIntent(execIntent)),
+		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ExecOp), p.exec(), operationruntime.WithIntent(execIntent), operationruntime.WithAccess(execAccess)),
+		operationruntime.NewTypedResult[execInput, map[string]any](specByName(ProcessStartOp), p.start(), operationruntime.WithIntent(execIntent), operationruntime.WithAccess(execAccess)),
 		operationruntime.NewTypedResult[processListInput, map[string]any](specByName(ProcessListOp), p.list(), operationruntime.WithIntent(processListIntent)),
 		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessStatusOp), p.status(), operationruntime.WithIntent(processReadIntent)),
 		operationruntime.NewTypedResult[processIDInput, map[string]any](specByName(ProcessOutputOp), p.output(), operationruntime.WithIntent(processReadIntent)),
@@ -210,6 +211,20 @@ func execIntent(_ operation.Context, req execInput) (operation.IntentSet, error)
 	}
 	return operation.IntentSet{Operations: []operation.IntentOperation{
 		processIntent(command, args, req.Workdir),
+	}}, nil
+}
+
+func execAccess(_ operation.Context, req execInput) ([]operationruntime.AccessDescriptor, error) {
+	command, _, err := commandAndArgs(req)
+	if err != nil {
+		return nil, err
+	}
+	if deniedCommand(command) {
+		return nil, fmt.Errorf("command is blocked by default policy")
+	}
+	return []operationruntime.AccessDescriptor{{
+		Resource: policy.ResourceRef{Kind: policy.ResourceProcess, Name: command},
+		Action:   policy.ActionProcessExec,
 	}}, nil
 }
 

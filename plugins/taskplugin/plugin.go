@@ -164,19 +164,78 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 		store = taskStore
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[coretask.TaskCreateRequest, coretask.TaskCreateResult](taskCreateSpec(), createTask(store)),
-		operationruntime.NewTypedResult[coretask.TaskModifyRequest, coretask.TaskModifyResult](taskModifySpec(), modifyTask(store)),
-		operationruntime.NewTypedResult[coretask.TaskGetRequest, coretask.TaskGetResult](taskGetSpec(), getTask(store)),
-		operationruntime.NewTypedResult[coretask.TaskListRequest, coretask.TaskListResult](taskListSpec(), listTasks(store)),
-		operationruntime.NewTypedResult[coretask.TaskArtifactListRequest, coretask.TaskArtifactListResult](taskListArtifactsSpec(), listArtifacts(store)),
-		operationruntime.NewTypedResult[coretask.TaskArtifactGetRequest, coretask.TaskArtifactGetResult](taskGetArtifactSpec(), getArtifact(store)),
-		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.System)),
-		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store)),
-		operationruntime.NewTypedResult[coretask.ReviewRequest, coretask.ReviewRequestResult](reviewRequestSpec(), requestReview(store)),
-		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner, store)),
-		operationruntime.NewTypedResult[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](taskSchedulerStatusSpec(), schedulerStatus(p.Runner)),
-		operationruntime.NewTypedResult[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](taskSchedulerSetEnabledSpec(), schedulerSetEnabled(p.Runner)),
+		operationruntime.NewTypedResult[coretask.TaskCreateRequest, coretask.TaskCreateResult](taskCreateSpec(), createTask(store), operationruntime.WithAccess(taskCreateAccess)),
+		operationruntime.NewTypedResult[coretask.TaskModifyRequest, coretask.TaskModifyResult](taskModifySpec(), modifyTask(store), operationruntime.WithAccess(taskModifyAccess)),
+		operationruntime.NewTypedResult[coretask.TaskGetRequest, coretask.TaskGetResult](taskGetSpec(), getTask(store), operationruntime.WithAccess(taskGetAccess)),
+		operationruntime.NewTypedResult[coretask.TaskListRequest, coretask.TaskListResult](taskListSpec(), listTasks(store), operationruntime.WithAccess(taskListAccess)),
+		operationruntime.NewTypedResult[coretask.TaskArtifactListRequest, coretask.TaskArtifactListResult](taskListArtifactsSpec(), listArtifacts(store), operationruntime.WithAccess(taskArtifactListAccess)),
+		operationruntime.NewTypedResult[coretask.TaskArtifactGetRequest, coretask.TaskArtifactGetResult](taskGetArtifactSpec(), getArtifact(store), operationruntime.WithAccess(taskArtifactGetAccess)),
+		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.System), operationruntime.WithAccess(taskArtifactReadAccess)),
+		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store), operationruntime.WithAccess(taskValidateAccess)),
+		operationruntime.NewTypedResult[coretask.ReviewRequest, coretask.ReviewRequestResult](reviewRequestSpec(), requestReview(store), operationruntime.WithAccess(reviewRequestAccess)),
+		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner, store), operationruntime.WithAccess(taskRunAccess)),
+		operationruntime.NewTypedResult[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](taskSchedulerStatusSpec(), schedulerStatus(p.Runner), operationruntime.WithAccess(taskSchedulerStatusAccess)),
+		operationruntime.NewTypedResult[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](taskSchedulerSetEnabledSpec(), schedulerSetEnabled(p.Runner), operationruntime.WithAccess(taskSchedulerSetEnabledAccess)),
 	}, nil
+}
+
+func taskCreateAccess(_ operation.Context, input coretask.TaskCreateRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskWrite), nil
+}
+
+func taskModifyAccess(_ operation.Context, input coretask.TaskModifyRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskWrite), nil
+}
+
+func taskGetAccess(_ operation.Context, input coretask.TaskGetRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskRead), nil
+}
+
+func taskListAccess(operation.Context, coretask.TaskListRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess("*", policy.ActionTaskRead), nil
+}
+
+func taskArtifactListAccess(_ operation.Context, input coretask.TaskArtifactListRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskRead), nil
+}
+
+func taskArtifactGetAccess(_ operation.Context, input coretask.TaskArtifactGetRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskRead), nil
+}
+
+func taskArtifactReadAccess(_ operation.Context, input coretask.TaskArtifactReadRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskRead), nil
+}
+
+func taskValidateAccess(_ operation.Context, input coretask.TaskValidateRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.ID), policy.ActionTaskRead), nil
+}
+
+func reviewRequestAccess(_ operation.Context, input coretask.ReviewRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.TaskID), policy.ActionTaskWrite), nil
+}
+
+func taskRunAccess(_ operation.Context, input coretask.ExecutionRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess(string(input.TaskID), policy.ActionTaskRun), nil
+}
+
+func taskSchedulerStatusAccess(operation.Context, coretask.SchedulerStatusRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess("*", policy.ActionTaskRead), nil
+}
+
+func taskSchedulerSetEnabledAccess(operation.Context, coretask.SchedulerSetEnabledRequest) ([]operationruntime.AccessDescriptor, error) {
+	return taskAccess("*", policy.ActionTaskAdmin), nil
+}
+
+func taskAccess(id string, action policy.Action) []operationruntime.AccessDescriptor {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "*"
+	}
+	return []operationruntime.AccessDescriptor{{
+		Resource: policy.ResourceRef{Kind: policy.ResourceTask, ID: id},
+		Action:   action,
+	}}
 }
 
 func operationRefs(specs []operation.Spec) []operation.Ref {

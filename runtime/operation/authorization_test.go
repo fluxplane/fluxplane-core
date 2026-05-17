@@ -2,6 +2,7 @@ package operationruntime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -122,4 +123,60 @@ func TestAuthorizationGateAllowsDatasourceSearchWhenAnyDatasourceGranted(t *test
 	if err := (AuthorizationGate{}).Authorize(ctx, op, map[string]any{"query": "security"}); err != nil {
 		t.Fatalf("Authorize datasource_search: %v", err)
 	}
+}
+
+func TestAuthorizationGatePrefersTypedAccessDescriptor(t *testing.T) {
+	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
+			Actions:   []policy.Action{policy.ActionWorkspaceRead},
+		}}},
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
+	}), nil)
+	op := NewTypedResult[pathReadInput, operation.Rendered](
+		operation.Spec{Ref: operation.Ref{Name: "custom_file_read"}},
+		func(operation.Context, pathReadInput) operation.Result { return operation.OK(nil) },
+		WithAccess(func(_ operation.Context, input pathReadInput) ([]AccessDescriptor, error) {
+			return []AccessDescriptor{{
+				Resource: policy.ResourceRef{Kind: policy.ResourcePath, Path: input.Path},
+				Action:   policy.ActionWorkspaceRead,
+			}}, nil
+		}),
+	)
+	if err := (AuthorizationGate{}).Authorize(ctx, op, map[string]any{"path": "docs/readme.md"}); err != nil {
+		t.Fatalf("Authorize docs path: %v", err)
+	}
+	err := (AuthorizationGate{}).Authorize(ctx, op, map[string]any{"path": "private/notes.md"})
+	if err == nil || !strings.Contains(err.Error(), "no_matching_grant") {
+		t.Fatalf("Authorize private path error = %v, want no_matching_grant", err)
+	}
+}
+
+func TestAuthorizationGateFailsClosedWhenTypedAccessFails(t *testing.T) {
+	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+			Actions:   []policy.Action{policy.ActionOperationInvoke},
+		}}},
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
+	}), nil)
+	op := NewTypedResult[pathReadInput, operation.Rendered](
+		operation.Spec{Ref: operation.Ref{Name: "custom_file_read"}},
+		func(operation.Context, pathReadInput) operation.Result { return operation.OK(nil) },
+		WithAccess(func(operation.Context, pathReadInput) ([]AccessDescriptor, error) {
+			return nil, fmt.Errorf("path is required")
+		}),
+	)
+	err := (AuthorizationGate{}).Authorize(ctx, op, map[string]any{"path": ""})
+	if err == nil || !strings.Contains(err.Error(), "access_descriptor_failed") {
+		t.Fatalf("Authorize error = %v, want access_descriptor_failed", err)
+	}
+}
+
+type pathReadInput struct {
+	Path string `json:"path"`
 }

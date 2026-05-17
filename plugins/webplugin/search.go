@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -183,6 +184,34 @@ func searchIntent(_ operation.Context, req searchInput) (operation.IntentSet, er
 		Role:      operation.IntentRoleNetworkTarget,
 		Certainty: operation.IntentPotential,
 	}}}, nil
+}
+
+func searchAccess(_ operation.Context, req searchInput) ([]operationruntime.AccessDescriptor, error) {
+	if len(normalizeQueries(req)) == 0 {
+		return nil, fmt.Errorf("at least one query is required")
+	}
+	providers := normalizeProviderNames(req.Providers)
+	if len(providers) == 0 {
+		return []operationruntime.AccessDescriptor{networkAccess(tavilySearchURL), networkAccess(duckDuckGoSearchURLTemplate)}, nil
+	}
+	access := make([]operationruntime.AccessDescriptor, 0, len(providers))
+	if providers[SearchProviderTavily] {
+		access = append(access, networkAccess(tavilySearchURL))
+	}
+	if providers[SearchProviderDuckDuckGo] {
+		access = append(access, networkAccess(duckDuckGoSearchURLTemplate))
+	}
+	if len(access) == 0 {
+		return []operationruntime.AccessDescriptor{networkAccess("*")}, nil
+	}
+	return access, nil
+}
+
+func networkAccess(target string) operationruntime.AccessDescriptor {
+	return operationruntime.AccessDescriptor{
+		Resource: policy.ResourceRef{Kind: policy.ResourceNetwork, Name: target},
+		Action:   policy.ActionNetworkFetch,
+	}
 }
 
 func searchProviders(sys system.System) []SearchProvider {

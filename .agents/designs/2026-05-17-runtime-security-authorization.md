@@ -5,9 +5,10 @@
 Design record plus implementation notes. The first implementation slice is now
 present in the runtime: typed authorization policy, app-config propagation,
 inbound identity/trust context, tool projection filtering, operation execution
-enforcement, approval-required routing, and local coder defaults. Follow-up
-hardening is still needed for typed operation access descriptors, approval
-audit records, and broader non-operation resource gates.
+enforcement, approval-required routing, local coder defaults, and typed
+operation access descriptors for the first built-in operation set. Follow-up
+hardening is still needed for approval audit records, broader non-operation
+resource gates, and replacing the remaining fallback operation-name heuristics.
 
 ## Problem
 

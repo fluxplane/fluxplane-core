@@ -9,6 +9,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/adapters/htmlconvert"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -55,8 +56,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		return nil, fmt.Errorf("webplugin: system is nil")
 	}
 	return []operation.Operation{
-		operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent)),
-		operationruntime.NewTypedResult[searchInput, searchOutput](searchSpec(), p.search(), operationruntime.WithIntent(searchIntent)),
+		operationruntime.NewTypedResult[requestInput, map[string]any](requestSpec(), p.request(), operationruntime.WithIntent(requestIntent), operationruntime.WithAccess(requestAccess)),
+		operationruntime.NewTypedResult[searchInput, searchOutput](searchSpec(), p.search(), operationruntime.WithIntent(searchIntent), operationruntime.WithAccess(searchAccess)),
 	}, nil
 }
 
@@ -92,6 +93,23 @@ func requestIntent(_ operation.Context, req requestInput) (operation.IntentSet, 
 		Role:      operation.IntentRoleNetworkTarget,
 		Certainty: operation.IntentCertain,
 	}}}, nil
+}
+
+func requestAccess(_ operation.Context, req requestInput) ([]operationruntime.AccessDescriptor, error) {
+	url := strings.TrimSpace(req.URL)
+	if url == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+	action := policy.ActionNetworkFetch
+	switch strings.ToUpper(strings.TrimSpace(req.Method)) {
+	case "", "GET", "HEAD", "OPTIONS":
+	default:
+		action = policy.ActionNetworkConnect
+	}
+	return []operationruntime.AccessDescriptor{{
+		Resource: policy.ResourceRef{Kind: policy.ResourceNetwork, Name: url},
+		Action:   action,
+	}}, nil
 }
 
 func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[string]any] {

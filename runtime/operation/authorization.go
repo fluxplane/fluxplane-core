@@ -39,7 +39,10 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 	if !ok || auth.Policy.IsZero() {
 		return nil
 	}
-	targets := authorizationTargets(ctx, op, input)
+	targets, err := authorizationTargets(ctx, op, input)
+	if err != nil {
+		return fmt.Errorf("access_descriptor_failed: %w", err)
+	}
 	for _, target := range targets {
 		evaluation := policy.EvaluateAuthorization(auth.Policy, policy.AuthorizationRequest{
 			Subjects: auth.Subjects,
@@ -99,21 +102,40 @@ type authorizationTarget struct {
 	Action   policy.Action
 }
 
-func authorizationTargets(ctx operation.Context, op operation.Operation, input operation.Value) []authorizationTarget {
+func authorizationTargets(ctx operation.Context, op operation.Operation, input operation.Value) ([]authorizationTarget, error) {
+	if descriptors, ok, err := AccessFor(ctx, op, input); ok {
+		if err != nil {
+			return nil, err
+		}
+		return descriptorTargets(descriptors), nil
+	}
 	spec := op.Spec()
 	if targets := datasourceTargets(spec, input); len(targets) > 0 {
-		return targets
+		return targets, nil
 	}
 	if targets := namedOperationTargets(spec, input); len(targets) > 0 {
-		return targets
+		return targets, nil
 	}
 	if intents, ok, err := operation.IntentFor(ctx, op, input); err == nil && ok && !intents.Empty() {
-		return intentTargets(intents)
+		return intentTargets(intents), nil
+	} else if err != nil {
+		return nil, err
 	}
 	return []authorizationTarget{{
 		Resource: policy.ResourceRef{Kind: policy.ResourceOperation, Name: string(spec.Ref.Name)},
 		Action:   policy.ActionOperationInvoke,
-	}}
+	}}, nil
+}
+
+func descriptorTargets(descriptors []AccessDescriptor) []authorizationTarget {
+	out := make([]authorizationTarget, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		out = append(out, authorizationTarget{
+			Resource: descriptor.Resource,
+			Action:   descriptor.Action,
+		})
+	}
+	return out
 }
 
 func datasourceTargets(spec operation.Spec, input operation.Value) []authorizationTarget {

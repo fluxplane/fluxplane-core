@@ -20,8 +20,13 @@ type TypedResultHandler[I, O any] func(operation.Context, I) operation.Result
 // TypedIntentHandler derives an operation's safety intent from typed input.
 type TypedIntentHandler[I any] func(operation.Context, I) (operation.IntentSet, error)
 
+// TypedAccessHandler derives an operation's authorization targets from typed
+// input.
+type TypedAccessHandler[I any] func(operation.Context, I) ([]AccessDescriptor, error)
+
 type typedConfig[I any] struct {
 	intent TypedIntentHandler[I]
+	access TypedAccessHandler[I]
 }
 
 // TypedOption configures a typed operation adapter.
@@ -31,6 +36,14 @@ type TypedOption[I any] func(*typedConfig[I])
 func WithIntent[I any](handler TypedIntentHandler[I]) TypedOption[I] {
 	return func(cfg *typedConfig[I]) {
 		cfg.intent = handler
+	}
+}
+
+// WithAccess attaches typed authorization target derivation to a typed
+// operation.
+func WithAccess[I any](handler TypedAccessHandler[I]) TypedOption[I] {
+	return func(cfg *typedConfig[I]) {
+		cfg.access = handler
 	}
 }
 
@@ -83,9 +96,16 @@ func withTypedOptions[I any](op operation.Operation, opts ...TypedOption[I]) ope
 		}
 	}
 	if cfg.intent == nil {
-		return op
+		if cfg.access == nil {
+			return op
+		}
+		return typedAccessOperation[I]{Operation: op, access: cfg.access}
 	}
-	return typedIntentOperation[I]{Operation: op, intent: cfg.intent}
+	op = typedIntentOperation[I]{Operation: op, intent: cfg.intent}
+	if cfg.access != nil {
+		op = typedAccessIntentOperation[I]{Operation: op, access: cfg.access}
+	}
+	return op
 }
 
 type typedIntentOperation[I any] struct {
@@ -99,6 +119,40 @@ func (o typedIntentOperation[I]) Intent(ctx operation.Context, input operation.V
 		return operation.IntentSet{}, err
 	}
 	return o.intent(ctx, in)
+}
+
+type typedAccessOperation[I any] struct {
+	operation.Operation
+	access TypedAccessHandler[I]
+}
+
+func (o typedAccessOperation[I]) Access(ctx operation.Context, input operation.Value) ([]AccessDescriptor, error) {
+	in, err := Bind[I](input)
+	if err != nil {
+		return nil, err
+	}
+	return o.access(ctx, in)
+}
+
+type typedAccessIntentOperation[I any] struct {
+	operation.Operation
+	access TypedAccessHandler[I]
+}
+
+func (o typedAccessIntentOperation[I]) Access(ctx operation.Context, input operation.Value) ([]AccessDescriptor, error) {
+	in, err := Bind[I](input)
+	if err != nil {
+		return nil, err
+	}
+	return o.access(ctx, in)
+}
+
+func (o typedAccessIntentOperation[I]) Intent(ctx operation.Context, input operation.Value) (operation.IntentSet, error) {
+	provider, ok := o.Operation.(operation.IntentProvider)
+	if !ok {
+		return operation.IntentSet{}, nil
+	}
+	return provider.Intent(ctx, input)
 }
 
 // WithTypedContract fills empty input/output contracts on spec from I and O.

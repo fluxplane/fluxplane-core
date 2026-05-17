@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   systems, and agents, including wildcard resource/action matching, operation
   safety enforcement, projection filtering, local coder defaults, and
   canonical `<user>@localhost` local caller identity.
+- Added typed operation access descriptors so built-in datasource, filesystem,
+  process, network, connector, and task operations declare the concrete
+  resource/action they need before execution authorization falls back to legacy
+  operation-name and intent heuristics.
 
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider

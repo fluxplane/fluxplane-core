@@ -12,6 +12,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
@@ -62,10 +63,10 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
 	return []operation.Operation{
-		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search),
-		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get),
-		operationruntime.NewTypedResult[relationInput, operation.Rendered](relationSpec(), p.relation),
-		operationruntime.NewTypedResult[batchGetInput, operation.Rendered](batchGetSpec(), p.batchGet),
+		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search, operationruntime.WithAccess(searchAccess)),
+		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get, operationruntime.WithAccess(getAccess)),
+		operationruntime.NewTypedResult[relationInput, operation.Rendered](relationSpec(), p.relation, operationruntime.WithAccess(relationAccess)),
+		operationruntime.NewTypedResult[batchGetInput, operation.Rendered](batchGetSpec(), p.batchGet, operationruntime.WithAccess(batchGetAccess)),
 	}, nil
 }
 
@@ -193,6 +194,36 @@ type sourceError struct {
 	Datasource string `json:"datasource,omitempty"`
 	Entity     string `json:"entity,omitempty"`
 	Message    string `json:"message"`
+}
+
+func searchAccess(operation.Context, searchInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{{
+		Resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "*"},
+		Action:   policy.ActionDatasourceSearch,
+	}}, nil
+}
+
+func getAccess(_ operation.Context, input getInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
+}
+
+func relationAccess(_ operation.Context, input relationInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
+}
+
+func batchGetAccess(_ operation.Context, input batchGetInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
+}
+
+func datasourceAccess(name string, action policy.Action) operationruntime.AccessDescriptor {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "*"
+	}
+	return operationruntime.AccessDescriptor{
+		Resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: name},
+		Action:   action,
+	}
 }
 
 func (p Plugin) search(ctx operation.Context, input searchInput) operation.Result {
