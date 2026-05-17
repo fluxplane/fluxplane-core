@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process, network, connector, and task operations declare the concrete
   resource/action they need before execution authorization falls back to legacy
   operation-name and intent heuristics.
+- Added typed access descriptor helper builders for common path, datasource,
+  process, network, connector, task, and static resource mappings, reducing
+  repetitive operation authorization boilerplate.
 
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider

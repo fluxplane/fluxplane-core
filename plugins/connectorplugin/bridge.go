@@ -105,10 +105,7 @@ type connectorOperation struct {
 }
 
 func (o connectorOperation) Access(operation.Context, operation.Value) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{{
-		Resource: policy.ResourceRef{Kind: policy.ResourceConnector, Name: o.instanceID},
-		Action:   policy.ActionConnectorUse,
-	}}, nil
+	return []operationruntime.AccessDescriptor{operationruntime.ConnectorDescriptor(o.instanceID, policy.ActionConnectorUse)}, nil
 }
 
 // ToolName returns the materialized tool name for one instance/action pair.

@@ -208,10 +208,7 @@ func searchAccess(_ operation.Context, req searchInput) ([]operationruntime.Acce
 }
 
 func networkAccess(target string) operationruntime.AccessDescriptor {
-	return operationruntime.AccessDescriptor{
-		Resource: policy.ResourceRef{Kind: policy.ResourceNetwork, Name: target},
-		Action:   policy.ActionNetworkFetch,
-	}
+	return operationruntime.NetworkDescriptor(target, policy.ActionNetworkFetch)
 }
 
 func searchProviders(sys system.System) []SearchProvider {

@@ -78,18 +78,42 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	}
 	ws := p.system.Workspace()
 	return []operation.Operation{
-		operationruntime.NewTypedResult[dirCreateInput, operation.Rendered](specByName(DirCreateOp), func(ctx operation.Context, req dirCreateInput) operation.Result { return p.dirCreate(ws)(ctx, req) }, operationruntime.WithAccess(dirCreateAccess)),
-		operationruntime.NewTypedResult[dirListInput, operation.Rendered](specByName(DirListOp), func(ctx operation.Context, req dirListInput) operation.Result { return p.dirList(ws)(ctx, req) }, operationruntime.WithAccess(dirListAccess)),
-		operationruntime.NewTypedResult[dirTreeInput, operation.Rendered](specByName(DirTreeOp), func(ctx operation.Context, req dirTreeInput) operation.Result { return p.dirTree(ws)(ctx, req) }, operationruntime.WithAccess(dirTreeAccess)),
-		operationruntime.NewTypedResult[fileReadInput, operation.Rendered](specByName(FileReadOp), func(ctx operation.Context, req fileReadInput) operation.Result { return p.fileRead(ws)(ctx, req) }, operationruntime.WithAccess(fileReadAccess)),
-		operationruntime.NewTypedResult[fileCreateInput, operation.Rendered](specByName(FileCreateOp), func(ctx operation.Context, req fileCreateInput) operation.Result { return p.fileCreate(ws)(ctx, req) }, operationruntime.WithAccess(fileCreateAccess)),
+		operationruntime.NewTypedResult[dirCreateInput, operation.Rendered](specByName(DirCreateOp), func(ctx operation.Context, req dirCreateInput) operation.Result { return p.dirCreate(ws)(ctx, req) }, operationruntime.WithAccessFields[dirCreateInput](
+			operationruntime.PathAccess(func(input dirCreateInput) string { return input.Path }, policy.ActionWorkspaceWrite),
+		)),
+		operationruntime.NewTypedResult[dirListInput, operation.Rendered](specByName(DirListOp), func(ctx operation.Context, req dirListInput) operation.Result { return p.dirList(ws)(ctx, req) }, operationruntime.WithAccessFields[dirListInput](
+			operationruntime.PathAccess(func(input dirListInput) string { return input.Path }, policy.ActionWorkspaceRead),
+		)),
+		operationruntime.NewTypedResult[dirTreeInput, operation.Rendered](specByName(DirTreeOp), func(ctx operation.Context, req dirTreeInput) operation.Result { return p.dirTree(ws)(ctx, req) }, operationruntime.WithAccessFields[dirTreeInput](
+			operationruntime.PathAccess(func(input dirTreeInput) string { return input.Path }, policy.ActionWorkspaceRead),
+		)),
+		operationruntime.NewTypedResult[fileReadInput, operation.Rendered](specByName(FileReadOp), func(ctx operation.Context, req fileReadInput) operation.Result { return p.fileRead(ws)(ctx, req) }, operationruntime.WithAccessFields[fileReadInput](
+			operationruntime.PathAccess(func(input fileReadInput) string { return input.Path }, policy.ActionWorkspaceRead),
+		)),
+		operationruntime.NewTypedResult[fileCreateInput, operation.Rendered](specByName(FileCreateOp), func(ctx operation.Context, req fileCreateInput) operation.Result { return p.fileCreate(ws)(ctx, req) }, operationruntime.WithAccessFields[fileCreateInput](
+			operationruntime.PathAccess(func(input fileCreateInput) string { return input.Path }, policy.ActionWorkspaceWrite),
+		)),
 		operationruntime.NewTypedResult[fileEditInput, operation.Rendered](specByName(FileEditOp), func(ctx operation.Context, req fileEditInput) operation.Result { return p.fileEdit(ws)(ctx, req) }, operationruntime.WithAccess(fileEditAccess)),
-		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileDeleteOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileDelete(ws)(ctx, req) }, operationruntime.WithAccess(fileDeleteAccess)),
-		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileStatOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileStat(ws)(ctx, req) }, operationruntime.WithAccess(fileStatAccess)),
-		operationruntime.NewTypedResult[copyMoveInput, operation.Rendered](specByName(FileCopyOp), func(ctx operation.Context, req copyMoveInput) operation.Result { return p.fileCopy(ws)(ctx, req) }, operationruntime.WithAccess(fileCopyAccess)),
-		operationruntime.NewTypedResult[copyMoveInput, operation.Rendered](specByName(FileMoveOp), func(ctx operation.Context, req copyMoveInput) operation.Result { return p.fileMove(ws)(ctx, req) }, operationruntime.WithAccess(fileMoveAccess)),
-		operationruntime.NewTypedResult[globInput, operation.Rendered](specByName(GlobOp), func(ctx operation.Context, req globInput) operation.Result { return p.glob(ws)(ctx, req) }, operationruntime.WithAccess(globAccess)),
-		operationruntime.NewTypedResult[grepInput, operation.Rendered](specByName(GrepOp), func(ctx operation.Context, req grepInput) operation.Result { return p.grep(ws)(ctx, req) }, operationruntime.WithAccess(grepAccess)),
+		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileDeleteOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileDelete(ws)(ctx, req) }, operationruntime.WithAccessFields[pathInput](
+			operationruntime.PathAccess(func(input pathInput) string { return input.Path }, policy.ActionWorkspaceWrite),
+		)),
+		operationruntime.NewTypedResult[pathInput, operation.Rendered](specByName(FileStatOp), func(ctx operation.Context, req pathInput) operation.Result { return p.fileStat(ws)(ctx, req) }, operationruntime.WithAccessFields[pathInput](
+			operationruntime.PathAccess(func(input pathInput) string { return input.Path }, policy.ActionWorkspaceRead),
+		)),
+		operationruntime.NewTypedResult[copyMoveInput, operation.Rendered](specByName(FileCopyOp), func(ctx operation.Context, req copyMoveInput) operation.Result { return p.fileCopy(ws)(ctx, req) }, operationruntime.WithAccessFields[copyMoveInput](
+			operationruntime.PathAccess(func(input copyMoveInput) string { return input.Src }, policy.ActionWorkspaceRead),
+			operationruntime.PathAccess(func(input copyMoveInput) string { return input.Dst }, policy.ActionWorkspaceWrite),
+		)),
+		operationruntime.NewTypedResult[copyMoveInput, operation.Rendered](specByName(FileMoveOp), func(ctx operation.Context, req copyMoveInput) operation.Result { return p.fileMove(ws)(ctx, req) }, operationruntime.WithAccessFields[copyMoveInput](
+			operationruntime.PathAccess(func(input copyMoveInput) string { return input.Src }, policy.ActionWorkspaceWrite),
+			operationruntime.PathAccess(func(input copyMoveInput) string { return input.Dst }, policy.ActionWorkspaceWrite),
+		)),
+		operationruntime.NewTypedResult[globInput, operation.Rendered](specByName(GlobOp), func(ctx operation.Context, req globInput) operation.Result { return p.glob(ws)(ctx, req) }, operationruntime.WithAccessFields[globInput](
+			operationruntime.PathAccess(func(input globInput) string { return input.Path }, policy.ActionWorkspaceRead, operationruntime.AccessDefault(".")),
+		)),
+		operationruntime.NewTypedResult[grepInput, operation.Rendered](specByName(GrepOp), func(ctx operation.Context, req grepInput) operation.Result { return p.grep(ws)(ctx, req) }, operationruntime.WithAccessFields[grepInput](
+			operationruntime.PathListAccess(func(input grepInput) []string { return input.Paths }, policy.ActionWorkspaceRead, operationruntime.AccessDefault(".")),
+		)),
 	}, nil
 }
 
@@ -177,94 +201,12 @@ func refs(specs []operation.Spec) []operation.Ref {
 	return out
 }
 
-func dirCreateAccess(_ operation.Context, input dirCreateInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceWrite), nil
-}
-
-func dirListAccess(_ operation.Context, input dirListInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceRead), nil
-}
-
-func dirTreeAccess(_ operation.Context, input dirTreeInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceRead), nil
-}
-
-func fileReadAccess(_ operation.Context, input fileReadInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceRead), nil
-}
-
-func fileCreateAccess(_ operation.Context, input fileCreateInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceWrite), nil
-}
-
 func fileEditAccess(_ operation.Context, input fileEditInput) ([]operationruntime.AccessDescriptor, error) {
-	access := workspaceAccess(input.Path, policy.ActionWorkspaceRead)
+	access := []operationruntime.AccessDescriptor{operationruntime.PathDescriptor(input.Path, policy.ActionWorkspaceRead)}
 	if !input.DryRun {
-		access = append(access, workspaceDescriptor(input.Path, policy.ActionWorkspaceWrite))
+		access = append(access, operationruntime.PathDescriptor(input.Path, policy.ActionWorkspaceWrite))
 	}
 	return access, nil
-}
-
-func fileDeleteAccess(_ operation.Context, input pathInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceWrite), nil
-}
-
-func fileStatAccess(_ operation.Context, input pathInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(input.Path, policy.ActionWorkspaceRead), nil
-}
-
-func fileCopyAccess(_ operation.Context, input copyMoveInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{
-		workspaceDescriptor(input.Src, policy.ActionWorkspaceRead),
-		workspaceDescriptor(input.Dst, policy.ActionWorkspaceWrite),
-	}, nil
-}
-
-func fileMoveAccess(_ operation.Context, input copyMoveInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{
-		workspaceDescriptor(input.Src, policy.ActionWorkspaceWrite),
-		workspaceDescriptor(input.Dst, policy.ActionWorkspaceWrite),
-	}, nil
-}
-
-func globAccess(_ operation.Context, input globInput) ([]operationruntime.AccessDescriptor, error) {
-	return workspaceAccess(firstNonEmpty(input.Path, "."), policy.ActionWorkspaceRead), nil
-}
-
-func grepAccess(_ operation.Context, input grepInput) ([]operationruntime.AccessDescriptor, error) {
-	paths := input.Paths
-	if len(paths) == 0 {
-		paths = []string{"."}
-	}
-	access := make([]operationruntime.AccessDescriptor, 0, len(paths))
-	for _, path := range paths {
-		access = append(access, workspaceDescriptor(path, policy.ActionWorkspaceRead))
-	}
-	return access, nil
-}
-
-func workspaceAccess(path string, action policy.Action) []operationruntime.AccessDescriptor {
-	return []operationruntime.AccessDescriptor{workspaceDescriptor(path, action)}
-}
-
-func workspaceDescriptor(path string, action policy.Action) operationruntime.AccessDescriptor {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		path = "**"
-	}
-	return operationruntime.AccessDescriptor{
-		Resource: policy.ResourceRef{Kind: policy.ResourcePath, Path: path},
-		Action:   action,
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 type dirCreateInput struct {

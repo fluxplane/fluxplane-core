@@ -222,10 +222,7 @@ func execAccess(_ operation.Context, req execInput) ([]operationruntime.AccessDe
 	if deniedCommand(command) {
 		return nil, fmt.Errorf("command is blocked by default policy")
 	}
-	return []operationruntime.AccessDescriptor{{
-		Resource: policy.ResourceRef{Kind: policy.ResourceProcess, Name: command},
-		Action:   policy.ActionProcessExec,
-	}}, nil
+	return []operationruntime.AccessDescriptor{operationruntime.ProcessDescriptor(command, policy.ActionProcessExec)}, nil
 }
 
 func processListIntent(operation.Context, processListInput) (operation.IntentSet, error) {

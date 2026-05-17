@@ -63,10 +63,18 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
 	return []operation.Operation{
-		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search, operationruntime.WithAccess(searchAccess)),
-		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get, operationruntime.WithAccess(getAccess)),
-		operationruntime.NewTypedResult[relationInput, operation.Rendered](relationSpec(), p.relation, operationruntime.WithAccess(relationAccess)),
-		operationruntime.NewTypedResult[batchGetInput, operation.Rendered](batchGetSpec(), p.batchGet, operationruntime.WithAccess(batchGetAccess)),
+		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search, operationruntime.WithAccessFields[searchInput](
+			operationruntime.StaticAccess[searchInput](policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "*"}, policy.ActionDatasourceSearch),
+		)),
+		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get, operationruntime.WithAccessFields[getInput](
+			operationruntime.DatasourceAccess(func(input getInput) string { return input.Datasource }, policy.ActionDatasourceRead),
+		)),
+		operationruntime.NewTypedResult[relationInput, operation.Rendered](relationSpec(), p.relation, operationruntime.WithAccessFields[relationInput](
+			operationruntime.DatasourceAccess(func(input relationInput) string { return input.Datasource }, policy.ActionDatasourceRead),
+		)),
+		operationruntime.NewTypedResult[batchGetInput, operation.Rendered](batchGetSpec(), p.batchGet, operationruntime.WithAccessFields[batchGetInput](
+			operationruntime.DatasourceAccess(func(input batchGetInput) string { return input.Datasource }, policy.ActionDatasourceRead),
+		)),
 	}, nil
 }
 
@@ -194,36 +202,6 @@ type sourceError struct {
 	Datasource string `json:"datasource,omitempty"`
 	Entity     string `json:"entity,omitempty"`
 	Message    string `json:"message"`
-}
-
-func searchAccess(operation.Context, searchInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{{
-		Resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "*"},
-		Action:   policy.ActionDatasourceSearch,
-	}}, nil
-}
-
-func getAccess(_ operation.Context, input getInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
-}
-
-func relationAccess(_ operation.Context, input relationInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
-}
-
-func batchGetAccess(_ operation.Context, input batchGetInput) ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{datasourceAccess(input.Datasource, policy.ActionDatasourceRead)}, nil
-}
-
-func datasourceAccess(name string, action policy.Action) operationruntime.AccessDescriptor {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "*"
-	}
-	return operationruntime.AccessDescriptor{
-		Resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: name},
-		Action:   action,
-	}
 }
 
 func (p Plugin) search(ctx operation.Context, input searchInput) operation.Result {

@@ -106,10 +106,7 @@ func requestAccess(_ operation.Context, req requestInput) ([]operationruntime.Ac
 	default:
 		action = policy.ActionNetworkConnect
 	}
-	return []operationruntime.AccessDescriptor{{
-		Resource: policy.ResourceRef{Kind: policy.ResourceNetwork, Name: url},
-		Action:   action,
-	}}, nil
+	return []operationruntime.AccessDescriptor{operationruntime.NetworkDescriptor(url, action)}, nil
 }
 
 func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[string]any] {
