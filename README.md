@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
-  <em>A Go runtime and SDK for building safe, durable agent systems — and the <code>coder</code> terminal coding agent built on it.</em>
+  <strong>Build coding agents that remember what happened, use tools safely, and keep working across sessions.</strong>
+</p>
+
+<p align="center">
+  <em>A Go runtime for durable agent systems — with <code>coder</code>, a terminal coding agent, included.</em>
 </p>
 
 <p align="center">
@@ -16,87 +20,139 @@
 
 <!-- TODO: add a terminal screenshot or asciinema cast of `coder` in action. -->
 
-## What is this?
+## Why Fluxplane?
 
-Fluxplane Agent Runtime gives you the building blocks for **agent systems that
-keep running**: sessions you can resume, events you can replay, tools that go
-through a real safety envelope, and a plugin model that lets you contribute
-capabilities without forking the core — so an agent can crash, be redeployed,
-or be resumed days later and pick up exactly where it left off.
+Most agent prototypes are easy to demo and hard to trust in real work. They lose
+context, hide important decisions in chat history, call tools through ad hoc
+code, and become difficult to resume after a crash or deploy.
 
-It also ships **`coder`**, a terminal coding assistant built on the same
-runtime, so you can use the system end-to-end on day one.
+Fluxplane Agent Runtime is built for the less glamorous parts that make agents
+usable every day:
 
-## Try the `coder` agent in 30 seconds
+- **Durable sessions**: resume work from event-backed state instead of starting
+  over.
+- **Safe tools**: shell, filesystem, browser, network, process, approval, and
+  secret boundaries go through a runtime safety envelope.
+- **Composable capabilities**: add operations, commands, datasources, context
+  providers, skills, and workflows through plugins.
+- **Real product assembly**: package agents into apps and distributions instead
+  of wiring everything in one-off scripts.
+- **A working coding agent**: use `coder` immediately, then reuse the same
+  runtime primitives in your own agents.
 
-Requires Go 1.26+.
+## Try `coder` in 30 seconds
 
-Install:
+Requires Go 1.26+ and a model credential such as `OPENAI_API_KEY`.
 
 ```bash
 go install github.com/fluxplane/agentruntime/cmd/coder@latest
+export OPENAI_API_KEY=...
+coder --input "Summarize this repository"
 ```
 
-Open the REPL:
+Open an interactive REPL:
 
 ```bash
 coder
 ```
 
-Or run a single prompt:
+Run a goal until it is satisfied or the continuation cap is reached:
 
 ```bash
-coder --input "Summarize this repository"
+coder --goal "Find the failing tests, fix them, and summarize the patch"
 ```
 
-Set `OPENAI_API_KEY` before running, or see the [coder guide](docs/coder.md)
-for other providers.
-
 `coder` defaults to OpenAI (`gpt-5.5`) and also supports Codex, OpenRouter,
-Anthropic, Claude Code, and MiniMax. See the [coder guide](docs/coder.md) for
-model selection, goal mode, and safety expectations.
+Anthropic, Claude Code, and MiniMax:
 
-## What you get
+```bash
+coder --model codex/gpt-5.5 --input "Explain the current diff"
+coder --model openrouter/anthropic/claude-sonnet-4.6
+coder --provider claudecode --model claude-sonnet-4-6
+```
 
-**Build agents**
+See the [coder guide](docs/coder.md) for provider setup, goal mode, debugging,
+usage accounting, and safety expectations.
 
-- Resource-authored apps, agents, sessions, commands, operations, context
-  providers, and datasource declarations.
-- An IO-free SDK layer for authoring specs without pulling in runtime
-  internals.
-- Plugin-contributed tools, commands, datasources, context providers, and
-  product capabilities.
+## What you can build
 
-**Run them durably**
+### Local coding agents
 
-- Durable agent sessions, run handles, semantic events, and event-backed thread
-  state.
-- Direct in-process and HTTP/SSE channel clients over the same session
-  contract.
-- Provider/model catalog integration for OpenAI, Codex, OpenRouter, Anthropic,
-  Claude Code, MiniMax, and local app-defined providers.
+Ship a terminal coding assistant with project discovery, language-aware tools,
+web search, file editing, tests, task execution, skills, and review workflows.
+`coder` is the reference app for this path.
 
-**Stay safe by default**
+### Durable agent apps
 
-- A safety envelope around shell, filesystem, network, browser, process,
-  approval, and secret boundaries — not retrofitted later.
-- Architecture reports and import-direction checks that keep runtime layers
-  from drifting.
+Define agents, sessions, commands, workflows, operations, context providers,
+datasources, and resources as app specs. Run them in-process or over channel
+adapters while preserving the same session contract.
+
+### Plugin-powered capabilities
+
+Bundle reusable capabilities as plugins: project inventory, Go and Markdown
+language tooling, browser automation, code execution, task management,
+datasources, connectors, and more.
+
+### Safer automation surfaces
+
+Put side effects behind typed operations and policy checks instead of letting
+model output directly touch the host. The runtime keeps tool contracts,
+execution boundaries, and event records explicit.
+
+## Runtime building blocks
+
+| Need | Fluxplane primitive |
+|---|---|
+| Durable conversation and run state | sessions, threads, events, projections |
+| Callable tools | typed operations with schemas and safety policy |
+| Long-running work | tasks, steps, artifacts, scheduler events |
+| Repeatable processes | workflows and command targets |
+| Project-specific context | resources, context providers, skills, datasources |
+| Product packaging | apps, plugins, distributions, launch adapters |
+| External surfaces | terminal, HTTP/SSE, direct channel, provider adapters |
+
+## A tiny app shape
+
+Agent apps are assembled from inert specs and plugin contributions. A project can
+keep agent resources in `.agents/`, then let the runtime load and compose them:
+
+```text
+.agents/
+├── agents/
+├── commands/
+├── workflows/
+└── skills/
+```
+
+Example command resource:
+
+```yaml
+name: review
+description: Review the current change.
+target:
+  prompt: |
+    Review the current diff for correctness, tests, and maintainability.
+```
+
+That same resource model is used by the bundled `coder` app and by custom
+AgentRuntime applications.
 
 ## Start here
 
-- [agentsdk CLI](docs/agentsdk.md)
-- [coder coding agent](docs/coder.md)
-- [Configuration](docs/configuration.md)
-- [Architecture](docs/architecture.md)
-- [Security model](docs/security.md)
-- [Changelog](CHANGELOG.md)
+- **Use the coding agent**: [coder guide](docs/coder.md)
+- **Explore the CLI**: [agentsdk CLI](docs/agentsdk.md)
+- **Configure providers and apps**: [Configuration](docs/configuration.md)
+- **Understand the runtime**: [Architecture](docs/architecture.md)
+- **Review the safety model**: [Security](docs/security.md)
+- **See what changed**: [Changelog](CHANGELOG.md)
 
 ## Project status
 
-This is a **pre-1.0 rewrite**. Expect breaking changes in module APIs, resource
-shapes, and command surfaces. We are deliberately not shipping
-backward-compatibility shims during this phase — see
-[docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md) for
-rationale.
+Fluxplane Agent Runtime is a **pre-1.0 rewrite**. The core ideas are active, but
+module APIs, resource shapes, and command surfaces may change quickly. During
+this phase we prefer clean replacements over compatibility shims.
 
+If you are evaluating the project, start with `coder`. If you are building on
+the runtime APIs, expect breaking changes and follow the
+[migration notes](docs/migration-from-agent-sdk.md).
