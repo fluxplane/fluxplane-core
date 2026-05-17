@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -736,13 +737,13 @@ func goListArgs(req golang.GoListQuery) ([]string, []string, error) {
 func goTestArgs(req golang.GoTestQuery) ([]string, []string, error) {
 	args := []string{"test", "-json"}
 	if req.Run != "" {
-		if err := validateGoFlagValue(req.Run, "run"); err != nil {
+		if err := validateGoTestRegexpFlag(req.Run, "run"); err != nil {
 			return nil, nil, err
 		}
 		args = append(args, "-run="+req.Run)
 	}
 	if req.Skip != "" {
-		if err := validateGoFlagValue(req.Skip, "skip"); err != nil {
+		if err := validateGoTestRegexpFlag(req.Skip, "skip"); err != nil {
 			return nil, nil, err
 		}
 		args = append(args, "-skip="+req.Skip)
@@ -997,6 +998,21 @@ func validateGoFlagValue(value, label string) error {
 		if r < 0x20 || r == 0x7f || strings.ContainsRune(";&|<>`$\\", r) {
 			return fmt.Errorf("%s %q contains unsupported character %q", label, value, r)
 		}
+	}
+	return nil
+}
+
+func validateGoTestRegexpFlag(value, label string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is empty", label)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%s %q contains unsupported control character %q", label, value, r)
+		}
+	}
+	if _, err := regexp.Compile(value); err != nil {
+		return fmt.Errorf("invalid %s regular expression %q: %w", label, value, err)
 	}
 	return nil
 }

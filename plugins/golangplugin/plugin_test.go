@@ -602,6 +602,19 @@ func main() {}
 	if failData.TestRunEvent.Status != testrun.StatusFailed || !testrun.HasFailureKind(failData.TestRunEvent, testrun.FailureAssertion) || !strings.Contains(failResult.Text, "intentional failure") {
 		t.Fatalf("go test assertion event/text = %#v / %q, want assertion failure details", failData.TestRunEvent, failResult.Text)
 	}
+	comboResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "run": "TestAdd|TestFail", "skip": "TestFail", "count": 1})
+	comboData := goTestResultFromRendered(t, comboResult)
+	if !comboData.Passed || len(comboData.Packages) != 1 || comboData.Packages[0].Passed != 1 {
+		t.Fatalf("go test alternation data = %#v text = %q, want TestAdd only", comboData, comboResult.Text)
+	}
+	invalidRun := runGoResult(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "run": "("})
+	if invalidRun.Status != operation.StatusFailed || invalidRun.Error == nil || !strings.Contains(invalidRun.Error.Message, "regular expression") {
+		t.Fatalf("invalid run regex result = %#v, want regex validation failure", invalidRun)
+	}
+	invalidSkip := runGoResult(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "skip": "TestAdd\nTestFail"})
+	if invalidSkip.Status != operation.StatusFailed || invalidSkip.Error == nil || !strings.Contains(invalidSkip.Error.Message, "control character") {
+		t.Fatalf("invalid skip regex result = %#v, want control character validation failure", invalidSkip)
+	}
 	compileResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/badbuild"}})
 	compileData := goTestResultFromRendered(t, compileResult)
 	if compileData.Passed || !strings.Contains(compileResult.Text, "Missing") || !testrun.HasFailureKind(compileData.TestRunEvent, testrun.FailureBuild) {
