@@ -109,6 +109,12 @@ func (r *Renderer) Render(event clientapi.Event) {
 			}
 			return
 		}
+		if event.Operation.Operation.Name == "code_execute" {
+			if rendered, ok := renderCodeExecuteResult(*event.Operation.Result, duration); ok {
+				_, _ = fmt.Fprint(out, rendered)
+				return
+			}
+		}
 		_, _ = fmt.Fprintf(out, "  %s%s%s ", color, marker, ansiReset)
 		if event.Operation.Result.Error != nil {
 			_, _ = fmt.Fprint(out, failureSummary(status, event.Operation.Result.Error))

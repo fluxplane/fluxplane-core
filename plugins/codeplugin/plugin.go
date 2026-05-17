@@ -50,11 +50,11 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	if p.system == nil {
 		return nil, fmt.Errorf("codeplugin: system is nil")
 	}
-	return []operation.Operation{operationruntime.NewTypedResult[executeInput, map[string]any](executeSpec(), p.execute(), operationruntime.WithIntent(executeIntent))}, nil
+	return []operation.Operation{operationruntime.NewTypedResult[executeInput, ExecuteResult](executeSpec(), p.execute(), operationruntime.WithIntent(executeIntent))}, nil
 }
 
 func executeSpec() operation.Spec {
-	return operationruntime.WithTypedContract[executeInput, map[string]any](operation.Spec{
+	return operationruntime.WithTypedContract[executeInput, ExecuteResult](operation.Spec{
 		Ref:         operation.Ref{Name: ExecuteOp},
 		Description: "Execute scratch code in a configured container preset. Files are written to an isolated /workspace, not the user repository.",
 		Semantics: operation.Semantics{
@@ -78,6 +78,22 @@ type executeInput struct {
 type fileSpec struct {
 	Path    string `json:"path" jsonschema:"description=Workspace-relative scratch file path.,required"`
 	Content string `json:"content" jsonschema:"description=File content.,required"`
+}
+
+// ExecuteResult is the typed semantic result returned by code_execute.
+type ExecuteResult struct {
+	Preset          string   `json:"preset"`
+	Image           string   `json:"image"`
+	Files           []string `json:"files,omitempty"`
+	Command         []string `json:"command,omitempty"`
+	Stdout          string   `json:"stdout,omitempty"`
+	Stderr          string   `json:"stderr,omitempty"`
+	ExitCode        int      `json:"exit_code"`
+	TimedOut        bool     `json:"timed_out,omitempty"`
+	DurationMS      int64    `json:"duration_ms"`
+	TimeoutMS       int64    `json:"timeout_ms,omitempty"`
+	StdoutTruncated bool     `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool     `json:"stderr_truncated,omitempty"`
 }
 
 type preset struct {
@@ -142,7 +158,7 @@ func processIntent(command string, args ...string) operation.IntentOperation {
 	}
 }
 
-func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, map[string]any] {
+func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, ExecuteResult] {
 	return func(ctx operation.Context, req executeInput) operation.Result {
 		if strings.TrimSpace(req.Preset) == "" {
 			return operation.Failed("invalid_code_execute_input", "preset is required", nil)
@@ -200,28 +216,51 @@ func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, map[
 			MaxStderr: 128 * 1024,
 		})
 		emitUsage(ctx, req.Preset, writtenBytes, result)
-		data := map[string]any{
-			"preset":           req.Preset,
-			"image":            preset.Image,
-			"files":            written,
-			"command":          command,
-			"stdout":           result.Stdout,
-			"stderr":           result.Stderr,
-			"exit_code":        result.ExitCode,
-			"timed_out":        result.TimedOut,
-			"stdout_truncated": result.StdoutTruncated,
-			"stderr_truncated": result.StderrTruncated,
+		execResult := ExecuteResult{
+			Preset: req.Preset,
+			Image:  preset.Image,
+
+			Files:           written,
+			Command:         command,
+			Stdout:          result.Stdout,
+			Stderr:          result.Stderr,
+			ExitCode:        result.ExitCode,
+			TimedOut:        result.TimedOut,
+			DurationMS:      result.Duration.Milliseconds(),
+			TimeoutMS:       timeout.Milliseconds(),
+			StdoutTruncated: result.StdoutTruncated,
+			StderrTruncated: result.StderrTruncated,
 		}
-		text := fmt.Sprintf("[code_execute preset=%s image=%s exit=%d duration=%.1fs]\n=== STDOUT ===\n%s\n=== STDERR ===\n%s", req.Preset, preset.Image, result.ExitCode, result.Duration.Seconds(), result.Stdout, result.Stderr)
+		model := codeExecuteModelText(execResult)
 		if err != nil {
-			return operation.Failed("code_execute_failed", err.Error(), data)
+			return operation.Result{
+				Status: operation.StatusFailed,
+				Error:  &operation.Error{Code: "code_execute_failed", Message: err.Error()},
+				Output: operation.Rendered{Model: model, Data: execResult},
+			}
 		}
-		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Data: data})
+		return operation.OK(operation.Rendered{Model: model, Data: execResult})
 	}
+}
+func codeExecuteModelText(result ExecuteResult) string {
+	parts := []string{fmt.Sprintf("code_execute completed: preset=%s image=%s exit=%d duration=%.1fs", result.Preset, result.Image, result.ExitCode, float64(result.DurationMS)/1000)}
+	if result.TimedOut {
+		parts[0] = fmt.Sprintf("code_execute timed out: preset=%s image=%s exit=%d duration=%.1fs", result.Preset, result.Image, result.ExitCode, float64(result.DurationMS)/1000)
+	} else if result.ExitCode != 0 {
+		parts[0] = fmt.Sprintf("code_execute failed: preset=%s image=%s exit=%d duration=%.1fs", result.Preset, result.Image, result.ExitCode, float64(result.DurationMS)/1000)
+	}
+	if strings.TrimSpace(result.Stdout) != "" {
+		parts = append(parts, "stdout:\n"+strings.TrimSpace(result.Stdout))
+	}
+	if strings.TrimSpace(result.Stderr) != "" {
+		parts = append(parts, "stderr:\n"+strings.TrimSpace(result.Stderr))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func emitUsage(ctx operation.Context, preset string, writtenBytes int, result system.ProcessResult) {
 	ctx.Events().Emit(usage.Recorded{
+
 		Source: ExecuteOp,
 		Subject: usage.Subject{
 			Kind: usage.SubjectProcess,
