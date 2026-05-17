@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 - Added compact `git_diff` projections: `stat_only`, `names_only`, and bounded
+- Added an OpenSpec plugin design for an OpenSpec-compatible spec-driven
+  development capability rooted by default at `.agents/openspec`.
+- Added a BMad plugin design for BMad-style agentic agile workflows rooted by
+  default at `.agents/bmad` and mapped onto AgentRuntime agents, workflows,
+  tasks, operations, and resources.
   `max_bytes` output with explicit truncation metadata to avoid oversized diff
   results during review loops.
 
@@ -207,6 +212,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scheduler task-event publishing now continues to remaining origin/watch
   destinations after one destination fails, so a stale origin thread cannot
   suppress live watcher feedback.
+- `/task` and `/plan` TargetSession commands now run through a neutral
+  command session-agent runner and emit `session_agent.*` events instead of
+  using the legacy sub-agent supervisor. Terminal, Slack, event registry, and
+  session-history surfaces understand the new event family.
+- Workflow agent steps now also use the neutral session-agent runner, and the
+  legacy `orchestration/subagent` package plus `subagent.*` event
+  registration/rendering/classification have been removed.
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.
@@ -249,9 +261,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skills with matching trigger phrases are activated before model context
   rendering, so triggered skill bodies and references are visible in the same
   turn.
-- Sub-agents spawned via `delegate` or `plan` now inherit the parent session's
-  approval gate (e.g. `--yolo`) through the spawn chain, so child sessions do
-  not re-prompt for approvals already granted by the parent.
+- Command session agents now inherit the parent session's approval gate (e.g.
+  `--yolo`) through the spawn chain, so helper sessions do not re-prompt for
+  approvals already granted by the parent.
 - Added goal-driven local runs through the built-in `/goal` command plus
   `coder --goal` and `agentsdk run --goal`, with a configurable continuation
   cap.
@@ -267,7 +279,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Local launches now persist thread/event history to SQLite by default.
 - Added `--dev` for local run surfaces to expose a `session_history`
   datasource with searchable session threads, messages, operations, model calls,
-  continuations, subagents, and usage.
+  continuations, session agents, and usage.
 - Added `--dev` for datasource index commands so local session history can be
   indexed semantically, with `session://` URLs for session-history corpus
   records.

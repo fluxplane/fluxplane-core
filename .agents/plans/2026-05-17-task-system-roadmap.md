@@ -115,10 +115,10 @@ Implemented:
   without manual repair.
 - The old plan execution plugin has been removed from runtime assembly; `/plan`
   now creates draft tasks and marks them ready after approval.
-- Remaining "sub-agent" work is not part of scheduled task execution anymore.
-  It is now limited to target-session command dispatch for `/task` and
-  `/plan`, legacy session-workflow agent steps, and compatibility rendering or
-  history classification for `subagent.*` runtime events.
+- The legacy `orchestration/subagent` supervisor has been removed. Command
+  helper sessions and workflow agent steps now run through
+  `orchestration/sessionagent`, while scheduled task execution remains on
+  `orchestration/taskexecutor`.
 
 ## Deferred Follow-ups
 
@@ -163,24 +163,18 @@ Implemented:
    - Fresh live verification confirmed the approval turn receives completion
      feedback through the watcher path.
 
-5. Sub-agent migration
-   - Task execution no longer depends on `orchestration/subagent`; it uses
-     `ChannelWorker`.
-   - Audit result: `orchestration/subagent` remains in three categories:
-     target-session command dispatch for `/task` and `/plan`, legacy
-     session-workflow agent steps, and presentation/history compatibility for
-     `subagent.*` events.
-   - Decision for this roadmap: scheduled task execution must stay on
-     `WorkerClient` and task events. `orchestration/subagent` is not a task
-     execution backend. The remaining direct sub-agent APIs are legacy
-     delegation/session-command plumbing and should be retired or renamed in a
-     separate dated follow-up once command target sessions have an explicit
-     task/session-agent executor.
-   - Next completion target: replace target-session command dispatch with an
-     explicit session-agent runner and migrate or isolate legacy workflow
-     delegation so new user-visible planning, task creation, review, and
-     execution flows use task/session-agent concepts rather than sub-agent
-     concepts.
+5. Session-agent migration
+   - Task execution uses `ChannelWorker` through the scheduler `WorkerClient`
+     boundary.
+   - Target-session command dispatch for `/task` and `/plan` now uses
+     `orchestration/sessionagent` and emits `session_agent.*` events.
+   - Workflow agent steps now use `orchestration/sessionagent` and emit
+     `session_agent.*` events.
+   - Terminal, Slack, event-registry, runtime persistence, and session-history
+     classification use `session_agent.*`; legacy `subagent.*` registration
+     and rendering have been removed.
+   - `orchestration/subagent` has been deleted. There is no remaining
+     sub-agent runtime domain for new work.
 
 6. Long-running reliability tests
    - Current tests cover targeted contention, stale worker results, capacity
@@ -263,30 +257,26 @@ Done when:
 
 ### Slice 3: Worker Backend Consolidation
 
-Goal: make "sub-agent" execution a worker backend detail.
+Goal: make helper-agent execution explicit session-agent plumbing and keep
+scheduled task execution on scheduler workers.
 
 - Audit direct `orchestration/subagent` usage in user-facing flows. Done:
-  remaining usage is target-session command dispatch, session workflow, event
-  catalog/history, Slack rendering, and terminal compatibility.
+  package deleted; command and workflow helper sessions use
+  `orchestration/sessionagent`.
 - Route new multi-worker execution through task steps and `WorkerClient`. Done
   for task scheduler/executor.
-- Decide whether `orchestration/subagent` becomes an internal
-  `WorkerClient` implementation or is deleted after product flows stop using
-  it. Decision: do not make it the task worker backend; keep `WorkerClient` as
-  the task execution boundary. Track remaining direct sub-agent APIs as legacy
-  command/session delegation plumbing to remove or rename after command target
-  sessions get an explicit non-subagent executor.
-- Keep role/profile routing in scheduler config, not in a separate sub-agent
+- Delete the old supervisor after product flows stop using it. Done:
+  `orchestration/subagent` removed after command target sessions and workflow
+  agent steps moved to `orchestration/sessionagent`.
+- Keep role/profile routing in scheduler config, not in a separate helper-agent
   domain. Done for task worker pools and scheduler status.
 
 Done when:
 
 - New user-visible planning/execution paths create or run tasks. Done for
   `/plan` draft/approval and task scheduler execution.
-- Remaining direct sub-agent APIs are either internal worker plumbing or have a
-  dated deletion issue in this roadmap. Done: this roadmap records the
-  2026-05-17 follow-up to replace target-session command dispatch and legacy
-  workflow delegation with explicit task/session-agent execution plumbing.
+- There are no remaining direct sub-agent APIs. Done: helper sessions use
+  `sessionagent`, and scheduled work uses task scheduler workers.
 
 ### Slice 4: Review Semantics
 
@@ -319,30 +309,32 @@ execution, worker, and command session-agent concepts.
 - Add a neutral command session-agent execution boundary for `/task`, `/plan`,
   and future command agents. It should open configured sessions through the
   channel client, preserve parent thread/run/call metadata, and emit neutral
-  session-agent runtime events instead of `subagent.*` events.
+  session-agent runtime events. Done for the synchronous command helper path.
 - Replace `Session.executeTargetSessionCommand` usage of
-  `orchestration/subagent` with that command session-agent boundary.
+  `orchestration/subagent` with that command session-agent boundary. Done for
+  TargetSession commands.
 - Keep scheduler worker execution on `taskexecutor.WorkerClient` and
-  `ChannelWorker`; do not make `orchestration/subagent` a worker backend.
+  `ChannelWorker`; do not make `orchestration/subagent` a worker backend. Done.
 - Update terminal, Slack, event registry, and session-history classification
-  for neutral command session-agent events while retaining only explicitly
-  legacy rendering for remaining workflow sub-agent events.
+  for neutral command session-agent events. Done for `session_agent.*` event
+  registration, terminal rendering, Slack observation, runtime persistence, and
+  session-history classification.
 - Migrate session-workflow agent steps to task/workflow execution plumbing or
   isolate them behind a dated deletion note if that migration is too large for
-  the same slice.
+  the same slice. Done: workflow agent steps use `sessionagent`.
 - Update docs so "sub-agent" is no longer the recommended domain concept for
-  new planning, delegation, review, or scheduled execution work.
+  new planning, delegation, review, or scheduled execution work. Done.
 
 Done when:
 
-- `/task` and `/plan` work without `orchestration/subagent.Supervisor`.
+- `/task` and `/plan` work without `orchestration/subagent.Supervisor`. Done
+  at the session command-dispatch layer.
 - Main-agent immediate task creation, `/plan` approval, and scheduled task
   worker execution all use task/session-agent events and preserve live watcher
   feedback.
-- No new user-visible flow emits `subagent.*` events except explicitly legacy
-  workflow compatibility.
+- No new user-visible command flow emits `subagent.*` events. Done.
 - The remaining `orchestration/subagent` package is either deleted or has one
-  documented owner and deletion condition.
+  documented owner and deletion condition. Done: package deleted.
 
 ## Verification Matrix
 

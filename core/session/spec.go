@@ -21,8 +21,8 @@ type Ref struct {
 	Name Name `json:"name"`
 }
 
-// DelegationPolicy reserves the pure policy shape for future sub-agent
-// supervisors. It does not enable worker execution by itself.
+// DelegationPolicy describes which helper session profiles and agents a parent
+// session may run. It does not enable worker execution by itself.
 type DelegationPolicy struct {
 	AllowedProfiles []Ref                     `json:"allowed_profiles,omitempty"`
 	AllowedAgents   []agent.Ref               `json:"allowed_agents,omitempty"`

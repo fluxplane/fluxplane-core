@@ -111,6 +111,9 @@ reconciliation. A request that asks for immediate execution should call
 `task_run` after the task is ready so the caller sees whether scheduling
 started, is already running, is not ready, or is waiting for capacity. The local
 scheduler supports role-specific worker profile pools and per-role capacity.
+The `/task` and `/plan` command helpers run as command session agents; scheduled
+task execution itself runs through `orchestration/taskexecutor` workers and task
+events rather than through the legacy sub-agent supervisor.
 From a live session, `task_list` defaults to the current session thread; tasks
 created by delegated planner sessions are attributed to their parent user
 session, and the explicit global scope is available for historical tasks from

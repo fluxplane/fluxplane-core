@@ -16,15 +16,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 )
-
-// SubagentSupervisor aliases the supervisor type used by session environment
-// wiring.
-type SubagentSupervisor = subagent.Supervisor
 
 // SessionSpec aliases the core session spec used by session orchestration.
 type SessionSpec = coresession.Spec
@@ -76,7 +71,6 @@ type scopeContextKey struct{}
 // Config carries session state needed to materialize execution contexts.
 type Config struct {
 	Agent             agent.Agent
-	Subagents         *subagent.Supervisor
 	Thread            corethread.Ref
 	ThreadStore       corethread.Store
 	Delegation        coresession.DelegationPolicy
@@ -131,13 +125,12 @@ func IsAppendConflict(err error) bool {
 	return errors.Is(err, event.ErrAppendConflict)
 }
 
-// OperationContext adds session-scoped skill, datasource, call, and sub-agent
-// state to an operation context.
+// OperationContext adds session-scoped skill, datasource, and call state to an
+// operation context.
 func OperationContext(ctx operation.Context, cfg Config, callID operation.CallID) operation.Context {
 	ctx = withSkillAccess(ctx, cfg.Agent)
 	ctx = withDatasourceAccess(ctx, cfg.Agent)
 	ctx = operation.WithCallID(ctx, callID)
-	ctx = withSubagentScope(ctx, cfg, callID)
 	return operation.NewContext(context.WithValue(ctx, scopeContextKey{}, Scope{Thread: cfg.Thread, ThreadStore: cfg.ThreadStore, RunID: cfg.RunID}), ctx.Events())
 }
 
@@ -154,8 +147,8 @@ func ScopeFromContext(ctx context.Context) (Scope, bool) {
 	return scope, true
 }
 
-// ContextProviderContext adds session-scoped datasource and sub-agent state to
-// a context provider render context.
+// ContextProviderContext adds session-scoped datasource state to a context
+// provider render context.
 func ContextProviderContext(ctx context.Context, cfg Config, observations []environment.Observation) context.Context {
 	ctx = ensureContext(ctx)
 	ctx = WithBaseContext(ctx, cfg, "")
@@ -166,25 +159,9 @@ func ContextProviderContext(ctx context.Context, cfg Config, observations []envi
 	return datasourceAccessContext(ctx, cfg.Agent)
 }
 
-// WithBaseContext adds sub-agent scope to a non-operation context.
+// WithBaseContext returns the base session context for non-operation callers.
 func WithBaseContext(ctx context.Context, cfg Config, callID operation.CallID) context.Context {
-	if ctx == nil || cfg.Subagents == nil {
-		return ctx
-	}
-	events := cfg.Events
-	if events == nil {
-		events = event.Discard()
-	}
-	return subagent.ContextWithScope(ctx, subagent.Scope{
-		Supervisor:     cfg.Subagents,
-		ParentThreadID: cfg.Thread.ID,
-		ParentRunID:    cfg.RunID,
-		ParentCallID:   callID,
-		Policy:         cfg.Delegation,
-		Events:         events,
-		ThreadStore:    cfg.ThreadStore,
-		Approver:       ApproverFromExecutor(cfg.OperationExecutor),
-	})
+	return ctx
 }
 
 // ReplaySkillEvents rehydrates skill activation state from persisted runtime
@@ -259,14 +236,6 @@ func withDatasourceAccess(ctx operation.Context, agent agent.Agent) operation.Co
 		return ctx
 	}
 	base := datasourceAccessContext(ctx, agent)
-	return operation.NewContext(base, ctx.Events())
-}
-
-func withSubagentScope(ctx operation.Context, cfg Config, callID operation.CallID) operation.Context {
-	if ctx == nil || cfg.Subagents == nil {
-		return ctx
-	}
-	base := WithBaseContext(ctx, cfg, callID)
 	return operation.NewContext(base, ctx.Events())
 }
 

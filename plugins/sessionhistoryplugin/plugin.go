@@ -31,7 +31,7 @@ const (
 	EntityModelCall    = coredatasource.EntityType("session.model_call")
 	EntityCompaction   = coredatasource.EntityType("session.compaction")
 	EntityContinuation = coredatasource.EntityType("session.continuation")
-	EntitySubagent     = coredatasource.EntityType("session.subagent")
+	EntitySessionAgent = coredatasource.EntityType("session.session_agent")
 	EntityUsage        = coredatasource.EntityType("session.usage")
 
 	defaultSearchLimit = 10
@@ -48,7 +48,7 @@ var allEntities = []coredatasource.EntityType{
 	EntityModelCall,
 	EntityCompaction,
 	EntityContinuation,
-	EntitySubagent,
+	EntitySessionAgent,
 	EntityUsage,
 }
 
@@ -81,7 +81,7 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 func DatasourceSpec() coredatasource.Spec {
 	return coredatasource.Spec{
 		Name:        DatasourceName,
-		Description: "Persisted local session threads, messages, operations, model calls, continuations, subagents, and usage.",
+		Description: "Persisted local session threads, messages, operations, model calls, continuations, session agents, and usage.",
 		Entities:    append([]coredatasource.EntityType(nil), allEntities...),
 		Kind:        Name,
 	}
@@ -278,7 +278,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		entitySpec(EntityModelCall, "Model call lifecycle events.", caps),
 		entitySpec(EntityCompaction, "Conversation compaction checkpoints.", caps),
 		entitySpec(EntityContinuation, "Provider continuation handles.", caps),
-		entitySpec(EntitySubagent, "Subagent lifecycle events.", caps),
+		entitySpec(EntitySessionAgent, "Command session-agent lifecycle events.", caps),
 		entitySpec(EntityUsage, "Usage metering events.", caps),
 	}
 }
@@ -386,8 +386,8 @@ func classifyEvent(name event.Name, payload any) coredatasource.EntityType {
 		return EntityCompaction
 	case value == "conversation.continuation.stored":
 		return EntityContinuation
-	case strings.HasPrefix(value, "subagent."):
-		return EntitySubagent
+	case strings.HasPrefix(value, "session_agent."):
+		return EntitySessionAgent
 	case value == "usage.recorded":
 		return EntityUsage
 	default:
@@ -541,7 +541,7 @@ func titleFor(entity coredatasource.EntityType, metadata map[string]string, name
 		if model != "" {
 			return string(name) + " " + model
 		}
-	case EntitySubagent:
+	case EntitySessionAgent:
 		return string(name)
 	}
 	return string(name)

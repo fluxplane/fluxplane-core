@@ -89,7 +89,7 @@
 • OperationRequested       → Operation call details
 • OperationCompleted       → Operation result + side effects
 • OutboundProduced         → Messages sent to user
-• RuntimeEmitted           → Plan/skill/subagent events
+• RuntimeEmitted           → Task/skill/session-agent events
 • ContextUpdate            → Context block changes
 ```
 

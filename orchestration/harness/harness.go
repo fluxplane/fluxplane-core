@@ -19,7 +19,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -37,7 +37,7 @@ type Config struct {
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
 	ThreadStore       corethread.Store
-	Subagents         *subagent.Supervisor
+	SessionAgents     *sessionagent.Runner
 	StopEvaluator     session.StopEvaluator
 }
 
@@ -60,7 +60,7 @@ type Service struct {
 	operationExecutor operationruntime.Executor
 	events            coreevent.Sink
 	threadStore       corethread.Store
-	subagents         *subagent.Supervisor
+	sessionAgents     *sessionagent.Runner
 	stopEvaluator     session.StopEvaluator
 
 	bindMu      sync.Mutex
@@ -87,7 +87,7 @@ func New(cfg Config) *Service {
 		operationExecutor: cfg.OperationExecutor,
 		events:            cfg.Events,
 		threadStore:       cfg.ThreadStore,
-		subagents:         cfg.Subagents,
+		sessionAgents:     cfg.SessionAgents,
 		stopEvaluator:     cfg.StopEvaluator,
 		bindings:          map[bindingKey]corethread.Ref{},
 		profiles:          map[corethread.ID]coresession.Spec{},
@@ -95,15 +95,16 @@ func New(cfg Config) *Service {
 	}
 }
 
-// SetSubagentSupervisor installs the child-session supervisor used by
-// delegate/plan operations. It is set after channel-client construction so the
-// supervisor can open children through the same public session path.
-func (s *Service) SetSubagentSupervisor(supervisor *subagent.Supervisor) {
+// SetSessionAgentRunner installs the command helper session runner used by
+// session-targeted commands such as /task and /plan. It is set after
+// channel-client construction so helper sessions enter through the same public
+// session path as user sessions.
+func (s *Service) SetSessionAgentRunner(runner *sessionagent.Runner) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
-	s.subagents = supervisor
+	s.sessionAgents = runner
 	s.mu.Unlock()
 }
 
@@ -116,8 +117,8 @@ type OpenSessionRequest struct {
 	ThreadID     corethread.ID
 	Metadata     map[string]string
 	// Approver overrides the executor's approval gate for this session. It is
-	// used by the sub-agent supervisor to propagate the parent's approval policy
-	// (e.g. AutoApprover for --yolo) into child sessions.
+	// used by session-agent runners to propagate the parent's approval policy
+	// (e.g. AutoApprover for --yolo) into helper sessions.
 	Approver operationruntime.ApprovalGate
 }
 
@@ -345,7 +346,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
-		Subagents:         s.currentSubagents(),
+		SessionAgents:     s.currentSessionAgents(),
 		Delegation:        s.delegationForInfo(info),
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
@@ -411,7 +412,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
 		ThreadStore:       s.threadStore,
 		Thread:            info.Thread,
-		Subagents:         s.currentSubagents(),
+		SessionAgents:     s.currentSessionAgents(),
 		Delegation:        s.delegationForInfo(info),
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
@@ -457,13 +458,13 @@ func (s *Service) agentForSession(ctx context.Context, info SessionInfo) (agent.
 	return s.agentProvider.AgentForSession(ctx, spec)
 }
 
-func (s *Service) currentSubagents() *subagent.Supervisor {
+func (s *Service) currentSessionAgents() *sessionagent.Runner {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.subagents
+	return s.sessionAgents
 }
 
 func (s *Service) delegationForInfo(info SessionInfo) coresession.DelegationPolicy {
@@ -601,8 +602,8 @@ func (s *Service) bindProfile(threadID corethread.ID, spec coresession.Spec) {
 	s.mu.Unlock()
 }
 
-// bindApprover stores a per-thread approval gate override. Sub-agent child
-// sessions call this during Open so that every subsequent run on that thread
+// bindApprover stores a per-thread approval gate override. Session-agent
+// helper sessions call this during Open so that every subsequent run on that thread
 // uses the parent's approval policy (e.g. AutoApprover for --yolo).
 func (s *Service) bindApprover(threadID corethread.ID, approver operationruntime.ApprovalGate) {
 	if s == nil || threadID == "" || approver == nil {
@@ -917,7 +918,7 @@ func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	return strings.HasPrefix(value, "plan.") ||
 		strings.HasPrefix(value, "task.") ||
 		strings.HasPrefix(value, "workflow.") ||
-		strings.HasPrefix(value, "subagent.") ||
+		strings.HasPrefix(value, "session_agent.") ||
 		strings.HasPrefix(value, "skill.") ||
 		value == "llmagent.model_requested" ||
 		value == "llmagent.model_completed" ||

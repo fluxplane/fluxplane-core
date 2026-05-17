@@ -14,7 +14,7 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/usage"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -85,11 +85,11 @@ func defaultEventTypes() []event.Event {
 		system.ProcessEvent{Kind: "started"},
 		system.ProcessEvent{Kind: "output"},
 		system.ProcessEvent{Kind: "exited"},
-		subagent.SpawnRequested{},
-		subagent.Started{},
-		subagent.Progressed{},
-		subagent.Completed{},
-		subagent.Failed{},
-		subagent.Cancelled{},
+		sessionagent.Requested{},
+		sessionagent.Started{},
+		sessionagent.Progressed{},
+		sessionagent.Completed{},
+		sessionagent.Failed{},
+		sessionagent.Cancelled{},
 	}
 }

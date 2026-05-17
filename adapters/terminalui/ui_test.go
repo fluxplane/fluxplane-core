@@ -12,7 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -584,29 +584,29 @@ func TestRendererFiltersNoisyTaskProgressAndIgnoresUntypedTaskPayload(t *testing
 	}
 }
 
-func TestRendererRendersDelegateEvents(t *testing.T) {
+func TestRendererRendersSessionAgentEvents(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
 	renderer.Render(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    subagent.EventStarted,
-			Payload: subagent.Started{Causation: subagent.Causation{WorkerID: "plan_1:step_1", Profile: coresession.Ref{Name: "worker"}}},
+			Name:    sessionagent.EventStarted,
+			Payload: sessionagent.Started{Causation: sessionagent.Causation{ID: "plan_1:step_1", Profile: coresession.Ref{Name: "worker"}}},
 		},
 	})
 	renderer.Render(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    subagent.EventCompleted,
-			Payload: subagent.Completed{Causation: subagent.Causation{WorkerID: "manual_1"}, Output: "done"},
+			Name:    sessionagent.EventCompleted,
+			Payload: sessionagent.Completed{Causation: sessionagent.Causation{ID: "manual_1"}, Output: "done"},
 		},
 	})
 	renderer.Finish()
 
 	got := out.String() + err.String()
-	for _, want := range []string{"delegate start:", "plan_1:step_1", "delegate done:", "manual_1"} {
+	for _, want := range []string{"session agent start:", "plan_1:step_1", "session agent done:", "manual_1"} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("delegate output = %q, missing %q", got, want)
+			t.Fatalf("session-agent output = %q, missing %q", got, want)
 		}
 	}
 }

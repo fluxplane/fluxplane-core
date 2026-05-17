@@ -13,9 +13,9 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	workflowruntime "github.com/fluxplane/agentruntime/orchestration/workflow"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -50,7 +50,7 @@ type Config struct {
 	WorkflowCatalog   WorkflowCatalog
 	Resolver          *sessioncontrol.Resolver
 	OperationExecutor operationruntime.Executor
-	Subagents         *subagent.Supervisor
+	SessionAgents     *sessionagent.Runner
 	Delegation        coresession.DelegationPolicy
 	Thread            corethread.Ref
 	Events            event.Sink
@@ -172,11 +172,11 @@ func runOperationStep(ctx context.Context, cfg Config, runID string, workflowID 
 }
 
 func runAgentStep(ctx context.Context, cfg Config, runID string, step coreworkflow.Step, input operation.Value) (operation.Value, error) {
-	if cfg.Subagents == nil {
-		return nil, fmt.Errorf("workflow agent step %q requires a sub-agent supervisor", step.ID)
+	if cfg.SessionAgents == nil {
+		return nil, fmt.Errorf("workflow agent step %q requires a session-agent runner", step.ID)
 	}
-	prepared, err := cfg.Subagents.Prepare(ctx, subagent.SpawnRequest{
-		ID:             subagent.ID(string(runID) + ":" + string(step.ID)),
+	result, err := cfg.SessionAgents.Run(ctx, sessionagent.Request{
+		ID:             sessionagent.ID(string(runID) + ":" + string(step.ID)),
 		Agent:          step.Agent,
 		Task:           agentTask(step, input),
 		TaskID:         string(step.ID),
@@ -189,14 +189,6 @@ func runAgentStep(ctx context.Context, cfg Config, runID string, step coreworkfl
 	})
 	if err != nil {
 		return nil, err
-	}
-	prepared.Start()
-	result, err := cfg.Subagents.Wait(ctx, prepared.Handle.ID)
-	if err != nil {
-		return nil, err
-	}
-	if result.Error != "" {
-		return nil, fmt.Errorf("%s", result.Error)
 	}
 	return result.Output, nil
 }

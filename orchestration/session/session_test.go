@@ -26,8 +26,8 @@ import (
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
@@ -365,7 +365,7 @@ func TestExecuteInboundCommandDispatchesPromptCommandAsInput(t *testing.T) {
 	}
 }
 
-func TestExecuteInboundCommandDispatchesSessionTargetToSubagent(t *testing.T) {
+func TestExecuteInboundCommandDispatchesSessionTargetToSessionAgent(t *testing.T) {
 	commands := command.NewRegistry()
 	if err := commands.Register(command.Spec{
 		Path: command.Path{"task"},
@@ -377,11 +377,15 @@ func TestExecuteInboundCommandDispatchesSessionTargetToSubagent(t *testing.T) {
 		t.Fatalf("register command: %v", err)
 	}
 	client := &sessionTargetClient{output: "created task"}
+	var emitted []event.Event
 	s := Session{
 		Commands: commands,
-		Subagents: subagent.New(subagent.Config{
+		SessionAgents: sessionagent.New(sessionagent.Config{
 			Client:      client,
 			MaxParallel: 1,
+		}),
+		Events: event.SinkFunc(func(payload event.Event) {
+			emitted = append(emitted, payload)
 		}),
 		Delegation: coresession.DelegationPolicy{
 			AllowedProfiles: []coresession.Ref{{Name: "task"}},
@@ -403,6 +407,12 @@ func TestExecuteInboundCommandDispatchesSessionTargetToSubagent(t *testing.T) {
 	if client.input != "review core/task" {
 		t.Fatalf("child input = %q, want joined command args", client.input)
 	}
+	if !hasEvent(emitted, sessionagent.EventStarted) || !hasEvent(emitted, sessionagent.EventCompleted) {
+		t.Fatalf("emitted events = %#v, want session-agent lifecycle", eventNames(emitted))
+	}
+	if hasEventPrefix(emitted, "subagent.") {
+		t.Fatalf("emitted events = %#v, did not expect legacy delegation lifecycle", eventNames(emitted))
+	}
 }
 
 func TestExecuteInboundCommandDispatchesPlanTargetToTaskPlannerProfile(t *testing.T) {
@@ -419,7 +429,7 @@ func TestExecuteInboundCommandDispatchesPlanTargetToTaskPlannerProfile(t *testin
 	client := &sessionTargetClient{output: "drafted task"}
 	s := Session{
 		Commands: commands,
-		Subagents: subagent.New(subagent.Config{
+		SessionAgents: sessionagent.New(sessionagent.Config{
 			Client:      client,
 			MaxParallel: 1,
 		}),
@@ -1058,43 +1068,6 @@ func TestExecuteInboundInputRendersDeveloperPlacementAsDeveloperTranscriptItem(t
 	}
 	if got.NewItems[2].Role != "user" || strings.Contains(valueText(got.NewItems[2].Content), "<system-context>") {
 		t.Fatalf("third new item = %#v, want plain user input", got.NewItems[2])
-	}
-}
-
-func TestExecuteInboundInputContextProvidersSeeSubagentScope(t *testing.T) {
-	ctx := context.Background()
-	var sawProfiles []string
-	contextProvider := &scriptedContextProvider{
-		spec: corecontext.ProviderSpec{Name: "delegation", DefaultPlacement: corecontext.PlacementSystem},
-		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
-			scope, ok := subagent.ScopeFromContext(ctx)
-			if !ok {
-				t.Fatal("subagent scope missing from context provider context")
-			}
-			for _, profile := range scope.Policy.AllowedProfiles {
-				sawProfiles = append(sawProfiles, string(profile.Name))
-			}
-			return []corecontext.Block{{ID: "delegation/current", Content: strings.Join(sawProfiles, ",")}}, nil
-		},
-	}
-	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
-	if err != nil {
-		t.Fatalf("new llm agent: %v", err)
-	}
-	s := Session{
-		Agent:     runtimeAgent,
-		Subagents: subagent.New(subagent.Config{}),
-		Delegation: coresession.DelegationPolicy{
-			AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}},
-		},
-	}
-
-	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-scope", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
-	if result.Status != InputStatusOK {
-		t.Fatalf("status = %q: %#v", result.Status, result)
-	}
-	if strings.Join(sawProfiles, ",") != "worker,explorer" {
-		t.Fatalf("profiles = %#v, want worker/explorer", sawProfiles)
 	}
 }
 
@@ -2566,7 +2539,7 @@ func TestExecuteInboundInputAgentStopConditionIsDeferred(t *testing.T) {
 	s := Session{Agent: agentRuntime}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "answer the user"}})
-	if result.Status != InputStatusFailed || result.Error == nil || !strings.Contains(result.Error.Message, "typed subagent decision tools") {
+	if result.Status != InputStatusFailed || result.Error == nil || !strings.Contains(result.Error.Message, "typed session-agent decision tools") {
 		t.Fatalf("result = %#v, want deferred agent stop-condition failure", result)
 	}
 }
@@ -2948,7 +2921,7 @@ type sessionTargetClient struct {
 	output string
 }
 
-func (c *sessionTargetClient) Open(context.Context, subagent.OpenRequest) (subagent.Session, error) {
+func (c *sessionTargetClient) Open(context.Context, sessionagent.OpenRequest) (sessionagent.Session, error) {
 	return sessionTargetSession{client: c}, nil
 }
 
@@ -2956,32 +2929,32 @@ type sessionTargetSession struct {
 	client *sessionTargetClient
 }
 
-func (s sessionTargetSession) Info() subagent.SessionInfo {
-	return subagent.SessionInfo{}
+func (s sessionTargetSession) Info() sessionagent.SessionInfo {
+	return sessionagent.SessionInfo{}
 }
 
-func (s sessionTargetSession) SendInput(_ context.Context, input subagent.Input) (subagent.Run, error) {
+func (s sessionTargetSession) SendInput(_ context.Context, input sessionagent.Input) (sessionagent.Run, error) {
 	s.client.input = input.Text
-	events := make(chan subagent.RunEvent)
+	events := make(chan sessionagent.RunEvent)
 	close(events)
 	return sessionTargetRun{output: s.client.output, events: events}, nil
 }
 
 type sessionTargetRun struct {
 	output string
-	events <-chan subagent.RunEvent
+	events <-chan sessionagent.RunEvent
 }
 
 func (r sessionTargetRun) ID() string {
 	return "child-run"
 }
 
-func (r sessionTargetRun) Events() <-chan subagent.RunEvent {
+func (r sessionTargetRun) Events() <-chan sessionagent.RunEvent {
 	return r.events
 }
 
-func (r sessionTargetRun) Wait(context.Context) (subagent.RunResult, error) {
-	return subagent.RunResult{Text: r.output}, nil
+func (r sessionTargetRun) Wait(context.Context) (sessionagent.RunResult, error) {
+	return sessionagent.RunResult{Text: r.output}, nil
 }
 
 type fixedAgent struct {
@@ -3375,6 +3348,15 @@ func (concurrentAppendEvent) EventName() event.Name { return "test.concurrent_ap
 func hasEvent(events []event.Event, name event.Name) bool {
 	for _, payload := range events {
 		if payload != nil && payload.EventName() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasEventPrefix(events []event.Event, prefix string) bool {
+	for _, payload := range events {
+		if payload != nil && strings.HasPrefix(string(payload.EventName()), prefix) {
 			return true
 		}
 	}

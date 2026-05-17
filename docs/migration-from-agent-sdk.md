@@ -635,7 +635,7 @@ Implemented and green:
   checks, resource aliases, and LLM-driver control helpers.
 - `orchestration/sessionenv`: runtime context assembly for session work,
   including context materialization, skill and datasource access, persisted
-  skill replay, and sub-agent scope wiring.
+  skill replay, and session scope wiring.
 - `orchestration/resourcecatalog`: contribution-bundle catalog collection for
   app, agent, skill, context-provider, datasource, LLM, workflow, and operation
   set specs.
@@ -736,9 +736,9 @@ Important contract decisions from this slice:
 - Resource operation specs are discoverable declarations. Executable command
   targets must resolve to an operation catalog binding, not merely to a
   declaration-only spec.
-- Sub-agent support is intentionally not implemented yet, but configured
-  sessions must leave room for delegation policy, parent/child causation, and
-  child session identity.
+- Command and workflow helper sessions run through `orchestration/sessionagent`;
+  configured sessions carry delegation policy, parent/child causation, and
+  child session identity without a separate sub-agent domain.
 - Configured session refs are resolved through resource identity and then
   canonicalized to the resolved `ResourceID` address before harness binding.
 - Real side-effecting operations must enter through the operation safety
@@ -1063,13 +1063,12 @@ Parity should be reached in small slices:
    normal session input path so outbound responses are persisted with the
    thread.
 
-12. **Phase 10: Workflow and Sub-Agent Supervisor**
-   Execute the `feature` workflow through child sessions using a generic
-   supervisor with capacity, cancellation, progress, parent/child causation,
-   and event linkage. Done initially: workflow-target commands execute
-   operation steps through the operation executor and agent steps through the
-   sub-agent supervisor, with workflow runtime events and persisted command
-   output.
+12. **Phase 10: Workflow and Session-Agent Execution**
+   Execute the `feature` workflow through helper sessions with capacity,
+   progress, parent/child causation, and event linkage. Current state:
+   workflow-target commands execute operation steps through the operation
+   executor and agent steps through the neutral session-agent runner, with
+   workflow runtime events and persisted command output.
 
 13. **Phase 11: Engineer App Assembly**
    Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`

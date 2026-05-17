@@ -13,7 +13,7 @@ import (
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 )
@@ -133,7 +133,7 @@ func (o *runObserver) FollowTasks(ctx context.Context, session clientapi.Session
 			if !ok {
 				return o.snapshotSummary()
 			}
-			if event.Runtime == nil || (!strings.HasPrefix(string(event.Runtime.Name), "task.") && !strings.HasPrefix(string(event.Runtime.Name), "subagent.")) {
+			if event.Runtime == nil || (!strings.HasPrefix(string(event.Runtime.Name), "task.") && !strings.HasPrefix(string(event.Runtime.Name), "session_agent.")) {
 				continue
 			}
 			o.Handle(event)
@@ -230,14 +230,14 @@ func (o *runObserver) handleRuntime(event clientapi.Event) {
 		o.appendTaskUpdate(taskCardID(payload.TaskID), "Task failed", slack.TaskCardStatusError, "", operationErrorText(payload.Error))
 	case coretask.ExecutionCancelled:
 		o.appendTaskUpdate(taskCardID(payload.TaskID), "Task cancelled", slack.TaskCardStatusError, "", payload.Reason)
-	case subagent.Started:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusInProgress, payload.Task, "")
-	case subagent.Completed:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusComplete, "", payload.Output)
-	case subagent.Failed:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, "", payload.Error)
-	case subagent.Cancelled:
-		o.appendTaskUpdate(delegateTaskID(payload.WorkerID), "Delegate "+string(payload.WorkerID), slack.TaskCardStatusError, "", payload.Reason)
+	case sessionagent.Started:
+		o.appendTaskUpdate(sessionAgentTaskID(payload.ID), "Session agent "+string(payload.ID), slack.TaskCardStatusInProgress, payload.Task, "")
+	case sessionagent.Completed:
+		o.appendTaskUpdate(sessionAgentTaskID(payload.ID), "Session agent "+string(payload.ID), slack.TaskCardStatusComplete, "", payload.Output)
+	case sessionagent.Failed:
+		o.appendTaskUpdate(sessionAgentTaskID(payload.ID), "Session agent "+string(payload.ID), slack.TaskCardStatusError, "", payload.Error)
+	case sessionagent.Cancelled:
+		o.appendTaskUpdate(sessionAgentTaskID(payload.ID), "Session agent "+string(payload.ID), slack.TaskCardStatusError, "", payload.Reason)
 	case map[string]any:
 		o.handleRuntimeMap(event, payload)
 	}
@@ -447,8 +447,8 @@ func slackTaskStatus(status coretask.Status) slack.TaskCardStatus {
 	}
 }
 
-func delegateTaskID(workerID subagent.ID) string {
-	return "delegate:" + string(workerID)
+func sessionAgentTaskID(id sessionagent.ID) string {
+	return "session-agent:" + string(id)
 }
 
 func operationErrorText(err *operation.Error) string {

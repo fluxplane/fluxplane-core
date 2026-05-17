@@ -245,7 +245,7 @@ func EvaluateStopCondition(ctx context.Context, condition agent.StopConditionSpe
 		input.Condition = condition
 		return evaluator.EvaluateStopCondition(ctx, input)
 	case "agent":
-		return StopEvaluation{}, fmt.Errorf("agent stop conditions require typed subagent decision tools and are not implemented")
+		return StopEvaluation{}, fmt.Errorf("agent stop conditions require typed session-agent decision tools and are not implemented")
 	case "or":
 		for _, child := range condition.Conditions {
 			evaluation, err := EvaluateStopCondition(ctx, child, input, evaluator)

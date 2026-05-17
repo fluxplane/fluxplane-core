@@ -1,4 +1,5 @@
-package subagent
+// Package sessionagent runs short-lived command helper sessions.
+package sessionagent
 
 import (
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -9,16 +10,20 @@ import (
 )
 
 const (
-	EventSpawnRequested event.Name = "subagent.spawn_requested"
-	EventStarted        event.Name = "subagent.started"
-	EventProgressed     event.Name = "subagent.progressed"
-	EventCompleted      event.Name = "subagent.completed"
-	EventFailed         event.Name = "subagent.failed"
-	EventCancelled      event.Name = "subagent.cancelled"
+	EventRequested  event.Name = "session_agent.requested"
+	EventStarted    event.Name = "session_agent.started"
+	EventProgressed event.Name = "session_agent.progressed"
+	EventCompleted  event.Name = "session_agent.completed"
+	EventFailed     event.Name = "session_agent.failed"
+	EventCancelled  event.Name = "session_agent.cancelled"
 )
 
-// Causation identifies the parent operation that caused child work.
+// ID identifies one command helper session run.
+type ID string
+
+// Causation identifies the parent command that started a helper session.
 type Causation struct {
+	ID             ID                `json:"id,omitempty"`
 	ParentThreadID corethread.ID     `json:"parent_thread_id,omitempty"`
 	ParentRunID    string            `json:"parent_run_id,omitempty"`
 	ParentCallID   operation.CallID  `json:"parent_call_id,omitempty"`
@@ -26,17 +31,16 @@ type Causation struct {
 	ChildRunID     string            `json:"child_run_id,omitempty"`
 	Profile        coresession.Ref   `json:"profile,omitempty"`
 	Agent          agent.Ref         `json:"agent,omitempty"`
-	WorkerID       ID                `json:"worker_id,omitempty"`
 	TaskID         string            `json:"task_id,omitempty"`
 	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
-type SpawnRequested struct {
+type Requested struct {
 	Causation
 	Task string `json:"task,omitempty"`
 }
 
-func (SpawnRequested) EventName() event.Name { return EventSpawnRequested }
+func (Requested) EventName() event.Name { return EventRequested }
 
 type Started struct {
 	Causation

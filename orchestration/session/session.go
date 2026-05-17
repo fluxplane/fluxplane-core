@@ -23,10 +23,10 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/sessionworkflow"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 )
 
@@ -46,7 +46,7 @@ type Session struct {
 	Events            sessionenv.EventSink
 	ThreadStore       corethread.Store
 	Thread            corethread.Ref
-	Subagents         *sessionenv.SubagentSupervisor
+	SessionAgents     *sessionagent.Runner
 	Delegation        sessionenv.DelegationPolicy
 	StopEvaluator     StopEvaluator
 	RunID             string
@@ -154,7 +154,7 @@ type StepResult struct {
 
 // Step runs one observe-decide-apply cycle.
 func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
-	agentCtx := agentContext{Context: s.withSubagentBaseContext(ensureContext(ctx), "", s.eventSink()), events: s.eventSink()}
+	agentCtx := agentContext{Context: s.withBaseContext(ensureContext(ctx), "", s.eventSink()), events: s.eventSink()}
 	if s.Agent == nil {
 		return StepResult{Agent: agent.StepResult{
 			Status: agent.StatusFailed,
@@ -470,7 +470,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
 		}
 		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
-		modelCtx = s.withSubagentBaseContext(modelCtx, "", in.Events)
+		modelCtx = s.withBaseContext(modelCtx, "", in.Events)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
 			Goal:         in.Goal,
@@ -1747,8 +1747,8 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 }
 
 func (s Session) executeTargetSessionCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
-	if s.Subagents == nil {
-		return commandFailed("session_target_unavailable", "session-targeted command requires a sub-agent supervisor", map[string]any{
+	if s.SessionAgents == nil {
+		return commandFailed("session_target_unavailable", "session-targeted command requires a session-agent runner", map[string]any{
 			"path": spec.Path.String(),
 		})
 	}
@@ -1772,8 +1772,8 @@ func (s Session) executeTargetSessionCommand(ctx context.Context, inbound channe
 		}
 	})
 	task := renderSessionTargetInput(spec, inbound.Command)
-	prepared, err := s.Subagents.Prepare(ctx, subagent.SpawnRequest{
-		ID:             subagent.ID(inbound.ID + ":session:" + target),
+	result, err := s.SessionAgents.Run(ctx, sessionagent.Request{
+		ID:             sessionagent.ID(inbound.ID + ":session:" + target),
 		Profile:        coresession.Ref{Name: coresession.Name(target)},
 		Task:           task,
 		TaskID:         inbound.ID,
@@ -1785,21 +1785,7 @@ func (s Session) executeTargetSessionCommand(ctx context.Context, inbound channe
 		Approver:       sessionenv.ApproverFromExecutor(s.OperationExecutor),
 	})
 	if err != nil {
-		return commandFailed("session_target_prepare_failed", err.Error(), map[string]any{
-			"path":    spec.Path.String(),
-			"session": target,
-		})
-	}
-	prepared.Start()
-	result, err := s.Subagents.Wait(ctx, prepared.Handle.ID)
-	if err != nil {
-		return commandFailed("session_target_wait_failed", err.Error(), map[string]any{
-			"path":    spec.Path.String(),
-			"session": target,
-		})
-	}
-	if result.Error != "" {
-		return commandFailed("session_target_failed", result.Error, map[string]any{
+		return commandFailed("session_target_run_failed", err.Error(), map[string]any{
 			"path":    spec.Path.String(),
 			"session": target,
 		})
@@ -1900,7 +1886,7 @@ func (s Session) executeWorkflowCommand(ctx context.Context, inbound channel.Inb
 		WorkflowCatalog:   s.WorkflowCatalog,
 		Resolver:          s.Resolver,
 		OperationExecutor: s.OperationExecutor,
-		Subagents:         s.Subagents,
+		SessionAgents:     s.SessionAgents,
 		Delegation:        s.Delegation,
 		Thread:            s.Thread,
 		Events:            s.eventSink(),
@@ -2678,7 +2664,7 @@ func (s Session) executeOperation(ctx operation.Context, op operation.Operation,
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
 }
 
-func (s Session) withSubagentBaseContext(ctx context.Context, callID operation.CallID, events sessionenv.EventSink) context.Context {
+func (s Session) withBaseContext(ctx context.Context, callID operation.CallID, events sessionenv.EventSink) context.Context {
 	return sessionenv.WithBaseContext(ctx, s.envConfig(events), callID)
 }
 
@@ -2689,7 +2675,6 @@ func (s Session) replaySkillEvents(ctx context.Context) error {
 func (s Session) envConfig(events sessionenv.EventSink) sessionenv.Config {
 	return sessionenv.Config{
 		Agent:             s.Agent,
-		Subagents:         s.Subagents,
 		Thread:            s.Thread,
 		ThreadStore:       s.ThreadStore,
 		Delegation:        s.Delegation,

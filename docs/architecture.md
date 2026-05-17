@@ -193,9 +193,9 @@ plugin host and contribution resolution
 projection coordination
 resource cataloging over contribution bundles
 session control-plane helpers
+session-agent command/workflow helper execution
 session environment/context wiring
 session lifecycle and Submit handling
-sub-agent supervision
 task scheduling, scheduler controls, and worker-session execution
 tool projection use cases
 workflow execution
@@ -216,7 +216,9 @@ The session package owns one bound thread's execution loop. Supporting
 orchestration packages keep high-coupling concerns narrow: `sessioncontrol`
 contains stop-condition evaluation, built-in command policy/target helpers,
 resource aliases, and LLM-driver control helpers; `sessionenv` assembles the
-runtime context, skill, datasource, and sub-agent scope used by session work.
+runtime context, skill, and datasource access used by session work; and
+`sessionagent` runs command and workflow helper sessions without introducing a
+separate sub-agent domain.
 
 ### `adapters`
 

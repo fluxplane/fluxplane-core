@@ -18,7 +18,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/subagent"
+	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -196,15 +196,15 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 		if r.ShowUsage {
 			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
 		}
-	case subagent.Started:
+	case sessionagent.Started:
 		r.flushContent()
-		_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, payload.WorkerID, ansiDim, payload.Profile.Name, ansiReset)
-	case subagent.Completed:
+		_, _ = fmt.Fprintf(out, "%ssession agent start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, payload.ID, ansiDim, payload.Profile.Name, ansiReset)
+	case sessionagent.Completed:
 		r.flushContent()
-		_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, payload.WorkerID, compact(payload.Output, 160))
-	case subagent.Failed:
+		_, _ = fmt.Fprintf(out, "%ssession agent done:%s %s %s\n", ansiGreen, ansiReset, payload.ID, compact(payload.Output, 160))
+	case sessionagent.Failed:
 		r.flushContent()
-		_, _ = fmt.Fprintf(out, "%sdelegate failed:%s %s %s\n", ansiRed, ansiReset, payload.WorkerID, payload.Error)
+		_, _ = fmt.Fprintf(out, "%ssession agent failed:%s %s %s\n", ansiRed, ansiReset, payload.ID, payload.Error)
 	default:
 		r.flushContent()
 		if string(event.Runtime.Name) == "human.clarification.requested" {
