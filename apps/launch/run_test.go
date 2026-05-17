@@ -173,6 +173,20 @@ func TestLaunchYoloEnablesOverMaxCommandRiskApproval(t *testing.T) {
 	}
 }
 
+func TestLocalUsernameNormalizesHostPrefixes(t *testing.T) {
+	cases := map[string]string{
+		"DOMAIN\\timo": "timo",
+		"host/timo":    "timo",
+		"timo@host":    "timo",
+		"timo":         "timo",
+	}
+	for input, want := range cases {
+		if got := localUsername(input); got != want {
+			t.Fatalf("localUsername(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestLaunchPassesWorkspaceConfigToSystem(t *testing.T) {
 	withStateDir(t)
 	tmp := t.TempDir()

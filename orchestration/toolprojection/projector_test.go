@@ -228,3 +228,38 @@ func TestProjectActionToolSetProjectsSingleToolAndCoversOperations(t *testing.T)
 		t.Fatalf("dispatch = %#v, want two cases", result.Tools[0].Dispatch)
 	}
 }
+
+func TestProjectAppliesAuthorizationPolicy(t *testing.T) {
+	allowed := operation.New(operation.Spec{
+		Ref:       operation.Ref{Name: "allowed"},
+		Semantics: operation.Semantics{Risk: operation.RiskLow},
+	}, nil)
+	denied := operation.New(operation.Spec{
+		Ref:       operation.Ref{Name: "denied"},
+		Semantics: operation.Semantics{Risk: operation.RiskLow},
+	}, nil)
+	allowedID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "allowed"}
+	deniedID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "denied"}
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			allowedID.Address(): {ID: allowedID, Operation: allowed},
+			deniedID.Address():  {ID: deniedID, Operation: denied},
+		},
+		IncludeBareOperations: true,
+		AllowSideEffects:      true,
+		Caller:                policy.Caller{Kind: policy.CallerUser},
+		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Authorization: policy.AuthorizationContext{
+			Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+				Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+				Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "allowed"}},
+				Actions:   []policy.Action{policy.ActionOperationInvoke},
+			}}},
+			Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		},
+	})
+	if len(result.Tools) != 1 || result.Tools[0].Name != "allowed" {
+		t.Fatalf("tools = %#v diagnostics = %#v, want only allowed", result.Tools, result.Diagnostics)
+	}
+}

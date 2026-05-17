@@ -21,10 +21,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/orchestration/security"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
@@ -54,6 +56,7 @@ type Session struct {
 	StopEvaluator     StopEvaluator
 	RunID             string
 	TurnTools         []tool.Spec
+	Security          policy.AuthorizationPolicy
 }
 
 type StopEvaluator = sessioncontrol.StopEvaluator
@@ -341,6 +344,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	if s.Agent == nil {
 		return inputFailed("agent_missing", "agent is nil", nil)
 	}
+	ctx = security.ContextForInbound(ctx, s.Security, inbound, s.Agent.Spec())
 	if err := s.replaySkillEvents(ctx); err != nil {
 		return inputFailed("skill_replay_failed", err.Error(), nil)
 	}
@@ -1762,6 +1766,11 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if spec.Path.String() == "" {
 		spec.Path = inbound.Command.Path
 	}
+	agentSpec := agent.Spec{}
+	if s.Agent != nil {
+		agentSpec = s.Agent.Spec()
+	}
+	ctx = security.ContextForInbound(ctx, s.Security, inbound, agentSpec)
 	evaluation := sessioncontrol.EvaluateInvocation(spec, inbound.Caller, inbound.Trust)
 	switch {
 	case sessioncontrol.PolicyDenied(evaluation):

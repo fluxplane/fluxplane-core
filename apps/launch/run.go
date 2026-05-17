@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	osuser "os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -355,15 +356,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	localCaller := policy.Caller{
-		Kind: policy.CallerUser,
-		Principal: policy.Principal{
-			Kind: "user",
-			ID:   "agentsdk",
-			Name: "agentsdk",
-		},
-	}
-	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified}
+	localCaller := localUserCaller()
+	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -386,9 +380,10 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			MaxRisk:               operation.RiskMedium,
 			IncludeBareOperations: true,
 		}),
-		Channel: channel.Ref{Name: "local"},
-		Caller:  localCaller,
-		Trust:   localTrust,
+		Channel:  channel.Ref{Name: "local"},
+		Caller:   localCaller,
+		Trust:    localTrust,
+		Security: composition.Security,
 	})
 	if err != nil {
 		closeRuntime()
@@ -801,6 +796,51 @@ func (s localSandbox) Check(_ operation.Context, spec operation.Spec, input oper
 
 type localACL struct{}
 
-func (localACL) Authorize(operation.Context, operation.Spec, operation.Value) error {
-	return nil
+func (localACL) Authorize(ctx operation.Context, op operation.Operation, input operation.Value) error {
+	return (operationruntime.AuthorizationGate{}).Authorize(ctx, op, input)
+}
+
+func localUserCaller() policy.Caller {
+	raw := ""
+	name := ""
+	if current, err := osuser.Current(); err == nil && current != nil {
+		raw = strings.TrimSpace(current.Username)
+		name = localUsername(raw)
+	}
+	if name == "" {
+		name = localUsername(os.Getenv("USER"))
+	}
+	if name == "" {
+		name = localUsername(os.Getenv("USERNAME"))
+	}
+	if name == "" {
+		name = "local"
+	}
+	canonical := name
+	if !strings.Contains(canonical, "@") {
+		canonical += "@localhost"
+	}
+	return policy.Caller{
+		Kind: policy.CallerUser,
+		Principal: policy.Principal{
+			Kind: "user",
+			ID:   canonical,
+			Name: name,
+		},
+		Source: "local",
+	}
+}
+
+func localUsername(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.ReplaceAll(raw, "\\", "/")
+	parts := strings.Split(raw, "/")
+	raw = parts[len(parts)-1]
+	if i := strings.LastIndex(raw, "@"); i > 0 {
+		raw = raw[:i]
+	}
+	return strings.TrimSpace(raw)
 }

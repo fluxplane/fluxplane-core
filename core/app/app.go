@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 )
 
@@ -92,16 +93,17 @@ type PluginRef struct {
 // Spec is an inert application manifest. It can be authored by config files,
 // embedded apps, or tests, and later composed by orchestration.
 type Spec struct {
-	Name           Name               `json:"name,omitempty"`
-	Description    string             `json:"description,omitempty"`
-	DefaultAgent   agent.Ref          `json:"default_agent,omitempty"`
-	DefaultSession coresession.Ref    `json:"default_session,omitempty"`
-	Sources        []SourceSpec       `json:"sources,omitempty"`
-	Discovery      DiscoveryPolicy    `json:"discovery,omitempty"`
-	Model          ModelPolicy        `json:"model,omitempty"`
-	SemanticSearch SemanticSearchSpec `json:"semantic_search,omitempty"`
-	Plugins        []PluginRef        `json:"plugins,omitempty"`
-	Annotations    map[string]string  `json:"annotations,omitempty"`
+	Name           Name                       `json:"name,omitempty"`
+	Description    string                     `json:"description,omitempty"`
+	DefaultAgent   agent.Ref                  `json:"default_agent,omitempty"`
+	DefaultSession coresession.Ref            `json:"default_session,omitempty"`
+	Sources        []SourceSpec               `json:"sources,omitempty"`
+	Discovery      DiscoveryPolicy            `json:"discovery,omitempty"`
+	Model          ModelPolicy                `json:"model,omitempty"`
+	SemanticSearch SemanticSearchSpec         `json:"semantic_search,omitempty"`
+	Security       policy.AuthorizationPolicy `json:"security,omitempty"`
+	Plugins        []PluginRef                `json:"plugins,omitempty"`
+	Annotations    map[string]string          `json:"annotations,omitempty"`
 }
 
 // Validate checks the manifest is structurally useful without resolving refs.

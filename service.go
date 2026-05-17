@@ -116,6 +116,7 @@ type Config struct {
 	LLMStreamPolicy   LLMStreamPolicy
 	ToolProjection    ToolProjectionConfig
 	IdentityResolver  IdentityResolver
+	Security          policy.AuthorizationPolicy
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -149,6 +150,14 @@ func New(cfg Config) (*Service, error) {
 		threadStore = store
 	}
 	executor := cfg.OperationExecutor
+	if !cfg.Security.IsZero() && cfg.ToolProjection.Authorization.Policy.IsZero() {
+		cfg.ToolProjection.Authorization.Policy = cfg.Security
+	}
+	if !cfg.Security.IsZero() && executor.Safety == nil {
+		executor.Safety = operationruntime.SafetyGateFunc(func(ctx operation.Context, op operation.Operation, input operation.Value) error {
+			return (operationruntime.AuthorizationGate{}).Authorize(ctx, op, input)
+		})
+	}
 	stopEvaluator := cfg.StopEvaluator
 	if stopEvaluator == nil {
 		switch {
@@ -176,6 +185,7 @@ func New(cfg Config) (*Service, error) {
 		StopEvaluator:     stopEvaluator,
 		IdentityResolver:  cfg.IdentityResolver,
 		ToolProjection:    cfg.ToolProjection,
+		Security:          cfg.Security,
 	})
 	client, err := directchannel.New(directchannel.Config{
 		Service: service,
@@ -272,6 +282,12 @@ func (r sessionAgentRun) Wait(ctx context.Context) (sessionagent.RunResult, erro
 // NewFromComposition assembles an in-process runtime service from composed app
 // resources. Explicit cfg fields override matching composition fields.
 func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Service, error) {
+	if cfg.Security.IsZero() {
+		cfg.Security = composition.Security
+	}
+	if !cfg.Security.IsZero() && cfg.ToolProjection.Authorization.Policy.IsZero() {
+		cfg.ToolProjection.Authorization.Policy = cfg.Security
+	}
 	if cfg.Agent == nil {
 		cfg.Agent = composition.Agent
 	}

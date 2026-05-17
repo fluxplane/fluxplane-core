@@ -101,9 +101,47 @@ func Bundle() resource.ContributionBundle {
 			Ecosystem: "agentdir",
 		})
 		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
+		bundle.Apps[0].Security = localCoderSecurity()
 	}
 	bundle.Commands = append(bundle.Commands, embedded.Commands...)
 	return bundle
+}
+
+func localCoderSecurity() policy.AuthorizationPolicy {
+	subjects := []policy.SubjectRef{
+		{Kind: policy.SubjectUser, ID: "*"},
+		{Kind: policy.SubjectGroup, ID: "local_operators"},
+	}
+	resources := []policy.ResourceRef{
+		{Kind: policy.ResourceWorkspace, Name: "*"},
+		{Kind: policy.ResourcePath, Path: "**"},
+		{Kind: policy.ResourceProcess, Name: "*"},
+		{Kind: policy.ResourceNetwork, Name: "*"},
+		{Kind: policy.ResourceConnector, Name: "*"},
+		{Kind: policy.ResourceTask, Name: "*"},
+		{Kind: policy.ResourceSession, Name: "*"},
+		{Kind: policy.ResourceDatasource, Name: "*"},
+		{Kind: policy.ResourceModel, Name: "*"},
+		{Kind: policy.ResourceOperation, Name: "*"},
+	}
+	actions := []policy.Action{
+		"workspace.*",
+		"process.*",
+		"network.*",
+		"connector.*",
+		"task.*",
+		"session.*",
+		"datasource.*",
+		policy.ActionModelInvoke,
+		policy.ActionOperationInvoke,
+		policy.ActionApprovalGrant,
+	}
+	return policy.AuthorizationPolicy{Grants: []policy.Grant{{
+		Subjects:      subjects,
+		Resources:     resources,
+		Actions:       actions,
+		RequiredTrust: policy.TrustPrivileged,
+	}}}
 }
 
 func embeddedResourceBundle() resource.ContributionBundle {

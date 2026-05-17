@@ -9,7 +9,7 @@ require (
 	github.com/chromedp/chromedp v0.15.1
 	github.com/codewandler/axon v0.0.0
 	github.com/codewandler/cmdrisk v0.1.1
-	github.com/codewandler/markdown v0.46.2
+	github.com/codewandler/markdown v0.46.3
 	github.com/codewandler/modeldb v0.15.0
 	github.com/invopop/jsonschema v0.14.0
 	github.com/klauspost/compress v1.18.5

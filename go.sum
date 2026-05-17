@@ -88,8 +88,8 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/codewandler/cmdrisk v0.1.1 h1:EmCvCp/rnOGsxuX8pet1ygIJ/4V070dh29cRSetly+Y=
 github.com/codewandler/cmdrisk v0.1.1/go.mod h1:PKySwtJeRYRfF0U/mgcI5P6K7OpAuyK8Ktq67W3M0hA=
-github.com/codewandler/markdown v0.46.2 h1:tNyAHoFDfxnTHnMTdjs/MCs4CqZo2MkobcH8NfpeCPg=
-github.com/codewandler/markdown v0.46.2/go.mod h1:sNw74i9UYkl+Tms0nUmOeC/uKKQZpkm1rweCS2LqJPA=
+github.com/codewandler/markdown v0.46.3 h1:WuZSbjr6kGv8GxUQD0PAW5MKfAmYSh+XBZjlqBualCU=
+github.com/codewandler/markdown v0.46.3/go.mod h1:sNw74i9UYkl+Tms0nUmOeC/uKKQZpkm1rweCS2LqJPA=
 github.com/codewandler/modeldb v0.15.0 h1:3txDv+bO8bLIppF+GFzf6Wz4aDNn2BLrBDjO9gBcAoo=
 github.com/codewandler/modeldb v0.15.0/go.mod h1:gEMWWdksRY8PodHlTY2QEBme1xNBK5gp7h9vo3QAI7g=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=

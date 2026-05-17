@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added typed runtime authorization policy grants for users, groups, services,
+  systems, and agents, including wildcard resource/action matching, operation
+  safety enforcement, projection filtering, local coder defaults, and
+  canonical `<user>@localhost` local caller identity.
+
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider
   scope metadata for current user, identity, caller, and trust.

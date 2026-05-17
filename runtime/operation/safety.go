@@ -1,10 +1,12 @@
 package operationruntime
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 )
 
 // SafetyGate rejects operation execution before the handler runs.
@@ -30,7 +32,7 @@ type Sandbox interface {
 
 // AccessController models ACL/scope enforcement for one operation execution.
 type AccessController interface {
-	Authorize(operation.Context, operation.Spec, operation.Value) error
+	Authorize(operation.Context, operation.Operation, operation.Value) error
 }
 
 // CommandRiskClassifier models shell/code execution risk classification, for
@@ -67,9 +69,13 @@ type CommandRisk struct {
 
 // ApprovalRequest describes one operation execution that needs user approval.
 type ApprovalRequest struct {
-	Spec  operation.Spec  `json:"spec"`
-	Input operation.Value `json:"input,omitempty"`
-	Risk  CommandRisk     `json:"risk,omitempty"`
+	Subjects []policy.SubjectRef `json:"subjects,omitempty"`
+	Resource policy.ResourceRef  `json:"resource,omitempty"`
+	Action   policy.Action       `json:"action,omitempty"`
+	Spec     operation.Spec      `json:"spec"`
+	Input    operation.Value     `json:"input,omitempty"`
+	Risk     CommandRisk         `json:"risk,omitempty"`
+	Reason   string              `json:"reason,omitempty"`
 }
 
 // SafetyEnvelope is the default runtime safety gate shape for real
@@ -89,8 +95,15 @@ type SafetyEnvelope struct {
 func (e SafetyEnvelope) Check(ctx operation.Context, op operation.Operation, input operation.Value) error {
 	spec := op.Spec()
 	if e.ACL != nil {
-		if err := e.ACL.Authorize(ctx, spec, input); err != nil {
-			return fmt.Errorf("acl_denied: %w", err)
+		if err := e.ACL.Authorize(ctx, op, input); err != nil {
+			var approvalRequired AuthorizationApprovalRequired
+			if errors.As(err, &approvalRequired) {
+				if err := e.approveAuthorization(ctx, spec, input, approvalRequired); err != nil {
+					return err
+				}
+			} else {
+				return fmt.Errorf("acl_denied: %w", err)
+			}
 		}
 	}
 	if e.Secrets != nil {
@@ -160,11 +173,34 @@ func (e SafetyEnvelope) Check(ctx operation.Context, op operation.Operation, inp
 	return nil
 }
 
+func (e SafetyEnvelope) approveAuthorization(ctx operation.Context, spec operation.Spec, input operation.Value, approval AuthorizationApprovalRequired) error {
+	if e.Approval == nil {
+		return approvalRequiredError(CommandRisk{Reason: approval.Error(), RequiresApproval: true})
+	}
+	req := ApprovalRequest{
+		Subjects: approval.Subjects,
+		Resource: approval.Resource,
+		Action:   approval.Action,
+		Spec:     spec,
+		Input:    input,
+		Reason:   approval.Reason,
+		Risk:     CommandRisk{Reason: approval.Error(), RequiresApproval: true},
+	}
+	if err := e.Approval.Approve(ctx, req); err != nil {
+		return fmt.Errorf("approval_denied: %w", err)
+	}
+	return nil
+}
+
 func (e SafetyEnvelope) approve(ctx operation.Context, spec operation.Spec, input operation.Value, risk CommandRisk) error {
 	if e.Approval == nil {
 		return approvalRequiredError(risk)
 	}
-	if err := e.Approval.Approve(ctx, ApprovalRequest{Spec: spec, Input: input, Risk: risk}); err != nil {
+	req := ApprovalRequest{Spec: spec, Input: input, Risk: risk}
+	if auth, ok := policy.AuthorizationFromContext(ctx); ok {
+		req.Subjects = auth.Subjects
+	}
+	if err := e.Approval.Approve(ctx, req); err != nil {
 		return fmt.Errorf("approval_denied: %w", err)
 	}
 	return nil

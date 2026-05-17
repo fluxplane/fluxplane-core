@@ -14,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -21,6 +22,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/agentconfig"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
+	"github.com/fluxplane/agentruntime/orchestration/security"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
@@ -46,6 +48,7 @@ type Config struct {
 	IdentityResolver  identity.Resolver
 	ToolSetCatalog    session.ToolSetCatalog
 	ToolProjection    toolprojection.Config
+	Security          policy.AuthorizationPolicy
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -72,6 +75,7 @@ type Service struct {
 	identityResolver  identity.Resolver
 	toolSetCatalog    session.ToolSetCatalog
 	toolProjection    toolprojection.Config
+	security          policy.AuthorizationPolicy
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -102,6 +106,7 @@ func New(cfg Config) *Service {
 		identityResolver:  cfg.IdentityResolver,
 		toolSetCatalog:    cfg.ToolSetCatalog,
 		toolProjection:    cfg.ToolProjection,
+		security:          cfg.Security,
 		bindings:          map[bindingKey]corethread.Ref{},
 		profiles:          map[corethread.ID]coresession.Spec{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
@@ -385,6 +390,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
 		TurnTools:         turnTools,
+		Security:          s.security,
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -422,6 +428,9 @@ func (s *Service) projectToolsForInbound(agentRuntime agent.Agent, inbound chann
 	cfg.ToolSets = s.toolSetCatalog
 	cfg.Caller = inbound.Caller
 	cfg.Trust = inbound.Trust
+	cfg.Authorization.Policy = s.security
+	cfg.Authorization.Subjects = security.SubjectsForInbound(inbound, agentRuntime.Spec())
+	cfg.Authorization.Trust = inbound.Trust
 	projected := toolprojection.Project(cfg)
 	filtered := agentconfig.FilterTools(agentRuntime.Spec(), projected.Tools)
 	if filtered == nil && (len(s.commandCatalog) > 0 || len(s.operationCatalog) > 0 || len(s.toolSetCatalog) > 0) {
@@ -469,6 +478,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Delegation:        s.delegationForInfo(info),
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
+		Security:          s.security,
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {

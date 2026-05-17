@@ -14,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	contextruntime "github.com/fluxplane/agentruntime/runtime/context"
@@ -243,11 +244,30 @@ func datasourceAccessContext(ctx context.Context, agent agent.Agent) context.Con
 	spec := agent.Spec()
 	names := make([]coredatasource.Name, 0, len(spec.Datasources))
 	for _, ref := range spec.Datasources {
-		if ref.Name != "" {
+		if ref.Name != "" && datasourceAuthorized(ctx, ref.Name) {
 			names = append(names, ref.Name)
 		}
 	}
 	return coredatasource.ContextWithAccessPolicy(ctx, coredatasource.AccessPolicy{Datasources: names})
+}
+
+func datasourceAuthorized(ctx context.Context, name coredatasource.Name) bool {
+	auth, ok := policy.AuthorizationFromContext(ctx)
+	if !ok || auth.Policy.IsZero() {
+		return true
+	}
+	for _, action := range []policy.Action{policy.ActionDatasourceSearch, policy.ActionDatasourceRead} {
+		evaluation := policy.EvaluateAuthorization(auth.Policy, policy.AuthorizationRequest{
+			Subjects: auth.Subjects,
+			Trust:    auth.Trust,
+			Resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: string(name)},
+			Action:   action,
+		})
+		if evaluation.Decision == policy.DecisionAllow || evaluation.Decision == policy.DecisionApprovalRequired {
+			return true
+		}
+	}
+	return false
 }
 
 func detectionInputFromObservations(observations []environment.Observation) coredatasource.DetectionInput {

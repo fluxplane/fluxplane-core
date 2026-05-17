@@ -24,6 +24,7 @@ type Config struct {
 	ToolSets                session.ToolSetCatalog
 	Caller                  policy.Caller
 	Trust                   policy.Trust
+	Authorization           policy.AuthorizationContext
 	AllowSideEffects        bool
 	AllowApprovalRequired   bool
 	MaxRisk                 operation.RiskLevel
@@ -158,6 +159,9 @@ func projectToolSet(cfg Config, binding session.ToolSetBinding) (tool.Spec, []re
 		if ok, reason := safeToProject(cfg, opSemantics); !ok {
 			return tool.Spec{}, nil, false, reason
 		}
+		if ok, reason := authorizedToProject(cfg, operationBinding.Operation.Spec()); !ok {
+			return tool.Spec{}, nil, false, reason
+		}
 		semantics = mergeSemantics(semantics, opSemantics)
 		covered = append(covered, operationBinding.ID)
 		dispatch.Cases = append(dispatch.Cases, tool.DispatchCase{
@@ -223,6 +227,9 @@ func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool
 		if ok, reason := safeToProject(cfg, semantics); !ok {
 			return tool.Spec{}, false, reason
 		}
+		if ok, reason := authorizedToProject(cfg, operationBinding.Operation.Spec()); !ok {
+			return tool.Spec{}, false, reason
+		}
 	}
 	projected := tool.Spec{
 		Name:        tool.Name(toolName(binding.ID)),
@@ -255,6 +262,9 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 	if ok, reason := safeToProject(cfg, spec.Semantics); !ok {
 		return tool.Spec{}, false, reason
 	}
+	if ok, reason := authorizedToProject(cfg, spec); !ok {
+		return tool.Spec{}, false, reason
+	}
 	return tool.Spec{
 		Name:        tool.Name(spec.Ref.Name),
 		Description: spec.Description,
@@ -271,6 +281,30 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 			"operation_id": binding.ID.Address(),
 		},
 	}, true, ""
+}
+
+func authorizedToProject(cfg Config, spec operation.Spec) (bool, string) {
+	if cfg.Authorization.Policy.IsZero() {
+		return true, ""
+	}
+	resource := policy.ResourceRef{Kind: policy.ResourceOperation, Name: string(spec.Ref.Name)}
+	evaluation := policy.EvaluateAuthorization(cfg.Authorization.Policy, policy.AuthorizationRequest{
+		Subjects: cfg.Authorization.Subjects,
+		Trust:    cfg.Authorization.Trust,
+		Resource: resource,
+		Action:   policy.ActionOperationInvoke,
+	})
+	switch evaluation.Decision {
+	case policy.DecisionAllow:
+		return true, ""
+	case policy.DecisionApprovalRequired:
+		if cfg.AllowApprovalRequired {
+			return true, ""
+		}
+		return false, evaluation.Reason
+	default:
+		return false, evaluation.Reason
+	}
 }
 
 func safeToProject(cfg Config, semantics operation.Semantics) (bool, string) {

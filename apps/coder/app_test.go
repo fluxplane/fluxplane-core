@@ -292,7 +292,7 @@ Dex skill body.
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser},
-		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
 		ToolProjection: ToolProjectionConfig(),
 	})
 	if err != nil {
@@ -381,7 +381,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 		LLMModel: llmagent.StaticModel{Response: llmagent.MessageResponse("ok")},
 		Channel:  channel.Ref{Name: "local"},
 		Caller:   policy.Caller{Kind: policy.CallerUser},
-		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
 	})
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
@@ -460,7 +460,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser},
-		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
 		ToolProjection: ToolProjectionConfig(),
 	})
 	if err != nil {

@@ -144,6 +144,9 @@ func missingScopes(required []Scope, actual []Scope) []Scope {
 	}
 	have := map[Scope]bool{}
 	for _, scope := range actual {
+		if scope == "*" {
+			return nil
+		}
 		have[scope] = true
 	}
 	var missing []Scope

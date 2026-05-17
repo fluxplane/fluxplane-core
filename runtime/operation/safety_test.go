@@ -399,7 +399,7 @@ func (denySandbox) Check(operation.Context, operation.Spec, operation.Value) err
 
 type denyACL struct{}
 
-func (denyACL) Authorize(operation.Context, operation.Spec, operation.Value) error {
+func (denyACL) Authorize(operation.Context, operation.Operation, operation.Value) error {
 	return errors.New("no")
 }
 

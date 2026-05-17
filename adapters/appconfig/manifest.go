@@ -405,25 +405,26 @@ type kindDoc struct {
 
 // Manifest is the app manifest file shape accepted by this adapter.
 type Manifest struct {
-	Kind           string                  `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name           coreapp.Name            `json:"name,omitempty" yaml:"name,omitempty"`
-	Description    string                  `json:"description,omitempty" yaml:"description,omitempty"`
-	DefaultAgent   agentRef                `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
-	Sources        []sourceSpec            `json:"sources,omitempty" yaml:"sources,omitempty"`
-	Discovery      discovery               `json:"discovery,omitempty" yaml:"discovery,omitempty"`
-	ModelPolicy    modelPolicy             `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
-	SemanticSearch semanticSearchDoc       `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
-	Models         modelConfigDoc          `json:"models,omitempty" yaml:"models,omitempty"`
-	Distribution   distributionDoc         `json:"distribution,omitempty" yaml:"distribution,omitempty"`
-	Plugins        []pluginRef             `json:"plugins,omitempty" yaml:"plugins,omitempty"`
-	Datasources    []DatasourceDoc         `json:"datasources,omitempty" yaml:"datasources,omitempty"`
-	Commands       []commandDoc            `json:"commands,omitempty" yaml:"commands,omitempty"`
-	Workflows      []workflowDoc           `json:"workflows,omitempty" yaml:"workflows,omitempty"`
-	Operations     []operationDoc          `json:"operations,omitempty" yaml:"operations,omitempty"`
-	LLMProviders   []corellm.ProviderSpec  `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
-	Runtime        RuntimeConfig           `json:"runtime,omitempty" yaml:"runtime,omitempty"`
-	Daemon         DaemonConfig            `json:"daemon,omitempty" yaml:"daemon,omitempty"`
-	Connectors     map[string]ConnectorDoc `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+	Kind           string                     `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name           coreapp.Name               `json:"name,omitempty" yaml:"name,omitempty"`
+	Description    string                     `json:"description,omitempty" yaml:"description,omitempty"`
+	DefaultAgent   agentRef                   `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
+	Sources        []sourceSpec               `json:"sources,omitempty" yaml:"sources,omitempty"`
+	Discovery      discovery                  `json:"discovery,omitempty" yaml:"discovery,omitempty"`
+	ModelPolicy    modelPolicy                `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
+	SemanticSearch semanticSearchDoc          `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
+	Security       policy.AuthorizationPolicy `json:"security,omitempty" yaml:"security,omitempty"`
+	Models         modelConfigDoc             `json:"models,omitempty" yaml:"models,omitempty"`
+	Distribution   distributionDoc            `json:"distribution,omitempty" yaml:"distribution,omitempty"`
+	Plugins        []pluginRef                `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+	Datasources    []DatasourceDoc            `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Commands       []commandDoc               `json:"commands,omitempty" yaml:"commands,omitempty"`
+	Workflows      []workflowDoc              `json:"workflows,omitempty" yaml:"workflows,omitempty"`
+	Operations     []operationDoc             `json:"operations,omitempty" yaml:"operations,omitempty"`
+	LLMProviders   []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
+	Runtime        RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	Daemon         DaemonConfig               `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+	Connectors     map[string]ConnectorDoc    `json:"connectors,omitempty" yaml:"connectors,omitempty"`
 }
 
 // RuntimeConfig contains local runtime wiring consumed by launch adapters.
@@ -1306,6 +1307,7 @@ func (m Manifest) Spec() coreapp.Spec {
 		Discovery:      m.Discovery.Spec(),
 		Model:          m.ModelPolicy.Spec(),
 		SemanticSearch: m.SemanticSearch.Spec(),
+		Security:       m.Security,
 	}
 	for _, source := range m.Sources {
 		spec.Sources = append(spec.Sources, coreapp.SourceSpec(source))

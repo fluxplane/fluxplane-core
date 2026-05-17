@@ -515,6 +515,69 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 	}
 }
 
+func TestServiceSecurityPolicyEnforcedWithDefaultExecutor(t *testing.T) {
+	ctx := context.Background()
+	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Operations: []operation.Operation{echo},
+		Bundles: []agentruntime.ResourceBundle{{
+			Apps: []coreapp.Spec{{
+				Name: "demo",
+				Security: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+					Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "someoneelse"}},
+					Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+					Actions:   []policy.Action{policy.ActionOperationInvoke},
+				}}},
+			}},
+			Commands: []command.Spec{{
+				Path: command.Path{"echo"},
+				Target: invocation.Target{
+					Kind:      invocation.TargetOperation,
+					Operation: operation.Ref{Name: "echo"},
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "secure-command"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{
+		Path:  command.Path{"echo"},
+		Input: "hello",
+	}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Command == nil || result.Command.Status != session.CommandStatusFailed {
+		t.Fatalf("command result = %#v, want failed", result.Command)
+	}
+	if result.Command.Effect == nil || result.Command.Effect.Result.Error == nil || result.Command.Effect.Result.Error.Code != "operation_safety_denied" {
+		t.Fatalf("effect = %#v, want operation_safety_denied", result.Command.Effect)
+	}
+}
+
 func assertRunEvent(t *testing.T, run agentruntime.Run, kind agentruntime.EventKind) {
 	t.Helper()
 	deadline := time.After(time.Second)

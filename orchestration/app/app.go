@@ -8,6 +8,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/appresources"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
@@ -29,6 +30,7 @@ type Config struct {
 	Bundles           []resource.ContributionBundle
 	BundleTransforms  []BundleTransform
 	OperationExecutor operationruntime.Executor
+	Security          policy.AuthorizationPolicy
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -47,6 +49,7 @@ type Composition struct {
 	resourcecatalog.Specs
 	appresources.Resources
 	OperationExecutor operationruntime.Executor
+	Security          policy.AuthorizationPolicy
 	EventRegistry     *event.Registry
 	EventStore        event.Store
 	Bundles           []resource.ContributionBundle
@@ -107,6 +110,7 @@ func Compose(cfg Config) (Composition, error) {
 		diagnostics = append(diagnostics, resourceDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
+	security := mergeSecurity(cfg.Security, bundles)
 
 	return Composition{
 		Agent:                cfg.Agent,
@@ -118,11 +122,22 @@ func Compose(cfg Config) (Composition, error) {
 		Specs:                specs,
 		Resources:            appResources,
 		OperationExecutor:    cfg.OperationExecutor,
+		Security:             security,
 		EventRegistry:        eventRegistry,
 		EventStore:           cfg.EventStore,
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,
 	}, nil
+}
+
+func mergeSecurity(base policy.AuthorizationPolicy, bundles []resource.ContributionBundle) policy.AuthorizationPolicy {
+	out := policy.AuthorizationPolicy{Grants: append([]policy.Grant(nil), base.Grants...)}
+	for _, bundle := range bundles {
+		for _, appSpec := range bundle.Apps {
+			out.Grants = append(out.Grants, appSpec.Security.Grants...)
+		}
+	}
+	return out
 }
 
 func appendEventTypesFromBundles(base []event.Event, bundles []resource.ContributionBundle) []event.Event {
