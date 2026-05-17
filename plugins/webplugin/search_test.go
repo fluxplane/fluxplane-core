@@ -41,7 +41,10 @@ func (n *testNetwork) lastRequest() system.HTTPRequest {
 
 type testEnvironment map[string]string
 
-func (e testEnvironment) Getenv(key string) string { return e[key] }
+func (e testEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e[key]
+	return value, ok, nil
+}
 
 type testSearchProvider struct {
 	name    string

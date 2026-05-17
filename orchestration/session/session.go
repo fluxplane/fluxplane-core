@@ -57,6 +57,7 @@ type Session struct {
 	RunID             string
 	TurnTools         []tool.Spec
 	Security          policy.AuthorizationPolicy
+	SecurityTrace     bool
 }
 
 type StopEvaluator = sessioncontrol.StopEvaluator
@@ -344,7 +345,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	if s.Agent == nil {
 		return inputFailed("agent_missing", "agent is nil", nil)
 	}
-	ctx = security.ContextForInbound(ctx, s.Security, inbound, s.Agent.Spec())
+	ctx = security.ContextForInbound(ctx, s.Security, inbound, s.Agent.Spec(), s.SecurityTrace)
 	if err := s.replaySkillEvents(ctx); err != nil {
 		return inputFailed("skill_replay_failed", err.Error(), nil)
 	}
@@ -1770,7 +1771,7 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if s.Agent != nil {
 		agentSpec = s.Agent.Spec()
 	}
-	ctx = security.ContextForInbound(ctx, s.Security, inbound, agentSpec)
+	ctx = security.ContextForInbound(ctx, s.Security, inbound, agentSpec, s.SecurityTrace)
 	evaluation := sessioncontrol.EvaluateInvocation(spec, inbound.Caller, inbound.Trust)
 	switch {
 	case sessioncontrol.PolicyDenied(evaluation):

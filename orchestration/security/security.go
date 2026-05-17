@@ -12,14 +12,15 @@ import (
 
 // ContextForInbound builds the effective authorization context for one inbound
 // turn.
-func ContextForInbound(ctx context.Context, configured policy.AuthorizationPolicy, inbound channel.Inbound, agentSpec agent.Spec) context.Context {
+func ContextForInbound(ctx context.Context, configured policy.AuthorizationPolicy, inbound channel.Inbound, agentSpec agent.Spec, traceAllows bool) context.Context {
 	if configured.IsZero() {
 		return ctx
 	}
 	return policy.ContextWithAuthorization(ctx, policy.AuthorizationContext{
-		Policy:   configured,
-		Subjects: SubjectsForInbound(inbound, agentSpec),
-		Trust:    inbound.Trust,
+		Policy:      configured,
+		Subjects:    SubjectsForInbound(inbound, agentSpec),
+		Trust:       inbound.Trust,
+		TraceAllows: traceAllows,
 	})
 }
 

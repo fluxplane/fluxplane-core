@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added typed access descriptor helper builders for common path, datasource,
   process, network, connector, task, and static resource mappings, reducing
   repetitive operation authorization boilerplate.
+- Added system-boundary authorization checks for workspace, network, process,
+  and environment access, plus `secret.*` policy resources for environment
+  variable backed secrets, browser network authorization, canonical workspace
+  path authorization, and terminal authz decision traces in debug mode.
 
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider

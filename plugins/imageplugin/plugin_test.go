@@ -123,7 +123,7 @@ func findOp(t *testing.T, ops []operation.Operation, name operation.Name) operat
 
 type fakeGenerator struct{}
 
-func (fakeGenerator) Info(system.System) ProviderInfo {
+func (fakeGenerator) Info(context.Context, system.System) ProviderInfo {
 	return ProviderInfo{Name: "fake", Capabilities: []string{"generate"}, Configured: true}
 }
 
@@ -133,7 +133,7 @@ func (fakeGenerator) Generate(context.Context, system.System, GenerateRequest) (
 
 type fakeUnderstander struct{}
 
-func (fakeUnderstander) Info(system.System) ProviderInfo {
+func (fakeUnderstander) Info(context.Context, system.System) ProviderInfo {
 	return ProviderInfo{Name: "fake", Capabilities: []string{"understand"}, Configured: true}
 }
 

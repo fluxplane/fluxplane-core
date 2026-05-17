@@ -96,3 +96,29 @@ func TestEvaluateAuthorizationApprovalRequired(t *testing.T) {
 		t.Fatalf("decision = %#v, want approval required", got)
 	}
 }
+
+func TestEvaluateAuthorizationSecretResource(t *testing.T) {
+	policy := AuthorizationPolicy{Grants: []Grant{{
+		Subjects:  []SubjectRef{{Kind: SubjectGroup, ID: "local_operators"}},
+		Resources: []ResourceRef{{Kind: ResourceSecret, Name: "env/OPENAI_API_KEY"}},
+		Actions:   []Action{ActionSecretRead},
+	}}}
+	got := EvaluateAuthorization(policy, AuthorizationRequest{
+		Subjects: []SubjectRef{{Kind: SubjectGroup, ID: "local_operators"}},
+		Trust:    Trust{Kind: TrustInvocation, Level: TrustPrivileged},
+		Resource: ResourceRef{Kind: ResourceSecret, Name: "env/OPENAI_API_KEY"},
+		Action:   ActionSecretRead,
+	})
+	if got.Decision != DecisionAllow {
+		t.Fatalf("decision = %#v, want allow", got)
+	}
+	got = EvaluateAuthorization(policy, AuthorizationRequest{
+		Subjects: []SubjectRef{{Kind: SubjectGroup, ID: "local_operators"}},
+		Trust:    Trust{Kind: TrustInvocation, Level: TrustPrivileged},
+		Resource: ResourceRef{Kind: ResourceSecret, Name: "env/ANTHROPIC_API_KEY"},
+		Action:   ActionSecretRead,
+	})
+	if got.Decision != DecisionDeny {
+		t.Fatalf("decision = %#v, want deny", got)
+	}
+}

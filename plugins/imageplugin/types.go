@@ -10,13 +10,13 @@ const defaultPrompt = "Describe this image in detail. Include any text, diagrams
 
 // GenerationProvider generates images from text prompts.
 type GenerationProvider interface {
-	Info(system.System) ProviderInfo
+	Info(context.Context, system.System) ProviderInfo
 	Generate(context.Context, system.System, GenerateRequest) (GenerateResult, error)
 }
 
 // UnderstandingProvider analyzes image inputs.
 type UnderstandingProvider interface {
-	Info(system.System) ProviderInfo
+	Info(context.Context, system.System) ProviderInfo
 	Understand(context.Context, system.System, UnderstandRequest) (UnderstandResult, error)
 }
 

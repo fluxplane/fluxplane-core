@@ -1,6 +1,7 @@
 package imageplugin
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,7 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-func selectGenerationProvider(sys system.System, providers []GenerationProvider, requested string) (GenerationProvider, error) {
+func selectGenerationProvider(ctx context.Context, sys system.System, providers []GenerationProvider, requested string) (GenerationProvider, error) {
 	requested = strings.TrimSpace(requested)
 	var configured []string
 	var available []string
@@ -16,7 +17,7 @@ func selectGenerationProvider(sys system.System, providers []GenerationProvider,
 		if provider == nil {
 			continue
 		}
-		info := provider.Info(sys)
+		info := provider.Info(ctx, sys)
 		available = append(available, info.Name)
 		if requested != "" && info.Name != requested {
 			continue
@@ -35,7 +36,7 @@ func selectGenerationProvider(sys system.System, providers []GenerationProvider,
 	return nil, fmt.Errorf("no configured image generation provider; available: %s", strings.Join(configured, ", "))
 }
 
-func selectUnderstandingProvider(sys system.System, providers []UnderstandingProvider, requested string) (UnderstandingProvider, error) {
+func selectUnderstandingProvider(ctx context.Context, sys system.System, providers []UnderstandingProvider, requested string) (UnderstandingProvider, error) {
 	requested = strings.TrimSpace(requested)
 	var available []string
 	var missing []string
@@ -43,7 +44,7 @@ func selectUnderstandingProvider(sys system.System, providers []UnderstandingPro
 		if provider == nil {
 			continue
 		}
-		info := provider.Info(sys)
+		info := provider.Info(ctx, sys)
 		available = append(available, info.Name)
 		if requested != "" && info.Name != requested {
 			continue

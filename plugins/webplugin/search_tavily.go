@@ -17,8 +17,8 @@ type tavilySearchProvider struct {
 	apiKey string
 }
 
-func newTavilySearchProvider(sys system.System) tavilySearchProvider {
-	return tavilySearchProvider{system: sys, apiKey: env(sys, "TAVILY_API_KEY")}
+func newTavilySearchProvider(ctx context.Context, sys system.System) tavilySearchProvider {
+	return tavilySearchProvider{system: sys, apiKey: env(ctx, sys, "TAVILY_API_KEY")}
 }
 
 func (p tavilySearchProvider) Name() string { return SearchProviderTavily }

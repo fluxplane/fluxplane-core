@@ -77,6 +77,14 @@ plugins receive a `System` and must use its workspace, network, process,
 browser, and clarifier interfaces instead of calling `os`, `net/http`, `exec`,
 or terminal input directly.
 
+When an authorization context is present, `runtime/system.WithAuthorization`
+enforces the same policy at the IO boundary: workspace reads/writes map to
+canonical resolved path resources, HTTP and browser navigation map to network
+fetch/connect actions, process launch maps to process execution, and
+environment variable reads map to `secret:env/<KEY>` with `secret.read`. This
+keeps operation-level declarations as projection/approval intent while the final
+side-effect guard stays at the system boundary.
+
 ```mermaid
 flowchart LR
   Operation[standard operation] --> System[runtime/system.System]

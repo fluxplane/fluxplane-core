@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fluxplane/agentruntime/core/policy"
 )
 
 func TestHostWorkspaceRejectsSymlinkEscape(t *testing.T) {
@@ -408,6 +410,236 @@ func TestHostNetworkRetriesIdempotentRequests(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("calls = %d, want 2", calls)
 	}
+}
+
+func TestAuthorizedSystemEnforcesWorkspaceActions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	host, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
+		Actions:   []policy.Action{policy.ActionWorkspaceRead},
+	}})
+
+	if _, _, _, err := sys.Workspace().ReadFile(ctx, "README.md", 1024); err != nil {
+		t.Fatalf("ReadFile denied: %v", err)
+	}
+	_, err = sys.Workspace().WriteFile(ctx, "out.txt", []byte("x"), 0644, false)
+	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("WriteFile error = %v, want authorization deny", err)
+	}
+}
+
+func TestAuthorizedSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "README.md"), []byte("docs"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "secret.txt"), []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	host, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "docs/**"}},
+		Actions:   []policy.Action{policy.ActionWorkspaceRead},
+	}})
+
+	if _, _, _, err := sys.Workspace().ReadFile(ctx, "docs/README.md", 1024); err != nil {
+		t.Fatalf("ReadFile docs/README.md denied: %v", err)
+	}
+	_, _, _, err = sys.Workspace().ReadFile(ctx, "docs/../secret.txt", 1024)
+	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("ReadFile traversal error = %v, want authorization deny", err)
+	}
+}
+
+func TestAuthorizedSystemEnforcesEnvironmentSecretRead(t *testing.T) {
+	t.Setenv("AGENTRUNTIME_SYSTEM_TEST_SECRET", "secret")
+	host, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	denied := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
+		Actions:   []policy.Action{policy.ActionWorkspaceRead},
+	}})
+	if _, _, err := sys.Environment().Lookup(denied, "AGENTRUNTIME_SYSTEM_TEST_SECRET"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("Lookup denied error = %v, want authorization deny", err)
+	}
+
+	allowed := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceSecret, Name: "env/AGENTRUNTIME_SYSTEM_TEST_SECRET"}},
+		Actions:   []policy.Action{policy.ActionSecretRead},
+	}})
+	value, ok, err := sys.Environment().Lookup(allowed, "AGENTRUNTIME_SYSTEM_TEST_SECRET")
+	if err != nil || !ok || value != "secret" {
+		t.Fatalf("Lookup = %q, %v, %v; want secret, true, nil", value, ok, err)
+	}
+}
+
+func TestAuthorizedSystemEnforcesNetworkActions(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	host, err := NewHost(Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionNetworkFetch},
+	}})
+	if _, err := sys.Network().DoHTTP(ctx, HTTPRequest{URL: server.URL, Method: http.MethodPost}); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("POST error = %v, want authorization deny", err)
+	}
+	if calls != 0 {
+		t.Fatalf("server calls = %d, want 0", calls)
+	}
+	if _, err := sys.Network().DoHTTP(ctx, HTTPRequest{URL: server.URL, Method: http.MethodGet}); err != nil {
+		t.Fatalf("GET denied: %v", err)
+	}
+}
+
+func TestAuthorizedSystemEnforcesBrowserNetworkAccess(t *testing.T) {
+	browser := &recordingBrowser{}
+	sys := WithAuthorization(testSystemBoundary{browser: browser}, AuthorizationConfig{})
+	denied := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
+		Actions:   []policy.Action{policy.ActionWorkspaceRead},
+	}})
+	if _, err := sys.Browser().Open(denied, BrowserOpenRequest{URL: "https://example.com"}); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("Open denied error = %v, want authorization deny", err)
+	}
+	if browser.openCalls != 0 {
+		t.Fatalf("browser open calls = %d, want 0", browser.openCalls)
+	}
+
+	allowed := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionNetworkFetch},
+	}})
+	if _, err := sys.Browser().Open(allowed, BrowserOpenRequest{URL: "https://example.com"}); err != nil {
+		t.Fatalf("Open allowed denied: %v", err)
+	}
+	if browser.openCalls != 1 {
+		t.Fatalf("browser open calls = %d, want 1", browser.openCalls)
+	}
+}
+
+func TestAuthorizedSystemEnforcesProcessExec(t *testing.T) {
+	host, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
+		Actions:   []policy.Action{policy.ActionWorkspaceRead},
+	}})
+	_, err = sys.Process().Run(ctx, ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
+	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("Run error = %v, want authorization deny", err)
+	}
+}
+
+type testSystemBoundary struct {
+	workspace Workspace
+	network   Network
+	process   ProcessManager
+	browser   BrowserManager
+	env       Environment
+}
+
+func (s testSystemBoundary) Workspace() Workspace     { return s.workspace }
+func (s testSystemBoundary) Network() Network         { return s.network }
+func (s testSystemBoundary) Process() ProcessManager  { return s.process }
+func (s testSystemBoundary) Browser() BrowserManager  { return s.browser }
+func (s testSystemBoundary) Clarifier() Clarifier     { return nil }
+func (s testSystemBoundary) Environment() Environment { return s.env }
+
+type recordingBrowser struct {
+	openCalls int
+}
+
+func (b *recordingBrowser) Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error) {
+	b.openCalls++
+	return BrowserOpenResult{SessionID: "browser-1", URL: "https://example.com"}, nil
+}
+func (*recordingBrowser) Navigate(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Click(context.Context, BrowserSelectorRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Type(context.Context, BrowserTypeRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Select(context.Context, BrowserSelectRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Read(context.Context, BrowserReadRequest) (BrowserReadResult, error) {
+	return BrowserReadResult{}, nil
+}
+func (*recordingBrowser) Screenshot(context.Context, BrowserSessionRequest) (BrowserArtifact, error) {
+	return BrowserArtifact{}, nil
+}
+func (*recordingBrowser) Evaluate(context.Context, BrowserEvaluateRequest) (BrowserEvaluateResult, error) {
+	return BrowserEvaluateResult{}, nil
+}
+func (*recordingBrowser) Wait(context.Context, BrowserWaitRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Scroll(context.Context, BrowserScrollRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Hover(context.Context, BrowserSelectorRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Back(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) Forward(context.Context, BrowserSessionRequest) (BrowserPageResult, error) {
+	return BrowserPageResult{}, nil
+}
+func (*recordingBrowser) PDF(context.Context, BrowserSessionRequest) (BrowserArtifact, error) {
+	return BrowserArtifact{}, nil
+}
+func (*recordingBrowser) Close(context.Context, BrowserSessionRequest) error { return nil }
+
+func authorizedTestContext(grants []policy.Grant) context.Context {
+	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Policy: policy.AuthorizationPolicy{Grants: grants},
+		Subjects: []policy.SubjectRef{
+			{Kind: policy.SubjectUser, ID: "timo@localhost"},
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+	})
 }
 
 func resolvedContains(paths []ResolvedPath, rel string) bool {

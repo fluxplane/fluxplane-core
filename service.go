@@ -117,6 +117,7 @@ type Config struct {
 	ToolProjection    ToolProjectionConfig
 	IdentityResolver  IdentityResolver
 	Security          policy.AuthorizationPolicy
+	SecurityTrace     bool
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -186,6 +187,7 @@ func New(cfg Config) (*Service, error) {
 		IdentityResolver:  cfg.IdentityResolver,
 		ToolProjection:    cfg.ToolProjection,
 		Security:          cfg.Security,
+		SecurityTrace:     cfg.SecurityTrace,
 	})
 	client, err := directchannel.New(directchannel.Config{
 		Service: service,

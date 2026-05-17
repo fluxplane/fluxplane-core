@@ -136,21 +136,24 @@ func (h *Host) SetClarifier(clarifier Clarifier) { h.clarifier = clarifier }
 
 // Environment is a read-only boundary for host environment variables.
 type Environment interface {
-	Getenv(string) string
+	Lookup(context.Context, string) (string, bool, error)
 }
 
 // HostEnvironment implements Environment using os.Getenv.
 type HostEnvironment struct{}
 
-// Getenv returns the host environment variable value for key.
-func (HostEnvironment) Getenv(key string) string { return os.Getenv(key) }
+// Lookup returns the host environment variable value for key.
+func (HostEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := os.LookupEnv(key)
+	return value, ok, nil
+}
 
 // Workspace is a root-confined filesystem boundary.
 type Workspace interface {
 	Root() string
 	Roots() []WorkspaceRoot
-	ResolveExisting(string) (ResolvedPath, error)
-	ResolveCreate(string) (ResolvedPath, error)
+	ResolveExisting(context.Context, string) (ResolvedPath, error)
+	ResolveCreate(context.Context, string) (ResolvedPath, error)
 	ReadFile(context.Context, string, int64) ([]byte, bool, ResolvedPath, error)
 	ReadFileLines(context.Context, string, int, int, int64) ([]byte, int, bool, ResolvedPath, error)
 	WriteFile(context.Context, string, []byte, os.FileMode, bool) (ResolvedPath, error)
@@ -337,7 +340,7 @@ func workspaceAccess(access WorkspaceAccess) (bool, bool, error) {
 }
 
 // ResolveExisting resolves an existing path and rejects symlink escapes.
-func (w *HostWorkspace) ResolveExisting(raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) ResolveExisting(_ context.Context, raw string) (ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
 		return ResolvedPath{}, err
@@ -371,7 +374,7 @@ func (w *HostWorkspace) ResolveProcessWorkdir(raw string) (ResolvedPath, error) 
 }
 
 // ResolveCreate resolves a path whose final component may not exist.
-func (w *HostWorkspace) ResolveCreate(raw string) (ResolvedPath, error) {
+func (w *HostWorkspace) ResolveCreate(_ context.Context, raw string) (ResolvedPath, error) {
 	root, candidate, err := w.candidate(raw)
 	if err != nil {
 		return ResolvedPath{}, err
@@ -414,8 +417,8 @@ func (w *HostWorkspace) ResolveCreate(raw string) (ResolvedPath, error) {
 }
 
 // ReadFile reads a bounded file from the workspace.
-func (w *HostWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
-	resolved, err := w.ResolveExisting(raw)
+func (w *HostWorkspace) ReadFile(ctx context.Context, raw string, maxBytes int64) ([]byte, bool, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, false, ResolvedPath{}, err
 	}
@@ -447,7 +450,7 @@ func (w *HostWorkspace) ReadFile(_ context.Context, raw string, maxBytes int64) 
 
 // ReadFileLines reads a bounded 1-indexed line window from a workspace file.
 func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, end int, maxBytes int64) ([]byte, int, bool, ResolvedPath, error) {
-	resolved, err := w.ResolveExisting(raw)
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, 0, false, ResolvedPath{}, err
 	}
@@ -508,8 +511,8 @@ func (w *HostWorkspace) ReadFileLines(ctx context.Context, raw string, start, en
 }
 
 // WriteFile writes a file, optionally refusing to overwrite existing paths.
-func (w *HostWorkspace) WriteFile(_ context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
-	resolved, err := w.ResolveCreate(raw)
+func (w *HostWorkspace) WriteFile(ctx context.Context, raw string, data []byte, mode os.FileMode, overwrite bool) (ResolvedPath, error) {
+	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
@@ -525,8 +528,8 @@ func (w *HostWorkspace) WriteFile(_ context.Context, raw string, data []byte, mo
 }
 
 // CopyFile copies one complete file within the workspace.
-func (w *HostWorkspace) CopyFile(_ context.Context, rawSrc, rawDst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
-	src, err := w.ResolveExisting(rawSrc)
+func (w *HostWorkspace) CopyFile(ctx context.Context, rawSrc, rawDst string, overwrite bool) (ResolvedPath, ResolvedPath, int64, error) {
+	src, err := w.ResolveExisting(ctx, rawSrc)
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
@@ -537,7 +540,7 @@ func (w *HostWorkspace) CopyFile(_ context.Context, rawSrc, rawDst string, overw
 	if info.IsDir() {
 		return ResolvedPath{}, ResolvedPath{}, 0, fmt.Errorf("source path is a directory")
 	}
-	dst, err := w.ResolveCreate(rawDst)
+	dst, err := w.ResolveCreate(ctx, rawDst)
 	if err != nil {
 		return ResolvedPath{}, ResolvedPath{}, 0, err
 	}
@@ -599,8 +602,8 @@ func (w *HostWorkspace) MoveFile(ctx context.Context, rawSrc, rawDst string, ove
 }
 
 // MkdirAll creates a directory and parents.
-func (w *HostWorkspace) MkdirAll(_ context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
-	resolved, err := w.ResolveCreate(raw)
+func (w *HostWorkspace) MkdirAll(ctx context.Context, raw string, mode os.FileMode) (ResolvedPath, error) {
+	resolved, err := w.ResolveCreate(ctx, raw)
 	if err != nil {
 		return ResolvedPath{}, err
 	}
@@ -628,8 +631,8 @@ func (w *HostWorkspace) Remove(_ context.Context, raw string) (ResolvedPath, err
 }
 
 // Stat stats a workspace path.
-func (w *HostWorkspace) Stat(_ context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
-	resolved, err := w.ResolveExisting(raw)
+func (w *HostWorkspace) Stat(ctx context.Context, raw string) (fs.FileInfo, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
@@ -638,8 +641,8 @@ func (w *HostWorkspace) Stat(_ context.Context, raw string) (fs.FileInfo, Resolv
 }
 
 // ReadDir lists a workspace directory.
-func (w *HostWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
-	resolved, err := w.ResolveExisting(raw)
+func (w *HostWorkspace) ReadDir(ctx context.Context, raw string) ([]fs.DirEntry, ResolvedPath, error) {
+	resolved, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, err
 	}
@@ -648,8 +651,8 @@ func (w *HostWorkspace) ReadDir(_ context.Context, raw string) ([]fs.DirEntry, R
 }
 
 // Walk returns a bounded tree traversal rooted at raw.
-func (w *HostWorkspace) Walk(_ context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
-	root, err := w.ResolveExisting(raw)
+func (w *HostWorkspace) Walk(ctx context.Context, raw string, opts WalkOptions) ([]WalkEntry, ResolvedPath, bool, error) {
+	root, err := w.ResolveExisting(ctx, raw)
 	if err != nil {
 		return nil, ResolvedPath{}, false, err
 	}

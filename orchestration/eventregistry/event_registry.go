@@ -69,6 +69,7 @@ func defaultEventTypes() []event.Event {
 		operation.OperationFailed{},
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
+		event.AuthorizationDecision{},
 		coreconversation.ItemsAppended{},
 		coreconversation.ContinuationStored{},
 		coreconversation.CompactionStored{},

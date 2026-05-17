@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -36,6 +37,25 @@ func TestPollinationsGenerateUsesImageEndpoint(t *testing.T) {
 	}
 	if result.Provider != "pollinations" || result.Model != "turbo" || result.ContentType != "image/png" || result.SizeBytes != 4 {
 		t.Fatalf("result = %#v, want pollinations png", result)
+	}
+}
+
+func TestProviderInfoUsesAuthorizationContextForEnvSecrets(t *testing.T) {
+	base := newProviderTestSystem(t, map[string]string{"OPENAI_API_KEY": "secret"}, system.HTTPResponse{})
+	sys := system.WithAuthorization(base, system.AuthorizationConfig{})
+	ctx := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
+			Actions:   []policy.Action{policy.ActionNetworkFetch},
+		}}},
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+	})
+
+	info := openAIImageProvider{}.Info(ctx, sys)
+	if info.Configured || len(info.Missing) != 1 || info.Missing[0] != "OPENAI_API_KEY" {
+		t.Fatalf("Info = %#v, want OPENAI_API_KEY hidden without secret.read", info)
 	}
 }
 
@@ -261,4 +281,7 @@ func (n *recordingNetwork) lastRequest() system.HTTPRequest {
 
 type fakeEnvironment map[string]string
 
-func (e fakeEnvironment) Getenv(key string) string { return e[key] }
+func (e fakeEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e[key]
+	return value, ok, nil
+}

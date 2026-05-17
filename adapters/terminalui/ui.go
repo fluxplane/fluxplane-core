@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/core/usage"
@@ -191,6 +193,9 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case system.ProcessEvent:
 		r.flushContent()
 		renderProcessEvent(out, payload)
+	case coreevent.AuthorizationDecision:
+		r.flushContent()
+		renderAuthorizationDecision(out, payload)
 	case usage.Recorded:
 		r.flushContent()
 		if r.ShowUsage {
@@ -829,6 +834,54 @@ func renderProcessEvent(out io.Writer, event system.ProcessEvent) {
 			}
 		}
 	}
+}
+
+func renderAuthorizationDecision(out io.Writer, decision coreevent.AuthorizationDecision) {
+	color := ansiYellow
+	switch decision.Decision {
+	case policy.DecisionDeny:
+		color = ansiRed
+	case policy.DecisionAllow:
+		color = ansiDim
+	}
+	_, _ = fmt.Fprintf(out, "%sauthz:%s %s %s %s", color, ansiReset, decision.Decision, decision.Action, authorizationResourceLabel(decision.Resource))
+	if subject := authorizationSubjectLabel(decision.Subjects); subject != "" {
+		_, _ = fmt.Fprintf(out, " %ssubject=%s%s", ansiDim, subject, ansiReset)
+	}
+	if decision.Trust != "" {
+		_, _ = fmt.Fprintf(out, " %strust=%s%s", ansiDim, decision.Trust, ansiReset)
+	}
+	if decision.Reason != "" {
+		_, _ = fmt.Fprintf(out, " %sreason=%s%s", ansiDim, decision.Reason, ansiReset)
+	}
+	_, _ = fmt.Fprintln(out)
+}
+
+func authorizationResourceLabel(resource policy.ResourceRef) string {
+	switch {
+	case resource.Name != "":
+		return string(resource.Kind) + ":" + resource.Name
+	case resource.Path != "":
+		return string(resource.Kind) + ":" + resource.Path
+	case resource.ID != "":
+		return string(resource.Kind) + ":" + resource.ID
+	default:
+		return string(resource.Kind)
+	}
+}
+
+func authorizationSubjectLabel(subjects []policy.SubjectRef) string {
+	if len(subjects) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		if subject.ID == "" {
+			continue
+		}
+		labels = append(labels, string(subject.Kind)+":"+subject.ID)
+	}
+	return strings.Join(labels, ",")
 }
 
 func resultSummary(result operation.Result) string {

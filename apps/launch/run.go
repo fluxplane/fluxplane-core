@@ -232,8 +232,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
+	runtimeSystem := system.WithAuthorization(hostSystem, system.AuthorizationConfig{TraceAllows: opts.Debug})
 	hostSystem.SetClarifier(terminalui.Prompter{In: os.Stdin, Out: os.Stderr})
-	browser, err := browsercdp.New(browsercdp.Config{Workspace: hostSystem.Workspace(), Headless: browserHeadless()})
+	browser, err := browsercdp.New(browsercdp.Config{Workspace: runtimeSystem.Workspace(), Headless: browserHeadless()})
 	if err == nil {
 		hostSystem.SetBrowser(browser)
 	} else if opts.Debug {
@@ -298,12 +299,12 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
-	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher, taskScheduler)
+	available := availablePlugins(runtimeSystem, connectorEngine, connectorInstances, dispatcher, taskScheduler)
 	if opts.Plugins != nil {
-		available = opts.Plugins(hostSystem)
+		available = opts.Plugins(runtimeSystem)
 	}
 	if taskScheduler != nil {
-		available = replacePlugin(available, taskplugin.NewWithRunnerAndSystem(taskScheduler, hostSystem))
+		available = replacePlugin(available, taskplugin.NewWithRunnerAndSystem(taskScheduler, runtimeSystem))
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistoryplugin.New(threadStore))
@@ -380,10 +381,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			MaxRisk:               operation.RiskMedium,
 			IncludeBareOperations: true,
 		}),
-		Channel:  channel.Ref{Name: "local"},
-		Caller:   localCaller,
-		Trust:    localTrust,
-		Security: composition.Security,
+		Channel:       channel.Ref{Name: "local"},
+		Caller:        localCaller,
+		Trust:         localTrust,
+		Security:      composition.Security,
+		SecurityTrace: opts.Debug,
 	})
 	if err != nil {
 		closeRuntime()
@@ -399,7 +401,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	return Runtime{
 		Service:     service,
 		Composition: composition,
-		System:      hostSystem,
+		System:      runtimeSystem,
 		Dispatcher:  dispatcher,
 		Caller:      localCaller,
 		Trust:       localTrust,

@@ -14,7 +14,7 @@ import (
 
 type pollinationsProvider struct{}
 
-func (pollinationsProvider) Info(system.System) ProviderInfo {
+func (pollinationsProvider) Info(context.Context, system.System) ProviderInfo {
 	return ProviderInfo{
 		Name:         "pollinations",
 		Capabilities: []string{"generate"},
@@ -57,8 +57,8 @@ func (pollinationsProvider) Generate(ctx context.Context, sys system.System, req
 
 type openAIImageProvider struct{}
 
-func (openAIImageProvider) Info(sys system.System) ProviderInfo {
-	configured, missing := configuredByEnv(sys, "OPENAI_API_KEY")
+func (openAIImageProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+	configured, missing := configuredByEnv(ctx, sys, "OPENAI_API_KEY")
 	return ProviderInfo{
 		Name:         "openai",
 		Capabilities: []string{"generate"},
@@ -87,7 +87,7 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 	if req.OutputFormat != "" {
 		body["output_format"] = req.OutputFormat
 	}
-	resp, err := doJSON(ctx, sys, "https://api.openai.com/v1/images/generations", "Bearer "+env(sys, "OPENAI_API_KEY"), body, 25*1024*1024)
+	resp, err := doJSON(ctx, sys, "https://api.openai.com/v1/images/generations", "Bearer "+env(ctx, sys, "OPENAI_API_KEY"), body, 25*1024*1024)
 	if err != nil {
 		return GenerateResult{}, err
 	}
@@ -141,8 +141,8 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 
 type openRouterImageProvider struct{}
 
-func (openRouterImageProvider) Info(sys system.System) ProviderInfo {
-	configured, missing := configuredByEnv(sys, "OPENROUTER_API_KEY")
+func (openRouterImageProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+	configured, missing := configuredByEnv(ctx, sys, "OPENROUTER_API_KEY")
 	return ProviderInfo{
 		Name:         "openrouter",
 		Capabilities: []string{"generate"},
@@ -163,7 +163,7 @@ func (openRouterImageProvider) Generate(ctx context.Context, sys system.System, 
 		}},
 		"modalities": []string{"image", "text"},
 	}
-	resp, err := doJSON(ctx, sys, "https://openrouter.ai/api/v1/chat/completions", "Bearer "+env(sys, "OPENROUTER_API_KEY"), body, 25*1024*1024)
+	resp, err := doJSON(ctx, sys, "https://openrouter.ai/api/v1/chat/completions", "Bearer "+env(ctx, sys, "OPENROUTER_API_KEY"), body, 25*1024*1024)
 	if err != nil {
 		return GenerateResult{}, err
 	}
@@ -180,8 +180,8 @@ func (openRouterImageProvider) Generate(ctx context.Context, sys system.System, 
 
 type anthropicUnderstandingProvider struct{}
 
-func (anthropicUnderstandingProvider) Info(sys system.System) ProviderInfo {
-	configured, missing := configuredByEnv(sys, "ANTHROPIC_API_KEY")
+func (anthropicUnderstandingProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+	configured, missing := configuredByEnv(ctx, sys, "ANTHROPIC_API_KEY")
 	return ProviderInfo{
 		Name:         "anthropic",
 		Capabilities: []string{"understand"},
@@ -215,7 +215,7 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 		URL:    "https://api.anthropic.com/v1/messages",
 		Method: "POST",
 		Headers: map[string]string{
-			"x-api-key":         env(sys, "ANTHROPIC_API_KEY"),
+			"x-api-key":         env(ctx, sys, "ANTHROPIC_API_KEY"),
 			"anthropic-version": "2023-06-01",
 			"content-type":      "application/json",
 		},
@@ -235,8 +235,8 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 
 type openRouterUnderstandingProvider struct{}
 
-func (openRouterUnderstandingProvider) Info(sys system.System) ProviderInfo {
-	configured, missing := configuredByEnv(sys, "OPENROUTER_API_KEY")
+func (openRouterUnderstandingProvider) Info(ctx context.Context, sys system.System) ProviderInfo {
+	configured, missing := configuredByEnv(ctx, sys, "OPENROUTER_API_KEY")
 	return ProviderInfo{
 		Name:         "openrouter",
 		Capabilities: []string{"understand"},
@@ -260,7 +260,7 @@ func (openRouterUnderstandingProvider) Understand(ctx context.Context, sys syste
 			"content": content,
 		}},
 	}
-	resp, err := doJSON(ctx, sys, "https://openrouter.ai/api/v1/chat/completions", "Bearer "+env(sys, "OPENROUTER_API_KEY"), body, 4*1024*1024)
+	resp, err := doJSON(ctx, sys, "https://openrouter.ai/api/v1/chat/completions", "Bearer "+env(ctx, sys, "OPENROUTER_API_KEY"), body, 4*1024*1024)
 	if err != nil {
 		return UnderstandResult{}, err
 	}

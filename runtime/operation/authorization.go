@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 )
@@ -44,20 +45,24 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 		return fmt.Errorf("access_descriptor_failed: %w", err)
 	}
 	for _, target := range targets {
-		evaluation := policy.EvaluateAuthorization(auth.Policy, policy.AuthorizationRequest{
+		req := policy.AuthorizationRequest{
 			Subjects: auth.Subjects,
 			Trust:    auth.Trust,
 			Resource: target.Resource,
 			Action:   target.Action,
-		})
+		}
+		evaluation := policy.EvaluateAuthorization(auth.Policy, req)
 		if evaluation.Decision == policy.DecisionAllow {
+			event.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			continue
 		}
 		if evaluation.Decision == policy.DecisionApprovalRequired {
+			event.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 			return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: evaluation.Reason}
 		}
 		if target.Resource.Kind == policy.ResourceDatasource && target.Resource.Name == "*" {
 			fallback := authorizeAnyDatasource(auth, target.Action)
+			event.EmitAuthorizationDecision(ctx, auth, req, fallback)
 			switch fallback.Decision {
 			case policy.DecisionAllow:
 				continue
@@ -65,6 +70,7 @@ func (AuthorizationGate) Authorize(ctx operation.Context, op operation.Operation
 				return AuthorizationApprovalRequired{Subjects: auth.Subjects, Resource: target.Resource, Action: target.Action, Reason: fallback.Reason}
 			}
 		}
+		event.EmitAuthorizationDecision(ctx, auth, req, evaluation)
 		return fmt.Errorf("%s: %s %s", evaluation.Reason, target.Action, resourceLabel(target.Resource))
 	}
 	return nil

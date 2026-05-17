@@ -43,6 +43,10 @@ const (
 	ActionModelInvoke     Action = "model.invoke"
 	ActionOperationInvoke Action = "operation.invoke"
 	ActionApprovalGrant   Action = "approval.grant"
+
+	ActionSecretRead  Action = "secret.read"
+	ActionSecretUse   Action = "secret.use"
+	ActionSecretAdmin Action = "secret.admin"
 )
 
 // SubjectKind classifies a policy subject.
@@ -78,6 +82,7 @@ const (
 	ResourceAdmin      ResourceKind = "admin"
 	ResourceModel      ResourceKind = "model"
 	ResourceOperation  ResourceKind = "operation"
+	ResourceSecret     ResourceKind = "secret"
 )
 
 // ResourceRef identifies one protected resource target.
@@ -120,9 +125,10 @@ type AuthorizationRequest struct {
 
 // AuthorizationContext is the turn-local policy evaluation context.
 type AuthorizationContext struct {
-	Policy   AuthorizationPolicy `json:"policy,omitempty"`
-	Subjects []SubjectRef        `json:"subjects,omitempty"`
-	Trust    Trust               `json:"trust,omitempty"`
+	Policy      AuthorizationPolicy `json:"policy,omitempty"`
+	Subjects    []SubjectRef        `json:"subjects,omitempty"`
+	Trust       Trust               `json:"trust,omitempty"`
+	TraceAllows bool                `json:"trace_allows,omitempty"`
 }
 
 type authorizationContextKey struct{}

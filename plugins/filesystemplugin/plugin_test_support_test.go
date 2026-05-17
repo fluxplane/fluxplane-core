@@ -123,7 +123,9 @@ func (s *memorySystem) Process() system.ProcessManager  { return nil }
 func (s *memorySystem) Browser() system.BrowserManager  { return nil }
 func (s *memorySystem) Clarifier() system.Clarifier     { return nil }
 func (s *memorySystem) Environment() system.Environment { return memoryEnvironment{} }
-func (memoryEnvironment) Getenv(string) string          { return "" }
+func (memoryEnvironment) Lookup(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
 func (memoryNetwork) DoHTTP(context.Context, system.HTTPRequest) (system.HTTPResponse, error) {
 	return system.HTTPResponse{}, errors.ErrUnsupported
 }
@@ -160,7 +162,7 @@ func (w *memoryWorkspace) Roots() []system.WorkspaceRoot {
 	return []system.WorkspaceRoot{{Path: w.root, Rel: ".", Read: true, Write: true}}
 }
 
-func (w *memoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, error) {
+func (w *memoryWorkspace) ResolveExisting(_ context.Context, raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
@@ -173,7 +175,7 @@ func (w *memoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, erro
 	return w.resolved(raw, rel), nil
 }
 
-func (w *memoryWorkspace) ResolveCreate(raw string) (system.ResolvedPath, error) {
+func (w *memoryWorkspace) ResolveCreate(_ context.Context, raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)

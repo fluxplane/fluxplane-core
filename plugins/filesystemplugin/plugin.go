@@ -709,7 +709,7 @@ func (p Plugin) grep(ws system.Workspace) operation.Handler {
 		}
 		var matches []match
 		for _, raw := range roots {
-			resolved, err := ws.ResolveExisting(raw)
+			resolved, err := ws.ResolveExisting(ctx, raw)
 			if err != nil {
 				return operation.Failed("grep_failed", err.Error(), nil)
 			}

@@ -1,22 +1,27 @@
 package imageplugin
 
 import (
+	"context"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-func env(sys system.System, key string) string {
+func env(ctx context.Context, sys system.System, key string) string {
 	if sys == nil || sys.Environment() == nil {
 		return ""
 	}
-	return strings.TrimSpace(sys.Environment().Getenv(key))
+	value, ok, err := sys.Environment().Lookup(ctx, key)
+	if err != nil || !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
-func configuredByEnv(sys system.System, keys ...string) (bool, []string) {
+func configuredByEnv(ctx context.Context, sys system.System, keys ...string) (bool, []string) {
 	var missing []string
 	for _, key := range keys {
-		if env(sys, key) == "" {
+		if env(ctx, sys, key) == "" {
 			missing = append(missing, key)
 		}
 	}

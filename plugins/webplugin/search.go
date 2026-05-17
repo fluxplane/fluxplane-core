@@ -211,19 +211,19 @@ func networkAccess(target string) operationruntime.AccessDescriptor {
 	return operationruntime.NetworkDescriptor(target, policy.ActionNetworkFetch)
 }
 
-func searchProviders(sys system.System) []SearchProvider {
+func searchProviders(ctx context.Context, sys system.System) []SearchProvider {
 	var providers []SearchProvider
-	if tavily := newTavilySearchProvider(sys); tavily.Available(context.Background()) {
+	if tavily := newTavilySearchProvider(ctx, sys); tavily.Available(ctx) {
 		providers = append(providers, tavily)
 	}
-	if duckduckgo := newDuckDuckGoSearchProvider(sys); duckduckgo.Available(context.Background()) {
+	if duckduckgo := newDuckDuckGoSearchProvider(sys); duckduckgo.Available(ctx) {
 		providers = append(providers, duckduckgo)
 	}
 	return providers
 }
 
 func selectSearchProviders(ctx context.Context, sys system.System, requested []string) ([]SearchProvider, []searchError) {
-	available := searchProviders(sys)
+	available := searchProviders(ctx, sys)
 	if len(requested) == 0 {
 		return available, nil
 	}
@@ -330,9 +330,13 @@ func renderSearchResults(out searchOutput) string {
 	return strings.TrimSpace(b.String())
 }
 
-func env(sys system.System, key string) string {
+func env(ctx context.Context, sys system.System, key string) string {
 	if sys == nil || sys.Environment() == nil {
 		return ""
 	}
-	return strings.TrimSpace(sys.Environment().Getenv(key))
+	value, ok, err := sys.Environment().Lookup(ctx, key)
+	if err != nil || !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }

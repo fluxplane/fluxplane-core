@@ -49,6 +49,7 @@ type Config struct {
 	ToolSetCatalog    session.ToolSetCatalog
 	ToolProjection    toolprojection.Config
 	Security          policy.AuthorizationPolicy
+	SecurityTrace     bool
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -76,6 +77,7 @@ type Service struct {
 	toolSetCatalog    session.ToolSetCatalog
 	toolProjection    toolprojection.Config
 	security          policy.AuthorizationPolicy
+	securityTrace     bool
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -107,6 +109,7 @@ func New(cfg Config) *Service {
 		toolSetCatalog:    cfg.ToolSetCatalog,
 		toolProjection:    cfg.ToolProjection,
 		security:          cfg.Security,
+		securityTrace:     cfg.SecurityTrace,
 		bindings:          map[bindingKey]corethread.Ref{},
 		profiles:          map[corethread.ID]coresession.Spec{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
@@ -391,6 +394,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		RunID:             string(runID),
 		TurnTools:         turnTools,
 		Security:          s.security,
+		SecurityTrace:     s.securityTrace,
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -431,6 +435,7 @@ func (s *Service) projectToolsForInbound(agentRuntime agent.Agent, inbound chann
 	cfg.Authorization.Policy = s.security
 	cfg.Authorization.Subjects = security.SubjectsForInbound(inbound, agentRuntime.Spec())
 	cfg.Authorization.Trust = inbound.Trust
+	cfg.Authorization.TraceAllows = s.securityTrace
 	projected := toolprojection.Project(cfg)
 	filtered := agentconfig.FilterTools(agentRuntime.Spec(), projected.Tools)
 	if filtered == nil && (len(s.commandCatalog) > 0 || len(s.operationCatalog) > 0 || len(s.toolSetCatalog) > 0) {
@@ -479,6 +484,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
 		Security:          s.security,
+		SecurityTrace:     s.securityTrace,
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {

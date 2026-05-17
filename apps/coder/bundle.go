@@ -123,6 +123,7 @@ func localCoderSecurity() policy.AuthorizationPolicy {
 		{Kind: policy.ResourceDatasource, Name: "*"},
 		{Kind: policy.ResourceModel, Name: "*"},
 		{Kind: policy.ResourceOperation, Name: "*"},
+		{Kind: policy.ResourceSecret, Name: "*"},
 	}
 	actions := []policy.Action{
 		"workspace.*",
@@ -135,6 +136,7 @@ func localCoderSecurity() policy.AuthorizationPolicy {
 		policy.ActionModelInvoke,
 		policy.ActionOperationInvoke,
 		policy.ActionApprovalGrant,
+		"secret.*",
 	}
 	return policy.AuthorizationPolicy{Grants: []policy.Grant{{
 		Subjects:      subjects,

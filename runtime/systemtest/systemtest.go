@@ -38,7 +38,7 @@ func (s *MemorySystem) Environment() system.Environment { return environment{} }
 type environment struct{}
 type network struct{}
 
-func (environment) Getenv(string) string { return "" }
+func (environment) Lookup(context.Context, string) (string, bool, error) { return "", false, nil }
 func (network) DoHTTP(context.Context, system.HTTPRequest) (system.HTTPResponse, error) {
 	return system.HTTPResponse{}, errors.ErrUnsupported
 }
@@ -78,7 +78,7 @@ func (w *MemoryWorkspace) Roots() []system.WorkspaceRoot {
 	return []system.WorkspaceRoot{{Path: w.root, Rel: ".", Read: true, Write: true}}
 }
 
-func (w *MemoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, error) {
+func (w *MemoryWorkspace) ResolveExisting(_ context.Context, raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
@@ -91,7 +91,7 @@ func (w *MemoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, erro
 	return w.resolved(raw, rel), nil
 }
 
-func (w *MemoryWorkspace) ResolveCreate(raw string) (system.ResolvedPath, error) {
+func (w *MemoryWorkspace) ResolveCreate(_ context.Context, raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	rel, err := w.clean(raw)
