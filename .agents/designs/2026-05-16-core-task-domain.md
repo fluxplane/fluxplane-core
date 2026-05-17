@@ -91,10 +91,11 @@ a worker backend, and records execution/step events back to the task stream.
 Worker terminal writes are also expected-sequence appends after re-projecting
 current task state, so stale worker completions do not overwrite newer
 cancellation, blocking, or manual edits. Declared step outputs are bound to
-produced artifacts, and automatic execution completion validates required task
-outputs before writing `task.execution_completed`; failures block the execution
-with a visible reason. Interrupted executions can be resumed when the task
-becomes `ready` again. Scheduler-side anomalies that affect one task, such as
+produced artifacts. When every declared step is terminal but required
+task-level outputs are still missing, the scheduler runs a finalization worker
+pass that synthesizes aggregate outputs from completed step evidence before
+automatic completion validation blocks the task. Interrupted executions can be
+resumed when the task becomes `ready` again. Scheduler-side anomalies that affect one task, such as
 ignored stale worker output or retry exhaustion, are recorded as durable
 `task.scheduler_diagnostic` events and projected onto the task execution or
 step. These diagnostics are non-lifecycle events and must not change the

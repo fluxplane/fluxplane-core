@@ -366,9 +366,11 @@ controlled explicitly with task plugin operations. Because the scheduler writes
 task streams concurrently with user/model task operations, scheduler transitions
 use event-stream conflict handling and expose retryable conflicts or diagnostics
 rather than hiding background failures. Automatic completion validates required
-outputs and terminal steps before writing completion events; missing output
-contracts block the task for correction instead of producing a false completed
-state. Session-produced `task.*` runtime events are persisted for replay and
+outputs and terminal steps before writing completion events; after all declared
+steps are terminal, the executor runs a finalization pass for missing required
+task outputs before blocking. If required outputs still cannot be produced, the
+task blocks for correction instead of producing a false completed state.
+Session-produced `task.*` runtime events are persisted for replay and
 rendered by terminal clients as task lifecycle, step progress, artifact, and
 completion feedback. Tasks created from a session record origin thread/run
 metadata so background scheduler events can be mirrored back to that session

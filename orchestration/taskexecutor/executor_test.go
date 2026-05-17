@@ -362,6 +362,29 @@ func TestSchedulerSubmitTaskAndStatus(t *testing.T) {
 	}
 }
 
+func TestSchedulerSubmitTaskReportsAlreadyRunning(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Running", Status: coretask.StatusReady}
+	createTask(t, store, task)
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_existing",
+		Execution:   coretask.Execution{ID: "exec_existing", TaskID: task.ID, Status: coretask.StatusRunning},
+	}); err != nil {
+		t.Fatalf("Append running execution: %v", err)
+	}
+	scheduler := newScheduler(t, store, &recordingWorker{})
+
+	result, err := scheduler.SubmitTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+	if !result.Running || result.Started || result.Status != coretask.StatusRunning || !strings.Contains(result.Summary, "already running") {
+		t.Fatalf("submit result = %#v, want already-running feedback", result)
+	}
+}
+
 func TestSchedulerDisableStopsAutomaticTickButAllowsSubmit(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
@@ -405,7 +428,7 @@ func TestSchedulerNotifyTaskReadyRespectsEnabled(t *testing.T) {
 	waitForTaskStatus(t, store, task.ID, coretask.StatusCompleted)
 }
 
-func TestSchedulerBlocksCompletionWhenRequiredOutputMissing(t *testing.T) {
+func TestSchedulerFinalizesMissingRequiredTaskOutput(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
 	task := coretask.Task{
@@ -416,7 +439,8 @@ func TestSchedulerBlocksCompletionWhenRequiredOutputMissing(t *testing.T) {
 		Steps:   []coretask.Step{{ID: "run", Title: "Run"}},
 	}
 	createTask(t, store, task)
-	scheduler := newScheduler(t, store, &recordingWorker{})
+	worker := &recordingWorker{}
+	scheduler := newScheduler(t, store, worker)
 
 	if err := scheduler.RunTask(ctx, task.ID); err != nil {
 		t.Fatalf("RunTask: %v", err)
@@ -425,15 +449,21 @@ func TestSchedulerBlocksCompletionWhenRequiredOutputMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
-	if state.Task.Status != coretask.StatusBlocked {
-		t.Fatalf("task status = %s, want blocked", state.Task.Status)
+	if state.Task.Status != coretask.StatusCompleted {
+		t.Fatalf("task status = %s, want completed", state.Task.Status)
 	}
 	exec := state.Executions[state.CurrentExecution]
-	if exec.Status != coretask.StatusInterrupted {
-		t.Fatalf("execution status = %s, want interrupted", exec.Status)
+	if exec.Status != coretask.StatusCompleted {
+		t.Fatalf("execution status = %s, want completed", exec.Status)
 	}
 	if exec.Steps["run"].Status != coretask.StepStatusCompleted {
 		t.Fatalf("step status = %s, want completed", exec.Steps["run"].Status)
+	}
+	if got, want := worker.steps, []coretask.StepID{"run", finalizerStepID}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("worker steps = %#v, want %#v", got, want)
+	}
+	if !artifactSpecSatisfied(coretask.ArtifactSpec{ID: "summary"}, exec.Artifacts) {
+		t.Fatalf("execution artifacts = %#v, want finalized summary artifact", exec.Artifacts)
 	}
 }
 

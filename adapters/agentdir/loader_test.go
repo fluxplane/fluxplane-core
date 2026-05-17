@@ -315,6 +315,35 @@ description: Review code.
 	}
 }
 
+func TestDecodeYAMLCommandTargetsPrompt(t *testing.T) {
+	spec, err := DecodeCommand("review.yaml", []byte(`name: review
+description: Review this session.
+target:
+  prompt: |
+    Review the current coder session.
+`))
+	if err != nil {
+		t.Fatalf("DecodeCommand() error = %v", err)
+	}
+	if spec.Target.Kind != invocation.TargetPrompt {
+		t.Fatalf("target kind = %q, want prompt", spec.Target.Kind)
+	}
+	if spec.Target.Prompt != "Review the current coder session." {
+		t.Fatalf("prompt = %q", spec.Target.Prompt)
+	}
+}
+
+func TestDecodeYAMLCommandRejectsMultipleTargets(t *testing.T) {
+	_, err := DecodeCommand("review.yaml", []byte(`name: review
+target:
+  workflow: reflect
+  prompt: Review this session.
+`))
+	if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("DecodeCommand() error = %v, want exactly one target error", err)
+	}
+}
+
 func TestDecodeAgentRejectsUnknownFrontmatterField(t *testing.T) {
 	_, err := DecodeAgent("main.md", []byte(`---
 name: main

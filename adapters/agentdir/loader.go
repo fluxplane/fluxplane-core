@@ -466,14 +466,14 @@ func DecodeCommand(filename string, data []byte) (command.Spec, error) {
 	if raw.Policy.AgentCallable != nil {
 		annotations["policy.agent_callable"] = fmt.Sprintf("%t", *raw.Policy.AgentCallable)
 	}
+	target, err := raw.Target.invocationTarget()
+	if err != nil {
+		return command.Spec{}, err
+	}
 	spec := command.Spec{
 		Path:        command.Path{name},
 		Description: strings.TrimSpace(raw.Description),
-		Target: invocation.Target{
-			Kind:     invocation.TargetWorkflow,
-			Workflow: workflow.Name(strings.TrimSpace(raw.Target.Workflow)),
-			Input:    raw.Target.Input,
-		},
+		Target:      target,
 		Input:       input,
 		Annotations: annotationsOrNil(annotations),
 	}
@@ -674,7 +674,40 @@ type commandPolicy struct {
 
 type commandTarget struct {
 	Workflow string `yaml:"workflow"`
+	Prompt   string `yaml:"prompt"`
 	Input    any    `yaml:"input"`
+}
+
+func (t commandTarget) invocationTarget() (invocation.Target, error) {
+	targets := 0
+	if strings.TrimSpace(t.Workflow) != "" {
+		targets++
+	}
+	if strings.TrimSpace(t.Prompt) != "" {
+		targets++
+	}
+	if targets == 0 {
+		return invocation.Target{}, fmt.Errorf("command: target is empty")
+	}
+	if targets > 1 {
+		return invocation.Target{}, fmt.Errorf("command: target must specify exactly one of workflow or prompt")
+	}
+	switch {
+	case strings.TrimSpace(t.Workflow) != "":
+		return invocation.Target{
+			Kind:     invocation.TargetWorkflow,
+			Workflow: workflow.Name(strings.TrimSpace(t.Workflow)),
+			Input:    t.Input,
+		}, nil
+	case strings.TrimSpace(t.Prompt) != "":
+		return invocation.Target{
+			Kind:   invocation.TargetPrompt,
+			Prompt: strings.TrimSpace(t.Prompt),
+			Input:  t.Input,
+		}, nil
+	default:
+		return invocation.Target{}, nil
+	}
 }
 
 type yamlWorkflow struct {

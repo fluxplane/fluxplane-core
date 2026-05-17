@@ -118,6 +118,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   artifacts, and automatic execution completion validates required outputs
   before recording `task.execution_completed`; incomplete output contracts block
   the task instead of marking it completed.
+- Multi-step task execution now runs a finalization worker pass after all
+  declared steps are terminal to synthesize missing required task-level outputs
+  from completed step evidence before blocking completion.
 - Terminal rendering now understands `task.*` runtime events, showing task
   creation/revision, status changes, step dispatch/progress/completion,
   artifacts, and execution terminal state. Task runtime events are also
@@ -142,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report the scheduler state. Ready-task notification failures now leave
   durable task diagnostics when automatic scheduling is disabled or local
   capacity is saturated.
+- `task_run` now reports already-running tasks as already running when
+  automatic scheduling claimed the task before the explicit run request.
 - `task coder:live-test` now uses a repository-local writable state directory,
   and local launch event-store open failures include the SQLite path to make
   environment problems actionable.

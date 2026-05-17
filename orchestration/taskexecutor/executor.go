@@ -29,6 +29,7 @@ const (
 	defaultWorker            = "worker"
 	defaultExplorer          = "explorer"
 	defaultReviewer          = "reviewer"
+	finalizerStepID          = coretask.StepID("task-finalize")
 	maxAppendRetries         = 8
 )
 
@@ -269,6 +270,11 @@ func (s *Scheduler) submitTask(ctx context.Context, taskID coretask.ID) (SubmitR
 	}
 	result := SubmitResult{TaskID: taskID, Status: state.Task.Status}
 	if state.Task.Status != coretask.StatusReady {
+		if state.Task.Status == coretask.StatusRunning {
+			result.Running = true
+			result.Summary = fmt.Sprintf("Task %s is already running.", taskID)
+			return result, nil
+		}
 		result.Summary = fmt.Sprintf("Task %s is %s, not ready.", taskID, state.Task.Status)
 		return result, nil
 	}
@@ -596,6 +602,15 @@ func (s *Scheduler) runStepDAG(ctx context.Context, taskID coretask.ID) error {
 		}
 		if runtimetask.AllStepsTerminal(state) {
 			if validation := validateCompletion(state); !validation.Completable {
+				if missing := missingRequiredOutputs(state, validation); len(missing) > 0 {
+					finalized, err := s.finalizeMissingOutputs(ctx, state, missing)
+					if err != nil {
+						return err
+					}
+					if finalized {
+						continue
+					}
+				}
 				return s.blockCompletion(ctx, taskID, state.CurrentExecution, validation)
 			}
 			if err := s.appendExecutionTerminal(ctx, taskID, state.CurrentExecution, coretask.ExecutionCompleted{TaskID: taskID, ExecutionID: state.CurrentExecution}); err != nil {
@@ -656,6 +671,62 @@ func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID core
 	events := artifactEvents(task.ID, execID, step.ID, artifacts)
 	events = append(events, coretask.StepCompleted{TaskID: task.ID, ExecutionID: execID, StepID: step.ID, Output: result.Output})
 	return s.appendStepTerminal(ctx, task.ID, execID, step.ID, events...)
+}
+
+func (s *Scheduler) finalizeMissingOutputs(ctx context.Context, state runtimetask.State, missing []coretask.ArtifactSpec) (bool, error) {
+	execID := state.CurrentExecution
+	step := coretask.Step{
+		ID:                 finalizerStepID,
+		Title:              "Finalize task outputs",
+		Objective:          "Produce missing required task-level outputs from completed step evidence.",
+		Description:        finalizerDescription(state, missing),
+		AcceptanceCriteria: append([]string(nil), state.Task.AcceptanceCriteria...),
+		Inputs:             finalizerInputs(state),
+		Outputs:            cloneArtifacts(missing),
+		Assignee:           state.Task.Assignee,
+		Scope:              append([]string(nil), state.Task.Scope...),
+	}
+	profiles, blocked := s.resolveProfiles(state.Task, step)
+	if blocked {
+		return false, nil
+	}
+	task := state.Task
+	task.Outputs = nil
+	s.appendSchedulerDiagnostic(ctx, state.Task.ID, execID, "", "task_finalizing_outputs", fmt.Sprintf("all steps are terminal; producing %d missing required task output(s)", len(missing)))
+	result, err := s.worker.RunStep(ctx, StepRunRequest{
+		Task:        task,
+		ExecutionID: execID,
+		Step:        step,
+		Profile:     firstProfile(profiles),
+		Profiles:    profiles,
+		ExternalID:  string(execID) + ":" + string(finalizerStepID),
+	})
+	if err != nil {
+		return false, s.appendExecutionTerminal(ctx, state.Task.ID, execID, coretask.ExecutionFailed{
+			TaskID:      state.Task.ID,
+			ExecutionID: execID,
+			Error:       &operation.Error{Code: "task_finalizer_failed", Message: err.Error()},
+		})
+	}
+	_, artifacts := normalizeWorkerResult(ctx, result, missing, execID, "")
+	events := artifactEvents(state.Task.ID, execID, "", artifacts)
+	if len(events) == 0 {
+		return false, nil
+	}
+	appended, err := s.withExpectedRetry(ctx, state.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
+		exec, ok := current.Executions[execID]
+		if current.Task.Status != coretask.StatusRunning || current.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+			return false, nil
+		}
+		if !runtimetask.AllStepsTerminal(current) {
+			return false, nil
+		}
+		return true, events
+	})
+	if err == nil && !appended {
+		s.appendSchedulerDiagnostic(ctx, state.Task.ID, execID, "", "task_stale_finalizer_result_ignored", "finalizer output ignored because the task execution is no longer running")
+	}
+	return appended, err
 }
 
 func (s *Scheduler) appendStepDispatch(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, evt coretask.StepDispatched) (bool, error) {
@@ -1086,6 +1157,94 @@ func validateCompletion(state runtimetask.State) coretask.TaskValidationResult {
 	}
 	result.Completable = completable
 	return result
+}
+
+func missingRequiredOutputs(state runtimetask.State, validation coretask.TaskValidationResult) []coretask.ArtifactSpec {
+	if validation.Completable {
+		return nil
+	}
+	produced := scopedArtifacts(state)
+	var missing []coretask.ArtifactSpec
+	for _, output := range state.Task.Outputs {
+		if !output.Required || scopedArtifactSatisfied(output, produced) {
+			continue
+		}
+		missing = append(missing, output)
+	}
+	return missing
+}
+
+func finalizerInputs(state runtimetask.State) []coretask.ArtifactSpec {
+	var inputs []coretask.ArtifactSpec
+	exec, ok := state.Executions[state.CurrentExecution]
+	if !ok {
+		return nil
+	}
+	for _, step := range state.Task.Steps {
+		stepExec := exec.Steps[step.ID]
+		for _, artifact := range stepExec.Artifacts {
+			input := artifact
+			if input.ID == "" {
+				input.ID = string(step.ID)
+			}
+			if input.Name == "" {
+				input.Name = firstNonEmpty(step.Title, string(step.ID))
+			}
+			if input.Description == "" {
+				input.Description = "Output from completed step " + firstNonEmpty(step.Title, string(step.ID))
+			}
+			input.Required = false
+			inputs = append(inputs, input)
+		}
+		if stepExec.Output != nil {
+			inputs = append(inputs, coretask.ArtifactSpec{
+				ID:          string(step.ID) + "-output",
+				Name:        firstNonEmpty(step.Title, string(step.ID)) + " output",
+				Kind:        coretask.ArtifactText,
+				Description: "Final response from completed step " + firstNonEmpty(step.Title, string(step.ID)),
+				Value:       stepExec.Output,
+			})
+		}
+	}
+	return inputs
+}
+
+func finalizerDescription(state runtimetask.State, missing []coretask.ArtifactSpec) string {
+	var b strings.Builder
+	b.WriteString("All declared task steps are terminal. Create the missing required task-level output artifacts from the completed step evidence. Do not rerun completed steps.\n\nMissing required outputs:\n")
+	writeArtifacts(&b, missing)
+	if exec, ok := state.Executions[state.CurrentExecution]; ok {
+		b.WriteString("\nCompleted step evidence:\n")
+		for _, step := range state.Task.Steps {
+			stepExec := exec.Steps[step.ID]
+			fmt.Fprintf(&b, "- %s: %s", firstNonEmpty(step.Title, string(step.ID)), stepExec.Status)
+			if stepExec.Output != nil {
+				fmt.Fprintf(&b, "; output=%s", compactWorkerEvidence(workerValueText(stepExec.Output), 240))
+			}
+			if len(stepExec.Artifacts) > 0 {
+				b.WriteString("; artifacts=")
+				for i, artifact := range stepExec.Artifacts {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(firstNonEmpty(artifact.ID, artifact.Name, string(artifact.Kind), "artifact"))
+				}
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func compactWorkerEvidence(text string, max int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if max <= 0 || len(text) <= max {
+		return text
+	}
+	if max <= 3 {
+		return text[:max]
+	}
+	return text[:max-3] + "..."
 }
 
 func scopedArtifacts(state runtimetask.State) []coretask.ScopedArtifact {

@@ -526,8 +526,12 @@ Current scheduler behavior:
 - missing declared step outputs are bound to produced artifacts with the
   declared output IDs/names, and automatic execution completion validates
   required task outputs before writing `task.execution_completed`;
-- failed completion validation blocks the execution with a visible reason so a
-  caller can add missing artifacts or revise the task and mark it ready again;
+- when all declared steps are terminal but required task-level outputs are
+  missing, the scheduler runs a finalization worker pass to synthesize those
+  aggregate outputs from completed step evidence before it blocks completion;
+- failed completion validation after finalization blocks the execution with a
+  visible reason so a caller can add missing artifacts or revise the task and
+  mark it ready again;
 - terminal one-shot and goal turns wait for scheduler-run tasks from the
   submitted turn to finish before closing the local runtime; REPL turns watch
   briefly and then return the prompt while background tasks continue;
@@ -722,6 +726,9 @@ Completed in this slice:
     and wrapped local event-store open errors with the database path.
 21. Made terminal one-shot and goal turns wait for scheduler-run tasks from the
     submitted turn to finish before closing the local runtime.
+22. Added scheduler finalization for multi-step tasks: after all declared steps
+    are terminal, missing required task-level outputs are synthesized from
+    completed step evidence before completion validation blocks the task.
 
 Follow-up slices:
 
@@ -763,8 +770,9 @@ Follow-up slices:
   periodic index scans as reconciliation.
 - `orchestration/taskexecutor` runs ready DAG steps in dependency order.
 - `orchestration/taskexecutor` binds declared step outputs to produced
-  artifacts and blocks automatic completion when required task outputs remain
-  missing.
+  artifacts, runs a finalization pass for missing required task-level outputs
+  after all steps are terminal, and only blocks automatic completion when
+  required outputs remain missing after that pass.
 - Large scheduler worker outputs are represented as replacement references with
   preview metadata instead of embedding provider-sized payloads in task events.
 - `task_run` schedules ready tasks asynchronously.
