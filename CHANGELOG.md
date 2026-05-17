@@ -116,6 +116,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.
+- Added a constant self-evolvement concept document and moved the event-store
+  backend strategy/follow-up backlog into `.agents/plans`, keeping user-facing
+  docs focused on current architecture.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.
