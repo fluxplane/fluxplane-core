@@ -46,8 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   structured Go toolchain operations with bounded output, dry-run defaults for
   formatting/installing, and explicit unsupported-scope validation.
 - Added neutral `core/testrun` events and terminal rendering for generic
-  test-run feedback, and `go_test` now returns compact actionable failure
-  summaries with build/assertion/panic classification.
+  test-run feedback, `go_test` now returns compact actionable failure summaries
+  with build/assertion/panic classification, and coder live-test helpers use the
+  Codex provider by default.
 - Added a follow-up language/toolchain activation design for splitting
   language-specific contracts, modeling inert toolchains, project signals,
   activation events, and coder capability projection.
@@ -112,6 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task creation now records origin thread/run metadata, and the task scheduler
   mirrors background task execution events back into the originating session
   thread for live terminal feedback and replay.
+- Task scheduler anomalies that affect a task, such as ignored stale worker
+  results or retry exhaustion, are now recorded as durable
+  `task.scheduler_diagnostic` events and rendered by the terminal UI.
 - Fixed a direct-channel run event race that could panic with
   `send on closed channel` while forwarding live run events; run event
   emission is now guarded against channel-close races, and `Wait` no longer

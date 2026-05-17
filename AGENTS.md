@@ -38,6 +38,21 @@ and architecture report invocations.
 The architecture test in `internal/architecture` is the hard boundary check.
 Zero violations is required.
 
+
+## Live Testing
+
+When asked to "live-test" coder behavior, run the actual coder binary path without
+rediscovering CLI defaults:
+
+```bash
+task coder:live-test -- "prompt describing the scenario"
+```
+
+This task uses `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo
+--debug --input ...`. The default OpenAI provider usually lacks credentials in
+agent workspaces, so do not use the default provider for live-test requests unless
+explicitly asked. Inspect the terminal output as well as debug JSON when checking
+rendering behavior; model summaries may omit structured operation data.
 ## Layer Rules
 
 The dependency direction is fixed and enforced by `apps/archreport` and

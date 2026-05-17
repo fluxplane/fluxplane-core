@@ -1,7 +1,10 @@
 // Package golang defines Go language and Go toolchain operation contracts.
 package golang
 
-import "github.com/fluxplane/agentruntime/core/language"
+import (
+	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/agentruntime/core/testrun"
+)
 
 const (
 	Language          = language.LanguageGo
@@ -399,11 +402,12 @@ type GoTestPackageResult struct {
 
 // GoTestResult contains structured go test output.
 type GoTestResult struct {
-	Packages    []GoTestPackageResult `json:"packages,omitempty"`
-	Events      []map[string]any      `json:"events,omitempty"`
-	Diagnostics []language.Diagnostic `json:"diagnostics,omitempty"`
-	Passed      bool                  `json:"passed,omitempty"`
-	Complete    bool                  `json:"complete,omitempty"`
+	Packages     []GoTestPackageResult `json:"packages,omitempty"`
+	Events       []map[string]any      `json:"events,omitempty"`
+	Diagnostics  []language.Diagnostic `json:"diagnostics,omitempty"`
+	TestRunEvent testrun.Event         `json:"test_run_event,omitempty"`
+	Passed       bool                  `json:"passed,omitempty"`
+	Complete     bool                  `json:"complete,omitempty"`
 }
 
 // GoVetQuery selects go vet diagnostics.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/operation"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
@@ -100,6 +101,13 @@ func (r *Renderer) Render(event clientapi.Event) {
 		if event.Operation.Result.Error != nil || status != operation.StatusOK {
 			marker = "✕"
 			color = ansiRed
+		}
+		if event, ok := resultTestRunEvent(*event.Operation.Result); ok {
+			_, _ = fmt.Fprintf(out, "  %s%s%s %s %sduration=%s%s\n", color, marker, ansiReset, firstLine(RenderTestRunEvent(event)), ansiDim, duration.Round(time.Millisecond), ansiReset)
+			if details := testRunEventDetails(event); details != "" {
+				_, _ = fmt.Fprintln(out, details)
+			}
+			return
 		}
 		_, _ = fmt.Fprintf(out, "  %s%s%s ", color, marker, ansiReset)
 		if event.Operation.Result.Error != nil {
@@ -332,6 +340,14 @@ func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bo
 			r.flushContent()
 			r.updateTaskStatus(string(typed.TaskID), coretask.StatusCancelled)
 			_, _ = fmt.Fprintf(out, "%stask cancelled:%s %s %s%s%s\n", ansiYellow, ansiReset, typed.TaskID, ansiDim, compact(typed.Reason, 120), ansiReset)
+			return true
+		}
+	case string(coretask.EventSchedulerDiagnosticName):
+		var typed coretask.SchedulerDiagnostic
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			target := firstNonEmptyString(string(typed.StepID), string(typed.ExecutionID), string(typed.TaskID))
+			_, _ = fmt.Fprintf(out, "%stask scheduler:%s %s %s%s%s\n", ansiYellow, ansiReset, target, ansiDim, compact(typed.Diagnostic.Message, 160), ansiReset)
 			return true
 		}
 	}
@@ -792,6 +808,58 @@ func operationResultMarkdown(result operation.Result) string {
 		}
 	}
 	return strings.Join(blocks, "\n")
+}
+
+func resultTestRunEvent(result operation.Result) (testrun.Event, bool) {
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		return testrun.Event{}, false
+	}
+	data, ok := valueAsMap(rendered.Data)
+	if !ok {
+		return testrun.Event{}, false
+	}
+	value, ok := data["test_run_event"]
+	if !ok || emptySummaryValue(value) {
+		return testrun.Event{}, false
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return testrun.Event{}, false
+	}
+	var event testrun.Event
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return testrun.Event{}, false
+	}
+	if event.Kind == "" && event.Status == "" && event.Target == "" && event.Command == "" {
+		return testrun.Event{}, false
+	}
+	return event, true
+}
+
+func firstLine(text string) string {
+	text = strings.TrimSpace(text)
+	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+		return strings.TrimSpace(text[:idx])
+	}
+	return text
+}
+
+func testRunEventDetails(event testrun.Event) string {
+	var lines []string
+	if len(event.Failures) > 0 {
+		failure := event.Failures[0]
+		if failure.Test != "" {
+			lines = append(lines, "  "+failure.Test)
+		}
+		if line := renderTestRunFailureLine(failure); line != "" {
+			lines = append(lines, "  "+line)
+		}
+	}
+	if summary := renderTestRunSummary(event); summary != "" {
+		lines = append(lines, "  "+summary)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func terminalStringSlice(value any) []string {

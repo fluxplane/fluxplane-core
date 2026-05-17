@@ -7,12 +7,14 @@ import (
 	"io"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/testrun"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -311,19 +313,13 @@ func (p Plugin) goTest() operationruntime.TypedResultHandler[golang.GoTestQuery,
 		if run.Stderr != "" {
 			result.Diagnostics = append(result.Diagnostics, language.Diagnostic{Severity: "error", Code: "go_test_stderr", Message: strings.TrimSpace(run.Stderr)})
 		}
-		lines := []string{fmt.Sprintf("Go test: %s", passFail(result.Passed))}
-		lines = append(lines, "- patterns: "+strings.Join(patterns, ", "))
-		for _, pkg := range result.Packages {
-			line := fmt.Sprintf("- %s: %s", pkg.Package, emptyDefault(pkg.Status, "unknown"))
-			if pkg.Passed > 0 || pkg.Failed > 0 || pkg.Skipped > 0 {
-				line += fmt.Sprintf(" (pass=%d fail=%d skip=%d)", pkg.Passed, pkg.Failed, pkg.Skipped)
-			}
-			lines = append(lines, line)
+		if !result.Passed && goTestHasBuildFailed(result) {
+			rawRun, _ := p.runGoTool(ctx, req.Path, goTestDiagnosticArgs(args), req.MaxOutputBytes, defaultToolchainTimeout)
+			mergeGoTestBuildDiagnostics(&result, rawRun)
 		}
-		if len(result.Diagnostics) > 0 {
-			lines = append(lines, fmt.Sprintf("Diagnostics: %d", len(result.Diagnostics)))
-		}
-		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"test": result, "packages": result.Packages, "diagnostics": result.Diagnostics}})
+		populateGoTestRunEvent(&result, run, patterns)
+		text := renderGoTestResult(result, patterns)
+		return operation.OK(operation.Rendered{Text: text, Data: map[string]any{"test": result, "packages": result.Packages, "diagnostics": result.Diagnostics, "test_run_event": result.TestRunEvent}})
 	}
 }
 
@@ -1161,7 +1157,7 @@ func parseGoTestJSON(raw string) golang.GoTestResult {
 				pkg.Elapsed = value
 			}
 		}
-		if output := strings.TrimSpace(goListAnyString(event["Output"])); output != "" && len(pkg.Output) < 20 {
+		if output := strings.TrimRight(goListAnyString(event["Output"]), "\r\n"); strings.TrimSpace(output) != "" && len(pkg.Output) < 50 {
 			pkg.Output = append(pkg.Output, output)
 		}
 		switch action {
@@ -1225,6 +1221,298 @@ func parseGoVetOutput(raw string, jsonMode bool) []language.Diagnostic {
 		}
 	}
 	return diagnosticsFromText(trimmed, "go_vet_output")
+}
+func goTestHasBuildFailed(result golang.GoTestResult) bool {
+	for _, pkg := range result.Packages {
+		for _, output := range pkg.Output {
+			if strings.Contains(output, "[build failed]") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func goTestDiagnosticArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "-json" {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+func mergeGoTestBuildDiagnostics(result *golang.GoTestResult, rawRun system.ProcessResult) {
+	if result == nil || strings.TrimSpace(rawRun.Stderr) == "" {
+		return
+	}
+	for i := range result.Packages {
+		if result.Packages[i].Status != "fail" {
+			continue
+		}
+		for _, line := range strings.Split(rawRun.Stderr, "\n") {
+			line = strings.TrimSpace(line)
+			if _, ok := parseGoCompilerDiagnostic(line); ok {
+				result.Packages[i].Output = append(result.Packages[i].Output, line)
+			}
+		}
+	}
+}
+
+func populateGoTestRunEvent(result *golang.GoTestResult, run system.ProcessResult, patterns []string) {
+	if result == nil {
+		return
+	}
+	summary := testrun.Summary{}
+	for _, pkg := range result.Packages {
+		summary.PackagesTotal++
+		switch pkg.Status {
+		case "pass":
+			summary.PackagesPassed++
+		case "fail":
+			summary.PackagesFailed++
+		case "skip":
+			summary.PackagesSkipped++
+		}
+		summary.TestsPassed += pkg.Passed
+		summary.TestsFailed += pkg.Failed
+		summary.TestsSkipped += pkg.Skipped
+	}
+	summary.TestsTotal = summary.TestsPassed + summary.TestsFailed + summary.TestsSkipped
+	failures := goTestFailures(*result, run)
+	status := testrun.StatusPassed
+	if !result.Passed || len(failures) > 0 || summary.PackagesFailed > 0 || summary.TestsFailed > 0 {
+		status = testrun.StatusFailed
+	}
+	if run.TimedOut {
+		status = testrun.StatusError
+	}
+	if status == testrun.StatusPassed && summary.TestsTotal == 0 && summary.PackagesSkipped > 0 && summary.PackagesPassed == 0 {
+		status = testrun.StatusSkipped
+	}
+	result.TestRunEvent = testrun.Event{
+		Kind:       testrun.EventFinished,
+		Toolchain:  "go",
+		Command:    strings.TrimSpace(strings.Join(append([]string{run.Command}, run.Args...), " ")),
+		Target:     strings.Join(patterns, ", "),
+		Status:     status,
+		Summary:    summary,
+		Failures:   failures,
+		DurationMS: run.Duration.Milliseconds(),
+		Truncated:  run.StdoutTruncated || run.StderrTruncated,
+	}
+	if result.TestRunEvent.Truncated {
+		result.TestRunEvent.Note = "output truncated; failure details were prioritized"
+	}
+}
+
+func goTestFailures(result golang.GoTestResult, run system.ProcessResult) []testrun.Failure {
+	var failures []testrun.Failure
+	seen := map[string]bool{}
+	for _, pkg := range result.Packages {
+		for _, failure := range failuresFromGoTestPackage(pkg) {
+			key := failureKey(failure)
+			if !seen[key] {
+				seen[key] = true
+				failures = append(failures, failure)
+			}
+		}
+	}
+	for _, diag := range result.Diagnostics {
+		failure := failureFromDiagnostic(diag)
+		key := failureKey(failure)
+		if !seen[key] {
+			seen[key] = true
+			failures = append(failures, failure)
+		}
+	}
+	if run.TimedOut {
+		failures = append(failures, testrun.Failure{Kind: testrun.FailureTimeout, Message: "go test timed out"})
+	}
+	return failures
+}
+
+func failuresFromGoTestPackage(pkg golang.GoTestPackageResult) []testrun.Failure {
+	var failures []testrun.Failure
+	var currentTest string
+	for _, output := range pkg.Output {
+		line := strings.TrimSpace(output)
+		if line == "" {
+			continue
+		}
+		if name, ok := parseGoTestRunLine(line, "=== RUN"); ok {
+			currentTest = name
+			continue
+		}
+		if name, ok := parseGoTestRunLine(line, "--- FAIL:"); ok {
+			currentTest = name
+			continue
+		}
+		if diag, ok := parseGoCompilerDiagnostic(line); ok {
+			failures = append(failures, testrun.Failure{Kind: testrun.FailureBuild, Package: pkg.Package, File: diag.Path, Line: diag.Line, Column: diag.Column, Message: diag.Message})
+			continue
+		}
+		if strings.HasPrefix(line, "panic:") || strings.Contains(line, "panic:") {
+			failures = append(failures, testrun.Failure{Kind: testrun.FailurePanic, Package: pkg.Package, Test: currentTest, Message: line})
+			continue
+		}
+		if strings.Contains(line, "setup failed") || strings.HasPrefix(line, "FAIL") && currentTest == "" {
+			failures = append(failures, testrun.Failure{Kind: testrun.FailureSetup, Package: pkg.Package, Message: line})
+			continue
+		}
+		if currentTest != "" && looksLikeGoTestFailureLine(line) {
+			file, lineNo, message := parseGoTestFailureLine(line)
+			failures = append(failures, testrun.Failure{Kind: testrun.FailureAssertion, Package: pkg.Package, Test: currentTest, File: file, Line: lineNo, Message: message})
+		}
+	}
+	if pkg.Status == "fail" && len(failures) == 0 {
+		failures = append(failures, testrun.Failure{Kind: testrun.FailureUnknown, Package: pkg.Package, Message: "package failed"})
+	}
+	return failures
+}
+
+func parseGoTestRunLine(line, prefix string) (string, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if idx := strings.Index(name, " "); idx >= 0 {
+		name = name[:idx]
+	}
+	return name, name != ""
+}
+
+type parsedGoDiagnostic struct {
+	Path    string
+	Line    int
+	Column  int
+	Message string
+}
+
+func parseGoCompilerDiagnostic(line string) (parsedGoDiagnostic, bool) {
+	parts := strings.SplitN(line, ":", 4)
+	if len(parts) < 4 || !strings.HasSuffix(parts[0], ".go") {
+		return parsedGoDiagnostic{}, false
+	}
+	lineNo, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return parsedGoDiagnostic{}, false
+	}
+	column, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return parsedGoDiagnostic{}, false
+	}
+	message := strings.TrimSpace(parts[3])
+	if message == "" {
+		return parsedGoDiagnostic{}, false
+	}
+	return parsedGoDiagnostic{Path: parts[0], Line: lineNo, Column: column, Message: message}, true
+}
+
+func looksLikeGoTestFailureLine(line string) bool {
+	_, lineNo, message := parseGoTestFailureLine(line)
+	return lineNo > 0 && message != ""
+}
+
+func parseGoTestFailureLine(line string) (string, int, string) {
+	parts := strings.SplitN(line, ":", 3)
+	if len(parts) < 3 || !strings.HasSuffix(parts[0], ".go") {
+		return "", 0, line
+	}
+	lineNo, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, line
+	}
+	return parts[0], lineNo, strings.TrimSpace(parts[2])
+}
+
+func failureFromDiagnostic(diag language.Diagnostic) testrun.Failure {
+	failure := testrun.Failure{Kind: testrun.FailureUnknown, Package: diag.Code, File: diag.Path, Message: diag.Message}
+	if parsed, ok := parseGoCompilerDiagnostic(diag.Message); ok {
+		failure.Kind = testrun.FailureBuild
+		failure.File = parsed.Path
+		failure.Line = parsed.Line
+		failure.Column = parsed.Column
+		failure.Message = parsed.Message
+	}
+	if diag.Code == "go_test_stderr" {
+		failure.Kind = testrun.FailureSetup
+	}
+	return failure
+}
+
+func failureKey(failure testrun.Failure) string {
+	return string(failure.Kind) + "\x00" + failure.Package + "\x00" + failure.Test + "\x00" + failure.File + "\x00" + strconv.Itoa(failure.Line) + "\x00" + strconv.Itoa(failure.Column) + "\x00" + failure.Message
+}
+
+func renderGoTestResult(result golang.GoTestResult, patterns []string) string {
+	status := strings.ToUpper(passFail(result.Passed))
+	lines := []string{fmt.Sprintf("go_test: %s %s", status, strings.Join(patterns, ", "))}
+	if len(result.TestRunEvent.Failures) > 0 {
+		lines = append(lines, "")
+		groups := map[testrun.FailureKind]string{
+			testrun.FailureBuild:     "build failed:",
+			testrun.FailureAssertion: "failed tests:",
+			testrun.FailurePanic:     "panic:",
+			testrun.FailureTimeout:   "timeout:",
+			testrun.FailureSetup:     "setup failed:",
+			testrun.FailureUnknown:   "failures:",
+		}
+		order := []testrun.FailureKind{testrun.FailureBuild, testrun.FailureAssertion, testrun.FailurePanic, testrun.FailureTimeout, testrun.FailureSetup, testrun.FailureUnknown}
+		for _, kind := range order {
+			sectionStarted := false
+			shown := 0
+			for _, failure := range result.TestRunEvent.Failures {
+				if failure.Kind != kind {
+					continue
+				}
+				if !sectionStarted {
+					lines = append(lines, groups[kind])
+					sectionStarted = true
+				}
+				lines = append(lines, renderGoTestFailure(failure))
+				shown++
+				if shown >= 5 {
+					break
+				}
+			}
+			if sectionStarted {
+				lines = append(lines, "")
+			}
+		}
+	}
+	summary := result.TestRunEvent.Summary
+	lines = append(lines, fmt.Sprintf("summary: packages=%d passed=%d failed=%d skipped=%d; tests=%d passed=%d failed=%d skipped=%d", summary.PackagesTotal, summary.PackagesPassed, summary.PackagesFailed, summary.PackagesSkipped, summary.TestsTotal, summary.TestsPassed, summary.TestsFailed, summary.TestsSkipped))
+	if result.TestRunEvent.Truncated {
+		lines = append(lines, "truncated: "+result.TestRunEvent.Note)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func renderGoTestFailure(failure testrun.Failure) string {
+	location := failure.File
+	if failure.Line > 0 {
+		location += ":" + strconv.Itoa(failure.Line)
+		if failure.Column > 0 {
+			location += ":" + strconv.Itoa(failure.Column)
+		}
+	}
+	message := strings.TrimSpace(failure.Message)
+	if failure.Test != "" {
+		if location != "" {
+			return fmt.Sprintf("- %s\n  %s: %s", failure.Test, location, message)
+		}
+		return fmt.Sprintf("- %s\n  %s", failure.Test, message)
+	}
+	if location != "" {
+		return location + ": " + message
+	}
+	if failure.Package != "" {
+		return "- " + failure.Package + ": " + message
+	}
+	return "- " + message
 }
 
 func diagnosticsFromText(raw, code string) []language.Diagnostic {

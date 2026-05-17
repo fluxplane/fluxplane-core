@@ -9,6 +9,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
@@ -579,7 +580,7 @@ func Bad() {
 	writeGoFile(t, sys.Workspace(), "pkg/badbuild/bad.go", `package badbuild
 
 func Broken() {
-	_ = missing
+	_ = Missing()
 }
 `)
 	writeGoFile(t, sys.Workspace(), "pkg/format/format.go", "package format\n\nfunc Bad( ){ }\n")
@@ -598,9 +599,13 @@ func main() {}
 	if failData.Passed || len(failData.Packages) != 1 || failData.Packages[0].Failed != 1 {
 		t.Fatalf("go test fail data = %#v, want structured test failure", failData)
 	}
+	if failData.TestRunEvent.Status != testrun.StatusFailed || !testrun.HasFailureKind(failData.TestRunEvent, testrun.FailureAssertion) || !strings.Contains(failResult.Text, "intentional failure") {
+		t.Fatalf("go test assertion event/text = %#v / %q, want assertion failure details", failData.TestRunEvent, failResult.Text)
+	}
 	compileResult := runGoOp(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/badbuild"}})
-	if goTestResultFromRendered(t, compileResult).Passed || !strings.Contains(compileResult.Text, "fail") {
-		t.Fatalf("go test compile text = %q, want compile failure summary", compileResult.Text)
+	compileData := goTestResultFromRendered(t, compileResult)
+	if compileData.Passed || !strings.Contains(compileResult.Text, "Missing") || !testrun.HasFailureKind(compileData.TestRunEvent, testrun.FailureBuild) {
+		t.Fatalf("go test compile result = %#v text = %q, want compile failure diagnostics", compileData.TestRunEvent, compileResult.Text)
 	}
 	invalidTimeout := runGoResult(t, sys, TestOp, map[string]any{"patterns": []string{"./pkg/checks"}, "timeout": "soon"})
 	if invalidTimeout.Status != operation.StatusFailed || invalidTimeout.Error == nil || !strings.Contains(invalidTimeout.Error.Message, "duration") {
@@ -626,7 +631,7 @@ func main() {}
 		t.Fatalf("go build ok text = %q, want pass", buildOK.Text)
 	}
 	buildBad := runGoOp(t, sys, BuildOp, map[string]any{"patterns": []string{"./pkg/badbuild"}})
-	if goBuildResultFromRendered(t, buildBad).Passed || !strings.Contains(buildBad.Text, "undefined: missing") {
+	if goBuildResultFromRendered(t, buildBad).Passed || !strings.Contains(buildBad.Text, "undefined: Missing") {
 		t.Fatalf("go build bad text = %q, want compile diagnostic", buildBad.Text)
 	}
 

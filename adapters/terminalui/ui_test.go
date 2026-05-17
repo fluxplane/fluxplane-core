@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
@@ -314,6 +315,59 @@ func TestRendererRendersOperationDiffDetail(t *testing.T) {
 	}
 }
 
+func TestRendererRendersTestRunEvent(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "go_test"},
+			Result: &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
+				Text: "go_test: PASS ./core/testrun summary: packages=1 passed=1 failed=0 skipped=0; tests=1 passed=1 failed=0 skipped=0",
+				Data: map[string]any{
+					"test_run_event": testrun.Event{Target: "./core/testrun", Status: testrun.StatusPassed, Summary: testrun.Summary{TestsPassed: 1, PackagesPassed: 1}, DurationMS: 102},
+				},
+			}},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"✓", "✅ tests passed  ./core/testrun", "1 passed", "duration="} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("test run output = %q, missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "go_test: PASS") {
+		t.Fatalf("test run output = %q, want event renderer instead of raw operation text", got)
+	}
+}
+
+func TestRendererRendersFailedTestRunEvent(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call_1",
+			Operation: operation.Ref{Name: "go_test"},
+			Result: &operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
+				Text: "go_test: FAIL ./runtime/thread",
+				Data: map[string]any{
+					"test_run_event": testrun.Event{Target: "./runtime/thread", Status: testrun.StatusFailed, Summary: testrun.Summary{TestsPassed: 5, TestsFailed: 1}, Failures: []testrun.Failure{{Kind: testrun.FailureAssertion, Test: "TestRetry", File: "runtime/thread/store_test.go", Line: 262, Message: "Append returned error"}}},
+				},
+			}},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"✓", "❌ tests failed  ./runtime/thread", "TestRetry", "store_test.go:262 Append returned error", "5 passed · 1 failed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("test run output = %q, missing %q", got, want)
+		}
+	}
+}
+
 func TestRendererRendersToolTimelineFailure(t *testing.T) {
 	var out, err bytes.Buffer
 	renderer := NewRenderer(&out, &err, false)
@@ -408,6 +462,18 @@ func TestRendererRendersTaskLifecycleWithStatusMarkers(t *testing.T) {
 			Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
 	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: coretask.EventSchedulerDiagnosticName,
+			Payload: coretask.SchedulerDiagnostic{
+				TaskID:      "task_1",
+				ExecutionID: "exec_1",
+				StepID:      "one",
+				Diagnostic:  coretask.Diagnostic{Code: "task_stale_step_result_ignored", Message: "stale worker result ignored"},
+			},
+		},
+	})
 	renderer.Finish()
 
 	got := out.String() + err.String()
@@ -422,6 +488,8 @@ func TestRendererRendersTaskLifecycleWithStatusMarkers(t *testing.T) {
 		"task artifact:",
 		"report [report] required",
 		"task completed:",
+		"task scheduler:",
+		"stale worker result ignored",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("task output = %q, missing %q", got, want)

@@ -107,6 +107,18 @@ tasks:
     cmds:
       - go test -timeout=30s ./...
 
+  coder:live-test:
+    desc: 'Live-test coder with the Codex provider and debug event output. Usage: task coder:live-test -- "prompt"'
+    env:
+      CODER_LIVE_TEST_PROMPT: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        if [ -z "$CODER_LIVE_TEST_PROMPT" ]; then
+          printf 'usage: task coder:live-test -- "prompt describing the scenario"\n' >&2
+          exit 2
+        fi
+        go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --debug --input "$CODER_LIVE_TEST_PROMPT"
+
   quality:metrics:
     desc: Print non-blocking code quality metrics for refactoring guidance.
     cmds:
