@@ -129,6 +129,55 @@ func TestProjectAppliesExecutionArtifactAdded(t *testing.T) {
 	}
 }
 
+func TestProjectAppliesSchedulerDiagnostic(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review", Steps: []coretask.Step{{ID: "inspect"}}}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.SchedulerDiagnostic{
+			TaskID:      "task_1",
+			ExecutionID: "exec_1",
+			StepID:      "inspect",
+			Diagnostic:  coretask.Diagnostic{Code: "task_stale_step_result_ignored", Message: "ignored"},
+		}},
+		{Time: base.Add(3 * time.Second), Payload: coretask.SchedulerDiagnostic{
+			TaskID:     "task_1",
+			Diagnostic: coretask.Diagnostic{Code: "task_append_conflict", Message: "conflict"},
+		}},
+	})
+	step := state.Executions["exec_1"].Steps["inspect"]
+	if len(step.Diagnostics) != 1 || step.Diagnostics[0].Code != "task_stale_step_result_ignored" {
+		t.Fatalf("step diagnostics = %#v, want stale result diagnostic", step.Diagnostics)
+	}
+	if len(state.Executions["exec_1"].Diagnostics) != 1 || state.Executions["exec_1"].Diagnostics[0].Code != "task_append_conflict" {
+		t.Fatalf("execution diagnostics = %#v, want conflict diagnostic", state.Executions["exec_1"].Diagnostics)
+	}
+}
+
+func TestProjectSchedulerDiagnosticDoesNotChangeCurrentExecution(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Title: "Review", Steps: []coretask.Step{{ID: "run"}}}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_old", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ExecutionInterrupted{TaskID: "task_1", ExecutionID: "exec_old", Reason: "blocked"}},
+		{Time: base.Add(3 * time.Second), Payload: coretask.StatusChanged{TaskID: "task_1", Previous: coretask.StatusInterrupted, Current: coretask.StatusReady, Reason: "reopened"}},
+		{Time: base.Add(4 * time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_new", Execution: coretask.Execution{TaskID: "task_1"}}},
+		{Time: base.Add(5 * time.Second), Payload: coretask.SchedulerDiagnostic{
+			TaskID:      "task_1",
+			ExecutionID: "exec_old",
+			StepID:      "run",
+			Diagnostic:  coretask.Diagnostic{Code: "task_stale_step_result_ignored", Message: "old worker output ignored"},
+		}},
+	})
+	if state.CurrentExecution != "exec_new" {
+		t.Fatalf("current execution = %s, want exec_new", state.CurrentExecution)
+	}
+	oldStep := state.Executions["exec_old"].Steps["run"]
+	if len(oldStep.Diagnostics) != 1 || oldStep.Diagnostics[0].Code != "task_stale_step_result_ignored" {
+		t.Fatalf("old diagnostics = %#v, want stale diagnostic on old execution", oldStep.Diagnostics)
+	}
+}
+
 func TestProjectAppliesArtifactUpdatedAndRemoved(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	state := Project([]event.Record{

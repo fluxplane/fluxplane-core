@@ -144,6 +144,7 @@ type Task struct {
 	Workflow           *workflow.Spec    `json:"workflow,omitempty"`
 	Steps              []Step            `json:"steps,omitempty"`
 	Labels             []string          `json:"labels,omitempty"`
+	Diagnostics        []Diagnostic      `json:"diagnostics,omitempty"`
 	Metadata           map[string]string `json:"metadata,omitempty"`
 	CreatedAt          time.Time         `json:"created_at,omitempty"`
 	UpdatedAt          time.Time         `json:"updated_at,omitempty"`
@@ -178,6 +179,7 @@ type Execution struct {
 	CompletedAt time.Time                `json:"completed_at,omitempty"`
 	Output      operation.Value          `json:"output,omitempty"`
 	Error       *operation.Error         `json:"error,omitempty"`
+	Diagnostics []Diagnostic             `json:"diagnostics,omitempty"`
 	Metadata    map[string]string        `json:"metadata,omitempty"`
 }
 
@@ -195,6 +197,7 @@ type StepExecution struct {
 	Output       operation.Value   `json:"output,omitempty"`
 	Artifacts    []ArtifactSpec    `json:"artifacts,omitempty"`
 	Error        *operation.Error  `json:"error,omitempty"`
+	Diagnostics  []Diagnostic      `json:"diagnostics,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
@@ -338,6 +341,25 @@ func (r TaskGetResult) ModelText() string {
 						fmt.Fprintf(&b, " %s", artifactSummary(artifact))
 					}
 				}
+				if hasExec && len(exec.Steps[step.ID].Diagnostics) > 0 {
+					for _, diagnostic := range exec.Steps[step.ID].Diagnostics {
+						fmt.Fprintf(&b, "\n  diagnostic: %s", diagnosticText(diagnostic))
+					}
+				}
+			}
+		}
+		if len(r.Task.Diagnostics) > 0 {
+			b.WriteString("\nDiagnostics:")
+			for _, diagnostic := range r.Task.Diagnostics {
+				fmt.Fprintf(&b, "\n- %s", diagnosticText(diagnostic))
+			}
+		}
+		if exec, ok := r.Executions[r.CurrentExecution]; ok && len(exec.Diagnostics) > 0 {
+			if len(r.Task.Diagnostics) == 0 {
+				b.WriteString("\nDiagnostics:")
+			}
+			for _, diagnostic := range exec.Diagnostics {
+				fmt.Fprintf(&b, "\n- %s", diagnosticText(diagnostic))
 			}
 		}
 		artifacts := scopedArtifactsForText(r.Task, r.Executions)
@@ -881,6 +903,16 @@ func artifactScope(scoped ScopedArtifact) string {
 
 func artifactSummary(artifact ArtifactSpec) string {
 	return artifactLabel(artifact)
+}
+
+func diagnosticText(diagnostic Diagnostic) string {
+	if diagnostic.Code == "" {
+		return diagnostic.Message
+	}
+	if diagnostic.Message == "" {
+		return diagnostic.Code
+	}
+	return diagnostic.Code + ": " + diagnostic.Message
 }
 
 func artifactDetail(artifact ArtifactSpec) string {

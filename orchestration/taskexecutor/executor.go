@@ -482,7 +482,7 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 	}
 	events := artifactEvents(state.Task.ID, execID, "", bindDeclaredOutputs(result, step.Outputs))
 	if len(events) > 0 {
-		if _, err := s.withExpectedRetry(ctx, state.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
+		if appended, err := s.withExpectedRetry(ctx, state.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
 			exec, ok := current.Executions[execID]
 			if current.Task.Status != coretask.StatusRunning || current.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
 				return false, nil
@@ -490,6 +490,9 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 			return true, events
 		}); err != nil {
 			return err
+		} else if !appended {
+			s.appendSchedulerDiagnostic(ctx, state.Task.ID, execID, "", "task_stale_artifacts_ignored", "worker artifacts ignored because the task execution is no longer running")
+			return nil
 		}
 	}
 	projected, err := s.store.Project(ctx, state.Task.ID)
@@ -601,7 +604,7 @@ func (s *Scheduler) appendStepDispatch(ctx context.Context, taskID coretask.ID, 
 }
 
 func (s *Scheduler) appendStepTerminal(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, events ...event.Event) error {
-	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+	appended, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
 		exec, ok := state.Executions[execID]
 		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
 			return false, nil
@@ -611,17 +614,23 @@ func (s *Scheduler) appendStepTerminal(ctx context.Context, taskID coretask.ID, 
 		}
 		return true, events
 	})
+	if err == nil && !appended {
+		s.appendSchedulerDiagnostic(ctx, taskID, execID, stepID, "task_stale_step_result_ignored", "worker step result ignored because the task step is no longer running")
+	}
 	return err
 }
 
 func (s *Scheduler) appendExecutionTerminal(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, events ...event.Event) error {
-	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+	appended, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
 		exec, ok := state.Executions[execID]
 		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
 			return false, nil
 		}
 		return true, events
 	})
+	if err == nil && !appended {
+		s.appendSchedulerDiagnostic(ctx, taskID, execID, "", "task_stale_execution_result_ignored", "worker execution result ignored because the task execution is no longer running")
+	}
 	return err
 }
 
@@ -661,9 +670,43 @@ func (s *Scheduler) withExpectedRetry(ctx context.Context, taskID coretask.ID, b
 		return true, nil
 	}
 	if lastConflict != nil {
-		return false, fmt.Errorf("taskexecutor: append conflict after %d retries: %w", maxAppendRetries, lastConflict)
+		err := fmt.Errorf("taskexecutor: append conflict after %d retries: %w", maxAppendRetries, lastConflict)
+		s.appendSchedulerDiagnostic(ctx, taskID, "", "", "task_append_conflict", err.Error())
+		return false, err
 	}
 	return false, nil
+}
+
+func (s *Scheduler) appendSchedulerDiagnostic(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, code, message string) {
+	if taskID == "" || strings.TrimSpace(message) == "" {
+		return
+	}
+	payload := coretask.SchedulerDiagnostic{
+		TaskID:      taskID,
+		ExecutionID: execID,
+		StepID:      stepID,
+		Diagnostic: coretask.Diagnostic{
+			Code:    code,
+			Message: message,
+			Target:  string(stepID),
+		},
+	}
+	if payload.Diagnostic.Target == "" {
+		payload.Diagnostic.Target = string(execID)
+	}
+	if err := s.store.Append(context.WithoutCancel(ctx), taskID, payload); err != nil {
+		s.recordError("task_scheduler_diagnostic_append_failed", err)
+		return
+	}
+	if err := s.index(context.WithoutCancel(ctx), taskID); err != nil {
+		s.recordError("task_scheduler_diagnostic_index_failed", err)
+	}
+	state, err := s.store.Project(context.WithoutCancel(ctx), taskID)
+	if err != nil {
+		s.recordError("task_scheduler_diagnostic_project_failed", err)
+		return
+	}
+	s.publishTaskRuntimeEvents(context.WithoutCancel(ctx), state.Task, []event.Event{payload})
 }
 
 func (s *Scheduler) cancelWaitingDependents(ctx context.Context, state runtimetask.State, reason string) error {

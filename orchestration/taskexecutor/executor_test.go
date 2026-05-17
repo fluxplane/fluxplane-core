@@ -227,6 +227,9 @@ func TestSchedulerDoesNotOverwriteWholeTaskCancellation(t *testing.T) {
 	if state.Executions[state.CurrentExecution].Status == coretask.StatusCompleted {
 		t.Fatalf("execution = %#v, want not completed after cancellation", state.Executions[state.CurrentExecution])
 	}
+	if diagnostics := state.Executions[state.CurrentExecution].Diagnostics; len(diagnostics) != 1 || diagnostics[0].Code != "task_stale_artifacts_ignored" {
+		t.Fatalf("execution diagnostics = %#v, want stale artifact diagnostic", diagnostics)
+	}
 }
 
 func TestSchedulerDoesNotOverwriteStepCancellation(t *testing.T) {
@@ -258,6 +261,9 @@ func TestSchedulerDoesNotOverwriteStepCancellation(t *testing.T) {
 	}
 	if step.Status == coretask.StepStatusCompleted {
 		t.Fatalf("step status = completed, want stale worker output ignored")
+	}
+	if diagnostics := step.Diagnostics; len(diagnostics) != 1 || diagnostics[0].Code != "task_stale_step_result_ignored" {
+		t.Fatalf("step diagnostics = %#v, want stale result diagnostic", diagnostics)
 	}
 }
 

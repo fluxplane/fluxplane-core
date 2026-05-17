@@ -31,6 +31,7 @@ func RegisterEvents(registry *event.Registry) error {
 		ExecutionCompleted{},
 		ExecutionFailed{},
 		ExecutionCancelled{},
+		SchedulerDiagnostic{},
 	} {
 		if err := registry.Register(sample); err != nil {
 			return err

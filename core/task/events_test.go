@@ -32,6 +32,7 @@ func TestTaskEventNames(t *testing.T) {
 		{"ExecutionCompleted", ExecutionCompleted{}.EventName(), EventExecutionCompletedName},
 		{"ExecutionFailed", ExecutionFailed{}.EventName(), EventExecutionFailedName},
 		{"ExecutionCancelled", ExecutionCancelled{}.EventName(), EventExecutionCancelledName},
+		{"SchedulerDiagnostic", SchedulerDiagnostic{}.EventName(), EventSchedulerDiagnosticName},
 	}
 	for _, tc := range checks {
 		if tc.got != tc.want {

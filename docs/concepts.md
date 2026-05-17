@@ -360,7 +360,10 @@ state. Session-produced `task.*` runtime events are persisted for replay and
 rendered by terminal clients as task lifecycle, step progress, artifact, and
 completion feedback. Tasks created from a session record origin thread/run
 metadata so background scheduler events can be mirrored back to that session
-thread.
+thread. Scheduler anomalies that affect a task, such as ignored stale worker
+results, are durable task diagnostics rather than transient scheduler-only
+state. They are non-lifecycle records and do not change the projected current
+execution.
 
 ### Commands in AgentRuntime
 

@@ -94,7 +94,11 @@ cancellation, blocking, or manual edits. Declared step outputs are bound to
 produced artifacts, and automatic execution completion validates required task
 outputs before writing `task.execution_completed`; failures block the execution
 with a visible reason. Interrupted executions can be resumed when the task
-becomes `ready` again.
+becomes `ready` again. Scheduler-side anomalies that affect one task, such as
+ignored stale worker output or retry exhaustion, are recorded as durable
+`task.scheduler_diagnostic` events and projected onto the task execution or
+step. These diagnostics are non-lifecycle events and must not change the
+current execution pointer.
 
 Because the scheduler is a background task-stream writer, scheduler/user
 concurrency is part of the domain's hardening work. Claims, dispatch, blocking,
@@ -102,8 +106,8 @@ dependent cancellation, terminal writes, and task modification retries now use
 optimistic stream checks or bounded retry policy. Thread-store create, append,
 and fork writes also retry append conflicts so concurrent worker/session
 transcript writes do not undermine task execution. Remaining work is focused
-load/concurrency coverage and the decision whether scheduler diagnostics should
-also be durable task events.
+load/concurrency coverage and shaping external worker pool integration behind
+the scheduler worker boundary.
 
 ## Relationship To Other Domains
 

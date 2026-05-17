@@ -189,6 +189,32 @@ func Apply(state State, payload event.Event, at time.Time) State {
 	case coretask.ExecutionCancelled:
 		err := &operation.Error{Code: "task_execution_cancelled", Message: evt.Reason}
 		state = applyExecutionTerminal(state, evt.ExecutionID, coretask.StatusCancelled, nil, err, at)
+	case coretask.SchedulerDiagnostic:
+		state.Task.ID = firstTaskID(state.Task.ID, evt.TaskID)
+		state.Task.UpdatedAt = eventTime(at, state.Task.UpdatedAt)
+		executionID := evt.ExecutionID
+		if executionID == "" {
+			executionID = state.CurrentExecution
+		}
+		if executionID == "" {
+			state.Task.Diagnostics = appendDiagnostic(state.Task.Diagnostics, evt.Diagnostic)
+			break
+		}
+		exec := state.execution(executionID)
+		exec.ID = executionID
+		if exec.TaskID == "" {
+			exec.TaskID = evt.TaskID
+		}
+		if evt.StepID != "" {
+			step := exec.Steps[evt.StepID]
+			step.StepID = evt.StepID
+			step.Diagnostics = appendDiagnostic(step.Diagnostics, evt.Diagnostic)
+			step.UpdatedAt = eventTime(at, step.UpdatedAt)
+			exec.Steps[evt.StepID] = step
+		} else {
+			exec.Diagnostics = appendDiagnostic(exec.Diagnostics, evt.Diagnostic)
+		}
+		state.setExecution(exec)
 	}
 	return state
 }
@@ -430,6 +456,7 @@ func cloneTask(in coretask.Task) coretask.Task {
 	out.Inputs = cloneArtifacts(in.Inputs)
 	out.Outputs = cloneArtifacts(in.Outputs)
 	out.Artifacts = cloneArtifacts(in.Artifacts)
+	out.Diagnostics = cloneDiagnostics(in.Diagnostics)
 	out.Scope = append([]string(nil), in.Scope...)
 	out.Constraints = append([]string(nil), in.Constraints...)
 	out.Labels = append([]string(nil), in.Labels...)
@@ -463,6 +490,7 @@ func cloneExecution(in coretask.Execution) coretask.Execution {
 	out := in
 	out.Steps = cloneStepExecutions(in.Steps)
 	out.Artifacts = cloneArtifacts(in.Artifacts)
+	out.Diagnostics = cloneDiagnostics(in.Diagnostics)
 	if len(in.Metadata) > 0 {
 		out.Metadata = map[string]string{}
 		for k, v := range in.Metadata {
@@ -479,11 +507,30 @@ func cloneStepExecutions(in map[coretask.StepID]coretask.StepExecution) map[core
 	out := make(map[coretask.StepID]coretask.StepExecution, len(in))
 	for id, step := range in {
 		step.Artifacts = cloneArtifacts(step.Artifacts)
+		step.Diagnostics = cloneDiagnostics(step.Diagnostics)
 		if len(step.Metadata) > 0 {
 			step.Metadata = cloneStringMap(step.Metadata)
 		}
 		out[id] = step
 	}
+	return out
+}
+
+func appendDiagnostic(in []coretask.Diagnostic, diagnostic coretask.Diagnostic) []coretask.Diagnostic {
+	if diagnostic.Code == "" && diagnostic.Message == "" && diagnostic.Target == "" {
+		return cloneDiagnostics(in)
+	}
+	out := cloneDiagnostics(in)
+	out = append(out, diagnostic)
+	return out
+}
+
+func cloneDiagnostics(in []coretask.Diagnostic) []coretask.Diagnostic {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]coretask.Diagnostic, len(in))
+	copy(out, in)
 	return out
 }
 

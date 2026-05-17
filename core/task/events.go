@@ -25,6 +25,7 @@ const (
 	EventExecutionCompletedName   event.Name = "task.execution_completed"
 	EventExecutionFailedName      event.Name = "task.execution_failed"
 	EventExecutionCancelledName   event.Name = "task.execution_cancelled"
+	EventSchedulerDiagnosticName  event.Name = "task.scheduler_diagnostic"
 )
 
 // CreateRequested records the accepted task creation request before defaults
@@ -213,3 +214,14 @@ type ExecutionCancelled struct {
 }
 
 func (ExecutionCancelled) EventName() event.Name { return EventExecutionCancelledName }
+
+// SchedulerDiagnostic records a scheduler-side diagnostic that affected a task
+// but does not itself define task lifecycle state.
+type SchedulerDiagnostic struct {
+	TaskID      ID          `json:"task_id"`
+	ExecutionID ExecutionID `json:"execution_id,omitempty"`
+	StepID      StepID      `json:"step_id,omitempty"`
+	Diagnostic  Diagnostic  `json:"diagnostic"`
+}
+
+func (SchedulerDiagnostic) EventName() event.Name { return EventSchedulerDiagnosticName }

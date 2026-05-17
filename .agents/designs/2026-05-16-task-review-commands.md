@@ -131,6 +131,12 @@ later events.
 - automatic scheduler/executor wiring in local launch when `taskplugin` is
   selected.
 
+Scheduler-visible anomalies that affect a task are task history, not only local
+process state: ignored stale worker results and retry exhaustion are emitted as
+`task.scheduler_diagnostic` events so `task_get` and session replay can explain
+what happened. Diagnostic events are non-lifecycle records and must not move
+the projected current execution.
+
 Task event types remain owned by `core/task` and are registered by
 `orchestration/eventregistry` for all runtimes.
 
@@ -547,7 +553,10 @@ Current concurrency posture:
   concurrent worker/session transcript writes do not fail on one stale stream
   sequence read;
 - scheduler goroutine errors are observable through scheduler status
-  diagnostics and an optional error hook.
+  diagnostics and an optional error hook;
+- task-affecting scheduler anomalies are durable
+  `task.scheduler_diagnostic` events that do not change task lifecycle or the
+  current execution pointer.
 
 Current scheduler/task-operation hardening coverage includes:
 
@@ -560,10 +569,8 @@ Current scheduler/task-operation hardening coverage includes:
 3. SQLite/thread-store concurrency stress coverage for shared event streams and
    thread index contention.
 
-Future hardening should decide whether durable scheduler diagnostics should be
-task events in addition to local status diagnostics, and should add longer
-soak/multi-process scheduler coverage when durable queues or external worker
-pools are introduced.
+Future hardening should add longer soak/multi-process scheduler coverage when
+durable queues or external worker pools are introduced.
 
 ## Sub-Agents and Workers
 
@@ -684,11 +691,10 @@ Completed in this slice:
 
 Follow-up slices:
 
-1. Decide whether scheduler diagnostics should also be durable task events.
-2. Add richer worker pools with multiple profiles per role, queueing policy,
+1. Add richer worker pools with multiple profiles per role, queueing policy,
    fairness, and retry/fallback behavior.
-3. Add review request/review task operations.
-4. Add tool-result artifact ergonomics for oversized results, summaries, and
+2. Add review request/review task operations.
+3. Add tool-result artifact ergonomics for oversized results, summaries, and
    inspectable saved payloads.
 
 ## Testing
