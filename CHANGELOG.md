@@ -6,394 +6,122 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-- Added compact `git_diff` projections: `stat_only`, `names_only`, and bounded
-- Added an OpenSpec plugin design for an OpenSpec-compatible spec-driven
-  development capability rooted by default at `.agents/openspec`.
-- Added a BMad plugin design for BMad-style agentic agile workflows rooted by
-  default at `.agents/bmad` and mapped onto AgentRuntime agents, workflows,
-  tasks, operations, and resources.
-  `max_bytes` output with explicit truncation metadata to avoid oversized diff
-  results during review loops.
+
+## [0.13.0] - 2026-05-17
 
 ### Added
-- Added first-class workspace modeling with `core/workspace`, runtime workspace
-  resolution, declaration loading from `.agents/workspaces.json`, and project
-  inventory scoping by `workspace.ID`.
-- Workspace declarations loaded from `.agents/workspaces.json` are validated,
-  invalid declarations are surfaced as warnings, local fallback identities are
-  marked ephemeral, and project inventory now rejects workspace-scoped requests
-  on unscoped managers.
-- Added `docs/concepts.md`, defining the semantic differences between requests,
-  tasks, commands, workflows, operations, and executions and mapping them to
-  AgentRuntime package responsibilities.
-- Added centralized no-IO path pattern matching for workspace globs, including
-  brace alternation such as `.agents/{designs,plans,reviews}/**/*`.
-- Improved `code_execute` results to use typed execution data with terminal UI
-  rendering driven by structured fields, including preset emoji and `❌` failure
-  states.
-- Compact `code_execute` terminal rendering now keeps preset, image, duration,
-  timeout, and non-zero exit status on one emoji-forward header line, with
-  shorter stdout/stderr sections below.
 
-- Added `file_edit`, an existing-file edit operation with dry-run support,
-  original-file coordinate semantics, merged non-overlapping atomic edits, and
-  configurable full/atomic/no diff output.
-- Added a first design note for a future `golangplugin` with Go module/package
-  discovery, outlines, symbol lookup, references, and refactoring-oriented read
-  operations.
-- Added Workspace-native project and Go language read operations for project
-  inventory, task/doc discovery, Go package grouping, outlines, and symbol
-  lookup.
-- Added Go source navigation operations `go_definition` and `go_symbol_info`
-  for AST/package-level declaration lookup and compact symbol details.
-- Added `go_references` for bounded AST/package-level Go reference lookup with
-  package/file scope, declaration inclusion, and explicit test-file filtering.
-- Added `go_imports` for parser-only direct and reverse Go import views with
-  best-effort stdlib/module-local/external classification.
-- Added `go_implementations` for best-effort AST-only Go interface/concrete
-  implementation lookup.
-- Added `go_callers` and `go_callees` for bounded AST-only Go direct call
-  hierarchy lookup.
-- Added `go_info`, `go_env`, and `go_version` for read-only process-backed Go
-  toolchain orientation.
-- Added `go_doc` and `go_list` for process-backed Go documentation lookup and
-  structured `go list -json` package/module metadata.
-- Added `go_test`, `go_fmt`, `go_vet`, `go_build`, and `go_install` as
-  structured Go toolchain operations with bounded output, dry-run defaults for
-  formatting/installing, and explicit unsupported-scope validation.
-- Added neutral `core/testrun` events and terminal rendering for generic
-  test-run feedback, `go_test` now returns compact actionable failure summaries
-  with build/assertion/panic classification, and coder live-test helpers use the
-  Codex provider by default.
-- Added a follow-up language/toolchain activation design for splitting
-  language-specific contracts, modeling inert toolchains, project signals,
-  activation events, and coder capability projection.
-- Split Go and Markdown language contracts into `core/language/golang` and
-  `core/language/markdown`, keeping root `core/language` focused on neutral
-  source concepts and inert toolchain metadata.
-- Added project discovery signals, language toolchain specs/statuses,
-  activation events, and a runtime toolchain status resolver that probes
-  through `runtime/system.System`.
-- Coder operation selection now uses feature/toolchain expansion for Go and
-  Markdown language support while preserving the full-capability default
-  bundle.
-- Project inventory signals now respect bounded `max_results` queries, and
-  binary-free toolchain specs remain available without process support.
-- Added workspace-scoped `project_task_run` for discovered Makefile, Taskfile,
-  and `package.json` tasks, with dry-run command resolution, managed process
-  execution, and coder/delegation exposure.
-- Added neutral `core/task` and `runtime/task` foundations for user-facing task
-  and execution state.
-- Task validation now rejects cyclic step dependencies, and task execution
-  projection reconciles revised step sets while preserving latest step progress.
-- Added `plugins/taskplugin` with the `/task` command, a dedicated task creator
-  agent/session, `task_create`, grouped `task_modify`, task read/list,
-  artifact read, validation operations, and an event-store-backed runtime task
-  store.
-- Task artifacts now use task-wide unique IDs, step artifacts default to the
-  current or manual execution when no `execution_id` is provided, scoped
-  artifact listings avoid duplicate step entries, and artifact readback now
-  defaults to bounded previews with explicit `include_value` for full inline
-  values.
-- Task index writes no longer use a stale shared stream precondition, manual
-  step reopen/progress clears stale terminal metadata, and task lifecycle
-  reopening/forced completion now require explicit `reopen`, `reopen_step`, or
-  `force_overrides` intent.
-- Added the first task scheduler/executor slice: local launch now starts an
-  orchestration task scheduler for `taskplugin`, ready tasks are claimed with
-  event-stream preconditions, task steps run through worker sessions, and
-  `/plan` creates draft tasks for human approval before scheduling. Scheduler
-  worker completions now recheck current task state before writing terminal
-  events, interrupted executions can resume after blockers clear, and runtime
-  shutdown cancellation propagates to in-flight workers.
-- Added task scheduler control operations: `task_run` schedules a ready task
-  asynchronously, `task_scheduler_status` reports local scheduler capacity and
-  running tasks, and `task_scheduler_set_enabled` pauses or resumes automatic
-  ready-task scheduling while leaving manual runs available.
-- Added local event-triggered task scheduling from indexed ready task summaries,
-  with periodic index scans retained as reconciliation. Scheduler writes now use bounded,
-  context-aware expected-sequence retries for dispatch/block/terminal paths,
-  `task_modify` retries concurrent stream conflicts before returning
-  `task_conflict_retry`, and scheduler background failures surface through
-  status diagnostics. Thread-store writes now also retry event append conflicts
-  under concurrent session activity. Scheduler tests now cover saturated
-  ready-task notification bursts that rely on reconciliation to finish
-  remaining work while respecting parallelism limits.
-- Scheduler worker outputs now bind missing declared step outputs to produced
-  artifacts, and automatic execution completion validates required outputs
-  before recording `task.execution_completed`; incomplete output contracts block
-  the task instead of marking it completed.
-- Multi-step task execution now runs a finalization worker pass after all
-  declared steps are terminal to synthesize missing required task-level outputs
-  from completed step evidence before blocking completion.
-- Terminal rendering now understands `task.*` runtime events, showing task
-  creation/revision, status changes, step dispatch/progress/completion,
-  artifacts, and execution terminal state. Task runtime events are also
-  persisted in session threads for replay.
-- Task creation now records origin thread/run metadata, and the task scheduler
-  mirrors background task execution events back into the originating session
-  thread for live terminal feedback and replay.
-- Task scheduler anomalies that affect a task, such as ignored stale worker
-  results or retry exhaustion, are now recorded as durable
-  `task.scheduler_diagnostic` events and rendered by the terminal UI.
-- Oversized tool-result replacements now include bounded preview/tail metadata,
-  and task scheduler worker outputs that exceed provider-facing result limits
-  are recorded as referenced artifacts with preview metadata instead of opaque
-  temp-file-only messages.
-- Task scheduling now has role-specific worker pools with profile rotation,
-  fallback profile attempts, per-role capacity in scheduler status, a
-  `review_request` operation for linked reviewer tasks, and
-  `task_read_artifact` for bounded inline or safe workspace-ref artifact
-  content reads.
-- Coder and task-creator instructions now treat "create a task and run it" as
-  a two-step flow: create or update the task to `ready`, call `task_run`, and
-  report the scheduler state. Ready-task notification failures now leave
-  durable task diagnostics when automatic scheduling is disabled or local
-  capacity is saturated.
-- `task_run` now reports already-running tasks as already running when
-  automatic scheduling claimed the task before the explicit run request.
-- `task_run` results now include structured `started`, `running`,
-  `waiting_for_capacity`, and `background` flags for clearer planner and UI
-  feedback.
-- Terminal task rendering now keeps task-level phase/detail in the task
-  snapshot, renders finalizer diagnostics as `task finalizing`, and shows
-  blocked completion reasons with concrete missing required outputs.
-- Task scheduler claims now record worker id, lease id, and lease expiry on the
-  task execution, and scheduler reconciliation interrupts expired running
-  leases with a durable diagnostic.
-- Long-running scheduler worker calls now renew their execution lease through
-  event-sourced `task.execution_lease_renewed` records.
-- `task_scheduler_status` now includes durable running execution leases
-  projected from the task store, in addition to local in-memory running tasks.
-- `task_scheduler_status` now also lists durable queued ready tasks from the
-  task index.
-- Task scheduler workers now register event-sourced capacity snapshots, and
-  scheduler status reports active and expired worker registrations.
-- Scheduler reconciliation now recovers running executions assigned to expired
-  worker registrations before the longer execution lease expires.
-- Expired scheduler leases can now be requeued according to a bounded
-  max-attempt policy; exhausted attempts are interrupted with diagnostics.
-- Restarted local schedulers now recover expired running leases from the task
-  stream and can requeue them when attempts remain.
-- `task coder:live-test` now uses a repository-local writable state directory,
-  and local launch event-store open failures include the SQLite path to make
-  environment problems actionable.
-- Fixed a direct-channel run event race that could panic with
-  `send on closed channel` while forwarding live run events; run event
-  emission is now guarded against channel-close races, and `Wait` no longer
-  blocks behind undrained run-event forwarding.
-- Fixed coder `/plan` delegation so the default coder session allows the
-  `task-planner` profile used by the task planning command.
-- `task_list` now defaults to current-session tasks when called from a session,
-  with an explicit `scope=all` option for global task history; delegated
-  planner-created tasks are indexed against their parent user session.
-- Terminal task following now watches scheduled background tasks briefly and
-  then returns the REPL prompt while active tasks continue in the background.
-- One-shot terminal runs (`--input` and goal turns) now wait for scheduler-run
-  tasks from the submitted turn to finish before closing the local runtime,
-  while REPL turns keep the brief background-follow behavior.
-- One-shot background task waiting is now bounded and reports still-running
-  task IDs after the wait deadline instead of leaving the terminal without
-  feedback indefinitely.
-- `task_run` now records the calling session as an execution watcher, and the
-  scheduler mirrors task runtime events to both the task origin and the latest
-  execution watcher so approval turns can receive completion feedback for
-  tasks drafted in an earlier `/plan` turn.
-- Terminal one-shot turns now print the agent's final response before following
-  background task events, so later scheduler completion/blocking feedback is
-  not visually overwritten by stale model text.
-- Added SQLite-backed multi-scheduler claim coverage to verify independent
-  scheduler instances sharing one durable event store do not both execute the
-  same ready task.
-- `task_run` watcher metadata is now recorded only for existing task streams,
-  avoiding phantom task events for stale task IDs.
-- Task worker registrations now use an internal stream namespace that cannot
-  collide with user task IDs such as `workers`.
-- Scheduler task-event publishing now continues to remaining origin/watch
-  destinations after one destination fails, so a stale origin thread cannot
-  suppress live watcher feedback.
-- `/task` and `/plan` TargetSession commands now run through a neutral
-  command session-agent runner and emit `session_agent.*` events instead of
-  using the legacy sub-agent supervisor. Terminal, Slack, event registry, and
-  session-history surfaces understand the new event family.
-- Workflow agent steps now also use the neutral session-agent runner, and the
-  legacy `orchestration/subagent` package plus `subagent.*` event
-  registration/rendering/classification have been removed.
-- Replaced the old plan execution plugin with `taskplugin` and
-  `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
-  and Slack progress rendering now use task events and task worker profiles.
-- Added a constant self-evolvement concept document and moved the event-store
-  backend strategy/follow-up backlog into `.agents/plans`, keeping user-facing
-  docs focused on current architecture.
-- Added a canonical task-system reliability roadmap in `.agents/plans` and
-  marked the earlier task design files as historical so scheduler, task UX,
-  `/plan`, and sub-agent migration progress has one source of truth.
-- Added an external distributed worker follow-up design that separates future
-  remote worker protocol work from the already-implemented local scheduler
-  leases, heartbeats, worker registrations, and recovery behavior.
-- Recorded the task-system chapter closeout regression in the roadmap,
-  covering one-shot task execution, `/task` draft creation, `/plan` approval
-  handoff, scheduler finalization of required aggregate outputs, and
-  session-agent terminal rendering.
-- `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
-  `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
-  `go_callees` to delegated child agents.
-- `go_list`, `go_build`, and `go_install` now pass `-buildvcs=false` so
-  diagnostics and dry-run automation work reliably in copied or temporary
-  workspaces without valid VCS metadata.
-- Project inventory now reports `.agents` and `.claude` directories as
-  first-class project facets.
-- Project documentation outlines now use goldmark AST parsing and return nested
-  heading trees instead of line-scanning markdown text.
-- Added automatic `project.summary` and `go.summary` context providers, and
-  `codingplugin` now aggregates child plugin context providers alongside
-  `AGENTS.md`.
-- Added `plugins/markdownplugin` with `markdown_outline`, `markdown_links`, and
-  local-only `markdown_diagnostics` for markdown document structure and link
-  checks.
-- Added the `evaluator` app distribution and `cmd/evaluator` entrypoint for
-  evidence-backed evaluation of AgentRuntime apps over the public channel
-  protocol, including structured `evaluator target` flags and a deterministic
-  Unix-socket launch/serve E2E test.
-- `coder serve` starts coder over a local Unix socket without requiring an app
-  manifest; `--socket` defaults to `auto`, `--model` accepts provider-qualified
-  selections such as `codex/gpt-5.5`, `--yolo` is forwarded to served runtime
-  sessions, and startup output prints evaluator-friendly target connection
-  details.
-- Local launch/serve options can inject a model resolver for deterministic app
-  tests without changing production defaults.
-- `coder` now loads startup resources declared by its app discovery policy,
-  including `<cwd>/.agents`, `$HOME/.agents`, and `$HOME/.claude`; `coder
-  discover` uses the shared resource discovery command renderer.
-- Skills with matching trigger phrases are activated before model context
-  rendering, so triggered skill bodies and references are visible in the same
-  turn.
-- Command session agents now inherit the parent session's approval gate (e.g.
-  `--yolo`) through the spawn chain, so helper sessions do not re-prompt for
-  approvals already granted by the parent.
-- Added goal-driven local runs through the built-in `/goal` command plus
-  `coder --goal` and `agentsdk run --goal`, with a configurable continuation
-  cap.
-- Added provider-neutral end-of-turn auto-compaction that checkpoints large
-  transcripts after they exceed the configured model context threshold.
-- Model tool-call results over 10 KiB are now replaced with `/tmp` result-file
-  references plus size, digest, and replacement metadata.
-- Added `/compact` and `/compact --dry-run` built-in session commands for
-  checkpointing or previewing deterministic provider transcript compaction.
-- Added opt-in runtime workspace roots so local launches can expose named
-  directories such as `@tmp` while keeping filesystem operations confined by
-  default.
-- Local launches now persist thread/event history to SQLite by default.
-- Added `--dev` for local run surfaces to expose a `session_history`
-  datasource with searchable session threads, messages, operations, model calls,
-  continuations, session agents, and usage.
-- Added `--dev` for datasource index commands so local session history can be
-  indexed semantically, with `session://` URLs for session-history corpus
-  records.
-- Added `docs/agent-loop.md` with an architecture summary of the agent
-  execution and continuation loops.
-- Added nested agent `turns` configuration for inner step budgets and
-  stop-condition-driven outer continuation loops.
-- Added `claudecode` as a Claude Code-compatible LLM provider using local
-  Claude OAuth credentials and Claude Code request headers/preflight behavior.
-- Non-blocking `task quality:metrics` reports coverage plus optional
-  cyclomatic and cognitive complexity hotspots for refactoring guidance.
-- Workflow commands now execute through orchestration, with operation steps
-  dispatched through the operation executor and workflow runtime events emitted
-  for run and step progress.
-- Appconfig manifests can now contribute `commands`, `workflows`, and
-  declaration-only `operations` either as top-level app fields or standalone
-  `kind: command`, `kind: workflow`, and `kind: operation` YAML documents.
-- Markdown prompt commands now execute through session orchestration by
-  rendering invocation args/input into normal agent input turns.
-
-- Added native `web_search` backed by Tavily and keyless DuckDuckGo providers,
-  plus coder wiring for the `web_search` datasource and generic datasource
-  search/get tools.
+- Added a first-class event-sourced task system: `core/task`, `runtime/task`,
+  `plugins/taskplugin`, `/task`, typed task operations, artifact readback,
+  task validation, task listing/search, and durable task store projection over
+  the event store.
+- Added local task scheduling and execution: ready-task claiming, step-DAG
+  execution, role-based worker pools, manual `task_run`, scheduler status and
+  pause/resume controls, worker leases, worker registration snapshots, lease
+  renewal, stale-result rejection, retry/requeue behavior, and recovery from
+  expired local workers.
+- Added `/plan` as a task-planning command backed by `taskplugin`; approved
+  plans now become ready tasks and are scheduled through
+  `orchestration/taskexecutor` instead of the old plan execution plugin.
+- Added task runtime feedback across terminal and Slack renderers, including
+  task cards, step state, artifacts, scheduler diagnostics, finalization, and
+  mirrored background events back to the originating or watching session.
+- Added task finalization for multi-step tasks: after all declared steps are
+  terminal, the scheduler can synthesize missing required task-level outputs
+  from step evidence before completing the parent task.
+- Added workspace modeling through `core/workspace`, workspace declarations,
+  workspace-scoped project inventory, project signals, project task discovery,
+  and workspace-scoped `project_task_run` for Taskfile, Makefile, and
+  `package.json` scripts.
+- Added Go and Markdown language tooling: project and Go summaries, Go package
+  discovery, definition/symbol/reference/import/implementation/call-hierarchy
+  operations, Markdown outlines/links/diagnostics, and split language contracts
+  under `core/language/golang` and `core/language/markdown`.
+- Added process-backed Go toolchain operations: `go_info`, `go_env`,
+  `go_version`, `go_doc`, `go_list`, `go_test`, `go_fmt`, `go_vet`,
+  `go_build`, and `go_install`, with structured results and bounded output.
+- Added neutral `core/testrun` events plus compact terminal rendering for
+  test-run feedback and actionable `go_test` failure summaries.
+- Added `file_edit` for atomic existing-file edits with dry-run support and
+  configurable diff output, while leaving create/copy/move/delete as separate
+  filesystem operations.
+- Added compact `git_diff` projections, native `web_search`, typed
+  `code_execute` results, and compact code execution terminal rendering.
+- Added appconfig support for top-level or standalone `commands`,
+  `workflows`, and declaration-only `operations`; workflow commands now execute
+  through orchestration and markdown prompt commands run through normal session
+  input turns.
+- Added local persistence, session-history datasource support, goal-driven
+  runs, provider-neutral transcript compaction, `/compact`, startup resource
+  loading from `.agents` and `.claude`, and skill-trigger activation before
+  model context rendering.
+- Added the evaluator app and `cmd/evaluator`, local Unix-socket coder serving,
+  deterministic launch test hooks, and repository-local live-test helpers.
+- Added architecture and planning docs for concepts, agent-loop behavior,
+  constant self-evolvement, event-store follow-ups, task-system reliability,
+  external distributed workers, OpenSpec, and BMad.
 
 ### Changed
 
-- `go_implementations` now prefers a type-checked `go/packages` / `go/types`
-  backend for host workspaces, with the previous AST matcher kept as fallback.
-- Expanded the Go plugin roadmap with planned `go_info`, `go_env`,
-  `go_version`, and structured Go toolchain operations including explicit
-  formatting and install follow-up semantics.
-- `coder` now uses `file_edit` for existing-file content edits while keeping
-  `file_create`, `file_copy`, `file_move`, and `file_delete` as separate
-  filesystem operations.
-- `--yolo` now auto-approves local command-risk gates, including commands that
-  exceed the default risk threshold, while ACL, sandbox, secret, syntax, and
-  plugin hard-deny checks remain enforced.
-- Reflection-based command binding now supports `default=...` tag values, and
-  `/goal` defaults its continuation cap to 10 when no max is provided.
-- Agent loop config now uses `turns.max_steps` and
-  `turns.continuation.max_continuations` instead of flat agent policy fields.
-- Continuation prompt stop checks now require the typed
-  `continuation_decision` tool; context policy controls whether raw operation
-  effect details are included in evaluator prompts.
-- `step_limit_exceeded` session errors now report the inner-loop
-  `turns.max_steps` model-decision-call limit in their message and structured
-  details, distinguishing the inner agent loop from outer continuation.
-- `.agents/workflows/*.yaml` decoding now supports operation steps with
-  `operation`, `input`, and `error-policy` fields in addition to agent steps.
-
-- Web search provider calls now run through a bounded worker pool and the
-  `web_search` datasource delegates to the shared web provider registry instead
-  of carrying provider-specific HTML parsing.
+- Replaced the legacy plan execution path with the task system and local task
+  scheduler. Coder/local launch, event catalog, terminal rendering, and Slack
+  progress now use task events and task worker profiles.
+- Replaced the legacy sub-agent supervisor for command helper sessions with
+  neutral `session_agent.*` events through `orchestration/sessionagent`.
+  `/task`, `/plan`, and workflow agent steps now run through that session-agent
+  boundary, while scheduled work remains on `taskexecutor`.
+- Coder now exposes the new task, Go, Markdown, project, web, git diff, code
+  execution, and editing operations to the main agent and delegated sessions.
+- `task_list` now defaults to current-session tasks when called from a session,
+  with `scope=all` for global history.
+- One-shot terminal runs now wait, within a bounded deadline, for tasks started
+  by the submitted turn; REPL turns briefly watch background tasks and then
+  return the prompt.
+- `task_run` now returns structured `started`, `running`,
+  `waiting_for_capacity`, and `background` flags and records the caller as a
+  watcher so approval turns receive later scheduler feedback.
+- `coder` now uses `file_edit` for existing-file edits, `--yolo` approves
+  local command-risk gates while retaining hard-deny checks, and launch/serve
+  paths can inject deterministic model resolvers for tests.
+- Agent loop configuration now uses nested `turns` settings for inner step
+  budgets and outer continuation limits; `/goal` defaults to a capped
+  continuation budget.
+- Architecture composition was split across focused orchestration packages and
+  architecture reports now explain score penalties.
 
 ### Fixed
 
-- Type-checked `go_implementations` zero-match results are now authoritative,
-  and virtual workspaces skip `go/packages` instead of reporting bogus host
-  filesystem diagnostics before AST fallback.
-- Appconfig multi-segment command paths now derive matching command resource
-  names, so composed commands like `/foo/bar` resolve as `foo:bar` at runtime.
-- `coder` now accepts common Claude-style user resource frontmatter and reports
-  user resource load diagnostics, so `$HOME/.claude` skills are available for
-  explicit REPL activation instead of failing with `skill_state_missing`.
-- Appconfig manifests and agentdir frontmatter now validate raw YAML/JSON
-  against generated JSON Schemas before decoding, and continuation caps now
-  require an explicit stop condition.
-- SDK agent builders now include fluent continuation stop-condition helpers, and
-  `WithMaxContinuations` produces a valid capped continuation spec by default.
-- Outbound provider, channel, and guarded system HTTP clients now share the
-  runtime transport for extended compression handling and transient retry
-  behavior.
-- Shared HTTP retries no longer replay generic non-idempotent system-network
-  requests, no longer compress `Retry-After` waits to the exponential backoff
-  cap, and avoid retrying permanent transport errors.
-- Removed OpenAI-specific request-local transcript compaction so compaction
-  behavior is durable and session-owned across providers.
-- Conversation continuity repair now records durable diagnostics and preserves
-  provider transcript data when tool-call assembly fails.
-- Read-only workspace roots can no longer be used as process working
-  directories, closing a write bypass through process-backed operations.
-- Browser CDP sessions no longer cancel immediately after `browser_open` when
-  later operations reuse the session.
-- Failed model turns now preserve pending transcript input, and replay uses
-  concrete provider model identities so resolved model IDs do not drop context.
-- OpenRouter/Responses replay now repairs orphan tool-result transcript items
-  instead of sending provider-invalid tool messages without matching calls.
-- OpenAI image generation no longer sends unsupported `response_format` for
-  `gpt-image-1` and can consume URL image responses.
+- Fixed task scheduler correctness around concurrent task index writes,
+  watcher metadata for missing task IDs, worker stream naming collisions,
+  stale worker completions, stale diagnostics, step terminal metadata,
+  interrupted execution resume, runtime shutdown cancellation, and publishing
+  to multiple task event destinations.
+- Fixed task validation and projection edge cases including cyclic step DAGs,
+  revised step sets, duplicate task IDs, forced completion semantics,
+  artifact scoping, artifact value readback, and oversized worker result
+  references.
+- Fixed `/plan` profile availability, prompt command session-agent resolution,
+  workflow command output persistence, workflow agent step resolution, and
+  multi-segment appconfig command resource naming.
+- Fixed Go tooling edge cases: type-checked zero implementation matches are
+  authoritative, virtual workspaces skip host `go/packages` loading, `go_test`
+  parse tails are handled, regex alternation works, and `go_list`, `go_build`,
+  and `go_install` use `-buildvcs=false`.
+- Fixed direct-channel run event races that could panic with `send on closed
+  channel`, and made `Wait` independent of undrained run-event forwarding.
+- Fixed event-store and thread-store append conflict diagnostics and retries,
+  including classified SQLite busy/locked/constraint errors and payload-free
+  stream/sequence/attempt context.
+- Fixed appconfig and agentdir schema validation, Claude-style user resource
+  frontmatter loading, shared HTTP retry behavior, transcript replay/repair,
+  browser CDP reuse, OpenRouter/Responses orphan tool results, and OpenAI
+  image generation request compatibility.
 
-### Changed
+### Removed
 
-- Local launches can set `AGENTRUNTIME_BROWSER_HEADLESS=false` to run browser
-  automation with a visible Chrome window for smoke testing.
-- Event registry assembly now lives in a dedicated orchestration package,
-  reducing app composition fan-out and improving the architecture score.
-- Resource catalog collection, executable app resource binding, agent spec
-  filtering, and session environment wiring now live in focused orchestration
-  packages, bringing the architecture score target to 80.
-- Session control-plane helpers now live in `orchestration/sessioncontrol`,
-  keeping stop-condition evaluation, built-in command policy/target wiring,
-  resource aliases, and LLM-driver control helpers out of the main session
-  loop and bringing the architecture score target to 90.
-- Improved architecture score by moving pure event codec helpers into core and
-  removing unused runtime pass-through fields from app composition.
-- Architecture reports now include score penalty explanations so improvement
-  targets are visible without reading the scoring code.
+- Removed the old `plugins/planexec` runtime assembly path.
+- Removed the legacy `orchestration/subagent` package and `subagent.*` event
+  registration/rendering/classification.
 
 ## [0.12.0] - 2026-05-14
 
@@ -746,7 +474,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/fluxplane/agentruntime/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/fluxplane/agentruntime/compare/v0.9.0...v0.10.0
@@ -759,26 +488,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.3.0]: https://github.com/fluxplane/agentruntime/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fluxplane/agentruntime/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fluxplane/agentruntime/releases/tag/v0.1.0
-
-## Phase 6 event-store concurrency diagnostics
-
-Improved diagnostics verified in code and tests:
-
-- `adapters/sqleventstore.StorageError` classifies append failures as `append_conflict`, `sqlite_busy_locked`, `sqlite_constraint`, `context`, or `unknown_storage` without parsing strings.
-- Wrapped event-store errors include payload-free context: stream ID, append-batch request index, expected/actual sequence for conflicts, retry attempt count, and SQLite code when exposed by the driver.
-- `runtime/thread.WriteError` adds higher-level thread ID and retry attempt metadata while preserving the wrapped event-store error chain. Nested write errors now refresh the outer operation/thread/attempt context instead of returning stale metadata.
-- Tests verify `errors.Is(err, event.ErrAppendConflict)` and `errors.As` survive wrapping through both `StorageError` and thread `WriteError`.
-
-Representative sample for an append conflict:
-
-```text
-thread: create failed thread_id="thread-diagnostics" attempt=16/16: event: append conflict on stream "thread.index": expected sequence 1, actual 2
-```
-
-Representative sqleventstore conflict sample asserted by tests:
-
-```text
-sqleventstore: append failed class=append_conflict stream="s" expected_sequence=4 actual_sequence=5 attempt=3/8: event: append conflict on stream "s": expected sequence 4, actual 5
-```
-
-Representative duplicate-record constraint path is verified to classify as `sqlite_constraint`, expose the SQLite constraint base code, and not be treated as busy/locked contention.
