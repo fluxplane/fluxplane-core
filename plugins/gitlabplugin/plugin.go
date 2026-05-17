@@ -2,6 +2,8 @@ package gitlabplugin
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -19,7 +21,22 @@ type Plugin struct {
 	instances []connectorplugin.Instance
 }
 
+// Config is the per-instance GitLab plugin configuration accepted from an app
+// manifest. The connector-backed implementation uses the instance name as the
+// connector instance ID; BaseURL and Auth are reserved for the native GitLab
+// implementation that will replace connectorlib-backed calls.
+type Config struct {
+	BaseURL string     `json:"base_url,omitempty"`
+	Auth    AuthConfig `json:"auth,omitempty"`
+}
+
+type AuthConfig struct {
+	Kind     string `json:"kind,omitempty"`
+	TokenEnv string `json:"token_env,omitempty"`
+}
+
 var _ pluginhost.Plugin = Plugin{}
+var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ConnectorProviderContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
@@ -32,20 +49,59 @@ func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "GitLab connector operations."}
 }
 
-func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	specs, err := connectorplugin.Specs(p.instances, gitlabActions())
+func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginhost.Plugin, error) {
+	instances, err := p.instancesForRef(ctx.Ref)
+	if err != nil {
+		return nil, err
+	}
+	return Plugin{executor: p.executor, instances: instances}, nil
+}
+
+func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
+	instances, err := p.instancesForRef(ctx.Ref)
+	if err != nil {
+		return resource.ContributionBundle{}, err
+	}
+	specs, err := connectorplugin.Specs(instances, gitlabActions())
 	if err != nil {
 		return resource.ContributionBundle{}, err
 	}
 	return resource.ContributionBundle{Operations: specs}, nil
 }
 
-func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
-	return connectorplugin.Operations(p.executor, p.instances, gitlabActions())
+func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
+	instances, err := p.instancesForRef(ctx.Ref)
+	if err != nil {
+		return nil, err
+	}
+	return connectorplugin.Operations(p.executor, instances, gitlabActions())
 }
 
 func (Plugin) ConnectorProviders(context.Context, pluginhost.Context) ([]pluginhost.ConnectorProvider, error) {
 	return []pluginhost.ConnectorProvider{{Name: Name}}, nil
+}
+
+func (p Plugin) instancesForRef(ref resource.PluginRef) ([]connectorplugin.Instance, error) {
+	if ref.Instance == "" {
+		return p.instances, nil
+	}
+	instance := strings.TrimSpace(ref.InstanceName())
+	if instance == "" {
+		return nil, fmt.Errorf("gitlabplugin: instance name is empty")
+	}
+	var out []connectorplugin.Instance
+	for _, candidate := range p.instances {
+		if candidate.Kind == Name && candidate.ID == instance {
+			out = append(out, candidate)
+		}
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	if len(p.instances) > 0 {
+		return nil, fmt.Errorf("gitlabplugin: connector instance %q is not available", instance)
+	}
+	return []connectorplugin.Instance{{ID: instance, Kind: Name}}, nil
 }
 
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {

@@ -32,6 +32,12 @@ type Plugin interface {
 	Contributions(context.Context, Context) (resource.ContributionBundle, error)
 }
 
+// InstanceFactory is implemented by plugin registrations that materialize a
+// concrete plugin for each named ref before contributions are collected.
+type InstanceFactory interface {
+	Instantiate(context.Context, Context) (Plugin, error)
+}
+
 // OperationContributor is implemented by plugins that provide executable
 // operation implementations in addition to pure resource contributions.
 type OperationContributor interface {
@@ -169,12 +175,23 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		}
 		plugin, ok := h.plugins[ref.Name]
 		if !ok {
-			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", ref.Name)
+			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", pluginLabel(ref))
 		}
 		pluginCtx := Context{Ref: ref, EventStore: h.eventStore}
-		bundle, err := plugin.Contributions(ctx, pluginCtx)
+		resolvedPlugin := plugin
+		if factory, ok := plugin.(InstanceFactory); ok {
+			var err error
+			resolvedPlugin, err = factory.Instantiate(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q instantiate: %w", pluginLabel(ref), err)
+			}
+			if resolvedPlugin == nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q instantiate returned nil", pluginLabel(ref))
+			}
+		}
+		bundle, err := resolvedPlugin.Contributions(ctx, pluginCtx)
 		if err != nil {
-			return Resolution{}, fmt.Errorf("pluginhost: plugin %q contributions: %w", ref.Name, err)
+			return Resolution{}, fmt.Errorf("pluginhost: plugin %q contributions: %w", pluginLabel(ref), err)
 		}
 		source := bundle.Source
 		if source.ID == "" {
@@ -182,10 +199,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 			bundle.Source = source
 		}
 		out.Bundles = append(out.Bundles, bundle)
-		if contributor, ok := plugin.(OperationContributor); ok {
+		if contributor, ok := resolvedPlugin.(OperationContributor); ok {
 			ops, err := contributor.Operations(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q operations: %w", ref.Name, err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q operations: %w", pluginLabel(ref), err)
 			}
 			for _, op := range ops {
 				out.Operations = append(out.Operations, OperationContribution{
@@ -194,10 +211,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
-		if contributor, ok := plugin.(ContextProviderContributor); ok {
+		if contributor, ok := resolvedPlugin.(ContextProviderContributor); ok {
 			providers, err := contributor.ContextProviders(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q context providers: %w", ref.Name, err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q context providers: %w", pluginLabel(ref), err)
 			}
 			for _, provider := range providers {
 				out.ContextProviders = append(out.ContextProviders, ContextProviderContribution{
@@ -206,10 +223,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
-		if contributor, ok := plugin.(ChannelContributor); ok {
+		if contributor, ok := resolvedPlugin.(ChannelContributor); ok {
 			channels, err := contributor.Channels(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q channels: %w", ref.Name, err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q channels: %w", pluginLabel(ref), err)
 			}
 			for _, ch := range channels {
 				if ch.Source.ID == "" {
@@ -218,10 +235,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.Channels = append(out.Channels, ch)
 			}
 		}
-		if contributor, ok := plugin.(ConnectorProviderContributor); ok {
+		if contributor, ok := resolvedPlugin.(ConnectorProviderContributor); ok {
 			providers, err := contributor.ConnectorProviders(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q connector providers: %w", ref.Name, err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q connector providers: %w", pluginLabel(ref), err)
 			}
 			for _, provider := range providers {
 				out.ConnectorProviders = append(out.ConnectorProviders, ConnectorProviderContribution{
@@ -230,10 +247,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
-		if contributor, ok := plugin.(DatasourceProviderContributor); ok {
+		if contributor, ok := resolvedPlugin.(DatasourceProviderContributor); ok {
 			providers, err := contributor.DatasourceProviders(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q datasource providers: %w", ref.Name, err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q datasource providers: %w", pluginLabel(ref), err)
 			}
 			for _, provider := range providers {
 				out.DatasourceProviders = append(out.DatasourceProviders, DatasourceProviderContribution{
@@ -247,15 +264,25 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 }
 
 func pluginSource(ref resource.PluginRef) resource.SourceRef {
+	id := "plugin:" + ref.Name
+	location := "plugins/" + ref.Name
+	if instance := ref.InstanceName(); instance != "" && instance != ref.Name {
+		id += "/" + instance
+		location += "/" + instance
+	}
 	return resource.SourceRef{
-		ID:        "plugin:" + ref.Name,
+		ID:        id,
 		Ecosystem: "embedded",
 		Scope:     resource.ScopeEmbedded,
-		Location:  "plugins/" + ref.Name,
-		Ref:       ref.Name,
+		Location:  location,
+		Ref:       ref.InstanceName(),
 		Trust: policy.Trust{
 			Kind:  policy.TrustSource,
 			Level: policy.TrustVerified,
 		},
 	}
+}
+
+func pluginLabel(ref resource.PluginRef) string {
+	return ref.Key()
 }

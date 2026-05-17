@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -46,6 +47,28 @@ func TestComposeRegistersResourceCommandsAgainstProvidedOperations(t *testing.T)
 	}
 	if op, ok := composition.Operations.Resolve(operation.Ref{Name: "echo"}); !ok || op == nil {
 		t.Fatal("operation was not registered")
+	}
+}
+
+func TestComposeBuildsIdentityResolverFromAppIdentity(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Apps: []coreapp.Spec{{
+				Name: "demo",
+				Identity: coreapp.IdentitySpec{
+					Users: []user.User{{
+						ID:         "timo@company.org",
+						Identities: []user.Identity{{Provider: "slack", ProviderID: "U123"}},
+					}},
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if composition.IdentityResolver == nil {
+		t.Fatal("IdentityResolver is nil, want directory resolver")
 	}
 }
 

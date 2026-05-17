@@ -30,6 +30,29 @@ Web search is exposed only through the canonical `web_search` datasource and
 its `web.search_result` entity; the agent does not get the direct `web_request`
 tool in this example.
 
+Slack callers are resolved through Slack `users.info` when connector
+credentials are available. The Slack profile email becomes the canonical
+`core/user` ID. Add `identity` entries in `agentsdk.app.yaml` only for
+overlays such as special groups, trust, or pinned provider-ID mappings:
+
+```yaml
+identity:
+  users:
+    - id: timo@company.org
+      identities:
+        - provider: slack
+          provider_id: U0123456789
+      groups: [admins]
+  groups:
+    - id: admins
+      trust: operator
+```
+
+If Slack cannot return an email and no explicit identity mapping exists, the bot
+sees an unresolved `slack_user:<id>` identity and does not receive raw Slack
+claims in context. Use `/whoami` or `/context --fresh --key identity.current`
+to inspect the identity visible to the runtime and model.
+
 Slack app requirements:
 
 - Socket Mode enabled.

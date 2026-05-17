@@ -1386,6 +1386,36 @@ func TestExecuteInboundCommandContextPreviewPassesIdentityScope(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundCommandWhoamiShowsResolvedIdentity(t *testing.T) {
+	ctx := context.Background()
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")})
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{Agent: runtimeAgent}).ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:     "cmd-whoami",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "slack_user", ID: "U123"}, Source: "slack:main"},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Actor: &user.Actor{
+			User:       user.User{ID: "timo@company.org", Username: "timo@company.org", Groups: []user.ID{"admins"}},
+			Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
+			Groups:     []user.Group{{ID: "admins", Trust: user.TrustOperator}},
+			Resolution: user.ResolutionResolved,
+		},
+		Command: &command.Invocation{Path: command.Path{"whoami"}},
+	})
+	if result.Status != CommandStatusOK || result.Effect == nil {
+		t.Fatalf("whoami command = %#v, want ok", result)
+	}
+	output := fmt.Sprint(result.Effect.Result.Output)
+	for _, want := range []string{"user: timo@company.org", "identity: slack:U123", "groups: admins", "trust: verified", "user:timo@company.org", "group:admins", "agent:coder"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output = %q, want %q", output, want)
+		}
+	}
+}
+
 func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.T) {
 	ctx := context.Background()
 	var gotScope map[string]string

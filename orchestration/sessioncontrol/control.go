@@ -168,6 +168,18 @@ var GoalCommandSpec = command.Spec{
 	},
 }
 
+// WhoamiCommandSpec is the built-in session command that reports the resolved
+// caller, canonical user, effective trust, and authorization subjects.
+var WhoamiCommandSpec = command.Spec{
+	Path:        command.Path{"whoami"},
+	Description: "Show the resolved caller identity and authorization subjects for the current turn.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustUntrusted,
+	},
+}
+
 // EvaluateInvocation evaluates a command invocation policy.
 func EvaluateInvocation(spec command.Spec, caller policy.Caller, trust policy.Trust) PolicyEvaluation {
 	return policy.EvaluateInvocation(spec.Policy, caller, trust)

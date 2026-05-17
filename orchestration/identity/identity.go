@@ -38,6 +38,42 @@ func (f ResolverFunc) ResolveIdentity(ctx context.Context, req Request) (Result,
 	return f(ctx, req)
 }
 
+// ChainResolver tries provider-specific resolvers in order and returns the
+// first resolved actor. If none resolves the identity, the last non-empty
+// fallback result is returned.
+type ChainResolver struct {
+	Resolvers []Resolver
+	Fallback  Resolver
+}
+
+// ResolveIdentity resolves identity through the configured chain.
+func (c ChainResolver) ResolveIdentity(ctx context.Context, req Request) (Result, error) {
+	fallback := c.Fallback
+	if fallback == nil {
+		fallback = DefaultResolver{}
+	}
+	best, err := fallback.ResolveIdentity(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	for _, resolver := range c.Resolvers {
+		if resolver == nil {
+			continue
+		}
+		result, err := resolver.ResolveIdentity(ctx, req)
+		if err != nil {
+			return Result{}, err
+		}
+		if result.Actor.Resolution == user.ResolutionResolved {
+			return result, nil
+		}
+		if result.Actor.User.ID != "" {
+			best = result
+		}
+	}
+	return best, nil
+}
+
 // DefaultResolver preserves existing caller/trust authority while attaching a
 // conservative canonical actor.
 type DefaultResolver struct{}

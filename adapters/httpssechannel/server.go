@@ -195,6 +195,7 @@ func (s *Server) normalizeRemoteSubmission(remote remoteSubmission) (clientapi.S
 		submission.Trust.Level = remote.TrustDowngrade.Level
 		submission.Trust.Scopes = append([]policy.Scope(nil), remote.TrustDowngrade.Scopes...)
 		submission.Trust.Reason = remote.TrustDowngrade.Reason
+		submission.Trust.Downgraded = true
 	}
 	if err := submission.Validate(); err != nil {
 		return clientapi.Submission{}, err

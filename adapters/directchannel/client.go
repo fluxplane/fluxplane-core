@@ -154,6 +154,7 @@ func (s *Session) Submit(ctx context.Context, submission clientapi.Submission) (
 		submission.Trust.Level = submission.TrustDowngrade.Level
 		submission.Trust.Scopes = append([]policy.Scope(nil), submission.TrustDowngrade.Scopes...)
 		submission.Trust.Reason = submission.TrustDowngrade.Reason
+		submission.Trust.Downgraded = true
 	}
 	run := newRunHandle(s.info, submission)
 	go run.execute(ctx, s.client.service, s.info)

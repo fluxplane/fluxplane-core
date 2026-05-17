@@ -81,12 +81,25 @@ func staticPluginContributions(ctx context.Context, bundles []resource.Contribut
 	for _, ref := range staticPluginRefs(bundles) {
 		plugin, ok := byName[ref.Name]
 		if !ok {
-			err := fmt.Errorf("plugin %q is not available", ref.Name)
+			err := fmt.Errorf("plugin %q is not available", ref.Key())
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
-		bundle, err := plugin.Contributions(ctx, pluginhost.Context{Ref: ref})
+		pluginCtx := pluginhost.Context{Ref: ref}
+		resolvedPlugin := plugin
+		if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
+			resolvedPlugin, err = factory.Instantiate(ctx, pluginCtx)
+			if err != nil {
+				err := fmt.Errorf("plugin %q instantiate: %w", ref.Key(), err)
+				return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+			}
+			if resolvedPlugin == nil {
+				err := fmt.Errorf("plugin %q instantiate returned nil", ref.Key())
+				return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+			}
+		}
+		bundle, err := resolvedPlugin.Contributions(ctx, pluginCtx)
 		if err != nil {
-			err := fmt.Errorf("plugin %q contributions: %w", ref.Name, err)
+			err := fmt.Errorf("plugin %q contributions: %w", ref.Key(), err)
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
 		if bundle.Source.ID == "" {
@@ -102,10 +115,11 @@ func staticPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRe
 	var out []resource.PluginRef
 	for _, bundle := range bundles {
 		for _, ref := range bundle.Plugins {
-			if ref.Name == "" || seen[ref.Name] {
+			key := ref.Key()
+			if ref.Name == "" || seen[key] {
 				continue
 			}
-			seen[ref.Name] = true
+			seen[key] = true
 			out = append(out, ref)
 		}
 	}
@@ -157,12 +171,18 @@ func pluginsByName(plugins []pluginhost.Plugin) (map[string]pluginhost.Plugin, e
 }
 
 func staticPluginSource(ref resource.PluginRef) resource.SourceRef {
+	id := "plugin:" + ref.Name
+	location := "plugins/" + ref.Name
+	if instance := ref.InstanceName(); instance != "" && instance != ref.Name {
+		id += "/" + instance
+		location += "/" + instance
+	}
 	return resource.SourceRef{
-		ID:        "plugin:" + ref.Name,
+		ID:        id,
 		Ecosystem: "embedded",
 		Scope:     resource.ScopeEmbedded,
-		Location:  "plugins/" + ref.Name,
-		Ref:       ref.Name,
+		Location:  location,
+		Ref:       ref.InstanceName(),
 		Trust: policy.Trust{
 			Kind:  policy.TrustSource,
 			Level: policy.TrustVerified,

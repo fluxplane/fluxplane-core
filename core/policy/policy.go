@@ -54,6 +54,7 @@ type Trust struct {
 	Scopes     []Scope    `json:"scopes,omitempty"`
 	VerifiedBy string     `json:"verified_by,omitempty"`
 	Reason     string     `json:"reason,omitempty"`
+	Downgraded bool       `json:"downgraded,omitempty"`
 }
 
 // Sensitivity classifies how carefully a value or record should be exposed.

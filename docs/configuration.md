@@ -78,7 +78,35 @@ Common fields are:
 - `distribution` for runnable/deployable package metadata and Docker build
   inputs.
 - `semantic_search` for app-wide datasource indexing defaults.
+- `identity` for canonical app users, provider identities, groups, and
+  group/user trust used by identity resolution and authorization.
 - `llm_providers` for app-local model provider and model catalog entries.
+
+Identity entries map channel-specific users to stable `core/user` IDs, and can
+also act as an overlay on users resolved by a channel provider. Slack channels
+try `users.info` first and use the profile email as the canonical user ID; the
+manifest can then add groups or stronger app trust without listing every Slack
+ID. Explicit `identities` entries are still useful when an email is unavailable
+or when you want a pinned provider-ID mapping.
+
+```yaml
+identity:
+  users:
+    - id: timo@company.org
+      display_name: Timo
+      identities:
+        - provider: slack
+          provider_id: U0123456789
+      groups: [admins]
+  groups:
+    - id: admins
+      trust: operator
+```
+
+Resolved users contribute `user:<id>` and `group:<id>` authorization subjects.
+Unmatched channel identities stay unresolved and keep their channel/provider ID.
+Use `/whoami` in a session to inspect the caller, resolved user, trust, and
+authorization subjects that the runtime sees for the current turn.
 
 Commands, workflows, and operation declarations can also be separate
 multi-document resources:
@@ -241,16 +269,28 @@ plugins:
   - name: slack
   - name: jira
   - name: web
+  - name: gitlab
+    instance: company-a
+    config:
+      base_url: https://gitlab.company-a.example
 
 connectors:
   slack-main:
     kind: slack
   jira:
     kind: jira
+  company-a:
+    kind: gitlab
 ```
 
 Connector credentials live outside the app manifest. Manage them with
 `agentsdk connect`.
+
+`instance` lets the same plugin type be declared more than once. The runtime
+resolves each declaration independently, so `gitlab/company-a` and
+`gitlab/company-b` can carry different config and contribute separately scoped
+resources. The current GitLab implementation uses the instance name as the
+connector instance ID while its native typed client is being introduced.
 
 ### Datasources
 

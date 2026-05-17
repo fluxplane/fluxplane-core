@@ -27,6 +27,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -116,6 +117,24 @@ func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), `plugin "missing" is not available`) {
 		t.Fatalf("Launch error = %v, want missing plugin", err)
+	}
+}
+
+func TestSelectDeclaredPluginsAllowsMultipleInstances(t *testing.T) {
+	plugins, err := selectDeclaredPlugins([]resource.ContributionBundle{{
+		Plugins: []resource.PluginRef{
+			{Name: textplugin.Name, Instance: "company-a"},
+			{Name: textplugin.Name, Instance: "company-b"},
+		},
+	}}, []pluginhost.Plugin{workspaceplugin.New(nil), textplugin.New()})
+	if err != nil {
+		t.Fatalf("selectDeclaredPlugins: %v", err)
+	}
+	if len(plugins) != 2 {
+		t.Fatalf("plugins len = %d, want workspace plus one text implementation", len(plugins))
+	}
+	if got := plugins[1].Manifest().Name; got != textplugin.Name {
+		t.Fatalf("selected plugin = %q, want %q", got, textplugin.Name)
 	}
 }
 

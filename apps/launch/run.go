@@ -14,6 +14,7 @@ import (
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
+	"github.com/fluxplane/agentruntime/adapters/connectauth"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
@@ -29,6 +30,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
@@ -338,6 +340,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
+	identityResolver := launchIdentityResolver(ctx, opts.AuthPath, opts.Launch.Channels)
 	composition, err := app.Compose(app.Config{
 		Context:          ctx,
 		Bundles:          bundles,
@@ -353,6 +356,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			ApproveOverMaxCommandRisk: opts.Yolo,
 			AllowPure:                 true,
 		})),
+		IdentityResolver: identityResolver,
 	})
 	if err != nil {
 		closeRuntime()
@@ -499,6 +503,36 @@ func connectorInstancesForKind(instances []connectorplugin.Instance, kind string
 	return out
 }
 
+func launchIdentityResolver(ctx context.Context, authPath string, channels []distribution.Channel) identity.Resolver {
+	store := connectauth.NewStore(authPath)
+	var resolvers []identity.Resolver
+	for _, doc := range channels {
+		if doc.Type != "slack" {
+			continue
+		}
+		creds, err := store.LoadSlack(ctx, doc.Connector)
+		if err != nil {
+			continue
+		}
+		resolver := slackplugin.NewIdentityResolver(slackplugin.IdentityResolverConfig{
+			ChannelName: doc.Name,
+			BotToken:    creds.BotToken,
+			AppToken:    creds.AppToken,
+		})
+		if resolver != nil {
+			resolvers = append(resolvers, resolver)
+		}
+	}
+	switch len(resolvers) {
+	case 0:
+		return nil
+	case 1:
+		return resolvers[0]
+	default:
+		return identity.ChainResolver{Resolvers: resolvers}
+	}
+}
+
 func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pluginhost.Plugin) ([]pluginhost.Plugin, error) {
 	byName := map[string]pluginhost.Plugin{}
 	for _, plugin := range available {
@@ -522,11 +556,16 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	}
 	refs = append([]resource.PluginRef{{Name: workspaceplugin.Name}}, refs...)
 	plugins := make([]pluginhost.Plugin, 0, len(refs))
+	selected := map[string]bool{}
 	for _, ref := range refs {
 		plugin, ok := byName[ref.Name]
 		if !ok {
-			return nil, fmt.Errorf("launch: plugin %q is not available", ref.Name)
+			return nil, fmt.Errorf("launch: plugin %q is not available", ref.Key())
 		}
+		if selected[ref.Name] {
+			continue
+		}
+		selected[ref.Name] = true
 		plugins = append(plugins, plugin)
 	}
 	return plugins, nil
@@ -737,10 +776,11 @@ func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
 	var out []resource.PluginRef
 	for _, bundle := range bundles {
 		for _, ref := range bundle.Plugins {
-			if ref.Name == datasourceplugin.Name || seen[ref.Name] {
+			key := ref.Key()
+			if ref.Name == datasourceplugin.Name || seen[key] {
 				continue
 			}
-			seen[ref.Name] = true
+			seen[key] = true
 			out = append(out, ref)
 		}
 	}

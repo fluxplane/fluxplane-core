@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/user"
 )
 
 // Name identifies an application manifest.
@@ -86,8 +87,9 @@ type SemanticRetrievalSpec struct {
 // PluginRef identifies a requested plugin in an app manifest. Plugin
 // instantiation belongs outside core.
 type PluginRef struct {
-	Name   string         `json:"name"`
-	Config map[string]any `json:"config,omitempty"`
+	Name     string         `json:"name"`
+	Instance string         `json:"instance,omitempty"`
+	Config   map[string]any `json:"config,omitempty"`
 }
 
 // Spec is an inert application manifest. It can be authored by config files,
@@ -102,8 +104,16 @@ type Spec struct {
 	Model          ModelPolicy                `json:"model,omitempty"`
 	SemanticSearch SemanticSearchSpec         `json:"semantic_search,omitempty"`
 	Security       policy.AuthorizationPolicy `json:"security,omitempty"`
+	Identity       IdentitySpec               `json:"identity,omitempty"`
 	Plugins        []PluginRef                `json:"plugins,omitempty"`
 	Annotations    map[string]string          `json:"annotations,omitempty"`
+}
+
+// IdentitySpec declares canonical users and groups for app-local identity
+// resolution and authorization subjects.
+type IdentitySpec struct {
+	Users  []user.User  `json:"users,omitempty"`
+	Groups []user.Group `json:"groups,omitempty"`
 }
 
 // Validate checks the manifest is structurally useful without resolving refs.
@@ -117,6 +127,29 @@ func (s Spec) Validate() error {
 		if strings.TrimSpace(plugin.Name) == "" {
 			return fmt.Errorf("app: plugins[%d] name is empty", i)
 		}
+		if strings.ContainsAny(strings.TrimSpace(plugin.Instance), `/\`) {
+			return fmt.Errorf("app: plugins[%d] instance is invalid", i)
+		}
+	}
+	seenUsers := map[user.ID]bool{}
+	for i, configured := range s.Identity.Users {
+		if strings.TrimSpace(string(configured.ID)) == "" {
+			return fmt.Errorf("app: identity.users[%d] id is empty", i)
+		}
+		if seenUsers[configured.ID] {
+			return fmt.Errorf("app: identity user %q declared more than once", configured.ID)
+		}
+		seenUsers[configured.ID] = true
+	}
+	seenGroups := map[user.ID]bool{}
+	for i, group := range s.Identity.Groups {
+		if strings.TrimSpace(string(group.ID)) == "" {
+			return fmt.Errorf("app: identity.groups[%d] id is empty", i)
+		}
+		if seenGroups[group.ID] {
+			return fmt.Errorf("app: identity group %q declared more than once", group.ID)
+		}
+		seenGroups[group.ID] = true
 	}
 	return nil
 }

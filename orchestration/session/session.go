@@ -88,11 +88,13 @@ const (
 var contextCommandSpec = sessioncontrol.ContextCommandSpec
 var compactCommandSpec = sessioncontrol.CompactCommandSpec
 var goalCommandSpec = sessioncontrol.GoalCommandSpec
+var whoamiCommandSpec = sessioncontrol.WhoamiCommandSpec
 
 var builtInSessionCommands = map[string]sessionCommandBinding{
 	contextCommandSpec.Path.String(): {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
 	compactCommandSpec.Path.String(): {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
 	goalCommandSpec.Path.String():    {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
+	whoamiCommandSpec.Path.String():  {Spec: whoamiCommandSpec, Handler: Session.executeWhoamiCommand},
 }
 
 var errContextProviderNotFound = errors.New("context provider not found")
@@ -793,6 +795,9 @@ func contextRequestScope(inbound channel.Inbound) map[string]string {
 	}
 	if inbound.Trust.Kind != "" {
 		out["trust.kind"] = string(inbound.Trust.Kind)
+	}
+	if inbound.Trust.Downgraded {
+		out["trust.downgraded"] = "true"
 	}
 	if inbound.Caller.Source != "" {
 		out["caller.source"] = inbound.Caller.Source
@@ -2180,6 +2185,109 @@ func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbo
 		Policy: evaluation,
 		Effect: &environment.EffectResult{Result: operation.OK(text)},
 	}
+}
+
+func (s Session) executeWhoamiCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	text := s.renderWhoami(inbound)
+	if err := s.appendThreadEvents(ctx, sessionenv.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: channel.Message{Content: text},
+	}); err != nil {
+		return commandFailed("thread_append_failed", err.Error(), nil)
+	}
+	return CommandResult{
+		Status: CommandStatusOK,
+		Spec:   spec,
+		Policy: evaluation,
+		Effect: &environment.EffectResult{Result: operation.OK(text)},
+	}
+}
+
+func (s Session) renderWhoami(inbound channel.Inbound) string {
+	var agentSpec agent.Spec
+	if s.Agent != nil {
+		agentSpec = s.Agent.Spec()
+	}
+	lines := []string{"Current identity:"}
+	lines = append(lines, "- caller: "+renderCaller(inbound.Caller))
+	if inbound.Actor != nil {
+		lines = append(lines, "- resolved: "+resolvedText(inbound.Actor.Resolution))
+		if inbound.Actor.User.ID != "" {
+			lines = append(lines, "- user: "+string(inbound.Actor.User.ID))
+		}
+		if inbound.Actor.User.Username != "" && inbound.Actor.User.Username != string(inbound.Actor.User.ID) {
+			lines = append(lines, "- username: "+inbound.Actor.User.Username)
+		}
+		if identityText := renderIdentity(inbound.Actor.Identity); identityText != "" {
+			lines = append(lines, "- identity: "+identityText)
+		}
+		if groups := actorGroupIDs(*inbound.Actor); len(groups) > 0 {
+			lines = append(lines, "- groups: "+strings.Join(groups, ", "))
+		}
+	} else {
+		lines = append(lines, "- resolved: false")
+	}
+	trust := string(inbound.Trust.Level)
+	if trust == "" {
+		trust = string(policy.TrustUntrusted)
+	}
+	if inbound.Trust.Downgraded {
+		trust += " (downgraded)"
+	}
+	lines = append(lines, "- trust: "+trust)
+	subjects := security.SubjectsForInbound(inbound, agentSpec)
+	if len(subjects) > 0 {
+		lines = append(lines, "- subjects: "+renderSubjects(subjects))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderCaller(caller policy.Caller) string {
+	principal := strings.TrimSpace(caller.Principal.ID)
+	if caller.Principal.Kind != "" && principal != "" {
+		principal = caller.Principal.Kind + ":" + principal
+	}
+	if principal == "" {
+		principal = strings.TrimSpace(caller.Principal.Kind)
+	}
+	parts := []string{string(caller.Kind)}
+	if principal != "" {
+		parts = append(parts, principal)
+	}
+	if caller.Source != "" {
+		parts = append(parts, "source="+caller.Source)
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderIdentity(identity user.Identity) string {
+	switch {
+	case identity.Provider != "" && identity.ProviderID != "":
+		return identity.Provider + ":" + identity.ProviderID
+	case identity.ProviderID != "":
+		return identity.ProviderID
+	default:
+		return identity.Provider
+	}
+}
+
+func resolvedText(state user.ResolutionState) string {
+	if user.NormalizeResolution(state) == user.ResolutionResolved {
+		return "true"
+	}
+	return "false"
+}
+
+func renderSubjects(subjects []policy.SubjectRef) string {
+	parts := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		if subject.Kind == "" || subject.ID == "" {
+			continue
+		}
+		parts = append(parts, string(subject.Kind)+":"+subject.ID)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
 
 func (s Session) executeGoalCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {

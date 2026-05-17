@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `identity.current` context so local and Slack apps can show the current
   canonical user or an unresolved channel identity without exposing raw channel
   claims.
+- Added app manifest `identity` configuration for canonical users, provider
+  identities, groups, and trust-aware identity resolution.
+- Added Slack API-backed identity resolution and `/whoami`, so Slack users can
+  resolve to canonical email users while app identity config remains an
+  additive group/trust overlay.
+- Added named plugin instances via `plugins[].instance`, allowing multiple
+  configured instances of the same plugin type such as `gitlab/company-a`.
 
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary

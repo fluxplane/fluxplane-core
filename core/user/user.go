@@ -78,6 +78,16 @@ func Min(a, b TrustLevel) TrustLevel {
 	return b
 }
 
+// Max returns the less restrictive of two trust levels.
+func Max(a, b TrustLevel) TrustLevel {
+	a = NormalizeTrust(a)
+	b = NormalizeTrust(b)
+	if trustRank(a) >= trustRank(b) {
+		return a
+	}
+	return b
+}
+
 func trustRank(level TrustLevel) int {
 	switch level {
 	case TrustOperator:

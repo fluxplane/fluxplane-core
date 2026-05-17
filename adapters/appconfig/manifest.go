@@ -28,6 +28,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/core/workflow"
 	invjsonschema "github.com/invopop/jsonschema"
 	santhoshjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -128,8 +129,9 @@ func DecodeFile(path string, data []byte) (File, error) {
 			bundle.Apps = append(bundle.Apps, spec)
 			for _, plugin := range spec.Plugins {
 				bundle.Plugins = append(bundle.Plugins, resource.PluginRef{
-					Name:   plugin.Name,
-					Config: cloneMap(plugin.Config),
+					Name:     plugin.Name,
+					Instance: plugin.Instance,
+					Config:   cloneMap(plugin.Config),
 				})
 			}
 			for _, ds := range manifest.Datasources {
@@ -414,6 +416,7 @@ type Manifest struct {
 	ModelPolicy    modelPolicy                `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
 	SemanticSearch semanticSearchDoc          `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
 	Security       policy.AuthorizationPolicy `json:"security,omitempty" yaml:"security,omitempty"`
+	Identity       identityDoc                `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Models         modelConfigDoc             `json:"models,omitempty" yaml:"models,omitempty"`
 	Distribution   distributionDoc            `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef                `json:"plugins,omitempty" yaml:"plugins,omitempty"`
@@ -425,6 +428,80 @@ type Manifest struct {
 	Runtime        RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig               `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc    `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+type identityDoc struct {
+	Users  []identityUserDoc  `json:"users,omitempty" yaml:"users,omitempty"`
+	Groups []identityGroupDoc `json:"groups,omitempty" yaml:"groups,omitempty"`
+}
+
+type identityUserDoc struct {
+	ID          string                `json:"id" yaml:"id"`
+	Username    string                `json:"username,omitempty" yaml:"username,omitempty"`
+	DisplayName string                `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Trust       user.TrustLevel       `json:"trust,omitempty" yaml:"trust,omitempty"`
+	Groups      []string              `json:"groups,omitempty" yaml:"groups,omitempty"`
+	Identities  []identityIdentityDoc `json:"identities,omitempty" yaml:"identities,omitempty"`
+	Annotations map[string]string     `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+type identityIdentityDoc struct {
+	Provider    string            `json:"provider" yaml:"provider"`
+	ProviderID  string            `json:"provider_id" yaml:"provider_id"`
+	Email       string            `json:"email,omitempty" yaml:"email,omitempty"`
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Claims      map[string]string `json:"claims,omitempty" yaml:"claims,omitempty"`
+}
+
+type identityGroupDoc struct {
+	ID          string            `json:"id" yaml:"id"`
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Members     []string          `json:"members,omitempty" yaml:"members,omitempty"`
+	Trust       user.TrustLevel   `json:"trust,omitempty" yaml:"trust,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d identityDoc) Spec() coreapp.IdentitySpec {
+	spec := coreapp.IdentitySpec{}
+	for _, raw := range d.Users {
+		configured := user.User{
+			ID:          user.ID(strings.TrimSpace(raw.ID)),
+			Username:    strings.TrimSpace(raw.Username),
+			DisplayName: strings.TrimSpace(raw.DisplayName),
+			Trust:       raw.Trust,
+			Annotations: cloneStringMap(raw.Annotations),
+		}
+		for _, group := range raw.Groups {
+			if group = strings.TrimSpace(group); group != "" {
+				configured.Groups = append(configured.Groups, user.ID(group))
+			}
+		}
+		for _, identity := range raw.Identities {
+			configured.Identities = append(configured.Identities, user.Identity{
+				Provider:    strings.TrimSpace(identity.Provider),
+				ProviderID:  strings.TrimSpace(identity.ProviderID),
+				Email:       strings.TrimSpace(identity.Email),
+				DisplayName: strings.TrimSpace(identity.DisplayName),
+				Claims:      cloneStringMap(identity.Claims),
+			})
+		}
+		spec.Users = append(spec.Users, configured)
+	}
+	for _, raw := range d.Groups {
+		group := user.Group{
+			ID:          user.ID(strings.TrimSpace(raw.ID)),
+			DisplayName: strings.TrimSpace(raw.DisplayName),
+			Trust:       raw.Trust,
+			Annotations: cloneStringMap(raw.Annotations),
+		}
+		for _, member := range raw.Members {
+			if member = strings.TrimSpace(member); member != "" {
+				group.Members = append(group.Members, user.ID(member))
+			}
+		}
+		spec.Groups = append(spec.Groups, group)
+	}
+	return spec
 }
 
 // RuntimeConfig contains local runtime wiring consumed by launch adapters.
@@ -1308,6 +1385,7 @@ func (m Manifest) Spec() coreapp.Spec {
 		Model:          m.ModelPolicy.Spec(),
 		SemanticSearch: m.SemanticSearch.Spec(),
 		Security:       m.Security,
+		Identity:       m.Identity.Spec(),
 	}
 	for _, source := range m.Sources {
 		spec.Sources = append(spec.Sources, coreapp.SourceSpec(source))
@@ -1507,6 +1585,7 @@ type pluginRef coreapp.PluginRef
 func (pluginRef) JSONSchema() *invjsonschema.Schema {
 	properties := invjsonschema.NewProperties()
 	properties.Set("name", &invjsonschema.Schema{Type: "string"})
+	properties.Set("instance", &invjsonschema.Schema{Type: "string"})
 	properties.Set("config", &invjsonschema.Schema{
 		Type:                 "object",
 		AdditionalProperties: invjsonschema.TrueSchema,
@@ -1535,6 +1614,7 @@ func (p *pluginRef) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	ref.Name = strings.TrimSpace(ref.Name)
+	ref.Instance = strings.TrimSpace(ref.Instance)
 	ref.Config = cloneMap(ref.Config)
 	*p = pluginRef(ref)
 	return nil

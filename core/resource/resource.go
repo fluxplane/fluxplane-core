@@ -1,6 +1,8 @@
 package resource
 
 import (
+	"strings"
+
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -59,8 +61,28 @@ type Diagnostic struct {
 
 // PluginRef identifies a plugin requested by resources or app configuration.
 type PluginRef struct {
-	Name   string         `json:"name"`
-	Config map[string]any `json:"config,omitempty"`
+	Name     string         `json:"name"`
+	Instance string         `json:"instance,omitempty"`
+	Config   map[string]any `json:"config,omitempty"`
+}
+
+// InstanceName returns the declared plugin instance name. Unnamed refs keep the
+// plugin type name as their instance identity.
+func (r PluginRef) InstanceName() string {
+	if instance := strings.TrimSpace(r.Instance); instance != "" {
+		return instance
+	}
+	return strings.TrimSpace(r.Name)
+}
+
+// Key returns the stable declaration key for de-duplicating plugin refs.
+func (r PluginRef) Key() string {
+	name := strings.TrimSpace(r.Name)
+	instance := r.InstanceName()
+	if instance == "" || instance == name {
+		return name
+	}
+	return name + "/" + instance
 }
 
 // ContributionBundle is the normalized pure resource contribution shape.

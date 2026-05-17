@@ -42,3 +42,10 @@ func TestSpecValidateRejectsEmptyPlugin(t *testing.T) {
 		t.Fatal("Validate error is nil, want empty plugin error")
 	}
 }
+
+func TestSpecValidateRejectsInvalidPluginInstance(t *testing.T) {
+	err := Spec{Plugins: []PluginRef{{Name: "gitlab", Instance: "company/a"}}}.Validate()
+	if err == nil {
+		t.Fatal("Validate error is nil, want invalid plugin instance error")
+	}
+}

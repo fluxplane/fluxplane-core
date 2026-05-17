@@ -115,10 +115,18 @@ runtime events without embedding raw operation input.
 
 Inbound identity is resolved before session execution. Internal policy receives
 the typed actor, caller, trust, and groups; model-visible context receives only a
-scalar summary through `identity.current`. If a channel identity has not been
-mapped to a canonical `core/user`, the context marks it unresolved and renders
-only provider, provider ID, source, and trust. Raw channel claims are resolver
-evidence, not prompt context.
+scalar summary through `identity.current`. Slack channels resolve users through
+`users.info` and use the profile email as the canonical `core/user` ID when it
+is available. App manifests may declare canonical users, channel identities, and
+groups under `identity`; those entries are additive overlays on provider
+resolution, so apps can add `admins` or `operators` without configuring every
+Slack user. Resolved users/groups become authorization subjects and may raise
+effective trust unless the inbound submission explicitly requested a trust
+downgrade. If no canonical user can be resolved, context marks the actor
+unresolved and renders only provider, provider ID, source, and trust. Raw
+channel claims are resolver evidence, not prompt context. `/whoami` reports the
+same caller, actor, trust, and authorization subjects that policy enforcement
+uses for the current turn.
 
 The first standard coding operation batch lives behind `plugins/codingplugin`.
 It aggregates filesystem, web, browser, git, shell, background process, scratch

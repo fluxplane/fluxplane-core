@@ -70,6 +70,49 @@ func TestHostResolvesPluginOperations(t *testing.T) {
 	}
 }
 
+func TestHostResolvesNamedPluginInstanceSource(t *testing.T) {
+	host, err := New(fakeOperationPlugin{name: "echo"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "echo", Instance: "company-a"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.Bundles) != 1 {
+		t.Fatalf("bundles len = %d, want 1", len(resolution.Bundles))
+	}
+	if got, want := resolution.Bundles[0].Source.ID, "plugin:echo/company-a"; got != want {
+		t.Fatalf("source ID = %q, want %q", got, want)
+	}
+	if got, want := resolution.Bundles[0].Source.Location, "plugins/echo/company-a"; got != want {
+		t.Fatalf("source location = %q, want %q", got, want)
+	}
+}
+
+func TestHostInstantiatesPluginFactoryPerRef(t *testing.T) {
+	host, err := New(fakeFactoryPlugin{name: "echo"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(),
+		resource.PluginRef{Name: "echo", Instance: "company-a"},
+		resource.PluginRef{Name: "echo", Instance: "company-b"},
+	)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.Bundles) != 2 {
+		t.Fatalf("bundles len = %d, want 2", len(resolution.Bundles))
+	}
+	if got := resolution.Bundles[0].Commands[0].Path.String(); got != "/company-a" {
+		t.Fatalf("first command = %q, want /company-a", got)
+	}
+	if got := resolution.Bundles[1].Commands[0].Path.String(); got != "/company-b" {
+		t.Fatalf("second command = %q, want /company-b", got)
+	}
+}
+
 func TestHostResolvesConnectorProviders(t *testing.T) {
 	host, err := New(fakeConnectorProviderPlugin{name: "openai"})
 	if err != nil {
@@ -136,6 +179,36 @@ type fakeOperationPlugin struct {
 
 func (p fakeOperationPlugin) Manifest() Manifest {
 	return Manifest{Name: p.name}
+}
+
+type fakeFactoryPlugin struct {
+	name string
+}
+
+func (p fakeFactoryPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeFactoryPlugin) Instantiate(_ context.Context, ctx Context) (Plugin, error) {
+	return fakeInstancePlugin{name: ctx.Ref.InstanceName()}, nil
+}
+
+func (p fakeFactoryPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+type fakeInstancePlugin struct {
+	name string
+}
+
+func (p fakeInstancePlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeInstancePlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{
+		Commands: []command.Spec{{Path: command.Path{p.name}}},
+	}, nil
 }
 
 func (p fakeOperationPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {

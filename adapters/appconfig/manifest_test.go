@@ -34,7 +34,7 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
   },
   "plugins": [
     {"name": "git"},
-    {"name": "browser", "config": {"headless": true}}
+    {"name": "browser", "instance": "browser-ci", "config": {"headless": true}}
   ]
 }`)
 
@@ -78,13 +78,13 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	if app.Plugins[0].Name != "git" {
 		t.Fatalf("plugin[0] = %#v, want git", app.Plugins[0])
 	}
-	if app.Plugins[1].Name != "browser" || app.Plugins[1].Config["headless"] != true {
+	if app.Plugins[1].Name != "browser" || app.Plugins[1].Instance != "browser-ci" || app.Plugins[1].Config["headless"] != true {
 		t.Fatalf("plugin[1] = %#v, want browser with config", app.Plugins[1])
 	}
 	if len(bundle.Plugins) != 2 {
 		t.Fatalf("bundle plugins len = %d, want 2", len(bundle.Plugins))
 	}
-	if bundle.Plugins[1].Name != "browser" || bundle.Plugins[1].Config["headless"] != true {
+	if bundle.Plugins[1].Name != "browser" || bundle.Plugins[1].Instance != "browser-ci" || bundle.Plugins[1].Config["headless"] != true {
 		t.Fatalf("bundle plugin[1] = %#v, want browser with config", bundle.Plugins[1])
 	}
 }
@@ -94,6 +94,17 @@ func TestDecodeManifestLoadsYAMLManifest(t *testing.T) {
 name: engineer
 default_agent:
   name: main
+identity:
+  users:
+    - id: timo@company.org
+      username: timo
+      identities:
+        - provider: slack
+          provider_id: U123
+  groups:
+    - id: admins
+      members: [timo@company.org]
+      trust: operator
 sources:
   - location: .agents
 model_policy:
@@ -116,6 +127,12 @@ plugins:
 	}
 	if app.Model.Provider != "openai" || app.Model.ApprovedOnly == nil || !*app.Model.ApprovedOnly {
 		t.Fatalf("model policy = %#v, want provider and approved_only", app.Model)
+	}
+	if len(app.Identity.Users) != 1 || app.Identity.Users[0].ID != "timo@company.org" || app.Identity.Users[0].Identities[0].ProviderID != "U123" {
+		t.Fatalf("identity users = %#v, want canonical Slack user", app.Identity.Users)
+	}
+	if len(app.Identity.Groups) != 1 || app.Identity.Groups[0].ID != "admins" || app.Identity.Groups[0].Trust != "operator" {
+		t.Fatalf("identity groups = %#v, want admins operator group", app.Identity.Groups)
 	}
 	if got := bundle.Plugins[0].Config["scope"]; got != "project" {
 		t.Fatalf("plugin scope = %#v, want project", got)

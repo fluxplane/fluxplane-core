@@ -75,6 +75,9 @@ Inside the REPL, use `/goal --max <max-continuations> "<goal>"`:
 coder> /goal --max 20 "Test coverage has increased to 90%"
 ```
 
+Use `/whoami` to inspect the local canonical user, trust, and authorization
+subjects that policy checks see for the current turn.
+
 Print usage accounting after the response:
 
 ```bash

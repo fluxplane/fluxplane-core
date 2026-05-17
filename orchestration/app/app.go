@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -12,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/appresources"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
@@ -31,6 +33,7 @@ type Config struct {
 	BundleTransforms  []BundleTransform
 	OperationExecutor operationruntime.Executor
 	Security          policy.AuthorizationPolicy
+	IdentityResolver  identity.Resolver
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -50,6 +53,7 @@ type Composition struct {
 	appresources.Resources
 	OperationExecutor operationruntime.Executor
 	Security          policy.AuthorizationPolicy
+	IdentityResolver  identity.Resolver
 	EventRegistry     *event.Registry
 	EventStore        event.Store
 	Bundles           []resource.ContributionBundle
@@ -111,6 +115,15 @@ func Compose(cfg Config) (Composition, error) {
 		return Composition{Diagnostics: diagnostics}, err
 	}
 	security := mergeSecurity(cfg.Security, bundles)
+	identityResolver := cfg.IdentityResolver
+	if identitySpec := mergeIdentity(bundles); len(identitySpec.Users) > 0 || len(identitySpec.Groups) > 0 {
+		resolver, err := identity.NewDirectoryResolver(identitySpec, identityResolver)
+		if err != nil {
+			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
+			return Composition{Diagnostics: diagnostics}, err
+		}
+		identityResolver = resolver
+	}
 
 	return Composition{
 		Agent:                cfg.Agent,
@@ -123,11 +136,23 @@ func Compose(cfg Config) (Composition, error) {
 		Resources:            appResources,
 		OperationExecutor:    cfg.OperationExecutor,
 		Security:             security,
+		IdentityResolver:     identityResolver,
 		EventRegistry:        eventRegistry,
 		EventStore:           cfg.EventStore,
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,
 	}, nil
+}
+
+func mergeIdentity(bundles []resource.ContributionBundle) coreapp.IdentitySpec {
+	var out coreapp.IdentitySpec
+	for _, bundle := range bundles {
+		for _, appSpec := range bundle.Apps {
+			out.Users = append(out.Users, appSpec.Identity.Users...)
+			out.Groups = append(out.Groups, appSpec.Identity.Groups...)
+		}
+	}
+	return out
 }
 
 func mergeSecurity(base policy.AuthorizationPolicy, bundles []resource.ContributionBundle) policy.AuthorizationPolicy {

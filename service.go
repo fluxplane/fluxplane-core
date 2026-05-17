@@ -332,6 +332,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if cfg.SessionCatalog == nil {
 		cfg.SessionCatalog = composition.SessionCatalog
 	}
+	if cfg.IdentityResolver == nil {
+		cfg.IdentityResolver = composition.IdentityResolver
+	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor
 	}
