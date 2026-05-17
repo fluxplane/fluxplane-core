@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
+	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/spf13/cobra"
 )
@@ -110,6 +111,7 @@ func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
+		workspaceplugin.New(hostSystem),
 		codingplugin.New(hostSystem),
 		taskplugin.New(),
 		skillplugin.New(),

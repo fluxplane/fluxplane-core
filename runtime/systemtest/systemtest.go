@@ -70,6 +70,14 @@ func NewMemoryWorkspace() *MemoryWorkspace {
 
 func (w *MemoryWorkspace) Root() string { return w.root }
 
+// Roots returns the single in-memory workspace root.
+func (w *MemoryWorkspace) Roots() []system.WorkspaceRoot {
+	if w == nil {
+		return nil
+	}
+	return []system.WorkspaceRoot{{Path: w.root, Rel: ".", Read: true, Write: true}}
+}
+
 func (w *MemoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -157,6 +157,22 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 	if err != nil {
 		return coreproject.Inventory{}, err
 	}
+	for _, root := range ws.Roots()[1:] {
+		if strings.TrimSpace(root.Rel) == "" || !root.Read {
+			continue
+		}
+		rootEntries, _, rootTruncated, err := ws.Walk(ctx, root.Rel, system.WalkOptions{
+			Depth:      50,
+			ShowHidden: true,
+			MaxEntries: defaultMaxEntries,
+			SkipDirs:   noisyDirs(),
+		})
+		if err != nil {
+			return coreproject.Inventory{}, err
+		}
+		entries = append(entries, rootEntries...)
+		truncated = truncated || rootTruncated
+	}
 	builders := map[string]*projectBuilder{}
 	var markdown []markdownFacet
 	var warnings []coreproject.Warning

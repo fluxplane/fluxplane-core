@@ -1,4 +1,4 @@
-# Core Concepts: Request, Task, Command, Workflow, Operation, and Execution
+# Core Concepts: Workspace, Project, Request, Task, Command, Workflow, Operation, and Execution
 
 This document defines the vocabulary AgentRuntime uses for common work and
 execution concepts. The terms are intentionally separated because each answers a
@@ -10,6 +10,8 @@ attempts from collapsing into one vague "thing to do".
 
 | Concept | Main question | Typical shape | Runtime state? | Notes |
 |---|---|---|---|---|
+| Workspace | Where is the agent working? | Named working boundary with one or more roots | Selection has runtime state | Scopes tools, context, project discovery, and memory; not the same as a project. |
+| Project | What was detected inside the workspace? | Inventory unit with facets | Inventory is observed runtime state | Go module, package manifest, docs tree, taskfile, repo, or similar unit inside workspace roots. |
 | Request | What is being asked? | Boundary input or ask | Not necessarily | Communication intent from one actor/system to another. |
 | Task | What work needs doing? | Objective with lifecycle | Sometimes | A unit of work, often assignable and decomposable. |
 | Command | What known imperative was invoked? | Verb plus structured arguments | Dispatch has runtime state | Human/control-plane instruction routed to a handler. |
@@ -27,6 +29,52 @@ That path is illustrative, not mandatory. A simple request may produce a direct
 answer with no explicit task or workflow. A command may directly trigger one
 operation. A workflow may contain many tasks and operations. A task may be
 completed through many executions.
+
+## Workspace
+
+A workspace is the named working boundary for an agent run, session, or deployed
+app.
+
+It says:
+
+> This is where the agent is allowed and expected to work.
+
+A workspace may have one primary root and zero or more additional named roots.
+The primary root is addressed with normal workspace-relative paths. Additional
+roots are addressed by name, using the runtime path prefix `@name/path`.
+
+Examples:
+
+```text
+.                    primary root
+@api/go.mod          file in the named root "api"
+@web/package.json    file in the named root "web"
+```
+
+Workspace roots are lower-level runtime configuration, not a coder-only feature.
+`agentsdk run`, daemon apps, and deployed examples such as `examples/slack-bot`
+should all be able to expose workspace context when they launch with local roots.
+The `workspace.summary` context provider renders basic root information so agents
+can see the current working boundary even when they do not use coder.
+
+A workspace is not a project. A workspace scopes project discovery, filesystem
+operations, context, and memory. Detected projects live inside workspace roots.
+
+## Project
+
+A project is a detected inventory unit inside a workspace root.
+
+It says:
+
+> This directory or manifest looks like a meaningful project unit.
+
+Examples include a Go module, `go.work`, `package.json`, Makefile, Taskfile,
+Git repository, markdown docs tree, or `.agents` resource directory. Project
+inventory is observed runtime state; it should preserve workspace-relative paths,
+including `@name/...` prefixes for named roots.
+
+A project can provide context and task entry points, but memory scope should use
+workspace identity rather than treating project IDs as workspace IDs.
 
 ## Request
 

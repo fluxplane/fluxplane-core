@@ -309,6 +309,40 @@ func TestManagerHostWorkspaceDoesNotDependOnCWD(t *testing.T) {
 		t.Fatalf("project name = %q, want module path", project.Name)
 	}
 }
+
+func TestManagerDetectsProjectsInNamedHostRoots(t *testing.T) {
+	primary := t.TempDir()
+	api := t.TempDir()
+	if err := os.WriteFile(filepath.Join(primary, "go.mod"), []byte("module example.com/root\n\ngo 1.26\n"), 0644); err != nil {
+		t.Fatalf("write primary go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(api, "go.mod"), []byte("module example.com/api\n\ngo 1.26\n"), 0644); err != nil {
+		t.Fatalf("write api go.mod: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{
+		Root: primary,
+		Workspace: system.WorkspaceConfig{Roots: []system.WorkspaceRootConfig{{
+			Name: "api",
+			Path: api,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	inventory, _, err := NewManager(sys.Workspace()).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	projectByRoot(t, inventory, "")
+	apiProject := projectByRoot(t, inventory, "@api")
+	if apiProject.Name != "example.com/api" {
+		t.Fatalf("api project name = %q, want module path", apiProject.Name)
+	}
+	if !hasSignal(inventory.Signals, "go", "go", "@api/go.mod") {
+		t.Fatalf("signals = %#v, want named-root go signal", inventory.Signals)
+	}
+}
 func TestManagerRejectsWorkspaceIDWhenUnscoped(t *testing.T) {
 	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
 		manager := NewManager(ws)

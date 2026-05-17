@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved actors, an orchestration identity resolver hook, and context-provider
   scope metadata for current user, identity, caller, and trust.
 
+- Added multi-root local workspace startup via repeated `--workspace-root` flags
+  for local distribution runs and `coder serve`, plus workspace root summary
+  context and project inventory discovery under named `@root/...` prefixes.
+
 ### Changed
 
 - HTTP/SSE remote submissions now use explicit downgrade-only trust delegation

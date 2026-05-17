@@ -44,6 +44,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
@@ -149,7 +150,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Root:                cfg.Root,
 		Spec:                cfg.Spec,
 		Bundles:             cfg.Bundles,
-		Launch:              cfg.Launch,
+		Launch:              mergeLaunchConfig(cfg.Launch, req.Launch),
 		AuthPath:            cfg.AuthPath,
 		Provider:            req.Provider,
 		Model:               req.Model,
@@ -177,6 +178,25 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		return nil, err
 	}
 	return &sessionWithRuntime{SessionHandle: session, closeRuntime: runtime.Close}, nil
+}
+
+func mergeLaunchConfig(base, override distribution.LaunchConfig) distribution.LaunchConfig {
+	if len(override.Connectors) > 0 {
+		base.Connectors = override.Connectors
+	}
+	if len(override.Listeners) > 0 {
+		base.Listeners = override.Listeners
+	}
+	if len(override.Channels) > 0 {
+		base.Channels = override.Channels
+	}
+	if len(override.Workspace.Roots) > 0 {
+		base.Workspace.Roots = append(base.Workspace.Roots, override.Workspace.Roots...)
+	}
+	if strings.TrimSpace(override.Workspace.ScratchRoot) != "" {
+		base.Workspace.ScratchRoot = override.Workspace.ScratchRoot
+	}
+	return base
 }
 
 type sessionWithRuntime struct {
@@ -428,6 +448,7 @@ func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agen
 
 func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
+		workspaceplugin.New(hostSystem),
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
@@ -494,7 +515,13 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 		}
 		byName[name] = plugin
 	}
-	refs := pluginRefs(bundles)
+	refs := make([]resource.PluginRef, 0, len(pluginRefs(bundles))+1)
+	for _, ref := range pluginRefs(bundles) {
+		if ref.Name != workspaceplugin.Name {
+			refs = append(refs, ref)
+		}
+	}
+	refs = append([]resource.PluginRef{{Name: workspaceplugin.Name}}, refs...)
 	plugins := make([]pluginhost.Plugin, 0, len(refs))
 	for _, ref := range refs {
 		plugin, ok := byName[ref.Name]

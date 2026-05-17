@@ -148,6 +148,7 @@ func (HostEnvironment) Getenv(key string) string { return os.Getenv(key) }
 // Workspace is a root-confined filesystem boundary.
 type Workspace interface {
 	Root() string
+	Roots() []WorkspaceRoot
 	ResolveExisting(string) (ResolvedPath, error)
 	ResolveCreate(string) (ResolvedPath, error)
 	ReadFile(context.Context, string, int64) ([]byte, bool, ResolvedPath, error)
@@ -169,6 +170,15 @@ type ResolvedPath struct {
 	Input string `json:"input,omitempty"`
 	Abs   string `json:"abs"`
 	Rel   string `json:"rel"`
+}
+
+// WorkspaceRoot describes one runtime filesystem root exposed by a Workspace.
+type WorkspaceRoot struct {
+	Name  string `json:"name,omitempty"`
+	Path  string `json:"path"`
+	Rel   string `json:"rel,omitempty"`
+	Read  bool   `json:"read"`
+	Write bool   `json:"write"`
 }
 
 // WalkOptions bounds workspace tree traversal.
@@ -222,6 +232,31 @@ type workspaceRoot struct {
 
 // Root returns the canonical workspace root.
 func (w *HostWorkspace) Root() string { return w.root }
+
+// Roots returns the runtime filesystem roots exposed by the workspace. The
+// first root is the primary root; additional roots are addressable by their Rel
+// prefixes such as "@docs".
+func (w *HostWorkspace) Roots() []WorkspaceRoot {
+	if w == nil {
+		return nil
+	}
+	out := make([]WorkspaceRoot, 0, len(w.roots))
+	for i, root := range w.roots {
+		name := root.name
+		rel := root.rel
+		if i == 0 && rel == "" {
+			rel = "."
+		}
+		out = append(out, WorkspaceRoot{
+			Name:  name,
+			Path:  root.root,
+			Rel:   rel,
+			Read:  root.read,
+			Write: root.write,
+		})
+	}
+	return out
+}
 
 func newHostWorkspace(primary string, cfg WorkspaceConfig) (*HostWorkspace, error) {
 	w := &HostWorkspace{

@@ -156,6 +156,10 @@ func newMemoryWorkspace() *memoryWorkspace {
 
 func (w *memoryWorkspace) Root() string { return w.root }
 
+func (w *memoryWorkspace) Roots() []system.WorkspaceRoot {
+	return []system.WorkspaceRoot{{Path: w.root, Rel: ".", Read: true, Write: true}}
+}
+
 func (w *memoryWorkspace) ResolveExisting(raw string) (system.ResolvedPath, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

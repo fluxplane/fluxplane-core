@@ -57,6 +57,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "--yolo") {
 		t.Fatalf("help = %q, want yolo flag", help)
 	}
+	if !strings.Contains(help, "--workspace-root") {
+		t.Fatalf("help = %q, want workspace-root flag", help)
+	}
 	if !strings.Contains(help, "discover") {
 		t.Fatalf("help = %q, want discover command", help)
 	}
@@ -77,6 +80,20 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	if !hasDescribe {
 		t.Fatalf("coder command missing describe subcommand")
+	}
+}
+
+func TestServeCommandHasWorkspaceRootFlag(t *testing.T) {
+	cmd := newServeCommand(loadStartupResources(context.Background()))
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !strings.Contains(out.String(), "--workspace-root") {
+		t.Fatalf("help = %q, want workspace-root flag", out.String())
 	}
 }
 

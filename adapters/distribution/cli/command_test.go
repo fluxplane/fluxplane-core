@@ -184,6 +184,30 @@ func TestCommandPropagatesYoloFlag(t *testing.T) {
 	}
 }
 
+func TestCommandPropagatesWorkspaceRootFlags(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommand(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--workspace-root", "../api", "--workspace-root", "web=../web"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	roots := runtime.request.Launch.Workspace.Roots
+	if len(roots) != 2 || roots[0].Name != "api" || roots[0].Path != "../api" || roots[1].Name != "web" || roots[1].Path != "../web" {
+		t.Fatalf("workspace roots = %#v", roots)
+	}
+}
+
 func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{

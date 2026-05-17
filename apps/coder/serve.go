@@ -15,11 +15,12 @@ import (
 )
 
 type serveOptions struct {
-	socket string
-	debug  bool
-	dev    bool
-	yolo   bool
-	model  string
+	socket         string
+	debug          bool
+	dev            bool
+	yolo           bool
+	model          string
+	workspaceRoots []string
 }
 
 func newServeCommand(startup startupResources) *cobra.Command {
@@ -30,10 +31,16 @@ func newServeCommand(startup startupResources) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			modelSelection := run.ResolveModelSelection("openai", opts.model)
+			roots, err := distribution.ParseWorkspaceRoots(opts.workspaceRoots)
+			if err != nil {
+				return err
+			}
 			addr := coderServeSocketPath(opts.socket)
 			if err := validateCoderServeSocket(addr); err != nil {
 				return err
 			}
+			launchConfig := coderServeLaunch(addr)
+			launchConfig.Workspace.Roots = append(launchConfig.Workspace.Roots, roots...)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coder serve listening on unix:%s\n", addr)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "base_url: http://unix\n")
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "session: %s\n", SessionName)
@@ -41,7 +48,7 @@ func newServeCommand(startup startupResources) *cobra.Command {
 				Root:           startup.Root,
 				Spec:           coderServeSpec(startup),
 				Bundles:        startup.Bundles,
-				Launch:         coderServeLaunch(addr),
+				Launch:         launchConfig,
 				Plugins:        localPlugins,
 				ToolProjection: ToolProjectionConfig(),
 				ModelResolver: run.ModelResolver{
@@ -66,6 +73,7 @@ func newServeCommand(startup startupResources) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served coder sessions")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.model, "model", DefaultModel, "model name or provider/model")
+	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	return cmd
 }
 
