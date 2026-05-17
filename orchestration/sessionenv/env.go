@@ -66,8 +66,9 @@ type ResultReplacement = operationruntime.ResultReplacement
 
 // Scope records the session coordinates that produced an execution context.
 type Scope struct {
-	Thread corethread.Ref
-	RunID  string
+	Thread      corethread.Ref
+	ThreadStore corethread.Store
+	RunID       string
 }
 
 type scopeContextKey struct{}
@@ -137,7 +138,7 @@ func OperationContext(ctx operation.Context, cfg Config, callID operation.CallID
 	ctx = withDatasourceAccess(ctx, cfg.Agent)
 	ctx = operation.WithCallID(ctx, callID)
 	ctx = withSubagentScope(ctx, cfg, callID)
-	return operation.NewContext(context.WithValue(ctx, scopeContextKey{}, Scope{Thread: cfg.Thread, RunID: cfg.RunID}), ctx.Events())
+	return operation.NewContext(context.WithValue(ctx, scopeContextKey{}, Scope{Thread: cfg.Thread, ThreadStore: cfg.ThreadStore, RunID: cfg.RunID}), ctx.Events())
 }
 
 // ScopeFromContext returns the session coordinates attached to a session

@@ -165,7 +165,10 @@ Initial tool set for the task creator:
 The planner agent is also intentionally narrow. It is driven by Markdown
 instructions and must only clarify, create/update a `draft` task, present it to
 the user, loop on refinement, and mark the task `ready` after human approval.
-It must not execute the planned work itself.
+It must not execute the planned work itself. Planner-created drafts should stay
+visible in the current session's default `task_list` by attributing delegated
+draft creation to the parent user thread, and approval/refinement must update
+the same draft task instead of creating a second task.
 
 `apps/coder` should select `taskplugin`. It should not own task command
 semantics directly.

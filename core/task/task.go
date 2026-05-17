@@ -51,9 +51,21 @@ const (
 	TaskCreateKindGeneric TaskCreateKind = "generic"
 )
 
+// TaskListScope controls whether task listing is constrained to the current
+// session thread or spans the whole task index.
+type TaskListScope string
+
+const (
+	TaskListScopeCurrentSession TaskListScope = "current_session"
+	TaskListScopeAll            TaskListScope = "all"
+)
+
 const (
 	// MetadataOriginThreadID records the session thread that created a task.
 	MetadataOriginThreadID = "origin_thread_id"
+	// MetadataOriginDelegateThreadID records the delegate thread that created a
+	// task on behalf of a parent user-facing thread.
+	MetadataOriginDelegateThreadID = "origin_delegate_thread_id"
 	// MetadataOriginBranchID records the session branch that created a task.
 	MetadataOriginBranchID = "origin_branch_id"
 	// MetadataOriginRunID records the session run that created a task.
@@ -409,14 +421,15 @@ type TaskModificationResult struct {
 
 // TaskListRequest lists projected task summaries from the task index stream.
 type TaskListRequest struct {
-	Status      Status       `json:"status,omitempty" jsonschema:"description=Optional task status filter.,enum=draft,enum=ready,enum=running,enum=blocked,enum=completed,enum=failed,enum=cancelled,enum=interrupted"`
-	Label       string       `json:"label,omitempty" jsonschema:"description=Optional label filter."`
-	ProjectID   project.ID   `json:"project_id,omitempty" jsonschema:"description=Optional project id filter."`
-	WorkspaceID workspace.ID `json:"workspace_id,omitempty" jsonschema:"description=Optional workspace id filter."`
-	Assignee    Role         `json:"assignee,omitempty" jsonschema:"description=Optional assignee role or profile filter."`
-	Owner       Role         `json:"owner,omitempty" jsonschema:"description=Optional owner role or profile filter."`
-	Query       string       `json:"query,omitempty" jsonschema:"description=Optional case-insensitive text query over id title objective description labels and metadata."`
-	MaxResults  int          `json:"max_results,omitempty" jsonschema:"description=Maximum task summaries returned. Defaults to 50."`
+	Status      Status        `json:"status,omitempty" jsonschema:"description=Optional task status filter.,enum=draft,enum=ready,enum=running,enum=blocked,enum=completed,enum=failed,enum=cancelled,enum=interrupted"`
+	Label       string        `json:"label,omitempty" jsonschema:"description=Optional label filter."`
+	ProjectID   project.ID    `json:"project_id,omitempty" jsonschema:"description=Optional project id filter."`
+	WorkspaceID workspace.ID  `json:"workspace_id,omitempty" jsonschema:"description=Optional workspace id filter."`
+	Assignee    Role          `json:"assignee,omitempty" jsonschema:"description=Optional assignee role or profile filter."`
+	Owner       Role          `json:"owner,omitempty" jsonschema:"description=Optional owner role or profile filter."`
+	Scope       TaskListScope `json:"scope,omitempty" jsonschema:"description=Task list scope. Defaults to current_session when called from a session and all outside a session. Use all for previous sessions or global history.,enum=current_session,enum=all"`
+	Query       string        `json:"query,omitempty" jsonschema:"description=Optional case-insensitive text query over id title objective description labels and metadata."`
+	MaxResults  int           `json:"max_results,omitempty" jsonschema:"description=Maximum task summaries returned. Defaults to 50."`
 }
 
 // TaskListResult reports indexed task summaries.

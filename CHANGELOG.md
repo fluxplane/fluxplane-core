@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `go_test`, `go_fmt`, `go_vet`, `go_build`, and `go_install` as
   structured Go toolchain operations with bounded output, dry-run defaults for
   formatting/installing, and explicit unsupported-scope validation.
+- Added neutral `core/testrun` events and terminal rendering for generic
+  test-run feedback, and `go_test` now returns compact actionable failure
+  summaries with build/assertion/panic classification.
 - Added a follow-up language/toolchain activation design for splitting
   language-specific contracts, modeling inert toolchains, project signals,
   activation events, and coder capability projection.
@@ -115,6 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   blocks behind undrained run-event forwarding.
 - Fixed coder `/plan` delegation so the default coder session allows the
   `task-planner` profile used by the task planning command.
+- `task_list` now defaults to current-session tasks when called from a session,
+  with an explicit `scope=all` option for global task history; delegated
+  planner-created tasks are indexed against their parent user session.
+- Terminal task following now watches scheduled background tasks briefly and
+  then returns the REPL prompt while active tasks continue in the background.
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.

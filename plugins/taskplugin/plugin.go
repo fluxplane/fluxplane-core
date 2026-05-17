@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
@@ -251,7 +252,7 @@ func taskModifySpec() operation.Spec {
 func taskListSpec() operation.Spec {
 	return operationruntime.WithTypedContract[coretask.TaskListRequest, coretask.TaskListResult](operation.Spec{
 		Ref:         operation.Ref{Name: TaskListOp},
-		Description: "List indexed tasks by status, labels, workspace, project, owner, assignee, or text query.",
+		Description: "List indexed tasks by status, labels, workspace, project, owner, assignee, or text query. Defaults to current-session tasks when called from a session; use scope=all for previous sessions or global task history. Do not add an assignee filter unless the user explicitly asks for one.",
 		Semantics: operation.Semantics{
 			Determinism: operation.DeterminismDeterministic,
 			Effects:     operation.EffectSet{},
@@ -373,15 +374,17 @@ You are a task planner. Your only job is to turn the user's request into an appr
 2. Identify important unknowns, risks, scope boundaries, required inputs, expected outputs, and acceptance criteria.
 3. Use clarify when a missing answer materially changes the task. Do not clarify trivia that can be represented as an assumption.
 4. Create or update a task with status draft. Include useful steps as a dependency DAG when the work naturally decomposes.
-5. Present the draft task to the user with task id, objective, steps, required inputs, expected outputs, and assumptions.
-6. Ask for approval or refinement. Continue refining until the user cancels or approves.
-7. When the user approves, call task_modify to set the task status to ready. The scheduler will execute ready tasks.
+5. Keep planned tasks visible in the current session. Use the normal developer/coder assignee unless the user explicitly asks for human-only ownership.
+6. Present the draft task to the user with task id, status=draft, assignee, objective, steps, required inputs, expected outputs, and assumptions. Say that it is not scheduled yet.
+7. Ask for approval or refinement. Continue refining the same draft task until the user cancels or approves.
+8. When the user approves, or says to execute/make ready/run this plan, call task_modify on the existing task to set the task status to ready. The scheduler will execute ready tasks.
 
 # Rules
 
 - Use only task management and clarification tools.
 - Do not execute the planned work yourself.
 - Do not mark a task ready until the user has approved the draft.
+- Do not create a second task when the user approves or refines an existing draft.
 - Prefer task outputs and acceptance criteria over vague prose.
 - If the user cancels, leave the task draft or cancelled and report the task id.
 `),
@@ -592,8 +595,15 @@ func attachOriginMetadata(ctx context.Context, task *coretask.Task) {
 	if task.Metadata == nil {
 		task.Metadata = map[string]string{}
 	}
+	originThreadID := string(scope.Thread.ID)
+	if parentThreadID := parentThreadID(ctx, scope); parentThreadID != "" {
+		originThreadID = parentThreadID
+		if task.Metadata[coretask.MetadataOriginDelegateThreadID] == "" {
+			task.Metadata[coretask.MetadataOriginDelegateThreadID] = string(scope.Thread.ID)
+		}
+	}
 	if task.Metadata[coretask.MetadataOriginThreadID] == "" {
-		task.Metadata[coretask.MetadataOriginThreadID] = string(scope.Thread.ID)
+		task.Metadata[coretask.MetadataOriginThreadID] = originThreadID
 	}
 	if task.Metadata[coretask.MetadataOriginBranchID] == "" && scope.Thread.BranchID != "" {
 		task.Metadata[coretask.MetadataOriginBranchID] = string(scope.Thread.BranchID)
@@ -601,6 +611,17 @@ func attachOriginMetadata(ctx context.Context, task *coretask.Task) {
 	if task.Metadata[coretask.MetadataOriginRunID] == "" && scope.RunID != "" {
 		task.Metadata[coretask.MetadataOriginRunID] = scope.RunID
 	}
+}
+
+func parentThreadID(ctx context.Context, scope sessionenv.Scope) string {
+	if scope.ThreadStore == nil || scope.Thread.ID == "" {
+		return ""
+	}
+	snapshot, err := scope.ThreadStore.Read(ctx, corethread.ReadParams{ID: scope.Thread.ID})
+	if err != nil {
+		return ""
+	}
+	return snapshot.Metadata["parent_thread_id"]
 }
 
 func isAppendConflict(err error) bool {
@@ -703,11 +724,14 @@ func listTasks(store runtimetask.Store) func(operation.Context, coretask.TaskLis
 		if store == nil {
 			return operation.Failed("task_store_missing", "task_list requires an event store", nil)
 		}
+		if req.Scope != "" && req.Scope != coretask.TaskListScopeCurrentSession && req.Scope != coretask.TaskListScopeAll {
+			return operation.Failed("task_list_invalid_scope", fmt.Sprintf("task_list scope %q is invalid", req.Scope), map[string]any{"scope": req.Scope})
+		}
 		summaries, err := store.List(ctx)
 		if err != nil {
 			return operation.Failed("task_index_load_failed", err.Error(), nil)
 		}
-		out, truncated := filterSummaries(summaries, req)
+		out, truncated := filterSummaries(summaries, req, sessionThreadID(ctx))
 		return operation.OK(coretask.TaskListResult{Tasks: out, Truncated: truncated})
 	}
 }
@@ -851,10 +875,17 @@ func taskSummary(task coretask.Task) coretask.TaskSummary {
 	}
 }
 
-func filterSummaries(in []coretask.TaskSummary, req coretask.TaskListRequest) ([]coretask.TaskSummary, bool) {
+func filterSummaries(in []coretask.TaskSummary, req coretask.TaskListRequest, currentThread string) ([]coretask.TaskSummary, bool) {
 	out := make([]coretask.TaskSummary, 0, len(in))
 	query := strings.ToLower(strings.TrimSpace(req.Query))
+	scope := req.Scope
+	if scope == "" && currentThread != "" {
+		scope = coretask.TaskListScopeCurrentSession
+	}
 	for _, summary := range in {
+		if scope == coretask.TaskListScopeCurrentSession && currentThread != "" && summary.Metadata[coretask.MetadataOriginThreadID] != currentThread {
+			continue
+		}
 		if req.Status != "" && summary.Status != req.Status {
 			continue
 		}
@@ -889,6 +920,14 @@ func filterSummaries(in []coretask.TaskSummary, req coretask.TaskListRequest) ([
 		return out[:limit], true
 	}
 	return out, false
+}
+
+func sessionThreadID(ctx context.Context) string {
+	scope, ok := sessionenv.ScopeFromContext(ctx)
+	if !ok || scope.Thread.ID == "" {
+		return ""
+	}
+	return string(scope.Thread.ID)
 }
 
 func summaryMatches(summary coretask.TaskSummary, query string) bool {

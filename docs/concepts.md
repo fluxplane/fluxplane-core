@@ -106,7 +106,10 @@ grouped `task_modify`, `task_get`, `task_list`, artifact readers, and
 `task_scheduler_status`, and `task_scheduler_set_enabled`. Task creation
 returns after recording the task; indexed ready-task summaries trigger the
 orchestration task executor, with periodic index scans retained as
-reconciliation.
+reconciliation. From a live session, `task_list` defaults to the current
+session thread; tasks created by delegated planner sessions are attributed to
+their parent user session, and the explicit global scope is available for
+historical tasks from other sessions.
 
 ## Command
 

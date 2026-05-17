@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
+	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
 
 func TestContributionsIncludeTaskResources(t *testing.T) {
@@ -32,6 +33,9 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	}
 	if len(bundle.Sessions) != 5 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession || string(bundle.Sessions[2].Name) != WorkerSession || string(bundle.Sessions[3].Name) != ExplorerSession || string(bundle.Sessions[4].Name) != ReviewerSession {
 		t.Fatalf("sessions = %#v, want task, planner, worker, explorer, and reviewer sessions", bundle.Sessions)
+	}
+	if planner := bundle.Agents[1].System; !strings.Contains(planner, "status=draft") || !strings.Contains(planner, "not scheduled yet") || !strings.Contains(planner, "Do not create a second task") {
+		t.Fatalf("planner instructions = %q, want draft visibility and approval/refinement guidance", planner)
 	}
 	if len(bundle.Operations) != 10 {
 		t.Fatalf("operations len = %d, want 10", len(bundle.Operations))
@@ -108,6 +112,109 @@ func TestTaskCreateRecordsOriginSessionMetadata(t *testing.T) {
 	}
 	if out.Task.Metadata[coretask.MetadataOriginRunID] != "run-origin" {
 		t.Fatalf("metadata = %#v, want origin run", out.Task.Metadata)
+	}
+}
+
+func TestTaskListDefaultsToCurrentSessionScope(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctxA := sessionenv.OperationContext(operation.NewContext(context.Background(), nil), sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-a", BranchID: "main"},
+		RunID:  "run-a",
+	}, "call-a")
+	ctxB := sessionenv.OperationContext(operation.NewContext(context.Background(), nil), sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-b", BranchID: "main"},
+		RunID:  "run-b",
+	}, "call-b")
+
+	if result := byName[TaskCreateOp].Run(ctxA, coretask.TaskCreateRequest{ID: "task_a", Title: "Task A"}); result.IsError() {
+		t.Fatalf("task_create a error = %#v", result.Error)
+	}
+	if result := byName[TaskCreateOp].Run(ctxB, coretask.TaskCreateRequest{ID: "task_b", Title: "Task B"}); result.IsError() {
+		t.Fatalf("task_create b error = %#v", result.Error)
+	}
+
+	current := byName[TaskListOp].Run(ctxA, coretask.TaskListRequest{})
+	if current.IsError() {
+		t.Fatalf("task_list current error = %#v", current.Error)
+	}
+	currentOut := current.Output.(coretask.TaskListResult)
+	if len(currentOut.Tasks) != 1 || currentOut.Tasks[0].ID != "task_a" {
+		t.Fatalf("current-session tasks = %#v, want task_a only", currentOut.Tasks)
+	}
+
+	all := byName[TaskListOp].Run(ctxA, coretask.TaskListRequest{Scope: coretask.TaskListScopeAll})
+	if all.IsError() {
+		t.Fatalf("task_list all error = %#v", all.Error)
+	}
+	allOut := all.Output.(coretask.TaskListResult)
+	if len(allOut.Tasks) != 2 {
+		t.Fatalf("all tasks = %#v, want two tasks", allOut.Tasks)
+	}
+
+	outside := byName[TaskListOp].Run(operation.NewContext(context.Background(), nil), coretask.TaskListRequest{})
+	if outside.IsError() {
+		t.Fatalf("task_list outside error = %#v", outside.Error)
+	}
+	outsideOut := outside.Output.(coretask.TaskListResult)
+	if len(outsideOut.Tasks) != 2 {
+		t.Fatalf("outside-session tasks = %#v, want global list", outsideOut.Tasks)
+	}
+}
+
+func TestTaskCreatedByDelegateUsesParentThreadOrigin(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	threadStore, err := runtimethread.NewStore(events)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := threadStore.Create(context.Background(), corethread.CreateParams{ID: "thread-parent"}); err != nil {
+		t.Fatalf("create parent thread: %v", err)
+	}
+	if _, err := threadStore.Create(context.Background(), corethread.CreateParams{
+		ID:       "thread-delegate",
+		Metadata: map[string]string{"parent_thread_id": "thread-parent"},
+	}); err != nil {
+		t.Fatalf("create delegate thread: %v", err)
+	}
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	delegateCtx := sessionenv.OperationContext(operation.NewContext(context.Background(), nil), sessionenv.Config{
+		Thread:      corethread.Ref{ID: "thread-delegate", BranchID: "main"},
+		ThreadStore: threadStore,
+		RunID:       "run-delegate",
+	}, "call-delegate")
+
+	created := byName[TaskCreateOp].Run(delegateCtx, coretask.TaskCreateRequest{ID: "task_delegate", Title: "Delegate task"})
+	if created.IsError() {
+		t.Fatalf("task_create delegate error = %#v", created.Error)
+	}
+	task := created.Output.(coretask.TaskCreateResult).Task
+	if task.Metadata[coretask.MetadataOriginThreadID] != "thread-parent" {
+		t.Fatalf("origin thread = %q, want parent thread", task.Metadata[coretask.MetadataOriginThreadID])
+	}
+	if task.Metadata[coretask.MetadataOriginDelegateThreadID] != "thread-delegate" {
+		t.Fatalf("origin delegate thread = %q, want delegate thread", task.Metadata[coretask.MetadataOriginDelegateThreadID])
+	}
+
+	parentCtx := sessionenv.OperationContext(operation.NewContext(context.Background(), nil), sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-parent", BranchID: "main"},
+		RunID:  "run-parent",
+	}, "call-parent")
+	listed := byName[TaskListOp].Run(parentCtx, coretask.TaskListRequest{})
+	if listed.IsError() {
+		t.Fatalf("task_list parent error = %#v", listed.Error)
+	}
+	out := listed.Output.(coretask.TaskListResult)
+	if len(out.Tasks) != 1 || out.Tasks[0].ID != "task_delegate" {
+		t.Fatalf("parent current-session tasks = %#v, want delegate task", out.Tasks)
 	}
 }
 

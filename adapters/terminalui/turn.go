@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/command"
 	coretask "github.com/fluxplane/agentruntime/core/task"
@@ -13,6 +15,8 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 )
+
+var backgroundTaskFollowIdle = 1500 * time.Millisecond
 
 // TurnOptions configures terminal execution/rendering for one submitted turn.
 type TurnOptions struct {
@@ -229,10 +233,30 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 		ActiveTasks: cloneBoolMap(initial.ActiveTasks),
 		SeenRuntime: cloneBoolMap(initial.SeenRuntime),
 	}
+	if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
+		_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task scheduled: %s running in background; watching briefly\n", strings.Join(ids, ", "))
+	}
+	idle := time.NewTimer(backgroundTaskFollowIdle)
+	defer idle.Stop()
+	resetIdle := func() {
+		if !idle.Stop() {
+			select {
+			case <-idle.C:
+			default:
+			}
+		}
+		idle.Reset(backgroundTaskFollowIdle)
+	}
 	for len(result.ActiveTasks) > 0 {
 		select {
 		case <-ctx.Done():
 			renderer.Finish()
+			return result
+		case <-idle.C:
+			renderer.Finish()
+			if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
+				_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task still running in background: %s\n", strings.Join(ids, ", "))
+			}
 			return result
 		case event, ok := <-events:
 			if !ok {
@@ -246,6 +270,7 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 			if key != "" && result.SeenRuntime[key] {
 				continue
 			}
+			resetIdle()
 			trackUsageEvent(tracker, event)
 			trackTaskRuntimeEvent(event, result.ActiveTasks, result.SeenRuntime)
 			if opts.Debug {
@@ -257,6 +282,17 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 	renderer.Finish()
 	result.Streamed = renderer.HasStreamedContent()
 	return result
+}
+
+func activeTaskIDs(active map[string]bool) []string {
+	ids := make([]string, 0, len(active))
+	for id, running := range active {
+		if running {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func renderUsage(out io.Writer, enabled bool, tracker *usage.Tracker) {

@@ -2,8 +2,10 @@ package terminalui
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -94,3 +96,47 @@ func TestRenderOutboundRendersMarkdown(t *testing.T) {
 		t.Fatalf("out = %q, want markdown rendered without source markers", got)
 	}
 }
+
+func TestFollowBackgroundTasksReturnsAfterIdleWindow(t *testing.T) {
+	previous := backgroundTaskFollowIdle
+	backgroundTaskFollowIdle = 10 * time.Millisecond
+	defer func() { backgroundTaskFollowIdle = previous }()
+
+	events := make(chan clientapi.Event)
+	defer close(events)
+	var out, err bytes.Buffer
+	result := followBackgroundTasks(context.Background(), staticEventSession{events: events}, turnRenderResult{
+		ActiveTasks: map[string]bool{"task_1": true},
+		SeenRuntime: map[string]bool{},
+	}, nil, TurnOptions{Out: &out, Err: &err})
+
+	if !result.ActiveTasks["task_1"] {
+		t.Fatalf("active tasks = %#v, want task_1 still active", result.ActiveTasks)
+	}
+	got := err.String()
+	for _, want := range []string{"task scheduled: task_1 running in background", "task still running in background: task_1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("background output = %q, missing %q", got, want)
+		}
+	}
+}
+
+type staticEventSession struct {
+	events <-chan clientapi.Event
+}
+
+func (s staticEventSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
+
+func (s staticEventSession) Submit(context.Context, clientapi.Submission) (clientapi.RunHandle, error) {
+	return nil, nil
+}
+
+func (s staticEventSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	return s.events, func() {}, nil
+}
+
+func (s staticEventSession) OnEvent(context.Context, func(clientapi.Event)) (func(), error) {
+	return func() {}, nil
+}
+
+func (s staticEventSession) Close(context.Context) error { return nil }
