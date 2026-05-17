@@ -16,49 +16,49 @@ func renderCodeExecuteResult(result operation.Result, fallbackDuration time.Dura
 		return "", false
 	}
 	emoji, label := codeExecutePresetDisplay(exec.Preset)
-	status := fmt.Sprintf("%s %s code executed successfully", emoji, label)
-	if exec.TimedOut {
-		status = fmt.Sprintf("❌ %s %s code timed out", emoji, label)
-	} else if result.Status != "" && result.Status != operation.StatusOK || result.Error != nil || exec.ExitCode != 0 {
-		status = fmt.Sprintf("❌ %s %s code failed", emoji, label)
-	}
-
-	lines := []string{"  " + status}
-	if strings.TrimSpace(exec.Preset) != "" {
-		lines = append(lines, "     preset: "+exec.Preset)
-	}
-	if strings.TrimSpace(exec.Image) != "" {
-		lines = append(lines, "     image: "+exec.Image)
-	}
 	duration := time.Duration(exec.DurationMS) * time.Millisecond
 	if duration <= 0 {
 		duration = fallbackDuration
 	}
+
+	header := []string{"  🧪 code_execute", emoji + " " + label}
+	if strings.TrimSpace(exec.Image) != "" {
+		header = append(header, "📦 "+exec.Image)
+	}
 	if duration > 0 {
-		lines = append(lines, "     duration: "+formatCodeExecuteDuration(duration))
+		header = append(header, "⏱️ "+formatCodeExecuteDuration(duration))
 	}
-	lines = append(lines, fmt.Sprintf("     exit: %d", exec.ExitCode))
-	if exec.TimedOut && exec.TimeoutMS > 0 {
-		lines = append(lines, "     timeout: "+formatCodeExecuteDuration(time.Duration(exec.TimeoutMS)*time.Millisecond))
+	if exec.TimedOut {
+		if exec.TimeoutMS > 0 {
+			header = append(header, "⏳ timeout "+formatCodeExecuteDuration(time.Duration(exec.TimeoutMS)*time.Millisecond))
+		} else {
+			header = append(header, "⏳ timeout")
+		}
 	}
-	if exec.StdoutTruncated {
-		lines = append(lines, "     stdout: truncated")
-	}
-	if exec.StderrTruncated {
-		lines = append(lines, "     stderr: truncated")
+	if exec.TimedOut || result.Status != "" && result.Status != operation.StatusOK || result.Error != nil || exec.ExitCode != 0 {
+		header = append(header, fmt.Sprintf("❌ exit %d", exec.ExitCode))
 	}
 
+	lines := []string{strings.Join(header, "  ")}
 	stdout := strings.TrimRight(exec.Stdout, "\n")
 	stderr := strings.TrimRight(exec.Stderr, "\n")
 	if stdout == "" && stderr == "" {
-		lines = append(lines, "", "     (no stdout or stderr)")
+		lines = append(lines, "     ∅ no output")
 	} else {
 		if stdout != "" {
-			lines = append(lines, "", "     stdout", "     ────────────────────────────────────────")
+			label := "📤 stdout"
+			if exec.StdoutTruncated {
+				label += " (truncated)"
+			}
+			lines = append(lines, "", "     "+label)
 			lines = appendIndentedBlock(lines, stdout, "     ")
 		}
 		if stderr != "" {
-			lines = append(lines, "", "     stderr", "     ────────────────────────────────────────")
+			label := "⚠️ stderr"
+			if exec.StderrTruncated {
+				label += " (truncated)"
+			}
+			lines = append(lines, "", "     "+label)
 			lines = appendIndentedBlock(lines, stderr, "     ")
 		}
 	}
@@ -87,13 +87,16 @@ func codeExecuteResultData(result operation.Result) (codeplugin.ExecuteResult, b
 func codeExecutePresetDisplay(preset string) (string, string) {
 	switch preset {
 	case "python":
-		return "🐍", "Python"
+		return "🐍", "python"
 	case "go":
-		return "🐹", "Go"
+		return "🐹", "go"
 	case "node":
-		return "🟩", "Node.js"
+		return "🟩", "node"
 	default:
-		return "📦", "Code"
+		if strings.TrimSpace(preset) != "" {
+			return "📦", preset
+		}
+		return "📦", "code"
 	}
 }
 

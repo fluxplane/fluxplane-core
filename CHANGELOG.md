@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved `code_execute` results to use typed execution data with terminal UI
   rendering driven by structured fields, including preset emoji and `❌` failure
   states.
+- Compact `code_execute` terminal rendering now keeps preset, image, duration,
+  timeout, and non-zero exit status on one emoji-forward header line, with
+  shorter stdout/stderr sections below.
 
 - Added `file_edit`, an existing-file edit operation with dry-run support,
   original-file coordinate semantics, merged non-overlapping atomic edits, and
