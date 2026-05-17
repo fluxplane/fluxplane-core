@@ -24,10 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and environment access, plus `secret.*` policy resources for environment
   variable backed secrets, browser network authorization, canonical workspace
   path authorization, and terminal authz decision traces in debug mode.
+- Added approval evidence events for requested, granted, and denied operation
+  approvals, including authorization checks for `approval.grant` when a
+  security policy is active.
 
 - Added canonical inbound actor plumbing with `core/user` groups, identities,
   resolved actors, an orchestration identity resolver hook, and context-provider
   scope metadata for current user, identity, caller, and trust.
+- Added `identity.current` context so local and Slack apps can show the current
+  canonical user or an unresolved channel identity without exposing raw channel
+  claims.
 
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary

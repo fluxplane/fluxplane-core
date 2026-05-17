@@ -22,6 +22,7 @@ const (
 	AgentName        = "coder"
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
+	IdentityPlugin   = "identity"
 	TaskPlugin       = "task"
 	SkillsPlugin     = "skills"
 	ImagePlugin      = "image"
@@ -70,6 +71,7 @@ func Bundle() resource.ContributionBundle {
 		}).
 		WithDescription("Small local coding agent app.").
 		WithModel("openai", DefaultModel, "coding").
+		WithPlugin(resource.PluginRef{Name: IdentityPlugin}).
 		WithPlugin(resource.PluginRef{Name: CodingPlugin}).
 		WithPlugin(resource.PluginRef{Name: TaskPlugin}).
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).

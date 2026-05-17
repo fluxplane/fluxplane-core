@@ -107,6 +107,19 @@ evaluates structured network fetches through intent assessment, maps decisions
 into operation risk levels, and emits `cmdrisk.assessed` events for debug and
 audit streams.
 
+Approval is a separate post-authorization gate. When a policy is active,
+approval requests require `approval.grant` on the requested resource, or on the
+operation resource for risk/semantic approvals that do not name a concrete
+resource. Approval requested, granted, and denied decisions are emitted as
+runtime events without embedding raw operation input.
+
+Inbound identity is resolved before session execution. Internal policy receives
+the typed actor, caller, trust, and groups; model-visible context receives only a
+scalar summary through `identity.current`. If a channel identity has not been
+mapped to a canonical `core/user`, the context marks it unresolved and renders
+only provider, provider ID, source, and trust. Raw channel claims are resolver
+evidence, not prompt context.
+
 The first standard coding operation batch lives behind `plugins/codingplugin`.
 It aggregates filesystem, web, browser, git, shell, background process, scratch
 code execution, and human clarification operations. These are contributed as

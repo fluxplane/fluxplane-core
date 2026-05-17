@@ -26,6 +26,7 @@ import (
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/security"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
@@ -599,21 +600,16 @@ func agentErrorMessage(result agent.StepResult) string {
 }
 
 func inputObservationMetadata(inbound channel.Inbound) map[string]any {
-	out := map[string]any{
-		"channel":      inbound.Channel.Name,
-		"conversation": inbound.Conversation.ID,
-		"caller":       inbound.Caller,
-		"trust":        inbound.Trust,
+	scope := contextRequestScope(inbound)
+	out := make(map[string]any, len(scope)+2)
+	if inbound.Channel.Name != "" {
+		out["channel"] = string(inbound.Channel.Name)
 	}
-	if inbound.Actor != nil {
-		out["user"] = inbound.Actor.User
-		out["identity"] = inbound.Actor.Identity
-		out["groups"] = inbound.Actor.Groups
+	if inbound.Conversation.ID != "" {
+		out["conversation"] = inbound.Conversation.ID
 	}
-	if inbound.Message != nil {
-		for key, value := range inbound.Message.Metadata {
-			out[key] = value
-		}
+	for key, value := range scope {
+		out[key] = value
 	}
 	return out
 }
@@ -673,7 +669,7 @@ type contextPreviewData struct {
 	User      string   `json:"user,omitempty"`
 }
 
-func (s Session) previewContext(ctx context.Context, input contextPreviewInput) (contextPreviewData, error) {
+func (s Session) previewContext(ctx context.Context, input contextPreviewInput, inbound channel.Inbound) (contextPreviewData, error) {
 	providers := s.contextProviders()
 	if len(providers) == 0 {
 		mode := "diff"
@@ -716,6 +712,7 @@ func (s Session) previewContext(ctx context.Context, input contextPreviewInput) 
 		BranchID: string(s.Thread.BranchID),
 		TurnID:   s.RunID,
 		Reason:   corecontext.RenderTurn,
+		Scope:    contextRequestScope(inbound),
 		Previous: previous,
 	})
 	if err != nil {
@@ -797,7 +794,11 @@ func contextRequestScope(inbound channel.Inbound) map[string]string {
 	if inbound.Trust.Kind != "" {
 		out["trust.kind"] = string(inbound.Trust.Kind)
 	}
+	if inbound.Caller.Source != "" {
+		out["caller.source"] = inbound.Caller.Source
+	}
 	if inbound.Actor != nil {
+		out["user.resolution"] = string(user.NormalizeResolution(inbound.Actor.Resolution))
 		if inbound.Actor.User.ID != "" {
 			out["user.id"] = string(inbound.Actor.User.ID)
 		}
@@ -810,10 +811,34 @@ func contextRequestScope(inbound channel.Inbound) map[string]string {
 		if inbound.Actor.Identity.ProviderID != "" {
 			out["identity.provider_id"] = inbound.Actor.Identity.ProviderID
 		}
+		if groups := actorGroupIDs(*inbound.Actor); len(groups) > 0 {
+			out["user.groups"] = strings.Join(groups, ",")
+		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+func actorGroupIDs(actor user.Actor) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	for _, id := range actor.User.Groups {
+		add(string(id))
+	}
+	for _, group := range actor.Groups {
+		add(string(group.ID))
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -2125,7 +2150,7 @@ func (s Session) executeContextCommand(ctx context.Context, inbound channel.Inbo
 			Error:  &CommandError{Code: "invalid_context_command_input", Message: err.Error()},
 		}
 	}
-	preview, err := s.previewContext(ctx, input)
+	preview, err := s.previewContext(ctx, input, inbound)
 	if err != nil {
 		details := map[string]any{}
 		if len(preview.Providers) > 0 {

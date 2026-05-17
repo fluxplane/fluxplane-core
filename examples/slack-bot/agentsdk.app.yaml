@@ -16,6 +16,7 @@ distribution:
       tags: [latest]
 
 plugins:
+  - name: identity
   - name: slack
   - name: gitlab
   - name: jira
@@ -112,6 +113,7 @@ tools:
   - datasource_relation
   - datasource_batch_get
 context:
+  - identity.current
   - datasource.catalog
   - datasource.detected
 datasources:

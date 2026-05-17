@@ -107,7 +107,8 @@ func LocalActor(username, rawID, hostname, uid string) user.Actor {
 			{ID: "local_users"},
 			{ID: "local_operators", Trust: user.TrustOperator},
 		},
-		Trust: user.TrustOperator,
+		Trust:      user.TrustOperator,
+		Resolution: user.ResolutionResolved,
 	}
 }
 

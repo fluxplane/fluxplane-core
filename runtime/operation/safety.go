@@ -174,9 +174,6 @@ func (e SafetyEnvelope) Check(ctx operation.Context, op operation.Operation, inp
 }
 
 func (e SafetyEnvelope) approveAuthorization(ctx operation.Context, spec operation.Spec, input operation.Value, approval AuthorizationApprovalRequired) error {
-	if e.Approval == nil {
-		return approvalRequiredError(CommandRisk{Reason: approval.Error(), RequiresApproval: true})
-	}
 	req := ApprovalRequest{
 		Subjects: approval.Subjects,
 		Resource: approval.Resource,
@@ -186,24 +183,97 @@ func (e SafetyEnvelope) approveAuthorization(ctx operation.Context, spec operati
 		Reason:   approval.Reason,
 		Risk:     CommandRisk{Reason: approval.Error(), RequiresApproval: true},
 	}
-	if err := e.Approval.Approve(ctx, req); err != nil {
-		return fmt.Errorf("approval_denied: %w", err)
-	}
-	return nil
+	return e.approveRequest(ctx, req)
 }
 
 func (e SafetyEnvelope) approve(ctx operation.Context, spec operation.Spec, input operation.Value, risk CommandRisk) error {
-	if e.Approval == nil {
-		return approvalRequiredError(risk)
-	}
 	req := ApprovalRequest{Spec: spec, Input: input, Risk: risk}
 	if auth, ok := policy.AuthorizationFromContext(ctx); ok {
 		req.Subjects = auth.Subjects
 	}
-	if err := e.Approval.Approve(ctx, req); err != nil {
-		return fmt.Errorf("approval_denied: %w", err)
+	return e.approveRequest(ctx, req)
+}
+
+func (e SafetyEnvelope) approveRequest(ctx operation.Context, req ApprovalRequest) error {
+	ctx.Events().Emit(ApprovalRequested{
+		Subjects:  req.Subjects,
+		Resource:  req.Resource,
+		Action:    req.Action,
+		Operation: req.Spec.Ref,
+		Risk:      req.Risk,
+		Reason:    req.Reason,
+	})
+	if err := e.authorizeApproval(ctx, req); err != nil {
+		ctx.Events().Emit(ApprovalDenied{
+			Subjects:  req.Subjects,
+			Resource:  req.Resource,
+			Action:    req.Action,
+			Operation: req.Spec.Ref,
+			Risk:      req.Risk,
+			Reason:    req.Reason,
+			Error:     err.Error(),
+		})
+		return err
 	}
+	if e.Approval == nil {
+		err := approvalRequiredError(req.Risk)
+		ctx.Events().Emit(ApprovalDenied{
+			Subjects:  req.Subjects,
+			Resource:  req.Resource,
+			Action:    req.Action,
+			Operation: req.Spec.Ref,
+			Risk:      req.Risk,
+			Reason:    req.Reason,
+			Error:     err.Error(),
+		})
+		return err
+	}
+	if err := e.Approval.Approve(ctx, req); err != nil {
+		err = fmt.Errorf("approval_denied: %w", err)
+		ctx.Events().Emit(ApprovalDenied{
+			Subjects:  req.Subjects,
+			Resource:  req.Resource,
+			Action:    req.Action,
+			Operation: req.Spec.Ref,
+			Risk:      req.Risk,
+			Reason:    req.Reason,
+			Error:     err.Error(),
+		})
+		return err
+	}
+	ctx.Events().Emit(ApprovalGranted{
+		Subjects:  req.Subjects,
+		Resource:  req.Resource,
+		Action:    req.Action,
+		Operation: req.Spec.Ref,
+		Risk:      req.Risk,
+		Reason:    req.Reason,
+	})
 	return nil
+}
+
+func (SafetyEnvelope) authorizeApproval(ctx operation.Context, req ApprovalRequest) error {
+	auth, ok := policy.AuthorizationFromContext(ctx)
+	if !ok || auth.Policy.IsZero() {
+		return nil
+	}
+	resource := req.Resource
+	if resource.Kind == "" && req.Spec.Ref.Name != "" {
+		resource = policy.ResourceRef{Kind: policy.ResourceOperation, Name: string(req.Spec.Ref.Name)}
+	}
+	evaluation := policy.EvaluateAuthorization(auth.Policy, policy.AuthorizationRequest{
+		Subjects: auth.Subjects,
+		Trust:    auth.Trust,
+		Resource: resource,
+		Action:   policy.ActionApprovalGrant,
+	})
+	if evaluation.Decision == policy.DecisionAllow {
+		return nil
+	}
+	if evaluation.Reason == "" {
+		evaluation.Reason = string(evaluation.Decision)
+	}
+	return fmt.Errorf("approval_unauthorized: %s", evaluation.Reason)
 }
 
 func approvalRequiredError(risk CommandRisk) error {

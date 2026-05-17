@@ -36,6 +36,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
+	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
@@ -446,6 +447,7 @@ func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agen
 func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		workspaceplugin.New(hostSystem),
+		identityplugin.New(),
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),

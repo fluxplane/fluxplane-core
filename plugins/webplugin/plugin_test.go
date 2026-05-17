@@ -68,28 +68,20 @@ func TestWebRequestIntentUsesTypedURLTarget(t *testing.T) {
 }
 
 func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("q"); got != "agent runtime" {
-			t.Fatalf("query = %q, want agent runtime", got)
-		}
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(`
+	network := &testNetwork{response: system.HTTPResponse{
+		Status:     "200 OK",
+		StatusCode: 200,
+		Body: []byte(`
 <html><body>
   <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fagent&amp;rut=abc">Agent &amp; Runtime</a>
   <div class="result__snippet">Useful <b>runtime</b> result.</div>
-</body></html>`))
-	}))
-	t.Cleanup(server.Close)
-
-	serverURL := server.URL
+</body></html>`),
+	}}
 	oldTemplate := duckDuckGoSearchURLTemplate
-	duckDuckGoSearchURLTemplate = serverURL + "/search?q={query}"
+	duckDuckGoSearchURLTemplate = "https://duckduckgo.test/search?q={query}"
 	t.Cleanup(func() { duckDuckGoSearchURLTemplate = oldTemplate })
 
-	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
+	sys := testSystem{network: network, env: testEnvironment{}}
 	providers, err := New(sys).DatasourceProviders(context.Background(), zeroPluginContext())
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
@@ -113,6 +105,9 @@ func TestWebDatasourceSearchesHTMLResults(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
+	}
+	if got := network.lastRequest().URL; got != "https://duckduckgo.test/search?q=agent+runtime" {
+		t.Fatalf("request URL = %q, want duckduckgo fixture URL", got)
 	}
 	if len(result.Records) != 1 {
 		t.Fatalf("records = %#v, want one record", result.Records)

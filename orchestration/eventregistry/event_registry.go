@@ -16,6 +16,7 @@ import (
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -70,6 +71,9 @@ func defaultEventTypes() []event.Event {
 		operation.OperationRejected{},
 		operation.OperationCanceled{},
 		event.AuthorizationDecision{},
+		operationruntime.ApprovalRequested{},
+		operationruntime.ApprovalGranted{},
+		operationruntime.ApprovalDenied{},
 		coreconversation.ItemsAppended{},
 		coreconversation.ContinuationStored{},
 		coreconversation.CompactionStored{},

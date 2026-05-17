@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/testrun"
@@ -77,6 +78,31 @@ func TestApproverDeniesNoAndEmptyInput(t *testing.T) {
 				t.Fatal("Approve error is nil, want denial")
 			}
 		})
+	}
+}
+
+func TestRendererRendersApprovalEvents(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: operationruntime.EventApprovalDeniedName,
+			Payload: operationruntime.ApprovalDenied{
+				Resource:  policy.ResourceRef{Kind: policy.ResourceOperation, Name: "shell_exec"},
+				Action:    policy.ActionApprovalGrant,
+				Operation: operation.Ref{Name: "shell_exec"},
+				Risk:      operationruntime.CommandRisk{Level: operation.RiskHigh, Reason: "needs review"},
+				Error:     "approval_unauthorized: no_grants",
+			},
+		},
+	})
+
+	got := err.String()
+	for _, want := range []string{"approval denied:", "shell_exec", "resource=operation:shell_exec", "action=approval.grant", "risk=high", "reason=needs review", "approval_unauthorized"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("approval output = %q, missing %q", got, want)
+		}
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 )
 
 func TestSafetyEnvelopeRejectsSideEffectingOperationWithoutSandbox(t *testing.T) {
@@ -354,6 +356,149 @@ func TestSafetyEnvelopeApprovalRequiredFailsClosedWithoutGate(t *testing.T) {
 	}
 }
 
+func TestSafetyEnvelopeApprovalRequiredEmitsDenialWithoutGate(t *testing.T) {
+	var events []event.Event
+	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	}))
+	op := intentOperation{Operation: operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "git_commit"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(_ operation.Context, _ operation.Value) operation.Result {
+		return operation.OK(nil)
+	})}
+	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
+		CommandRisk:    fixedCommandRisk{risk: CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true}},
+		Sandbox:        allowSandbox{},
+		MaxCommandRisk: operation.RiskMedium,
+	}))
+
+	result := executor.Execute(ctx, op, nil)
+
+	if result.Status != operation.StatusRejected {
+		t.Fatalf("status = %s, want rejected", result.Status)
+	}
+	if !hasEvent[ApprovalRequested](events) || !hasEvent[ApprovalDenied](events) {
+		t.Fatalf("events = %#v, want approval requested and denied", events)
+	}
+}
+
+func TestSafetyEnvelopeApprovalRequiredGrantRequiresApprovalGrantAuthority(t *testing.T) {
+	approval := recordingApproval{}
+	var events []event.Event
+	ctx := approvalPolicyContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceDatasource, Name: "local_docs"}},
+		Actions:   []policy.Action{policy.ActionDatasourceIndex},
+	}}, event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	}))
+	op := operation.New(operation.Spec{
+		Ref:       operation.Ref{Name: "datasource_index"},
+		Semantics: operation.Semantics{Effects: operation.EffectSet{operation.EffectWriteExternal}, Risk: operation.RiskLow},
+	}, func(_ operation.Context, _ operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
+		ACL: approvalRequiredACL{
+			resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "local_docs"},
+			action:   policy.ActionDatasourceIndex,
+		},
+		Approval: &approval,
+		Sandbox:  allowSandbox{},
+	}))
+
+	result := executor.Execute(ctx, op, nil)
+
+	if result.Status != operation.StatusRejected {
+		t.Fatalf("status = %s, want rejected", result.Status)
+	}
+	if approval.calls != 0 {
+		t.Fatalf("approval calls = %d, want 0 without approval.grant", approval.calls)
+	}
+	denied, ok := findEvent[ApprovalDenied](events)
+	if !ok || !strings.Contains(denied.Error, "approval_unauthorized") {
+		t.Fatalf("ApprovalDenied = %#v, want approval_unauthorized", denied)
+	}
+}
+
+func TestSafetyEnvelopeApprovalRequiredGrantWithApprovalGrantSucceeds(t *testing.T) {
+	approval := recordingApproval{}
+	var events []event.Event
+	ctx := approvalPolicyContext([]policy.Grant{{
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{
+			Kind: policy.ResourceDatasource,
+			Name: "local_docs",
+		}},
+		Actions: []policy.Action{policy.ActionApprovalGrant},
+	}}, event.SinkFunc(func(evt event.Event) {
+		events = append(events, evt)
+	}))
+	op := operation.New(operation.Spec{
+		Ref:       operation.Ref{Name: "datasource_index"},
+		Semantics: operation.Semantics{Effects: operation.EffectSet{operation.EffectWriteExternal}, Risk: operation.RiskLow},
+	}, func(_ operation.Context, _ operation.Value) operation.Result {
+		return operation.OK("indexed")
+	})
+	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
+		ACL: approvalRequiredACL{
+			resource: policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "local_docs"},
+			action:   policy.ActionDatasourceIndex,
+		},
+		Approval: &approval,
+		Sandbox:  allowSandbox{},
+	}))
+
+	result := executor.Execute(ctx, op, nil)
+
+	if result.Status != operation.StatusOK || result.Output != "indexed" {
+		t.Fatalf("result = %#v, want indexed", result)
+	}
+	if approval.calls != 1 {
+		t.Fatalf("approval calls = %d, want 1", approval.calls)
+	}
+	if !hasEvent[ApprovalRequested](events) || !hasEvent[ApprovalGranted](events) {
+		t.Fatalf("events = %#v, want approval requested and granted", events)
+	}
+}
+
+func TestSafetyEnvelopeCommandRiskApprovalRequiresOperationApprovalGrant(t *testing.T) {
+	approval := recordingApproval{}
+	ctx := approvalPolicyContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "shell_exec"}},
+		Actions:   []policy.Action{policy.ActionApprovalGrant},
+	}}, nil)
+	op := intentOperation{Operation: operation.New(operation.Spec{
+		Ref: operation.Ref{Name: "shell_exec"},
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(_ operation.Context, _ operation.Value) operation.Result {
+		return operation.OK("ran")
+	})}
+	executor := NewExecutor(WithSafetyGate(SafetyEnvelope{
+		CommandRisk:    fixedCommandRisk{risk: CommandRisk{Level: operation.RiskHigh, Reason: "needs review", RequiresApproval: true}},
+		Approval:       &approval,
+		Sandbox:        allowSandbox{},
+		MaxCommandRisk: operation.RiskMedium,
+	}))
+
+	result := executor.Execute(ctx, op, nil)
+
+	if result.Status != operation.StatusOK || result.Output != "ran" {
+		t.Fatalf("result = %#v, want ran", result)
+	}
+	if approval.calls != 1 {
+		t.Fatalf("approval calls = %d, want 1", approval.calls)
+	}
+}
+
 func TestSafetyEnvelopeApprovalDenialRejectsOperation(t *testing.T) {
 	op := intentOperation{Operation: operation.New(operation.Spec{
 		Ref: operation.Ref{Name: "git_commit"},
@@ -403,6 +548,20 @@ func (denyACL) Authorize(operation.Context, operation.Operation, operation.Value
 	return errors.New("no")
 }
 
+type approvalRequiredACL struct {
+	resource policy.ResourceRef
+	action   policy.Action
+}
+
+func (a approvalRequiredACL) Authorize(_ operation.Context, _ operation.Operation, _ operation.Value) error {
+	return AuthorizationApprovalRequired{
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resource: a.resource,
+		Action:   a.action,
+		Reason:   "grant requires approval",
+	}
+}
+
 type denySecrets struct{}
 
 func (denySecrets) Check(operation.Context, operation.Spec, operation.Value) error {
@@ -445,4 +604,28 @@ type denyApproval struct{}
 
 func (denyApproval) Approve(operation.Context, ApprovalRequest) error {
 	return errors.New("no")
+}
+
+func approvalPolicyContext(grants []policy.Grant, sink event.Sink) operation.Context {
+	base := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Policy:   policy.AuthorizationPolicy{Grants: grants},
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+	})
+	return operation.NewContext(base, sink)
+}
+
+func hasEvent[T any](events []event.Event) bool {
+	_, ok := findEvent[T](events)
+	return ok
+}
+
+func findEvent[T any](events []event.Event) (T, bool) {
+	var zero T
+	for _, evt := range events {
+		if typed, ok := evt.(T); ok {
+			return typed, true
+		}
+	}
+	return zero, false
 }

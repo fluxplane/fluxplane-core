@@ -67,8 +67,9 @@ func normalizeInvocationTrust(trust policy.Trust) policy.Trust {
 func actorFromCaller(caller policy.Caller, trust policy.Trust) user.Actor {
 	principal := caller.Principal
 	id := strings.TrimSpace(principal.ID)
+	principalKind := strings.TrimSpace(principal.Kind)
 	identity := user.Identity{
-		Provider:    strings.TrimSpace(principal.Kind),
+		Provider:    principalKind,
 		ProviderID:  id,
 		DisplayName: strings.TrimSpace(principal.Name),
 	}
@@ -86,6 +87,10 @@ func actorFromCaller(caller policy.Caller, trust policy.Trust) user.Actor {
 		canonicalID = string(caller.Kind)
 	}
 	actorTrust := userTrustFromPolicy(trust.Level)
+	resolution := user.ResolutionUnresolved
+	if caller.Kind != policy.CallerUser || (principalKind == "user" && id != "") {
+		resolution = user.ResolutionResolved
+	}
 	return user.Actor{
 		User: user.User{
 			ID:          user.ID(canonicalID),
@@ -94,8 +99,9 @@ func actorFromCaller(caller policy.Caller, trust policy.Trust) user.Actor {
 			Trust:       actorTrust,
 			Identities:  []user.Identity{identity},
 		},
-		Identity: identity,
-		Trust:    actorTrust,
+		Identity:   identity,
+		Trust:      actorTrust,
+		Resolution: resolution,
 	}
 }
 

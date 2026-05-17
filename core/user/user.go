@@ -12,6 +12,15 @@ const (
 	TrustOperator TrustLevel = "operator"
 )
 
+// ResolutionState records whether an inbound channel identity has been mapped
+// to a canonical system user.
+type ResolutionState string
+
+const (
+	ResolutionUnresolved ResolutionState = "unresolved"
+	ResolutionResolved   ResolutionState = "resolved"
+)
+
 // User is a stable person record.
 type User struct {
 	ID          ID                `json:"id"`
@@ -44,10 +53,11 @@ type Group struct {
 
 // Actor is the resolved user identity for one inbound interaction.
 type Actor struct {
-	User     User       `json:"user,omitempty"`
-	Identity Identity   `json:"identity,omitempty"`
-	Groups   []Group    `json:"groups,omitempty"`
-	Trust    TrustLevel `json:"trust,omitempty"`
+	User       User            `json:"user,omitempty"`
+	Identity   Identity        `json:"identity,omitempty"`
+	Groups     []Group         `json:"groups,omitempty"`
+	Trust      TrustLevel      `json:"trust,omitempty"`
+	Resolution ResolutionState `json:"resolution,omitempty"`
 }
 
 // NormalizeTrust returns a conservative default for empty trust.
@@ -77,4 +87,13 @@ func trustRank(level TrustLevel) int {
 	default:
 		return 1
 	}
+}
+
+// NormalizeResolution returns the conservative default for missing actor
+// resolution state.
+func NormalizeResolution(state ResolutionState) ResolutionState {
+	if state == ResolutionResolved {
+		return ResolutionResolved
+	}
+	return ResolutionUnresolved
 }

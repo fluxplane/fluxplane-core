@@ -45,12 +45,19 @@ func TestAuthorizationGateAllowsOperationInvokeGrant(t *testing.T) {
 
 func TestAuthorizationGateReturnsApprovalRequired(t *testing.T) {
 	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
-		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
-			Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-			Resources:        []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
-			Actions:          []policy.Action{policy.ActionOperationInvoke},
-			RequiresApproval: true,
-		}}},
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{
+			{
+				Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+				Resources:        []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+				Actions:          []policy.Action{policy.ActionOperationInvoke},
+				RequiresApproval: true,
+			},
+			{
+				Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+				Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+				Actions:   []policy.Action{policy.ActionApprovalGrant},
+			},
+		}},
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 	}), nil)
@@ -64,12 +71,19 @@ func TestAuthorizationGateReturnsApprovalRequired(t *testing.T) {
 func TestSafetyEnvelopeRoutesAuthorizationApproval(t *testing.T) {
 	approval := recordingApproval{}
 	ctx := operation.NewContext(policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
-		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
-			Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-			Resources:        []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
-			Actions:          []policy.Action{policy.ActionOperationInvoke},
-			RequiresApproval: true,
-		}}},
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{
+			{
+				Subjects:         []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+				Resources:        []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+				Actions:          []policy.Action{policy.ActionOperationInvoke},
+				RequiresApproval: true,
+			},
+			{
+				Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+				Resources: []policy.ResourceRef{{Kind: policy.ResourceOperation, Name: "*"}},
+				Actions:   []policy.Action{policy.ActionApprovalGrant},
+			},
+		}},
 		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
 	}), nil)
@@ -82,7 +96,7 @@ func TestSafetyEnvelopeRoutesAuthorizationApproval(t *testing.T) {
 		AllowPure: true,
 	})).Execute(ctx, op, nil)
 	if result.IsError() {
-		t.Fatalf("result = %#v, want ok", result)
+		t.Fatalf("result = %#v error=%#v, want ok", result, result.Error)
 	}
 	if approval.calls != 1 || approval.last.Action != policy.ActionOperationInvoke {
 		t.Fatalf("approval = calls %d last %#v, want authorization approval", approval.calls, approval.last)

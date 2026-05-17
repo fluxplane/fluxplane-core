@@ -196,6 +196,15 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	case coreevent.AuthorizationDecision:
 		r.flushContent()
 		renderAuthorizationDecision(out, payload)
+	case operationruntime.ApprovalRequested:
+		r.flushContent()
+		renderApprovalRequested(out, payload)
+	case operationruntime.ApprovalGranted:
+		r.flushContent()
+		renderApprovalGranted(out, payload)
+	case operationruntime.ApprovalDenied:
+		r.flushContent()
+		renderApprovalDenied(out, payload)
 	case usage.Recorded:
 		r.flushContent()
 		if r.ShowUsage {
@@ -853,6 +862,40 @@ func renderAuthorizationDecision(out io.Writer, decision coreevent.Authorization
 	}
 	if decision.Reason != "" {
 		_, _ = fmt.Fprintf(out, " %sreason=%s%s", ansiDim, decision.Reason, ansiReset)
+	}
+	_, _ = fmt.Fprintln(out)
+}
+
+func renderApprovalRequested(out io.Writer, event operationruntime.ApprovalRequested) {
+	_, _ = fmt.Fprintf(out, "%sapproval requested:%s %s", ansiYellow, ansiReset, event.Operation.String())
+	renderApprovalTail(out, event.Resource, event.Action, event.Risk, event.Reason, "")
+}
+
+func renderApprovalGranted(out io.Writer, event operationruntime.ApprovalGranted) {
+	_, _ = fmt.Fprintf(out, "%sapproval granted:%s %s", ansiGreen, ansiReset, event.Operation.String())
+	renderApprovalTail(out, event.Resource, event.Action, event.Risk, event.Reason, "")
+}
+
+func renderApprovalDenied(out io.Writer, event operationruntime.ApprovalDenied) {
+	_, _ = fmt.Fprintf(out, "%sapproval denied:%s %s", ansiRed, ansiReset, event.Operation.String())
+	renderApprovalTail(out, event.Resource, event.Action, event.Risk, event.Reason, event.Error)
+}
+
+func renderApprovalTail(out io.Writer, resource policy.ResourceRef, action policy.Action, risk operationruntime.CommandRisk, reason, errText string) {
+	if resource.Kind != "" {
+		_, _ = fmt.Fprintf(out, " %sresource=%s%s", ansiDim, authorizationResourceLabel(resource), ansiReset)
+	}
+	if action != "" {
+		_, _ = fmt.Fprintf(out, " %saction=%s%s", ansiDim, action, ansiReset)
+	}
+	if risk.Level != "" {
+		_, _ = fmt.Fprintf(out, " %srisk=%s%s", ansiDim, risk.Level, ansiReset)
+	}
+	if strings.TrimSpace(firstNonEmptyString(reason, risk.Reason)) != "" {
+		_, _ = fmt.Fprintf(out, " %sreason=%s%s", ansiDim, compact(firstNonEmptyString(reason, risk.Reason), 140), ansiReset)
+	}
+	if errText != "" {
+		_, _ = fmt.Fprintf(out, " %serror=%s%s", ansiDim, compact(errText, 140), ansiReset)
 	}
 	_, _ = fmt.Fprintln(out)
 }

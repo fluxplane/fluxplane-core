@@ -1338,6 +1338,54 @@ func TestExecuteInboundCommandContextPreviewIsDryRun(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundCommandContextPreviewPassesIdentityScope(t *testing.T) {
+	ctx := context.Background()
+	var gotScope map[string]string
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "identity.current"},
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			gotScope = req.Scope
+			if req.Scope["user.id"] == "" {
+				return nil, nil
+			}
+			return []corecontext.Block{{
+				ID:        "identity.current",
+				Provider:  "identity.current",
+				Placement: corecontext.PlacementSystem,
+				Content:   "Current user: " + req.Scope["user.id"],
+			}}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Thread: corethread.Ref{ID: "thread-context-identity"}}
+	inbound := channel.Inbound{
+		ID:     "cmd-identity",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "timo@localhost"}, Source: "local"},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
+		Actor: &user.Actor{
+			User:       user.User{ID: "timo@localhost", Username: "timo@localhost"},
+			Identity:   user.Identity{Provider: "local", ProviderID: "timo"},
+			Resolution: user.ResolutionResolved,
+		},
+		Command: &command.Invocation{Path: command.Path{"context"}, Input: map[string]any{"fresh": true, "key": "identity.current"}},
+	}
+	result := s.ExecuteInboundCommand(ctx, inbound)
+	if result.Status != CommandStatusOK || result.Effect == nil {
+		t.Fatalf("context command = %#v, want ok", result)
+	}
+	output := fmt.Sprint(result.Effect.Result.Output)
+	if !strings.Contains(output, "Current user: timo@localhost") {
+		t.Fatalf("output = %q, want current user context", output)
+	}
+	if gotScope["user.id"] != "timo@localhost" || gotScope["user.resolution"] != "resolved" || gotScope["trust.level"] != "privileged" {
+		t.Fatalf("scope = %#v, want identity scope", gotScope)
+	}
+}
+
 func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.T) {
 	ctx := context.Background()
 	var gotScope map[string]string
@@ -1358,16 +1406,49 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "slack_user", ID: "U123"}},
 		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
 		Actor: &user.Actor{
-			User:     user.User{ID: "timo@company.org", Username: "timo@company.org"},
-			Identity: user.Identity{Provider: "slack", ProviderID: "U123"},
+			User:       user.User{ID: "timo@company.org", Username: "timo@company.org"},
+			Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
+			Resolution: user.ResolutionResolved,
 		},
 		Message: &channel.Message{Content: "hello"},
 	})
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q, want ok", result.Status)
 	}
-	if gotScope["user.id"] != "timo@company.org" || gotScope["identity.provider"] != "slack" || gotScope["trust.level"] != "verified" {
+	if gotScope["user.id"] != "timo@company.org" || gotScope["identity.provider"] != "slack" || gotScope["trust.level"] != "verified" || gotScope["user.resolution"] != "resolved" {
 		t.Fatalf("scope = %#v, want resolved user, identity, and trust", gotScope)
+	}
+}
+
+func TestInputObservationMetadataUsesSafeIdentityScalars(t *testing.T) {
+	metadata := inputObservationMetadata(channel.Inbound{
+		Channel:      channel.Ref{Name: "slack-main"},
+		Conversation: channel.ConversationRef{ID: "C123/T123"},
+		Caller: policy.Caller{
+			Kind:      policy.CallerUser,
+			Principal: policy.Principal{Kind: "slack_user", ID: "U123"},
+			Source:    "slack:slack-main",
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustUntrusted},
+		Actor: &user.Actor{
+			User:       user.User{ID: "slack_user:U123", Username: "slack_user:U123"},
+			Identity:   user.Identity{Provider: "slack_user", ProviderID: "U123", Claims: map[string]string{"is_admin": "true"}},
+			Resolution: user.ResolutionUnresolved,
+		},
+		Message: &channel.Message{
+			Content:  "hello",
+			Metadata: map[string]any{"is_admin": true},
+		},
+	})
+	for _, key := range []string{"channel", "conversation", "caller.kind", "caller.principal.kind", "caller.principal.id", "caller.source", "trust.level", "trust.kind", "user.resolution", "user.id", "user.username", "identity.provider", "identity.provider_id"} {
+		if metadata[key] == nil {
+			t.Fatalf("metadata = %#v, want key %q", metadata, key)
+		}
+	}
+	for _, key := range []string{"caller", "trust", "user", "identity", "groups", "is_admin"} {
+		if _, ok := metadata[key]; ok {
+			t.Fatalf("metadata = %#v, want no raw key %q", metadata, key)
+		}
 	}
 }
 
