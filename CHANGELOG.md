@@ -78,6 +78,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step reopen/progress clears stale terminal metadata, and task lifecycle
   reopening/forced completion now require explicit `reopen`, `reopen_step`, or
   `force_overrides` intent.
+- Added the first task scheduler/executor slice: local launch now starts an
+  orchestration task scheduler for `taskplugin`, ready tasks are claimed with
+  event-stream preconditions, task steps run through worker sessions, and
+  `/plan` creates draft tasks for human approval before scheduling. Scheduler
+  worker completions now recheck current task state before writing terminal
+  events, interrupted executions can resume after blockers clear, and runtime
+  shutdown cancellation propagates to in-flight workers.
+- Added task scheduler control operations: `task_run` schedules a ready task
+  asynchronously, `task_scheduler_status` reports local scheduler capacity and
+  running tasks, and `task_scheduler_set_enabled` pauses or resumes automatic
+  ready-task polling while leaving manual runs available.
+- Documented scheduler/task-operation concurrency hardening as the next
+  required task execution slice before replacing `planexecplugin`.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.

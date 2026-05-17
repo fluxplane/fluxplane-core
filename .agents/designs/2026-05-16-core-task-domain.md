@@ -2,13 +2,14 @@
 
 ## Status
 
-Implemented as a foundation slice. `planexecplugin` is intentionally not
-migrated yet, but the new model is shaped so the current plan execution model
-can move onto it without losing semantics.
+Implemented as a foundation slice plus first scheduler slice. `planexecplugin`
+is intentionally not migrated yet, but the new model is shaped so the current
+plan execution model can move onto it without losing semantics.
 
 - [Task Plugin, Task Commands, and Review Backlog](2026-05-16-task-review-commands.md):
-  `taskplugin` ownership of `/task`, task creation/modification/read
-  operations, event-sourced task state, and the review follow-up path.
+  `taskplugin` ownership of `/task`, `/plan`, task
+  creation/modification/read operations, event-sourced task state, scheduler
+  execution, and the review follow-up path.
 
 ## Model
 
@@ -23,8 +24,11 @@ can move onto it without losing semantics.
 - `Execution`: one attempt to run a task, with execution status, per-step
   execution state, execution artifacts, optional workflow, output, error, and
   timestamps.
-- `ExecutionRequest` / `ExecutionResult`: inert control shapes for future
-  run/continue/cancel operations.
+- `ExecutionRequest` / `ExecutionResult`: inert control shapes for task run,
+  continue, and future cancel operations.
+- `SchedulerStatusRequest`, `SchedulerSetEnabledRequest`, and
+  `SchedulerStatusResult`: inert scheduler control-plane shapes for local
+  task execution status and automatic polling enablement.
 
 The status vocabulary covers the current plan executor:
 
@@ -70,11 +74,28 @@ The existing `plan` operation can keep its public actions during migration:
   `last_progress`.
 - clears stale terminal metadata when manual step status changes reopen a step
   to `waiting`, `running`, or `blocked`.
+- exposes optimistic stream-sequence helpers so orchestration can claim ready
+  tasks without adding a separate scheduler store.
 
 It does not spawn agents, run processes, call operations, or own concrete
 storage. `runtime/task.Store` is a thin event-store wrapper for task streams and
 the derived `task:index` stream; concrete event stores remain in runtime or
 adapters.
+
+`orchestration/taskexecutor` owns concrete scheduling. It scans indexed ready
+tasks, claims one execution with an expected task stream sequence, dispatches
+ready steps through a worker backend, and records execution/step events back to
+the task stream. Worker terminal writes are also expected-sequence appends after
+re-projecting current task state, so stale worker completions do not overwrite
+newer cancellation, blocking, or manual edits. Interrupted executions can be
+resumed when the task becomes `ready` again.
+
+Because the scheduler is a background task-stream writer, scheduler/user
+concurrency is part of the domain's remaining hardening work. Claims and
+terminal worker writes already use optimistic stream checks, but dispatch,
+blocking, dependent cancellation, task modification conflict UX, and scheduler
+error observability still need targeted concurrency tests and retry/error
+policy before `planexecplugin` is replaced.
 
 ## Relationship To Other Domains
 
@@ -94,11 +115,15 @@ adapters.
 `plugins/taskplugin` now provides the first task surface:
 
 - `/task`, a dedicated task creator session, and a narrow task creator agent;
+- `/plan`, a dedicated planner session, and a narrow Markdown-instructed
+  planner agent that creates draft tasks and marks them ready after approval;
 - `task_create`, which appends creation events and returns immediately;
 - grouped `task_modify`, with explicit `reopen`, `reopen_step`, artifact
   mutations, status changes, and completion;
 - `task_get`, `task_list`, `task_list_artifacts`, `task_get_artifact`, and
   `task_validate`.
+- `task_run`, `task_scheduler_status`, and `task_scheduler_set_enabled` for
+  explicit execution control and scheduler inspection.
 
 Task lifecycle semantics are intentionally explicit:
 
@@ -116,10 +141,17 @@ Refactor or replace `planexecplugin` once the task scheduler/executor covers the
 same behavior:
 
 1. Add task scheduler/executor behavior using task events and runtime readiness
-   helpers.
-2. Match remaining planexec behavior using task execution events and workers.
-3. Replace app references from `planexec` to `task`.
-4. Delete `planexecplugin` and its plugin-local plan events once replacement is
+   helpers. Done for the first automatic scheduler slice.
+2. Add explicit scheduler controls and configurable worker profile routing.
+   Done for the first local control slice: `task_run`,
+   `task_scheduler_status`, `task_scheduler_set_enabled`, max-parallel
+   capacity, and role-to-profile routing are implemented.
+3. Harden scheduler/task-operation concurrency with targeted contention tests,
+   bounded context-aware retries, expected-sequence scheduler transitions,
+   explicit task modification conflict UX, and observable scheduler errors.
+4. Match remaining planexec behavior using task execution events and workers.
+5. Replace app references from `planexec` to `task`.
+6. Delete `planexecplugin` and its plugin-local plan events once replacement is
    complete.
 
 Before migration, keep validating task steps as a DAG. `core/task.Task.Validate`

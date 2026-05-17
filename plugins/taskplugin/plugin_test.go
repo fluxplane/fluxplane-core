@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
@@ -19,19 +20,19 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	if len(bundle.Commands) != 1 || bundle.Commands[0].Path.String() != "/task" {
-		t.Fatalf("commands = %#v, want /task", bundle.Commands)
+	if len(bundle.Commands) != 2 || bundle.Commands[0].Path.String() != "/task" || bundle.Commands[1].Path.String() != "/plan" {
+		t.Fatalf("commands = %#v, want /task and /plan", bundle.Commands)
 	}
-	if len(bundle.Agents) != 1 || string(bundle.Agents[0].Name) != TaskAgent {
-		t.Fatalf("agents = %#v, want task agent", bundle.Agents)
+	if len(bundle.Agents) != 2 || string(bundle.Agents[0].Name) != TaskAgent || string(bundle.Agents[1].Name) != PlanAgent {
+		t.Fatalf("agents = %#v, want task and planner agents", bundle.Agents)
 	}
-	if len(bundle.Sessions) != 1 || string(bundle.Sessions[0].Name) != TaskSession {
-		t.Fatalf("sessions = %#v, want task session", bundle.Sessions)
+	if len(bundle.Sessions) != 2 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession {
+		t.Fatalf("sessions = %#v, want task and planner sessions", bundle.Sessions)
 	}
-	if len(bundle.Operations) != 7 {
-		t.Fatalf("operations len = %d, want 7", len(bundle.Operations))
+	if len(bundle.Operations) != 10 {
+		t.Fatalf("operations len = %d, want 10", len(bundle.Operations))
 	}
-	for _, name := range []string{TaskCreateOp, TaskModifyOp, TaskGetOp, TaskListOp, TaskListArtifactsOp, TaskGetArtifactOp, TaskValidateOp} {
+	for _, name := range []string{TaskCreateOp, TaskModifyOp, TaskGetOp, TaskListOp, TaskListArtifactsOp, TaskGetArtifactOp, TaskValidateOp, TaskRunOp, TaskSchedulerStatusOp, TaskSchedulerSetEnabledOp} {
 		if !hasOperation(bundle.Operations, name) {
 			t.Fatalf("operations = %#v, want %s", bundle.Operations, name)
 		}
@@ -359,6 +360,51 @@ func TestTaskModifyValidatesCompletion(t *testing.T) {
 	}
 }
 
+func TestTaskRunAndSchedulerControlsUseRunner(t *testing.T) {
+	runner := &fakeTaskRunner{status: coretask.SchedulerStatusResult{
+		Enabled: true, Active: true, Capacity: 1, MaxParallel: 2,
+	}}
+	ops, err := NewWithRunner(runner).Operations(context.Background(), pluginhost.Context{EventStore: eventstore.NewMemoryStore()})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctx := operation.NewContext(context.Background(), nil)
+	run := byName[TaskRunOp].Run(ctx, coretask.ExecutionRequest{TaskID: "task_1"})
+	if run.IsError() {
+		t.Fatalf("task_run error = %#v", run.Error)
+	}
+	runOut := run.Output.(coretask.ExecutionResult)
+	if runOut.TaskID != "task_1" || runOut.Status != coretask.StatusRunning || !runner.submitted {
+		t.Fatalf("task_run output = %#v submitted=%v, want running submitted", runOut, runner.submitted)
+	}
+	status := byName[TaskSchedulerStatusOp].Run(ctx, coretask.SchedulerStatusRequest{})
+	if status.IsError() {
+		t.Fatalf("task_scheduler_status error = %#v", status.Error)
+	}
+	if got := status.Output.(coretask.SchedulerStatusResult); !got.Enabled || got.Capacity != 1 {
+		t.Fatalf("status = %#v, want enabled capacity 1", got)
+	}
+	disabled := byName[TaskSchedulerSetEnabledOp].Run(ctx, coretask.SchedulerSetEnabledRequest{Enabled: false})
+	if disabled.IsError() {
+		t.Fatalf("task_scheduler_set_enabled error = %#v", disabled.Error)
+	}
+	if got := disabled.Output.(coretask.SchedulerStatusResult); got.Enabled {
+		t.Fatalf("enabled = true, want false")
+	}
+}
+
+func TestTaskRunFailsWithoutScheduler(t *testing.T) {
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: eventstore.NewMemoryStore()})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := operationsByName(ops)[TaskRunOp].Run(operation.NewContext(context.Background(), nil), coretask.ExecutionRequest{TaskID: "task_1"})
+	if !result.IsError() || result.Error.Code != "task_scheduler_missing" {
+		t.Fatalf("task_run = %#v, want task_scheduler_missing", result)
+	}
+}
+
 func TestTaskModifyRequiresExplicitTaskReopen(t *testing.T) {
 	events := eventstore.NewMemoryStore()
 	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
@@ -395,6 +441,27 @@ func TestTaskModifyRequiresExplicitTaskReopen(t *testing.T) {
 	if got := reopen.Output.(coretask.TaskModifyResult).Task.Status; got != coretask.StatusRunning {
 		t.Fatalf("status = %q, want running", got)
 	}
+}
+
+type fakeTaskRunner struct {
+	status    coretask.SchedulerStatusResult
+	submitted bool
+}
+
+func (r *fakeTaskRunner) SubmitTask(context.Context, coretask.ID) (taskexecutor.SubmitResult, error) {
+	r.submitted = true
+	return taskexecutor.SubmitResult{
+		TaskID: "task_1", Status: coretask.StatusReady, Started: true, Running: true, Summary: "Task task_1 scheduled.",
+	}, nil
+}
+
+func (r *fakeTaskRunner) Status() coretask.SchedulerStatusResult {
+	return r.status
+}
+
+func (r *fakeTaskRunner) SetEnabled(enabled bool) coretask.SchedulerStatusResult {
+	r.status.Enabled = enabled
+	return r.status
 }
 
 func TestTaskModifyRequiresExplicitStepReopen(t *testing.T) {

@@ -29,6 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
@@ -46,6 +47,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
+	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
 
 type LocalRuntimeConfig struct {
@@ -222,7 +224,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	var semanticIndex interface{ Close() error }
 	var closeThreadStore func()
+	var stopTaskScheduler context.CancelFunc
 	closeRuntime := func() {
+		if stopTaskScheduler != nil {
+			stopTaskScheduler()
+		}
 		if semanticIndex != nil {
 			_ = semanticIndex.Close()
 		}
@@ -251,9 +257,30 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	closeThreadStore = closeStore
-	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher)
+	var taskScheduler *taskexecutor.Scheduler
+	var taskWorker *taskexecutor.DeferredWorker
+	if bundleHasPlugin(bundles, taskplugin.Name) {
+		taskStore, err := runtimetask.NewStore(eventStore)
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+		taskWorker = &taskexecutor.DeferredWorker{}
+		taskScheduler, err = taskexecutor.New(taskexecutor.Config{
+			Store:  taskStore,
+			Worker: taskWorker,
+		})
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+	}
+	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher, taskScheduler)
 	if opts.Plugins != nil {
 		available = opts.Plugins(hostSystem)
+	}
+	if taskScheduler != nil {
+		available = replacePlugin(available, taskplugin.NewWithRunner(taskScheduler))
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistoryplugin.New(threadStore))
@@ -343,6 +370,12 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
+	if taskScheduler != nil && taskWorker != nil {
+		taskWorker.Set(taskexecutor.ChannelWorker{Client: service})
+		schedulerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		stopTaskScheduler = cancel
+		go taskScheduler.Start(schedulerCtx)
+	}
 	return Runtime{
 		Service:     service,
 		Composition: composition,
@@ -386,7 +419,7 @@ func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agen
 	return fallback
 }
 
-func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher) []pluginhost.Plugin {
+func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
@@ -395,7 +428,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
 		planexecplugin.New(),
-		taskplugin.New(),
+		taskplugin.NewWithRunner(taskRunner),
 		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),
@@ -410,6 +443,21 @@ func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin
 	for _, existing := range plugins {
 		if existing != nil && strings.TrimSpace(existing.Manifest().Name) == name {
 			return plugins
+		}
+	}
+	return append(plugins, plugin)
+}
+
+func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {
+	if plugin == nil {
+		return plugins
+	}
+	name := strings.TrimSpace(plugin.Manifest().Name)
+	for i, existing := range plugins {
+		if existing != nil && strings.TrimSpace(existing.Manifest().Name) == name {
+			out := append([]pluginhost.Plugin(nil), plugins...)
+			out[i] = plugin
+			return out
 		}
 	}
 	return append(plugins, plugin)

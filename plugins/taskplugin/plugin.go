@@ -20,34 +20,54 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
 
 const (
-	Name                = "task"
-	TaskCreateOp        = "task_create"
-	TaskModifyOp        = "task_modify"
-	TaskGetOp           = "task_get"
-	TaskListOp          = "task_list"
-	TaskListArtifactsOp = "task_list_artifacts"
-	TaskGetArtifactOp   = "task_get_artifact"
-	TaskValidateOp      = "task_validate"
-	TaskCommand         = "task"
-	TaskAgent           = "task"
-	TaskSession         = "task"
-	defaultPrefix       = "task_"
-	artifactPrefix      = "artifact_"
+	Name                      = "task"
+	TaskCreateOp              = "task_create"
+	TaskModifyOp              = "task_modify"
+	TaskGetOp                 = "task_get"
+	TaskListOp                = "task_list"
+	TaskListArtifactsOp       = "task_list_artifacts"
+	TaskGetArtifactOp         = "task_get_artifact"
+	TaskValidateOp            = "task_validate"
+	TaskRunOp                 = "task_run"
+	TaskSchedulerStatusOp     = "task_scheduler_status"
+	TaskSchedulerSetEnabledOp = "task_scheduler_set_enabled"
+	TaskCommand               = "task"
+	PlanCommand               = "plan"
+	TaskAgent                 = "task"
+	TaskSession               = "task"
+	PlanAgent                 = "task-planner"
+	PlanSession               = "task-planner"
+	defaultPrefix             = "task_"
+	artifactPrefix            = "artifact_"
 )
 
 // Plugin contributes task creation resources and operations.
-type Plugin struct{}
+type Plugin struct {
+	Runner TaskRunner
+}
+
+// TaskRunner controls asynchronous task execution.
+type TaskRunner interface {
+	SubmitTask(context.Context, coretask.ID) (taskexecutor.SubmitResult, error)
+	Status() coretask.SchedulerStatusResult
+	SetEnabled(bool) coretask.SchedulerStatusResult
+}
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 
 // New returns the task plugin.
 func New() Plugin { return Plugin{} }
+
+// NewWithRunner returns the task plugin with scheduler control operations
+// backed by the supplied runner.
+func NewWithRunner(runner TaskRunner) Plugin { return Plugin{Runner: runner} }
 
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -56,7 +76,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 // Contributions returns task resources.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	specs := []operation.Spec{taskCreateSpec(), taskModifySpec(), taskGetSpec(), taskListSpec(), taskListArtifactsSpec(), taskGetArtifactSpec(), taskValidateSpec()}
+	specs := []operation.Spec{taskCreateSpec(), taskModifySpec(), taskGetSpec(), taskListSpec(), taskListArtifactsSpec(), taskGetArtifactSpec(), taskValidateSpec(), taskRunSpec(), taskSchedulerStatusSpec(), taskSchedulerSetEnabledSpec()}
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{
 			Name:        Name,
@@ -64,31 +84,54 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Operations:  operationRefs(specs),
 		}},
 		Operations: specs,
-		Commands: []command.Spec{{
-			Path:        command.Path{TaskCommand},
-			Description: "Create a structured task from the request.",
-			Target: invocation.Target{
-				Kind:    invocation.TargetSession,
-				Session: TaskSession,
+		Commands: []command.Spec{
+			{
+				Path:        command.Path{TaskCommand},
+				Description: "Create a structured task from the request.",
+				Target: invocation.Target{
+					Kind:    invocation.TargetSession,
+					Session: TaskSession,
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
 			},
-			Policy: policy.InvocationPolicy{
-				AllowedCallers: []policy.CallerKind{policy.CallerUser},
-				RequiredTrust:  policy.TrustVerified,
+			{
+				Path:        command.Path{PlanCommand},
+				Description: "Plan work as a draft task and mark it ready after approval.",
+				Target: invocation.Target{
+					Kind:    invocation.TargetSession,
+					Session: PlanSession,
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
 			},
-		}},
-		Agents: []agent.Spec{taskAgentSpec()},
-		Sessions: []coresession.Spec{{
-			Name:        TaskSession,
-			Description: "Dedicated task creator session.",
-			Agent:       agent.Ref{Name: TaskAgent},
-			Operations:  []operation.Ref{{Name: TaskCreateOp}, {Name: TaskModifyOp}, {Name: TaskGetOp}, {Name: TaskListOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp}, {Name: TaskValidateOp}, {Name: "clarify"}},
-			Metadata:    map[string]string{"role": "task_creator"},
-		}},
+		},
+		Agents: []agent.Spec{taskAgentSpec(), planAgentSpec()},
+		Sessions: []coresession.Spec{
+			{
+				Name:        TaskSession,
+				Description: "Dedicated task creator session.",
+				Agent:       agent.Ref{Name: TaskAgent},
+				Operations:  taskOperationRefs(),
+				Metadata:    map[string]string{"role": "task_creator"},
+			},
+			{
+				Name:        PlanSession,
+				Description: "Dedicated task planning session.",
+				Agent:       agent.Ref{Name: PlanAgent},
+				Operations:  taskOperationRefs(),
+				Metadata:    map[string]string{"role": "task_planner"},
+			},
+		},
 	}, nil
 }
 
 // Operations returns executable task operations.
-func (Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
+func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
 	var store runtimetask.Store
 	if ctx.EventStore != nil {
 		taskStore, err := runtimetask.NewStore(ctx.EventStore)
@@ -105,6 +148,9 @@ func (Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation
 		operationruntime.NewTypedResult[coretask.TaskArtifactListRequest, coretask.TaskArtifactListResult](taskListArtifactsSpec(), listArtifacts(store)),
 		operationruntime.NewTypedResult[coretask.TaskArtifactGetRequest, coretask.TaskArtifactGetResult](taskGetArtifactSpec(), getArtifact(store)),
 		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store)),
+		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner)),
+		operationruntime.NewTypedResult[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](taskSchedulerStatusSpec(), schedulerStatus(p.Runner)),
+		operationruntime.NewTypedResult[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](taskSchedulerSetEnabledSpec(), schedulerSetEnabled(p.Runner)),
 	}, nil
 }
 
@@ -114,6 +160,19 @@ func operationRefs(specs []operation.Spec) []operation.Ref {
 		out = append(out, spec.Ref)
 	}
 	return out
+}
+
+func taskOperationRefs() []operation.Ref {
+	return []operation.Ref{
+		{Name: TaskCreateOp},
+		{Name: TaskModifyOp},
+		{Name: TaskGetOp},
+		{Name: TaskListOp},
+		{Name: TaskListArtifactsOp},
+		{Name: TaskGetArtifactOp},
+		{Name: TaskValidateOp},
+		{Name: "clarify"},
+	}
 }
 
 func taskCreateSpec() operation.Spec {
@@ -230,6 +289,45 @@ func taskValidateSpec() operation.Spec {
 	})
 }
 
+func taskRunSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coretask.ExecutionRequest, coretask.ExecutionResult](operation.Spec{
+		Ref:         operation.Ref{Name: TaskRunOp},
+		Description: "Schedule one ready task for asynchronous worker execution.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectUpdate},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func taskSchedulerStatusSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](operation.Spec{
+		Ref:         operation.Ref{Name: TaskSchedulerStatusOp},
+		Description: "Report local task scheduler enablement, capacity, and running tasks.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func taskSchedulerSetEnabledSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](operation.Spec{
+		Ref:         operation.Ref{Name: TaskSchedulerSetEnabledOp},
+		Description: "Enable or disable automatic task scheduler polling. Manual task_run remains available.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectUpdate},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
 func taskAgentSpec() agent.Spec {
 	return agent.Spec{
 		Name:        TaskAgent,
@@ -245,7 +343,40 @@ func taskAgentSpec() agent.Spec {
 		}, " "),
 		Driver:     agent.DriverSpec{Kind: "llmagent"},
 		Turns:      agent.TurnPolicy{MaxSteps: 10},
-		Operations: []operation.Ref{{Name: TaskCreateOp}, {Name: TaskModifyOp}, {Name: TaskGetOp}, {Name: TaskListOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp}, {Name: TaskValidateOp}, {Name: "clarify"}},
+		Operations: taskOperationRefs(),
+	}
+}
+
+func planAgentSpec() agent.Spec {
+	return agent.Spec{
+		Name:        PlanAgent,
+		Description: "Narrow planning agent that drafts tasks, clarifies uncertainty, and marks approved plans ready.",
+		System: strings.TrimSpace(`
+# Role
+
+You are a task planner. Your only job is to turn the user's request into an approved event-sourced task.
+
+# Workflow
+
+1. Understand the user's request and the current context.
+2. Identify important unknowns, risks, scope boundaries, required inputs, expected outputs, and acceptance criteria.
+3. Use clarify when a missing answer materially changes the task. Do not clarify trivia that can be represented as an assumption.
+4. Create or update a task with status draft. Include useful steps as a dependency DAG when the work naturally decomposes.
+5. Present the draft task to the user with task id, objective, steps, required inputs, expected outputs, and assumptions.
+6. Ask for approval or refinement. Continue refining until the user cancels or approves.
+7. When the user approves, call task_modify to set the task status to ready. The scheduler will execute ready tasks.
+
+# Rules
+
+- Use only task management and clarification tools.
+- Do not execute the planned work yourself.
+- Do not mark a task ready until the user has approved the draft.
+- Prefer task outputs and acceptance criteria over vague prose.
+- If the user cancels, leave the task draft or cancelled and report the task id.
+`),
+		Driver:     agent.DriverSpec{Kind: "llmagent"},
+		Turns:      agent.TurnPolicy{MaxSteps: 20},
+		Operations: taskOperationRefs(),
 	}
 }
 
@@ -497,6 +628,64 @@ func validateTask(store runtimetask.Store) func(operation.Context, coretask.Task
 			return result
 		}
 		return operation.OK(validateState(state))
+	}
+}
+
+func runTask(runner TaskRunner) func(operation.Context, coretask.ExecutionRequest) operation.Result {
+	return func(ctx operation.Context, req coretask.ExecutionRequest) operation.Result {
+		if runner == nil {
+			return operation.Failed("task_scheduler_missing", "task_run requires a task scheduler", nil)
+		}
+		if strings.TrimSpace(string(req.TaskID)) == "" {
+			return operation.Failed("task_id_required", "task id is required", nil)
+		}
+		action := req.Action
+		if action == "" {
+			action = coretask.ExecutionActionRun
+		}
+		switch action {
+		case coretask.ExecutionActionRun, coretask.ExecutionActionContinue:
+		default:
+			return operation.Failed("task_run_invalid", fmt.Sprintf("task_run does not support action %q", action), map[string]any{"task_id": req.TaskID})
+		}
+		if req.DryRun {
+			return operation.OK(coretask.ExecutionResult{
+				TaskID:  req.TaskID,
+				Status:  coretask.StatusReady,
+				Summary: fmt.Sprintf("Task %s would be scheduled.", req.TaskID),
+			})
+		}
+		submitted, err := runner.SubmitTask(ctx, req.TaskID)
+		if err != nil {
+			return operation.Failed("task_run_failed", err.Error(), map[string]any{"task_id": req.TaskID})
+		}
+		status := submitted.Status
+		if submitted.Started {
+			status = coretask.StatusRunning
+		}
+		return operation.OK(coretask.ExecutionResult{
+			TaskID:  submitted.TaskID,
+			Status:  status,
+			Summary: submitted.Summary,
+		})
+	}
+}
+
+func schedulerStatus(runner TaskRunner) func(operation.Context, coretask.SchedulerStatusRequest) operation.Result {
+	return func(operation.Context, coretask.SchedulerStatusRequest) operation.Result {
+		if runner == nil {
+			return operation.Failed("task_scheduler_missing", "task_scheduler_status requires a task scheduler", nil)
+		}
+		return operation.OK(runner.Status())
+	}
+}
+
+func schedulerSetEnabled(runner TaskRunner) func(operation.Context, coretask.SchedulerSetEnabledRequest) operation.Result {
+	return func(_ operation.Context, req coretask.SchedulerSetEnabledRequest) operation.Result {
+		if runner == nil {
+			return operation.Failed("task_scheduler_missing", "task_scheduler_set_enabled requires a task scheduler", nil)
+		}
+		return operation.OK(runner.SetEnabled(req.Enabled))
 	}
 }
 

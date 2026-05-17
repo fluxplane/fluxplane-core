@@ -33,14 +33,14 @@ func TestBundleComposes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.AgentSpecs) != 4 {
-		t.Fatalf("agent specs len = %d, want 4", len(composition.AgentSpecs))
+	if len(composition.AgentSpecs) != 5 {
+		t.Fatalf("agent specs len = %d, want 5", len(composition.AgentSpecs))
 	}
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 85 {
-		t.Fatalf("operation specs len = %d, want 85", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 88 {
+		t.Fatalf("operation specs len = %d, want 88", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -66,7 +66,7 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
-	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_validate", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
+	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_validate", "task_run", "task_scheduler_status", "task_scheduler_set_enabled", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
 			t.Fatalf("delegation operations missing %s", name)
 		}

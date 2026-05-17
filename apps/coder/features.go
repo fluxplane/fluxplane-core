@@ -75,6 +75,7 @@ func defaultDelegationOperationNames() []string {
 		"shell_exec", "code_execute", "web_search", "web_request",
 		taskplugin.TaskCreateOp, taskplugin.TaskModifyOp, taskplugin.TaskGetOp, taskplugin.TaskListOp,
 		taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskValidateOp,
+		taskplugin.TaskRunOp, taskplugin.TaskSchedulerStatusOp, taskplugin.TaskSchedulerSetEnabledOp,
 		"datasource_search", "datasource_get", "datasource_batch_get",
 	} {
 		allowed[name] = true
@@ -131,6 +132,7 @@ func FullLocalCodingFeature() FeatureSpec {
 			"code_execute",
 			"clarify", taskplugin.TaskCreateOp, taskplugin.TaskModifyOp, taskplugin.TaskGetOp, taskplugin.TaskListOp,
 			taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskValidateOp,
+			taskplugin.TaskRunOp, taskplugin.TaskSchedulerStatusOp, taskplugin.TaskSchedulerSetEnabledOp,
 			"delegate", "plan", "skill",
 			"image_generate", "image_understand", "image_providers",
 		},

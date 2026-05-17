@@ -117,7 +117,7 @@ func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 		return opts.Plugins(nil)
 	}
 	instances := connectorInstancesFromLaunch(opts.Launch.Connectors)
-	plugins := availablePlugins(nil, nil, instances, nil)
+	plugins := availablePlugins(nil, nil, instances, nil, nil)
 	if hasAnyDatasource(opts.Bundles) {
 		plugins = append(plugins, datasourceplugin.New(nil))
 	}

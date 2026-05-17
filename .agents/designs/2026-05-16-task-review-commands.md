@@ -13,10 +13,11 @@ This design assumes the foundation in
 [Architecture](../../docs/architecture.md) and [AGENTS.md](../../AGENTS.md).
 
 The short-term goal has been implemented: `/task <input>` creates durable
-`core/task.Task` values through a narrow task-creator agent, and task operations
-can inspect, modify, validate, and complete those tasks. The longer-term goal is
-for `taskplugin` to replace `planexecplugin` after the task scheduler and
-executor cover the same behavior.
+`core/task.Task` values through a narrow task-creator agent, task operations can
+inspect, modify, validate, and complete those tasks, and a first
+`orchestration/taskexecutor` scheduler can claim ready tasks and dispatch their
+steps to worker sessions. The longer-term goal is for `taskplugin` to replace
+`planexecplugin` after task execution reaches feature parity.
 
 Related resources:
 
@@ -42,13 +43,14 @@ The replacement needs to separate the durable work item from execution:
 - `/task` routes the request to a task creator;
 - `task_create` creates a durable task and returns immediately;
 - task state is inferred from events;
-- a scheduler/executor can later run ready tasks without blocking the creator;
+- a scheduler/executor can run ready tasks without blocking the creator;
 - workers and sub-agents become an execution mechanism, not the task domain.
 
 ## Goals
 
 - Add `plugins/taskplugin` as the optional first-party task capability bundle.
-- Make `taskplugin` contribute `/task`, a task-creator agent/session,
+- Make `taskplugin` contribute `/task`, `/plan`, task creator and planner
+  agents/sessions,
   `task_create`, grouped `task_modify`, task read/list operations, artifact
   read operations, and `task_validate`.
 - Keep core task event types globally registered through
@@ -70,7 +72,8 @@ The replacement needs to separate the durable work item from execution:
 
 ## Non-goals
 
-- Do not migrate or delete `planexecplugin` in this slice.
+- Do not migrate or delete `planexecplugin` until task execution reaches
+  feature parity.
 - Do not add `core/plan`; committed executable decomposition is represented by
   `task.Task.Steps`.
 - Do not add `core/review` or a full review workflow in this slice.
@@ -123,9 +126,13 @@ later events.
 - operation `task_get_artifact`;
 - operation `task_validate`;
 - command `/task`;
+- command `/plan`;
 - built-in agent `task` or `task-creator`;
+- built-in agent `task-planner`;
 - dedicated session `task`;
-- later task run/scheduler operations.
+- dedicated session `task-planner`;
+- automatic scheduler/executor wiring in local launch when `taskplugin` is
+  selected.
 
 Task event types remain owned by `core/task` and are registered by
 `orchestration/eventregistry` for all runtimes.
@@ -158,12 +165,18 @@ Initial tool set for the task creator:
 - `clarify` when the host provides it;
 - later `task_run` and `review_request`.
 
+The planner agent is also intentionally narrow. It is driven by Markdown
+instructions and must only clarify, create/update a `draft` task, present it to
+the user, loop on refinement, and mark the task `ready` after human approval.
+It must not execute the planned work itself.
+
 `apps/coder` should select `taskplugin`. It should not own task command
 semantics directly.
 
 ## Command Routing
 
 `/task <input>` targets the task session contributed by `taskplugin`.
+`/plan <input>` targets the task planner session contributed by `taskplugin`.
 
 The dedicated session is preferred over a direct command-to-agent execution path
 because a session already owns the loop behavior needed here:
@@ -432,8 +445,10 @@ are responsible for presenting all scopes together with clear scope labels.
 
 ## Scheduler and Execution Direction
 
-The first taskplugin slice does not need a full background scheduler. It should
-create event-sourced ready tasks and expose the path a scheduler will later use.
+The first scheduler slice is implemented in `orchestration/taskexecutor`.
+`runtime/task` remains pure projection/readiness logic, while
+`orchestration/taskexecutor` owns claiming, worker dispatch, cancellation, and
+execution event writes.
 
 Long-term execution model:
 
@@ -459,10 +474,80 @@ Role-to-profile defaults:
 | `human` | blocked, clarification, or manual handoff |
 
 `runtime/task` owns pure scheduling and readiness helpers. Concrete execution
-and worker dispatch belong in orchestration/plugin runtime code.
+and worker dispatch belong in orchestration. The first worker backend is
+`ChannelWorker`, which wraps `orchestration/client.ChannelClient` behind a
+small `WorkerClient` interface. This keeps scheduler logic independent from
+session internals and from the current `orchestration/subagent` package while
+still reusing profiled sessions, tool projection, safety approval, transcript
+storage, cancellation, and run waiting.
 
-`task_run` should be added with scheduler/executor work, not as part of the
-minimal creation-only path unless needed for UI validation.
+Current scheduler behavior:
+
+- local launch starts the scheduler when `taskplugin` is selected;
+- `task_run` schedules one ready task asynchronously without blocking the
+  caller until worker completion;
+- `task_scheduler_status` reports enablement, active state, capacity, and
+  running task IDs;
+- `task_scheduler_set_enabled` pauses or resumes automatic ready-task polling;
+  manual `task_run` remains available while polling is disabled;
+- ready tasks are claimed with `task.execution_started` using the task stream
+  sequence as an optimistic precondition;
+- declared task steps run as a dependency DAG through `runtime/task.ReadySteps`;
+- tasks without declared steps run as one whole-task worker prompt;
+- human-assigned work is blocked instead of dispatched;
+- role-to-profile routing can be configured on the scheduler, with default
+  mappings for developer/tester, reviewer, and explorer roles;
+- blocked interrupted executions can resume when the task is marked `ready`
+  after the blocking human/manual step is cleared;
+- worker output is recorded as step or execution output plus an artifact only
+  after re-projecting the task stream and confirming the same execution/step is
+  still running;
+- scheduler shutdown cancellation is propagated into in-flight worker runs.
+
+The current control operations are intentionally local-runtime controls. They
+do not introduce a second task store; task/execution state still comes from the
+event store projection.
+
+### Scheduler Concurrency Hardening
+
+The scheduler adds a normal background writer to task streams. That is the
+right execution shape, but it makes task-stream contention a first-class
+correctness concern because user/model `task_modify` calls, scheduler claims,
+step dispatch, terminal step writes, task blocking, and task indexing can now
+overlap.
+
+Current concurrency posture:
+
+- task claims use `ProjectWithSequence` plus `AppendExpected`, so concurrent
+  claims have one winner and conflict losers skip cleanly;
+- terminal step/execution writes re-project state and retry conflicts, so stale
+  worker completion does not overwrite newer cancellation or blocking state;
+- task index writes are blind appends to `task:index`, avoiding stale global
+  expected-sequence conflicts;
+- some non-terminal scheduler transitions still use plain `Store.Append`,
+  which can conflict because the store internally loads the stream tail and
+  appends with an expected sequence;
+- `task_modify` currently reports concurrent task stream conflicts as operation
+  failures rather than reloading and retrying or returning a specialized retry
+  code;
+- scheduler goroutine errors are not yet observable through a status field,
+  hook, event, or logger.
+
+Before replacing `planexecplugin`, add a scheduler/task-operation concurrency
+hardening slice:
+
+1. Add focused reproduction tests for concurrent task modify vs scheduler
+   claim, concurrent scheduler claims from two scheduler instances, concurrent
+   same-task modifications, and independent ready-step stress.
+2. Make terminal retry loops bounded, context-aware, and lightly backed off.
+3. Move scheduler dispatch, block, and dependent-cancellation transitions to
+   current-state checks with expected-sequence appends where they can race with
+   user/model changes.
+4. Decide the `task_modify` conflict UX: either reload/reapply/retry safe
+   modifications or return a specific retryable conflict code such as
+   `task_conflict_retry`.
+5. Expose scheduler background errors through a testable error sink, status
+   diagnostics, task event, or runtime logger.
 
 ## Sub-Agents and Workers
 
@@ -477,7 +562,7 @@ plan steps DAG
   -> progress/completion/failure events
 ```
 
-The future task executor should absorb that behavior around `core/task` events:
+The task executor is absorbing that behavior around `core/task` events:
 
 ```text
 task.Step
@@ -544,11 +629,13 @@ descriptions, labels, and metadata rather than as task-only fields.
 Migration path:
 
 1. Build `taskplugin` creation path and validate `/task` UI behavior.
-2. Add scheduler/executor behavior to taskplugin using `core/task` events and
-   `runtime/task` readiness helpers.
-3. Match planexec functionality with task execution.
-4. Replace coder/app references from `planexec` to `task`.
-5. Delete `planexecplugin` and its event catalog references.
+2. Add scheduler/executor behavior using `core/task` events,
+   `runtime/task` readiness helpers, and `orchestration/taskexecutor`.
+3. Add `/plan` for draft task planning and approval before ready-state
+   scheduling.
+4. Match remaining planexec functionality with task execution.
+5. Replace coder/app references from `planexec` to `task`.
+6. Delete `planexecplugin` and its event catalog references.
 
 This is a pre-1.0 rewrite. Do not add compatibility shims once replacement is
 ready.
@@ -572,13 +659,22 @@ Completed in this slice:
 7. Added command/session and operation tests for `/task`, duplicate task IDs,
    task modification, artifact scopes, validation, lifecycle reopening, and
    forced completion overrides.
+8. Added `orchestration/taskexecutor` with optimistic task claiming, DAG
+   execution, human blocking, whole-task fallback execution, and a
+   `ChannelClient`-backed worker backend.
+9. Added `/plan`, the built-in task planner agent/session, and local launch
+   scheduler startup when `taskplugin` is selected.
+10. Added explicit scheduler controls through `task_run`,
+    `task_scheduler_status`, and `task_scheduler_set_enabled`, plus
+    configurable scheduler role-to-profile routing.
 
 Follow-up slices:
 
-1. Add scheduler/executor behavior to taskplugin using `core/task` events and
-   `runtime/task` readiness helpers.
-2. Add review request/review task operations.
-3. Replace `planexecplugin` once task execution covers the same behavior.
+1. Harden scheduler/task-operation concurrency as described above.
+2. Add richer worker pools with multiple profiles per role, queueing policy,
+   fairness, and retry/fallback behavior.
+3. Add review request/review task operations.
+4. Replace `planexecplugin` once task execution covers the same behavior.
 
 ## Testing
 
@@ -600,7 +696,17 @@ Follow-up slices:
 - Terminal tasks require `reopen`; terminal steps require `reopen_step`.
 - `remove_step` rejects steps with projected execution state.
 - `taskplugin` contributes `task_create`, grouped `task_modify`, task
-  read/list/artifact/validation operations, `/task`, and the task
-  agent/session.
+  read/list/artifact/validation operations, scheduler controls, `/task`,
+  `/plan`, and the task and planner agent/sessions.
 - `/task` targets the dedicated task session.
+- `/plan` targets the dedicated planner session and creates draft tasks until
+  approval.
+- `orchestration/taskexecutor` claims only one ready execution per task stream.
+- `orchestration/taskexecutor` runs ready DAG steps in dependency order.
+- `task_run` schedules ready tasks asynchronously.
+- `task_scheduler_status` and `task_scheduler_set_enabled` expose local
+  scheduler control state.
+- Human-assigned steps block the task instead of dispatching a worker.
+- Scheduler/task-operation concurrency hardening remains tracked as a required
+  follow-up before replacing `planexecplugin`.
 - Existing `planexecplugin` behavior remains untouched in this slice.

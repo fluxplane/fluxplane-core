@@ -544,6 +544,54 @@ type ExecutionResult struct {
 	CompletedAt time.Time        `json:"completed_at,omitempty"`
 }
 
+// ModelText returns a compact model-facing execution control summary.
+func (r ExecutionResult) ModelText() string {
+	if r.Summary != "" {
+		return r.Summary
+	}
+	if r.TaskID == "" {
+		return "Task execution request accepted."
+	}
+	status := firstNonEmpty(string(r.Status), "queued")
+	return fmt.Sprintf("Task %s execution status: %s", r.TaskID, status)
+}
+
+// SchedulerStatusRequest asks for the current task scheduler state.
+type SchedulerStatusRequest struct{}
+
+// SchedulerStatusResult reports local scheduler capacity and in-flight tasks.
+type SchedulerStatusResult struct {
+	Enabled      bool   `json:"enabled"`
+	Active       bool   `json:"active"`
+	Running      []ID   `json:"running,omitempty"`
+	Capacity     int    `json:"capacity"`
+	MaxParallel  int    `json:"max_parallel"`
+	PollInterval string `json:"poll_interval,omitempty"`
+}
+
+// ModelText returns a compact model-facing scheduler summary.
+func (r SchedulerStatusResult) ModelText() string {
+	state := "disabled"
+	if r.Enabled {
+		state = "enabled"
+	}
+	active := "inactive"
+	if r.Active {
+		active = "active"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Task scheduler is %s and %s. Capacity: %d/%d.", state, active, r.Capacity, r.MaxParallel)
+	for _, id := range r.Running {
+		fmt.Fprintf(&b, "\n- running: %s", id)
+	}
+	return b.String()
+}
+
+// SchedulerSetEnabledRequest enables or disables automatic task polling.
+type SchedulerSetEnabledRequest struct {
+	Enabled bool `json:"enabled" jsonschema:"description=Whether automatic ready-task polling should be enabled.,required"`
+}
+
 // Diagnostic records a non-fatal task execution note.
 type Diagnostic struct {
 	Code    string `json:"code,omitempty"`

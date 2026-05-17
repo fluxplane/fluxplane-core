@@ -99,11 +99,13 @@ calls and many executions.
 
 In AgentRuntime, durable task state lives in `core/task` and is projected by
 `runtime/task` from task event streams. The first bundled surface is
-`plugins/taskplugin`, which contributes `/task`, a narrow task-creator
-agent/session, and typed operations such as `task_create`, grouped
-`task_modify`, `task_get`, `task_list`, artifact readers, and `task_validate`.
-Task creation returns after recording the task; execution scheduling remains a
-separate follow-up.
+`plugins/taskplugin`, which contributes `/task`, `/plan`, narrow
+task-creator/planner agents, and typed operations such as `task_create`,
+grouped `task_modify`, `task_get`, `task_list`, artifact readers, and
+`task_validate`. It also contributes scheduler controls such as `task_run`,
+`task_scheduler_status`, and `task_scheduler_set_enabled`. Task creation
+returns after recording the task; ready tasks can then be claimed and executed
+by the orchestration task executor.
 
 ## Command
 
@@ -175,6 +177,11 @@ Examples:
 A workflow is not just a task. The task is the work objective; the workflow is
 the process structure for completing work. One task can use many workflows over
 time, and one workflow template can be used for many tasks.
+
+A plan is not currently a separate core domain. In the task system, an approved
+plan becomes the committed executable task step DAG (`task.Task.Steps`). Draft
+or alternative plans should be represented as task drafts, artifacts, or future
+workflow/plan-specific contracts if the product needs versioned alternatives.
 
 ## Operation
 
@@ -334,6 +341,15 @@ Task-like concepts may still be implicit in:
 When a task is represented explicitly, it means the work objective, not a tool
 call, command, or operation execution. Runtime task state is inferred from task
 events in the event store; there is no separate task database.
+
+Automatic task execution is orchestration-owned. `runtime/task` projects state
+and computes ready steps; `orchestration/taskexecutor` claims ready tasks and
+dispatches workers through an execution backend while recording all progress as
+task events. The scheduler can run automatically over ready tasks or be
+controlled explicitly with task plugin operations. Because the scheduler writes
+task streams concurrently with user/model task operations, scheduler transitions
+must use event-stream conflict handling and expose retryable conflicts or
+diagnostics rather than hiding background failures.
 
 ### Commands in AgentRuntime
 

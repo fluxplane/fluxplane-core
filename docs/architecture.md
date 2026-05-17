@@ -196,6 +196,7 @@ session control-plane helpers
 session environment/context wiring
 session lifecycle and Submit handling
 sub-agent supervision
+task scheduling, scheduler controls, and worker-session execution
 tool projection use cases
 workflow execution
 ```

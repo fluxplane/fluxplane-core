@@ -12,10 +12,18 @@ import (
 type Store interface {
 	Create(context.Context, coretask.ID, ...event.Event) error
 	Append(context.Context, coretask.ID, ...event.Event) error
+	AppendExpected(context.Context, coretask.ID, event.Sequence, ...event.Event) error
 	Index(context.Context, coretask.TaskSummary) error
 	List(context.Context) ([]coretask.TaskSummary, error)
 	Load(context.Context, coretask.ID) ([]event.Record, error)
 	Project(context.Context, coretask.ID) (State, error)
+	ProjectWithSequence(context.Context, coretask.ID) (SequencedState, error)
+}
+
+// SequencedState is a projected task state plus the current task stream tail.
+type SequencedState struct {
+	State    State
+	Sequence event.Sequence
 }
 
 // EventStore implements Store on top of core/event.Store.
@@ -51,6 +59,24 @@ func (s *EventStore) Append(ctx context.Context, taskID coretask.ID, payloads ..
 	return s.append(ctx, taskID, false, payloads...)
 }
 
+// AppendExpected appends task-scoped events when the task stream still ends at
+// the supplied sequence.
+func (s *EventStore) AppendExpected(ctx context.Context, taskID coretask.ID, expected event.Sequence, payloads ...event.Event) error {
+	if s == nil || s.events == nil {
+		return fmt.Errorf("task: store is nil")
+	}
+	stream := StreamID(taskID)
+	if stream == "" {
+		return fmt.Errorf("task: id is empty")
+	}
+	records := taskRecords(taskID, payloads...)
+	if len(records) == 0 {
+		return nil
+	}
+	_, err := s.events.Append(ctx, stream, event.ExpectSequence(expected), records...)
+	return err
+}
+
 // Create appends initial task-scoped events and requires the task stream to be
 // empty.
 func (s *EventStore) Create(ctx context.Context, taskID coretask.ID, payloads ...event.Event) error {
@@ -78,6 +104,15 @@ func (s *EventStore) append(ctx context.Context, taskID coretask.ID, create bool
 			sequence = current[0].Sequence
 		}
 	}
+	records := taskRecords(taskID, payloads...)
+	if len(records) == 0 {
+		return nil
+	}
+	_, err := s.events.Append(ctx, stream, event.ExpectSequence(sequence), records...)
+	return err
+}
+
+func taskRecords(taskID coretask.ID, payloads ...event.Event) []event.Record {
 	records := make([]event.Record, 0, len(payloads))
 	for _, payload := range payloads {
 		if payload == nil {
@@ -91,11 +126,7 @@ func (s *EventStore) append(ctx context.Context, taskID coretask.ID, create bool
 			},
 		})
 	}
-	if len(records) == 0 {
-		return nil
-	}
-	_, err := s.events.Append(ctx, stream, event.ExpectSequence(sequence), records...)
-	return err
+	return records
 }
 
 // Index appends the latest task summary to the task index stream.
@@ -183,4 +214,27 @@ func (s *EventStore) Project(ctx context.Context, taskID coretask.ID) (State, er
 		return State{}, err
 	}
 	return Project(records), nil
+}
+
+// ProjectWithSequence loads and projects task state while preserving the last
+// stream sequence for optimistic follow-up appends.
+func (s *EventStore) ProjectWithSequence(ctx context.Context, taskID coretask.ID) (SequencedState, error) {
+	if s == nil || s.events == nil {
+		return SequencedState{}, fmt.Errorf("task: store is nil")
+	}
+	stream := StreamID(taskID)
+	if stream == "" {
+		return SequencedState{}, fmt.Errorf("task: id is empty")
+	}
+	stored, err := s.events.Load(ctx, stream, event.LoadOptions{})
+	if err != nil {
+		return SequencedState{}, err
+	}
+	records := make([]event.Record, len(stored))
+	var sequence event.Sequence
+	for i, record := range stored {
+		records[i] = record.Record
+		sequence = record.Sequence
+	}
+	return SequencedState{State: Project(records), Sequence: sequence}, nil
 }
