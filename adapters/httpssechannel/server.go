@@ -9,20 +9,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/agentruntime/core/command"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/policy"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 )
 
 // Server exposes a ChannelClient through JSON endpoints and SSE event streams.
 type Server struct {
-	client clientapi.ChannelClient
-	mux    *http.ServeMux
+	client    clientapi.ChannelClient
+	authority Authority
+	mux       *http.ServeMux
 }
 
 // ServerConfig configures an HTTP/SSE channel server.
 type ServerConfig struct {
-	Client clientapi.ChannelClient
+	Client    clientapi.ChannelClient
+	Authority Authority
+}
+
+// Authority describes the listener-derived authority for remote submissions.
+type Authority struct {
+	Caller              policy.Caller
+	Trust               policy.Trust
+	AllowTrustDowngrade bool
 }
 
 // NewServer returns an HTTP handler for a channel client.
@@ -30,7 +41,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("httpssechannel: client is nil")
 	}
-	server := &Server{client: cfg.Client, mux: http.NewServeMux()}
+	server := &Server{client: cfg.Client, authority: normalizeAuthority(cfg.Authority), mux: http.NewServeMux()}
 	server.routes()
 	return server, nil
 }
@@ -88,7 +99,16 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 
 type submitRequest struct {
 	Session    clientapi.SessionInfo `json:"session"`
-	Submission clientapi.Submission  `json:"submission"`
+	Submission remoteSubmission      `json:"submission"`
+}
+
+type remoteSubmission struct {
+	ID             clientapi.RunID           `json:"id,omitempty"`
+	Kind           clientapi.SubmissionKind  `json:"kind"`
+	Input          *clientapi.Input          `json:"input,omitempty"`
+	Command        *command.Invocation       `json:"command,omitempty"`
+	TrustDowngrade *clientapi.TrustDowngrade `json:"trust_downgrade,omitempty"`
+	Metadata       map[string]any            `json:"metadata,omitempty"`
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +134,12 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	run, err := session.Submit(r.Context(), req.Submission)
+	submission, err := s.normalizeRemoteSubmission(req.Submission)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	run, err := session.Submit(r.Context(), submission)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -127,6 +152,70 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func normalizeAuthority(value Authority) Authority {
+	if value.Trust.Level != "" && value.Trust.Kind == "" {
+		value.Trust.Kind = policy.TrustInvocation
+	}
+	return value
+}
+
+func (s *Server) normalizeRemoteSubmission(remote remoteSubmission) (clientapi.Submission, error) {
+	submission := clientapi.Submission{
+		ID:             remote.ID,
+		Kind:           remote.Kind,
+		Input:          remote.Input,
+		Command:        remote.Command,
+		TrustDowngrade: remote.TrustDowngrade,
+		Metadata:       remote.Metadata,
+	}
+	if s.authority.Caller.Kind != "" {
+		submission.Caller = s.authority.Caller
+	}
+	if s.authority.Trust.Kind != "" || s.authority.Trust.Level != "" {
+		submission.Trust = s.authority.Trust
+	}
+	if remote.TrustDowngrade != nil {
+		if !s.authority.AllowTrustDowngrade {
+			return clientapi.Submission{}, fmt.Errorf("httpssechannel: trust downgrade is not allowed by this listener")
+		}
+		if s.authority.Trust.Level == "" {
+			return clientapi.Submission{}, fmt.Errorf("httpssechannel: listener trust is not configured")
+		}
+		if remote.TrustDowngrade.Level == "" {
+			return clientapi.Submission{}, fmt.Errorf("httpssechannel: trust downgrade level is empty")
+		}
+		if !policy.TrustSatisfies(s.authority.Trust.Level, remote.TrustDowngrade.Level) {
+			return clientapi.Submission{}, fmt.Errorf("httpssechannel: authority_exceeds_transport")
+		}
+		if !scopesSubset(remote.TrustDowngrade.Scopes, s.authority.Trust.Scopes) {
+			return clientapi.Submission{}, fmt.Errorf("httpssechannel: authority_exceeds_transport")
+		}
+		submission.Trust.Level = remote.TrustDowngrade.Level
+		submission.Trust.Scopes = append([]policy.Scope(nil), remote.TrustDowngrade.Scopes...)
+		submission.Trust.Reason = remote.TrustDowngrade.Reason
+	}
+	if err := submission.Validate(); err != nil {
+		return clientapi.Submission{}, err
+	}
+	return submission, nil
+}
+
+func scopesSubset(requested, granted []policy.Scope) bool {
+	if len(requested) == 0 {
+		return true
+	}
+	grants := map[policy.Scope]struct{}{}
+	for _, scope := range granted {
+		grants[scope] = struct{}{}
+	}
+	for _, scope := range requested {
+		if _, ok := grants[scope]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func drainSubmittedRunEvents(ctx context.Context, events <-chan clientapi.Event) <-chan struct{} {

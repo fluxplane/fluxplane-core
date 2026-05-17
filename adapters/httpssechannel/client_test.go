@@ -1,6 +1,7 @@
 package httpssechannel
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -597,6 +598,155 @@ func TestRunHandleAdoptsServerNormalizedSubmission(t *testing.T) {
 	}
 }
 
+func TestRemoteSubmitIgnoresRawAuthorityFields(t *testing.T) {
+	service := testRuntime(t)
+	server, err := NewServer(ServerConfig{
+		Client: service,
+		Authority: Authority{
+			Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "socket-user"}},
+			Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	httpServer := httptest.NewServer(server)
+	t.Cleanup(httpServer.Close)
+	body := []byte(`{
+		"session": {"thread": {"id": "thread-spoof"}, "conversation": {"id": "conv-spoof"}},
+		"submission": {
+			"id": "run-spoof",
+			"kind": "command",
+			"command": {"path": ["echo"], "input": "hello"},
+			"caller": {"kind": "system", "principal": {"kind": "user", "id": "attacker"}},
+			"trust": {"kind": "invocation", "level": "system"}
+		}
+	}`)
+	resp, err := httpServer.Client().Post(httpServer.URL+"/sessions/thread-spoof/submit", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Post: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %s, want 200", resp.Status)
+	}
+	var result clientapi.Result
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if result.Submission.Caller.Principal.ID != "socket-user" || result.Submission.Caller.Kind != policy.CallerUser {
+		t.Fatalf("caller = %#v, want listener authority", result.Submission.Caller)
+	}
+	if result.Submission.Trust.Level != policy.TrustVerified {
+		t.Fatalf("trust = %#v, want verified listener authority", result.Submission.Trust)
+	}
+}
+
+func TestRemoteSubmitTrustDowngradeRunsBelowListenerAuthority(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClientWithAuthority(t, Authority{
+		Caller:              policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "socket-user"}},
+		Trust:               policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		AllowTrustDowngrade: true,
+	})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-downgrade"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().
+		WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}).
+		WithTrustDowngrade(clientapi.TrustDowngrade{Level: policy.TrustUntrusted, Reason: "simulate_public"}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Command == nil || result.Command.Status != session.CommandStatusRejected {
+		t.Fatalf("command = %#v, want rejected by downgraded trust", result.Command)
+	}
+	if run.Submission().Trust.Level != policy.TrustUntrusted {
+		t.Fatalf("submission trust = %#v, want untrusted", run.Submission().Trust)
+	}
+}
+
+func TestRemoteSubmitRejectsTrustDowngradeUpgrade(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClientWithAuthority(t, Authority{
+		Caller:              policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "socket-user"}},
+		Trust:               policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		AllowTrustDowngrade: true,
+	})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-upgrade"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().
+		WithText("hello").
+		WithTrustDowngrade(clientapi.TrustDowngrade{Level: policy.TrustPrivileged}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err == nil || !strings.Contains(err.Error(), "authority_exceeds_transport") {
+		t.Fatalf("Wait error = %v, want authority_exceeds_transport", err)
+	}
+}
+
+func TestRemoteSubmitRejectsTrustDowngradeScopeEscalation(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClientWithAuthority(t, Authority{
+		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "socket-user"}},
+		Trust: policy.Trust{
+			Kind:   policy.TrustInvocation,
+			Level:  policy.TrustVerified,
+			Scopes: []policy.Scope{"read"},
+		},
+		AllowTrustDowngrade: true,
+	})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-scope-upgrade"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().
+		WithText("hello").
+		WithTrustDowngrade(clientapi.TrustDowngrade{
+			Level:  policy.TrustVerified,
+			Scopes: []policy.Scope{"admin"},
+		}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err == nil || !strings.Contains(err.Error(), "authority_exceeds_transport") {
+		t.Fatalf("Wait error = %v, want authority_exceeds_transport", err)
+	}
+}
+
+func TestRemoteSubmitRejectsTrustDowngradeWhenListenerDisallows(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClientWithAuthority(t, Authority{
+		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "socket-user"}},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-downgrade-denied"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().
+		WithText("hello").
+		WithTrustDowngrade(clientapi.TrustDowngrade{Level: policy.TrustUntrusted}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err == nil || !strings.Contains(err.Error(), "trust downgrade is not allowed") {
+		t.Fatalf("Wait error = %v, want downgrade disallowed", err)
+	}
+}
+
 func TestRunWaitReturnsSSEDecodeError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /sessions/thread-1/events", func(w http.ResponseWriter, _ *http.Request) {
@@ -878,8 +1028,13 @@ func openedThread(id string) corethread.Ref {
 
 func testRemoteClient(t *testing.T) *Client {
 	t.Helper()
+	return testRemoteClientWithAuthority(t, Authority{})
+}
+
+func testRemoteClientWithAuthority(t *testing.T, authority Authority) *Client {
+	t.Helper()
 	service := testRuntime(t)
-	server, err := NewServer(ServerConfig{Client: service})
+	server, err := NewServer(ServerConfig{Client: service, Authority: authority})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

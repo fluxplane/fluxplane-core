@@ -17,9 +17,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/agentruntime/orchestration/agentconfig"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
+	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -39,6 +43,9 @@ type Config struct {
 	ThreadStore       corethread.Store
 	SessionAgents     *sessionagent.Runner
 	StopEvaluator     session.StopEvaluator
+	IdentityResolver  identity.Resolver
+	ToolSetCatalog    session.ToolSetCatalog
+	ToolProjection    toolprojection.Config
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -62,6 +69,9 @@ type Service struct {
 	threadStore       corethread.Store
 	sessionAgents     *sessionagent.Runner
 	stopEvaluator     session.StopEvaluator
+	identityResolver  identity.Resolver
+	toolSetCatalog    session.ToolSetCatalog
+	toolProjection    toolprojection.Config
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -89,6 +99,9 @@ func New(cfg Config) *Service {
 		threadStore:       cfg.ThreadStore,
 		sessionAgents:     cfg.SessionAgents,
 		stopEvaluator:     cfg.StopEvaluator,
+		identityResolver:  cfg.IdentityResolver,
+		toolSetCatalog:    cfg.ToolSetCatalog,
+		toolProjection:    cfg.ToolProjection,
 		bindings:          map[bindingKey]corethread.Ref{},
 		profiles:          map[corethread.ID]coresession.Spec{},
 		subscribers:       map[corethread.ID]map[int]*subscriber{},
@@ -239,6 +252,10 @@ func (s *Service) HandleSessionInbound(ctx context.Context, info SessionInfo, in
 	if err != nil {
 		return InboundResult{}, err
 	}
+	normalized, err = s.resolveInboundIdentity(ctx, normalized)
+	if err != nil {
+		return InboundResult{}, err
+	}
 	info = normalizeSessionInfo(info, normalized)
 	if err := normalized.Validate(); err != nil {
 		return InboundResult{}, err
@@ -255,6 +272,21 @@ func (s *Service) HandleSessionInbound(ctx context.Context, info SessionInfo, in
 	default:
 		return InboundResult{Session: info}, fmt.Errorf("harness: inbound kind %q is not executable yet", normalized.Kind)
 	}
+}
+
+func (s *Service) resolveInboundIdentity(ctx context.Context, inbound channel.Inbound) (channel.Inbound, error) {
+	resolver := s.identityResolver
+	if resolver == nil {
+		resolver = identity.DefaultResolver{}
+	}
+	resolved, err := resolver.ResolveIdentity(ctx, identity.Request{Inbound: inbound})
+	if err != nil {
+		return channel.Inbound{}, err
+	}
+	inbound.Caller = resolved.Caller
+	inbound.Trust = resolved.Trust
+	inbound.Actor = &resolved.Actor
+	return inbound, nil
 }
 
 // Subscribe returns semantic events produced by a session thread. Active
@@ -331,6 +363,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 	if err != nil {
 		return InboundResult{Session: info}, err
 	}
+	turnTools := s.projectToolsForInbound(agentRuntime, inbound)
 	profile, _, _ := s.profileForInfo(info)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
@@ -341,6 +374,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Resolver:          s.resolver,
 		CommandCatalog:    s.commandCatalog,
 		OperationCatalog:  s.operationCatalog,
+		ToolSetCatalog:    s.toolSetCatalog,
 		WorkflowCatalog:   s.workflowCatalog,
 		OperationExecutor: s.executorForInfo(info),
 		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
@@ -350,6 +384,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Delegation:        s.delegationForInfo(info),
 		StopEvaluator:     s.stopEvaluator,
 		RunID:             string(runID),
+		TurnTools:         turnTools,
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -375,6 +410,24 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Session: toClientSessionInfo(info),
 	})
 	return InboundResult{Session: info, Input: result, Outbound: result.Outbound}, nil
+}
+
+func (s *Service) projectToolsForInbound(agentRuntime agent.Agent, inbound channel.Inbound) []tool.Spec {
+	if agentRuntime == nil {
+		return nil
+	}
+	cfg := s.toolProjection
+	cfg.Commands = s.commandCatalog
+	cfg.Operations = s.operationCatalog
+	cfg.ToolSets = s.toolSetCatalog
+	cfg.Caller = inbound.Caller
+	cfg.Trust = inbound.Trust
+	projected := toolprojection.Project(cfg)
+	filtered := agentconfig.FilterTools(agentRuntime.Spec(), projected.Tools)
+	if filtered == nil && (len(s.commandCatalog) > 0 || len(s.operationCatalog) > 0 || len(s.toolSetCatalog) > 0) {
+		return []tool.Spec{}
+	}
+	return filtered
 }
 
 func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {

@@ -97,6 +97,8 @@ type Runtime struct {
 	Composition app.Composition
 	System      system.System
 	Dispatcher  *slackplugin.Dispatcher
+	Caller      policy.Caller
+	Trust       policy.Trust
 	Close       func()
 }
 
@@ -333,6 +335,15 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
+	localCaller := policy.Caller{
+		Kind: policy.CallerUser,
+		Principal: policy.Principal{
+			Kind: "user",
+			ID:   "agentsdk",
+			Name: "agentsdk",
+		},
+	}
+	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -356,15 +367,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			IncludeBareOperations: true,
 		}),
 		Channel: channel.Ref{Name: "local"},
-		Caller: policy.Caller{
-			Kind: policy.CallerUser,
-			Principal: policy.Principal{
-				Kind: "user",
-				ID:   "agentsdk",
-				Name: "agentsdk",
-			},
-		},
-		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Caller:  localCaller,
+		Trust:   localTrust,
 	})
 	if err != nil {
 		closeRuntime()
@@ -382,6 +386,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Composition: composition,
 		System:      hostSystem,
 		Dispatcher:  dispatcher,
+		Caller:      localCaller,
+		Trust:       localTrust,
 		Close:       closeRuntime,
 	}, nil
 }

@@ -104,15 +104,25 @@ const (
 
 // Submission is the neutral shape for anything sent to a session.
 type Submission struct {
-	ID       RunID               `json:"id,omitempty"`
-	Kind     SubmissionKind      `json:"kind"`
-	Input    *Input              `json:"input,omitempty"`
-	Command  *command.Invocation `json:"command,omitempty"`
-	Event    event.Event         `json:"event,omitempty"`
-	Signal   *Signal             `json:"signal,omitempty"`
-	Caller   policy.Caller       `json:"caller,omitempty"`
-	Trust    policy.Trust        `json:"trust,omitempty"`
-	Metadata map[string]any      `json:"metadata,omitempty"`
+	ID      RunID               `json:"id,omitempty"`
+	Kind    SubmissionKind      `json:"kind"`
+	Input   *Input              `json:"input,omitempty"`
+	Command *command.Invocation `json:"command,omitempty"`
+	Event   event.Event         `json:"event,omitempty"`
+	Signal  *Signal             `json:"signal,omitempty"`
+	Caller  policy.Caller       `json:"caller,omitempty"`
+	Trust   policy.Trust        `json:"trust,omitempty"`
+	// TrustDowngrade requests a lower trust level on remote transports that
+	// explicitly allow trust simulation. It must never raise authority.
+	TrustDowngrade *TrustDowngrade `json:"trust_downgrade,omitempty"`
+	Metadata       map[string]any  `json:"metadata,omitempty"`
+}
+
+// TrustDowngrade is an explicit request to run below transport authority.
+type TrustDowngrade struct {
+	Level  policy.TrustLevel `json:"level"`
+	Reason string            `json:"reason,omitempty"`
+	Scopes []policy.Scope    `json:"scopes,omitempty"`
 }
 
 // NewSubmission returns an empty fluent submission value.
@@ -172,6 +182,12 @@ func (s Submission) WithCaller(caller policy.Caller) Submission {
 // WithTrust sets caller trust metadata for the submission.
 func (s Submission) WithTrust(trust policy.Trust) Submission {
 	s.Trust = trust
+	return s
+}
+
+// WithTrustDowngrade requests lower trust on transports that allow simulation.
+func (s Submission) WithTrustDowngrade(downgrade TrustDowngrade) Submission {
+	s.TrustDowngrade = &downgrade
 	return s
 }
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added canonical inbound actor plumbing with `core/user` groups, identities,
+  resolved actors, an orchestration identity resolver hook, and context-provider
+  scope metadata for current user, identity, caller, and trust.
+
+### Changed
+
+- HTTP/SSE remote submissions now use explicit downgrade-only trust delegation
+  instead of accepting raw caller/trust authority fields, and listener-derived
+  authority is applied before session execution.
+- Model tool projection and operation execution are now scoped to each inbound
+  turn's resolved caller/trust, so downgraded or public turns cannot use tools
+  that were not projected for that authority.
+
 ## [0.13.0] - 2026-05-17
 
 ### Added

@@ -6,6 +6,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/user"
 )
 
 // Name identifies a channel.
@@ -82,6 +83,7 @@ type Inbound struct {
 	Conversation  ConversationRef     `json:"conversation,omitempty"`
 	Caller        policy.Caller       `json:"caller,omitempty"`
 	Trust         policy.Trust        `json:"trust,omitempty"`
+	Actor         *user.Actor         `json:"actor,omitempty"`
 	Kind          InboundKind         `json:"kind"`
 	Message       *Message            `json:"message,omitempty"`
 	Command       *command.Invocation `json:"command,omitempty"`

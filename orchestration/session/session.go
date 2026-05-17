@@ -19,10 +19,12 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
@@ -41,6 +43,7 @@ type Session struct {
 	Resolver          *sessioncontrol.Resolver
 	CommandCatalog    CommandCatalog
 	OperationCatalog  OperationCatalog
+	ToolSetCatalog    ToolSetCatalog
 	WorkflowCatalog   sessionworkflow.WorkflowCatalog
 	OperationExecutor sessionenv.OperationExecutor
 	Events            sessionenv.EventSink
@@ -50,6 +53,7 @@ type Session struct {
 	Delegation        sessionenv.DelegationPolicy
 	StopEvaluator     StopEvaluator
 	RunID             string
+	TurnTools         []tool.Spec
 }
 
 type StopEvaluator = sessioncontrol.StopEvaluator
@@ -128,6 +132,10 @@ type sessionCommandHandler func(Session, context.Context, channel.Inbound, comma
 type sessionCommandBinding struct {
 	Spec    command.Spec
 	Handler sessionCommandHandler
+}
+
+type turnToolAgent interface {
+	StepWithTools(agent.Context, agent.StepInput, []tool.Spec) agent.StepResult
 }
 
 type resolvedCommand struct {
@@ -472,12 +480,22 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
 		modelCtx = s.withBaseContext(modelCtx, "", in.Events)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
-		agentResult := s.Agent.Step(agentCtx, agent.StepInput{
+		stepInput := agent.StepInput{
 			Goal:         in.Goal,
 			Observations: observations,
 			Context:      in.History,
 			State:        state,
-		})
+		}
+		var agentResult agent.StepResult
+		if s.TurnTools != nil {
+			if toolAgent, ok := s.Agent.(turnToolAgent); ok {
+				agentResult = toolAgent.StepWithTools(agentCtx, stepInput, s.TurnTools)
+			} else {
+				agentResult = s.Agent.Step(agentCtx, stepInput)
+			}
+		} else {
+			agentResult = s.Agent.Step(agentCtx, stepInput)
+		}
 		if in.ConversationErr != nil && *in.ConversationErr != nil {
 			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
 		}
@@ -579,6 +597,13 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 	out := map[string]any{
 		"channel":      inbound.Channel.Name,
 		"conversation": inbound.Conversation.ID,
+		"caller":       inbound.Caller,
+		"trust":        inbound.Trust,
+	}
+	if inbound.Actor != nil {
+		out["user"] = inbound.Actor.User
+		out["identity"] = inbound.Actor.Identity
+		out["groups"] = inbound.Actor.Groups
 	}
 	if inbound.Message != nil {
 		for key, value := range inbound.Message.Metadata {
@@ -741,12 +766,50 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 		BranchID: string(s.Thread.BranchID),
 		TurnID:   in.ConversationTurnID,
 		Reason:   contextRenderReason(pending, observations),
+		Scope:    contextRequestScope(in.Inbound),
 		Previous: records,
 	})
 	if err != nil {
 		return corecontext.BuildResult{}, nil, err
 	}
 	return result, contextPendingItems(in.ProviderIdentity, pending, result), nil
+}
+
+func contextRequestScope(inbound channel.Inbound) map[string]string {
+	out := map[string]string{}
+	if inbound.Caller.Kind != "" {
+		out["caller.kind"] = string(inbound.Caller.Kind)
+	}
+	if inbound.Caller.Principal.Kind != "" {
+		out["caller.principal.kind"] = inbound.Caller.Principal.Kind
+	}
+	if inbound.Caller.Principal.ID != "" {
+		out["caller.principal.id"] = inbound.Caller.Principal.ID
+	}
+	if inbound.Trust.Level != "" {
+		out["trust.level"] = string(inbound.Trust.Level)
+	}
+	if inbound.Trust.Kind != "" {
+		out["trust.kind"] = string(inbound.Trust.Kind)
+	}
+	if inbound.Actor != nil {
+		if inbound.Actor.User.ID != "" {
+			out["user.id"] = string(inbound.Actor.User.ID)
+		}
+		if inbound.Actor.User.Username != "" {
+			out["user.username"] = inbound.Actor.User.Username
+		}
+		if inbound.Actor.Identity.Provider != "" {
+			out["identity.provider"] = inbound.Actor.Identity.Provider
+		}
+		if inbound.Actor.Identity.ProviderID != "" {
+			out["identity.provider_id"] = inbound.Actor.Identity.ProviderID
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s Session) activateTriggeredSkills(pending []coreconversation.Item, observations []environment.Observation, sink sessionenv.EventSink) error {
@@ -1356,7 +1419,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			return nil, nil, err
 		}
 		s.emitLive(requested)
-		effect := s.applyOperation(agentCtx, opReq.Operation, opReq.Input, callID)
+		effect := s.applyProjectedOperation(agentCtx, opReq.Operation, opReq.Input, callID)
 		if effect.Observation.Metadata == nil {
 			effect.Observation.Metadata = map[string]any{}
 		}
@@ -1406,6 +1469,35 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 		s.emitLive(completed)
 	}
 	return effects, toolResults, nil
+}
+
+func (s Session) applyProjectedOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
+	if s.TurnTools != nil && !operationProjected(s.TurnTools, ref) {
+		return operationEffect(operation.Failed("operation_not_projected", "operation was not projected for this turn authority", map[string]any{
+			"operation": ref.String(),
+		}))
+	}
+	return s.applyOperation(ctx, ref, input, callID)
+}
+
+func operationProjected(tools []tool.Spec, ref operation.Ref) bool {
+	for _, spec := range tools {
+		if spec.Target.Kind == invocation.TargetOperation && operationRefEqual(spec.Target.Operation, ref) {
+			return true
+		}
+		if spec.Dispatch != nil {
+			for _, candidate := range spec.Dispatch.Cases {
+				if candidate.Target.Kind == invocation.TargetOperation && operationRefEqual(candidate.Target.Operation, ref) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func operationRefEqual(a, b operation.Ref) bool {
+	return a.Name == b.Name && a.Version == b.Version
 }
 
 func replaceOversizedToolResult(ctx operation.Context, effect environment.EffectResult, ref operation.Ref, callID operation.CallID) (environment.EffectResult, error) {

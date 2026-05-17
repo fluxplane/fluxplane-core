@@ -272,7 +272,7 @@ func (r *runHandle) execute(ctx context.Context) {
 	var result clientapi.Result
 	err = r.client.postJSON(ctx, "/sessions/"+url.PathEscape(string(session.Thread.ID))+"/submit", submitRequest{
 		Session:    session,
-		Submission: submission,
+		Submission: remoteSubmissionFromClient(submission),
 	}, &result)
 	if err != nil && result.RunID == "" {
 		result = clientapi.Result{RunID: r.id, Session: session, Submission: submission}
@@ -300,6 +300,17 @@ func (r *runHandle) snapshot() (clientapi.SessionInfo, clientapi.Submission) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.session, r.submission
+}
+
+func remoteSubmissionFromClient(submission clientapi.Submission) remoteSubmission {
+	return remoteSubmission{
+		ID:             submission.ID,
+		Kind:           submission.Kind,
+		Input:          submission.Input,
+		Command:        submission.Command,
+		TrustDowngrade: submission.TrustDowngrade,
+		Metadata:       submission.Metadata,
+	}
 }
 
 func (r *runHandle) setResult(result clientapi.Result, err error) {

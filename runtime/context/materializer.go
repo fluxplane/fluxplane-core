@@ -72,6 +72,7 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 			BranchID:     req.BranchID,
 			TurnID:       req.TurnID,
 			Reason:       req.Reason,
+			Scope:        cloneStringMap(req.Scope),
 			BudgetTokens: req.BudgetTokens,
 		}
 		if hasPrevious {

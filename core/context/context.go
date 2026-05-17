@@ -167,6 +167,7 @@ type BuildRequest struct {
 	BranchID     string                                `json:"branch_id,omitempty"`
 	TurnID       string                                `json:"turn_id,omitempty"`
 	Reason       RenderReason                          `json:"reason,omitempty"`
+	Scope        map[string]string                     `json:"scope,omitempty"`
 	BudgetTokens int                                   `json:"budget_tokens,omitempty"`
 	Previous     map[ProviderName]ProviderRenderRecord `json:"previous,omitempty"`
 }

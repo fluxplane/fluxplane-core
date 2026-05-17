@@ -24,6 +24,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/user"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
@@ -1334,6 +1335,39 @@ func TestExecuteInboundCommandContextPreviewIsDryRun(t *testing.T) {
 	}
 	if got := countEvent(stored.Events, corecontext.EventRenderCommitted); got != 0 {
 		t.Fatalf("render committed events = %d, want none for dry-run", got)
+	}
+}
+
+func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.T) {
+	ctx := context.Background()
+	var gotScope map[string]string
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "identity"},
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			gotScope = req.Scope
+			return []corecontext.Block{{ID: "identity", Content: "identity"}}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{Agent: runtimeAgent}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:     "run-identity",
+		Kind:   channel.InboundMessage,
+		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "slack_user", ID: "U123"}},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Actor: &user.Actor{
+			User:     user.User{ID: "timo@company.org", Username: "timo@company.org"},
+			Identity: user.Identity{Provider: "slack", ProviderID: "U123"},
+		},
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if gotScope["user.id"] != "timo@company.org" || gotScope["identity.provider"] != "slack" || gotScope["trust.level"] != "verified" {
+		t.Fatalf("scope = %#v, want resolved user, identity, and trust", gotScope)
 	}
 }
 

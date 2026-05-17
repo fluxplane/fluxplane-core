@@ -19,6 +19,7 @@ import (
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/harness"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
@@ -41,6 +42,7 @@ type (
 	RunID                = clientapi.RunID
 	SubmissionKind       = clientapi.SubmissionKind
 	Submission           = clientapi.Submission
+	TrustDowngrade       = clientapi.TrustDowngrade
 	Input                = clientapi.Input
 	Signal               = clientapi.Signal
 	EventKind            = clientapi.EventKind
@@ -52,6 +54,7 @@ type (
 	Composition          = appcomposition.Composition
 	ResourceBundle       = resource.ContributionBundle
 	AgentProvider        = harness.AgentProvider
+	IdentityResolver     = identity.Resolver
 	LLMModel             = llmagent.Model
 	LLMModelResolver     = agentfactory.ModelResolver
 	LLMStreamPolicy      = llmagent.StreamPolicy
@@ -98,6 +101,7 @@ type Config struct {
 	CommandCatalog    session.CommandCatalog
 	OperationCatalog  session.OperationCatalog
 	WorkflowCatalog   resourcecatalog.WorkflowCatalog
+	ToolSetCatalog    session.ToolSetCatalog
 	SessionCatalog    session.SessionCatalog
 	OperationExecutor operationruntime.Executor
 	Events            coreevent.Sink
@@ -111,6 +115,7 @@ type Config struct {
 	LLMModelResolver  LLMModelResolver
 	LLMStreamPolicy   LLMStreamPolicy
 	ToolProjection    ToolProjectionConfig
+	IdentityResolver  IdentityResolver
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -163,11 +168,14 @@ func New(cfg Config) (*Service, error) {
 		CommandCatalog:    cfg.CommandCatalog,
 		OperationCatalog:  cfg.OperationCatalog,
 		WorkflowCatalog:   cfg.WorkflowCatalog,
+		ToolSetCatalog:    cfg.ToolSetCatalog,
 		SessionCatalog:    cfg.SessionCatalog,
 		OperationExecutor: executor,
 		Events:            cfg.Events,
 		ThreadStore:       threadStore,
 		StopEvaluator:     stopEvaluator,
+		IdentityResolver:  cfg.IdentityResolver,
+		ToolProjection:    cfg.ToolProjection,
 	})
 	client, err := directchannel.New(directchannel.Config{
 		Service: service,
@@ -299,6 +307,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.WorkflowCatalog == nil {
 		cfg.WorkflowCatalog = composition.WorkflowCatalog
+	}
+	if cfg.ToolSetCatalog == nil {
+		cfg.ToolSetCatalog = composition.ToolSetCatalog
 	}
 	if cfg.SessionCatalog == nil {
 		cfg.SessionCatalog = composition.SessionCatalog

@@ -146,6 +146,17 @@ func (a *Agent) ProviderIdentity() coreconversation.ProviderIdentity {
 
 // Step advances one LLM-backed agent turn.
 func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult {
+	return a.step(ctx, input, nil)
+}
+
+// StepWithTools advances one turn with a per-turn model-visible tool override.
+func (a *Agent) StepWithTools(ctx agent.Context, input agent.StepInput, tools []tool.Spec) agent.StepResult {
+	copied := make([]tool.Spec, len(tools))
+	copy(copied, tools)
+	return a.step(ctx, input, copied)
+}
+
+func (a *Agent) step(ctx agent.Context, input agent.StepInput, toolOverride []tool.Spec) agent.StepResult {
 	if a == nil {
 		return failed("agent_missing", "llmagent: agent is nil", nil)
 	}
@@ -168,7 +179,7 @@ func (a *Agent) Step(ctx agent.Context, input agent.StepInput) agent.StepResult 
 		}
 		input.Context = append(dynamicContext, input.Context...)
 	}
-	req := a.request(ctx, input)
+	req := a.request(ctx, input, toolOverride)
 	provider := a.providerName(req)
 	emit(ctx, ModelRequested{Agent: a.spec.Name, Provider: provider, Model: modelName(req)})
 	resp, err := a.complete(base, ctx, req)
@@ -238,11 +249,15 @@ func (a *Agent) emitStream(ctx agent.Context, req Request, evt StreamEvent) {
 	emit(ctx, ModelStreamed{Agent: a.spec.Name, Provider: a.providerName(req), Model: modelName(req), Event: evt})
 }
 
-func (a *Agent) request(ctx agent.Context, input agent.StepInput) Request {
+func (a *Agent) request(ctx agent.Context, input agent.StepInput, toolOverride []tool.Spec) Request {
+	tools := append([]tool.Spec(nil), a.tools...)
+	if toolOverride != nil {
+		tools = append([]tool.Spec(nil), toolOverride...)
+	}
 	return Request{
 		Agent:        a.spec,
 		Driver:       a.driver,
-		Tools:        append([]tool.Spec(nil), a.tools...),
+		Tools:        tools,
 		Goal:         input.Goal,
 		Objective:    chooseObjective(input.Objective, a.spec.Objective),
 		Observations: append([]environment.Observation(nil), input.Observations...),

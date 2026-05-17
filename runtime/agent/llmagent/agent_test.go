@@ -129,6 +129,26 @@ func TestAgentStepIncludesProjectedTools(t *testing.T) {
 	}
 }
 
+func TestAgentStepWithToolsOverridesConfiguredTools(t *testing.T) {
+	var got Request
+	runtime, err := New(agent.Spec{Name: "main"}, ModelFunc(func(_ context.Context, req Request) (Response, error) {
+		got = req
+		return MessageResponse("ok"), nil
+	}), WithTools(tool.Spec{Name: "inspect"}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	result := runtime.StepWithTools(testAgentContext{}, agent.StepInput{}, []tool.Spec{})
+
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	if len(got.Tools) != 0 {
+		t.Fatalf("tools = %#v, want override to no tools", got.Tools)
+	}
+}
+
 func TestAgentStepPassesChannelMessageToContextProvidersForDetection(t *testing.T) {
 	var gotInput coredatasource.DetectionInput
 	provider := contextProviderFunc{

@@ -14,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coreresource "github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/core/tool"
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -76,6 +77,131 @@ func TestServiceSubmitCommandThroughTopLevelAPI(t *testing.T) {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
 	assertRunEvent(t, run, agentruntime.EventCommandCompleted)
+}
+
+func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
+	ctx := context.Background()
+	agentRuntime := &toolCaptureAgent{}
+	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Operations: []operation.Operation{echo},
+		Bundles: []coreresource.ContributionBundle{{
+			Agents: []agent.Spec{{Name: "main"}},
+			Operations: []operation.Spec{{
+				Ref: operation.Ref{Name: "echo"},
+			}},
+			Commands: []command.Spec{{
+				Path: command.Path{"echo"},
+				Target: invocation.Target{
+					Kind:      invocation.TargetOperation,
+					Operation: operation.Ref{Name: "echo"},
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Agent:   agentRuntime,
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-tool-trust"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
+	if err != nil {
+		t.Fatalf("Submit verified: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait verified: %v", err)
+	}
+	if len(agentRuntime.lastTools) != 1 {
+		t.Fatalf("verified tools len = %d, want 1", len(agentRuntime.lastTools))
+	}
+
+	run, err = sessionHandle.Submit(ctx, agentruntime.NewSubmission().
+		WithText("hello").
+		WithTrustDowngrade(agentruntime.TrustDowngrade{Level: policy.TrustUntrusted}))
+	if err != nil {
+		t.Fatalf("Submit downgraded: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait downgraded: %v", err)
+	}
+	if len(agentRuntime.lastTools) != 0 {
+		t.Fatalf("downgraded tools len = %d, want 0", len(agentRuntime.lastTools))
+	}
+}
+
+func TestServiceRejectsOperationNotProjectedForInboundTrust(t *testing.T) {
+	ctx := context.Background()
+	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})
+	composition, err := appcomposition.Compose(appcomposition.Config{
+		Operations: []operation.Operation{echo},
+		Bundles: []coreresource.ContributionBundle{{
+			Agents:     []agent.Spec{{Name: "main"}},
+			Operations: []operation.Spec{{Ref: operation.Ref{Name: "echo"}}},
+			Commands: []command.Spec{{
+				Path: command.Path{"echo"},
+				Target: invocation.Target{
+					Kind:      invocation.TargetOperation,
+					Operation: operation.Ref{Name: "echo"},
+				},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		Agent:   operationAgent{},
+		Channel: channel.Ref{Name: "local"},
+		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-operation-not-projected"}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().
+		WithText("hello").
+		WithTrustDowngrade(agentruntime.TrustDowngrade{Level: policy.TrustUntrusted}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Input == nil || len(result.Input.Effects) != 1 || result.Input.Effects[0].Result.Error == nil {
+		t.Fatalf("input effects = %#v, want failed operation result", result.Input)
+	}
+	if result.Input.Effects[0].Result.Error.Code != "operation_not_projected" {
+		t.Fatalf("operation error = %#v, want operation_not_projected", result.Input.Effects[0].Result.Error)
+	}
 }
 
 func TestServiceListsAndResumesSessions(t *testing.T) {
@@ -341,7 +467,7 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 					Operation: operation.Ref{Name: "echo"},
 				},
 				Policy: policy.InvocationPolicy{
-					AllowedCallers: []policy.CallerKind{policy.CallerAgent},
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
 					RequiredTrust:  policy.TrustVerified,
 				},
 			}},
@@ -470,6 +596,54 @@ func (echoAgent) Step(_ agent.Context, input agent.StepInput) agent.StepResult {
 		Decision: agent.Decision{
 			Kind:    agent.DecisionMessage,
 			Message: &agent.Message{Content: content},
+		},
+	}
+}
+
+type toolCaptureAgent struct {
+	lastTools []tool.Spec
+}
+
+func (a *toolCaptureAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "main"}
+}
+
+func (a *toolCaptureAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "ok"},
+		},
+	}
+}
+
+func (a *toolCaptureAgent) StepWithTools(_ agent.Context, _ agent.StepInput, tools []tool.Spec) agent.StepResult {
+	a.lastTools = append([]tool.Spec(nil), tools...)
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind:    agent.DecisionMessage,
+			Message: &agent.Message{Content: "ok"},
+		},
+	}
+}
+
+type operationAgent struct{}
+
+func (operationAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "main", Turns: agent.TurnPolicy{MaxSteps: 1}}
+}
+
+func (operationAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
+	return agent.StepResult{
+		Status: agent.StatusOK,
+		Decision: agent.Decision{
+			Kind: agent.DecisionOperation,
+			Operations: []agent.OperationRequest{{
+				Operation: operation.Ref{Name: "echo"},
+				Input:     "hello",
+			}},
 		},
 	}
 }

@@ -15,8 +15,10 @@ const (
 // User is a stable person record.
 type User struct {
 	ID          ID                `json:"id"`
+	Username    string            `json:"username,omitempty"`
 	DisplayName string            `json:"display_name,omitempty"`
 	Trust       TrustLevel        `json:"trust,omitempty"`
+	Groups      []ID              `json:"groups,omitempty"`
 	Identities  []Identity        `json:"identities,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -28,6 +30,24 @@ type Identity struct {
 	Email       string            `json:"email,omitempty"`
 	DisplayName string            `json:"display_name,omitempty"`
 	Claims      map[string]string `json:"claims,omitempty"`
+}
+
+// Group is a stable, app-defined user set that can carry trust outside any
+// channel-specific identity model.
+type Group struct {
+	ID          ID                `json:"id"`
+	DisplayName string            `json:"display_name,omitempty"`
+	Members     []ID              `json:"members,omitempty"`
+	Trust       TrustLevel        `json:"trust,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Actor is the resolved user identity for one inbound interaction.
+type Actor struct {
+	User     User       `json:"user,omitempty"`
+	Identity Identity   `json:"identity,omitempty"`
+	Groups   []Group    `json:"groups,omitempty"`
+	Trust    TrustLevel `json:"trust,omitempty"`
 }
 
 // NormalizeTrust returns a conservative default for empty trust.

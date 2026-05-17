@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
@@ -111,7 +112,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	if err != nil {
 		return err
 	}
-	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, runtime.Service, host); err != nil {
+	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, runtime.Service, host, runtime.Caller, runtime.Trust); err != nil {
 		return err
 	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
@@ -132,6 +133,21 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		return err
 	}
 	return nil
+}
+
+func listenerAuthority(listener orchestrationdistribution.Listener, caller policy.Caller, trust policy.Trust) httpssechannel.Authority {
+	mode := strings.ToLower(strings.TrimSpace(distserve.AuthString(listener.Auth, "mode")))
+	authority := httpssechannel.Authority{Caller: caller, Trust: trust}
+	switch mode {
+	case "", "local_socket":
+		authority.AllowTrustDowngrade = !distserve.AddrIsTCP(listener.Addr)
+	case "bearer", "token":
+		authority.AllowTrustDowngrade = true
+		if authority.Trust.Level == "" || policy.TrustSatisfies(authority.Trust.Level, policy.TrustPrivileged) {
+			authority.Trust.Level = policy.TrustVerified
+		}
+	}
+	return authority
 }
 
 func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath string) error {
@@ -221,7 +237,7 @@ func userTrust(raw string) user.TrustLevel {
 	}
 }
 
-func startServeListeners(ctx context.Context, listeners []orchestrationdistribution.Listener, channels []orchestrationdistribution.Channel, client agentruntime.ChannelClient, host *daemon.Host) error {
+func startServeListeners(ctx context.Context, listeners []orchestrationdistribution.Listener, channels []orchestrationdistribution.Channel, client agentruntime.ChannelClient, host *daemon.Host, caller policy.Caller, trust policy.Trust) error {
 	needsDirect := map[string]bool{}
 	for _, ch := range channels {
 		if ch.Type == "direct" && ch.Listener != "" {
@@ -239,7 +255,10 @@ func startServeListeners(ctx context.Context, listeners []orchestrationdistribut
 		}
 		mux.Handle("/control/", http.StripPrefix("/control", controlServer))
 		if needsDirect[listenerDoc.Name] {
-			channelServer, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: client})
+			channelServer, err := httpssechannel.NewServer(httpssechannel.ServerConfig{
+				Client:    client,
+				Authority: listenerAuthority(listenerDoc, caller, trust),
+			})
 			if err != nil {
 				return err
 			}

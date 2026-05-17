@@ -141,9 +141,39 @@ func (s *Session) Submit(ctx context.Context, submission clientapi.Submission) (
 	if submission.Trust.Kind == "" {
 		submission.Trust = s.client.trust
 	}
+	if submission.TrustDowngrade != nil {
+		if submission.TrustDowngrade.Level == "" {
+			return nil, fmt.Errorf("directchannel: trust downgrade level is empty")
+		}
+		if !policy.TrustSatisfies(submission.Trust.Level, submission.TrustDowngrade.Level) {
+			return nil, fmt.Errorf("directchannel: trust downgrade level %q exceeds current trust %q", submission.TrustDowngrade.Level, submission.Trust.Level)
+		}
+		if !scopesSubset(submission.TrustDowngrade.Scopes, submission.Trust.Scopes) {
+			return nil, fmt.Errorf("directchannel: trust downgrade scopes exceed current trust scopes")
+		}
+		submission.Trust.Level = submission.TrustDowngrade.Level
+		submission.Trust.Scopes = append([]policy.Scope(nil), submission.TrustDowngrade.Scopes...)
+		submission.Trust.Reason = submission.TrustDowngrade.Reason
+	}
 	run := newRunHandle(s.info, submission)
 	go run.execute(ctx, s.client.service, s.info)
 	return run, nil
+}
+
+func scopesSubset(requested, granted []policy.Scope) bool {
+	if len(requested) == 0 {
+		return true
+	}
+	grants := map[policy.Scope]struct{}{}
+	for _, scope := range granted {
+		grants[scope] = struct{}{}
+	}
+	for _, scope := range requested {
+		if _, ok := grants[scope]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // Events subscribes to session-level outbound events.
