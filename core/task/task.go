@@ -51,6 +51,15 @@ const (
 	TaskCreateKindGeneric TaskCreateKind = "generic"
 )
 
+const (
+	// MetadataOriginThreadID records the session thread that created a task.
+	MetadataOriginThreadID = "origin_thread_id"
+	// MetadataOriginBranchID records the session branch that created a task.
+	MetadataOriginBranchID = "origin_branch_id"
+	// MetadataOriginRunID records the session run that created a task.
+	MetadataOriginRunID = "origin_run_id"
+)
+
 // ArtifactKind classifies task input/output and produced artifacts.
 type ArtifactKind string
 
@@ -288,8 +297,35 @@ func (r TaskGetResult) ModelText() string {
 		}
 		if len(r.Task.Steps) > 0 {
 			b.WriteString("\nSteps:")
+			exec, hasExec := r.Executions[r.CurrentExecution]
 			for _, step := range r.Task.Steps {
 				fmt.Fprintf(&b, "\n- %s: %s", step.ID, firstNonEmpty(step.Title, step.Objective, step.Description))
+				if hasExec {
+					if status := exec.Steps[step.ID].Status; status != "" {
+						fmt.Fprintf(&b, " (status: %s)", status)
+					}
+				}
+				if len(step.DependsOn) > 0 {
+					fmt.Fprintf(&b, "\n  depends_on: %s", stepIDList(step.DependsOn))
+				}
+				if len(step.Inputs) > 0 {
+					b.WriteString("\n  inputs:")
+					for _, artifact := range step.Inputs {
+						fmt.Fprintf(&b, " %s", artifactLabel(artifact))
+					}
+				}
+				if len(step.Outputs) > 0 {
+					b.WriteString("\n  outputs:")
+					for _, artifact := range step.Outputs {
+						fmt.Fprintf(&b, " %s", artifactLabel(artifact))
+					}
+				}
+				if hasExec && len(exec.Steps[step.ID].Artifacts) > 0 {
+					b.WriteString("\n  artifacts:")
+					for _, artifact := range exec.Steps[step.ID].Artifacts {
+						fmt.Fprintf(&b, " %s", artifactSummary(artifact))
+					}
+				}
 			}
 		}
 		artifacts := scopedArtifactsForText(r.Task, r.Executions)
@@ -561,12 +597,13 @@ type SchedulerStatusRequest struct{}
 
 // SchedulerStatusResult reports local scheduler capacity and in-flight tasks.
 type SchedulerStatusResult struct {
-	Enabled      bool   `json:"enabled"`
-	Active       bool   `json:"active"`
-	Running      []ID   `json:"running,omitempty"`
-	Capacity     int    `json:"capacity"`
-	MaxParallel  int    `json:"max_parallel"`
-	PollInterval string `json:"poll_interval,omitempty"`
+	Enabled           bool         `json:"enabled"`
+	Active            bool         `json:"active"`
+	Running           []ID         `json:"running,omitempty"`
+	Capacity          int          `json:"capacity"`
+	MaxParallel       int          `json:"max_parallel"`
+	ReconcileInterval string       `json:"reconcile_interval,omitempty"`
+	Diagnostics       []Diagnostic `json:"diagnostics,omitempty"`
 }
 
 // ModelText returns a compact model-facing scheduler summary.
@@ -584,12 +621,15 @@ func (r SchedulerStatusResult) ModelText() string {
 	for _, id := range r.Running {
 		fmt.Fprintf(&b, "\n- running: %s", id)
 	}
+	for _, diagnostic := range r.Diagnostics {
+		fmt.Fprintf(&b, "\n- %s: %s", diagnostic.Code, diagnostic.Message)
+	}
 	return b.String()
 }
 
-// SchedulerSetEnabledRequest enables or disables automatic task polling.
+// SchedulerSetEnabledRequest enables or disables automatic task scheduling.
 type SchedulerSetEnabledRequest struct {
-	Enabled bool `json:"enabled" jsonschema:"description=Whether automatic ready-task polling should be enabled.,required"`
+	Enabled bool `json:"enabled" jsonschema:"description=Whether automatic ready-task scheduling should be enabled.,required"`
 }
 
 // Diagnostic records a non-fatal task execution note.
@@ -772,6 +812,16 @@ func artifactLabel(artifact ArtifactSpec) string {
 		label += " required"
 	}
 	return label
+}
+
+func stepIDList(ids []StepID) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			parts = append(parts, string(id))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func scopedArtifactsForText(task Task, executions map[ExecutionID]Execution) []ScopedArtifact {

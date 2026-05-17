@@ -14,7 +14,6 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -28,19 +27,19 @@ func TestBundleComposes(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.AgentSpecs) != 5 {
-		t.Fatalf("agent specs len = %d, want 5", len(composition.AgentSpecs))
+	if len(composition.AgentSpecs) != 6 {
+		t.Fatalf("agent specs len = %d, want 6", len(composition.AgentSpecs))
 	}
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 88 {
-		t.Fatalf("operation specs len = %d, want 88", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 86 {
+		t.Fatalf("operation specs len = %d, want 86", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -71,7 +70,10 @@ func TestBundleComposes(t *testing.T) {
 			t.Fatalf("delegation operations missing %s", name)
 		}
 	}
-	worker := composition.AgentSpecs[1]
+	worker, ok := findAgentSpec(composition.AgentSpecs, taskplugin.WorkerAgent)
+	if !ok {
+		t.Fatalf("agent specs = %#v, missing %s", composition.AgentSpecs, taskplugin.WorkerAgent)
+	}
 	if len(worker.Commands) != 0 {
 		t.Fatalf("worker commands len = %d, want 0", len(worker.Commands))
 	}
@@ -124,6 +126,15 @@ func agentHasOperation(spec agent.Spec, name string) bool {
 		}
 	}
 	return false
+}
+
+func findAgentSpec(specs []agent.Spec, name string) (agent.Spec, bool) {
+	for _, spec := range specs {
+		if string(spec.Name) == name {
+			return spec, true
+		}
+	}
+	return agent.Spec{}, false
 }
 
 func agentHasDatasource(spec agent.Spec, name string) bool {

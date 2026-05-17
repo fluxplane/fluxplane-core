@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
@@ -12,12 +14,67 @@ import (
 )
 
 const (
-	defaultIndexStream event.StreamID = "thread.index"
+	defaultIndexStream   event.StreamID = "thread.index"
+	threadWriteRetries                  = 16
+	threadWriteRetryBase                = time.Millisecond
 
 	attrBranchID     = "thread.branch_id"
 	attrNodeID       = "thread.node_id"
 	attrParentNodeID = "thread.parent_node_id"
+
+	// attrIdempotencyKey documents the runtime/thread-owned logical write key.
+	// Thread mutators assign record IDs before event.Store calls so automatic
+	// retries reuse the same IDs. Stores reject duplicate record IDs atomically;
+	// runtime/thread recovers ambiguous committed results by loading the thread.
+	attrIdempotencyKey = "thread.idempotency_key"
 )
+
+// WriteError adds payload-free thread identifiers and retry metadata to
+// storage failures returned while mutating a thread.
+type WriteError struct {
+	Op       string
+	ThreadID corethread.ID
+	Attempt  int
+	Attempts int
+	Err      error
+}
+
+func (e WriteError) Error() string {
+	msg := fmt.Sprintf("thread: %s failed", e.Op)
+	if e.ThreadID != "" {
+		msg += fmt.Sprintf(" thread_id=%q", e.ThreadID)
+	}
+	if e.Attempts > 0 {
+		msg += fmt.Sprintf(" attempt=%d/%d", e.Attempt, e.Attempts)
+	}
+	if e.Err != nil {
+		msg += ": " + e.Err.Error()
+	}
+	return msg
+}
+
+func (e WriteError) Unwrap() error { return e.Err }
+
+func wrapWriteError(op string, id corethread.ID, attempt int, err error) error {
+	if err == nil {
+		return nil
+	}
+	var existing WriteError
+	if errors.As(err, &existing) {
+		if op != "" {
+			existing.Op = op
+		}
+		if id != "" {
+			existing.ThreadID = id
+		}
+		if attempt > 0 {
+			existing.Attempt = attempt
+			existing.Attempts = threadWriteRetries
+		}
+		return existing
+	}
+	return WriteError{Op: op, ThreadID: id, Attempt: attempt, Attempts: threadWriteRetries, Err: err}
+}
 
 // Store implements core/thread.Store by replaying a core/event.Store stream.
 type Store struct {
@@ -68,6 +125,38 @@ func (s *Store) Create(ctx context.Context, params corethread.CreateParams) (cor
 	if id == "" {
 		id = corethread.ID(newID("thread_"))
 	}
+	params.ID = id
+
+	operationID := newID("thread_create_")
+	var lastConflict error
+	for attempt := 0; attempt < threadWriteRetries; attempt++ {
+		snapshot, err := s.createOnce(ctx, params, operationID)
+		if err == nil {
+			return snapshot, nil
+		}
+		if !errors.Is(err, event.ErrAppendConflict) {
+			return corethread.Snapshot{}, wrapWriteError("create", id, attempt+1, err)
+		}
+		lastConflict = wrapWriteError("create", id, attempt+1, err)
+		if !isAppendConflictOn(err, s.index) {
+			observed, loadErr := s.loadThread(ctx, id)
+			if loadErr != nil {
+				return corethread.Snapshot{}, wrapWriteError("create load after conflict", id, attempt+1, loadErr)
+			}
+			if len(observed.records) > 0 {
+				return corethread.Snapshot{}, corethread.ErrAlreadyExists
+			}
+			return corethread.Snapshot{}, err
+		}
+		if err := sleepThreadWriteRetry(ctx, attempt); err != nil {
+			return corethread.Snapshot{}, wrapWriteError("create retry sleep", id, attempt+1, err)
+		}
+	}
+	return corethread.Snapshot{}, lastConflict
+}
+
+func (s *Store) createOnce(ctx context.Context, params corethread.CreateParams, operationID string) (corethread.Snapshot, error) {
+	id := params.ID
 	index, err := s.loadIndex(ctx)
 	if err != nil {
 		return corethread.Snapshot{}, err
@@ -88,17 +177,21 @@ func (s *Store) Create(ctx context.Context, params corethread.CreateParams) (cor
 		CreatedAt: now,
 		Source:    params.Source,
 	}
+	threadKey := threadRecordID(id, operationID, "thread", payload.EventName(), "0")
+	indexKey := threadRecordID(id, operationID, "index", payload.EventName(), "0")
 	if _, err := s.events.AppendBatch(ctx,
 		event.AppendRequest{
 			Stream:  s.threadStream(id),
 			Options: event.ExpectSequence(0),
 			Records: []event.Record{{
+				ID:      threadKey,
 				Name:    payload.EventName(),
 				Time:    now,
 				Scope:   event.Scope{ThreadID: string(id)},
 				Payload: payload,
 				Attributes: map[string]string{
-					attrBranchID: string(branchID),
+					attrBranchID:       string(branchID),
+					attrIdempotencyKey: threadKey,
 				},
 			}},
 		},
@@ -106,14 +199,21 @@ func (s *Store) Create(ctx context.Context, params corethread.CreateParams) (cor
 			Stream:  s.index,
 			Options: event.ExpectSequence(index.lastSequence),
 			Records: []event.Record{{
+				ID:      indexKey,
 				Name:    payload.EventName(),
 				Time:    now,
 				Scope:   event.Scope{ThreadID: string(id)},
 				Payload: payload,
+				Attributes: map[string]string{
+					attrIdempotencyKey: indexKey,
+				},
 			}},
 		},
 	); err != nil {
-		return corethread.Snapshot{}, err
+		if errors.Is(err, event.ErrDuplicateRecord) {
+			return s.Read(ctx, corethread.ReadParams{ID: id})
+		}
+		return corethread.Snapshot{}, wrapWriteError("create", id, 1, err)
 	}
 	return s.Read(ctx, corethread.ReadParams{ID: id})
 }
@@ -126,47 +226,73 @@ func (s *Store) Append(ctx context.Context, ref corethread.Ref, records ...coret
 	if len(records) == 0 {
 		return nil, nil
 	}
-	observed, err := s.loadThread(ctx, ref.ID)
-	if err != nil {
-		return nil, err
-	}
-	if len(observed.records) == 0 {
-		return nil, corethread.ErrNotFound
-	}
-	snapshot := projectSnapshot(ref.ID, observed.records)
-	branchID := normalizeBranch(ref.BranchID)
-	if _, ok := snapshot.Branches[branchID]; !ok {
-		return nil, fmt.Errorf("%w: branch %q", corethread.ErrNotFound, branchID)
-	}
-
-	eventRecords := make([]event.Record, len(records))
+	operationID := newID("thread_append_")
+	appendNow := time.Now().UTC()
+	stableRecords := make([]corethread.AppendRecord, len(records))
 	for i, record := range records {
-		eventRecord := record.Event
-		eventRecord.Scope.ThreadID = string(ref.ID)
-		eventRecord.Attributes = cloneStringMap(eventRecord.Attributes)
-		if eventRecord.Attributes == nil {
-			eventRecord.Attributes = map[string]string{}
+		stableRecords[i] = record
+		if stableRecords[i].Event.ID == "" {
+			stableRecords[i].Event.ID = threadRecordID(ref.ID, operationID, "thread", stableRecords[i].Event.Name, fmt.Sprintf("%d", i))
 		}
-		eventRecord.Attributes[attrBranchID] = string(branchID)
-		if record.NodeID != "" {
-			eventRecord.Attributes[attrNodeID] = string(record.NodeID)
+		if stableRecords[i].Event.Time.IsZero() {
+			stableRecords[i].Event.Time = appendNow
 		}
-		if record.ParentNodeID != "" {
-			eventRecord.Attributes[attrParentNodeID] = string(record.ParentNodeID)
-		}
-		eventRecords[i] = eventRecord
 	}
-	stored, err := s.events.Append(ctx, s.threadStream(ref.ID), event.ExpectSequence(observed.lastSequence), eventRecords...)
-	if err != nil {
-		return nil, err
-	}
+	var lastConflict error
+	for attempt := 0; attempt < threadWriteRetries; attempt++ {
+		observed, err := s.loadThread(ctx, ref.ID)
+		if err != nil {
+			return nil, wrapWriteError("append", ref.ID, attempt+1, err)
+		}
+		if len(observed.records) == 0 {
+			return nil, corethread.ErrNotFound
+		}
+		snapshot := projectSnapshot(ref.ID, observed.records)
+		branchID := normalizeBranch(ref.BranchID)
+		if _, ok := snapshot.Branches[branchID]; !ok {
+			return nil, fmt.Errorf("%w: branch %q", corethread.ErrNotFound, branchID)
+		}
 
-	out := make([]corethread.Record, len(stored))
-	nextSequence := event.Sequence(len(snapshot.Events) + 1)
-	for i, storedRecord := range stored {
-		out[i] = toThreadRecord(ref.ID, nextSequence+event.Sequence(i), storedRecord.Record)
+		eventRecords := make([]event.Record, len(records))
+		for i, record := range stableRecords {
+			eventRecord := record.Event
+			eventRecord.Scope.ThreadID = string(ref.ID)
+			eventRecord.Attributes = cloneStringMap(eventRecord.Attributes)
+			if eventRecord.Attributes == nil {
+				eventRecord.Attributes = map[string]string{}
+			}
+			eventRecord.Attributes[attrBranchID] = string(branchID)
+			if record.NodeID != "" {
+				eventRecord.Attributes[attrNodeID] = string(record.NodeID)
+			}
+			if record.ParentNodeID != "" {
+				eventRecord.Attributes[attrParentNodeID] = string(record.ParentNodeID)
+			}
+			eventRecords[i] = eventRecord
+		}
+		stored, err := s.events.Append(ctx, s.threadStream(ref.ID), event.ExpectSequence(observed.lastSequence), eventRecords...)
+		if err != nil {
+			if errors.Is(err, event.ErrDuplicateRecord) {
+				return s.recoverDuplicateAppend(ctx, ref.ID, eventRecords)
+			}
+			if errors.Is(err, event.ErrAppendConflict) {
+				lastConflict = wrapWriteError("append", ref.ID, attempt+1, err)
+				if err := sleepThreadWriteRetry(ctx, attempt); err != nil {
+					return nil, wrapWriteError("append retry sleep", ref.ID, attempt+1, err)
+				}
+				continue
+			}
+			return nil, wrapWriteError("append", ref.ID, attempt+1, err)
+		}
+
+		out := make([]corethread.Record, len(stored))
+		nextSequence := event.Sequence(len(snapshot.Events) + 1)
+		for i, storedRecord := range stored {
+			out[i] = toThreadRecord(ref.ID, nextSequence+event.Sequence(i), storedRecord.Record)
+		}
+		return out, nil
 	}
-	return out, nil
+	return nil, lastConflict
 }
 
 // Fork creates a branch from another branch.
@@ -174,49 +300,134 @@ func (s *Store) Fork(ctx context.Context, params corethread.ForkParams) (corethr
 	if params.ID == "" {
 		return corethread.Snapshot{}, fmt.Errorf("thread: id is empty")
 	}
-	observed, err := s.loadThread(ctx, params.ID)
-	if err != nil {
-		return corethread.Snapshot{}, err
-	}
-	if len(observed.records) == 0 {
-		return corethread.Snapshot{}, corethread.ErrNotFound
-	}
-	snapshot := projectSnapshot(params.ID, observed.records)
-	from := normalizeBranch(params.FromBranchID)
-	if _, ok := snapshot.Branches[from]; !ok {
-		return corethread.Snapshot{}, fmt.Errorf("%w: branch %q", corethread.ErrNotFound, from)
-	}
 	to := params.ToBranchID
 	if to == "" {
 		to = corethread.BranchID(newID("branch_"))
 	}
-	if _, ok := snapshot.Branches[to]; ok {
-		return corethread.Snapshot{}, fmt.Errorf("%w: branch %q", corethread.ErrAlreadyExists, to)
+	var lastConflict error
+	for attempt := 0; attempt < threadWriteRetries; attempt++ {
+		observed, err := s.loadThread(ctx, params.ID)
+		if err != nil {
+			return corethread.Snapshot{}, wrapWriteError("fork", params.ID, attempt+1, err)
+		}
+		if len(observed.records) == 0 {
+			return corethread.Snapshot{}, corethread.ErrNotFound
+		}
+		snapshot := projectSnapshot(params.ID, observed.records)
+		from := normalizeBranch(params.FromBranchID)
+		if _, ok := snapshot.Branches[from]; !ok {
+			return corethread.Snapshot{}, fmt.Errorf("%w: branch %q", corethread.ErrNotFound, from)
+		}
+		if _, ok := snapshot.Branches[to]; ok {
+			return corethread.Snapshot{}, fmt.Errorf("%w: branch %q", corethread.ErrAlreadyExists, to)
+		}
+		now := params.Now
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		payload := corethread.BranchCreated{
+			ThreadID:     params.ID,
+			FromBranchID: from,
+			ToBranchID:   to,
+			ForkSequence: event.Sequence(len(snapshot.Events)),
+			CreatedAt:    now,
+			Source:       params.Source,
+		}
+		if _, err := s.events.Append(ctx, s.threadStream(params.ID), event.ExpectSequence(observed.lastSequence), event.Record{
+			Name:    payload.EventName(),
+			Time:    now,
+			Scope:   event.Scope{ThreadID: string(params.ID)},
+			Payload: payload,
+			Attributes: map[string]string{
+				attrBranchID: string(to),
+			},
+		}); err != nil {
+			if errors.Is(err, event.ErrAppendConflict) {
+				lastConflict = wrapWriteError("fork", params.ID, attempt+1, err)
+				if err := sleepThreadWriteRetry(ctx, attempt); err != nil {
+					return corethread.Snapshot{}, wrapWriteError("fork retry sleep", params.ID, attempt+1, err)
+				}
+				continue
+			}
+			return corethread.Snapshot{}, wrapWriteError("fork", params.ID, attempt+1, err)
+		}
+		return s.Read(ctx, corethread.ReadParams{ID: params.ID})
 	}
-	now := params.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
+	return corethread.Snapshot{}, lastConflict
+}
+
+func (s *Store) recoverDuplicateAppend(ctx context.Context, id corethread.ID, records []event.Record) ([]corethread.Record, error) {
+	observed, err := s.loadThread(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	payload := corethread.BranchCreated{
-		ThreadID:     params.ID,
-		FromBranchID: from,
-		ToBranchID:   to,
-		ForkSequence: event.Sequence(len(snapshot.Events)),
-		CreatedAt:    now,
-		Source:       params.Source,
+	byID := map[string]corethread.Record{}
+	for i, record := range observed.records {
+		if record.ID != "" {
+			byID[record.ID] = toThreadRecord(id, event.Sequence(i+1), record)
+		}
 	}
-	if _, err := s.events.Append(ctx, s.threadStream(params.ID), event.ExpectSequence(observed.lastSequence), event.Record{
-		Name:    payload.EventName(),
-		Time:    now,
-		Scope:   event.Scope{ThreadID: string(params.ID)},
-		Payload: payload,
-		Attributes: map[string]string{
-			attrBranchID: string(to),
-		},
-	}); err != nil {
-		return corethread.Snapshot{}, err
+	out := make([]corethread.Record, len(records))
+	for i, record := range records {
+		existing, ok := byID[record.ID]
+		if !ok || !sameLogicalRecord(existing.Event, record) {
+			return nil, event.DuplicateRecord{Stream: s.threadStream(id), ID: record.ID}
+		}
+		out[i] = existing
 	}
-	return s.Read(ctx, corethread.ReadParams{ID: params.ID})
+	return out, nil
+}
+
+func sameLogicalRecord(existing, retry event.Record) bool {
+	if existing.ID != retry.ID || existing.Name != retry.Name || !existing.Time.Equal(retry.Time) {
+		return false
+	}
+	if existing.Scope.ThreadID != retry.Scope.ThreadID || existing.Scope.TurnID != retry.Scope.TurnID || existing.Scope.OperationID != retry.Scope.OperationID {
+		return false
+	}
+	if !sameStringMap(existing.Attributes, retry.Attributes) {
+		return false
+	}
+	return fmt.Sprintf("%#v", existing.Payload) == fmt.Sprintf("%#v", retry.Payload)
+}
+
+func sameStringMap(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, av := range a {
+		if b[key] != av {
+			return false
+		}
+	}
+	return true
+}
+
+func isAppendConflictOn(err error, stream event.StreamID) bool {
+	var conflict event.AppendConflict
+	if errors.As(err, &conflict) {
+		return conflict.Stream == stream
+	}
+	return false
+}
+
+func threadRecordID(id corethread.ID, operationID, streamRole string, eventName event.Name, ordinal string) string {
+	return strings.Join([]string{string(id), operationID, streamRole, string(eventName), ordinal}, ":")
+}
+
+func sleepThreadWriteRetry(ctx context.Context, attempt int) error {
+	delay := threadWriteRetryBase << attempt
+	if delay > 50*time.Millisecond {
+		delay = 50 * time.Millisecond
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // Read returns a projected thread snapshot.
@@ -268,50 +479,49 @@ func (s *Store) listByReplay(ctx context.Context, params corethread.ListParams) 
 	return page, nil
 }
 
-// Archive archives a thread.
+// Archive archives a thread. Repeated archives are idempotent; conflicts on the
+// shared thread index are retried after reloading state. Same-thread append
+// conflicts are retried only after re-evaluating the archive state.
 func (s *Store) Archive(ctx context.Context, id corethread.ID) error {
-	observed, err := s.loadThread(ctx, id)
-	if err != nil {
-		return err
+	var lastConflict error
+	for attempt := 0; attempt < threadWriteRetries; attempt++ {
+		err := s.setArchivedOnce(ctx, id, true)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, event.ErrAppendConflict) {
+			return err
+		}
+		lastConflict = err
+		if err := sleepThreadWriteRetry(ctx, attempt); err != nil {
+			return err
+		}
 	}
-	if len(observed.records) == 0 {
-		return corethread.ErrNotFound
-	}
-	index, err := s.loadIndex(ctx)
-	if err != nil {
-		return err
-	}
-	payload := corethread.ThreadArchived{ThreadID: id, At: time.Now().UTC()}
-	_, err = s.events.AppendBatch(ctx,
-		event.AppendRequest{
-			Stream:  s.threadStream(id),
-			Options: event.ExpectSequence(observed.lastSequence),
-			Records: []event.Record{{
-				Name:    payload.EventName(),
-				Time:    payload.At,
-				Scope:   event.Scope{ThreadID: string(id)},
-				Payload: payload,
-				Attributes: map[string]string{
-					attrBranchID: string(corethread.MainBranch),
-				},
-			}},
-		},
-		event.AppendRequest{
-			Stream:  s.index,
-			Options: event.ExpectSequence(index.lastSequence),
-			Records: []event.Record{{
-				Name:    payload.EventName(),
-				Time:    payload.At,
-				Scope:   event.Scope{ThreadID: string(id)},
-				Payload: payload,
-			}},
-		},
-	)
-	return err
+	return lastConflict
 }
 
-// Unarchive unarchives a thread.
+// Unarchive unarchives a thread. Repeated unarchives are idempotent; conflicts
+// on the shared thread index are retried after reloading state. Same-thread
+// append conflicts are retried only after re-evaluating the archive state.
 func (s *Store) Unarchive(ctx context.Context, id corethread.ID) error {
+	var lastConflict error
+	for attempt := 0; attempt < threadWriteRetries; attempt++ {
+		err := s.setArchivedOnce(ctx, id, false)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, event.ErrAppendConflict) {
+			return err
+		}
+		lastConflict = err
+		if err := sleepThreadWriteRetry(ctx, attempt); err != nil {
+			return err
+		}
+	}
+	return lastConflict
+}
+
+func (s *Store) setArchivedOnce(ctx context.Context, id corethread.ID, archived bool) error {
 	observed, err := s.loadThread(ctx, id)
 	if err != nil {
 		return err
@@ -319,18 +529,33 @@ func (s *Store) Unarchive(ctx context.Context, id corethread.ID) error {
 	if len(observed.records) == 0 {
 		return corethread.ErrNotFound
 	}
+	snapshot := projectSnapshot(id, observed.records)
+	if snapshot.Archived == archived {
+		return nil
+	}
 	index, err := s.loadIndex(ctx)
 	if err != nil {
 		return err
 	}
-	payload := corethread.ThreadUnarchived{ThreadID: id, At: time.Now().UTC()}
+	now := time.Now().UTC()
+	var payload event.Event
+	var name event.Name
+	if archived {
+		archivePayload := corethread.ThreadArchived{ThreadID: id, At: now}
+		payload = archivePayload
+		name = archivePayload.EventName()
+	} else {
+		unarchivePayload := corethread.ThreadUnarchived{ThreadID: id, At: now}
+		payload = unarchivePayload
+		name = unarchivePayload.EventName()
+	}
 	_, err = s.events.AppendBatch(ctx,
 		event.AppendRequest{
 			Stream:  s.threadStream(id),
 			Options: event.ExpectSequence(observed.lastSequence),
 			Records: []event.Record{{
-				Name:    payload.EventName(),
-				Time:    payload.At,
+				Name:    name,
+				Time:    now,
 				Scope:   event.Scope{ThreadID: string(id)},
 				Payload: payload,
 				Attributes: map[string]string{
@@ -342,8 +567,8 @@ func (s *Store) Unarchive(ctx context.Context, id corethread.ID) error {
 			Stream:  s.index,
 			Options: event.ExpectSequence(index.lastSequence),
 			Records: []event.Record{{
-				Name:    payload.EventName(),
-				Time:    payload.At,
+				Name:    name,
+				Time:    now,
 				Scope:   event.Scope{ThreadID: string(id)},
 				Payload: payload,
 			}},

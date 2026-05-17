@@ -17,7 +17,6 @@ const (
 	AgentName        = "coder"
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
-	PlanExecPlugin   = "planexec"
 	TaskPlugin       = "task"
 	SkillsPlugin     = "skills"
 	ImagePlugin      = "image"
@@ -61,7 +60,6 @@ func Bundle() resource.ContributionBundle {
 		WithDescription("Small local coding agent app.").
 		WithModel("openai", DefaultModel, "coding").
 		WithPlugin(resource.PluginRef{Name: CodingPlugin}).
-		WithPlugin(resource.PluginRef{Name: PlanExecPlugin}).
 		WithPlugin(resource.PluginRef{Name: TaskPlugin}).
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
 		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
@@ -72,7 +70,7 @@ func Bundle() resource.ContributionBundle {
 			Agent:       agent.Ref{Name: AgentName},
 			Metadata:    map[string]string{"app": AppName},
 			Delegation: coresession.DelegationPolicy{
-				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "task"}},
+				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}},
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations:      operationRefs(delegationOperations),

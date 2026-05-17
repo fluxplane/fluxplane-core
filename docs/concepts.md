@@ -104,8 +104,9 @@ task-creator/planner agents, and typed operations such as `task_create`,
 grouped `task_modify`, `task_get`, `task_list`, artifact readers, and
 `task_validate`. It also contributes scheduler controls such as `task_run`,
 `task_scheduler_status`, and `task_scheduler_set_enabled`. Task creation
-returns after recording the task; ready tasks can then be claimed and executed
-by the orchestration task executor.
+returns after recording the task; indexed ready-task summaries trigger the
+orchestration task executor, with periodic index scans retained as
+reconciliation.
 
 ## Command
 
@@ -348,8 +349,15 @@ dispatches workers through an execution backend while recording all progress as
 task events. The scheduler can run automatically over ready tasks or be
 controlled explicitly with task plugin operations. Because the scheduler writes
 task streams concurrently with user/model task operations, scheduler transitions
-must use event-stream conflict handling and expose retryable conflicts or
-diagnostics rather than hiding background failures.
+use event-stream conflict handling and expose retryable conflicts or diagnostics
+rather than hiding background failures. Automatic completion validates required
+outputs and terminal steps before writing completion events; missing output
+contracts block the task for correction instead of producing a false completed
+state. Session-produced `task.*` runtime events are persisted for replay and
+rendered by terminal clients as task lifecycle, step progress, artifact, and
+completion feedback. Tasks created from a session record origin thread/run
+metadata so background scheduler events can be mirrored back to that session
+thread.
 
 ### Commands in AgentRuntime
 

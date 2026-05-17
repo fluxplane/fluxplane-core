@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,20 @@ import (
 
 type messageAdded struct {
 	Text string `json:"text,omitempty"`
+}
+
+type conflictStore struct{}
+
+func (conflictStore) Append(context.Context, event.StreamID, event.AppendOptions, ...event.Record) ([]event.StoredRecord, error) {
+	return nil, event.AppendConflict{Stream: "thread.thread-diagnostics", Expected: 7, Actual: 8}
+}
+
+func (conflictStore) AppendBatch(context.Context, ...event.AppendRequest) ([]event.AppendResult, error) {
+	return nil, event.AppendConflict{Stream: "thread.index", Expected: 1, Actual: 2}
+}
+
+func (conflictStore) Load(context.Context, event.StreamID, event.LoadOptions) ([]event.StoredRecord, error) {
+	return nil, nil
 }
 
 func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
@@ -62,6 +77,42 @@ func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
 }
 
 func (messageAdded) EventName() event.Name { return "message.added" }
+
+func TestWriteErrorWrapsAppendConflictDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(conflictStore{})
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+
+	_, err = store.Create(ctx, corethread.CreateParams{ID: "thread-diagnostics"})
+	if err == nil {
+		t.Fatal("Create returned nil error, want conflict")
+	}
+	if !errors.Is(err, event.ErrAppendConflict) {
+		t.Fatalf("wrapped error does not match ErrAppendConflict: %v", err)
+	}
+	var writeErr WriteError
+	if !errors.As(err, &writeErr) {
+		t.Fatalf("error does not expose WriteError: %v", err)
+	}
+	if writeErr.ThreadID != "thread-diagnostics" || writeErr.Attempt != threadWriteRetries || writeErr.Attempts != threadWriteRetries {
+		t.Fatalf("write error = %+v", writeErr)
+	}
+	var conflict event.AppendConflict
+	if !errors.As(err, &conflict) {
+		t.Fatalf("error does not expose AppendConflict: %v", err)
+	}
+	if conflict.Stream != "thread.index" || conflict.Expected != 1 || conflict.Actual != 2 {
+		t.Fatalf("conflict = %+v", conflict)
+	}
+	text := err.Error()
+	for _, want := range []string{"thread_id=\"thread-diagnostics\"", "attempt=16/16", "append conflict", "expected sequence 1, actual 2"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("error %q missing %q", text, want)
+		}
+	}
+}
 
 func TestStoreCreateAppendForkRead(t *testing.T) {
 	ctx := context.Background()
@@ -245,7 +296,7 @@ func TestStoreIndependentThreadStreamsDoNotConflict(t *testing.T) {
 	}
 }
 
-func TestStoreAppendReturnsSameThreadConflict(t *testing.T) {
+func TestStoreAppendRetriesSameThreadConflict(t *testing.T) {
 	ctx := context.Background()
 	inner := eventstore.NewMemoryStore()
 	store, err := NewStore(&sameThreadConflictingEventStore{inner: inner})
@@ -259,11 +310,15 @@ func TestStoreAppendReturnsSameThreadConflict(t *testing.T) {
 	_, err = store.Append(ctx, corethread.Ref{ID: "thread-1"}, corethread.AppendRecord{
 		Event: event.Record{Payload: messageAdded{Text: "one"}},
 	})
-	if err == nil {
-		t.Fatal("Append returned nil error, want append conflict")
+	if err != nil {
+		t.Fatalf("Append returned error after retry: %v", err)
 	}
-	if !errors.Is(err, event.ErrAppendConflict) {
-		t.Fatalf("error = %v, want append conflict", err)
+	read, err := store.Read(ctx, corethread.ReadParams{ID: "thread-1"})
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	if len(read.Events) != 3 {
+		t.Fatalf("len(read.Events) = %d, want created plus concurrent plus append", len(read.Events))
 	}
 }
 

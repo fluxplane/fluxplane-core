@@ -25,7 +25,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -123,7 +122,6 @@ func TestDescribeCommandRendersPluginContributionsInTree(t *testing.T) {
 		"filesystem",
 		"file_create",
 		"file_edit",
-		PlanExecPlugin,
 		TaskPlugin,
 		"agents",
 		"explorer",
@@ -354,7 +352,6 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(sys),
-			planexecplugin.New(),
 			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
@@ -434,7 +431,6 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 		},
 		Plugins: []pluginhost.Plugin{
 			codingplugin.New(sys),
-			planexecplugin.New(),
 			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
@@ -490,14 +486,14 @@ func bundlesContainSkill(bundles []resource.ContributionBundle, name string) boo
 	return false
 }
 
-func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
+func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{codingplugin.New(sys), planexecplugin.New(), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -514,7 +510,7 @@ func TestToolProjectionIncludesPlanExecOperations(t *testing.T) {
 	for _, spec := range projected.Tools {
 		names[string(spec.Name)] = true
 	}
-	for _, want := range []string{"plan", "delegate", "image"} {
+	for _, want := range []string{"task_create", "task_modify", "task_run", "image"} {
 		if !names[want] {
 			t.Fatalf("projected tool names missing %q: %#v", want, names)
 		}

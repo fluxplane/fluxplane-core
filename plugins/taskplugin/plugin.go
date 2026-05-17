@@ -20,6 +20,7 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
@@ -43,8 +44,15 @@ const (
 	TaskSession               = "task"
 	PlanAgent                 = "task-planner"
 	PlanSession               = "task-planner"
+	WorkerAgent               = "worker"
+	WorkerSession             = "worker"
+	ExplorerAgent             = "explorer"
+	ExplorerSession           = "explorer"
+	ReviewerAgent             = "reviewer"
+	ReviewerSession           = "reviewer"
 	defaultPrefix             = "task_"
 	artifactPrefix            = "artifact_"
+	taskModifyRetries         = 16
 )
 
 // Plugin contributes task creation resources and operations.
@@ -110,7 +118,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 				},
 			},
 		},
-		Agents: []agent.Spec{taskAgentSpec(), planAgentSpec()},
+		Agents: []agent.Spec{taskAgentSpec(), planAgentSpec(), workerAgentSpec(), explorerAgentSpec(), reviewerAgentSpec()},
 		Sessions: []coresession.Spec{
 			{
 				Name:        TaskSession,
@@ -126,6 +134,9 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 				Operations:  taskOperationRefs(),
 				Metadata:    map[string]string{"role": "task_planner"},
 			},
+			{Name: WorkerSession, Agent: agent.Ref{Name: WorkerAgent}, Metadata: map[string]string{"role": "task_worker"}},
+			{Name: ExplorerSession, Agent: agent.Ref{Name: ExplorerAgent}, Metadata: map[string]string{"role": "task_explorer"}},
+			{Name: ReviewerSession, Agent: agent.Ref{Name: ReviewerAgent}, Metadata: map[string]string{"role": "task_reviewer"}},
 		},
 	}, nil
 }
@@ -318,7 +329,7 @@ func taskSchedulerStatusSpec() operation.Spec {
 func taskSchedulerSetEnabledSpec() operation.Spec {
 	return operationruntime.WithTypedContract[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](operation.Spec{
 		Ref:         operation.Ref{Name: TaskSchedulerSetEnabledOp},
-		Description: "Enable or disable automatic task scheduler polling. Manual task_run remains available.",
+		Description: "Enable or disable automatic reactive task scheduling. Manual task_run remains available.",
 		Semantics: operation.Semantics{
 			Determinism: operation.DeterminismNonDeterministic,
 			Effects:     operation.EffectSet{operation.EffectUpdate},
@@ -377,6 +388,55 @@ You are a task planner. Your only job is to turn the user's request into an appr
 		Driver:     agent.DriverSpec{Kind: "llmagent"},
 		Turns:      agent.TurnPolicy{MaxSteps: 20},
 		Operations: taskOperationRefs(),
+	}
+}
+
+func workerAgentSpec() agent.Spec {
+	return agent.Spec{
+		Name:        WorkerAgent,
+		Description: "Focused task worker for implementation and investigation steps.",
+		System:      "You are a focused task worker. Complete the assigned task step within scope and summarize exactly what you changed or found. If blocked, report the blocker clearly.",
+		Driver:      agent.DriverSpec{Kind: "llmagent"},
+		Turns:       agent.TurnPolicy{MaxSteps: 50},
+		Operations: []operation.Ref{
+			{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_docs"}, {Name: "project_tasks"}, {Name: "project_task_run"},
+			{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
+			{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"},
+			{Name: "shell_exec"}, {Name: "code_execute"},
+			{Name: TaskGetOp}, {Name: TaskModifyOp}, {Name: TaskValidateOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp},
+		},
+	}
+}
+
+func explorerAgentSpec() agent.Spec {
+	return agent.Spec{
+		Name:        ExplorerAgent,
+		Description: "Read-only task exploration worker.",
+		System:      "You are a read-only task exploration worker. Inspect the requested context and report concise findings with file paths when relevant. Do not modify files.",
+		Driver:      agent.DriverSpec{Kind: "llmagent"},
+		Turns:       agent.TurnPolicy{MaxSteps: 30},
+		Operations: []operation.Ref{
+			{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_docs"}, {Name: "project_tasks"},
+			{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "grep"}, {Name: "glob"},
+			{Name: "git_status"}, {Name: "git_diff"}, {Name: "web_request"},
+			{Name: TaskGetOp}, {Name: TaskModifyOp}, {Name: TaskValidateOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp},
+		},
+	}
+}
+
+func reviewerAgentSpec() agent.Spec {
+	return agent.Spec{
+		Name:        ReviewerAgent,
+		Description: "Task review worker for validating completed work.",
+		System:      "You are a task reviewer. Review the assigned task evidence against scope, outputs, and acceptance criteria. Report concrete findings first, then residual risk. Do not modify files.",
+		Driver:      agent.DriverSpec{Kind: "llmagent"},
+		Turns:       agent.TurnPolicy{MaxSteps: 30},
+		Operations: []operation.Ref{
+			{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_docs"}, {Name: "project_tasks"},
+			{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "grep"}, {Name: "glob"},
+			{Name: "git_status"}, {Name: "git_diff"}, {Name: "go_test"}, {Name: "go_vet"},
+			{Name: TaskGetOp}, {Name: TaskModifyOp}, {Name: TaskValidateOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp},
+		},
 	}
 }
 
@@ -492,6 +552,7 @@ func createTask(store runtimetask.Store) func(operation.Context, coretask.TaskCr
 		if task.Status == "" {
 			task.Status = coretask.StatusReady
 		}
+		attachOriginMetadata(ctx, &task)
 		if err := task.Validate(); err != nil {
 			return operation.Failed("task_invalid", err.Error(), nil)
 		}
@@ -499,6 +560,7 @@ func createTask(store runtimetask.Store) func(operation.Context, coretask.TaskCr
 		if req.Status == "" {
 			req.Status = task.Status
 		}
+		req.Metadata = cloneStringMap(task.Metadata)
 		events := []event.Event{
 			coretask.CreateRequested{TaskID: task.ID, Request: req},
 			coretask.Created{TaskID: task.ID, Task: task},
@@ -516,6 +578,28 @@ func createTask(store runtimetask.Store) func(operation.Context, coretask.TaskCr
 			ctx.Events().Emit(payload)
 		}
 		return operation.OK(coretask.TaskCreateResult{Task: task})
+	}
+}
+
+func attachOriginMetadata(ctx context.Context, task *coretask.Task) {
+	if task == nil {
+		return
+	}
+	scope, ok := sessionenv.ScopeFromContext(ctx)
+	if !ok {
+		return
+	}
+	if task.Metadata == nil {
+		task.Metadata = map[string]string{}
+	}
+	if task.Metadata[coretask.MetadataOriginThreadID] == "" {
+		task.Metadata[coretask.MetadataOriginThreadID] = string(scope.Thread.ID)
+	}
+	if task.Metadata[coretask.MetadataOriginBranchID] == "" && scope.Thread.BranchID != "" {
+		task.Metadata[coretask.MetadataOriginBranchID] = string(scope.Thread.BranchID)
+	}
+	if task.Metadata[coretask.MetadataOriginRunID] == "" && scope.RunID != "" {
+		task.Metadata[coretask.MetadataOriginRunID] = scope.RunID
 	}
 }
 
@@ -538,29 +622,44 @@ func getTask(store runtimetask.Store) func(operation.Context, coretask.TaskGetRe
 
 func modifyTask(store runtimetask.Store) func(operation.Context, coretask.TaskModifyRequest) operation.Result {
 	return func(ctx operation.Context, req coretask.TaskModifyRequest) operation.Result {
-		state, ok, result := loadTask(ctx, store, req.ID)
-		if !ok {
-			return result
-		}
 		if len(req.Modifications) == 0 {
 			return operation.Failed("task_modify_empty", "task_modify requires at least one modification", nil)
 		}
-		var events []event.Event
-		results := make([]coretask.TaskModificationResult, 0, len(req.Modifications))
-		for _, item := range req.Modifications {
-			modEvents, err := applyModification(req.ID, req.Reason, item, &state)
-			results = append(results, coretask.TaskModificationResult{Op: item.Op, OK: err == nil, Error: errorString(err)})
-			if err != nil {
-				return operation.Failed("task_modify_invalid", err.Error(), map[string]any{"op": item.Op})
+		var (
+			state   runtimetask.State
+			events  []event.Event
+			results []coretask.TaskModificationResult
+		)
+		for attempt := 0; attempt < taskModifyRetries; attempt++ {
+			projected, ok, result := loadTaskWithSequence(ctx, store, req.ID)
+			if !ok {
+				return result
 			}
-			events = append(events, modEvents...)
+			state = projected.State
+			events = nil
+			results = make([]coretask.TaskModificationResult, 0, len(req.Modifications))
+			for _, item := range req.Modifications {
+				modEvents, err := applyModification(req.ID, req.Reason, item, &state)
+				results = append(results, coretask.TaskModificationResult{Op: item.Op, OK: err == nil, Error: errorString(err)})
+				if err != nil {
+					return operation.Failed("task_modify_invalid", err.Error(), map[string]any{"op": item.Op})
+				}
+				events = append(events, modEvents...)
+			}
+			if len(events) == 0 {
+				return operation.Failed("task_modify_noop", "task_modify did not produce any changes", nil)
+			}
+			if err := store.AppendExpected(ctx, req.ID, projected.Sequence, events...); err != nil {
+				if isAppendConflict(err) {
+					continue
+				}
+				return operation.Failed("task_store_append_failed", err.Error(), map[string]any{"task_id": req.ID})
+			}
+			goto appended
 		}
-		if len(events) == 0 {
-			return operation.Failed("task_modify_noop", "task_modify did not produce any changes", nil)
-		}
-		if err := store.Append(ctx, req.ID, events...); err != nil {
-			return operation.Failed("task_store_append_failed", err.Error(), map[string]any{"task_id": req.ID})
-		}
+		return operation.Failed("task_conflict_retry", "task was modified concurrently; retry task_modify", map[string]any{"task_id": req.ID})
+
+	appended:
 		if err := store.Index(ctx, taskSummary(state.Task)); err != nil {
 			return operation.Failed("task_index_append_failed", err.Error(), map[string]any{"task_id": req.ID})
 		}
@@ -580,6 +679,23 @@ func modifyTask(store runtimetask.Store) func(operation.Context, coretask.TaskMo
 			Artifacts:        scopedArtifacts(projected),
 		})
 	}
+}
+
+func loadTaskWithSequence(ctx context.Context, store runtimetask.Store, id coretask.ID) (runtimetask.SequencedState, bool, operation.Result) {
+	if store == nil {
+		return runtimetask.SequencedState{}, false, operation.Failed("task_store_missing", "task operation requires an event store", nil)
+	}
+	if strings.TrimSpace(string(id)) == "" {
+		return runtimetask.SequencedState{}, false, operation.Failed("task_id_required", "task id is required", nil)
+	}
+	projected, err := store.ProjectWithSequence(ctx, id)
+	if err != nil {
+		return runtimetask.SequencedState{}, false, operation.Failed("task_store_load_failed", err.Error(), map[string]any{"task_id": id})
+	}
+	if projected.State.Task.ID == "" {
+		return runtimetask.SequencedState{}, false, operation.Failed("task_not_found", "task was not found", map[string]any{"task_id": id})
+	}
+	return projected, true, operation.Result{}
 }
 
 func listTasks(store runtimetask.Store) func(operation.Context, coretask.TaskListRequest) operation.Result {

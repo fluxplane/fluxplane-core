@@ -55,16 +55,24 @@ func (s *MemoryStore) AppendBatch(ctx context.Context, requests ...event.AppendR
 		s.streams = map[event.StreamID][]event.StoredRecord{}
 	}
 	now := time.Now().UTC()
-	seen := map[event.StreamID]struct{}{}
+	seenStreams := map[event.StreamID]struct{}{}
+	seenIDs := map[string]event.StreamID{}
+	for stream, stored := range s.streams {
+		for _, record := range stored {
+			if record.Record.ID != "" {
+				seenIDs[record.Record.ID] = stream
+			}
+		}
+	}
 	results := make([]event.AppendResult, 0, len(requests))
 	for _, request := range requests {
 		if request.Stream == "" {
 			return nil, fmt.Errorf("eventstore: stream is empty")
 		}
-		if _, exists := seen[request.Stream]; exists {
+		if _, exists := seenStreams[request.Stream]; exists {
 			return nil, fmt.Errorf("eventstore: duplicate stream %q in append batch", request.Stream)
 		}
-		seen[request.Stream] = struct{}{}
+		seenStreams[request.Stream] = struct{}{}
 		current := s.streams[request.Stream]
 		actual := event.Sequence(len(current))
 		if request.Options.CheckExpectedSequence && request.Options.ExpectedSequence != actual {
@@ -80,6 +88,10 @@ func (s *MemoryStore) AppendBatch(ctx context.Context, requests ...event.AppendR
 			if err != nil {
 				return nil, err
 			}
+			if existingStream, exists := seenIDs[normalized.ID]; exists {
+				return nil, event.DuplicateRecord{Stream: existingStream, ID: normalized.ID}
+			}
+			seenIDs[normalized.ID] = request.Stream
 			stored := event.StoredRecord{
 				Stream:   request.Stream,
 				Sequence: event.Sequence(len(current) + len(result.Records) + 1),

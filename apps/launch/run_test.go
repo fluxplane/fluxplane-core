@@ -23,8 +23,8 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -272,7 +272,7 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
 			Agents:  []coreagent.Spec{{Name: "main"}},
-			Plugins: []resource.PluginRef{{Name: planexecplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: taskplugin.Name}},
 		}},
 		Dev:                 true,
 		AllowPrivateNetwork: true,
@@ -282,7 +282,7 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	for _, name := range []string{string(planexecplugin.WorkerAgent), string(planexecplugin.ExplorerAgent)} {
+	for _, name := range []string{taskplugin.WorkerAgent, taskplugin.ExplorerAgent, taskplugin.ReviewerAgent} {
 		spec, ok := agentSpec(runtime, name)
 		if !ok {
 			t.Fatalf("expected plugin agent %q", name)

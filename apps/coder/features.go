@@ -133,7 +133,7 @@ func FullLocalCodingFeature() FeatureSpec {
 			"clarify", taskplugin.TaskCreateOp, taskplugin.TaskModifyOp, taskplugin.TaskGetOp, taskplugin.TaskListOp,
 			taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskValidateOp,
 			taskplugin.TaskRunOp, taskplugin.TaskSchedulerStatusOp, taskplugin.TaskSchedulerSetEnabledOp,
-			"delegate", "plan", "skill",
+			"skill",
 			"image_generate", "image_understand", "image_providers",
 		},
 	}

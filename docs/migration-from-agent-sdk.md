@@ -137,8 +137,9 @@ core/workflow or core/plan
 runtime/workflow or orchestration/workflow
   plan execution state machine and step scheduler.
 
-plugins/planexec
-  first-party contribution that exposes plan/delegate capabilities to agents.
+plugins/task
+  first-party contribution that exposes task creation, planning, scheduling,
+  and execution capabilities to agents.
 ```
 
 Current design constraint: a configured session must be able to declare
@@ -508,7 +509,7 @@ ported.
 | `apps` | `apps` | Preserve as assembled products, but import new layers. |
 | `capability` | `core/capability` + `runtime/capability` | Registry/descriptors/specs likely core; manager/runtime outward. |
 | `capabilities/memory` | `plugins/memory` | Capability implementation as plugin. |
-| `capabilities/planexec` | `plugins/planexec` | Capability implementation as plugin. |
+| `capabilities/planexec` | `plugins/task` | Replaced by the event-sourced task plugin and task executor. |
 | `channel` | `core/channel` + `orchestration/harness` | Core keeps normalized envelopes/specs; harness owns routing/session binding. |
 | `channel/httpapi` | `adapters/httpchannel` | Server-side implementation of the direct HTTP/SSE channel. Keep separate from daemon control API. |
 | `channels/slackchan` | `adapters/slack` | Protocol adapter. |
@@ -822,11 +823,10 @@ Still intentionally incomplete:
   toolkit live adapters should use.
 - There is no terminal/slash parser, Slack adapter, Anthropic/local model
   provider adapter, or approval UX yet.
-- A first child-session supervisor and `plugins/planexec` implementation now
-  exist. `delegate` handles ad-hoc sub-agent tasks and `plan` executes a DAG
-  through supervised child sessions. Plan state is replayed from persisted
-  `plan.*`/`subagent.*` events; `plan execute` starts background execution and
-  `plan wait` blocks when synchronous completion is needed.
+- The old plan execution plugin has been replaced by `plugins/task`,
+  `core/task`, `runtime/task`, and `orchestration/taskexecutor`. `/task`
+  creates durable event-sourced tasks, `/plan` plans draft tasks for approval,
+  and ready tasks execute through task events and worker profiles.
 - Event subscription authorization is noted but not implemented beyond the
   current policy/trust/sensitivity model foundations.
 
@@ -856,10 +856,9 @@ Definition of done for that batch:
 - A resource/app consumer can load an app directory, compose commands,
   operations, agents, context providers, and plugins, then open a session
   through the same `ChannelClient` API.
-- Configured sessions can express delegation boundaries and the first
-  `plugins/planexec` slice can execute allowed child profiles through those
-  boundaries: allowed sub-agent profiles, concurrency limit, timeout, and
-  parent/child causation policy.
+- Configured sessions can express task worker boundaries and the task executor
+  can route work through allowed profiles with concurrency limits and
+  parent/task causation metadata.
 - A daemon can start configured sessions from app resources, attach event
   triggers, expose a control API for process/admin state, and expose a channel
   API for user/client submissions without mixing those two HTTP surfaces.

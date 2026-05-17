@@ -7,6 +7,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/event"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -33,32 +34,35 @@ func TestUsageFromEventParsesTypedPayload(t *testing.T) {
 	}
 }
 
-func TestTrackPlanRuntimeEventTracksActivePlansAndSeenKeys(t *testing.T) {
+func TestTrackTaskRuntimeEventTracksActiveTasksAndSeenKeys(t *testing.T) {
 	active := map[string]bool{}
 	seen := map[string]bool{}
-	started := clientapi.Event{
+	created := clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    "plan.execution_started",
-			Payload: map[string]any{"plan_id": "plan_1"},
+			Name: coretask.EventCreatedName,
+			Payload: coretask.Created{
+				TaskID: "task_1",
+				Task:   coretask.Task{ID: "task_1", Title: "Review", Status: coretask.StatusReady},
+			},
 		},
 	}
-	trackPlanRuntimeEvent(started, active, seen)
-	if !active["plan_1"] {
-		t.Fatalf("active = %#v, want plan_1 active", active)
+	trackTaskRuntimeEvent(created, active, seen)
+	if !active["task_1"] {
+		t.Fatalf("active = %#v, want task_1 active", active)
 	}
-	if key := runtimeEventKey(started); key == "" || !seen[key] {
+	if key := runtimeEventKey(created); key == "" || !seen[key] {
 		t.Fatalf("seen missing runtime key %q: %#v", key, seen)
 	}
-	trackPlanRuntimeEvent(clientapi.Event{
+	trackTaskRuntimeEvent(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    "plan.completed",
-			Payload: map[string]any{"plan_id": "plan_1"},
+			Name:    coretask.EventExecutionCompletedName,
+			Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
 	}, active, seen)
-	if active["plan_1"] {
-		t.Fatalf("active = %#v, want plan_1 removed", active)
+	if active["task_1"] {
+		t.Fatalf("active = %#v, want task_1 removed", active)
 	}
 }
 

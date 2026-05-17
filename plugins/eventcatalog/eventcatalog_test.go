@@ -11,7 +11,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/humanplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 )
 
@@ -74,10 +73,6 @@ func TestAllCoversPluginContributedEventTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("human contributions: %v", err)
 	}
-	planBundle, err := planexecplugin.New().Contributions(context.Background(), pluginhost.Context{})
-	if err != nil {
-		t.Fatalf("plan contributions: %v", err)
-	}
 	projectBundle, err := projectplugin.New(nil).Contributions(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("project contributions: %v", err)
@@ -88,7 +83,6 @@ func TestAllCoversPluginContributedEventTypes(t *testing.T) {
 	}
 	var samples []coreevent.Event
 	samples = append(samples, humanBundle.EventTypes...)
-	samples = append(samples, planBundle.EventTypes...)
 	samples = append(samples, projectBundle.EventTypes...)
 	samples = append(samples, goBundle.EventTypes...)
 	for _, sample := range samples {

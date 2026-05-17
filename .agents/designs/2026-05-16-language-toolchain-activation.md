@@ -147,6 +147,28 @@ dedicated signal list, for example:
 
 `projectplugin` remains the owner of discovery, but it does not import language
 plugins and does not decide which plugins or operation sets become active.
+Workspace model update for the next implementation agent:
+
+A later workspace-model batch added `core/workspace` and threaded optional
+`workspace_id` through `core/project`. Do not treat this as a toolchain-specific
+change or remove it while working on activation. The relevant project shapes now
+include workspace identity so project signals can be scoped to the selected
+working boundary:
+
+- `core/project.Inventory.WorkspaceID`
+- `core/project.Project.WorkspaceID`
+- `core/project.Signal.WorkspaceID`
+- `core/project.SignalsObserved.WorkspaceID`
+- project inventory/files/tasks/docs query structs accept `workspace_id`
+
+`runtime/project.NewManagerForWorkspace` scopes inventory to a resolved
+`core/workspace.ID`, and `plugins/projectplugin` resolves that workspace lazily
+through `runtime/workspace` before emitting `project.signals_observed`. Toolchain
+activation should preserve this field and include it in any signal/status
+projection keys where workspace-local availability matters. `core/project` still
+must not import language plugins, and `core/workspace` deliberately remains
+separate from `core/project`.
+
 
 ## Events
 
@@ -213,6 +235,11 @@ Explicit config still wins:
    toolchain statuses, and operation sets.
 9. [Done] Replace hardcoded Go/Markdown operation lists in coder with feature/tool
    group expansion while preserving a full-capability preset.
+
+Workspace note: this implementation sequence was completed before the workspace
+model landed. Future activation work should keep the newly added
+`workspace_id` fields on project inventory/signals and should not regress the
+workspace/project split described above.
 
 ## Progress Notes
 

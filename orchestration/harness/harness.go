@@ -732,6 +732,53 @@ func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
 	}
 }
 
+// PublishRuntimeEvent persists and publishes a runtime event for an existing
+// session thread. Background orchestrators use this to surface progress after
+// the originating turn has returned.
+func (s *Service) PublishRuntimeEvent(ctx context.Context, thread corethread.Ref, runID clientapi.RunID, payload coreevent.Event) error {
+	if s == nil || thread.ID == "" || payload == nil {
+		return nil
+	}
+	info := s.harnessSessionInfoForThread(thread)
+	if err := s.persistRuntimeEvent(ctx, info, runID, payload); err != nil {
+		return runtimeEventPersistenceError(payload, err)
+	}
+	event := clientapi.Event{
+		Kind:    clientapi.EventRuntimeEmitted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    payload.EventName(),
+			Payload: payload,
+		},
+	}
+	s.publish(thread.ID, event)
+	if s.events != nil {
+		s.events.Emit(payload)
+	}
+	return nil
+}
+
+func (s *Service) harnessSessionInfoForThread(thread corethread.Ref) SessionInfo {
+	clientInfo := s.sessionInfoForThread(thread.ID)
+	info := SessionInfo{
+		Session:      clientInfo.Session,
+		Thread:       thread,
+		Channel:      clientInfo.Channel,
+		Conversation: clientInfo.Conversation,
+		Metadata:     clientInfo.Metadata,
+		Resumed:      clientInfo.Resumed,
+	}
+	if info.Thread.BranchID == "" {
+		if clientInfo.Thread.BranchID != "" {
+			info.Thread.BranchID = clientInfo.Thread.BranchID
+		} else {
+			info.Thread.BranchID = corethread.MainBranch
+		}
+	}
+	return info
+}
+
 func (s *Service) runtimeEventSink(ctx context.Context, info SessionInfo, runID clientapi.RunID) coreevent.Sink {
 	return s.runtimeEventSinkWithFailures(ctx, info, runID, nil)
 }
@@ -868,6 +915,7 @@ func runtimeEventPersistenceContext(ctx context.Context) context.Context {
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	value := string(name)
 	return strings.HasPrefix(value, "plan.") ||
+		strings.HasPrefix(value, "task.") ||
 		strings.HasPrefix(value, "workflow.") ||
 		strings.HasPrefix(value, "subagent.") ||
 		strings.HasPrefix(value, "skill.") ||

@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `package.json` tasks, with dry-run command resolution, managed process
   execution, and coder/delegation exposure.
 - Added neutral `core/task` and `runtime/task` foundations for user-facing task
-  and execution state, shaped for a future `planexecplugin` migration.
+  and execution state.
 - Task validation now rejects cyclic step dependencies, and task execution
   projection reconciles revised step sets while preserving latest step progress.
 - Added `plugins/taskplugin` with the `/task` command, a dedicated task creator
@@ -88,9 +88,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added task scheduler control operations: `task_run` schedules a ready task
   asynchronously, `task_scheduler_status` reports local scheduler capacity and
   running tasks, and `task_scheduler_set_enabled` pauses or resumes automatic
-  ready-task polling while leaving manual runs available.
-- Documented scheduler/task-operation concurrency hardening as the next
-  required task execution slice before replacing `planexecplugin`.
+  ready-task scheduling while leaving manual runs available.
+- Added local event-triggered task scheduling from indexed ready task summaries,
+  with periodic index scans retained as reconciliation. Scheduler writes now use bounded,
+  context-aware expected-sequence retries for dispatch/block/terminal paths,
+  `task_modify` retries concurrent stream conflicts before returning
+  `task_conflict_retry`, and scheduler background failures surface through
+  status diagnostics. Thread-store writes now also retry event append conflicts
+  under concurrent session activity. Scheduler tests now cover saturated
+  ready-task notification bursts that rely on reconciliation to finish
+  remaining work while respecting parallelism limits.
+- Scheduler worker outputs now bind missing declared step outputs to produced
+  artifacts, and automatic execution completion validates required outputs
+  before recording `task.execution_completed`; incomplete output contracts block
+  the task instead of marking it completed.
+- Terminal rendering now understands `task.*` runtime events, showing task
+  creation/revision, status changes, step dispatch/progress/completion,
+  artifacts, and execution terminal state. Task runtime events are also
+  persisted in session threads for replay.
+- Task creation now records origin thread/run metadata, and the task scheduler
+  mirrors background task execution events back into the originating session
+  thread for live terminal feedback and replay.
+- Fixed a direct-channel run event race that could panic with
+  `send on closed channel` while forwarding live run events; run event
+  emission is now guarded against channel-close races, and `Wait` no longer
+  blocks behind undrained run-event forwarding.
+- Replaced the old plan execution plugin with `taskplugin` and
+  `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
+  and Slack progress rendering now use task events and task worker profiles.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.
@@ -612,3 +637,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.3.0]: https://github.com/fluxplane/agentruntime/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fluxplane/agentruntime/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fluxplane/agentruntime/releases/tag/v0.1.0
+
+## Phase 6 event-store concurrency diagnostics
+
+Improved diagnostics verified in code and tests:
+
+- `adapters/sqleventstore.StorageError` classifies append failures as `append_conflict`, `sqlite_busy_locked`, `sqlite_constraint`, `context`, or `unknown_storage` without parsing strings.
+- Wrapped event-store errors include payload-free context: stream ID, append-batch request index, expected/actual sequence for conflicts, retry attempt count, and SQLite code when exposed by the driver.
+- `runtime/thread.WriteError` adds higher-level thread ID and retry attempt metadata while preserving the wrapped event-store error chain. Nested write errors now refresh the outer operation/thread/attempt context instead of returning stale metadata.
+- Tests verify `errors.Is(err, event.ErrAppendConflict)` and `errors.As` survive wrapping through both `StorageError` and thread `WriteError`.
+
+Representative sample for an append conflict:
+
+```text
+thread: create failed thread_id="thread-diagnostics" attempt=16/16: event: append conflict on stream "thread.index": expected sequence 1, actual 2
+```
+
+Representative sqleventstore conflict sample asserted by tests:
+
+```text
+sqleventstore: append failed class=append_conflict stream="s" expected_sequence=4 actual_sequence=5 attempt=3/8: event: append conflict on stream "s": expected sequence 4, actual 5
+```
+
+Representative duplicate-record constraint path is verified to classify as `sqlite_constraint`, expose the SQLite constraint base code, and not be treated as busy/locked contention.

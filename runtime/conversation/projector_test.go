@@ -202,8 +202,8 @@ func TestProjectFullReplayRepairsOrphanToolResult(t *testing.T) {
 		Provider: provider,
 		Kind:     coreconversation.ItemToolResult,
 		CallID:   "call_1",
-		Name:     "plan",
-		Content:  map[string]any{"code": "plan_invalid", "message": "title is required"},
+		Name:     "task_create",
+		Content:  map[string]any{"code": "task_invalid", "message": "title is required"},
 		Metadata: map[string]string{"provider_call_type": "function_call"},
 	}
 	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})

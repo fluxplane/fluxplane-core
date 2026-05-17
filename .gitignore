@@ -15,3 +15,4 @@ dist/
 **/*.tmp
 
 .idea
+.work

@@ -198,9 +198,11 @@ type runHandle struct {
 	events     chan clientapi.Event
 	done       chan struct{}
 
-	mu     sync.Mutex
-	result clientapi.Result
-	err    error
+	mu           sync.Mutex
+	result       clientapi.Result
+	err          error
+	eventsMu     sync.RWMutex
+	eventsClosed bool
 }
 
 var _ clientapi.RunHandle = (*runHandle)(nil)
@@ -246,29 +248,43 @@ func (r *runHandle) Wait(ctx context.Context) (clientapi.Result, error) {
 }
 
 func (r *runHandle) execute(ctx context.Context, service *harness.Service, info clientapi.SessionInfo) {
-	defer close(r.events)
-	defer close(r.done)
+	var (
+		cancel         func()
+		forwardDone    <-chan struct{}
+		waitForForward bool
+	)
+	defer func() {
+		if forwardDone != nil {
+			if waitForForward {
+				close(r.done)
+				<-forwardDone
+			} else {
+				if cancel != nil {
+					cancel()
+				}
+				<-forwardDone
+			}
+		}
+		if cancel != nil {
+			cancel()
+		}
+		r.closeEvents()
+		if !waitForForward {
+			close(r.done)
+		}
+	}()
 
-	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: clientapi.DefaultRunEventBuffer})
+	events, cancelSubscription, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: clientapi.DefaultRunEventBuffer})
 	if err != nil {
 		r.fail(info, err)
 		return
 	}
-	forwardDone := make(chan struct{})
+	cancel = cancelSubscription
+	done := make(chan struct{})
+	forwardDone = done
 	go func() {
-		defer close(forwardDone)
+		defer close(done)
 		r.forwardRunEvents(events)
-	}()
-	defer func() {
-		select {
-		case <-forwardDone:
-		case <-time.After(time.Second):
-		}
-		cancel()
-		select {
-		case <-forwardDone:
-		case <-time.After(time.Second):
-		}
 	}()
 
 	switch r.submission.Kind {
@@ -296,6 +312,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Input:      &result.Input,
 			Outbound:   result.Outbound,
 		}, nil)
+		waitForForward = true
 	case clientapi.SubmissionCommand:
 		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
 			ID:           string(r.id),
@@ -317,6 +334,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Command:    &result.Command,
 			Outbound:   result.Outbound,
 		}, nil)
+		waitForForward = true
 	case clientapi.SubmissionEvent, clientapi.SubmissionSignal:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:
@@ -354,10 +372,25 @@ func (r *runHandle) fail(info clientapi.SessionInfo, err error) {
 }
 
 func (r *runHandle) emit(event clientapi.Event) {
+	r.eventsMu.RLock()
+	defer r.eventsMu.RUnlock()
+	if r.eventsClosed {
+		return
+	}
 	select {
 	case r.events <- event:
 	case <-time.After(time.Second):
 	}
+}
+
+func (r *runHandle) closeEvents() {
+	r.eventsMu.Lock()
+	defer r.eventsMu.Unlock()
+	if r.eventsClosed {
+		return
+	}
+	r.eventsClosed = true
+	close(r.events)
 }
 
 func (r *runHandle) forwardRunEvents(events <-chan clientapi.Event) {

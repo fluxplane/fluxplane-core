@@ -264,10 +264,10 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 	synthetic := coreconversation.Item{
 		Kind:   coreconversation.ItemOutput,
 		CallID: "call_1",
-		Name:   "plan",
+		Name:   "task_create",
 		ToolCalls: []coreconversation.ToolCallRef{{
 			CallID: "call_1",
-			Name:   "plan",
+			Name:   "task_create",
 			Type:   "function_call",
 			Input:  map[string]string{"repair": "orphan_tool_result", "reason": "matching assistant tool call was missing from replay"},
 		}},
@@ -276,8 +276,8 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 	result := coreconversation.Item{
 		Kind:    coreconversation.ItemToolResult,
 		CallID:  "call_1",
-		Name:    "plan",
-		Content: map[string]any{"code": "plan_invalid", "message": "planexec: title is required"},
+		Name:    "task_create",
+		Content: map[string]any{"code": "task_invalid", "message": "task: title is required"},
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
 		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
@@ -306,7 +306,7 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 	if !strings.Contains(json, `"type":"function_call"`) || !strings.Contains(json, `"type":"function_call_output"`) {
 		t.Fatalf("params json = %s, want synthetic tool call and tool output", raw)
 	}
-	if !strings.Contains(json, "matching assistant tool call was missing from replay") || !strings.Contains(json, "plan_invalid") {
+	if !strings.Contains(json, "matching assistant tool call was missing from replay") || !strings.Contains(json, "task_invalid") {
 		t.Fatalf("params json = %s, want repair reason and original tool result", raw)
 	}
 	if len(sent) != 2 || sent[0].Kind != coreconversation.ItemOutput || sent[0].Metadata["repair"] != "orphan_tool_result" || sent[1].Kind != coreconversation.ItemToolResult || sent[1].CallID != "call_1" {
@@ -381,12 +381,12 @@ func TestResponseParamsPreservesMatchedReplayToolResult(t *testing.T) {
 				{
 					Kind:   coreconversation.ItemOutput,
 					CallID: "call_1",
-					Name:   "plan",
-					Native: []byte(`{"type":"function_call","call_id":"call_1","name":"plan","arguments":"{\"title\":\"Fix\"}"}`),
+					Name:   "task_create",
+					Native: []byte(`{"type":"function_call","call_id":"call_1","name":"task_create","arguments":"{\"title\":\"Fix\"}"}`),
 				},
-				{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "plan", Content: map[string]any{"ok": true}},
+				{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "task_create", Content: map[string]any{"ok": true}},
 			},
-			NewItems: []coreconversation.Item{{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "plan", Content: map[string]any{"ok": true}}},
+			NewItems: []coreconversation.Item{{Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "task_create", Content: map[string]any{"ok": true}}},
 		},
 	})
 	if err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
@@ -256,6 +257,81 @@ func TestRuntimeEventSinkRetriesRuntimeEventAppendConflict(t *testing.T) {
 		}
 	}
 	t.Fatalf("thread events missing retried runtime event: %#v", snapshot.Events)
+}
+
+func TestRuntimeEventSinkPersistsTaskEvents(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	service := New(Config{ThreadStore: threadStore})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{ThreadID: "thread-task-runtime"})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	payload := coretask.Created{
+		TaskID: "task_1",
+		Task:   coretask.Task{ID: "task_1", Title: "Inspect runtime task events", Status: coretask.StatusReady},
+	}
+	if err := service.persistRuntimeEvent(ctx, info, "run-task", payload); err != nil {
+		t.Fatalf("persistRuntimeEvent: %v", err)
+	}
+	replayed, err := service.replayEvents(ctx, info.Thread.ID, clientapi.EventOptions{Replay: true})
+	if err != nil {
+		t.Fatalf("replayEvents: %v", err)
+	}
+	for _, event := range replayed {
+		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil || event.Runtime.Name != coretask.EventCreatedName {
+			continue
+		}
+		got, ok := event.Runtime.Payload.(coretask.Created)
+		if !ok || got.TaskID != "task_1" {
+			t.Fatalf("runtime payload = %#v, want task created", event.Runtime.Payload)
+		}
+		return
+	}
+	t.Fatalf("replayed events missing persisted task event: %#v", replayed)
+}
+
+func TestPublishRuntimeEventPersistsAndPublishesToThreadSubscribers(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	service := New(Config{ThreadStore: threadStore})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{ThreadID: "thread-task-live"})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	events, cancel, err := service.Subscribe(ctx, info.Thread.ID, clientapi.EventOptions{Buffer: 4})
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	defer cancel()
+	payload := coretask.StepCompleted{TaskID: "task_1", ExecutionID: "exec_1", StepID: "step_1"}
+	if err := service.PublishRuntimeEvent(ctx, info.Thread, "run-task", payload); err != nil {
+		t.Fatalf("PublishRuntimeEvent: %v", err)
+	}
+	select {
+	case event := <-events:
+		if event.Kind != clientapi.EventRuntimeEmitted || event.Runtime == nil || event.Runtime.Name != coretask.EventStepCompletedName {
+			t.Fatalf("event = %#v, want task runtime event", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for published task runtime event")
+	}
+	replayed, err := service.replayEvents(ctx, info.Thread.ID, clientapi.EventOptions{Replay: true})
+	if err != nil {
+		t.Fatalf("replayEvents: %v", err)
+	}
+	for _, event := range replayed {
+		if event.Kind == clientapi.EventRuntimeEmitted && event.Runtime != nil && event.Runtime.Name == coretask.EventStepCompletedName {
+			return
+		}
+	}
+	t.Fatalf("replayed events missing published task runtime event: %#v", replayed)
 }
 
 func TestRuntimeEventSinkPublishesRunFailureOnRuntimeEventAppendError(t *testing.T) {

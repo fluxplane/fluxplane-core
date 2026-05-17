@@ -14,10 +14,10 @@ This design assumes the foundation in
 
 The short-term goal has been implemented: `/task <input>` creates durable
 `core/task.Task` values through a narrow task-creator agent, task operations can
-inspect, modify, validate, and complete those tasks, and a first
-`orchestration/taskexecutor` scheduler can claim ready tasks and dispatch their
-steps to worker sessions. The longer-term goal is for `taskplugin` to replace
-`planexecplugin` after task execution reaches feature parity.
+inspect, modify, validate, and complete those tasks, and
+`orchestration/taskexecutor` can claim ready tasks and dispatch their steps to
+worker sessions. `taskplugin` now also owns `/plan`; the old plan execution
+plugin has been removed from runtime assembly.
 
 Related resources:
 
@@ -33,9 +33,8 @@ Related resources:
 
 Before this slice, user prompts could describe real work but had no canonical
 event-sourced task creation path. That creation/read/modify path now exists in
-`taskplugin`. `planexecplugin` still owns a separate plan model, runner, and
-sub-agent dispatch loop, which duplicates concepts now represented by
-`core/task` and `runtime/task`.
+`taskplugin`, and execution is represented through `core/task`,
+`runtime/task`, and `orchestration/taskexecutor`.
 
 The replacement needs to separate the durable work item from execution:
 
@@ -72,8 +71,6 @@ The replacement needs to separate the durable work item from execution:
 
 ## Non-goals
 
-- Do not migrate or delete `planexecplugin` until task execution reaches
-  feature parity.
 - Do not add `core/plan`; committed executable decomposition is represented by
   `task.Task.Steps`.
 - Do not add `core/review` or a full review workflow in this slice.
@@ -484,12 +481,18 @@ storage, cancellation, and run waiting.
 Current scheduler behavior:
 
 - local launch starts the scheduler when `taskplugin` is selected;
+- local launch wraps the event store with a task-ready notifier so appended
+  `task.indexed` records with `ready` summaries trigger scheduler claim
+  attempts after the task list projection has been updated;
+- periodic scans of the task index remain as reconciliation for missed,
+  out-of-process, or externally appended events, not as the primary trigger;
 - `task_run` schedules one ready task asynchronously without blocking the
   caller until worker completion;
 - `task_scheduler_status` reports enablement, active state, capacity, and
   running task IDs;
-- `task_scheduler_set_enabled` pauses or resumes automatic ready-task polling;
-  manual `task_run` remains available while polling is disabled;
+- `task_scheduler_set_enabled` pauses or resumes automatic ready-task
+  scheduling; manual `task_run` remains available while automatic scheduling is
+  disabled;
 - ready tasks are claimed with `task.execution_started` using the task stream
   sequence as an optimistic precondition;
 - declared task steps run as a dependency DAG through `runtime/task.ReadySteps`;
@@ -502,6 +505,11 @@ Current scheduler behavior:
 - worker output is recorded as step or execution output plus an artifact only
   after re-projecting the task stream and confirming the same execution/step is
   still running;
+- missing declared step outputs are bound to produced artifacts with the
+  declared output IDs/names, and automatic execution completion validates
+  required task outputs before writing `task.execution_completed`;
+- failed completion validation blocks the execution with a visible reason so a
+  caller can add missing artifacts or revise the task and mark it ready again;
 - scheduler shutdown cancellation is propagated into in-flight worker runs.
 
 The current control operations are intentionally local-runtime controls. They
@@ -520,49 +528,45 @@ Current concurrency posture:
 
 - task claims use `ProjectWithSequence` plus `AppendExpected`, so concurrent
   claims have one winner and conflict losers skip cleanly;
+- ready task notification is event-triggered from indexed ready summaries
+  through a local event-store wrapper, with periodic index scans retained as
+  fallback reconciliation;
 - terminal step/execution writes re-project state and retry conflicts, so stale
   worker completion does not overwrite newer cancellation or blocking state;
+- scheduler dispatch, block, and dependent-cancellation transitions use
+  current-state checks with expected-sequence appends;
+- terminal retry loops are bounded, context-aware, and lightly backed off;
 - task index writes are blind appends to `task:index`, avoiding stale global
   expected-sequence conflicts;
-- some non-terminal scheduler transitions still use plain `Store.Append`,
-  which can conflict because the store internally loads the stream tail and
-  appends with an expected sequence;
-- `task_modify` currently reports concurrent task stream conflicts as operation
-  failures rather than reloading and retrying or returning a specialized retry
-  code;
-- scheduler goroutine errors are not yet observable through a status field,
-  hook, event, or logger.
+- `task_modify` reloads and reapplies modifications on append conflicts and
+  returns `task_conflict_retry` if contention persists;
+- thread-store create/append/fork writes use bounded conflict retries, so
+  concurrent worker/session transcript writes do not fail on one stale stream
+  sequence read;
+- scheduler goroutine errors are observable through scheduler status
+  diagnostics and an optional error hook.
 
-Before replacing `planexecplugin`, add a scheduler/task-operation concurrency
-hardening slice:
+Current scheduler/task-operation hardening coverage includes:
 
-1. Add focused reproduction tests for concurrent task modify vs scheduler
-   claim, concurrent scheduler claims from two scheduler instances, concurrent
-   same-task modifications, and independent ready-step stress.
-2. Make terminal retry loops bounded, context-aware, and lightly backed off.
-3. Move scheduler dispatch, block, and dependent-cancellation transitions to
-   current-state checks with expected-sequence appends where they can race with
-   user/model changes.
-4. Decide the `task_modify` conflict UX: either reload/reapply/retry safe
-   modifications or return a specific retryable conflict code such as
-   `task_conflict_retry`.
-5. Expose scheduler background errors through a testable error sink, status
-   diagnostics, task event, or runtime logger.
+1. focused reproduction tests for concurrent scheduler claims, stale worker
+   terminal writes, human-blocker resume, worker shutdown cancellation, and
+   concurrent task modification conflicts;
+2. event-triggered ready-task burst coverage where notifications saturate local
+   capacity and index-scan reconciliation must complete the remaining ready
+   tasks;
+3. SQLite/thread-store concurrency stress coverage for shared event streams and
+   thread index contention.
+
+Future hardening should decide whether durable scheduler diagnostics should be
+task events in addition to local status diagnostics, and should add longer
+soak/multi-process scheduler coverage when durable queues or external worker
+pools are introduced.
 
 ## Sub-Agents and Workers
 
 Sub-agents are an execution mechanism, not a separate task domain.
 
-Current `planexecplugin` already performs a task-like loop:
-
-```text
-plan steps DAG
-  -> ready step calculation
-  -> subagent.Supervisor.Prepare/Start
-  -> progress/completion/failure events
-```
-
-The task executor is absorbing that behavior around `core/task` events:
+The task executor owns the task execution loop around `core/task` events:
 
 ```text
 task.Step
@@ -572,10 +576,9 @@ task.Step
   -> task.step_completed or task.step_failed
 ```
 
-Do not refactor `orchestration/subagent` in this slice. After task execution
-covers planexec behavior, `planexecplugin` can be deleted and the remaining
-sub-agent abstraction can be reconsidered. It may become an internal worker
-backend or disappear into the task executor.
+Do not refactor `orchestration/subagent` in this slice. The remaining sub-agent
+abstraction can be reconsidered once the task executor has richer worker pools;
+it may become an internal worker backend or disappear into the task executor.
 
 ## Plan Relationship
 
@@ -622,23 +625,20 @@ review task output:
 Until `core/review` exists, review-specific semantics should remain in artifact
 descriptions, labels, and metadata rather than as task-only fields.
 
-## Migration From Planexec
+## Migration From Earlier Plan Execution
 
-`planexecplugin` and `taskplugin` can coexist temporarily.
+Completed replacement:
 
-Migration path:
-
-1. Build `taskplugin` creation path and validate `/task` UI behavior.
-2. Add scheduler/executor behavior using `core/task` events,
+1. Built `taskplugin` creation path and validated `/task` UI behavior.
+2. Added scheduler/executor behavior using `core/task` events,
    `runtime/task` readiness helpers, and `orchestration/taskexecutor`.
-3. Add `/plan` for draft task planning and approval before ready-state
+3. Added `/plan` for draft task planning and approval before ready-state
    scheduling.
-4. Match remaining planexec functionality with task execution.
-5. Replace coder/app references from `planexec` to `task`.
-6. Delete `planexecplugin` and its event catalog references.
+4. Matched execution progress with task events and worker profiles.
+5. Replaced coder/local launch references with `task`.
+6. Removed the old plan execution plugin and its event catalog references.
 
-This is a pre-1.0 rewrite. Do not add compatibility shims once replacement is
-ready.
+This is a pre-1.0 rewrite. No compatibility shim remains.
 
 ## Implementation Sequence
 
@@ -667,14 +667,26 @@ Completed in this slice:
 10. Added explicit scheduler controls through `task_run`,
     `task_scheduler_status`, and `task_scheduler_set_enabled`, plus
     configurable scheduler role-to-profile routing.
+11. Added local event-triggered ready-task notification, bounded/context-aware
+    scheduler retries, expected-sequence scheduler transitions, task modification
+    conflict retry UX, and scheduler status diagnostics.
+12. Added bounded thread-store conflict retries for concurrent worker/session
+    transcript writes.
+13. Added terminal rendering for typed `task.*` runtime events and persisted
+    task runtime events in session threads for replay.
+14. Fixed direct-channel run-event shutdown ordering so live run forwarding
+    cannot send on a closed run event channel.
+15. Added task origin thread/run metadata and scheduler-to-session runtime event
+    mirroring for background task progress.
 
 Follow-up slices:
 
-1. Harden scheduler/task-operation concurrency as described above.
+1. Decide whether scheduler diagnostics should also be durable task events.
 2. Add richer worker pools with multiple profiles per role, queueing policy,
    fairness, and retry/fallback behavior.
 3. Add review request/review task operations.
-4. Replace `planexecplugin` once task execution covers the same behavior.
+4. Add tool-result artifact ergonomics for oversized results, summaries, and
+   inspectable saved payloads.
 
 ## Testing
 
@@ -702,11 +714,27 @@ Follow-up slices:
 - `/plan` targets the dedicated planner session and creates draft tasks until
   approval.
 - `orchestration/taskexecutor` claims only one ready execution per task stream.
+- `orchestration/taskexecutor` reacts to indexed ready summaries and keeps
+  periodic index scans as reconciliation.
 - `orchestration/taskexecutor` runs ready DAG steps in dependency order.
+- `orchestration/taskexecutor` binds declared step outputs to produced
+  artifacts and blocks automatic completion when required task outputs remain
+  missing.
 - `task_run` schedules ready tasks asynchronously.
 - `task_scheduler_status` and `task_scheduler_set_enabled` expose local
   scheduler control state.
+- Terminal UI renders typed task lifecycle/progress/artifact events and filters
+  noisy model-stream progress.
+- Harness persists `task.*` runtime events so task feedback can be replayed
+  from the session thread.
+- Scheduler-produced task execution events are mirrored into the originating
+  session thread when the task carries origin metadata.
 - Human-assigned steps block the task instead of dispatching a worker.
-- Scheduler/task-operation concurrency hardening remains tracked as a required
-  follow-up before replacing `planexecplugin`.
-- Existing `planexecplugin` behavior remains untouched in this slice.
+- Concurrent scheduler claims create one execution, and concurrent
+  `task_modify` calls with independent artifacts retry stream conflicts.
+- Event-triggered ready-task burst scheduling completes saturated ready tasks
+  through index-scan reconciliation while respecting scheduler parallelism.
+- Coder/local launch, terminal feedback, Slack feedback, and event catalog
+  references use task events and task worker profiles.
+- Longer soak/multi-process scheduler tests remain a future requirement for
+  durable queues or external worker pools.

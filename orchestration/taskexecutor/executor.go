@@ -16,16 +16,18 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
 
 const (
-	defaultPollInterval = 2 * time.Second
-	defaultMaxParallel  = 2
-	defaultWorker       = "worker"
-	defaultExplorer     = "explorer"
-	defaultReviewer     = "reviewer"
+	defaultReconcileInterval = 2 * time.Second
+	defaultMaxParallel       = 2
+	defaultWorker            = "worker"
+	defaultExplorer          = "explorer"
+	defaultReviewer          = "reviewer"
+	maxAppendRetries         = 8
 )
 
 var errTaskBlocked = errors.New("task blocked")
@@ -33,6 +35,23 @@ var errTaskBlocked = errors.New("task blocked")
 // WorkerClient runs one task step through a concrete execution backend.
 type WorkerClient interface {
 	RunStep(context.Context, StepRunRequest) (StepRunResult, error)
+}
+
+// RuntimeEventPublisher mirrors scheduler-produced task events into the
+// session thread that originated the task.
+type RuntimeEventPublisher interface {
+	PublishRuntimeEvent(context.Context, corethread.Ref, clientapi.RunID, event.Event) error
+}
+
+// RuntimeEventPublisherFunc adapts a function into a RuntimeEventPublisher.
+type RuntimeEventPublisherFunc func(context.Context, corethread.Ref, clientapi.RunID, event.Event) error
+
+// PublishRuntimeEvent publishes one runtime event.
+func (f RuntimeEventPublisherFunc) PublishRuntimeEvent(ctx context.Context, thread corethread.Ref, runID clientapi.RunID, payload event.Event) error {
+	if f == nil {
+		return nil
+	}
+	return f(ctx, thread, runID, payload)
 }
 
 // StepRunRequest describes the task or step to run.
@@ -52,13 +71,15 @@ type StepRunResult struct {
 
 // Config wires a Scheduler.
 type Config struct {
-	Store        runtimetask.Store
-	Worker       WorkerClient
-	PollInterval time.Duration
-	MaxParallel  int
-	RoleProfiles map[coretask.Role]string
-	Now          func() time.Time
-	NewID        func(string) string
+	Store             runtimetask.Store
+	Worker            WorkerClient
+	ReconcileInterval time.Duration
+	MaxParallel       int
+	RoleProfiles      map[coretask.Role]string
+	RuntimeEvents     RuntimeEventPublisher
+	OnError           func(error)
+	Now               func() time.Time
+	NewID             func(string) string
 }
 
 // SubmitResult reports whether a task run was accepted for asynchronous work.
@@ -72,19 +93,22 @@ type SubmitResult struct {
 
 // Scheduler claims ready tasks and records worker execution as task events.
 type Scheduler struct {
-	store        runtimetask.Store
-	worker       WorkerClient
-	pollInterval time.Duration
-	maxParallel  int
-	roleProfiles map[coretask.Role]string
-	now          func() time.Time
-	newID        func(string) string
+	store             runtimetask.Store
+	worker            WorkerClient
+	reconcileInterval time.Duration
+	maxParallel       int
+	roleProfiles      map[coretask.Role]string
+	runtimeEvents     RuntimeEventPublisher
+	onError           func(error)
+	now               func() time.Time
+	newID             func(string) string
 
-	mu      sync.Mutex
-	enabled bool
-	active  bool
-	ctx     context.Context
-	running map[coretask.ID]struct{}
+	mu          sync.Mutex
+	enabled     bool
+	active      bool
+	ctx         context.Context
+	running     map[coretask.ID]struct{}
+	diagnostics []coretask.Diagnostic
 }
 
 // New returns a task scheduler.
@@ -95,8 +119,8 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.Worker == nil {
 		return nil, fmt.Errorf("taskexecutor: worker is nil")
 	}
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = defaultPollInterval
+	if cfg.ReconcileInterval <= 0 {
+		cfg.ReconcileInterval = defaultReconcileInterval
 	}
 	if cfg.MaxParallel <= 0 {
 		cfg.MaxParallel = defaultMaxParallel
@@ -108,16 +132,29 @@ func New(cfg Config) (*Scheduler, error) {
 		cfg.NewID = newID
 	}
 	return &Scheduler{
-		store:        cfg.Store,
-		worker:       cfg.Worker,
-		pollInterval: cfg.PollInterval,
-		maxParallel:  cfg.MaxParallel,
-		roleProfiles: cloneRoleProfiles(cfg.RoleProfiles),
-		now:          cfg.Now,
-		newID:        cfg.NewID,
-		enabled:      true,
-		running:      map[coretask.ID]struct{}{},
+		store:             cfg.Store,
+		worker:            cfg.Worker,
+		reconcileInterval: cfg.ReconcileInterval,
+		maxParallel:       cfg.MaxParallel,
+		roleProfiles:      cloneRoleProfiles(cfg.RoleProfiles),
+		runtimeEvents:     cfg.RuntimeEvents,
+		onError:           cfg.OnError,
+		now:               cfg.Now,
+		newID:             cfg.NewID,
+		enabled:           true,
+		running:           map[coretask.ID]struct{}{},
 	}, nil
+}
+
+// SetRuntimeEventPublisher configures where scheduler-produced task events are
+// mirrored for live session feedback.
+func (s *Scheduler) SetRuntimeEventPublisher(publisher RuntimeEventPublisher) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.runtimeEvents = publisher
+	s.mu.Unlock()
 }
 
 // Start runs the scheduler loop until ctx is cancelled.
@@ -127,10 +164,12 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 	s.setActive(ctx, true)
 	defer s.clearActive()
-	ticker := time.NewTicker(s.pollInterval)
+	ticker := time.NewTicker(s.reconcileInterval)
 	defer ticker.Stop()
 	for {
-		_ = s.Tick(ctx)
+		if err := s.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			s.recordError("task_scheduler_tick_failed", err)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -139,7 +178,7 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 }
 
-// Tick starts work for ready tasks until local capacity is full.
+// Tick reconciles indexed ready tasks until local capacity is full.
 func (s *Scheduler) Tick(ctx context.Context) error {
 	if !s.isEnabled() {
 		return nil
@@ -160,16 +199,33 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		}
 		go func(taskID coretask.ID) {
 			defer s.release(taskID)
-			_ = s.RunTask(ctx, taskID)
+			if err := s.RunTask(ctx, taskID); err != nil && !errors.Is(err, context.Canceled) {
+				s.recordError("task_run_failed", err)
+			}
 		}(summary.ID)
 	}
 	return nil
 }
 
 // SubmitTask starts one ready task asynchronously when local capacity is
-// available. It bypasses automatic polling enablement so operators can run a
+// available. It bypasses automatic scheduler enablement so operators can run a
 // specific task while the scheduler loop is paused.
 func (s *Scheduler) SubmitTask(ctx context.Context, taskID coretask.ID) (SubmitResult, error) {
+	return s.submitTask(ctx, taskID)
+}
+
+// NotifyTaskReady attempts to run a ready task as part of the event-triggered
+// scheduler path. It respects automatic scheduler enablement; manual SubmitTask
+// remains available while automatic scheduling is disabled.
+func (s *Scheduler) NotifyTaskReady(ctx context.Context, taskID coretask.ID) error {
+	if !s.isEnabled() {
+		return nil
+	}
+	_, err := s.submitTask(ctx, taskID)
+	return err
+}
+
+func (s *Scheduler) submitTask(ctx context.Context, taskID coretask.ID) (SubmitResult, error) {
 	if strings.TrimSpace(string(taskID)) == "" {
 		return SubmitResult{}, fmt.Errorf("taskexecutor: task id is required")
 	}
@@ -197,7 +253,9 @@ func (s *Scheduler) SubmitTask(ctx context.Context, taskID coretask.ID) (SubmitR
 	runCtx := s.runContext(ctx)
 	go func() {
 		defer s.release(taskID)
-		_ = s.RunTask(runCtx, taskID)
+		if err := s.RunTask(runCtx, taskID); err != nil && !errors.Is(err, context.Canceled) {
+			s.recordError("task_run_failed", err)
+		}
 	}()
 	result.Started = true
 	result.Running = true
@@ -215,16 +273,17 @@ func (s *Scheduler) Status() coretask.SchedulerStatusResult {
 	}
 	sort.Slice(running, func(i, j int) bool { return running[i] < running[j] })
 	return coretask.SchedulerStatusResult{
-		Enabled:      s.enabled,
-		Active:       s.active,
-		Running:      running,
-		Capacity:     s.maxParallel - len(s.running),
-		MaxParallel:  s.maxParallel,
-		PollInterval: s.pollInterval.String(),
+		Enabled:           s.enabled,
+		Active:            s.active,
+		Running:           running,
+		Capacity:          s.maxParallel - len(s.running),
+		MaxParallel:       s.maxParallel,
+		ReconcileInterval: s.reconcileInterval.String(),
+		Diagnostics:       append([]coretask.Diagnostic(nil), s.diagnostics...),
 	}
 }
 
-// SetEnabled controls automatic ready-task polling.
+// SetEnabled controls automatic ready-task scheduling.
 func (s *Scheduler) SetEnabled(enabled bool) coretask.SchedulerStatusResult {
 	s.mu.Lock()
 	s.enabled = enabled
@@ -296,6 +355,22 @@ func (s *Scheduler) runContext(fallback context.Context) context.Context {
 	return context.Background()
 }
 
+func (s *Scheduler) recordError(code string, err error) {
+	if err == nil {
+		return
+	}
+	if s.onError != nil {
+		s.onError(err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.diagnostics = append(s.diagnostics, coretask.Diagnostic{Code: code, Message: err.Error()})
+	const maxDiagnostics = 8
+	if len(s.diagnostics) > maxDiagnostics {
+		s.diagnostics = append([]coretask.Diagnostic(nil), s.diagnostics[len(s.diagnostics)-maxDiagnostics:]...)
+	}
+}
+
 // RunTask claims and runs one ready task synchronously.
 func (s *Scheduler) RunTask(ctx context.Context, taskID coretask.ID) error {
 	claimed, err := s.claim(ctx, taskID)
@@ -329,8 +404,11 @@ func (s *Scheduler) claim(ctx context.Context, taskID coretask.ID) (bool, error)
 		exec.Status = coretask.StatusRunning
 		exec.Error = nil
 		exec.CompletedAt = time.Time{}
-		err = s.store.AppendExpected(ctx, taskID, projected.Sequence,
+		events := []event.Event{
 			coretask.ExecutionStarted{TaskID: taskID, ExecutionID: exec.ID, Execution: exec},
+		}
+		err = s.store.AppendExpected(ctx, taskID, projected.Sequence,
+			events...,
 		)
 		if errors.Is(err, event.ErrAppendConflict) {
 			return false, nil
@@ -338,7 +416,11 @@ func (s *Scheduler) claim(ctx context.Context, taskID coretask.ID) (bool, error)
 		if err != nil {
 			return false, err
 		}
-		return true, s.index(ctx, taskID)
+		if err := s.index(ctx, taskID); err != nil {
+			return false, err
+		}
+		s.publishTaskRuntimeEvents(ctx, state.Task, events)
+		return true, nil
 	}
 	if executionActive(state) {
 		return false, nil
@@ -352,16 +434,19 @@ func (s *Scheduler) claim(ctx context.Context, taskID coretask.ID) (bool, error)
 		Workflow:    state.Task.Workflow,
 		StartedAt:   s.now(),
 	}
-	err = s.store.AppendExpected(ctx, taskID, projected.Sequence,
-		coretask.ExecutionStarted{TaskID: taskID, ExecutionID: execID, Execution: exec},
-	)
+	events := []event.Event{coretask.ExecutionStarted{TaskID: taskID, ExecutionID: execID, Execution: exec}}
+	err = s.store.AppendExpected(ctx, taskID, projected.Sequence, events...)
 	if errors.Is(err, event.ErrAppendConflict) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return true, s.index(ctx, taskID)
+	if err := s.index(ctx, taskID); err != nil {
+		return false, err
+	}
+	s.publishTaskRuntimeEvents(ctx, state.Task, events)
+	return true, nil
 }
 
 func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) error {
@@ -395,9 +480,26 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 		}
 		return err
 	}
-	events := artifactEvents(state.Task.ID, execID, "", result.Artifacts)
-	events = append(events, coretask.ExecutionCompleted{TaskID: state.Task.ID, ExecutionID: execID, Output: result.Output})
-	if err := s.appendExecutionTerminal(ctx, state.Task.ID, execID, events...); err != nil {
+	events := artifactEvents(state.Task.ID, execID, "", bindDeclaredOutputs(result, step.Outputs))
+	if len(events) > 0 {
+		if _, err := s.withExpectedRetry(ctx, state.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
+			exec, ok := current.Executions[execID]
+			if current.Task.Status != coretask.StatusRunning || current.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+				return false, nil
+			}
+			return true, events
+		}); err != nil {
+			return err
+		}
+	}
+	projected, err := s.store.Project(ctx, state.Task.ID)
+	if err != nil {
+		return err
+	}
+	if validation := validateCompletion(projected); !validation.Completable {
+		return s.blockCompletion(ctx, state.Task.ID, execID, validation)
+	}
+	if err := s.appendExecutionTerminal(ctx, state.Task.ID, execID, coretask.ExecutionCompleted{TaskID: state.Task.ID, ExecutionID: execID, Output: result.Output}); err != nil {
 		return err
 	}
 	return nil
@@ -423,6 +525,9 @@ func (s *Scheduler) runStepDAG(ctx context.Context, taskID coretask.ID) error {
 			return nil
 		}
 		if runtimetask.AllStepsTerminal(state) {
+			if validation := validateCompletion(state); !validation.Completable {
+				return s.blockCompletion(ctx, taskID, state.CurrentExecution, validation)
+			}
 			if err := s.appendExecutionTerminal(ctx, taskID, state.CurrentExecution, coretask.ExecutionCompleted{TaskID: taskID, ExecutionID: state.CurrentExecution}); err != nil {
 				return err
 			}
@@ -458,13 +563,17 @@ func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID core
 		return errTaskBlocked
 	}
 	externalID := string(execID) + ":" + string(step.ID)
-	if err := s.store.Append(ctx, task.ID, coretask.StepDispatched{
+	dispatched, err := s.appendStepDispatch(ctx, task.ID, execID, step.ID, coretask.StepDispatched{
 		TaskID: task.ID, ExecutionID: execID, StepID: step.ID,
 		Title:    firstNonEmpty(step.Title, step.Objective, string(step.ID)),
 		Assignee: firstRole(step.Assignee, task.Assignee),
 		Profile:  profile, ExternalID: externalID,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
+	}
+	if !dispatched {
+		return nil
 	}
 	result, err := s.worker.RunStep(ctx, StepRunRequest{Task: task, ExecutionID: execID, Step: step, Profile: profile, ExternalID: externalID})
 	if err != nil {
@@ -473,56 +582,88 @@ func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID core
 			Error: &operation.Error{Code: "task_worker_failed", Message: err.Error()},
 		})
 	}
-	events := artifactEvents(task.ID, execID, step.ID, result.Artifacts)
+	events := artifactEvents(task.ID, execID, step.ID, bindDeclaredOutputs(result, step.Outputs))
 	events = append(events, coretask.StepCompleted{TaskID: task.ID, ExecutionID: execID, StepID: step.ID, Output: result.Output})
 	return s.appendStepTerminal(ctx, task.ID, execID, step.ID, events...)
 }
 
-func (s *Scheduler) appendStepTerminal(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, events ...event.Event) error {
-	for {
-		projected, err := s.store.ProjectWithSequence(ctx, taskID)
-		if err != nil {
-			return err
-		}
-		state := projected.State
+func (s *Scheduler) appendStepDispatch(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, evt coretask.StepDispatched) (bool, error) {
+	return s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
 		exec, ok := state.Executions[execID]
 		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
-			return nil
+			return false, nil
+		}
+		if exec.Steps[stepID].Status != coretask.StepStatusWaiting {
+			return false, nil
+		}
+		return true, []event.Event{evt}
+	})
+}
+
+func (s *Scheduler) appendStepTerminal(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, events ...event.Event) error {
+	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+		exec, ok := state.Executions[execID]
+		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+			return false, nil
 		}
 		if exec.Steps[stepID].Status != coretask.StepStatusRunning {
-			return nil
+			return false, nil
 		}
-		err = s.store.AppendExpected(ctx, taskID, projected.Sequence, events...)
-		if errors.Is(err, event.ErrAppendConflict) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		return s.index(ctx, taskID)
-	}
+		return true, events
+	})
+	return err
 }
 
 func (s *Scheduler) appendExecutionTerminal(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, events ...event.Event) error {
-	for {
-		projected, err := s.store.ProjectWithSequence(ctx, taskID)
-		if err != nil {
-			return err
-		}
-		state := projected.State
+	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
 		exec, ok := state.Executions[execID]
 		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
-			return nil
+			return false, nil
+		}
+		return true, events
+	})
+	return err
+}
+
+func (s *Scheduler) withExpectedRetry(ctx context.Context, taskID coretask.ID, build func(runtimetask.State) (bool, []event.Event)) (bool, error) {
+	var lastConflict error
+	for attempt := 0; attempt < maxAppendRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		projected, err := s.store.ProjectWithSequence(ctx, taskID)
+		if err != nil {
+			return false, err
+		}
+		ok, events := build(projected.State)
+		if !ok || len(events) == 0 {
+			return false, nil
 		}
 		err = s.store.AppendExpected(ctx, taskID, projected.Sequence, events...)
 		if errors.Is(err, event.ErrAppendConflict) {
+			lastConflict = err
+			timer := time.NewTimer(time.Duration(attempt+1) * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return false, ctx.Err()
+			case <-timer.C:
+			}
 			continue
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
-		return s.index(ctx, taskID)
+		if err := s.index(ctx, taskID); err != nil {
+			return false, err
+		}
+		s.publishTaskRuntimeEvents(ctx, projected.State.Task, events)
+		return true, nil
 	}
+	if lastConflict != nil {
+		return false, fmt.Errorf("taskexecutor: append conflict after %d retries: %w", maxAppendRetries, lastConflict)
+	}
+	return false, nil
 }
 
 func (s *Scheduler) cancelWaitingDependents(ctx context.Context, state runtimetask.State, reason string) error {
@@ -544,30 +685,64 @@ func (s *Scheduler) cancelWaitingDependents(ctx context.Context, state runtimeta
 	if len(events) == 0 {
 		return nil
 	}
-	return s.store.Append(ctx, after.Task.ID, events...)
+	_, err := s.withExpectedRetry(ctx, after.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
+		if current.Task.Status != coretask.StatusRunning || current.CurrentExecution != after.CurrentExecution {
+			return false, nil
+		}
+		currentExec := current.Executions[current.CurrentExecution]
+		if currentExec.Status != coretask.StatusRunning {
+			return false, nil
+		}
+		return true, events
+	})
+	return err
 }
 
 func (s *Scheduler) blockStep(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, stepID coretask.StepID, reason string) error {
-	err := s.store.Append(ctx, taskID,
-		coretask.StepStatusChanged{TaskID: taskID, ExecutionID: execID, StepID: stepID, Current: coretask.StepStatusBlocked, Reason: reason},
-		coretask.ExecutionInterrupted{TaskID: taskID, ExecutionID: execID, Reason: reason},
-		coretask.StatusChanged{TaskID: taskID, Previous: coretask.StatusRunning, Current: coretask.StatusBlocked, Reason: reason},
-	)
-	if err != nil {
-		return err
-	}
-	return s.index(ctx, taskID)
+	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+		exec, ok := state.Executions[execID]
+		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+			return false, nil
+		}
+		if exec.Steps[stepID].Status != coretask.StepStatusWaiting {
+			return false, nil
+		}
+		return true, []event.Event{
+			coretask.StepStatusChanged{TaskID: taskID, ExecutionID: execID, StepID: stepID, Current: coretask.StepStatusBlocked, Reason: reason},
+			coretask.ExecutionInterrupted{TaskID: taskID, ExecutionID: execID, Reason: reason},
+			coretask.StatusChanged{TaskID: taskID, Previous: coretask.StatusRunning, Current: coretask.StatusBlocked, Reason: reason},
+		}
+	})
+	return err
 }
 
 func (s *Scheduler) blockTask(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, reason string) error {
-	err := s.store.Append(ctx, taskID,
-		coretask.ExecutionInterrupted{TaskID: taskID, ExecutionID: execID, Reason: reason},
-		coretask.StatusChanged{TaskID: taskID, Previous: coretask.StatusRunning, Current: coretask.StatusBlocked, Reason: reason},
-	)
-	if err != nil {
-		return err
-	}
-	return s.index(ctx, taskID)
+	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+		exec, ok := state.Executions[execID]
+		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+			return false, nil
+		}
+		return true, []event.Event{
+			coretask.ExecutionInterrupted{TaskID: taskID, ExecutionID: execID, Reason: reason},
+			coretask.StatusChanged{TaskID: taskID, Previous: coretask.StatusRunning, Current: coretask.StatusBlocked, Reason: reason},
+		}
+	})
+	return err
+}
+
+func (s *Scheduler) blockCompletion(ctx context.Context, taskID coretask.ID, execID coretask.ExecutionID, validation coretask.TaskValidationResult) error {
+	reason := completionBlockedReason(validation)
+	_, err := s.withExpectedRetry(ctx, taskID, func(state runtimetask.State) (bool, []event.Event) {
+		exec, ok := state.Executions[execID]
+		if state.Task.Status != coretask.StatusRunning || state.CurrentExecution != execID || !ok || exec.Status != coretask.StatusRunning {
+			return false, nil
+		}
+		return true, []event.Event{
+			coretask.ExecutionInterrupted{TaskID: taskID, ExecutionID: execID, Reason: reason},
+			coretask.StatusChanged{TaskID: taskID, Previous: coretask.StatusRunning, Current: coretask.StatusBlocked, Reason: reason},
+		}
+	})
+	return err
 }
 
 func (s *Scheduler) index(ctx context.Context, taskID coretask.ID) error {
@@ -576,6 +751,47 @@ func (s *Scheduler) index(ctx context.Context, taskID coretask.ID) error {
 		return err
 	}
 	return s.store.Index(ctx, summary(state.Task))
+}
+
+func (s *Scheduler) publishTaskRuntimeEvents(ctx context.Context, task coretask.Task, events []event.Event) {
+	if len(events) == 0 {
+		return
+	}
+	thread, runID, ok := taskOrigin(task)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	publisher := s.runtimeEvents
+	s.mu.Unlock()
+	if publisher == nil {
+		return
+	}
+	publishCtx := context.WithoutCancel(ctx)
+	for _, payload := range events {
+		if payload == nil {
+			continue
+		}
+		if err := publisher.PublishRuntimeEvent(publishCtx, thread, runID, payload); err != nil {
+			s.recordError("task_runtime_event_publish_failed", err)
+			return
+		}
+	}
+}
+
+func taskOrigin(task coretask.Task) (corethread.Ref, clientapi.RunID, bool) {
+	threadID := strings.TrimSpace(task.Metadata[coretask.MetadataOriginThreadID])
+	if threadID == "" {
+		return corethread.Ref{}, "", false
+	}
+	thread := corethread.Ref{
+		ID:       corethread.ID(threadID),
+		BranchID: corethread.BranchID(strings.TrimSpace(task.Metadata[coretask.MetadataOriginBranchID])),
+	}
+	if thread.BranchID == "" {
+		thread.BranchID = corethread.MainBranch
+	}
+	return thread, clientapi.RunID(strings.TrimSpace(task.Metadata[coretask.MetadataOriginRunID])), true
 }
 
 func executionActive(state runtimetask.State) bool {
@@ -603,6 +819,117 @@ func artifactEvents(taskID coretask.ID, execID coretask.ExecutionID, stepID core
 		events = append(events, coretask.ArtifactAdded{TaskID: taskID, ExecutionID: execID, StepID: stepID, Artifact: artifact})
 	}
 	return events
+}
+
+func bindDeclaredOutputs(result StepRunResult, outputs []coretask.ArtifactSpec) []coretask.ArtifactSpec {
+	artifacts := cloneArtifacts(result.Artifacts)
+	for _, output := range outputs {
+		if output.ID == "" && output.Name == "" {
+			continue
+		}
+		if artifactSpecSatisfied(output, artifacts) {
+			continue
+		}
+		artifact := output
+		if artifact.Kind == "" {
+			artifact.Kind = coretask.ArtifactReport
+		}
+		if artifact.Value == nil && artifact.Ref == "" {
+			artifact.Value = result.Output
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts
+}
+
+func validateCompletion(state runtimetask.State) coretask.TaskValidationResult {
+	result := coretask.TaskValidationResult{
+		TaskID: state.Task.ID,
+		Ready:  state.Task.Status == coretask.StatusReady || state.Task.Status == coretask.StatusRunning,
+	}
+	completable := true
+	produced := scopedArtifacts(state)
+	for _, output := range state.Task.Outputs {
+		if !output.Required {
+			continue
+		}
+		ok := scopedArtifactSatisfied(output, produced)
+		if !ok {
+			completable = false
+		}
+		result.Checks = append(result.Checks, coretask.TaskCheck{
+			Code:    "required_output",
+			Message: fmt.Sprintf("required output %s", firstNonEmpty(output.ID, output.Name, output.Description, output.Ref)),
+			OK:      ok,
+			Target:  output.ID,
+		})
+	}
+	if len(state.Task.Steps) > 0 {
+		ok := runtimetask.AllStepsTerminal(state)
+		if !ok {
+			completable = false
+		}
+		result.Checks = append(result.Checks, coretask.TaskCheck{
+			Code:    "steps_terminal",
+			Message: "all declared task steps have terminal execution state",
+			OK:      ok,
+		})
+	}
+	if len(result.Checks) == 0 {
+		result.Checks = append(result.Checks, coretask.TaskCheck{Code: "task_shape", Message: "task has no required outputs or steps", OK: true})
+	}
+	result.Completable = completable
+	return result
+}
+
+func scopedArtifacts(state runtimetask.State) []coretask.ScopedArtifact {
+	var out []coretask.ScopedArtifact
+	for _, artifact := range state.Task.Artifacts {
+		out = append(out, coretask.ScopedArtifact{TaskID: state.Task.ID, Artifact: artifact})
+	}
+	for execID, exec := range state.Executions {
+		for _, artifact := range exec.Artifacts {
+			out = append(out, coretask.ScopedArtifact{TaskID: state.Task.ID, ExecutionID: execID, Artifact: artifact})
+		}
+		for stepID, step := range exec.Steps {
+			for _, artifact := range step.Artifacts {
+				out = append(out, coretask.ScopedArtifact{TaskID: state.Task.ID, ExecutionID: execID, StepID: stepID, Artifact: artifact})
+			}
+		}
+	}
+	return out
+}
+
+func scopedArtifactSatisfied(required coretask.ArtifactSpec, produced []coretask.ScopedArtifact) bool {
+	for _, scoped := range produced {
+		if artifactSpecSatisfied(required, []coretask.ArtifactSpec{scoped.Artifact}) {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactSpecSatisfied(required coretask.ArtifactSpec, produced []coretask.ArtifactSpec) bool {
+	for _, artifact := range produced {
+		if required.ID != "" && artifact.ID == required.ID {
+			return true
+		}
+		if required.Name != "" && strings.EqualFold(artifact.Name, required.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func completionBlockedReason(validation coretask.TaskValidationResult) string {
+	for _, check := range validation.Checks {
+		if check.OK {
+			continue
+		}
+		target := firstNonEmpty(check.Target, check.Message, check.Code)
+		return fmt.Sprintf("task completion blocked: %s", target)
+	}
+	return "task completion blocked: validation did not pass"
 }
 
 func (s *Scheduler) resolveProfile(task coretask.Task, step coretask.Step) (string, bool) {

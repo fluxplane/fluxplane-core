@@ -14,7 +14,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -112,7 +111,6 @@ func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		codingplugin.New(hostSystem),
-		planexecplugin.New(),
 		taskplugin.New(),
 		skillplugin.New(),
 		imageplugin.New(hostSystem),

@@ -296,6 +296,41 @@ func TestClientReceivesLargeStreamingBurst(t *testing.T) {
 	}
 }
 
+func TestRunWaitDoesNotBlockWhenEventsAreUndrained(t *testing.T) {
+	ctx := context.Background()
+	client := testClientWithAgent(t, directStreamingBurstAgent{count: clientapi.DefaultRunEventBuffer + 8})
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-undrained-burst"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithText("hello"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	if _, err := run.Wait(waitCtx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+}
+
+func TestRunHandleEmitAfterEventsClosedDoesNotPanic(t *testing.T) {
+	run := newRunHandle(clientapi.SessionInfo{}, clientapi.NewSubmission().WithText("hello"))
+	run.closeEvents()
+	run.emit(clientapi.Event{Kind: clientapi.EventRunCompleted})
+
+	select {
+	case _, ok := <-run.Events():
+		if ok {
+			t.Fatal("events channel is open, want closed")
+		}
+	default:
+		t.Fatal("events channel is not closed")
+	}
+}
+
 func testClient(t *testing.T) *Client {
 	t.Helper()
 	return testClientWithAgent(t, fixedAgent{result: agent.StepResult{

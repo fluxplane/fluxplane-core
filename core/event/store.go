@@ -65,6 +65,32 @@ func ExpectSequence(sequence Sequence) AppendOptions {
 }
 
 // ErrAppendConflict identifies a failed optimistic concurrency check.
+
+// ErrDuplicateRecord identifies an append containing a record ID that already
+// exists in the store. Stores must reject duplicate IDs without appending any
+// records from the append request or batch. Retrying a previously committed
+// append with the same caller-supplied record IDs therefore resolves to this
+// error; callers that intentionally use stable IDs can load/project the target
+// stream to recover the committed outcome.
+var ErrDuplicateRecord = errors.New("event: duplicate record")
+
+// DuplicateRecord describes a duplicate event record ID rejected by a store.
+type DuplicateRecord struct {
+	Stream StreamID `json:"stream"`
+	ID     string   `json:"id"`
+}
+
+func (e DuplicateRecord) Error() string {
+	if e.Stream == "" {
+		return fmt.Sprintf("event: duplicate record id %q", e.ID)
+	}
+	return fmt.Sprintf("event: duplicate record id %q on stream %q", e.ID, e.Stream)
+}
+
+func (e DuplicateRecord) Unwrap() error {
+	return ErrDuplicateRecord
+}
+
 var ErrAppendConflict = errors.New("event: append conflict")
 
 // AppendConflict describes an optimistic concurrency failure.

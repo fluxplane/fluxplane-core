@@ -18,10 +18,158 @@ import (
 const (
 	sqliteBusyCode       = 5
 	sqliteLockedCode     = 6
+	sqliteConstraintCode = 19
 	sqliteWriteAttempts  = 8
 	sqliteWriteRetryBase = 25 * time.Millisecond
 	sqliteWriteRetryMax  = 500 * time.Millisecond
 )
+
+// StorageErrorClass identifies the storage failure category for retry,
+// logging, and tests without parsing error strings.
+type StorageErrorClass string
+
+const (
+	StorageAppendConflict StorageErrorClass = "append_conflict"
+	StorageBusyLocked     StorageErrorClass = "sqlite_busy_locked"
+	StorageConstraint     StorageErrorClass = "sqlite_constraint"
+	StorageContext        StorageErrorClass = "context"
+	StorageUnknown        StorageErrorClass = "unknown_storage"
+)
+
+// StorageError adds structured, payload-free observability to SQLite event-store
+// failures. It intentionally carries stream and sequence metadata, but not event
+// payloads or attributes.
+type StorageError struct {
+	Class           StorageErrorClass
+	Op              string
+	Stream          event.StreamID
+	RequestIndex    int
+	HasRequestIndex bool
+	Expected        event.Sequence
+	Actual          event.Sequence
+	HasSequence     bool
+	Attempt         int
+	Attempts        int
+	SQLiteCode      int
+	Err             error
+}
+
+func (e StorageError) Error() string {
+	msg := fmt.Sprintf("sqleventstore: %s failed class=%s", e.Op, e.Class)
+	if e.Stream != "" {
+		msg += fmt.Sprintf(" stream=%q", e.Stream)
+	}
+	if e.HasRequestIndex {
+		msg += fmt.Sprintf(" request_index=%d", e.RequestIndex)
+	}
+	if e.HasSequence {
+		msg += fmt.Sprintf(" expected_sequence=%d actual_sequence=%d", e.Expected, e.Actual)
+	}
+	if e.Attempts > 0 {
+		msg += fmt.Sprintf(" attempt=%d/%d", e.Attempt, e.Attempts)
+	}
+	if e.SQLiteCode != 0 {
+		msg += fmt.Sprintf(" sqlite_code=%d", e.SQLiteCode)
+	}
+	if e.Err != nil {
+		msg += ": " + e.Err.Error()
+	}
+	return msg
+}
+
+func (e StorageError) Unwrap() error { return e.Err }
+
+func storageErrorClass(err error) StorageErrorClass {
+	if err == nil {
+		return StorageUnknown
+	}
+	if errors.Is(err, event.ErrAppendConflict) {
+		return StorageAppendConflict
+	}
+	if errors.Is(err, event.ErrDuplicateRecord) {
+		return StorageConstraint
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return StorageContext
+	}
+	code, ok := sqliteErrorCode(err)
+	if !ok {
+		return StorageUnknown
+	}
+	switch code & 0xff {
+	case sqliteBusyCode, sqliteLockedCode:
+		return StorageBusyLocked
+	case sqliteConstraintCode:
+		return StorageConstraint
+	default:
+		return StorageUnknown
+	}
+}
+
+func wrapStorageError(op string, stream event.StreamID, err error) error {
+	return wrapStorageErrorForRequest(op, stream, -1, err)
+}
+
+func wrapStorageErrorForRequest(op string, stream event.StreamID, requestIndex int, err error) error {
+	if err == nil {
+		return nil
+	}
+	var existing StorageError
+	if errors.As(err, &existing) {
+		if requestIndex >= 0 && !existing.HasRequestIndex {
+			existing.RequestIndex = requestIndex
+			existing.HasRequestIndex = true
+			return existing
+		}
+		return err
+	}
+	wrapped := StorageError{Class: storageErrorClass(err), Op: op, Stream: stream, Err: err}
+	if requestIndex >= 0 {
+		wrapped.RequestIndex = requestIndex
+		wrapped.HasRequestIndex = true
+	}
+	if conflict, ok := appendConflict(err); ok {
+		wrapped.Stream = conflict.Stream
+		wrapped.Expected = conflict.Expected
+		wrapped.Actual = conflict.Actual
+		wrapped.HasSequence = true
+	}
+	if code, ok := sqliteErrorCode(err); ok {
+		wrapped.SQLiteCode = code
+	}
+	if errors.Is(err, event.ErrDuplicateRecord) {
+		wrapped.Class = StorageConstraint
+	}
+	return wrapped
+}
+
+func withAttempt(err error, attempt, attempts int) error {
+	if err == nil {
+		return nil
+	}
+	var storage StorageError
+	if errors.As(err, &storage) {
+		storage.Attempt = attempt
+		storage.Attempts = attempts
+		return storage
+	}
+	storage = StorageError{Class: storageErrorClass(err), Op: "append batch", Attempt: attempt, Attempts: attempts, Err: err}
+	if code, ok := sqliteErrorCode(err); ok {
+		storage.SQLiteCode = code
+	}
+	if errors.Is(err, event.ErrDuplicateRecord) {
+		storage.Class = StorageConstraint
+	}
+	return storage
+}
+
+func appendConflict(err error) (event.AppendConflict, bool) {
+	var conflict event.AppendConflict
+	if errors.As(err, &conflict) {
+		return conflict, true
+	}
+	return event.AppendConflict{}, false
+}
 
 // Store is a SQLite-backed event store.
 type Store struct {
@@ -54,6 +202,12 @@ func Open(path string, registry *event.Registry) (*Store, error) {
 }
 
 // OpenDB wraps an existing database. The caller owns db.
+//
+// Append operations use a dedicated connection and BEGIN IMMEDIATE so SQLite
+// acquires writer intent before reading stream sequence state. OpenDB does not
+// change the caller's connection-pool settings; callers that share one *sql.DB
+// with other work should size that pool deliberately. Open uses a single pooled
+// connection because SQLite permits only one writer at a time.
 func OpenDB(db *sql.DB, registry *event.Registry) (*Store, error) {
 	if db == nil {
 		return nil, fmt.Errorf("sqleventstore: db is nil")
@@ -94,12 +248,12 @@ func (s *Store) AppendBatch(ctx context.Context, requests ...event.AppendRequest
 		return nil, nil
 	}
 	seen := map[event.StreamID]struct{}{}
-	for _, request := range requests {
+	for i, request := range requests {
 		if request.Stream == "" {
-			return nil, fmt.Errorf("sqleventstore: stream is empty")
+			return nil, wrapStorageErrorForRequest("append batch validate", request.Stream, i, fmt.Errorf("sqleventstore: stream is empty"))
 		}
 		if _, exists := seen[request.Stream]; exists {
-			return nil, fmt.Errorf("sqleventstore: duplicate stream %q in append batch", request.Stream)
+			return nil, wrapStorageErrorForRequest("append batch validate", request.Stream, i, fmt.Errorf("sqleventstore: duplicate stream %q in append batch", request.Stream))
 		}
 		seen[request.Stream] = struct{}{}
 	}
@@ -110,42 +264,54 @@ func (s *Store) AppendBatch(ctx context.Context, requests ...event.AppendRequest
 		if err == nil {
 			return results, nil
 		}
+		err = withAttempt(err, attempt+1, sqliteWriteAttempts)
 		if !isSQLiteBusy(err) {
 			return nil, err
 		}
 		last = err
 		if err := sleepSQLiteWriteRetry(ctx, attempt); err != nil {
-			return nil, err
+			return nil, wrapStorageError("append retry sleep", "", err)
 		}
 	}
 	return nil, last
 }
 
 func (s *Store) appendBatchOnce(ctx context.Context, requests ...event.AppendRequest) ([]event.AppendResult, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("sqleventstore: begin tx: %w", err)
+		return nil, wrapStorageError("conn", "", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = conn.Close() }()
 
-	stmt, err := tx.PrepareContext(ctx, insertSQL)
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return nil, wrapStorageError("begin immediate", "", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`)
+		}
+	}()
+
+	stmt, err := conn.PrepareContext(ctx, insertSQL)
 	if err != nil {
-		return nil, fmt.Errorf("sqleventstore: prepare insert: %w", err)
+		return nil, wrapStorageError("prepare insert", "", err)
 	}
 	defer func() { _ = stmt.Close() }()
 
 	now := time.Now().UTC()
 	results := make([]event.AppendResult, 0, len(requests))
-	for _, request := range requests {
-		result, err := s.appendRequest(ctx, tx, stmt, now, request)
+	for i, request := range requests {
+		result, err := s.appendRequest(ctx, conn, stmt, now, request)
 		if err != nil {
-			return nil, err
+			return nil, wrapStorageErrorForRequest("append batch request", request.Stream, i, err)
 		}
 		results = append(results, result)
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("sqleventstore: commit: %w", err)
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return nil, wrapStorageError("commit", "", err)
 	}
+	committed = true
 	return results, nil
 }
 
@@ -168,35 +334,50 @@ type sqliteErrorCoder interface {
 	Code() int
 }
 
-func isSQLiteBusy(err error) bool {
+func sqliteErrorCode(err error) (int, bool) {
 	var coded sqliteErrorCoder
 	if !errors.As(err, &coded) {
-		return false
+		return 0, false
 	}
-	switch coded.Code() & 0xff {
-	case sqliteBusyCode, sqliteLockedCode:
-		return true
-	default:
-		return false
-	}
+	return coded.Code(), true
 }
 
-func (s *Store) appendRequest(ctx context.Context, tx *sql.Tx, stmt *sql.Stmt, now time.Time, request event.AppendRequest) (event.AppendResult, error) {
+func isSQLiteBusy(err error) bool {
+	return storageErrorClass(err) == StorageBusyLocked
+}
+
+type sequenceQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func duplicateRecordError(ctx context.Context, q sequenceQuerier, id string, err error) (event.DuplicateRecord, bool) {
+	code, ok := sqliteErrorCode(err)
+	if !ok || code&0xff != sqliteConstraintCode || id == "" {
+		return event.DuplicateRecord{}, false
+	}
+	var stream string
+	if scanErr := q.QueryRowContext(ctx, `SELECT stream FROM events WHERE id = ?`, id).Scan(&stream); scanErr != nil {
+		return event.DuplicateRecord{}, false
+	}
+	return event.DuplicateRecord{Stream: event.StreamID(stream), ID: id}, true
+}
+
+func (s *Store) appendRequest(ctx context.Context, q sequenceQuerier, stmt *sql.Stmt, now time.Time, request event.AppendRequest) (event.AppendResult, error) {
 	stream := request.Stream
 	if stream == "" {
 		return event.AppendResult{}, fmt.Errorf("sqleventstore: stream is empty")
 	}
-	next, err := nextSequence(ctx, tx, stream)
+	next, err := nextSequence(ctx, q, stream)
 	if err != nil {
 		return event.AppendResult{}, err
 	}
 	actual := next - 1
 	if request.Options.CheckExpectedSequence && request.Options.ExpectedSequence != actual {
-		return event.AppendResult{}, event.AppendConflict{
+		return event.AppendResult{}, wrapStorageError("append", stream, event.AppendConflict{
 			Stream:   stream,
 			Expected: request.Options.ExpectedSequence,
 			Actual:   actual,
-		}
+		})
 	}
 	result := event.AppendResult{Stream: stream}
 	for _, record := range request.Records {
@@ -244,7 +425,10 @@ func (s *Store) appendRequest(ctx context.Context, tx *sql.Tx, stmt *sql.Stmt, n
 			nullString(normalized.CausationID),
 		)
 		if err != nil {
-			return event.AppendResult{}, fmt.Errorf("sqleventstore: insert: %w", err)
+			if duplicate, ok := duplicateRecordError(ctx, q, normalized.ID, err); ok {
+				return event.AppendResult{}, fmt.Errorf("%w: %w", duplicate, err)
+			}
+			return event.AppendResult{}, wrapStorageError("insert", stream, err)
 		}
 		result.Records = append(result.Records, event.StoredRecord{
 			Stream:   stream,
@@ -300,10 +484,10 @@ func (s *Store) Load(ctx context.Context, stream event.StreamID, opts event.Load
 	return out, nil
 }
 
-func nextSequence(ctx context.Context, tx *sql.Tx, stream event.StreamID) (event.Sequence, error) {
+func nextSequence(ctx context.Context, q sequenceQuerier, stream event.StreamID) (event.Sequence, error) {
 	var max sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT MAX(stream_seq) FROM events WHERE stream = ?`, string(stream)).Scan(&max); err != nil {
-		return 0, fmt.Errorf("sqleventstore: next sequence: %w", err)
+	if err := q.QueryRowContext(ctx, `SELECT MAX(stream_seq) FROM events WHERE stream = ?`, string(stream)).Scan(&max); err != nil {
+		return 0, wrapStorageError("next sequence", stream, err)
 	}
 	if !max.Valid {
 		return 1, nil

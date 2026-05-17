@@ -38,7 +38,6 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
@@ -274,6 +273,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			closeRuntime()
 			return Runtime{}, err
 		}
+		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
 	available := availablePlugins(hostSystem, connectorEngine, connectorInstances, dispatcher, taskScheduler)
 	if opts.Plugins != nil {
@@ -372,6 +372,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	if taskScheduler != nil && taskWorker != nil {
 		taskWorker.Set(taskexecutor.ChannelWorker{Client: service})
+		taskScheduler.SetRuntimeEventPublisher(taskexecutor.RuntimeEventPublisherFunc(service.PublishRuntimeEvent))
 		schedulerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		stopTaskScheduler = cancel
 		go taskScheduler.Start(schedulerCtx)
@@ -427,7 +428,6 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name)),
 		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
-		planexecplugin.New(),
 		taskplugin.NewWithRunner(taskRunner),
 		skillplugin.New(),
 		textplugin.New(),

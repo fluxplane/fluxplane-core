@@ -312,6 +312,15 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	return New(cfg)
 }
 
+// PublishRuntimeEvent persists and publishes a runtime event for an existing
+// session thread.
+func (s *Service) PublishRuntimeEvent(ctx context.Context, thread corethread.Ref, runID clientapi.RunID, payload coreevent.Event) error {
+	if s == nil || s.harness == nil {
+		return nil
+	}
+	return s.harness.PublishRuntimeEvent(ctx, thread, runID, payload)
+}
+
 type resolverStopEvaluator struct {
 	resolver LLMModelResolver
 }

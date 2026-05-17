@@ -3,13 +3,17 @@ package taskplugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
@@ -23,11 +27,11 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if len(bundle.Commands) != 2 || bundle.Commands[0].Path.String() != "/task" || bundle.Commands[1].Path.String() != "/plan" {
 		t.Fatalf("commands = %#v, want /task and /plan", bundle.Commands)
 	}
-	if len(bundle.Agents) != 2 || string(bundle.Agents[0].Name) != TaskAgent || string(bundle.Agents[1].Name) != PlanAgent {
-		t.Fatalf("agents = %#v, want task and planner agents", bundle.Agents)
+	if len(bundle.Agents) != 5 || string(bundle.Agents[0].Name) != TaskAgent || string(bundle.Agents[1].Name) != PlanAgent || string(bundle.Agents[2].Name) != WorkerAgent || string(bundle.Agents[3].Name) != ExplorerAgent || string(bundle.Agents[4].Name) != ReviewerAgent {
+		t.Fatalf("agents = %#v, want task, planner, worker, explorer, and reviewer agents", bundle.Agents)
 	}
-	if len(bundle.Sessions) != 2 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession {
-		t.Fatalf("sessions = %#v, want task and planner sessions", bundle.Sessions)
+	if len(bundle.Sessions) != 5 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession || string(bundle.Sessions[2].Name) != WorkerSession || string(bundle.Sessions[3].Name) != ExplorerSession || string(bundle.Sessions[4].Name) != ReviewerSession {
+		t.Fatalf("sessions = %#v, want task, planner, worker, explorer, and reviewer sessions", bundle.Sessions)
 	}
 	if len(bundle.Operations) != 10 {
 		t.Fatalf("operations len = %d, want 10", len(bundle.Operations))
@@ -76,6 +80,34 @@ func TestTaskCreatePersistsEventsAndDefaultsReady(t *testing.T) {
 	}
 	if state.Task.ID != out.Task.ID || state.Task.Title == "" {
 		t.Fatalf("projected task = %#v, want created task", state.Task)
+	}
+}
+
+func TestTaskCreateRecordsOriginSessionMetadata(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	ctx := operation.NewContext(context.Background(), nil)
+	ctx = sessionenv.OperationContext(ctx, sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-origin", BranchID: "feature"},
+		RunID:  "run-origin",
+	}, "call-1")
+
+	result := ops[0].Run(ctx, coretask.TaskCreateRequest{Title: "Origin task"})
+	if result.IsError() {
+		t.Fatalf("task_create error = %#v", result.Error)
+	}
+	out := result.Output.(coretask.TaskCreateResult)
+	if out.Task.Metadata[coretask.MetadataOriginThreadID] != "thread-origin" {
+		t.Fatalf("metadata = %#v, want origin thread", out.Task.Metadata)
+	}
+	if out.Task.Metadata[coretask.MetadataOriginBranchID] != "feature" {
+		t.Fatalf("metadata = %#v, want origin branch", out.Task.Metadata)
+	}
+	if out.Task.Metadata[coretask.MetadataOriginRunID] != "run-origin" {
+		t.Fatalf("metadata = %#v, want origin run", out.Task.Metadata)
 	}
 }
 
@@ -240,6 +272,53 @@ func TestTaskModifyStepArtifactDefaultsToManualExecution(t *testing.T) {
 	}
 	if text := get.Output.(coretask.TaskGetResult).ModelText(); !strings.Contains(text, "execution:manual/step:inspect") {
 		t.Fatalf("task_get ModelText = %q, want scoped step artifact", text)
+	}
+}
+
+func TestTaskModifyConcurrentUniqueArtifacts(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctx := operation.NewContext(context.Background(), nil)
+	created := byName[TaskCreateOp].Run(ctx, coretask.TaskCreateRequest{ID: "task_1", Title: "Concurrent artifacts"})
+	if created.IsError() {
+		t.Fatalf("task_create error = %#v", created.Error)
+	}
+	const workers = 8
+	var wg sync.WaitGroup
+	errs := make(chan operation.Result, workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := byName[TaskModifyOp].Run(operation.NewContext(context.Background(), nil), coretask.TaskModifyRequest{
+				ID: "task_1",
+				Modifications: []coretask.TaskModification{{
+					Op:       "add_artifact",
+					Artifact: coretask.ArtifactSpec{ID: fmt.Sprintf("artifact-%02d", i), Name: fmt.Sprintf("artifact-%02d", i), Kind: coretask.ArtifactText},
+				}},
+			})
+			errs <- result
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for result := range errs {
+		if result.IsError() {
+			t.Fatalf("task_modify concurrent error = %#v", result.Error)
+		}
+	}
+	listArtifacts := byName[TaskListArtifactsOp].Run(ctx, coretask.TaskArtifactListRequest{ID: "task_1"})
+	if listArtifacts.IsError() {
+		t.Fatalf("task_list_artifacts error = %#v", listArtifacts.Error)
+	}
+	artifactOut := listArtifacts.Output.(coretask.TaskArtifactListResult)
+	if len(artifactOut.Artifacts) != workers {
+		t.Fatalf("artifacts len = %d, want %d: %#v", len(artifactOut.Artifacts), workers, artifactOut.Artifacts)
 	}
 }
 

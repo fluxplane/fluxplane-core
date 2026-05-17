@@ -14,11 +14,11 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
-	"github.com/fluxplane/agentruntime/plugins/planexecplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -393,7 +393,7 @@ func TestRunObserverStreamsRepeatedContentDeltas(t *testing.T) {
 	}
 }
 
-func TestRunObserverPlanEventsUseTaskCards(t *testing.T) {
+func TestRunObserverTaskEventsUseTaskCards(t *testing.T) {
 	server, requests := slackCaptureServer(t, nil)
 	defer server.Close()
 
@@ -402,13 +402,15 @@ func TestRunObserverPlanEventsUseTaskCards(t *testing.T) {
 	observer.Handle(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name: planexecplugin.EventPlanCreated,
-			Payload: planexecplugin.PlanCreated{
-				PlanID: "plan_1",
-				Spec: planexecplugin.PlanSpec{
+			Name: coretask.EventCreatedName,
+			Payload: coretask.Created{
+				TaskID: "task_1",
+				Task: coretask.Task{
+					ID:          "task_1",
 					Title:       "Investigate issue",
 					Description: "Read the trace",
-					Steps:       []planexecplugin.StepSpec{{ID: "step_1", Title: "Check logs"}},
+					Status:      coretask.StatusReady,
+					Steps:       []coretask.Step{{ID: "step_1", Title: "Check logs"}},
 				},
 			},
 		},
@@ -416,8 +418,8 @@ func TestRunObserverPlanEventsUseTaskCards(t *testing.T) {
 	observer.Handle(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    planexecplugin.EventStepProgressed,
-			Payload: planexecplugin.StepProgressed{PlanID: "plan_1", StepID: "step_1", Message: "reading"},
+			Name:    coretask.EventStepProgressedName,
+			Payload: coretask.StepProgressed{TaskID: "task_1", StepID: "step_1", Message: "reading"},
 		},
 	})
 	observer.Finish(context.Background(), "done")
@@ -449,10 +451,10 @@ func TestRunObserverKeepsMarkdownAndTaskStreamParametersSeparate(t *testing.T) {
 	observer.Handle(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name: planexecplugin.EventPlanCreated,
-			Payload: planexecplugin.PlanCreated{
-				PlanID: "plan_1",
-				Spec:   planexecplugin.PlanSpec{Title: "Plan", Steps: []planexecplugin.StepSpec{{ID: "step_1", Title: "Step"}}},
+			Name: coretask.EventCreatedName,
+			Payload: coretask.Created{
+				TaskID: "task_1",
+				Task:   coretask.Task{ID: "task_1", Title: "Plan", Status: coretask.StatusReady, Steps: []coretask.Step{{ID: "step_1", Title: "Step"}}},
 			},
 		},
 	})
@@ -582,51 +584,51 @@ func TestRunObserverFinalizesMissingMarkdownSuffix(t *testing.T) {
 	}
 }
 
-func TestRunObserverTracksBackgroundPlanLifecycle(t *testing.T) {
+func TestRunObserverTracksBackgroundTaskLifecycle(t *testing.T) {
 	observer := newRunObserver(&SlackChannel{name: "slack-main"}, Target{ChannelID: "C1", ThreadTS: "111.222"})
 	observer.Handle(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    planexecplugin.EventPlanExecutionStarted,
-			Payload: planexecplugin.PlanExecutionStarted{PlanID: "plan_1"},
+			Name:    coretask.EventExecutionStartedName,
+			Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
 	})
 	summary := observer.snapshotSummary()
-	if !summary.ActivePlans["plan_1"] {
-		t.Fatalf("active plans = %#v, want plan_1", summary.ActivePlans)
+	if !summary.ActiveTasks["task_1"] {
+		t.Fatalf("active tasks = %#v, want task_1", summary.ActiveTasks)
 	}
 	observer.Handle(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    planexecplugin.EventPlanCompleted,
-			Payload: planexecplugin.PlanCompleted{PlanID: "plan_1"},
+			Name:    coretask.EventExecutionCompletedName,
+			Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
 	})
 	summary = observer.snapshotSummary()
-	if summary.ActivePlans["plan_1"] {
-		t.Fatalf("active plans = %#v, want plan_1 removed", summary.ActivePlans)
+	if summary.ActiveTasks["task_1"] {
+		t.Fatalf("active tasks = %#v, want task_1 removed", summary.ActiveTasks)
 	}
 }
 
-func TestRunObserverFollowsBackgroundPlansAfterObservedCursor(t *testing.T) {
+func TestRunObserverFollowsBackgroundTasksAfterObservedCursor(t *testing.T) {
 	observer := newRunObserver(&SlackChannel{name: "slack-main"}, Target{ChannelID: "C1", ThreadTS: "111.222"})
 	observer.Handle(clientapi.Event{
 		Kind:   clientapi.EventRuntimeEmitted,
 		Cursor: clientapi.EventCursor{Sequence: 7},
 		Runtime: &clientapi.RuntimeEvent{
-			Name:    planexecplugin.EventPlanExecutionStarted,
-			Payload: planexecplugin.PlanExecutionStarted{PlanID: "plan_1"},
+			Name:    coretask.EventExecutionStartedName,
+			Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
 	})
 	session := &capturingSession{}
 
-	observer.FollowPlans(context.Background(), session, map[string]bool{"plan_1": true})
+	observer.FollowTasks(context.Background(), session, map[string]bool{"task_1": true})
 
 	if got := session.eventOptions.After.Sequence; got != 7 {
-		t.Fatalf("follow plan after sequence = %d, want 7", got)
+		t.Fatalf("follow task after sequence = %d, want 7", got)
 	}
 	if !session.eventOptions.Replay {
-		t.Fatal("follow plan did not request replay")
+		t.Fatal("follow task did not request replay")
 	}
 }
 

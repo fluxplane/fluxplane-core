@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/subagent"
@@ -40,7 +41,7 @@ type Renderer struct {
 
 	mu     sync.Mutex
 	starts map[operation.CallID]time.Time
-	plans  map[string]*terminalPlanView
+	tasks  map[string]*terminalTaskView
 
 	content *markdownLiveRenderer
 	debug   *markdownLiveRenderer
@@ -56,7 +57,7 @@ func NewRenderer(out, err io.Writer, showUsage bool) *Renderer {
 		Err:       err,
 		ShowUsage: showUsage,
 		starts:    map[operation.CallID]time.Time{},
-		plans:     map[string]*terminalPlanView{},
+		tasks:     map[string]*terminalTaskView{},
 		content:   newMarkdownRenderer(out),
 		debug:     newMarkdownRenderer(err),
 	}
@@ -167,7 +168,7 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	if event.Runtime == nil {
 		return
 	}
-	if r.renderPlanRuntime(out, string(event.Runtime.Name), event.Runtime.Payload) {
+	if r.renderTaskRuntime(out, string(event.Runtime.Name), event.Runtime.Payload) {
 		return
 	}
 	switch payload := event.Runtime.Payload.(type) {
@@ -182,21 +183,12 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 			RenderUsageSnapshot(out, usage.NewSnapshot(payload))
 		}
 	case subagent.Started:
-		if isPlanWorkerID(string(payload.WorkerID)) {
-			return
-		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate start:%s %s %s[%s]%s\n", ansiCyan, ansiReset, payload.WorkerID, ansiDim, payload.Profile.Name, ansiReset)
 	case subagent.Completed:
-		if isPlanWorkerID(string(payload.WorkerID)) {
-			return
-		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate done:%s %s %s\n", ansiGreen, ansiReset, payload.WorkerID, compact(payload.Output, 160))
 	case subagent.Failed:
-		if isPlanWorkerID(string(payload.WorkerID)) {
-			return
-		}
 		r.flushContent()
 		_, _ = fmt.Fprintf(out, "%sdelegate failed:%s %s %s\n", ansiRed, ansiReset, payload.WorkerID, payload.Error)
 	default:
@@ -210,147 +202,140 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	}
 }
 
-func (r *Renderer) renderPlanCreated(out io.Writer, payload terminalPlanCreated) {
-	r.flushContent()
-	r.storePlan(payload)
-	r.renderPlan(out, payload.PlanID)
-}
-
-func (r *Renderer) renderPlanRuntime(out io.Writer, name string, payload any) bool {
+func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bool {
 	switch name {
-	case "plan.created":
-		var typed terminalPlanCreated
-		if decodeTypedPayload(payload, &typed) == nil {
-			r.renderPlanCreated(out, typed)
-			return true
-		}
-	case "plan.step.dispatched":
-		var typed terminalPlanStepDispatched
+	case string(coretask.EventCreatedName):
+		var typed coretask.Created
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepRunning, "", typed.Profile)
-			r.renderPlan(out, typed.PlanID)
+			r.storeTask(typed.Task)
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
-	case "plan.step.progressed":
-		var typed terminalPlanStepProgressed
+	case string(coretask.EventRevisedName):
+		var typed coretask.Revised
 		if decodeTypedPayload(payload, &typed) == nil {
-			if ignorePlanProgress(typed.Message) {
+			r.flushContent()
+			r.storeTask(typed.Task)
+			r.renderTask(out, string(typed.TaskID))
+			return true
+		}
+	case string(coretask.EventStatusChangedName):
+		var typed coretask.StatusChanged
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStatus(string(typed.TaskID), typed.Current)
+			_, _ = fmt.Fprintf(out, "%stask status:%s %s %s", ansiCyan, ansiReset, typed.TaskID, typed.Current)
+			if typed.Reason != "" {
+				_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(typed.Reason, 120), ansiReset)
+			}
+			_, _ = fmt.Fprintln(out)
+			return true
+		}
+	case string(coretask.EventExecutionStartedName):
+		var typed coretask.ExecutionStarted
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStatus(string(typed.TaskID), coretask.StatusRunning)
+			_, _ = fmt.Fprintf(out, "%stask execution:%s %s started %s%s%s\n", ansiCyan, ansiReset, typed.TaskID, ansiDim, typed.ExecutionID, ansiReset)
+			return true
+		}
+	case string(coretask.EventExecutionInterruptedName):
+		var typed coretask.ExecutionInterrupted
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStatus(string(typed.TaskID), coretask.StatusBlocked)
+			_, _ = fmt.Fprintf(out, "%stask interrupted:%s %s", ansiYellow, ansiReset, typed.TaskID)
+			if typed.Reason != "" {
+				_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(typed.Reason, 120), ansiReset)
+			}
+			_, _ = fmt.Fprintln(out)
+			return true
+		}
+	case string(coretask.EventStepDispatchedName):
+		var typed coretask.StepDispatched
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, firstNonEmptyString(typed.Title, string(typed.StepID)), coretask.StepStatusRunning, "", typed.Profile, typed.Assignee)
+			r.renderTask(out, string(typed.TaskID))
+			return true
+		}
+	case string(coretask.EventStepStatusChangedName):
+		var typed coretask.StepStatusChanged
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, string(typed.StepID), typed.Current, typed.Reason, "", "")
+			r.renderTask(out, string(typed.TaskID))
+			return true
+		}
+	case string(coretask.EventStepProgressedName):
+		var typed coretask.StepProgressed
+		if decodeTypedPayload(payload, &typed) == nil {
+			if ignoreRuntimeProgress(typed.Message) {
 				return true
 			}
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan progress:%s %s %s%s%s\n", ansiCyan, ansiReset, typed.StepID, ansiDim, typed.Message, ansiReset)
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, string(typed.StepID), "", typed.Message, "", "")
+			_, _ = fmt.Fprintf(out, "%stask progress:%s %s/%s %s%s%s\n", ansiCyan, ansiReset, typed.TaskID, typed.StepID, ansiDim, typed.Message, ansiReset)
 			return true
 		}
-	case "plan.step.completed":
-		var typed terminalPlanStepCompleted
+	case string(coretask.EventStepCompletedName):
+		var typed coretask.StepCompleted
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepCompleted, typed.Output, "")
-			r.renderPlan(out, typed.PlanID)
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, string(typed.StepID), coretask.StepStatusCompleted, "", "", "")
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
-	case "plan.step.failed":
-		var typed terminalPlanStepFailed
+	case string(coretask.EventStepFailedName):
+		var typed coretask.StepFailed
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepFailed, typed.Error, "")
-			r.renderPlan(out, typed.PlanID)
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, string(typed.StepID), coretask.StepStatusFailed, operationErrorText(typed.Error), "", "")
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
-	case "plan.step.cancelled":
-		var typed terminalPlanStepCancelled
+	case string(coretask.EventStepCancelledName):
+		var typed coretask.StepCancelled
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			r.updatePlanStep(typed.PlanID, typed.StepID, terminalStepCancelled, typed.Reason, "")
-			r.renderPlan(out, typed.PlanID)
+			r.updateTaskStep(string(typed.TaskID), typed.StepID, string(typed.StepID), coretask.StepStatusCancelled, typed.Reason, "", "")
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
-	case "plan.completed":
-		var typed terminalPlanCompleted
+	case string(coretask.EventArtifactAddedName):
+		var typed coretask.ArtifactAdded
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan completed:%s %s\n", ansiGreen, ansiReset, typed.Summary)
+			_, _ = fmt.Fprintf(out, "%stask artifact:%s %s %s\n", ansiCyan, ansiReset, taskArtifactScope(typed), artifactSummary(typed.Artifact))
 			return true
 		}
-	case "plan.failed":
-		var typed terminalPlanFailed
+	case string(coretask.EventExecutionCompletedName):
+		var typed coretask.ExecutionCompleted
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan failed:%s %s\n", ansiRed, ansiReset, typed.Reason)
+			r.updateTaskStatus(string(typed.TaskID), coretask.StatusCompleted)
+			_, _ = fmt.Fprintf(out, "%stask completed:%s %s\n", ansiGreen, ansiReset, typed.TaskID)
 			return true
 		}
-	case "plan.cancelled":
-		var typed terminalPlanCancelled
+	case string(coretask.EventExecutionFailedName):
+		var typed coretask.ExecutionFailed
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
-			_, _ = fmt.Fprintf(out, "%splan cancelled:%s %s\n", ansiYellow, ansiReset, typed.Reason)
+			r.updateTaskStatus(string(typed.TaskID), coretask.StatusFailed)
+			_, _ = fmt.Fprintf(out, "%stask failed:%s %s %s\n", ansiRed, ansiReset, typed.TaskID, operationErrorText(typed.Error))
+			return true
+		}
+	case string(coretask.EventExecutionCancelledName):
+		var typed coretask.ExecutionCancelled
+		if decodeTypedPayload(payload, &typed) == nil {
+			r.flushContent()
+			r.updateTaskStatus(string(typed.TaskID), coretask.StatusCancelled)
+			_, _ = fmt.Fprintf(out, "%stask cancelled:%s %s %s%s%s\n", ansiYellow, ansiReset, typed.TaskID, ansiDim, compact(typed.Reason, 120), ansiReset)
 			return true
 		}
 	}
 	return false
-}
-
-type terminalPlanCreated struct {
-	PlanID string           `json:"plan_id"`
-	Spec   terminalPlanSpec `json:"spec"`
-}
-
-type terminalPlanSpec struct {
-	Title string             `json:"title,omitempty"`
-	Steps []terminalStepSpec `json:"steps,omitempty"`
-}
-
-type terminalStepSpec struct {
-	ID      string `json:"id,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Profile string `json:"profile,omitempty"`
-}
-
-type terminalPlanStepDispatched struct {
-	PlanID  string `json:"plan_id,omitempty"`
-	StepID  string `json:"step_id"`
-	Title   string `json:"title,omitempty"`
-	Profile string `json:"profile,omitempty"`
-}
-
-type terminalPlanStepProgressed struct {
-	PlanID  string `json:"plan_id,omitempty"`
-	StepID  string `json:"step_id"`
-	Message string `json:"message,omitempty"`
-}
-
-type terminalPlanStepCompleted struct {
-	PlanID string `json:"plan_id,omitempty"`
-	StepID string `json:"step_id"`
-	Output string `json:"output,omitempty"`
-}
-
-type terminalPlanStepFailed struct {
-	PlanID string `json:"plan_id,omitempty"`
-	StepID string `json:"step_id"`
-	Error  string `json:"error,omitempty"`
-}
-
-type terminalPlanStepCancelled struct {
-	PlanID string `json:"plan_id,omitempty"`
-	StepID string `json:"step_id"`
-	Reason string `json:"reason,omitempty"`
-}
-
-type terminalPlanCompleted struct {
-	PlanID  string `json:"plan_id,omitempty"`
-	Summary string `json:"summary,omitempty"`
-}
-
-type terminalPlanFailed struct {
-	PlanID string `json:"plan_id,omitempty"`
-	Reason string `json:"reason,omitempty"`
-}
-
-type terminalPlanCancelled struct {
-	PlanID string `json:"plan_id,omitempty"`
-	Reason string `json:"reason,omitempty"`
 }
 
 type terminalStepStatus string
@@ -363,10 +348,11 @@ const (
 	terminalStepCancelled terminalStepStatus = "cancelled"
 )
 
-type terminalPlanView struct {
-	ID    string
-	Title string
-	Steps []terminalStepView
+type terminalTaskView struct {
+	ID     string
+	Title  string
+	Status coretask.Status
+	Steps  []terminalStepView
 }
 
 type terminalStepView struct {
@@ -377,59 +363,124 @@ type terminalStepView struct {
 	Detail  string
 }
 
-func (r *Renderer) storePlan(payload terminalPlanCreated) {
-	if payload.PlanID == "" {
-		payload.PlanID = "plan"
+func (r *Renderer) storeTask(task coretask.Task) {
+	if task.ID == "" {
+		task.ID = "task"
 	}
-	view := &terminalPlanView{ID: payload.PlanID, Title: payload.Spec.Title, Steps: make([]terminalStepView, 0, len(payload.Spec.Steps))}
-	for _, step := range payload.Spec.Steps {
-		view.Steps = append(view.Steps, terminalStepView{
-			ID:      step.ID,
-			Title:   firstNonEmptyString(step.Title, step.ID),
-			Profile: firstNonEmptyString(step.Profile, "worker"),
+	view := &terminalTaskView{
+		ID:     string(task.ID),
+		Title:  firstNonEmptyString(task.Title, task.Objective, string(task.ID)),
+		Status: task.Status,
+		Steps:  make([]terminalStepView, 0, len(task.Steps)),
+	}
+	existing := r.taskSnapshot(string(task.ID))
+	existingSteps := map[string]terminalStepView{}
+	if existing != nil {
+		for _, step := range existing.Steps {
+			existingSteps[step.ID] = step
+		}
+	}
+	for _, step := range task.Steps {
+		stepView := terminalStepView{
+			ID:      string(step.ID),
+			Title:   firstNonEmptyString(step.Title, step.Objective, step.Description, string(step.ID)),
+			Profile: firstNonEmptyString(step.Profile, string(step.Assignee), "worker"),
 			Status:  terminalStepWaiting,
-		})
+		}
+		if existing, ok := existingSteps[string(step.ID)]; ok {
+			stepView.Status = existing.Status
+			stepView.Detail = existing.Detail
+			if existing.Profile != "" {
+				stepView.Profile = existing.Profile
+			}
+		}
+		view.Steps = append(view.Steps, stepView)
 	}
 	r.mu.Lock()
-	r.plans[payload.PlanID] = view
+	if r.tasks == nil {
+		r.tasks = map[string]*terminalTaskView{}
+	}
+	r.tasks[string(task.ID)] = view
 	r.mu.Unlock()
 }
 
-func (r *Renderer) updatePlanStep(planID, stepID string, status terminalStepStatus, detail, profile string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	view := r.planLocked(planID)
-	if view == nil {
+func (r *Renderer) updateTaskStatus(taskID string, status coretask.Status) {
+	if taskID == "" {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	view := r.taskLocked(taskID)
+	if view == nil {
+		if r.tasks == nil {
+			r.tasks = map[string]*terminalTaskView{}
+		}
+		view = &terminalTaskView{ID: taskID, Title: taskID}
+		r.tasks[taskID] = view
+	}
+	if status != "" {
+		view.Status = status
+	}
+}
+
+func (r *Renderer) updateTaskStep(taskID string, stepID coretask.StepID, title string, status coretask.StepStatus, detail, profile string, assignee coretask.Role) {
+	if taskID == "" || stepID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	view := r.taskLocked(taskID)
+	if view == nil {
+		if r.tasks == nil {
+			r.tasks = map[string]*terminalTaskView{}
+		}
+		view = &terminalTaskView{ID: taskID, Title: taskID}
+		r.tasks[taskID] = view
+	}
 	for i := range view.Steps {
-		if view.Steps[i].ID != stepID {
+		if view.Steps[i].ID != string(stepID) {
 			continue
 		}
-		view.Steps[i].Status = status
+		if title != "" && view.Steps[i].Title == view.Steps[i].ID {
+			view.Steps[i].Title = title
+		}
+		if mapped := terminalTaskStepStatus(status); mapped != "" {
+			view.Steps[i].Status = mapped
+		}
 		view.Steps[i].Detail = detail
 		if profile != "" {
 			view.Steps[i].Profile = profile
+		} else if assignee != "" {
+			view.Steps[i].Profile = string(assignee)
 		}
 		return
 	}
 	view.Steps = append(view.Steps, terminalStepView{
-		ID:      stepID,
-		Title:   stepID,
-		Profile: firstNonEmptyString(profile, "worker"),
-		Status:  status,
+		ID:      string(stepID),
+		Title:   firstNonEmptyString(title, string(stepID)),
+		Profile: firstNonEmptyString(profile, string(assignee), "worker"),
+		Status:  terminalTaskStepStatus(status),
 		Detail:  detail,
 	})
+	if view.Steps[len(view.Steps)-1].Status == "" {
+		view.Steps[len(view.Steps)-1].Status = terminalStepWaiting
+	}
 }
 
-func (r *Renderer) renderPlan(out io.Writer, planID string) {
-	r.mu.Lock()
-	view := cloneTerminalPlanView(r.planLocked(planID))
-	r.mu.Unlock()
+func (r *Renderer) renderTask(out io.Writer, taskID string) {
+	view := r.taskSnapshot(taskID)
 	if view == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(out, "\n%splan:%s %s %s(%d steps)%s\n", ansiCyan, ansiReset, view.Title, ansiDim, len(view.Steps), ansiReset)
+	status := string(view.Status)
+	if status == "" {
+		status = string(coretask.StatusDraft)
+	}
+	_, _ = fmt.Fprintf(out, "\n%stask:%s %s %s[%s", ansiCyan, ansiReset, view.Title, ansiDim, status)
+	if len(view.Steps) > 0 {
+		_, _ = fmt.Fprintf(out, ", %d steps", len(view.Steps))
+	}
+	_, _ = fmt.Fprintf(out, "]%s\n", ansiReset)
 	for _, step := range view.Steps {
 		_, _ = fmt.Fprintf(out, "  %s %s %s[%s]%s", terminalStepMarker(step.Status), step.Title, ansiDim, firstNonEmptyString(step.Profile, "worker"), ansiReset)
 		if step.Detail != "" && step.Status != terminalStepCompleted {
@@ -439,20 +490,26 @@ func (r *Renderer) renderPlan(out io.Writer, planID string) {
 	}
 }
 
-func (r *Renderer) planLocked(planID string) *terminalPlanView {
-	if len(r.plans) == 0 {
+func (r *Renderer) taskSnapshot(taskID string) *terminalTaskView {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return cloneTerminalTaskView(r.taskLocked(taskID))
+}
+
+func (r *Renderer) taskLocked(taskID string) *terminalTaskView {
+	if len(r.tasks) == 0 {
 		return nil
 	}
-	if planID != "" {
-		return r.plans[planID]
+	if taskID != "" {
+		return r.tasks[taskID]
 	}
-	for _, view := range r.plans {
+	for _, view := range r.tasks {
 		return view
 	}
 	return nil
 }
 
-func cloneTerminalPlanView(in *terminalPlanView) *terminalPlanView {
+func cloneTerminalTaskView(in *terminalTaskView) *terminalTaskView {
 	if in == nil {
 		return nil
 	}
@@ -474,6 +531,59 @@ func terminalStepMarker(status terminalStepStatus) string {
 	default:
 		return ansiDim + "◌" + ansiReset
 	}
+}
+
+func terminalTaskStepStatus(status coretask.StepStatus) terminalStepStatus {
+	switch status {
+	case coretask.StepStatusRunning:
+		return terminalStepRunning
+	case coretask.StepStatusCompleted:
+		return terminalStepCompleted
+	case coretask.StepStatusFailed:
+		return terminalStepFailed
+	case coretask.StepStatusCancelled, coretask.StepStatusSkipped, coretask.StepStatusBlocked:
+		return terminalStepCancelled
+	case coretask.StepStatusWaiting:
+		return terminalStepWaiting
+	default:
+		return ""
+	}
+}
+
+func taskArtifactScope(event coretask.ArtifactAdded) string {
+	if event.StepID != "" {
+		return fmt.Sprintf("%s/%s", event.TaskID, event.StepID)
+	}
+	if event.ExecutionID != "" {
+		return fmt.Sprintf("%s/%s", event.TaskID, event.ExecutionID)
+	}
+	return string(event.TaskID)
+}
+
+func artifactSummary(artifact coretask.ArtifactSpec) string {
+	label := firstNonEmptyString(artifact.ID, artifact.Name, artifact.Description, string(artifact.Kind), "artifact")
+	kind := string(artifact.Kind)
+	if kind == "" {
+		kind = "artifact"
+	}
+	suffix := ""
+	if artifact.Required {
+		suffix = " required"
+	}
+	return fmt.Sprintf("%s [%s]%s", label, kind, suffix)
+}
+
+func operationErrorText(err *operation.Error) string {
+	if err == nil {
+		return ""
+	}
+	if err.Message != "" && err.Code != "" {
+		return err.Code + ": " + err.Message
+	}
+	if err.Message != "" {
+		return err.Message
+	}
+	return err.Code
 }
 
 func decodeTypedPayload(payload any, out any) error {
@@ -745,64 +855,11 @@ func dataSummary(value any) string {
 	return compact(strings.Join(parts, " "), 240)
 }
 
-type terminalPlanInput struct {
-	Actions []terminalPlanAction `json:"actions,omitempty"`
-}
-
-type terminalPlanAction struct {
-	Action  string             `json:"action,omitempty"`
-	Steps   []terminalStepSpec `json:"steps,omitempty"`
-	Timeout string             `json:"timeout,omitempty"`
-	StepID  string             `json:"step_id,omitempty"`
-}
-
 func operationStartSummary(event clientapi.OperationEvent) string {
-	if event.Operation.String() != "plan" {
-		return paramSummary(event.Input, 320)
-	}
-	var input terminalPlanInput
-	data, err := json.Marshal(event.Input)
-	if err != nil || json.Unmarshal(data, &input) != nil || len(input.Actions) == 0 {
-		return paramSummary(event.Input, 320)
-	}
-	if len(input.Actions) > 1 {
-		actions := make([]string, 0, len(input.Actions))
-		for _, action := range input.Actions {
-			if action.Action != "" {
-				actions = append(actions, action.Action)
-			}
-		}
-		if len(actions) > 0 {
-			return strings.Join(actions, "+")
-		}
-		return paramSummary(event.Input, 320)
-	}
-	action := input.Actions[0]
-	switch action.Action {
-	case "create":
-		return fmt.Sprintf("create %d steps", len(action.Steps))
-	case "execute":
-		return "execute"
-	case "wait":
-		if strings.TrimSpace(action.Timeout) != "" {
-			return "wait " + strings.TrimSpace(action.Timeout)
-		}
-		return "wait"
-	case "status":
-		return "status"
-	case "step_output":
-		return "step_output " + strings.TrimSpace(action.StepID)
-	case "cancel":
-		return "cancel"
-	default:
-		if action.Action != "" {
-			return action.Action
-		}
-		return paramSummary(event.Input, 320)
-	}
+	return paramSummary(event.Input, 320)
 }
 
-func ignorePlanProgress(message string) bool {
+func ignoreRuntimeProgress(message string) bool {
 	switch strings.TrimSpace(message) {
 	case "llmagent.model_streamed",
 		"llmagent.model_completed",
@@ -813,10 +870,6 @@ func ignorePlanProgress(message string) bool {
 	default:
 		return false
 	}
-}
-
-func isPlanWorkerID(id string) bool {
-	return strings.HasPrefix(id, "plan_") && strings.Contains(id, ":")
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -42,7 +42,7 @@ Current constants:
 - `AppName = "coder"`
 - `AgentName = "coder"`
 - `SessionName = "coder"`
-- plugin names: `coding`, `planexec`, `skills`, `image`
+- plugin names: `coding`, `task`, `skills`, `image`
 - `DefaultModel = "gpt-5.5"`
 - `DefaultNamespace = "apps/coder"`
 
@@ -760,8 +760,8 @@ Decision: option 3. Defaults stay ergonomic, but tests and custom apps get direc
 
 Options:
 
-1. **Always default plugins**: `DefaultOptions()` always includes coding, planexec, skills, and image plugin refs regardless of features.
-2. **Feature-derived plugins**: features imply plugin refs, e.g. `FeatureImage` implies `image`, `FeatureDelegation` implies `planexec`.
+1. **Always default plugins**: `DefaultOptions()` always includes coding, task, skills, and image plugin refs regardless of features.
+2. **Feature-derived plugins**: features imply plugin refs, e.g. `FeatureImage` implies `image`, task planning/execution implies `task`.
 3. **Both, with explicit overrides**: defaults/features add plugin refs; callers can add/remove refs explicitly.
 
 Decision: option 3. This preserves the current full coder capability set while allowing smaller variants. Use dedupe by plugin name. Runtime plugin implementation selection stays outside bundle config.

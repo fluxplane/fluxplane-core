@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/command"
+	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
@@ -24,7 +25,7 @@ type TurnOptions struct {
 
 type turnRenderResult struct {
 	Streamed    bool
-	ActivePlans map[string]bool
+	ActiveTasks map[string]bool
 	SeenRuntime map[string]bool
 }
 
@@ -62,8 +63,8 @@ func runInputTurn(ctx context.Context, session clientapi.SessionHandle, prompt s
 	if eventsDone != nil {
 		eventResult = <-eventsDone
 	}
-	if len(eventResult.ActivePlans) > 0 {
-		followResult := followBackgroundPlans(ctx, session, eventResult, tracker, opts)
+	if len(eventResult.ActiveTasks) > 0 {
+		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
 	}
 	if !eventResult.Streamed {
@@ -83,8 +84,13 @@ func runCommandTurn(ctx context.Context, session clientapi.SessionHandle, invoca
 	}
 	eventsDone := renderTurnEvents(run.Events(), tracker, opts)
 	result, err := run.Wait(ctx)
+	eventResult := turnRenderResult{}
 	if eventsDone != nil {
-		<-eventsDone
+		eventResult = <-eventsDone
+	}
+	if len(eventResult.ActiveTasks) > 0 {
+		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
+		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
 	}
 	renderOutbound(opts.Out, result)
 	renderUsage(opts.Err, opts.Usage, tracker)
@@ -190,10 +196,10 @@ func renderTurnEvents(events <-chan clientapi.Event, tracker *usage.Tracker, opt
 	go func() {
 		renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
 		renderer.Reasoning = opts.Reasoning
-		result := turnRenderResult{ActivePlans: map[string]bool{}, SeenRuntime: map[string]bool{}}
+		result := turnRenderResult{ActiveTasks: map[string]bool{}, SeenRuntime: map[string]bool{}}
 		for event := range events {
 			trackUsageEvent(tracker, event)
-			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
+			trackTaskRuntimeEvent(event, result.ActiveTasks, result.SeenRuntime)
 			if opts.Debug {
 				renderer.RenderDebug(event)
 			}
@@ -207,20 +213,23 @@ func renderTurnEvents(events <-chan clientapi.Event, tracker *usage.Tracker, opt
 	return done
 }
 
-func followBackgroundPlans(ctx context.Context, session clientapi.SessionHandle, initial turnRenderResult, tracker *usage.Tracker, opts TurnOptions) turnRenderResult {
-	if session == nil || len(initial.ActivePlans) == 0 {
+func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle, initial turnRenderResult, tracker *usage.Tracker, opts TurnOptions) turnRenderResult {
+	if session == nil || len(initial.ActiveTasks) == 0 {
 		return turnRenderResult{}
 	}
 	events, cancel, err := session.Events(ctx, clientapi.EventOptions{Buffer: 64, Replay: true})
 	if err != nil {
-		_, _ = fmt.Fprintf(defaultWriter(opts.Err), "background plan events unavailable: %v\n", err)
+		_, _ = fmt.Fprintf(defaultWriter(opts.Err), "background task events unavailable: %v\n", err)
 		return turnRenderResult{}
 	}
 	defer cancel()
 	renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
 	renderer.Reasoning = opts.Reasoning
-	result := turnRenderResult{ActivePlans: cloneBoolMap(initial.ActivePlans), SeenRuntime: cloneBoolMap(initial.SeenRuntime)}
-	for len(result.ActivePlans) > 0 {
+	result := turnRenderResult{
+		ActiveTasks: cloneBoolMap(initial.ActiveTasks),
+		SeenRuntime: cloneBoolMap(initial.SeenRuntime),
+	}
+	for len(result.ActiveTasks) > 0 {
 		select {
 		case <-ctx.Done():
 			renderer.Finish()
@@ -230,7 +239,7 @@ func followBackgroundPlans(ctx context.Context, session clientapi.SessionHandle,
 				renderer.Finish()
 				return result
 			}
-			if !isPlanRuntimeEvent(event) && !isSubagentRuntimeEvent(event) {
+			if !isTaskRuntimeEvent(event) {
 				continue
 			}
 			key := runtimeEventKey(event)
@@ -238,7 +247,7 @@ func followBackgroundPlans(ctx context.Context, session clientapi.SessionHandle,
 				continue
 			}
 			trackUsageEvent(tracker, event)
-			trackPlanRuntimeEvent(event, result.ActivePlans, result.SeenRuntime)
+			trackTaskRuntimeEvent(event, result.ActiveTasks, result.SeenRuntime)
 			if opts.Debug {
 				renderer.RenderDebug(event)
 			}
@@ -256,42 +265,70 @@ func renderUsage(out io.Writer, enabled bool, tracker *usage.Tracker) {
 	}
 }
 
-func trackPlanRuntimeEvent(event clientapi.Event, active map[string]bool, seen map[string]bool) {
+func trackTaskRuntimeEvent(event clientapi.Event, active map[string]bool, seen map[string]bool) {
 	if event.Runtime == nil {
 		return
 	}
 	if key := runtimeEventKey(event); key != "" && seen != nil {
 		seen[key] = true
 	}
-	planID := runtimePlanID(event)
-	if planID == "" || active == nil {
+	taskID := runtimeTaskID(event)
+	if taskID == "" || active == nil {
 		return
 	}
 	switch string(event.Runtime.Name) {
-	case "plan.execution_started":
-		active[planID] = true
-	case "plan.completed", "plan.failed", "plan.cancelled":
-		delete(active, planID)
+	case string(coretask.EventCreatedName), string(coretask.EventRevisedName):
+		if runtimeTaskStatus(event) == string(coretask.StatusReady) || runtimeTaskStatus(event) == string(coretask.StatusRunning) {
+			active[taskID] = true
+		}
+	case string(coretask.EventStatusChangedName):
+		switch runtimeTaskCurrentStatus(event) {
+		case string(coretask.StatusReady), string(coretask.StatusRunning):
+			active[taskID] = true
+		case string(coretask.StatusBlocked), string(coretask.StatusCompleted), string(coretask.StatusFailed), string(coretask.StatusCancelled), string(coretask.StatusInterrupted):
+			delete(active, taskID)
+		}
+	case string(coretask.EventExecutionStartedName), string(coretask.EventStepDispatchedName), string(coretask.EventStepProgressedName), string(coretask.EventStepStatusChangedName):
+		active[taskID] = true
+	case string(coretask.EventExecutionInterruptedName), string(coretask.EventExecutionCompletedName), string(coretask.EventExecutionFailedName), string(coretask.EventExecutionCancelledName):
+		delete(active, taskID)
 	}
 }
 
-func runtimePlanID(event clientapi.Event) string {
+func runtimeTaskID(event clientapi.Event) string {
 	if event.Runtime == nil {
 		return ""
 	}
 	payload := runtimePayloadMap(event.Runtime.Payload)
-	if value, ok := payload["plan_id"].(string); ok {
+	if value, ok := payload["task_id"].(string); ok {
 		return value
+	}
+	if task, ok := payload["task"].(map[string]any); ok {
+		if value, ok := task["id"].(string); ok {
+			return value
+		}
 	}
 	return ""
 }
 
-func isPlanRuntimeEvent(event clientapi.Event) bool {
-	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "plan.")
+func runtimeTaskStatus(event clientapi.Event) string {
+	payload := runtimePayloadMap(event.Runtime.Payload)
+	task, ok := payload["task"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	status, _ := task["status"].(string)
+	return status
 }
 
-func isSubagentRuntimeEvent(event clientapi.Event) bool {
-	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "subagent.")
+func runtimeTaskCurrentStatus(event clientapi.Event) string {
+	payload := runtimePayloadMap(event.Runtime.Payload)
+	current, _ := payload["current"].(string)
+	return current
+}
+
+func isTaskRuntimeEvent(event clientapi.Event) bool {
+	return event.Runtime != nil && strings.HasPrefix(string(event.Runtime.Name), "task.")
 }
 
 func runtimeEventKey(event clientapi.Event) string {

@@ -796,8 +796,8 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 		_ = c.postError(turnCtx, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID}, inputErr)
 		return inputErr
 	}
-	if len(summary.ActivePlans) > 0 {
-		summary = observer.FollowPlans(turnCtx, session, summary.ActivePlans)
+	if len(summary.ActiveTasks) > 0 {
+		summary = observer.FollowTasks(turnCtx, session, summary.ActiveTasks)
 	}
 	if result.Outbound != nil && result.Outbound.Message != nil {
 		text := fmt.Sprint(result.Outbound.Message.Content)

@@ -64,6 +64,14 @@ type OperationExecutor = operationruntime.Executor
 // ResultReplacement aliases large-result replacement metadata.
 type ResultReplacement = operationruntime.ResultReplacement
 
+// Scope records the session coordinates that produced an execution context.
+type Scope struct {
+	Thread corethread.Ref
+	RunID  string
+}
+
+type scopeContextKey struct{}
+
 // Config carries session state needed to materialize execution contexts.
 type Config struct {
 	Agent             agent.Agent
@@ -128,7 +136,21 @@ func OperationContext(ctx operation.Context, cfg Config, callID operation.CallID
 	ctx = withSkillAccess(ctx, cfg.Agent)
 	ctx = withDatasourceAccess(ctx, cfg.Agent)
 	ctx = operation.WithCallID(ctx, callID)
-	return withSubagentScope(ctx, cfg, callID)
+	ctx = withSubagentScope(ctx, cfg, callID)
+	return operation.NewContext(context.WithValue(ctx, scopeContextKey{}, Scope{Thread: cfg.Thread, RunID: cfg.RunID}), ctx.Events())
+}
+
+// ScopeFromContext returns the session coordinates attached to a session
+// operation context.
+func ScopeFromContext(ctx context.Context) (Scope, bool) {
+	if ctx == nil {
+		return Scope{}, false
+	}
+	scope, ok := ctx.Value(scopeContextKey{}).(Scope)
+	if !ok || scope.Thread.ID == "" {
+		return Scope{}, false
+	}
+	return scope, true
 }
 
 // ContextProviderContext adds session-scoped datasource and sub-agent state to

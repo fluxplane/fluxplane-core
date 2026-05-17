@@ -2,9 +2,10 @@
 
 ## Status
 
-Implemented as a foundation slice plus first scheduler slice. `planexecplugin`
-is intentionally not migrated yet, but the new model is shaped so the current
-plan execution model can move onto it without losing semantics.
+Implemented as the task foundation, scheduler slice, and plan execution
+replacement. The old plan execution plugin has been removed from runtime
+assembly; `/plan` is now a task-planning command and execution progress is
+reported through `task.*` events.
 
 - [Task Plugin, Task Commands, and Review Backlog](2026-05-16-task-review-commands.md):
   `taskplugin` ownership of `/task`, `/plan`, task
@@ -28,7 +29,7 @@ plan execution model can move onto it without losing semantics.
   continue, and future cancel operations.
 - `SchedulerStatusRequest`, `SchedulerSetEnabledRequest`, and
   `SchedulerStatusResult`: inert scheduler control-plane shapes for local
-  task execution status and automatic polling enablement.
+  task execution status and automatic scheduling enablement.
 
 The status vocabulary covers the current plan executor:
 
@@ -37,11 +38,11 @@ The status vocabulary covers the current plan executor:
 - step execution: `waiting`, `running`, `blocked`, `skipped`, `completed`,
   `failed`, `cancelled`.
 
-## Planexec Mapping
+## Earlier Plan Executor Mapping
 
-Current plan executor types can map directly:
+Earlier plan executor types mapped directly:
 
-| Current planexec type | New task model |
+| Earlier plan executor type | New task model |
 |---|---|
 | `PlanSpec` | `task.Task` |
 | `StepSpec` | `task.Step` |
@@ -82,20 +83,27 @@ storage. `runtime/task.Store` is a thin event-store wrapper for task streams and
 the derived `task:index` stream; concrete event stores remain in runtime or
 adapters.
 
-`orchestration/taskexecutor` owns concrete scheduling. It scans indexed ready
-tasks, claims one execution with an expected task stream sequence, dispatches
-ready steps through a worker backend, and records execution/step events back to
-the task stream. Worker terminal writes are also expected-sequence appends after
-re-projecting current task state, so stale worker completions do not overwrite
-newer cancellation, blocking, or manual edits. Interrupted executions can be
-resumed when the task becomes `ready` again.
+`orchestration/taskexecutor` owns concrete scheduling. It reacts to indexed
+ready task summaries after the task list projection is updated, keeps periodic
+index scans as reconciliation for missed or out-of-process events, claims one
+execution with an expected task stream sequence, dispatches ready steps through
+a worker backend, and records execution/step events back to the task stream.
+Worker terminal writes are also expected-sequence appends after re-projecting
+current task state, so stale worker completions do not overwrite newer
+cancellation, blocking, or manual edits. Declared step outputs are bound to
+produced artifacts, and automatic execution completion validates required task
+outputs before writing `task.execution_completed`; failures block the execution
+with a visible reason. Interrupted executions can be resumed when the task
+becomes `ready` again.
 
 Because the scheduler is a background task-stream writer, scheduler/user
-concurrency is part of the domain's remaining hardening work. Claims and
-terminal worker writes already use optimistic stream checks, but dispatch,
-blocking, dependent cancellation, task modification conflict UX, and scheduler
-error observability still need targeted concurrency tests and retry/error
-policy before `planexecplugin` is replaced.
+concurrency is part of the domain's hardening work. Claims, dispatch, blocking,
+dependent cancellation, terminal writes, and task modification retries now use
+optimistic stream checks or bounded retry policy. Thread-store create, append,
+and fork writes also retry append conflicts so concurrent worker/session
+transcript writes do not undermine task execution. Remaining work is focused
+load/concurrency coverage and the decision whether scheduler diagnostics should
+also be durable task events.
 
 ## Relationship To Other Domains
 
@@ -135,10 +143,7 @@ Task lifecycle semantics are intentionally explicit:
   caller lists explicit `force_overrides` check codes;
 - produced artifact IDs are task-wide unique.
 
-## Next Migration Slice
-
-Refactor or replace `planexecplugin` once the task scheduler/executor covers the
-same behavior:
+## Next Reliability Slice
 
 1. Add task scheduler/executor behavior using task events and runtime readiness
    helpers. Done for the first automatic scheduler slice.
@@ -149,11 +154,19 @@ same behavior:
 3. Harden scheduler/task-operation concurrency with targeted contention tests,
    bounded context-aware retries, expected-sequence scheduler transitions,
    explicit task modification conflict UX, and observable scheduler errors.
-4. Match remaining planexec behavior using task execution events and workers.
-5. Replace app references from `planexec` to `task`.
-6. Delete `planexecplugin` and its plugin-local plan events once replacement is
-   complete.
+   Implemented for the first hardening slice, including indexed ready
+   notification plus reconciliation burst coverage.
+4. Improve terminal/user feedback for task lifecycle and progress events. Done
+   for typed `task.*` runtime events, session-thread replay, and scheduler
+   mirroring of background task events to the originating session thread.
+5. Replace plan execution with task execution events and worker profiles. Done
+   for coder/local launch wiring, terminal feedback, Slack feedback, and event
+   catalog references.
+6. Add deeper long-running/multi-process scheduler soak coverage when the
+   scheduler gains durable queues or external worker pools.
+7. Add artifact/result ergonomics so oversized tool results become inspectable
+   task artifacts or summaries instead of inaccessible provider-sized payloads.
 
-Before migration, keep validating task steps as a DAG. `core/task.Task.Validate`
+Keep validating task steps as a DAG. `core/task.Task.Validate`
 rejects unknown dependencies, self-dependencies, and dependency cycles so
 durable task definitions cannot become permanently unrunnable.
