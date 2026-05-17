@@ -8,6 +8,7 @@ rationale remains in:
 - [Core Task Domain](../designs/2026-05-16-core-task-domain.md)
 - [Task Plugin, Task Commands, and Review Backlog](../designs/2026-05-16-task-review-commands.md)
 - [Workspace-Scoped Project Task Execution](../designs/2026-05-16-project-task-execution.md)
+- [External Distributed Workers](../designs/2026-05-17-external-distributed-workers.md)
 
 Do not add new task-system progress sections to those historical designs. Move
 completed or newly discovered task work through this roadmap instead.
@@ -119,6 +120,17 @@ Implemented:
   helper sessions and workflow agent steps now run through
   `orchestration/sessionagent`, while scheduled task execution remains on
   `orchestration/taskexecutor`.
+- Chapter closeout UX regression succeeded after the session-agent migration:
+  one-shot main-agent task creation/execution completed
+  `task_89b8eff1392ac452`; `/task` created draft
+  `task_cf4c8d1c1b33f4d8` without scheduling it; `/plan` created draft
+  `task_e445e4361b91cd5b`, the approval follow-up set it ready, scheduler
+  feedback streamed to the approving terminal, missing required task-level
+  output finalization ran, and the task completed; a fresh three-step
+  aggregate-output smoke task `task_5c6f379a9f937cdb` produced required
+  `closeout-aggregate-summary` and completed without manual repair. Terminal
+  command helper output now says `session agent start/done` and did not expose
+  legacy `subagent.*` lifecycle lines in these live checks.
 
 ## Deferred Follow-ups
 
@@ -129,9 +141,11 @@ Implemented:
      bounded max-attempt policy. A restarted local scheduler can recover an
      expired running lease or an execution assigned to an expired worker
      registration from the task stream, requeue it, and complete the retry.
-   - Deferred: stronger cross-process claim ownership for a future external
-     worker protocol where workers renew registrations independently of local
-     scheduler processes.
+   - Deferred: stronger cross-process assignment and claim ownership for a
+     future external worker protocol where independently running workers renew
+     their own registrations and execution leases. This is design-only follow-up
+     work tracked in
+     [External Distributed Workers](../designs/2026-05-17-external-distributed-workers.md).
 
 2. Distributed worker capacity
    - Current worker pools describe capacity inside one scheduler process.
@@ -139,7 +153,8 @@ Implemented:
      execution leases, and durable worker registrations.
    - Deferred: cross-process capacity accounting and external queue support for
      daemon or remote workers. Worker registrations are observable state, not a
-     distributed external-worker allocator.
+     distributed external-worker allocator. The future target is described in
+     [External Distributed Workers](../designs/2026-05-17-external-distributed-workers.md).
 
 3. Task execution UX
    - Current terminal output renders task events and now carries explicit
@@ -188,6 +203,14 @@ Implemented:
    - Deferred: longer soak coverage with external worker processes. That
      belongs with the external/distributed worker allocator follow-up, because
      there is no external worker protocol yet.
+
+7. External distributed workers
+   - Current local workers already have durable execution leases, worker
+     registrations, lease renewal, stale-result rejection, and recovery.
+   - Deferred: independently running worker processes with authenticated
+     registration, assignment/pull semantics, worker-owned heartbeats, progress
+     reporting, and external result submission. This is not needed to close the
+     local `coder` task-system chapter.
 
 ## Next Slices
 
@@ -336,27 +359,65 @@ Done when:
 - The remaining `orchestration/subagent` package is either deleted or has one
   documented owner and deletion condition. Done: package deleted.
 
+### Slice 6: Chapter Closeout UX Regression
+
+Goal: close the current local task-system chapter with live UX confidence after
+the session-agent migration.
+
+Status: completed for local terminal/coder coverage.
+
+- Re-ran one-shot main-agent task creation and execution:
+  `task_89b8eff1392ac452` completed with required
+  `closeout-one-shot-result`.
+- Re-ran `/task` draft creation:
+  `task_cf4c8d1c1b33f4d8` was created as `draft` and was not scheduled.
+- Re-ran `/plan` draft creation and approval follow-up:
+  `task_e445e4361b91cd5b` was drafted, approved in a later turn, scheduled,
+  streamed worker artifacts and finalizer feedback to the approving terminal,
+  produced required task-level output, and completed.
+- Re-ran a multi-step task with required aggregate output:
+  `task_5c6f379a9f937cdb` completed all three worker steps, entered
+  `task finalizing`, produced required `closeout-aggregate-summary`, and
+  completed without manual repair.
+- Confirmed terminal output uses `session agent start/done` for command helper
+  sessions and no internal `subagent.*` lifecycle appeared in the live command
+  checks.
+- Slack observer coverage remains package-test based for this slice. Live
+  Slack posting was not run because the closeout task did not specify a safe
+  target channel/conversation.
+
+Done when:
+
+- The live local scenarios above pass or any failure is recorded as a concrete
+  follow-up. Done.
+- Focused tests and `task verify` pass. Focused tests passed; full
+  `env -u TAVILY_API_KEY task verify` passed after the closeout docs update.
+- This roadmap records the closeout results. Done.
+
 ## Verification Matrix
 
 - `go test ./core/task ./runtime/task ./orchestration/taskexecutor ./plugins/taskplugin ./adapters/terminalui`
 - `task verify` before commits that touch task execution, scheduler, terminal,
   or taskplugin behavior.
 - Live one-shot scenario:
-  `task coder:live-test -- "Create a ready task titled 'scheduler smoke live test' ..."`
+  `task coder:live-test -- "Create a ready task titled 'chapter closeout one shot smoke' ..."`
   verified main-agent task creation, explicit `task_run`, required output
-  production, and one-shot completion.
+  production, scheduler watcher feedback, and one-shot completion
+  (`task_89b8eff1392ac452`).
 - Live `/task` scenario:
-  `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "/task \"create a draft task titled slash task smoke, no execution\""`
-  verified task command delegation and draft creation.
+  `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "/task \"create a draft task titled slash task closeout smoke ...\""`
+  verified task command delegation, `session agent start/done` output, and
+  unscheduled draft creation (`task_cf4c8d1c1b33f4d8`).
 - Live `/plan` scenarios:
   `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "/plan ... do not approve yet"`
   plus later approval turns verified draft presentation, ready transition,
   `task_run`, watcher feedback, worker artifacts, and completion in the
-  approving terminal.
+  approving terminal (`task_e445e4361b91cd5b`).
 - Live aggregate-output scenario:
-  `task coder:live-test -- "Create a ready task titled scheduler aggregate finalizer smoke ..."`
+  `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "Create a ready task titled 'chapter closeout aggregate finalizer smoke' ..."`
   verified three worker steps, finalizer diagnostics, required task-level
-  output synthesis, and completion without manual repair.
+  output synthesis, and completion without manual repair
+  (`task_5c6f379a9f937cdb`, `closeout-aggregate-summary`).
 - Restart and lease scenarios are covered by
   `orchestration/taskexecutor` tests for expired leases, expired worker
   registrations, active worker preservation, stale worker results, and
@@ -364,6 +425,9 @@ Done when:
 - Saturation and durable contention scenarios are covered by
   `orchestration/taskexecutor` burst tests and the SQLite-backed
   `apps/launch` multi-scheduler claim test.
+- External distributed worker design is tracked separately in
+  [External Distributed Workers](../designs/2026-05-17-external-distributed-workers.md);
+  no external worker implementation is required for this local chapter.
 
 ## Progress Rules
 

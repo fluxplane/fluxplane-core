@@ -228,6 +228,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a canonical task-system reliability roadmap in `.agents/plans` and
   marked the earlier task design files as historical so scheduler, task UX,
   `/plan`, and sub-agent migration progress has one source of truth.
+- Added an external distributed worker follow-up design that separates future
+  remote worker protocol work from the already-implemented local scheduler
+  leases, heartbeats, worker registrations, and recovery behavior.
+- Recorded the task-system chapter closeout regression in the roadmap,
+  covering one-shot task execution, `/task` draft creation, `/plan` approval
+  handoff, scheduler finalization of required aggregate outputs, and
+  session-agent terminal rendering.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.
