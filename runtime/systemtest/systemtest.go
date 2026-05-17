@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fluxplane/agentruntime/core/pathpattern"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -345,13 +346,22 @@ func skippedByDir(rel string, skipDirs map[string]bool) bool {
 }
 
 func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts system.GlobOptions) ([]system.ResolvedPath, bool, error) {
-	entries, _, truncated, err := w.Walk(ctx, opts.Base, system.WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: opts.MaxResults})
+	compiled, err := pathpattern.Compile(pattern)
+	if err != nil {
+		return nil, false, err
+	}
+	entries, root, truncated, err := w.Walk(ctx, opts.Base, system.WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: opts.MaxResults})
 	if err != nil {
 		return nil, false, err
 	}
 	var out []system.ResolvedPath
 	for _, entry := range entries {
-		if ok, _ := filepath.Match(pattern, entry.Path.Rel); ok {
+		rel := entry.Path.Rel
+		matchRel := rel
+		if root.Rel != "" && strings.HasPrefix(matchRel, root.Rel+"/") {
+			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
+		}
+		if compiled.Match(matchRel) || compiled.Match(rel) {
 			out = append(out, entry.Path)
 		}
 	}

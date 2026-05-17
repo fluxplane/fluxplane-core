@@ -133,6 +133,45 @@ func TestHostWorkspaceGlobMatchesRootLevelGlobstar(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceGlobMatchesBraceAlternation(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		filepath.Join(".agents", "designs", "design.md"),
+		filepath.Join(".agents", "plans", "plan.md"),
+		filepath.Join(".agents", "reviews", "2026", "review.md"),
+		filepath.Join(".agents", "notes", "note.md"),
+	} {
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sys, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	matches, _, err := sys.Workspace().Glob(context.Background(), ".agents/{designs,plans,reviews}/**/*", GlobOptions{Base: ".", MaxResults: 20})
+	if err != nil {
+		t.Fatalf("Glob brace pattern: %v", err)
+	}
+	for _, want := range []string{
+		".agents/designs/design.md",
+		".agents/plans/plan.md",
+		".agents/reviews/2026/review.md",
+	} {
+		if !resolvedContains(matches, want) {
+			t.Fatalf("matches = %#v, want %s", matches, want)
+		}
+	}
+	if resolvedContains(matches, ".agents/notes/note.md") {
+		t.Fatalf("matches = %#v, did not want notes match", matches)
+	}
+}
+
 func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T) {
 	root := t.TempDir()
 	data := []byte("source")

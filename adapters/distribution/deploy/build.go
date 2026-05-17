@@ -18,6 +18,7 @@ import (
 
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/pathpattern"
 )
 
 const defaultConnectorsPath = "/connectors"
@@ -278,7 +279,7 @@ func cleanAssetPattern(pattern string) (string, error) {
 }
 
 func matchAssets(ctx context.Context, root, pattern string) ([]string, error) {
-	if !hasGlob(pattern) {
+	if !pathpattern.HasMeta(pattern) {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(pattern)))
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -309,8 +310,12 @@ func matchAssets(ctx context.Context, root, pattern string) ([]string, error) {
 		})
 		return out, err
 	}
+	compiled, err := pathpattern.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
 	var out []string
-	err := filepath.WalkDir(root, func(file string, entry fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -328,51 +333,13 @@ func matchAssets(ctx context.Context, root, pattern string) ([]string, error) {
 			}
 			return nil
 		}
-		ok, err := matchGlob(pattern, rel)
-		if err != nil {
-			return err
-		}
-		if ok {
+		if compiled.Match(rel) {
 			out = append(out, rel)
 		}
 		return nil
 	})
 	sort.Strings(out)
 	return out, err
-}
-
-func hasGlob(pattern string) bool {
-	return strings.ContainsAny(pattern, "*?[")
-}
-
-func matchGlob(pattern, rel string) (bool, error) {
-	return matchSegments(strings.Split(pattern, "/"), strings.Split(rel, "/"))
-}
-
-func matchSegments(pattern, rel []string) (bool, error) {
-	if len(pattern) == 0 {
-		return len(rel) == 0, nil
-	}
-	if pattern[0] == "**" {
-		if ok, err := matchSegments(pattern[1:], rel); ok || err != nil {
-			return ok, err
-		}
-		for i := range rel {
-			ok, err := matchSegments(pattern[1:], rel[i+1:])
-			if ok || err != nil {
-				return ok, err
-			}
-		}
-		return false, nil
-	}
-	if len(rel) == 0 {
-		return false, nil
-	}
-	ok, err := path.Match(pattern[0], rel[0])
-	if err != nil || !ok {
-		return ok, err
-	}
-	return matchSegments(pattern[1:], rel[1:])
 }
 
 type replaceCopy struct {

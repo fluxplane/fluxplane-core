@@ -647,6 +647,36 @@ func TestGlobMatchesRootLevelGlobstarThroughPlugin(t *testing.T) {
 	})
 }
 
+func TestGlobMatchesBraceAlternationThroughPlugin(t *testing.T) {
+	runFilesystemBackends(t, func(t *testing.T, env *filesystemTestEnv) {
+		env.WriteFile(t, ".agents/designs/design.md", []byte("design"))
+		env.WriteFile(t, ".agents/plans/plan.md", []byte("plan"))
+		env.WriteFile(t, ".agents/reviews/2026/review.md", []byte("review"))
+		env.WriteFile(t, ".agents/notes/note.md", []byte("note"))
+		op := env.Operation(t, GlobOp)
+
+		result := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
+			"pattern":     ".agents/{designs,plans,reviews}/**/*",
+			"max_results": 20,
+		})
+		if result.IsError() {
+			t.Fatalf("glob error = %#v", result.Error)
+		}
+		rendered, ok := result.Output.(operation.Rendered)
+		if !ok {
+			t.Fatalf("output = %#v, want rendered", result.Output)
+		}
+		for _, want := range []string{".agents/designs/design.md", ".agents/plans/plan.md", ".agents/reviews/2026/review.md"} {
+			if !strings.Contains(rendered.Text, want) {
+				t.Fatalf("glob text = %q, want %s", rendered.Text, want)
+			}
+		}
+		if strings.Contains(rendered.Text, ".agents/notes/note.md") {
+			t.Fatalf("glob text = %q, did not want notes match", rendered.Text)
+		}
+	})
+}
+
 func TestFilesystemContributionsUseFileEditNotFilePatch(t *testing.T) {
 	bundle, err := (Plugin{}).Contributions(context.Background(), pluginhost.Context{})
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/pathpattern"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -478,9 +479,9 @@ func (w *memoryWorkspace) Walk(_ context.Context, raw string, opts system.WalkOp
 }
 
 func (w *memoryWorkspace) Glob(ctx context.Context, pattern string, opts system.GlobOptions) ([]system.ResolvedPath, bool, error) {
-	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
-	if pattern == "" {
-		return nil, false, fmt.Errorf("glob pattern is empty")
+	compiled, err := pathpattern.Compile(pattern)
+	if err != nil {
+		return nil, false, err
 	}
 	base := opts.Base
 	if strings.TrimSpace(base) == "" {
@@ -501,7 +502,7 @@ func (w *memoryWorkspace) Glob(ctx context.Context, pattern string, opts system.
 		if root.Rel != "" && strings.HasPrefix(matchRel, root.Rel+"/") {
 			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
 		}
-		if memoryMatchGlob(pattern, matchRel) || memoryMatchGlob(pattern, rel) {
+		if compiled.Match(matchRel) || compiled.Match(rel) {
 			matches = append(matches, entry.Path)
 			if len(matches) >= limit {
 				return matches, true, nil
@@ -632,28 +633,6 @@ func containsHiddenPath(rel string) bool {
 	for _, part := range strings.Split(rel, "/") {
 		if strings.HasPrefix(part, ".") {
 			return true
-		}
-	}
-	return false
-}
-
-func memoryMatchGlob(pattern, rel string) bool {
-	pattern = filepath.ToSlash(pattern)
-	rel = filepath.ToSlash(rel)
-	if ok, _ := filepath.Match(pattern, rel); ok {
-		return true
-	}
-	if strings.HasPrefix(pattern, "**/") {
-		if ok, _ := filepath.Match(strings.TrimPrefix(pattern, "**/"), filepath.Base(rel)); ok {
-			return true
-		}
-	}
-	if strings.Contains(pattern, "/**/") {
-		parts := strings.Split(pattern, "/**/")
-		if len(parts) == 2 && strings.HasPrefix(rel, parts[0]+"/") {
-			if ok, _ := filepath.Match(parts[1], filepath.Base(rel)); ok {
-				return true
-			}
 		}
 	}
 	return false

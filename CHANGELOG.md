@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added compact `git_diff` projections: `stat_only`, `names_only`, and bounded
+  `max_bytes` output with explicit truncation metadata to avoid oversized diff
+  results during review loops.
 
 ### Added
 - Added first-class workspace modeling with `core/workspace`, runtime workspace
@@ -18,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `docs/concepts.md`, defining the semantic differences between requests,
   tasks, commands, workflows, operations, and executions and mapping them to
   AgentRuntime package responsibilities.
+- Added centralized no-IO path pattern matching for workspace globs, including
+  brace alternation such as `.agents/{designs,plans,reviews}/**/*`.
 
 - Added `file_edit`, an existing-file edit operation with dry-run support,
   original-file coordinate semantics, merged non-overlapping atomic edits, and
@@ -76,8 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store.
 - Task artifacts now use task-wide unique IDs, step artifacts default to the
   current or manual execution when no `execution_id` is provided, scoped
-  artifact listings avoid duplicate step entries, and artifact readback
-  includes inline values in model-facing text.
+  artifact listings avoid duplicate step entries, and artifact readback now
+  defaults to bounded previews with explicit `include_value` for full inline
+  values.
 - Task index writes no longer use a stale shared stream precondition, manual
   step reopen/progress clears stale terminal metadata, and task lifecycle
   reopening/forced completion now require explicit `reopen`, `reopen_step`, or
@@ -116,6 +122,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Task scheduler anomalies that affect a task, such as ignored stale worker
   results or retry exhaustion, are now recorded as durable
   `task.scheduler_diagnostic` events and rendered by the terminal UI.
+- Oversized tool-result replacements now include bounded preview/tail metadata,
+  and task scheduler worker outputs that exceed provider-facing result limits
+  are recorded as referenced artifacts with preview metadata instead of opaque
+  temp-file-only messages.
+- Task scheduling now has role-specific worker pools with profile rotation,
+  fallback profile attempts, per-role capacity in scheduler status, a
+  `review_request` operation for linked reviewer tasks, and
+  `task_read_artifact` for bounded inline or safe workspace-ref artifact
+  content reads.
 - Fixed a direct-channel run event race that could panic with
   `send on closed channel` while forwarding live run events; run event
   emission is now guarded against channel-close races, and `Wait` no longer

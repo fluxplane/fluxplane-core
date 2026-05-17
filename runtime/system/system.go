@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/pathpattern"
 	"github.com/fluxplane/agentruntime/runtime/httptransport"
 )
 
@@ -714,9 +715,9 @@ func walkSkipDirs(names []string) map[string]bool {
 
 // Glob returns workspace paths matching a slash-style glob under opts.Base.
 func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptions) ([]ResolvedPath, bool, error) {
-	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
-	if pattern == "" {
-		return nil, false, fmt.Errorf("glob pattern is empty")
+	compiled, err := pathpattern.Compile(pattern)
+	if err != nil {
+		return nil, false, err
 	}
 	base := opts.Base
 	if strings.TrimSpace(base) == "" {
@@ -737,7 +738,7 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 		if root.Rel != "" && strings.HasPrefix(matchRel, root.Rel+"/") {
 			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
 		}
-		if matchGlob(pattern, matchRel) || matchGlob(pattern, rel) {
+		if compiled.Match(matchRel) || compiled.Match(rel) {
 			matches = append(matches, entry.Path)
 			if len(matches) >= limit {
 				return matches, true, nil
@@ -1550,28 +1551,6 @@ func DefaultProcessEnv() []string {
 		}
 	}
 	return env
-}
-
-func matchGlob(pattern, rel string) bool {
-	pattern = filepath.ToSlash(pattern)
-	rel = filepath.ToSlash(rel)
-	if ok, _ := filepath.Match(pattern, rel); ok {
-		return true
-	}
-	if strings.HasPrefix(pattern, "**/") {
-		if ok, _ := filepath.Match(strings.TrimPrefix(pattern, "**/"), filepath.Base(rel)); ok {
-			return true
-		}
-	}
-	if strings.Contains(pattern, "/**/") {
-		parts := strings.Split(pattern, "/**/")
-		if len(parts) == 2 && strings.HasPrefix(rel, parts[0]+"/") {
-			if ok, _ := filepath.Match(parts[1], filepath.Base(rel)); ok {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // BrowserManager owns browser session lifecycle and automation IO.
