@@ -310,6 +310,9 @@ func (p Plugin) goTest() operationruntime.TypedResultHandler[golang.GoTestQuery,
 		}
 		result := parseGoTestJSON(run.Stdout)
 		result.Passed = err == nil
+		if result.Passed {
+			result.Diagnostics = filterGoTestParseDiagnostics(result.Diagnostics)
+		}
 		if run.Stderr != "" {
 			result.Diagnostics = append(result.Diagnostics, language.Diagnostic{Severity: "error", Code: "go_test_stderr", Message: strings.TrimSpace(run.Stderr)})
 		}
@@ -1186,6 +1189,20 @@ func parseGoTestJSON(raw string) golang.GoTestResult {
 		out = append(out, *packages[pkgName])
 	}
 	return golang.GoTestResult{Packages: out, Events: events, Diagnostics: diagnostics, Complete: complete}
+}
+
+func filterGoTestParseDiagnostics(diagnostics []language.Diagnostic) []language.Diagnostic {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := diagnostics[:0]
+	for _, diag := range diagnostics {
+		if diag.Code == "go_test_parse_failed" {
+			continue
+		}
+		out = append(out, diag)
+	}
+	return out
 }
 
 func parseGoVetOutput(raw string, jsonMode bool) []language.Diagnostic {
