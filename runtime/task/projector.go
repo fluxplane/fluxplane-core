@@ -110,6 +110,24 @@ func Apply(state State, payload event.Event, at time.Time) State {
 		state.Task.Status = coretask.StatusRunning
 		state.CurrentExecution = exec.ID
 		state.setExecution(exec)
+	case coretask.ExecutionLeaseRenewed:
+		exec := state.execution(evt.ExecutionID)
+		if exec.ID == "" {
+			exec.ID = evt.ExecutionID
+		}
+		if exec.TaskID == "" {
+			exec.TaskID = evt.TaskID
+		}
+		if exec.Status == coretask.StatusRunning {
+			if evt.WorkerID != "" {
+				exec.WorkerID = evt.WorkerID
+			}
+			if evt.LeaseID != "" {
+				exec.LeaseID = evt.LeaseID
+			}
+			exec.LeaseExpiresAt = evt.LeaseExpiresAt
+			state.setExecution(exec)
+		}
 	case coretask.ExecutionInterrupted:
 		exec := state.execution(evt.ExecutionID)
 		exec.ID = evt.ExecutionID

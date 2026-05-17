@@ -147,6 +147,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capacity is saturated.
 - `task_run` now reports already-running tasks as already running when
   automatic scheduling claimed the task before the explicit run request.
+- `task_run` results now include structured `started`, `running`,
+  `waiting_for_capacity`, and `background` flags for clearer planner and UI
+  feedback.
+- Terminal task rendering now keeps task-level phase/detail in the task
+  snapshot, renders finalizer diagnostics as `task finalizing`, and shows
+  blocked completion reasons with concrete missing required outputs.
+- Task scheduler claims now record worker id, lease id, and lease expiry on the
+  task execution, and scheduler reconciliation interrupts expired running
+  leases with a durable diagnostic.
+- Long-running scheduler worker calls now renew their execution lease through
+  event-sourced `task.execution_lease_renewed` records.
+- `task_scheduler_status` now includes durable running execution leases
+  projected from the task store, in addition to local in-memory running tasks.
+- `task_scheduler_status` now also lists durable queued ready tasks from the
+  task index.
+- Task scheduler workers now register event-sourced capacity snapshots, and
+  scheduler status reports active and expired worker registrations.
+- Scheduler reconciliation now recovers running executions assigned to expired
+  worker registrations before the longer execution lease expires.
+- Expired scheduler leases can now be requeued according to a bounded
+  max-attempt policy; exhausted attempts are interrupted with diagnostics.
+- Restarted local schedulers now recover expired running leases from the task
+  stream and can requeue them when attempts remain.
 - `task coder:live-test` now uses a repository-local writable state directory,
   and local launch event-store open failures include the SQLite path to make
   environment problems actionable.
@@ -164,12 +187,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One-shot terminal runs (`--input` and goal turns) now wait for scheduler-run
   tasks from the submitted turn to finish before closing the local runtime,
   while REPL turns keep the brief background-follow behavior.
+- One-shot background task waiting is now bounded and reports still-running
+  task IDs after the wait deadline instead of leaving the terminal without
+  feedback indefinitely.
+- `task_run` now records the calling session as an execution watcher, and the
+  scheduler mirrors task runtime events to both the task origin and the latest
+  execution watcher so approval turns can receive completion feedback for
+  tasks drafted in an earlier `/plan` turn.
+- Terminal one-shot turns now print the agent's final response before following
+  background task events, so later scheduler completion/blocking feedback is
+  not visually overwritten by stale model text.
+- Added SQLite-backed multi-scheduler claim coverage to verify independent
+  scheduler instances sharing one durable event store do not both execute the
+  same ready task.
+- `task_run` watcher metadata is now recorded only for existing task streams,
+  avoiding phantom task events for stale task IDs.
+- Task worker registrations now use an internal stream namespace that cannot
+  collide with user task IDs such as `workers`.
+- Scheduler task-event publishing now continues to remaining origin/watch
+  destinations after one destination fails, so a stale origin thread cannot
+  suppress live watcher feedback.
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.
 - Added a constant self-evolvement concept document and moved the event-store
   backend strategy/follow-up backlog into `.agents/plans`, keeping user-facing
   docs focused on current architecture.
+- Added a canonical task-system reliability roadmap in `.agents/plans` and
+  marked the earlier task design files as historical so scheduler, task UX,
+  `/plan`, and sub-agent migration progress has one source of truth.
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.

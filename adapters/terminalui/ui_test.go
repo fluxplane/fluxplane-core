@@ -458,6 +458,17 @@ func TestRendererRendersTaskLifecycleWithStatusMarkers(t *testing.T) {
 	renderer.Render(clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{
+			Name: coretask.EventSchedulerDiagnosticName,
+			Payload: coretask.SchedulerDiagnostic{
+				TaskID:      "task_1",
+				ExecutionID: "exec_1",
+				Diagnostic:  coretask.Diagnostic{Code: "task_finalizing_outputs", Message: "all steps are terminal; producing 1 missing required task output(s)"},
+			},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
 			Name:    coretask.EventExecutionCompletedName,
 			Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
 		},
@@ -487,12 +498,53 @@ func TestRendererRendersTaskLifecycleWithStatusMarkers(t *testing.T) {
 		ansiGreen + "●" + ansiReset + " Inspect package",
 		"task artifact:",
 		"report [report] required",
+		"task finalizing:",
+		"[running, finalizing, 2 steps]",
 		"task completed:",
 		"task scheduler:",
 		"stale worker result ignored",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("task output = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestRendererRendersBlockedTaskReasonInSnapshot(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: coretask.EventCreatedName,
+			Payload: coretask.Created{
+				TaskID: "task_1",
+				Task:   coretask.Task{ID: "task_1", Title: "Backend check", Status: coretask.StatusRunning},
+			},
+		},
+	})
+	renderer.Render(clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: coretask.EventExecutionInterruptedName,
+			Payload: coretask.ExecutionInterrupted{
+				TaskID:      "task_1",
+				ExecutionID: "exec_1",
+				Reason:      "task completion blocked: missing required outputs backend-check-summary",
+			},
+		},
+	})
+	renderer.Finish()
+
+	got := out.String() + err.String()
+	for _, want := range []string{
+		"task blocked:",
+		"Backend check",
+		"[blocked]",
+		"missing required outputs backend-check-summary",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("blocked task output = %q, missing %q", got, want)
 		}
 	}
 }

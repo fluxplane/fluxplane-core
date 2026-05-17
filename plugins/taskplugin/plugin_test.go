@@ -3,6 +3,7 @@ package taskplugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,8 +36,8 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if len(bundle.Sessions) != 5 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession || string(bundle.Sessions[2].Name) != WorkerSession || string(bundle.Sessions[3].Name) != ExplorerSession || string(bundle.Sessions[4].Name) != ReviewerSession {
 		t.Fatalf("sessions = %#v, want task, planner, worker, explorer, and reviewer sessions", bundle.Sessions)
 	}
-	if planner := bundle.Agents[1].System; !strings.Contains(planner, "status=draft") || !strings.Contains(planner, "not scheduled yet") || !strings.Contains(planner, "Do not create a second task") {
-		t.Fatalf("planner instructions = %q, want draft visibility and approval/refinement guidance", planner)
+	if planner := bundle.Agents[1].System; !strings.Contains(planner, "status=draft") || !strings.Contains(planner, "not scheduled yet") || !strings.Contains(planner, "Do not create a second task") || !strings.Contains(planner, "task_run") || !strings.Contains(planner, "scheduler response") {
+		t.Fatalf("planner instructions = %q, want draft visibility, approval/refinement, and scheduler feedback guidance", planner)
 	}
 	if taskAgent := bundle.Agents[0].System; !strings.Contains(taskAgent, "immediate execution") || !strings.Contains(taskAgent, "task_run") {
 		t.Fatalf("task agent instructions = %q, want immediate execution guidance", taskAgent)
@@ -666,7 +667,7 @@ func TestTaskRunAndSchedulerControlsUseRunner(t *testing.T) {
 		t.Fatalf("task_run error = %#v", run.Error)
 	}
 	runOut := run.Output.(coretask.ExecutionResult)
-	if runOut.TaskID != "task_1" || runOut.Status != coretask.StatusRunning || !runner.submitted {
+	if runOut.TaskID != "task_1" || runOut.Status != coretask.StatusRunning || !runOut.Started || !runOut.Running || !runOut.Background || runOut.WaitingForCapacity || !runner.submitted {
 		t.Fatalf("task_run output = %#v submitted=%v, want running submitted", runOut, runner.submitted)
 	}
 	if !strings.Contains(runOut.ModelText(), "scheduled") {
@@ -696,6 +697,93 @@ func TestTaskRunFailsWithoutScheduler(t *testing.T) {
 	result := operationsByName(ops)[TaskRunOp].Run(operation.NewContext(context.Background(), nil), coretask.ExecutionRequest{TaskID: "task_1"})
 	if !result.IsError() || result.Error.Code != "task_scheduler_missing" {
 		t.Fatalf("task_run = %#v, want task_scheduler_missing", result)
+	}
+}
+
+func TestTaskRunReportsWaitingForCapacity(t *testing.T) {
+	runner := &fakeTaskRunner{submitResult: taskexecutor.SubmitResult{
+		TaskID:  "task_1",
+		Status:  coretask.StatusReady,
+		Summary: "Task task_1 is ready but waiting for scheduler capacity.",
+	}}
+	ops, err := NewWithRunner(runner).Operations(context.Background(), pluginhost.Context{EventStore: eventstore.NewMemoryStore()})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := operationsByName(ops)[TaskRunOp].Run(operation.NewContext(context.Background(), nil), coretask.ExecutionRequest{TaskID: "task_1"})
+	if result.IsError() {
+		t.Fatalf("task_run error = %#v", result.Error)
+	}
+	out := result.Output.(coretask.ExecutionResult)
+	if !out.WaitingForCapacity || out.Started || out.Running || out.Background {
+		t.Fatalf("execution result = %#v, want waiting for capacity only", out)
+	}
+}
+
+func TestTaskRunRecordsCurrentSessionWatcher(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	runner := &fakeTaskRunner{}
+	ops, err := NewWithRunner(runner).Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	baseCtx := operation.NewContext(context.Background(), nil)
+	created := byName[TaskCreateOp].Run(baseCtx, coretask.TaskCreateRequest{ID: "task_1", Title: "Watch task", Status: coretask.StatusReady})
+	if created.IsError() {
+		t.Fatalf("task_create error = %#v", created.Error)
+	}
+	runCtx := sessionenv.OperationContext(baseCtx, sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-watch", BranchID: "feature"},
+		RunID:  "run-watch",
+	}, "call-1")
+
+	result := byName[TaskRunOp].Run(runCtx, coretask.ExecutionRequest{TaskID: "task_1"})
+	if result.IsError() {
+		t.Fatalf("task_run error = %#v", result.Error)
+	}
+	store, err := runtimetask.NewStore(events)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	state, err := store.Project(context.Background(), "task_1")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if got := state.Task.Metadata[coretask.MetadataWatchThreadID]; got != "thread-watch" {
+		t.Fatalf("watch thread = %q, want thread-watch; metadata=%#v", got, state.Task.Metadata)
+	}
+	if got := state.Task.Metadata[coretask.MetadataWatchBranchID]; got != "feature" {
+		t.Fatalf("watch branch = %q, want feature; metadata=%#v", got, state.Task.Metadata)
+	}
+	if got := state.Task.Metadata[coretask.MetadataWatchRunID]; got != "run-watch" {
+		t.Fatalf("watch run = %q, want run-watch; metadata=%#v", got, state.Task.Metadata)
+	}
+}
+
+func TestTaskRunDoesNotRecordWatcherForMissingTask(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	runner := &fakeTaskRunner{submitErr: errors.New("task missing")}
+	ops, err := NewWithRunner(runner).Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	baseCtx := operation.NewContext(context.Background(), nil)
+	runCtx := sessionenv.OperationContext(baseCtx, sessionenv.Config{
+		Thread: corethread.Ref{ID: "thread-watch", BranchID: "main"},
+		RunID:  "run-watch",
+	}, "call-1")
+
+	result := operationsByName(ops)[TaskRunOp].Run(runCtx, coretask.ExecutionRequest{TaskID: "missing_task"})
+	if !result.IsError() || result.Error.Code != "task_run_failed" {
+		t.Fatalf("task_run result = %#v, want runner failure", result)
+	}
+	records, err := events.Load(context.Background(), runtimetask.StreamID("missing_task"), event.LoadOptions{})
+	if err != nil {
+		t.Fatalf("Load missing task stream: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("missing task stream records = %#v, want none", records)
 	}
 }
 
@@ -738,14 +826,22 @@ func TestTaskModifyRequiresExplicitTaskReopen(t *testing.T) {
 }
 
 type fakeTaskRunner struct {
-	status    coretask.SchedulerStatusResult
-	submitted bool
+	status       coretask.SchedulerStatusResult
+	submitResult taskexecutor.SubmitResult
+	submitErr    error
+	submitted    bool
 }
 
 func (r *fakeTaskRunner) SubmitTask(context.Context, coretask.ID) (taskexecutor.SubmitResult, error) {
 	r.submitted = true
+	if r.submitErr != nil {
+		return taskexecutor.SubmitResult{}, r.submitErr
+	}
+	if r.submitResult.TaskID != "" {
+		return r.submitResult, nil
+	}
 	return taskexecutor.SubmitResult{
-		TaskID: "task_1", Status: coretask.StatusReady, Started: true, Running: true, Summary: "Task task_1 scheduled.",
+		TaskID: "task_1", Status: coretask.StatusReady, Started: true, Running: true, Summary: "Task task_1 scheduled and running in background.",
 	}, nil
 }
 

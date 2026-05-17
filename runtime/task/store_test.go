@@ -117,6 +117,36 @@ func TestStoreIndexDoesNotRequireExpectedSequence(t *testing.T) {
 	}
 }
 
+func TestStoreRegistersLatestWorkerStatus(t *testing.T) {
+	store, err := NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	ctx := context.Background()
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{WorkerID: "worker-a", Capacity: 1, MaxParallel: 2}); err != nil {
+		t.Fatalf("RegisterWorker initial: %v", err)
+	}
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{WorkerID: "worker-a", Capacity: 2, MaxParallel: 2}); err != nil {
+		t.Fatalf("RegisterWorker updated: %v", err)
+	}
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{WorkerID: "worker-b", Capacity: 3, MaxParallel: 3}); err != nil {
+		t.Fatalf("RegisterWorker other: %v", err)
+	}
+	workers, err := store.ListWorkers(ctx)
+	if err != nil {
+		t.Fatalf("ListWorkers: %v", err)
+	}
+	if len(workers) != 2 {
+		t.Fatalf("workers len = %d, want 2", len(workers))
+	}
+	if workers[0].WorkerID != "worker-a" || workers[0].Capacity != 2 {
+		t.Fatalf("first worker = %#v, want latest worker-a", workers[0])
+	}
+	if workers[1].WorkerID != "worker-b" || workers[1].Capacity != 3 {
+		t.Fatalf("second worker = %#v, want worker-b", workers[1])
+	}
+}
+
 type noIndexExpectationStore struct {
 	event.Store
 }
@@ -131,5 +161,13 @@ func (s noIndexExpectationStore) Append(ctx context.Context, stream event.Stream
 func TestStoreStreamID(t *testing.T) {
 	if got, want := StreamID("task_1"), "task:task_1"; string(got) != want {
 		t.Fatalf("StreamID = %q, want %q", got, want)
+	}
+	for _, id := range []coretask.ID{"index", "workers"} {
+		if StreamID(id) == IndexStreamID() {
+			t.Fatalf("StreamID(%q) collides with index stream %q", id, IndexStreamID())
+		}
+		if StreamID(id) == WorkerStreamID() {
+			t.Fatalf("StreamID(%q) collides with worker stream %q", id, WorkerStreamID())
+		}
 	}
 }

@@ -57,6 +57,22 @@ func TestSchedulerRunsReadyTaskDAG(t *testing.T) {
 	}
 }
 
+func TestCompletionBlockedReasonListsMissingRequiredOutputs(t *testing.T) {
+	validation := coretask.TaskValidationResult{
+		Checks: []coretask.TaskCheck{
+			{Code: "required_output", Target: "summary", Message: "required output summary"},
+			{Code: "required_output", Target: "verification", Message: "required output verification"},
+		},
+	}
+
+	got := completionBlockedReason(validation)
+	for _, want := range []string{"missing required outputs", "summary", "verification"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reason = %q, missing %q", got, want)
+		}
+	}
+}
+
 func TestSchedulerPublishesTaskEventsToOriginThread(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
@@ -89,6 +105,68 @@ func TestSchedulerPublishesTaskEventsToOriginThread(t *testing.T) {
 	}
 }
 
+func TestSchedulerPublishesTaskEventsToRunWatcher(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{
+		ID:     "task_1",
+		Title:  "Review core",
+		Status: coretask.StatusReady,
+		Metadata: map[string]string{
+			coretask.MetadataOriginThreadID: "thread_origin",
+			coretask.MetadataOriginRunID:    "run_origin",
+			coretask.MetadataWatchThreadID:  "thread_watch",
+			coretask.MetadataWatchRunID:     "run_watch",
+		},
+		Steps: []coretask.Step{{ID: "inspect", Title: "Inspect"}},
+	}
+	createTask(t, store, task)
+	publisher := &recordingRuntimePublisher{}
+	scheduler := newScheduler(t, store, &recordingWorker{})
+	scheduler.SetRuntimeEventPublisher(publisher)
+
+	if err := scheduler.RunTask(ctx, task.ID); err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+	if !publisher.targetSeen("thread_origin", "run_origin") {
+		t.Fatalf("targets = %#v, want origin target", publisher.targets)
+	}
+	if !publisher.targetSeen("thread_watch", "run_watch") {
+		t.Fatalf("targets = %#v, want watch target", publisher.targets)
+	}
+}
+
+func TestSchedulerContinuesPublishingAfterDestinationFailure(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{
+		ID:     "task_1",
+		Title:  "Review core",
+		Status: coretask.StatusReady,
+		Metadata: map[string]string{
+			coretask.MetadataOriginThreadID: "thread_origin",
+			coretask.MetadataOriginRunID:    "run_origin",
+			coretask.MetadataWatchThreadID:  "thread_watch",
+			coretask.MetadataWatchRunID:     "run_watch",
+		},
+		Steps: []coretask.Step{{ID: "inspect", Title: "Inspect"}},
+	}
+	createTask(t, store, task)
+	publisher := &failingRuntimePublisher{failThread: "thread_origin"}
+	scheduler := newScheduler(t, store, &recordingWorker{})
+	scheduler.SetRuntimeEventPublisher(publisher)
+
+	if err := scheduler.RunTask(ctx, task.ID); err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+	if publisher.targetSeen("thread_origin", "run_origin") {
+		t.Fatalf("targets = %#v, want origin publish failures not recorded as success", publisher.targets)
+	}
+	if !publisher.targetSeen("thread_watch", "run_watch") {
+		t.Fatalf("targets = %#v, want watcher publish after origin failure", publisher.targets)
+	}
+}
+
 func TestSchedulerDoesNotPublishTaskEventsWithoutOriginThread(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
@@ -103,6 +181,526 @@ func TestSchedulerDoesNotPublishTaskEventsWithoutOriginThread(t *testing.T) {
 	}
 	if len(publisher.events) != 0 {
 		t.Fatalf("published events = %#v, want none without origin thread", publisher.names())
+	}
+}
+
+func TestSchedulerClaimsTaskWithDurableLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Lease", Status: coretask.StatusReady}
+	createTask(t, store, task)
+	scheduler, err := New(Config{
+		Store:         store,
+		Worker:        &recordingWorker{},
+		WorkerID:      "worker-a",
+		LeaseDuration: 10 * time.Minute,
+		Now:           testTime,
+		NewID:         func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := scheduler.RunTask(ctx, task.ID); err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	exec := state.Executions[state.CurrentExecution]
+	if exec.WorkerID != "worker-a" || exec.LeaseID != "lease_test" || !exec.LeaseExpiresAt.Equal(testTime().Add(10*time.Minute)) {
+		t.Fatalf("execution lease = worker=%q lease=%q expires=%s", exec.WorkerID, exec.LeaseID, exec.LeaseExpiresAt)
+	}
+}
+
+func TestSchedulerRenewsLeaseWhileWorkerRuns(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Lease renewal", Status: coretask.StatusReady}
+	createTask(t, store, task)
+	base := time.Unix(1700000000, 0).UTC()
+	var nowMu sync.Mutex
+	now := base
+	nowFunc := func() time.Time {
+		nowMu.Lock()
+		defer nowMu.Unlock()
+		now = now.Add(10 * time.Millisecond)
+		return now
+	}
+	block := make(chan struct{})
+	worker := &blockingWorker{started: make(chan struct{}), block: block}
+	scheduler, err := New(Config{
+		Store:          store,
+		Worker:         worker,
+		WorkerID:       "worker-a",
+		LeaseDuration:  30 * time.Millisecond,
+		LeaseHeartbeat: time.Millisecond,
+		Now:            nowFunc,
+		NewID:          func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	errs := make(chan error, 1)
+	go func() { errs <- scheduler.RunTask(ctx, task.ID) }()
+	<-worker.started
+
+	waitForLeaseAfter(t, store, task.ID, base.Add(40*time.Millisecond))
+	close(block)
+	if err := <-errs; err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+}
+
+func TestSchedulerInterruptsExpiredExecutionLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Expired", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_old",
+		Execution: coretask.Execution{
+			ID:             "exec_old",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			WorkerID:       "worker-old",
+			LeaseID:        "lease_old",
+			LeaseExpiresAt: testTime().Add(-time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	scheduler, err := New(Config{
+		Store:  store,
+		Worker: &recordingWorker{},
+		Now:    testTime,
+		NewID:  func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if state.Task.Status != coretask.StatusInterrupted {
+		t.Fatalf("task status = %s, want interrupted", state.Task.Status)
+	}
+	exec := state.Executions["exec_old"]
+	if exec.Status != coretask.StatusInterrupted || exec.Error == nil || !strings.Contains(exec.Error.Message, "lease expired") {
+		t.Fatalf("execution = %#v, want interrupted expired lease", exec)
+	}
+	if got := len(exec.Diagnostics); got != 1 || exec.Diagnostics[0].Code != "task_execution_lease_expired" {
+		t.Fatalf("diagnostics = %#v, want lease expired diagnostic", exec.Diagnostics)
+	}
+}
+
+func TestSchedulerRequeuesExpiredLeaseWhenAttemptRemains(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{
+		ID:     "task_1",
+		Title:  "Retry",
+		Status: coretask.StatusRunning,
+		Steps:  []coretask.Step{{ID: "step_1", Title: "Step"}},
+	}
+	createTask(t, store, task)
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_old",
+		Execution: coretask.Execution{
+			ID:             "exec_old",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			Attempt:        1,
+			WorkerID:       "worker-old",
+			LeaseID:        "lease_old",
+			LeaseExpiresAt: testTime().Add(-time.Minute),
+			Steps: map[coretask.StepID]coretask.StepExecution{
+				"step_1": {StepID: "step_1", Status: coretask.StepStatusRunning},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	scheduler, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		MaxAttempts: 2,
+		Now:         testTime,
+		NewID:       func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if state.Task.Status != coretask.StatusReady {
+		t.Fatalf("task status = %s, want ready retry", state.Task.Status)
+	}
+	exec := state.Executions["exec_old"]
+	if exec.Status != coretask.StatusInterrupted || exec.Steps["step_1"].Status != coretask.StepStatusWaiting {
+		t.Fatalf("execution = %#v, want interrupted with waiting step", exec)
+	}
+	if got := len(exec.Diagnostics); got != 1 || exec.Diagnostics[0].Code != "task_execution_lease_expired_requeued" {
+		t.Fatalf("diagnostics = %#v, want requeued diagnostic", exec.Diagnostics)
+	}
+
+	if err := scheduler.RunTask(ctx, task.ID); err != nil {
+		t.Fatalf("RunTask retry: %v", err)
+	}
+	state, err = store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project retry: %v", err)
+	}
+	exec = state.Executions["exec_old"]
+	if exec.Attempt != 2 || state.Task.Status != coretask.StatusCompleted {
+		t.Fatalf("retry state = status %s exec %#v, want attempt 2 completed", state.Task.Status, exec)
+	}
+}
+
+func TestSchedulerRestartRequeuesExpiredRunningLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Restart retry", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_old",
+		Execution: coretask.Execution{
+			ID:             "exec_old",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			Attempt:        1,
+			WorkerID:       "dead-worker",
+			LeaseID:        "lease_dead",
+			LeaseExpiresAt: testTime().Add(-time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+
+	// New scheduler instance simulates a local runtime restart: it has no
+	// in-memory running task reservation but can recover from the task stream.
+	restarted, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		WorkerID:    "worker-after-restart",
+		MaxAttempts: 2,
+		Now:         testTime,
+		NewID:       func(prefix string) string { return prefix + "restart" },
+	})
+	if err != nil {
+		t.Fatalf("New restarted scheduler: %v", err)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick restarted scheduler: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project after restart tick: %v", err)
+	}
+	if state.Task.Status != coretask.StatusReady {
+		t.Fatalf("task status after restart tick = %s, want ready retry", state.Task.Status)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick retry: %v", err)
+	}
+	waitForTaskStatus(t, store, task.ID, coretask.StatusCompleted)
+	state, err = store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project completed retry: %v", err)
+	}
+	exec := state.Executions["exec_old"]
+	if exec.Attempt != 2 || exec.WorkerID != "worker-after-restart" {
+		t.Fatalf("execution after retry = %#v, want attempt 2 on restarted worker", exec)
+	}
+}
+
+func TestSchedulerRestartRequeuesExpiredWorkerRegistrationBeforeExecutionLeaseExpiry(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Worker expired retry", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
+		WorkerID:       "dead-worker",
+		RegisteredAt:   testTime().Add(-time.Hour),
+		LeaseExpiresAt: testTime().Add(-time.Minute),
+		Capacity:       1,
+		MaxParallel:    1,
+	}); err != nil {
+		t.Fatalf("RegisterWorker dead: %v", err)
+	}
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_old",
+		Execution: coretask.Execution{
+			ID:             "exec_old",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			Attempt:        1,
+			WorkerID:       "dead-worker",
+			LeaseID:        "lease_dead",
+			LeaseExpiresAt: testTime().Add(time.Hour),
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	restarted, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		WorkerID:    "worker-after-restart",
+		MaxAttempts: 2,
+		Now:         testTime,
+		NewID:       func(prefix string) string { return prefix + "restart" },
+	})
+	if err != nil {
+		t.Fatalf("New restarted scheduler: %v", err)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick restarted scheduler: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project after worker expiry: %v", err)
+	}
+	if state.Task.Status != coretask.StatusReady {
+		t.Fatalf("task status after worker expiry = %s, want ready retry", state.Task.Status)
+	}
+	exec := state.Executions["exec_old"]
+	if exec.Status != coretask.StatusInterrupted {
+		t.Fatalf("execution status = %s, want interrupted retry base", exec.Status)
+	}
+	if got := len(exec.Diagnostics); got != 1 || exec.Diagnostics[0].Code != "task_execution_worker_expired_requeued" {
+		t.Fatalf("diagnostics = %#v, want worker-expired requeue diagnostic", exec.Diagnostics)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick retry: %v", err)
+	}
+	waitForTaskStatus(t, store, task.ID, coretask.StatusCompleted)
+	state, err = store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project completed retry: %v", err)
+	}
+	exec = state.Executions["exec_old"]
+	if exec.Attempt != 2 || exec.WorkerID != "worker-after-restart" {
+		t.Fatalf("execution after retry = %#v, want attempt 2 on restarted worker", exec)
+	}
+}
+
+func TestSchedulerDoesNotRecoverActiveWorkerRegistrationBeforeExecutionLeaseExpiry(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Active worker", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
+		WorkerID:       "active-worker",
+		RegisteredAt:   testTime().Add(-time.Minute),
+		LeaseExpiresAt: testTime().Add(time.Minute),
+		Capacity:       1,
+		MaxParallel:    1,
+	}); err != nil {
+		t.Fatalf("RegisterWorker active: %v", err)
+	}
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_active",
+		Execution: coretask.Execution{
+			ID:             "exec_active",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			Attempt:        1,
+			WorkerID:       "active-worker",
+			LeaseID:        "lease_active",
+			LeaseExpiresAt: testTime().Add(time.Hour),
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	restarted, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		WorkerID:    "worker-after-restart",
+		MaxAttempts: 2,
+		Now:         testTime,
+		NewID:       func(prefix string) string { return prefix + "restart" },
+	})
+	if err != nil {
+		t.Fatalf("New restarted scheduler: %v", err)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick restarted scheduler: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if state.Task.Status != coretask.StatusRunning {
+		t.Fatalf("task status = %s, want still running", state.Task.Status)
+	}
+	exec := state.Executions["exec_active"]
+	if exec.Status != coretask.StatusRunning || exec.Attempt != 1 {
+		t.Fatalf("execution = %#v, want untouched active worker execution", exec)
+	}
+}
+
+func TestSchedulerStatusReportsDurableLeases(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Leased", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_1",
+		Execution: coretask.Execution{
+			ID:             "exec_1",
+			TaskID:         task.ID,
+			Status:         coretask.StatusRunning,
+			WorkerID:       "worker-a",
+			LeaseID:        "lease_1",
+			LeaseExpiresAt: testTime().Add(time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	scheduler := newScheduler(t, store, &recordingWorker{})
+
+	status := scheduler.Status()
+	if len(status.Leases) != 1 {
+		t.Fatalf("leases = %#v, want one durable lease", status.Leases)
+	}
+	lease := status.Leases[0]
+	if lease.TaskID != task.ID || lease.ExecutionID != "exec_1" || lease.WorkerID != "worker-a" || lease.LeaseID != "lease_1" || lease.Expired {
+		t.Fatalf("lease = %#v, want active durable lease", lease)
+	}
+	if text := status.ModelText(); !strings.Contains(text, "lease task_1/exec_1") {
+		t.Fatalf("model text = %q, want lease summary", text)
+	}
+}
+
+func TestSchedulerStatusReportsDurableQueuedTasks(t *testing.T) {
+	store := newTaskStore(t)
+	createTask(t, store, coretask.Task{ID: "task_b", Title: "Queued B", Status: coretask.StatusReady})
+	createTask(t, store, coretask.Task{ID: "task_a", Title: "Queued A", Status: coretask.StatusReady})
+	scheduler := newScheduler(t, store, &recordingWorker{})
+
+	status := scheduler.Status()
+	if got := status.Queued; len(got) != 2 || got[0] != "task_a" || got[1] != "task_b" {
+		t.Fatalf("queued = %#v, want sorted durable ready tasks", got)
+	}
+	if text := status.ModelText(); !strings.Contains(text, "queued: task_a") || !strings.Contains(text, "queued: task_b") {
+		t.Fatalf("model text = %q, want queued task summaries", text)
+	}
+}
+
+func TestSchedulerStatusReportsRegisteredWorkers(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	scheduler, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		WorkerID:    "worker-local",
+		MaxParallel: 3,
+		WorkerPools: map[coretask.Role]WorkerPoolConfig{
+			coretask.RoleReviewer: {Profiles: []string{"reviewer-a", "reviewer-b"}, MaxParallel: 1},
+		},
+		ReconcileInterval: time.Minute,
+		Now:               testTime,
+		NewID:             func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := scheduler.registerWorker(ctx); err != nil {
+		t.Fatalf("registerWorker: %v", err)
+	}
+	status := scheduler.Status()
+	if len(status.Workers) != 1 {
+		t.Fatalf("workers = %#v, want one registered worker", status.Workers)
+	}
+	worker := status.Workers[0]
+	if worker.WorkerID != "worker-local" || !worker.Active || worker.Capacity != 3 || worker.MaxParallel != 3 {
+		t.Fatalf("worker = %#v, want active local capacity", worker)
+	}
+	if got := worker.MaxParallelByRole[coretask.RoleReviewer]; got != 1 {
+		t.Fatalf("reviewer max parallel = %d, want 1", got)
+	}
+	if got := worker.ProfilesByRole[coretask.RoleReviewer]; len(got) != 2 || got[0] != "reviewer-a" || got[1] != "reviewer-b" {
+		t.Fatalf("reviewer profiles = %#v, want configured pool", got)
+	}
+	if text := status.ModelText(); !strings.Contains(text, "worker worker-local: active") {
+		t.Fatalf("model text = %q, want worker summary", text)
+	}
+}
+
+func TestSchedulerStatusMarksExpiredRegisteredWorkersInactive(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
+		WorkerID:       "worker-old",
+		RegisteredAt:   testTime().Add(-2 * time.Hour),
+		LeaseExpiresAt: testTime().Add(-time.Hour),
+		Capacity:       2,
+		MaxParallel:    2,
+	}); err != nil {
+		t.Fatalf("RegisterWorker old: %v", err)
+	}
+	scheduler, err := New(Config{
+		Store:    store,
+		Worker:   &recordingWorker{},
+		WorkerID: "worker-local",
+		Now:      testTime,
+		NewID:    func(prefix string) string { return prefix + "test" },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	status := scheduler.Status()
+	if len(status.Workers) != 2 {
+		t.Fatalf("workers = %#v, want old plus local worker", status.Workers)
+	}
+	if status.Workers[0].WorkerID != "worker-local" || !status.Workers[0].Active {
+		t.Fatalf("first worker = %#v, want active local worker sorted first", status.Workers[0])
+	}
+	if status.Workers[1].WorkerID != "worker-old" || status.Workers[1].Active {
+		t.Fatalf("second worker = %#v, want inactive old worker", status.Workers[1])
 	}
 }
 
@@ -595,6 +1193,70 @@ func TestSchedulerEventNotifyAndReconciliationCompleteReadyTaskBurst(t *testing.
 	}
 }
 
+func TestConcurrentSchedulersClaimTaskOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{
+		ID:     "task_1",
+		Title:  "Shared claim",
+		Status: coretask.StatusReady,
+		Steps:  []coretask.Step{{ID: "run", Title: "Run"}},
+	}
+	createTask(t, store, task)
+	worker := &concurrencyRecordingWorker{releaseDelay: 10 * time.Millisecond}
+	first, err := New(Config{
+		Store:       store,
+		Worker:      worker,
+		WorkerID:    "scheduler-a",
+		MaxParallel: 1,
+	})
+	if err != nil {
+		t.Fatalf("New first scheduler: %v", err)
+	}
+	second, err := New(Config{
+		Store:       store,
+		Worker:      worker,
+		WorkerID:    "scheduler-b",
+		MaxParallel: 1,
+	})
+	if err != nil {
+		t.Fatalf("New second scheduler: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, scheduler := range []*Scheduler{first, second} {
+		wg.Add(1)
+		go func(scheduler *Scheduler) {
+			defer wg.Done()
+			errs <- scheduler.RunTask(ctx, task.ID)
+		}(scheduler)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("RunTask: %v", err)
+		}
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if state.Task.Status != coretask.StatusCompleted {
+		t.Fatalf("task status = %s, want completed", state.Task.Status)
+	}
+	if len(state.Executions) != 1 {
+		t.Fatalf("executions = %#v, want one claimed execution", state.Executions)
+	}
+	worker.mu.Lock()
+	total := worker.total
+	worker.mu.Unlock()
+	if total != 1 {
+		t.Fatalf("worker total = %d, want exactly one execution", total)
+	}
+}
+
 func TestNotifyingEventStoreNotifiesReadyTaskIndexEvents(t *testing.T) {
 	ctx := context.Background()
 	inner := eventstore.NewMemoryStore()
@@ -740,9 +1402,10 @@ func (n *recordingReadyNotifier) NotifyTaskReady(_ context.Context, taskID coret
 }
 
 type recordingRuntimePublisher struct {
-	thread corethread.Ref
-	runID  clientapi.RunID
-	events []event.Event
+	thread  corethread.Ref
+	runID   clientapi.RunID
+	events  []event.Event
+	targets []string
 }
 
 func (p *recordingRuntimePublisher) PublishRuntimeEvent(_ context.Context, thread corethread.Ref, runID clientapi.RunID, payload event.Event) error {
@@ -752,8 +1415,19 @@ func (p *recordingRuntimePublisher) PublishRuntimeEvent(_ context.Context, threa
 	if p.runID == "" {
 		p.runID = runID
 	}
+	p.targets = append(p.targets, string(thread.ID)+"\x00"+string(runID))
 	p.events = append(p.events, payload)
 	return nil
+}
+
+func (p *recordingRuntimePublisher) targetSeen(threadID, runID string) bool {
+	target := threadID + "\x00" + runID
+	for _, got := range p.targets {
+		if got == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *recordingRuntimePublisher) seen(name event.Name) bool {
@@ -773,6 +1447,29 @@ func (p *recordingRuntimePublisher) names() []event.Name {
 		}
 	}
 	return names
+}
+
+type failingRuntimePublisher struct {
+	failThread corethread.ID
+	targets    []string
+}
+
+func (p *failingRuntimePublisher) PublishRuntimeEvent(_ context.Context, thread corethread.Ref, runID clientapi.RunID, _ event.Event) error {
+	if thread.ID == p.failThread {
+		return context.Canceled
+	}
+	p.targets = append(p.targets, string(thread.ID)+"\x00"+string(runID))
+	return nil
+}
+
+func (p *failingRuntimePublisher) targetSeen(threadID, runID string) bool {
+	target := threadID + "\x00" + runID
+	for _, got := range p.targets {
+		if got == target {
+			return true
+		}
+	}
+	return false
 }
 
 type recordingWorker struct {
@@ -933,6 +1630,28 @@ func waitForTaskStatus(t *testing.T, store runtimetask.Store, taskID coretask.ID
 		t.Fatalf("Project final: %v", err)
 	}
 	t.Fatalf("task status = %s, want %s", state.Task.Status, want)
+}
+
+func waitForLeaseAfter(t *testing.T, store runtimetask.Store, taskID coretask.ID, after time.Time) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		state, err := store.Project(context.Background(), taskID)
+		if err != nil {
+			t.Fatalf("Project: %v", err)
+		}
+		exec := state.Executions[state.CurrentExecution]
+		if exec.LeaseExpiresAt.After(after) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	state, err := store.Project(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("Project final: %v", err)
+	}
+	exec := state.Executions[state.CurrentExecution]
+	t.Fatalf("lease expires at %s, want after %s", exec.LeaseExpiresAt, after)
 }
 
 type cancelAwareWorker struct {

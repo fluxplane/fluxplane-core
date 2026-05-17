@@ -18,6 +18,8 @@ type Store interface {
 	Load(context.Context, coretask.ID) ([]event.Record, error)
 	Project(context.Context, coretask.ID) (State, error)
 	ProjectWithSequence(context.Context, coretask.ID) (SequencedState, error)
+	RegisterWorker(context.Context, coretask.WorkerStatus) error
+	ListWorkers(context.Context) ([]coretask.WorkerStatus, error)
 }
 
 // SequencedState is a projected task state plus the current task stream tail.
@@ -51,7 +53,12 @@ func StreamID(taskID coretask.ID) event.StreamID {
 
 // IndexStreamID returns the stream used for compact task list/search state.
 func IndexStreamID() event.StreamID {
-	return event.StreamID("task:index")
+	return event.StreamID("task.index")
+}
+
+// WorkerStreamID returns the stream used for scheduler worker registrations.
+func WorkerStreamID() event.StreamID {
+	return event.StreamID("task.workers")
 }
 
 // Append appends task-scoped events to a task stream.
@@ -181,6 +188,53 @@ func (s *EventStore) List(ctx context.Context) ([]coretask.TaskSummary, error) {
 		latest[id] = summary
 	}
 	out := make([]coretask.TaskSummary, 0, len(order))
+	for _, id := range order {
+		out = append(out, latest[id])
+	}
+	return out, nil
+}
+
+// RegisterWorker appends a scheduler worker registration snapshot.
+func (s *EventStore) RegisterWorker(ctx context.Context, worker coretask.WorkerStatus) error {
+	if s == nil || s.events == nil {
+		return fmt.Errorf("task: store is nil")
+	}
+	if worker.WorkerID == "" {
+		return fmt.Errorf("task: worker id is empty")
+	}
+	payload := coretask.WorkerRegistered{Worker: worker}
+	_, err := s.events.Append(ctx, WorkerStreamID(), event.AppendOptions{}, event.Record{
+		Name:    payload.EventName(),
+		Payload: payload,
+		Attributes: map[string]string{
+			"task.worker_id": worker.WorkerID,
+		},
+	})
+	return err
+}
+
+// ListWorkers returns the latest registration snapshot for each scheduler worker.
+func (s *EventStore) ListWorkers(ctx context.Context) ([]coretask.WorkerStatus, error) {
+	if s == nil || s.events == nil {
+		return nil, fmt.Errorf("task: store is nil")
+	}
+	stored, err := s.events.Load(ctx, WorkerStreamID(), event.LoadOptions{})
+	if err != nil {
+		return nil, err
+	}
+	latest := map[string]coretask.WorkerStatus{}
+	order := []string{}
+	for _, record := range stored {
+		payload, ok := record.Record.Payload.(coretask.WorkerRegistered)
+		if !ok || payload.Worker.WorkerID == "" {
+			continue
+		}
+		if _, exists := latest[payload.Worker.WorkerID]; !exists {
+			order = append(order, payload.Worker.WorkerID)
+		}
+		latest[payload.Worker.WorkerID] = payload.Worker
+	}
+	out := make([]coretask.WorkerStatus, 0, len(order))
 	for _, id := range order {
 		out = append(out, latest[id])
 	}

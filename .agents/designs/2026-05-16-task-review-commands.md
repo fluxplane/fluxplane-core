@@ -1,5 +1,9 @@
 # Task Plugin, Task Commands, and Review Backlog
 
+> Historical implementation design. Current task-system progress, reliability
+> gaps, and next implementation slices are tracked in
+> [Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md).
+
 ## Status
 
 Initial creation slice implemented. This replaces the earlier generic
@@ -22,6 +26,7 @@ plugin has been removed from runtime assembly.
 Related resources:
 
 - [Core Task Domain](2026-05-16-core-task-domain.md)
+- [Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md)
 - [Workspace-Scoped Project Task Execution](2026-05-16-project-task-execution.md)
 - [Core Concepts](../../docs/concepts.md)
 - [Architecture](../../docs/architecture.md)
@@ -730,14 +735,10 @@ Completed in this slice:
     are terminal, missing required task-level outputs are synthesized from
     completed step evidence before completion validation blocks the task.
 
-Follow-up slices:
-
-1. Add durable/external worker queues when task execution moves beyond one
-   local scheduler process.
-2. Add richer review result projection and reviewer approval/blocking
-   semantics.
-3. Add safe dereference support for non-workspace artifact refs if replacement
-   spooling moves behind a managed artifact store.
+Follow-up slices now live in
+[Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md).
+Do not add new progress or next-step lists to this historical implementation
+design.
 
 ## Testing
 
@@ -797,5 +798,5 @@ Follow-up slices:
   through index-scan reconciliation while respecting scheduler parallelism.
 - Coder/local launch, terminal feedback, Slack feedback, and event catalog
   references use task events and task worker profiles.
-- Longer soak/multi-process scheduler tests remain a future requirement for
-  durable queues or external worker pools.
+- Longer soak/multi-process scheduler tests are tracked in
+  [Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md).

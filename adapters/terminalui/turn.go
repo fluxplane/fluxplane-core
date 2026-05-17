@@ -16,16 +16,20 @@ import (
 	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
 )
 
-var backgroundTaskFollowIdle = 1500 * time.Millisecond
+var (
+	backgroundTaskFollowIdle  = 1500 * time.Millisecond
+	backgroundTaskWaitTimeout = 2 * time.Minute
+)
 
 // TurnOptions configures terminal execution/rendering for one submitted turn.
 type TurnOptions struct {
-	Debug                  bool
-	Usage                  bool
-	Reasoning              ReasoningDisplay
-	WaitForBackgroundTasks bool
-	Out                    io.Writer
-	Err                    io.Writer
+	Debug                     bool
+	Usage                     bool
+	Reasoning                 ReasoningDisplay
+	WaitForBackgroundTasks    bool
+	BackgroundTaskWaitTimeout time.Duration
+	Out                       io.Writer
+	Err                       io.Writer
 }
 
 type turnRenderResult struct {
@@ -68,12 +72,12 @@ func runInputTurn(ctx context.Context, session clientapi.SessionHandle, prompt s
 	if eventsDone != nil {
 		eventResult = <-eventsDone
 	}
+	if !eventResult.Streamed {
+		renderOutbound(opts.Out, result)
+	}
 	if len(eventResult.ActiveTasks) > 0 {
 		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
-	}
-	if !eventResult.Streamed {
-		renderOutbound(opts.Out, result)
 	}
 	renderUsage(opts.Err, opts.Usage, tracker)
 	if err != nil {
@@ -93,11 +97,11 @@ func runCommandTurn(ctx context.Context, session clientapi.SessionHandle, invoca
 	if eventsDone != nil {
 		eventResult = <-eventsDone
 	}
+	renderOutbound(opts.Out, result)
 	if len(eventResult.ActiveTasks) > 0 {
 		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
 	}
-	renderOutbound(opts.Out, result)
 	renderUsage(opts.Err, opts.Usage, tracker)
 	if err != nil {
 		return err
@@ -243,10 +247,20 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 	}
 	var idle *time.Timer
 	var idleC <-chan time.Time
+	var timeout *time.Timer
+	var timeoutC <-chan time.Time
 	if !opts.WaitForBackgroundTasks {
 		idle = time.NewTimer(backgroundTaskFollowIdle)
 		idleC = idle.C
 		defer idle.Stop()
+	} else {
+		waitTimeout := opts.BackgroundTaskWaitTimeout
+		if waitTimeout <= 0 {
+			waitTimeout = backgroundTaskWaitTimeout
+		}
+		timeout = time.NewTimer(waitTimeout)
+		timeoutC = timeout.C
+		defer timeout.Stop()
 	}
 	resetIdle := func() {
 		if idle == nil {
@@ -269,6 +283,16 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 			renderer.Finish()
 			if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
 				_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task still running in background: %s\n", strings.Join(ids, ", "))
+			}
+			return result
+		case <-timeoutC:
+			renderer.Finish()
+			if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
+				waitTimeout := opts.BackgroundTaskWaitTimeout
+				if waitTimeout <= 0 {
+					waitTimeout = backgroundTaskWaitTimeout
+				}
+				_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task still running in background after %s: %s\n", waitTimeout, strings.Join(ids, ", "))
 			}
 			return result
 		case event, ok := <-events:

@@ -239,11 +239,17 @@ func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bo
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			r.updateTaskStatus(string(typed.TaskID), typed.Current)
+			if typed.Reason != "" && typed.Current == coretask.StatusBlocked {
+				r.updateTaskDetail(string(typed.TaskID), "", typed.Reason)
+			}
 			_, _ = fmt.Fprintf(out, "%stask status:%s %s %s", ansiCyan, ansiReset, typed.TaskID, typed.Current)
 			if typed.Reason != "" {
 				_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(typed.Reason, 120), ansiReset)
 			}
 			_, _ = fmt.Fprintln(out)
+			if typed.Current == coretask.StatusBlocked {
+				r.renderTask(out, string(typed.TaskID))
+			}
 			return true
 		}
 	case string(coretask.EventExecutionStartedName):
@@ -252,6 +258,7 @@ func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bo
 			r.flushContent()
 			r.updateTaskStatus(string(typed.TaskID), coretask.StatusRunning)
 			_, _ = fmt.Fprintf(out, "%stask execution:%s %s started %s%s%s\n", ansiCyan, ansiReset, typed.TaskID, ansiDim, typed.ExecutionID, ansiReset)
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
 	case string(coretask.EventExecutionInterruptedName):
@@ -259,11 +266,13 @@ func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bo
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
 			r.updateTaskStatus(string(typed.TaskID), coretask.StatusBlocked)
-			_, _ = fmt.Fprintf(out, "%stask interrupted:%s %s", ansiYellow, ansiReset, typed.TaskID)
+			r.updateTaskDetail(string(typed.TaskID), "", typed.Reason)
+			_, _ = fmt.Fprintf(out, "%stask blocked:%s %s", ansiYellow, ansiReset, typed.TaskID)
 			if typed.Reason != "" {
 				_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(typed.Reason, 120), ansiReset)
 			}
 			_, _ = fmt.Fprintln(out)
+			r.renderTask(out, string(typed.TaskID))
 			return true
 		}
 	case string(coretask.EventStepDispatchedName):
@@ -352,6 +361,20 @@ func (r *Renderer) renderTaskRuntime(out io.Writer, name string, payload any) bo
 		var typed coretask.SchedulerDiagnostic
 		if decodeTypedPayload(payload, &typed) == nil {
 			r.flushContent()
+			if typed.Diagnostic.Code == "task_finalizing_outputs" {
+				r.updateTaskDetail(string(typed.TaskID), "finalizing", typed.Diagnostic.Message)
+				_, _ = fmt.Fprintf(out, "%stask finalizing:%s %s %s%s%s\n", ansiCyan, ansiReset, typed.TaskID, ansiDim, compact(typed.Diagnostic.Message, 160), ansiReset)
+				r.renderTask(out, string(typed.TaskID))
+				return true
+			}
+			if typed.Diagnostic.Code == "task_auto_schedule_deferred" {
+				r.updateTaskDetail(string(typed.TaskID), "queued", typed.Diagnostic.Message)
+				r.renderTask(out, string(typed.TaskID))
+			}
+			if typed.Diagnostic.Code == "task_auto_schedule_disabled" {
+				r.updateTaskDetail(string(typed.TaskID), "waiting", typed.Diagnostic.Message)
+				r.renderTask(out, string(typed.TaskID))
+			}
 			target := firstNonEmptyString(string(typed.StepID), string(typed.ExecutionID), string(typed.TaskID))
 			_, _ = fmt.Fprintf(out, "%stask scheduler:%s %s %s%s%s\n", ansiYellow, ansiReset, target, ansiDim, compact(typed.Diagnostic.Message, 160), ansiReset)
 			return true
@@ -374,6 +397,8 @@ type terminalTaskView struct {
 	ID     string
 	Title  string
 	Status coretask.Status
+	Phase  string
+	Detail string
 	Steps  []terminalStepView
 }
 
@@ -398,6 +423,8 @@ func (r *Renderer) storeTask(task coretask.Task) {
 	existing := r.taskSnapshot(string(task.ID))
 	existingSteps := map[string]terminalStepView{}
 	if existing != nil {
+		view.Phase = existing.Phase
+		view.Detail = existing.Detail
 		for _, step := range existing.Steps {
 			existingSteps[step.ID] = step
 		}
@@ -442,6 +469,38 @@ func (r *Renderer) updateTaskStatus(taskID string, status coretask.Status) {
 	}
 	if status != "" {
 		view.Status = status
+		switch status {
+		case coretask.StatusCompleted, coretask.StatusFailed, coretask.StatusCancelled:
+			view.Phase = ""
+			view.Detail = ""
+		case coretask.StatusReady, coretask.StatusRunning:
+			if view.Phase == "queued" || view.Phase == "waiting" {
+				view.Phase = ""
+				view.Detail = ""
+			}
+		}
+	}
+}
+
+func (r *Renderer) updateTaskDetail(taskID, phase, detail string) {
+	if taskID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	view := r.taskLocked(taskID)
+	if view == nil {
+		if r.tasks == nil {
+			r.tasks = map[string]*terminalTaskView{}
+		}
+		view = &terminalTaskView{ID: taskID, Title: taskID}
+		r.tasks[taskID] = view
+	}
+	if phase != "" {
+		view.Phase = phase
+	}
+	if detail != "" {
+		view.Detail = detail
 	}
 }
 
@@ -498,11 +557,18 @@ func (r *Renderer) renderTask(out io.Writer, taskID string) {
 	if status == "" {
 		status = string(coretask.StatusDraft)
 	}
-	_, _ = fmt.Fprintf(out, "\n%stask:%s %s %s[%s", ansiCyan, ansiReset, view.Title, ansiDim, status)
+	labels := []string{status}
+	if view.Phase != "" {
+		labels = append(labels, view.Phase)
+	}
+	_, _ = fmt.Fprintf(out, "\n%stask:%s %s %s[%s", ansiCyan, ansiReset, view.Title, ansiDim, strings.Join(labels, ", "))
 	if len(view.Steps) > 0 {
 		_, _ = fmt.Fprintf(out, ", %d steps", len(view.Steps))
 	}
 	_, _ = fmt.Fprintf(out, "]%s\n", ansiReset)
+	if view.Detail != "" {
+		_, _ = fmt.Fprintf(out, "  ! %s%s%s\n", ansiDim, compact(view.Detail, 160), ansiReset)
+	}
 	for _, step := range view.Steps {
 		_, _ = fmt.Fprintf(out, "  %s %s %s[%s]%s", terminalStepMarker(step.Status), step.Title, ansiDim, firstNonEmptyString(step.Profile, "worker"), ansiReset)
 		if step.Detail != "" && step.Status != terminalStepCompleted {

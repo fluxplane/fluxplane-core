@@ -70,6 +70,14 @@ const (
 	MetadataOriginBranchID = "origin_branch_id"
 	// MetadataOriginRunID records the session run that created a task.
 	MetadataOriginRunID = "origin_run_id"
+	// MetadataWatchThreadID records the latest session thread that explicitly
+	// requested task execution and should receive scheduler feedback.
+	MetadataWatchThreadID = "watch_thread_id"
+	// MetadataWatchBranchID records the branch for MetadataWatchThreadID.
+	MetadataWatchBranchID = "watch_branch_id"
+	// MetadataWatchRunID records the latest session run that explicitly
+	// requested task execution and should receive scheduler feedback.
+	MetadataWatchRunID = "watch_run_id"
 )
 
 // ArtifactKind classifies task input/output and produced artifacts.
@@ -168,19 +176,23 @@ type Step struct {
 
 // Execution records one attempt to execute a task.
 type Execution struct {
-	ID          ExecutionID              `json:"id,omitempty"`
-	TaskID      ID                       `json:"task_id,omitempty"`
-	Status      Status                   `json:"status,omitempty"`
-	Steps       map[StepID]StepExecution `json:"steps,omitempty"`
-	Artifacts   []ArtifactSpec           `json:"artifacts,omitempty"`
-	WorkflowRef workflow.Name            `json:"workflow_ref,omitempty"`
-	Workflow    *workflow.Spec           `json:"workflow,omitempty"`
-	StartedAt   time.Time                `json:"started_at,omitempty"`
-	CompletedAt time.Time                `json:"completed_at,omitempty"`
-	Output      operation.Value          `json:"output,omitempty"`
-	Error       *operation.Error         `json:"error,omitempty"`
-	Diagnostics []Diagnostic             `json:"diagnostics,omitempty"`
-	Metadata    map[string]string        `json:"metadata,omitempty"`
+	ID             ExecutionID              `json:"id,omitempty"`
+	TaskID         ID                       `json:"task_id,omitempty"`
+	Status         Status                   `json:"status,omitempty"`
+	Steps          map[StepID]StepExecution `json:"steps,omitempty"`
+	Artifacts      []ArtifactSpec           `json:"artifacts,omitempty"`
+	WorkflowRef    workflow.Name            `json:"workflow_ref,omitempty"`
+	Workflow       *workflow.Spec           `json:"workflow,omitempty"`
+	StartedAt      time.Time                `json:"started_at,omitempty"`
+	CompletedAt    time.Time                `json:"completed_at,omitempty"`
+	Attempt        int                      `json:"attempt,omitempty"`
+	WorkerID       string                   `json:"worker_id,omitempty"`
+	LeaseID        string                   `json:"lease_id,omitempty"`
+	LeaseExpiresAt time.Time                `json:"lease_expires_at,omitempty"`
+	Output         operation.Value          `json:"output,omitempty"`
+	Error          *operation.Error         `json:"error,omitempty"`
+	Diagnostics    []Diagnostic             `json:"diagnostics,omitempty"`
+	Metadata       map[string]string        `json:"metadata,omitempty"`
 }
 
 // StepExecution records execution state for one task step.
@@ -670,15 +682,19 @@ type ExecutionRequest struct {
 
 // ExecutionResult reports an execution control outcome.
 type ExecutionResult struct {
-	TaskID      ID               `json:"task_id,omitempty"`
-	ExecutionID ExecutionID      `json:"execution_id,omitempty"`
-	Status      Status           `json:"status,omitempty"`
-	Output      operation.Value  `json:"output,omitempty"`
-	Summary     string           `json:"summary,omitempty"`
-	Error       *operation.Error `json:"error,omitempty"`
-	Diagnostics []Diagnostic     `json:"diagnostics,omitempty"`
-	StartedAt   time.Time        `json:"started_at,omitempty"`
-	CompletedAt time.Time        `json:"completed_at,omitempty"`
+	TaskID             ID               `json:"task_id,omitempty"`
+	ExecutionID        ExecutionID      `json:"execution_id,omitempty"`
+	Status             Status           `json:"status,omitempty"`
+	Started            bool             `json:"started,omitempty"`
+	Running            bool             `json:"running,omitempty"`
+	WaitingForCapacity bool             `json:"waiting_for_capacity,omitempty"`
+	Background         bool             `json:"background,omitempty"`
+	Output             operation.Value  `json:"output,omitempty"`
+	Summary            string           `json:"summary,omitempty"`
+	Error              *operation.Error `json:"error,omitempty"`
+	Diagnostics        []Diagnostic     `json:"diagnostics,omitempty"`
+	StartedAt          time.Time        `json:"started_at,omitempty"`
+	CompletedAt        time.Time        `json:"completed_at,omitempty"`
 }
 
 // ModelText returns a compact model-facing execution control summary.
@@ -713,6 +729,9 @@ type SchedulerStatusResult struct {
 	Active            bool              `json:"active"`
 	Running           []ID              `json:"running,omitempty"`
 	RunningByRole     map[Role][]ID     `json:"running_by_role,omitempty"`
+	Queued            []ID              `json:"queued,omitempty"`
+	Leases            []ExecutionLease  `json:"leases,omitempty"`
+	Workers           []WorkerStatus    `json:"workers,omitempty"`
 	Capacity          int               `json:"capacity"`
 	MaxParallel       int               `json:"max_parallel"`
 	CapacityByRole    map[Role]int      `json:"capacity_by_role,omitempty"`
@@ -720,6 +739,17 @@ type SchedulerStatusResult struct {
 	ProfilesByRole    map[Role][]string `json:"profiles_by_role,omitempty"`
 	ReconcileInterval string            `json:"reconcile_interval,omitempty"`
 	Diagnostics       []Diagnostic      `json:"diagnostics,omitempty"`
+}
+
+// ExecutionLease reports one durable scheduler execution lease.
+type ExecutionLease struct {
+	TaskID         ID          `json:"task_id"`
+	ExecutionID    ExecutionID `json:"execution_id"`
+	Status         Status      `json:"status,omitempty"`
+	WorkerID       string      `json:"worker_id,omitempty"`
+	LeaseID        string      `json:"lease_id,omitempty"`
+	LeaseExpiresAt time.Time   `json:"lease_expires_at,omitempty"`
+	Expired        bool        `json:"expired,omitempty"`
 }
 
 // ModelText returns a compact model-facing scheduler summary.
@@ -737,6 +767,23 @@ func (r SchedulerStatusResult) ModelText() string {
 	for _, id := range r.Running {
 		fmt.Fprintf(&b, "\n- running: %s", id)
 	}
+	for _, id := range r.Queued {
+		fmt.Fprintf(&b, "\n- queued: %s", id)
+	}
+	for _, lease := range r.Leases {
+		state := "active"
+		if lease.Expired {
+			state = "expired"
+		}
+		fmt.Fprintf(&b, "\n- lease %s/%s: %s worker=%s expires=%s", lease.TaskID, lease.ExecutionID, state, lease.WorkerID, lease.LeaseExpiresAt.Format(time.RFC3339))
+	}
+	for _, worker := range r.Workers {
+		state := "inactive"
+		if worker.Active {
+			state = "active"
+		}
+		fmt.Fprintf(&b, "\n- worker %s: %s capacity=%d/%d", worker.WorkerID, state, worker.Capacity, worker.MaxParallel)
+	}
 	for role, capacity := range r.CapacityByRole {
 		fmt.Fprintf(&b, "\n- role %s capacity: %d/%d", role, capacity, r.MaxParallelByRole[role])
 	}
@@ -744,6 +791,19 @@ func (r SchedulerStatusResult) ModelText() string {
 		fmt.Fprintf(&b, "\n- %s: %s", diagnostic.Code, diagnostic.Message)
 	}
 	return b.String()
+}
+
+// WorkerStatus reports a scheduler worker registration and capacity snapshot.
+type WorkerStatus struct {
+	WorkerID          string            `json:"worker_id"`
+	RegisteredAt      time.Time         `json:"registered_at,omitempty"`
+	LeaseExpiresAt    time.Time         `json:"lease_expires_at,omitempty"`
+	Active            bool              `json:"active,omitempty"`
+	Capacity          int               `json:"capacity"`
+	MaxParallel       int               `json:"max_parallel"`
+	CapacityByRole    map[Role]int      `json:"capacity_by_role,omitempty"`
+	MaxParallelByRole map[Role]int      `json:"max_parallel_by_role,omitempty"`
+	ProfilesByRole    map[Role][]string `json:"profiles_by_role,omitempty"`
 }
 
 // SchedulerSetEnabledRequest enables or disables automatic task scheduling.

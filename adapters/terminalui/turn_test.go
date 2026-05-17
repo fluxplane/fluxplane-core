@@ -157,6 +157,32 @@ func TestFollowBackgroundTasksCanWaitForCompletion(t *testing.T) {
 	}
 }
 
+func TestFollowBackgroundTasksWaitForCompletionTimesOut(t *testing.T) {
+	events := make(chan clientapi.Event)
+	defer close(events)
+
+	var out, err bytes.Buffer
+	result := followBackgroundTasks(context.Background(), staticEventSession{events: events}, turnRenderResult{
+		ActiveTasks: map[string]bool{"task_1": true},
+		SeenRuntime: map[string]bool{},
+	}, nil, TurnOptions{
+		Out:                       &out,
+		Err:                       &err,
+		WaitForBackgroundTasks:    true,
+		BackgroundTaskWaitTimeout: 10 * time.Millisecond,
+	})
+
+	if !result.ActiveTasks["task_1"] {
+		t.Fatalf("active tasks = %#v, want task_1 still active", result.ActiveTasks)
+	}
+	got := err.String()
+	for _, want := range []string{"waiting for completion", "task still running in background after 10ms: task_1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("background output = %q, missing %q", got, want)
+		}
+	}
+}
+
 type staticEventSession struct {
 	events <-chan clientapi.Event
 }

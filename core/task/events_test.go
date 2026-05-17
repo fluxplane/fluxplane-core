@@ -23,6 +23,7 @@ func TestTaskEventNames(t *testing.T) {
 		{"StepStatusChanged", StepStatusChanged{}.EventName(), EventStepStatusChangedName},
 		{"Indexed", Indexed{}.EventName(), EventIndexedName},
 		{"ExecutionStarted", ExecutionStarted{}.EventName(), EventExecutionStartedName},
+		{"ExecutionLeaseRenewed", ExecutionLeaseRenewed{}.EventName(), EventExecutionLeaseRenewedName},
 		{"ExecutionInterrupted", ExecutionInterrupted{}.EventName(), EventExecutionInterruptedName},
 		{"StepDispatched", StepDispatched{}.EventName(), EventStepDispatchedName},
 		{"StepProgressed", StepProgressed{}.EventName(), EventStepProgressedName},
@@ -33,6 +34,7 @@ func TestTaskEventNames(t *testing.T) {
 		{"ExecutionFailed", ExecutionFailed{}.EventName(), EventExecutionFailedName},
 		{"ExecutionCancelled", ExecutionCancelled{}.EventName(), EventExecutionCancelledName},
 		{"SchedulerDiagnostic", SchedulerDiagnostic{}.EventName(), EventSchedulerDiagnosticName},
+		{"WorkerRegistered", WorkerRegistered{}.EventName(), EventWorkerRegisteredName},
 	}
 	for _, tc := range checks {
 		if tc.got != tc.want {

@@ -123,6 +123,10 @@ scheduler-run tasks from the submitted turn to finish before closing the local
 runtime; REPL turns only watch briefly and then return the prompt while tasks
 continue in the background.
 
+Current task-system progress, reliability gaps, and next slices are tracked in
+the canonical
+[Task System Reliability Roadmap](../.agents/plans/2026-05-17-task-system-roadmap.md).
+
 ## Command
 
 A command is an imperative instruction to perform a known action.
@@ -378,6 +382,10 @@ thread. Scheduler anomalies that affect a task, such as ignored stale worker
 results, are durable task diagnostics rather than transient scheduler-only
 state. They are non-lifecycle records and do not change the projected current
 execution.
+
+Current task-system reliability work is tracked in
+[Task System Reliability Roadmap](../.agents/plans/2026-05-17-task-system-roadmap.md);
+historical design rationale lives under `.agents/designs`.
 
 ### Commands in AgentRuntime
 

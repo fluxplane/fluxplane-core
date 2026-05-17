@@ -22,6 +22,7 @@ func RegisterEvents(registry *event.Registry) error {
 		StepStatusChanged{},
 		Indexed{},
 		ExecutionStarted{},
+		ExecutionLeaseRenewed{},
 		ExecutionInterrupted{},
 		StepDispatched{},
 		StepProgressed{},
@@ -32,6 +33,7 @@ func RegisterEvents(registry *event.Registry) error {
 		ExecutionFailed{},
 		ExecutionCancelled{},
 		SchedulerDiagnostic{},
+		WorkerRegistered{},
 	} {
 		if err := registry.Register(sample); err != nil {
 			return err

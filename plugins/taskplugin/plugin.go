@@ -173,7 +173,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.System)),
 		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store)),
 		operationruntime.NewTypedResult[coretask.ReviewRequest, coretask.ReviewRequestResult](reviewRequestSpec(), requestReview(store)),
-		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner)),
+		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner, store)),
 		operationruntime.NewTypedResult[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](taskSchedulerStatusSpec(), schedulerStatus(p.Runner)),
 		operationruntime.NewTypedResult[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](taskSchedulerSetEnabledSpec(), schedulerSetEnabled(p.Runner)),
 	}, nil
@@ -421,7 +421,8 @@ You are a task planner. Your only job is to turn the user's request into an appr
 5. Keep planned tasks visible in the current session. Use the normal developer/coder assignee unless the user explicitly asks for human-only ownership.
 6. Present the draft task to the user with task id, status=draft, assignee, objective, steps, required inputs, expected outputs, and assumptions. Say that it is not scheduled yet.
 7. Ask for approval or refinement. Continue refining the same draft task until the user cancels or approves.
-8. When the user approves, or says to execute/make ready/run this plan, call task_modify on the existing task to set the task status to ready. The scheduler will execute ready tasks.
+8. When the user approves, or says to execute/make ready/run this plan, call task_modify on the existing task to set the task status to ready, then call task_run for that task.
+9. After approval, report the task id, ready/running state, whether task_run started it or found it already running, and whether it is running in the background or waiting for scheduler capacity.
 
 # Rules
 
@@ -429,6 +430,7 @@ You are a task planner. Your only job is to turn the user's request into an appr
 - Do not execute the planned work yourself.
 - Do not mark a task ready until the user has approved the draft.
 - Do not create a second task when the user approves or refines an existing draft.
+- Do not stop after setting ready when the user approved execution; call task_run and report the scheduler response.
 - Prefer task outputs and acceptance criteria over vague prose.
 - If the user cancels, leave the task draft or cancelled and report the task id.
 `),
@@ -1010,7 +1012,7 @@ func validateTask(store runtimetask.Store) func(operation.Context, coretask.Task
 	}
 }
 
-func runTask(runner TaskRunner) func(operation.Context, coretask.ExecutionRequest) operation.Result {
+func runTask(runner TaskRunner, store runtimetask.Store) func(operation.Context, coretask.ExecutionRequest) operation.Result {
 	return func(ctx operation.Context, req coretask.ExecutionRequest) operation.Result {
 		if runner == nil {
 			return operation.Failed("task_scheduler_missing", "task_run requires a task scheduler", nil)
@@ -1029,10 +1031,14 @@ func runTask(runner TaskRunner) func(operation.Context, coretask.ExecutionReques
 		}
 		if req.DryRun {
 			return operation.OK(coretask.ExecutionResult{
-				TaskID:  req.TaskID,
-				Status:  coretask.StatusReady,
-				Summary: fmt.Sprintf("Task %s would be scheduled.", req.TaskID),
+				TaskID:             req.TaskID,
+				Status:             coretask.StatusReady,
+				WaitingForCapacity: false,
+				Summary:            fmt.Sprintf("Task %s would be scheduled.", req.TaskID),
 			})
+		}
+		if err := recordTaskRunWatcher(ctx, store, req.TaskID); err != nil {
+			return operation.Failed("task_run_watch_failed", err.Error(), map[string]any{"task_id": req.TaskID})
 		}
 		submitted, err := runner.SubmitTask(ctx, req.TaskID)
 		if err != nil {
@@ -1042,12 +1048,66 @@ func runTask(runner TaskRunner) func(operation.Context, coretask.ExecutionReques
 		if submitted.Started {
 			status = coretask.StatusRunning
 		}
+		waitingForCapacity := !submitted.Started && !submitted.Running && submitted.Status == coretask.StatusReady
 		return operation.OK(coretask.ExecutionResult{
-			TaskID:  submitted.TaskID,
-			Status:  status,
-			Summary: submitted.Summary,
+			TaskID:             submitted.TaskID,
+			Status:             status,
+			Started:            submitted.Started,
+			Running:            submitted.Running,
+			WaitingForCapacity: waitingForCapacity,
+			Background:         submitted.Started || submitted.Running,
+			Summary:            submitted.Summary,
 		})
 	}
+}
+
+func recordTaskRunWatcher(ctx context.Context, store runtimetask.Store, taskID coretask.ID) error {
+	if store == nil || taskID == "" {
+		return nil
+	}
+	scope, ok := sessionenv.ScopeFromContext(ctx)
+	if !ok || scope.Thread.ID == "" {
+		return nil
+	}
+	for attempt := 0; attempt < taskModifyRetries; attempt++ {
+		projected, err := store.ProjectWithSequence(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		task := projected.State.Task
+		if task.ID == "" {
+			return nil
+		}
+		if task.ID != taskID {
+			return fmt.Errorf("task %q projected as %q", taskID, task.ID)
+		}
+		if task.Metadata == nil {
+			task.Metadata = map[string]string{}
+		}
+		changed := false
+		set := func(key, value string) {
+			if value == "" || task.Metadata[key] == value {
+				return
+			}
+			task.Metadata[key] = value
+			changed = true
+		}
+		set(coretask.MetadataWatchThreadID, string(scope.Thread.ID))
+		if scope.Thread.BranchID != "" {
+			set(coretask.MetadataWatchBranchID, string(scope.Thread.BranchID))
+		}
+		set(coretask.MetadataWatchRunID, scope.RunID)
+		if !changed {
+			return nil
+		}
+		if err := store.AppendExpected(ctx, taskID, projected.Sequence, coretask.Revised{TaskID: taskID, Task: task, Reason: "task_run requested execution from this session"}); errors.Is(err, event.ErrAppendConflict) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		return store.Index(ctx, taskSummary(task))
+	}
+	return fmt.Errorf("task %q changed while recording task_run watcher", taskID)
 }
 
 func schedulerStatus(runner TaskRunner) func(operation.Context, coretask.SchedulerStatusRequest) operation.Result {

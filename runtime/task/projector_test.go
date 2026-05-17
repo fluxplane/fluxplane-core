@@ -96,6 +96,33 @@ func TestMarkInterruptedOnlyChangesRunningExecution(t *testing.T) {
 	}
 }
 
+func TestProjectRenewsRunningExecutionLease(t *testing.T) {
+	base := time.Unix(1700000000, 0).UTC()
+	state := Project([]event.Record{
+		{Time: base, Payload: coretask.Created{TaskID: "task_1", Task: coretask.Task{ID: "task_1", Status: coretask.StatusReady}}},
+		{Time: base.Add(time.Second), Payload: coretask.ExecutionStarted{TaskID: "task_1", ExecutionID: "exec_1", Execution: coretask.Execution{
+			ID:             "exec_1",
+			TaskID:         "task_1",
+			Status:         coretask.StatusRunning,
+			WorkerID:       "worker-a",
+			LeaseID:        "lease_1",
+			LeaseExpiresAt: base.Add(time.Minute),
+		}}},
+		{Time: base.Add(2 * time.Second), Payload: coretask.ExecutionLeaseRenewed{
+			TaskID:         "task_1",
+			ExecutionID:    "exec_1",
+			WorkerID:       "worker-a",
+			LeaseID:        "lease_1",
+			LeaseExpiresAt: base.Add(2 * time.Minute),
+		}},
+	})
+
+	exec := state.Executions["exec_1"]
+	if exec.WorkerID != "worker-a" || exec.LeaseID != "lease_1" || !exec.LeaseExpiresAt.Equal(base.Add(2*time.Minute)) {
+		t.Fatalf("execution lease = worker=%q lease=%q expires=%s", exec.WorkerID, exec.LeaseID, exec.LeaseExpiresAt)
+	}
+}
+
 func TestProjectAppliesArtifactAdded(t *testing.T) {
 	base := time.Unix(1700000000, 0).UTC()
 	state := Project([]event.Record{

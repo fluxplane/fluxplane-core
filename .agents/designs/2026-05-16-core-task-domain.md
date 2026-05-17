@@ -1,5 +1,9 @@
 # Core Task Domain
 
+> Historical domain design. Current task-system progress, reliability gaps,
+> and next implementation slices are tracked in
+> [Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md).
+
 ## Status
 
 Implemented as the task foundation, scheduler slice, and plan execution
@@ -11,6 +15,8 @@ reported through `task.*` events.
   `taskplugin` ownership of `/task`, `/plan`, task
   creation/modification/read operations, event-sourced task state, scheduler
   execution, and the review follow-up path.
+- [Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md):
+  canonical current state, remaining reliability gaps, and next slices.
 
 ## Model
 
@@ -54,8 +60,8 @@ Earlier plan executor types mapped directly:
 | sub-agent worker id | step execution `external_id` |
 | sub-agent profile | step `profile` / step execution `profile` |
 
-The existing `plan` operation can keep its public actions during migration:
-`create`, `revise`, `execute`, `wait`, `status`, `step_output`, and `cancel`.
+The old plan execution plugin has been removed from runtime assembly. The table
+above is retained only as historical mapping context for the migration.
 
 ## Runtime Layer
 
@@ -151,35 +157,11 @@ Task lifecycle semantics are intentionally explicit:
   caller lists explicit `force_overrides` check codes;
 - produced artifact IDs are task-wide unique.
 
-## Next Reliability Slice
+## Active Roadmap
 
-1. Add task scheduler/executor behavior using task events and runtime readiness
-   helpers. Done for the first automatic scheduler slice.
-2. Add explicit scheduler controls and configurable worker profile routing.
-   Done for the first local control slice: `task_run`,
-   `task_scheduler_status`, `task_scheduler_set_enabled`, max-parallel
-   capacity, and role-to-profile routing are implemented.
-3. Harden scheduler/task-operation concurrency with targeted contention tests,
-   bounded context-aware retries, expected-sequence scheduler transitions,
-   explicit task modification conflict UX, and observable scheduler errors.
-   Implemented for the first hardening slice, including indexed ready
-   notification plus reconciliation burst coverage.
-4. Improve terminal/user feedback for task lifecycle and progress events. Done
-   for typed `task.*` runtime events, session-thread replay, and scheduler
-   mirroring of background task events to the originating session thread.
-5. Replace plan execution with task execution events and worker profiles. Done
-   for coder/local launch wiring, terminal feedback, Slack feedback, and event
-   catalog references.
-6. Add deeper long-running/multi-process scheduler soak coverage when the
-   scheduler gains durable queues or external worker pools.
-7. Artifact/result ergonomics are implemented for the first local slice:
-   oversized tool-result replacements carry previews/tails, artifact reads
-   default to bounded previews, and scheduler worker outputs are recorded as
-   referenced task artifacts with preview metadata. Future work can add safe
-   dereference helpers for local refs through a runtime system boundary.
-8. `review_request` and `task_read_artifact` are implemented for the first
-   local slice: reviews are reviewer-assigned tasks linked to a subject task,
-   and artifact reads return bounded inline or safe workspace-ref content.
+Current task-system reliability work is tracked in
+[Task System Reliability Roadmap](../plans/2026-05-17-task-system-roadmap.md).
+Do not add new progress or next-step lists to this historical domain design.
 
 Keep validating task steps as a DAG. `core/task.Task.Validate`
 rejects unknown dependencies, self-dependencies, and dependency cycles so

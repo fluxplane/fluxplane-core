@@ -1,31 +1,35 @@
 package task
 
 import (
+	"time"
+
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 )
 
 const (
-	EventCreateRequestedName      event.Name = "task.create_requested"
-	EventCreatedName              event.Name = "task.created"
-	EventRevisedName              event.Name = "task.revised"
-	EventStatusChangedName        event.Name = "task.status_changed"
-	EventArtifactAddedName        event.Name = "task.artifact_added"
-	EventArtifactUpdatedName      event.Name = "task.artifact_updated"
-	EventArtifactRemovedName      event.Name = "task.artifact_removed"
-	EventStepStatusChangedName    event.Name = "task.step_status_changed"
-	EventIndexedName              event.Name = "task.indexed"
-	EventExecutionStartedName     event.Name = "task.execution_started"
-	EventExecutionInterruptedName event.Name = "task.execution_interrupted"
-	EventStepDispatchedName       event.Name = "task.step_dispatched"
-	EventStepProgressedName       event.Name = "task.step_progressed"
-	EventStepCompletedName        event.Name = "task.step_completed"
-	EventStepFailedName           event.Name = "task.step_failed"
-	EventStepCancelledName        event.Name = "task.step_cancelled"
-	EventExecutionCompletedName   event.Name = "task.execution_completed"
-	EventExecutionFailedName      event.Name = "task.execution_failed"
-	EventExecutionCancelledName   event.Name = "task.execution_cancelled"
-	EventSchedulerDiagnosticName  event.Name = "task.scheduler_diagnostic"
+	EventCreateRequestedName       event.Name = "task.create_requested"
+	EventCreatedName               event.Name = "task.created"
+	EventRevisedName               event.Name = "task.revised"
+	EventStatusChangedName         event.Name = "task.status_changed"
+	EventArtifactAddedName         event.Name = "task.artifact_added"
+	EventArtifactUpdatedName       event.Name = "task.artifact_updated"
+	EventArtifactRemovedName       event.Name = "task.artifact_removed"
+	EventStepStatusChangedName     event.Name = "task.step_status_changed"
+	EventIndexedName               event.Name = "task.indexed"
+	EventExecutionStartedName      event.Name = "task.execution_started"
+	EventExecutionLeaseRenewedName event.Name = "task.execution_lease_renewed"
+	EventExecutionInterruptedName  event.Name = "task.execution_interrupted"
+	EventStepDispatchedName        event.Name = "task.step_dispatched"
+	EventStepProgressedName        event.Name = "task.step_progressed"
+	EventStepCompletedName         event.Name = "task.step_completed"
+	EventStepFailedName            event.Name = "task.step_failed"
+	EventStepCancelledName         event.Name = "task.step_cancelled"
+	EventExecutionCompletedName    event.Name = "task.execution_completed"
+	EventExecutionFailedName       event.Name = "task.execution_failed"
+	EventExecutionCancelledName    event.Name = "task.execution_cancelled"
+	EventSchedulerDiagnosticName   event.Name = "task.scheduler_diagnostic"
+	EventWorkerRegisteredName      event.Name = "task.worker_registered"
 )
 
 // CreateRequested records the accepted task creation request before defaults
@@ -126,6 +130,17 @@ type ExecutionStarted struct {
 
 func (ExecutionStarted) EventName() event.Name { return EventExecutionStartedName }
 
+// ExecutionLeaseRenewed records a refreshed scheduler execution lease.
+type ExecutionLeaseRenewed struct {
+	TaskID         ID          `json:"task_id"`
+	ExecutionID    ExecutionID `json:"execution_id"`
+	WorkerID       string      `json:"worker_id,omitempty"`
+	LeaseID        string      `json:"lease_id,omitempty"`
+	LeaseExpiresAt time.Time   `json:"lease_expires_at,omitempty"`
+}
+
+func (ExecutionLeaseRenewed) EventName() event.Name { return EventExecutionLeaseRenewedName }
+
 // ExecutionInterrupted records a resumable execution interruption.
 type ExecutionInterrupted struct {
 	TaskID      ID          `json:"task_id"`
@@ -225,3 +240,10 @@ type SchedulerDiagnostic struct {
 }
 
 func (SchedulerDiagnostic) EventName() event.Name { return EventSchedulerDiagnosticName }
+
+// WorkerRegistered records a scheduler worker capacity registration.
+type WorkerRegistered struct {
+	Worker WorkerStatus `json:"worker"`
+}
+
+func (WorkerRegistered) EventName() event.Name { return EventWorkerRegisteredName }
