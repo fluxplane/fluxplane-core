@@ -1,12 +1,15 @@
 package coder
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -39,8 +42,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 86 {
-		t.Fatalf("operation specs len = %d, want 86", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 88 {
+		t.Fatalf("operation specs len = %d, want 88", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -71,7 +74,7 @@ func TestBundleComposes(t *testing.T) {
 			t.Fatalf("delegation allowed profiles = %#v, missing %s", session.Delegation.AllowedProfiles, name)
 		}
 	}
-	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_validate", "task_run", "task_scheduler_status", "task_scheduler_set_enabled", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
+	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_read_artifact", "task_validate", "review_request", "task_run", "task_scheduler_status", "task_scheduler_set_enabled", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
 			t.Fatalf("delegation operations missing %s", name)
 		}
@@ -86,9 +89,23 @@ func TestBundleComposes(t *testing.T) {
 	if len(worker.Operations) == 0 {
 		t.Fatal("worker operations len = 0, want operation-projected tools")
 	}
+	commandSpecs := composition.Commands.All()
+	reflectCmd, ok := findCommandSpec(commandSpecs, ReflectCommand)
+	if !ok {
+		t.Fatalf("command specs = %#v, missing /%s", commandSpecs, ReflectCommand)
+	}
+	if reflectCmd.Target.Kind != "prompt" {
+		t.Fatalf("reflect command target = %#v, want prompt target", reflectCmd.Target)
+	}
+	if !strings.Contains(reflectCmd.Target.Prompt, "current coder session") {
+		t.Fatalf("reflect prompt = %q, want current-session instructions", reflectCmd.Target.Prompt)
+	}
+	if len(reflectCmd.Policy.AllowedCallers) != 1 || reflectCmd.Policy.AllowedCallers[0] != policy.CallerUser || reflectCmd.Policy.RequiredTrust != policy.TrustVerified {
+		t.Fatalf("reflect command policy = %#v, want verified user-only policy", reflectCmd.Policy)
+	}
 }
 
-func TestFeatureExpansionUsesSignalsAndToolchainAvailability(t *testing.T) {
+func TestExpandOperationsUsesActivationSignals(t *testing.T) {
 	ops := expandOperations(OperationExpansionConfig{
 		Features: []FeatureSpec{LanguageSupportFeature(), AvailableToolchainsFeature()},
 		Activation: ActivationInput{
@@ -124,7 +141,6 @@ func TestFeatureExpansionUsesSignalsAndToolchainAvailability(t *testing.T) {
 		t.Fatalf("ops = %#v, want explicit removal to win", ops)
 	}
 }
-
 func agentHasOperation(spec agent.Spec, name string) bool {
 	for _, ref := range spec.Operations {
 		if ref.Name == operation.Name(name) {
@@ -132,6 +148,15 @@ func agentHasOperation(spec agent.Spec, name string) bool {
 		}
 	}
 	return false
+}
+
+func findCommandSpec(specs []command.Spec, name string) (command.Spec, bool) {
+	for _, spec := range specs {
+		if spec.Path.String() == "/"+name {
+			return spec, true
+		}
+	}
+	return command.Spec{}, false
 }
 
 func findAgentSpec(specs []agent.Spec, name string) (agent.Spec, bool) {

@@ -8,13 +8,12 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/operation"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 )
 
 func TestRendererRendersCodeExecuteSuccess(t *testing.T) {
 	got := renderCodeExecuteForTest(t, operation.Result{Status: operation.StatusOK, Output: operation.Rendered{
 		Model: "code_execute completed",
-		Data: codeplugin.ExecuteResult{
+		Data: codeExecuteResult{
 			Preset:     "python",
 			Image:      "python:3.12-alpine",
 			Stdout:     "hello\n",
@@ -39,7 +38,7 @@ func TestRendererRendersCodeExecuteFailureWithCross(t *testing.T) {
 	got := renderCodeExecuteForTest(t, operation.Result{
 		Status: operation.StatusFailed,
 		Error:  &operation.Error{Code: "code_execute_failed", Message: "exit status 1"},
-		Output: operation.Rendered{Data: codeplugin.ExecuteResult{
+		Output: operation.Rendered{Data: codeExecuteResult{
 			Preset:     "node",
 			Image:      "node:24-alpine",
 			Stdout:     "starting job...\n",
@@ -59,7 +58,7 @@ func TestRendererRendersCodeExecuteTimeoutWithCross(t *testing.T) {
 	got := renderCodeExecuteForTest(t, operation.Result{
 		Status: operation.StatusFailed,
 		Error:  &operation.Error{Code: "code_execute_failed", Message: context.DeadlineExceeded.Error()},
-		Output: operation.Rendered{Data: codeplugin.ExecuteResult{
+		Output: operation.Rendered{Data: codeExecuteResult{
 			Preset:     "go",
 			Image:      "golang:1.26-alpine",
 			ExitCode:   -1,

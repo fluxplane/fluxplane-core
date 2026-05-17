@@ -694,7 +694,7 @@ func main() {}
 
 	buildBinary, err := sys.Process().Run(context.Background(), system.ProcessRequest{
 		Command: "go",
-		Args:    []string{"build", "-o", "toolbin", "./cmd/tool"},
+		Args:    []string{"build", "-buildvcs=false", "-o", "toolbin", "./cmd/tool"},
 		Env:     system.DefaultProcessEnv(),
 	})
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -24,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/agentruntime/runtime/system"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
 
@@ -35,7 +37,9 @@ const (
 	TaskListOp                = "task_list"
 	TaskListArtifactsOp       = "task_list_artifacts"
 	TaskGetArtifactOp         = "task_get_artifact"
+	TaskReadArtifactOp        = "task_read_artifact"
 	TaskValidateOp            = "task_validate"
+	ReviewRequestOp           = "review_request"
 	TaskRunOp                 = "task_run"
 	TaskSchedulerStatusOp     = "task_scheduler_status"
 	TaskSchedulerSetEnabledOp = "task_scheduler_set_enabled"
@@ -59,6 +63,7 @@ const (
 // Plugin contributes task creation resources and operations.
 type Plugin struct {
 	Runner TaskRunner
+	System system.System
 }
 
 // TaskRunner controls asynchronous task execution.
@@ -78,6 +83,12 @@ func New() Plugin { return Plugin{} }
 // backed by the supplied runner.
 func NewWithRunner(runner TaskRunner) Plugin { return Plugin{Runner: runner} }
 
+// NewWithRunnerAndSystem returns the task plugin with scheduler controls and
+// a system boundary for safe artifact ref reads.
+func NewWithRunnerAndSystem(runner TaskRunner, sys system.System) Plugin {
+	return Plugin{Runner: runner, System: sys}
+}
+
 // Manifest returns plugin metadata.
 func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Task creation commands, agents, and operations."}
@@ -85,7 +96,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 // Contributions returns task resources.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	specs := []operation.Spec{taskCreateSpec(), taskModifySpec(), taskGetSpec(), taskListSpec(), taskListArtifactsSpec(), taskGetArtifactSpec(), taskValidateSpec(), taskRunSpec(), taskSchedulerStatusSpec(), taskSchedulerSetEnabledSpec()}
+	specs := []operation.Spec{taskCreateSpec(), taskModifySpec(), taskGetSpec(), taskListSpec(), taskListArtifactsSpec(), taskGetArtifactSpec(), taskReadArtifactSpec(), taskValidateSpec(), reviewRequestSpec(), taskRunSpec(), taskSchedulerStatusSpec(), taskSchedulerSetEnabledSpec()}
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{
 			Name:        Name,
@@ -159,7 +170,9 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 		operationruntime.NewTypedResult[coretask.TaskListRequest, coretask.TaskListResult](taskListSpec(), listTasks(store)),
 		operationruntime.NewTypedResult[coretask.TaskArtifactListRequest, coretask.TaskArtifactListResult](taskListArtifactsSpec(), listArtifacts(store)),
 		operationruntime.NewTypedResult[coretask.TaskArtifactGetRequest, coretask.TaskArtifactGetResult](taskGetArtifactSpec(), getArtifact(store)),
+		operationruntime.NewTypedResult[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](taskReadArtifactSpec(), readArtifact(store, p.System)),
 		operationruntime.NewTypedResult[coretask.TaskValidateRequest, coretask.TaskValidationResult](taskValidateSpec(), validateTask(store)),
+		operationruntime.NewTypedResult[coretask.ReviewRequest, coretask.ReviewRequestResult](reviewRequestSpec(), requestReview(store)),
 		operationruntime.NewTypedResult[coretask.ExecutionRequest, coretask.ExecutionResult](taskRunSpec(), runTask(p.Runner)),
 		operationruntime.NewTypedResult[coretask.SchedulerStatusRequest, coretask.SchedulerStatusResult](taskSchedulerStatusSpec(), schedulerStatus(p.Runner)),
 		operationruntime.NewTypedResult[coretask.SchedulerSetEnabledRequest, coretask.SchedulerStatusResult](taskSchedulerSetEnabledSpec(), schedulerSetEnabled(p.Runner)),
@@ -182,6 +195,10 @@ func taskOperationRefs() []operation.Ref {
 		{Name: TaskListOp},
 		{Name: TaskListArtifactsOp},
 		{Name: TaskGetArtifactOp},
+		{Name: TaskReadArtifactOp},
+		{Name: ReviewRequestOp},
+		{Name: TaskRunOp},
+		{Name: TaskSchedulerStatusOp},
 		{Name: TaskValidateOp},
 		{Name: "clarify"},
 	}
@@ -288,6 +305,32 @@ func taskGetArtifactSpec() operation.Spec {
 	})
 }
 
+func taskReadArtifactSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coretask.TaskArtifactReadRequest, coretask.TaskArtifactReadResult](operation.Spec{
+		Ref:         operation.Ref{Name: TaskReadArtifactOp},
+		Description: "Read bounded task artifact content from an inline value or safe workspace reference.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismDeterministic,
+			Effects:     operation.EffectSet{operation.EffectFilesystem},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func reviewRequestSpec() operation.Spec {
+	return operationruntime.WithTypedContract[coretask.ReviewRequest, coretask.ReviewRequestResult](operation.Spec{
+		Ref:         operation.Ref{Name: ReviewRequestOp},
+		Description: "Create a reviewer-assigned task to review an existing task and its artifacts.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectCreate},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
 func taskValidateSpec() operation.Spec {
 	return operationruntime.WithTypedContract[coretask.TaskValidateRequest, coretask.TaskValidationResult](operation.Spec{
 		Ref:         operation.Ref{Name: TaskValidateOp},
@@ -350,6 +393,7 @@ func taskAgentSpec() agent.Spec {
 			"Prefer creating a task with explicit inputs, outputs, assumptions, and acceptance criteria over asking clarification.",
 			"Ask clarification only when the request cannot be represented as a useful draft or ready task.",
 			"When enough information exists, call task_create.",
+			"If the user asks for immediate execution, create the task with status=ready, call task_run for the created task, and report whether it started, is already running, is not ready, or is waiting for capacity.",
 			"Use task_modify for follow-up changes to an existing task.",
 			"After task_create succeeds, send a concise final message with the task id, title, status, and expected outputs.",
 		}, " "),
@@ -754,11 +798,206 @@ func getArtifact(store runtimetask.Store) func(operation.Context, coretask.TaskA
 		}
 		for _, artifact := range scopedArtifacts(state) {
 			if artifact.Artifact.ID == req.ArtifactID {
-				return operation.OK(coretask.TaskArtifactGetResult{Artifact: artifact})
+				view := req.View
+				if view == "" {
+					view = coretask.ViewFull
+				}
+				out := coretask.TaskArtifactGetResult{Artifact: artifact, View: view}
+				if preview, omitted, ok := artifactValuePreview(artifact.Artifact.Value, req.MaxBytes); ok {
+					out.ValuePreview = preview
+					out.OmittedBytes = omitted
+				}
+				out.ValueIncluded = req.IncludeValue
+				if !req.IncludeValue {
+					out.Artifact.Artifact.Value = nil
+				}
+				return operation.OK(out)
 			}
 		}
 		return operation.Failed("task_artifact_not_found", "artifact was not found", map[string]any{"task_id": req.ID, "artifact_id": req.ArtifactID})
 	}
+}
+
+func readArtifact(store runtimetask.Store, sys system.System) func(operation.Context, coretask.TaskArtifactReadRequest) operation.Result {
+	return func(ctx operation.Context, req coretask.TaskArtifactReadRequest) operation.Result {
+		state, ok, result := loadTask(ctx, store, req.ID)
+		if !ok {
+			return result
+		}
+		var scoped coretask.ScopedArtifact
+		for _, artifact := range scopedArtifacts(state) {
+			if artifact.Artifact.ID == req.ArtifactID {
+				scoped = artifact
+				break
+			}
+		}
+		if scoped.Artifact.ID == "" {
+			return operation.Failed("task_artifact_not_found", "artifact was not found", map[string]any{"task_id": req.ID, "artifact_id": req.ArtifactID})
+		}
+		maxBytes := req.MaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 4096
+		}
+		if artifactPrefersRef(scoped.Artifact) {
+			return readArtifactRef(ctx, sys, scoped, maxBytes)
+		}
+		if text, omitted, ok := artifactValuePreview(scoped.Artifact.Value, int(maxBytes)); ok {
+			return operation.OK(coretask.TaskArtifactReadResult{Artifact: scoped, Content: text, Truncated: omitted > 0, Source: "value"})
+		}
+		if strings.TrimSpace(scoped.Artifact.Ref) == "" {
+			return operation.Failed("task_artifact_content_missing", "artifact has no inline value or ref", map[string]any{"task_id": req.ID, "artifact_id": req.ArtifactID})
+		}
+		return readArtifactRef(ctx, sys, scoped, maxBytes)
+	}
+}
+
+func artifactPrefersRef(artifact coretask.ArtifactSpec) bool {
+	return strings.TrimSpace(artifact.Ref) != "" && strings.EqualFold(artifact.Metadata["replaced"], "true")
+}
+
+func readArtifactRef(ctx operation.Context, sys system.System, scoped coretask.ScopedArtifact, maxBytes int64) operation.Result {
+	ref := strings.TrimSpace(scoped.Artifact.Ref)
+	if ref == "" {
+		return operation.Failed("task_artifact_content_missing", "artifact has no ref", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID})
+	}
+	if strings.EqualFold(scoped.Artifact.Metadata["replaced"], "true") {
+		data, truncated, err := operationruntime.ReadReplacementFile(ctx, ref, maxBytes)
+		if err != nil {
+			return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+		}
+		return operation.OK(coretask.TaskArtifactReadResult{
+			Artifact:     scoped,
+			Content:      strings.ToValidUTF8(string(data), ""),
+			Truncated:    truncated,
+			Source:       "replacement_ref",
+			ResolvedPath: ref,
+		})
+	}
+	if sys == nil || sys.Workspace() == nil {
+		return operation.Failed("task_artifact_reader_missing", "task_read_artifact requires a runtime system for ref reads", map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+	}
+	data, truncated, resolved, err := sys.Workspace().ReadFile(ctx, ref, maxBytes)
+	if err != nil {
+		return operation.Failed("task_artifact_ref_read_failed", err.Error(), map[string]any{"task_id": scoped.TaskID, "artifact_id": scoped.Artifact.ID, "ref": ref})
+	}
+	return operation.OK(coretask.TaskArtifactReadResult{
+		Artifact:     scoped,
+		Content:      strings.ToValidUTF8(string(data), ""),
+		Truncated:    truncated,
+		Source:       "ref",
+		ResolvedPath: resolved.Rel,
+	})
+}
+
+func requestReview(store runtimetask.Store) func(operation.Context, coretask.ReviewRequest) operation.Result {
+	return func(ctx operation.Context, req coretask.ReviewRequest) operation.Result {
+		if store == nil {
+			return operation.Failed("task_store_missing", "review_request requires an event store", nil)
+		}
+		source, ok, result := loadTask(ctx, store, req.TaskID)
+		if !ok {
+			return result
+		}
+		reviewer := req.Reviewer
+		if reviewer == "" {
+			reviewer = coretask.RoleReviewer
+		}
+		status := req.Status
+		if status == "" {
+			status = coretask.StatusReady
+		}
+		task := coretask.Task{
+			ID:          coretask.ID(newID(defaultPrefix)),
+			Title:       "Review: " + firstNonEmpty(source.Task.Title, source.Task.Objective, string(source.Task.ID)),
+			Objective:   "Review task " + string(source.Task.ID) + " against its scope, artifacts, and acceptance criteria.",
+			Description: strings.TrimSpace(req.Instruction),
+			Status:      status,
+			Assignee:    reviewer,
+			Owner:       source.Task.Owner,
+			WorkspaceID: source.Task.WorkspaceID,
+			ProjectID:   source.Task.ProjectID,
+			Labels:      append([]string{"review", "task-review"}, req.Labels...),
+			Inputs: []coretask.ArtifactSpec{{
+				ID:          "review-subject",
+				Name:        "Review subject task",
+				Kind:        coretask.ArtifactReference,
+				Description: "Task to review",
+				Required:    true,
+				Ref:         "task:" + string(source.Task.ID),
+			}},
+			Outputs: []coretask.ArtifactSpec{{
+				ID:          "review-report",
+				Name:        "Review report",
+				Kind:        coretask.ArtifactReview,
+				Description: "Concrete findings, residual risk, and approval/blocking recommendation.",
+				Required:    true,
+			}},
+			Metadata: map[string]string{
+				"review_subject_task_id": string(source.Task.ID),
+			},
+		}
+		attachOriginMetadata(ctx, &task)
+		if err := task.Validate(); err != nil {
+			return operation.Failed("task_invalid", err.Error(), nil)
+		}
+		createReq := coretask.TaskCreateRequest{
+			ID: task.ID, Kind: coretask.TaskCreateKindGeneric, Instruction: req.Instruction,
+			Objective: task.Objective, Title: task.Title, Description: task.Description,
+			Inputs: task.Inputs, Outputs: task.Outputs, Labels: task.Labels, Assignee: task.Assignee,
+			Owner: task.Owner, WorkspaceID: task.WorkspaceID, ProjectID: task.ProjectID, Status: task.Status,
+			Metadata: cloneStringMap(task.Metadata),
+		}
+		events := []event.Event{
+			coretask.CreateRequested{TaskID: task.ID, Request: createReq},
+			coretask.Created{TaskID: task.ID, Task: task},
+		}
+		if err := store.Create(ctx, task.ID, events...); err != nil {
+			if isAppendConflict(err) {
+				return operation.Failed("task_already_exists", "task id already exists", map[string]any{"task_id": task.ID})
+			}
+			return operation.Failed("task_store_append_failed", err.Error(), map[string]any{"task_id": task.ID})
+		}
+		if err := store.Index(ctx, taskSummary(task)); err != nil {
+			return operation.Failed("task_index_append_failed", err.Error(), map[string]any{"task_id": task.ID})
+		}
+		for _, payload := range events {
+			ctx.Events().Emit(payload)
+		}
+		return operation.OK(coretask.ReviewRequestResult{Task: task})
+	}
+}
+
+func artifactValuePreview(value operation.Value, maxBytes int) (string, int64, bool) {
+	if value == nil {
+		return "", 0, false
+	}
+	var text string
+	switch typed := value.(type) {
+	case string:
+		text = typed
+	case []byte:
+		text = string(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			text = fmt.Sprint(typed)
+		} else {
+			text = string(data)
+		}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", 0, false
+	}
+	if maxBytes <= 0 {
+		maxBytes = 4096
+	}
+	data := []byte(text)
+	if len(data) <= maxBytes {
+		return text, 0, true
+	}
+	preview := strings.ToValidUTF8(string(data[:maxBytes]), "")
+	return preview, int64(len(data) - maxBytes), true
 }
 
 func validateTask(store runtimetask.Store) func(operation.Context, coretask.TaskValidateRequest) operation.Result {

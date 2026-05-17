@@ -499,8 +499,11 @@ type TaskArtifactListRequest struct {
 
 // TaskArtifactGetRequest loads one artifact by id from task/execution/step scopes.
 type TaskArtifactGetRequest struct {
-	ID         ID     `json:"id" jsonschema:"description=Task id.,required"`
-	ArtifactID string `json:"artifact_id" jsonschema:"description=Artifact id.,required"`
+	ID           ID     `json:"id" jsonschema:"description=Task id.,required"`
+	ArtifactID   string `json:"artifact_id" jsonschema:"description=Artifact id.,required"`
+	View         View   `json:"view,omitempty" jsonschema:"description=Artifact view. Defaults to full.,enum=full,enum=summary"`
+	IncludeValue bool   `json:"include_value,omitempty" jsonschema:"description=Whether to include the full inline artifact value. Defaults to false; previews are returned separately."`
+	MaxBytes     int    `json:"max_bytes,omitempty" jsonschema:"description=Maximum preview bytes for inline artifact values. Defaults to a bounded preview."`
 }
 
 // TaskArtifactListResult reports scoped artifacts.
@@ -523,7 +526,11 @@ func (r TaskArtifactListResult) ModelText() string {
 
 // TaskArtifactGetResult reports one scoped artifact.
 type TaskArtifactGetResult struct {
-	Artifact ScopedArtifact `json:"artifact"`
+	Artifact      ScopedArtifact `json:"artifact"`
+	View          View           `json:"view,omitempty"`
+	ValueIncluded bool           `json:"value_included,omitempty"`
+	ValuePreview  string         `json:"value_preview,omitempty"`
+	OmittedBytes  int64          `json:"omitted_bytes,omitempty"`
 }
 
 // ModelText returns a compact model-facing artifact summary.
@@ -531,7 +538,66 @@ func (r TaskArtifactGetResult) ModelText() string {
 	if r.Artifact.Artifact.ID == "" && r.Artifact.Artifact.Name == "" {
 		return "Task artifact not found."
 	}
-	return "Task artifact: " + artifactScope(r.Artifact) + ": " + artifactDetail(r.Artifact.Artifact)
+	fields := []string{"Task artifact: " + artifactScope(r.Artifact) + ": " + artifactDetail(r.Artifact.Artifact)}
+	if r.ValuePreview != "" && !r.ValueIncluded {
+		fields = append(fields, "preview="+r.ValuePreview)
+	}
+	if r.OmittedBytes > 0 {
+		fields = append(fields, fmt.Sprintf("omitted_bytes=%d", r.OmittedBytes))
+	}
+	return strings.Join(fields, "; ")
+}
+
+// TaskArtifactReadRequest reads bounded artifact content from inline value or
+// a safe runtime reference.
+type TaskArtifactReadRequest struct {
+	ID         ID     `json:"id" jsonschema:"description=Task id.,required"`
+	ArtifactID string `json:"artifact_id" jsonschema:"description=Artifact id.,required"`
+	MaxBytes   int64  `json:"max_bytes,omitempty" jsonschema:"description=Maximum bytes to read. Defaults to a bounded preview."`
+}
+
+// TaskArtifactReadResult reports bounded artifact content.
+type TaskArtifactReadResult struct {
+	Artifact     ScopedArtifact `json:"artifact"`
+	Content      string         `json:"content,omitempty"`
+	Truncated    bool           `json:"truncated,omitempty"`
+	Source       string         `json:"source,omitempty"`
+	ResolvedPath string         `json:"resolved_path,omitempty"`
+}
+
+// ModelText returns compact artifact content.
+func (r TaskArtifactReadResult) ModelText() string {
+	label := artifactScope(r.Artifact) + ": " + artifactLabel(r.Artifact.Artifact)
+	if r.Content == "" {
+		return "Task artifact content unavailable: " + label
+	}
+	text := fmt.Sprintf("Task artifact content: %s\n%s", label, r.Content)
+	if r.Truncated {
+		text += "\n[truncated]"
+	}
+	return text
+}
+
+// ReviewRequest asks for a review task to be created for an existing task.
+type ReviewRequest struct {
+	TaskID      ID       `json:"task_id" jsonschema:"description=Task id to review.,required"`
+	Instruction string   `json:"instruction,omitempty" jsonschema:"description=Specific review instructions."`
+	Reviewer    Role     `json:"reviewer,omitempty" jsonschema:"description=Review assignee role. Defaults to reviewer.,enum=reviewer,enum=developer,enum=tester"`
+	Labels      []string `json:"labels,omitempty" jsonschema:"description=Additional labels for the review task."`
+	Status      Status   `json:"status,omitempty" jsonschema:"description=Initial review task status. Defaults to ready.,enum=draft,enum=ready"`
+}
+
+// ReviewRequestResult reports the created review task.
+type ReviewRequestResult struct {
+	Task Task `json:"task"`
+}
+
+// ModelText returns a compact model-facing review task summary.
+func (r ReviewRequestResult) ModelText() string {
+	if r.Task.ID == "" {
+		return "Review task created."
+	}
+	return fmt.Sprintf("Review task %s created for %s (status: %s)", r.Task.ID, r.Task.Metadata["review_subject_task_id"], firstNonEmpty(string(r.Task.Status), string(StatusReady)))
 }
 
 // ScopedArtifact is an artifact with task/execution/step coordinates.
@@ -624,7 +690,18 @@ func (r ExecutionResult) ModelText() string {
 		return "Task execution request accepted."
 	}
 	status := firstNonEmpty(string(r.Status), "queued")
-	return fmt.Sprintf("Task %s execution status: %s", r.TaskID, status)
+	switch r.Status {
+	case StatusRunning:
+		return fmt.Sprintf("Task %s scheduled and running.", r.TaskID)
+	case StatusReady:
+		return fmt.Sprintf("Task %s is ready but not running yet.", r.TaskID)
+	case StatusBlocked:
+		return fmt.Sprintf("Task %s is blocked.", r.TaskID)
+	case StatusCompleted:
+		return fmt.Sprintf("Task %s is already completed.", r.TaskID)
+	default:
+		return fmt.Sprintf("Task %s execution status: %s", r.TaskID, status)
+	}
 }
 
 // SchedulerStatusRequest asks for the current task scheduler state.
@@ -632,13 +709,17 @@ type SchedulerStatusRequest struct{}
 
 // SchedulerStatusResult reports local scheduler capacity and in-flight tasks.
 type SchedulerStatusResult struct {
-	Enabled           bool         `json:"enabled"`
-	Active            bool         `json:"active"`
-	Running           []ID         `json:"running,omitempty"`
-	Capacity          int          `json:"capacity"`
-	MaxParallel       int          `json:"max_parallel"`
-	ReconcileInterval string       `json:"reconcile_interval,omitempty"`
-	Diagnostics       []Diagnostic `json:"diagnostics,omitempty"`
+	Enabled           bool              `json:"enabled"`
+	Active            bool              `json:"active"`
+	Running           []ID              `json:"running,omitempty"`
+	RunningByRole     map[Role][]ID     `json:"running_by_role,omitempty"`
+	Capacity          int               `json:"capacity"`
+	MaxParallel       int               `json:"max_parallel"`
+	CapacityByRole    map[Role]int      `json:"capacity_by_role,omitempty"`
+	MaxParallelByRole map[Role]int      `json:"max_parallel_by_role,omitempty"`
+	ProfilesByRole    map[Role][]string `json:"profiles_by_role,omitempty"`
+	ReconcileInterval string            `json:"reconcile_interval,omitempty"`
+	Diagnostics       []Diagnostic      `json:"diagnostics,omitempty"`
 }
 
 // ModelText returns a compact model-facing scheduler summary.
@@ -655,6 +736,9 @@ func (r SchedulerStatusResult) ModelText() string {
 	fmt.Fprintf(&b, "Task scheduler is %s and %s. Capacity: %d/%d.", state, active, r.Capacity, r.MaxParallel)
 	for _, id := range r.Running {
 		fmt.Fprintf(&b, "\n- running: %s", id)
+	}
+	for role, capacity := range r.CapacityByRole {
+		fmt.Fprintf(&b, "\n- role %s capacity: %d/%d", role, capacity, r.MaxParallelByRole[role])
 	}
 	for _, diagnostic := range r.Diagnostics {
 		fmt.Fprintf(&b, "\n- %s: %s", diagnostic.Code, diagnostic.Message)

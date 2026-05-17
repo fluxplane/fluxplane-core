@@ -121,6 +121,42 @@ func TestFollowBackgroundTasksReturnsAfterIdleWindow(t *testing.T) {
 	}
 }
 
+func TestFollowBackgroundTasksCanWaitForCompletion(t *testing.T) {
+	previous := backgroundTaskFollowIdle
+	backgroundTaskFollowIdle = time.Millisecond
+	defer func() { backgroundTaskFollowIdle = previous }()
+
+	events := make(chan clientapi.Event)
+	defer close(events)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		events <- clientapi.Event{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name:    coretask.EventExecutionCompletedName,
+				Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
+			},
+		}
+	}()
+
+	var out, err bytes.Buffer
+	result := followBackgroundTasks(context.Background(), staticEventSession{events: events}, turnRenderResult{
+		ActiveTasks: map[string]bool{"task_1": true},
+		SeenRuntime: map[string]bool{},
+	}, nil, TurnOptions{Out: &out, Err: &err, WaitForBackgroundTasks: true})
+
+	if result.ActiveTasks["task_1"] {
+		t.Fatalf("active tasks = %#v, want task_1 completed", result.ActiveTasks)
+	}
+	got := err.String()
+	if !strings.Contains(got, "waiting for completion") {
+		t.Fatalf("background output = %q, want wait message", got)
+	}
+	if strings.Contains(got, "still running in background") {
+		t.Fatalf("background output = %q, want no idle timeout", got)
+	}
+}
+
 type staticEventSession struct {
 	events <-chan clientapi.Event
 }

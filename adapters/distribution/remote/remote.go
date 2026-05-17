@@ -119,7 +119,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	tracker := usage.NewTracker()
 	if strings.TrimSpace(opts.Input) != "" {
-		return terminalui.RunTurn(ctx, session, opts.Input, terminalOptions(opts), tracker)
+		turnOpts := terminalOptions(opts)
+		turnOpts.WaitForBackgroundTasks = true
+		return terminalui.RunTurn(ctx, session, opts.Input, turnOpts, tracker)
 	}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)

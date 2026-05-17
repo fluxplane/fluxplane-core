@@ -20,11 +20,12 @@ var backgroundTaskFollowIdle = 1500 * time.Millisecond
 
 // TurnOptions configures terminal execution/rendering for one submitted turn.
 type TurnOptions struct {
-	Debug     bool
-	Usage     bool
-	Reasoning ReasoningDisplay
-	Out       io.Writer
-	Err       io.Writer
+	Debug                  bool
+	Usage                  bool
+	Reasoning              ReasoningDisplay
+	WaitForBackgroundTasks bool
+	Out                    io.Writer
+	Err                    io.Writer
 }
 
 type turnRenderResult struct {
@@ -234,11 +235,23 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 		SeenRuntime: cloneBoolMap(initial.SeenRuntime),
 	}
 	if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
-		_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task scheduled: %s running in background; watching briefly\n", strings.Join(ids, ", "))
+		mode := "watching briefly"
+		if opts.WaitForBackgroundTasks {
+			mode = "waiting for completion"
+		}
+		_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task scheduled: %s running in background; %s\n", strings.Join(ids, ", "), mode)
 	}
-	idle := time.NewTimer(backgroundTaskFollowIdle)
-	defer idle.Stop()
+	var idle *time.Timer
+	var idleC <-chan time.Time
+	if !opts.WaitForBackgroundTasks {
+		idle = time.NewTimer(backgroundTaskFollowIdle)
+		idleC = idle.C
+		defer idle.Stop()
+	}
 	resetIdle := func() {
+		if idle == nil {
+			return
+		}
 		if !idle.Stop() {
 			select {
 			case <-idle.C:
@@ -252,7 +265,7 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 		case <-ctx.Done():
 			renderer.Finish()
 			return result
-		case <-idle.C:
+		case <-idleC:
 			renderer.Finish()
 			if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
 				_, _ = fmt.Fprintf(defaultWriter(opts.Err), "task still running in background: %s\n", strings.Join(ids, ", "))

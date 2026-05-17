@@ -133,7 +133,9 @@ func runGoal(ctx context.Context, dist distribution.Distribution, opts RunOption
 		return err
 	}
 	defer func() { _ = session.Close(ctx) }()
-	return terminalui.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, terminalOptions(opts), usage.NewTracker())
+	turnOpts := terminalOptions(opts)
+	turnOpts.WaitForBackgroundTasks = true
+	return terminalui.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, turnOpts, usage.NewTracker())
 }
 
 func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
@@ -142,7 +144,9 @@ func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOpt
 		return err
 	}
 	defer func() { _ = session.Close(ctx) }()
-	return terminalui.RunTurn(ctx, session, opts.Input, terminalOptions(opts), usage.NewTracker())
+	turnOpts := terminalOptions(opts)
+	turnOpts.WaitForBackgroundTasks = true
+	return terminalui.RunTurn(ctx, session, opts.Input, turnOpts, usage.NewTracker())
 }
 
 func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {

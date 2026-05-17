@@ -5,7 +5,7 @@
 Initial creation slice implemented. This replaces the earlier generic
 task/review command shape with a plugin-owned design: `plugins/taskplugin`
 owns `/task`, the task creator agent/session, task operations, event-sourced
-task state, and the future scheduler/executor path.
+task state, and scheduler/executor control.
 
 This design assumes the foundation in
 [Core Task Domain](2026-05-16-core-task-domain.md), the vocabulary rules in
@@ -104,7 +104,7 @@ user request text
   -> task_create(TaskCreateRequest)
   -> task events in event.Store
   -> runtime/task.Store projection
-  -> ready task for future scheduler/executor
+  -> ready task for scheduler/executor
 ```
 
 `task_create` is not a "run this task to completion" call. It creates or
@@ -121,7 +121,9 @@ later events.
 - operation `task_list`;
 - operation `task_list_artifacts`;
 - operation `task_get_artifact`;
+- operation `task_read_artifact`;
 - operation `task_validate`;
+- operation `review_request`;
 - command `/task`;
 - command `/plan`;
 - built-in agent `task` or `task-creator`;
@@ -154,6 +156,9 @@ acceptance criteria over asking clarification.
 Ask clarification only when the request cannot be represented as a useful draft
 or ready task.
 When enough information exists, call task_create.
+If the user asks for immediate execution, create the task with status=ready,
+call task_run, and report whether it started, is already running, is not ready,
+or is waiting for capacity.
 Use task_modify for follow-up changes to an existing task.
 After task_create succeeds, send a concise final message with the task id,
 title, status, and expected outputs.
@@ -165,8 +170,9 @@ Initial tool set for the task creator:
 - `task_modify` for grouped follow-up management;
 - `task_get`, `task_list`, `task_list_artifacts`, `task_get_artifact`, and
   `task_validate` for inspection and validation;
+- `task_run` and `task_scheduler_status` for immediate-execution feedback;
+- `review_request`;
 - `clarify` when the host provides it;
-- later `task_run` and `review_request`.
 
 The planner agent is also intentionally narrow. It is driven by Markdown
 instructions and must only clarify, create/update a `draft` task, present it to
@@ -497,6 +503,9 @@ Current scheduler behavior:
   out-of-process, or externally appended events, not as the primary trigger;
 - `task_run` schedules one ready task asynchronously without blocking the
   caller until worker completion;
+- coder and task-creator instructions call `task_run` after creating or moving
+  a task to `ready` when the user asks for immediate execution, then report
+  started, already-running, not-ready, or capacity-waiting state;
 - `task_scheduler_status` reports enablement, active state, capacity, and
   running task IDs;
 - `task_scheduler_set_enabled` pauses or resumes automatic ready-task
@@ -519,6 +528,9 @@ Current scheduler behavior:
   required task outputs before writing `task.execution_completed`;
 - failed completion validation blocks the execution with a visible reason so a
   caller can add missing artifacts or revise the task and mark it ready again;
+- terminal one-shot and goal turns wait for scheduler-run tasks from the
+  submitted turn to finish before closing the local runtime; REPL turns watch
+  briefly and then return the prompt while background tasks continue;
 - scheduler shutdown cancellation is propagated into in-flight worker runs.
 
 The current control operations are intentionally local-runtime controls. They
@@ -557,6 +569,9 @@ Current concurrency posture:
 - task-affecting scheduler anomalies are durable
   `task.scheduler_diagnostic` events that do not change task lifecycle or the
   current execution pointer.
+- automatic ready-task notifications append task diagnostics when scheduling is
+  disabled or local capacity is saturated, so the task history explains why a
+  ready task did not immediately start.
 
 Current scheduler/task-operation hardening coverage includes:
 
@@ -688,14 +703,34 @@ Completed in this slice:
     cannot send on a closed run event channel.
 15. Added task origin thread/run metadata and scheduler-to-session runtime event
     mirroring for background task progress.
+16. Added oversized artifact/result ergonomics: tool-result replacements carry
+    previews/tails, task artifact reads default to bounded previews, and
+    scheduler worker outputs are normalized into referenced artifacts when they
+    exceed provider-facing result limits.
+17. Added the first worker-pool slice: scheduler config can define role-specific
+    profile lists and per-role capacity, profile selection rotates within a
+    role pool, channel workers try fallback profiles in order, and scheduler
+    status exposes running/capacity/profile details by role.
+18. Added `review_request` to create reviewer-assigned review tasks linked to
+    an existing task, and `task_read_artifact` for bounded inline or safe
+    workspace-ref artifact content reads.
+19. Added immediate-execution guidance for coder and task-creator agents,
+    exposed scheduler controls in the task session, and recorded durable task
+    diagnostics when automatic ready-task scheduling is disabled or deferred by
+    local capacity.
+20. Made `task coder:live-test` use a repository-local writable state directory
+    and wrapped local event-store open errors with the database path.
+21. Made terminal one-shot and goal turns wait for scheduler-run tasks from the
+    submitted turn to finish before closing the local runtime.
 
 Follow-up slices:
 
-1. Add richer worker pools with multiple profiles per role, queueing policy,
-   fairness, and retry/fallback behavior.
-2. Add review request/review task operations.
-3. Add tool-result artifact ergonomics for oversized results, summaries, and
-   inspectable saved payloads.
+1. Add durable/external worker queues when task execution moves beyond one
+   local scheduler process.
+2. Add richer review result projection and reviewer approval/blocking
+   semantics.
+3. Add safe dereference support for non-workspace artifact refs if replacement
+   spooling moves behind a managed artifact store.
 
 ## Testing
 
@@ -710,8 +745,9 @@ Follow-up slices:
 - `task.artifact_added`, `task.artifact_updated`, and `task.artifact_removed`
   project into the correct task, execution, or step artifact scope.
 - Step-scoped artifacts are not duplicated into execution artifacts.
-- `task_get_artifact` model text includes artifact values, refs, descriptions,
-  and metadata.
+- `task_get_artifact` model text includes refs, descriptions, metadata, and
+  bounded value previews by default; full inline values require
+  `include_value=true`.
 - `task_validate` reports required output and terminal step checks.
 - `complete` requires all non-manual checks or explicit `force_overrides`.
 - Terminal tasks require `reopen`; terminal steps require `reopen_step`.
@@ -729,11 +765,19 @@ Follow-up slices:
 - `orchestration/taskexecutor` binds declared step outputs to produced
   artifacts and blocks automatic completion when required task outputs remain
   missing.
+- Large scheduler worker outputs are represented as replacement references with
+  preview metadata instead of embedding provider-sized payloads in task events.
 - `task_run` schedules ready tasks asynchronously.
+- Immediate-execution task requests call `task_run` after the task is ready and
+  return explicit scheduler-state feedback.
 - `task_scheduler_status` and `task_scheduler_set_enabled` expose local
   scheduler control state.
+- Automatic ready-task notifications record task diagnostics when scheduling is
+  disabled or deferred by capacity.
 - Terminal UI renders typed task lifecycle/progress/artifact events and filters
   noisy model-stream progress.
+- Terminal one-shot and goal turns wait for scheduler-run tasks from the
+  submitted turn to reach terminal state before closing the local runtime.
 - Harness persists `task.*` runtime events so task feedback can be replayed
   from the session thread.
 - Scheduler-produced task execution events are mirrored into the originating

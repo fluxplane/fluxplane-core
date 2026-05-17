@@ -443,7 +443,8 @@ Deferred commands:
 - `patterns`: package/module patterns; default `["."]`.
 - `modules`, `deps`, `test`, `compiled`, `find`, `include_errors`.
 - `max_results`, `max_bytes`.
-- Always invoke with `-json` internally and parse structured output.
+- Always invoke with `-json` and `-buildvcs=false` internally and parse
+  structured output.
 
 `go_test` input:
 
@@ -484,6 +485,8 @@ Deferred commands:
 - `mod`: optional `readonly`, `vendor`, or `mod`.
 - `output`: unsupported in v1.
 - `max_output_bytes`.
+- Always invoke with `-buildvcs=false` internally so compile checks are not
+  blocked by unavailable or copied VCS metadata.
 
 `go_install` input:
 
@@ -497,6 +500,8 @@ Deferred commands:
 - restricted env allowlist: `GOBIN`, `GOPATH`, `GOOS`, `GOARCH`,
   `CGO_ENABLED`.
 - `max_output_bytes`.
+- Always invoke with `-buildvcs=false` internally so dry-run and real installs
+  are not blocked by unavailable or copied VCS metadata.
 
 ## Operation Contracts
 

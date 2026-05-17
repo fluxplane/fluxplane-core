@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
@@ -37,10 +38,16 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if planner := bundle.Agents[1].System; !strings.Contains(planner, "status=draft") || !strings.Contains(planner, "not scheduled yet") || !strings.Contains(planner, "Do not create a second task") {
 		t.Fatalf("planner instructions = %q, want draft visibility and approval/refinement guidance", planner)
 	}
-	if len(bundle.Operations) != 10 {
-		t.Fatalf("operations len = %d, want 10", len(bundle.Operations))
+	if taskAgent := bundle.Agents[0].System; !strings.Contains(taskAgent, "immediate execution") || !strings.Contains(taskAgent, "task_run") {
+		t.Fatalf("task agent instructions = %q, want immediate execution guidance", taskAgent)
 	}
-	for _, name := range []string{TaskCreateOp, TaskModifyOp, TaskGetOp, TaskListOp, TaskListArtifactsOp, TaskGetArtifactOp, TaskValidateOp, TaskRunOp, TaskSchedulerStatusOp, TaskSchedulerSetEnabledOp} {
+	if !operationRefsContain(bundle.Sessions[0].Operations, TaskRunOp) || !operationRefsContain(bundle.Sessions[0].Operations, TaskSchedulerStatusOp) {
+		t.Fatalf("task session operations = %#v, want task_run and scheduler status", bundle.Sessions[0].Operations)
+	}
+	if len(bundle.Operations) != 12 {
+		t.Fatalf("operations len = %d, want 12", len(bundle.Operations))
+	}
+	for _, name := range []string{TaskCreateOp, TaskModifyOp, TaskGetOp, TaskListOp, TaskListArtifactsOp, TaskGetArtifactOp, TaskReadArtifactOp, TaskValidateOp, ReviewRequestOp, TaskRunOp, TaskSchedulerStatusOp, TaskSchedulerSetEnabledOp} {
 		if !hasOperation(bundle.Operations, name) {
 			t.Fatalf("operations = %#v, want %s", bundle.Operations, name)
 		}
@@ -314,8 +321,27 @@ func TestTaskManagementOperations(t *testing.T) {
 	if getArtifact.IsError() {
 		t.Fatalf("task_get_artifact error = %#v", getArtifact.Error)
 	}
-	if text := getArtifact.Output.(coretask.TaskArtifactGetResult).ModelText(); !strings.Contains(text, "value=done") {
-		t.Fatalf("artifact ModelText = %q, want value", text)
+	if text := getArtifact.Output.(coretask.TaskArtifactGetResult).ModelText(); !strings.Contains(text, "preview=done") {
+		t.Fatalf("artifact ModelText = %q, want preview", text)
+	}
+	artifactGetOut := getArtifact.Output.(coretask.TaskArtifactGetResult)
+	if artifactGetOut.ValueIncluded || artifactGetOut.Artifact.Artifact.Value != nil {
+		t.Fatalf("artifact output = %#v, want value omitted by default", artifactGetOut)
+	}
+	getArtifact = byName[TaskGetArtifactOp].Run(ctx, coretask.TaskArtifactGetRequest{ID: "task_1", ArtifactID: "answer", IncludeValue: true})
+	if getArtifact.IsError() {
+		t.Fatalf("task_get_artifact include value error = %#v", getArtifact.Error)
+	}
+	artifactGetOut = getArtifact.Output.(coretask.TaskArtifactGetResult)
+	if !artifactGetOut.ValueIncluded || artifactGetOut.Artifact.Artifact.Value != "done" {
+		t.Fatalf("artifact output = %#v, want included value", artifactGetOut)
+	}
+	readArtifact := byName[TaskReadArtifactOp].Run(ctx, coretask.TaskArtifactReadRequest{ID: "task_1", ArtifactID: "answer"})
+	if readArtifact.IsError() {
+		t.Fatalf("task_read_artifact error = %#v", readArtifact.Error)
+	}
+	if got := readArtifact.Output.(coretask.TaskArtifactReadResult); got.Content != "done" || got.Source != "value" {
+		t.Fatalf("artifact read = %#v, want inline value", got)
 	}
 	list := byName[TaskListOp].Run(ctx, coretask.TaskListRequest{Status: coretask.StatusBlocked})
 	if list.IsError() {
@@ -324,6 +350,85 @@ func TestTaskManagementOperations(t *testing.T) {
 	listOut := list.Output.(coretask.TaskListResult)
 	if len(listOut.Tasks) != 1 || listOut.Tasks[0].ID != "task_1" {
 		t.Fatalf("task list = %#v, want task_1", listOut.Tasks)
+	}
+}
+
+func TestReviewRequestCreatesReviewerTask(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctx := operation.NewContext(context.Background(), nil)
+	created := byName[TaskCreateOp].Run(ctx, coretask.TaskCreateRequest{
+		ID: "task_subject", Title: "Subject", Objective: "Do the work", Status: coretask.StatusCompleted,
+	})
+	if created.IsError() {
+		t.Fatalf("task_create error = %#v", created.Error)
+	}
+	review := byName[ReviewRequestOp].Run(ctx, coretask.ReviewRequest{TaskID: "task_subject", Instruction: "check evidence"})
+	if review.IsError() {
+		t.Fatalf("review_request error = %#v", review.Error)
+	}
+	out := review.Output.(coretask.ReviewRequestResult)
+	if out.Task.Assignee != coretask.RoleReviewer || out.Task.Metadata["review_subject_task_id"] != "task_subject" {
+		t.Fatalf("review task = %#v, want reviewer task linked to subject", out.Task)
+	}
+	if len(out.Task.Outputs) != 1 || out.Task.Outputs[0].Kind != coretask.ArtifactReview || !out.Task.Outputs[0].Required {
+		t.Fatalf("review outputs = %#v, want required review artifact", out.Task.Outputs)
+	}
+}
+
+func TestTaskReadArtifactPrefersReplacementRefOverPreviewValue(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctx := operation.NewContext(context.Background(), nil)
+	full := strings.Repeat("full-result ", 2048)
+	_, replacement, err := operationruntime.ReplaceLargeResult(context.Background(), operation.OK(operation.Rendered{Text: full, Model: full, Data: full}), operationruntime.ReplacementOptions{
+		ThresholdBytes: 1024,
+		TempDir:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("ReplaceLargeResult: %v", err)
+	}
+	created := byName[TaskCreateOp].Run(ctx, coretask.TaskCreateRequest{ID: "task_1", Title: "Replacement artifact"})
+	if created.IsError() {
+		t.Fatalf("task_create error = %#v", created.Error)
+	}
+	modified := byName[TaskModifyOp].Run(ctx, coretask.TaskModifyRequest{
+		ID: "task_1",
+		Modifications: []coretask.TaskModification{{
+			Op: "add_artifact",
+			Artifact: coretask.ArtifactSpec{
+				ID:    "large",
+				Name:  "large",
+				Kind:  coretask.ArtifactReference,
+				Ref:   replacement.Path,
+				Value: "preview-only",
+				Metadata: map[string]string{
+					"replaced": "true",
+				},
+			},
+		}},
+	})
+	if modified.IsError() {
+		t.Fatalf("task_modify error = %#v", modified.Error)
+	}
+	read := byName[TaskReadArtifactOp].Run(ctx, coretask.TaskArtifactReadRequest{ID: "task_1", ArtifactID: "large", MaxBytes: int64(len(full) * 2)})
+	if read.IsError() {
+		t.Fatalf("task_read_artifact error = %#v", read.Error)
+	}
+	out := read.Output.(coretask.TaskArtifactReadResult)
+	if out.Source != "replacement_ref" {
+		t.Fatalf("source = %q, want replacement_ref", out.Source)
+	}
+	if strings.Contains(out.Content, "preview-only") || !strings.Contains(out.Content, "full-result full-result") {
+		t.Fatalf("content = %.200q, want full replacement content instead of preview", out.Content)
 	}
 }
 
@@ -564,6 +669,9 @@ func TestTaskRunAndSchedulerControlsUseRunner(t *testing.T) {
 	if runOut.TaskID != "task_1" || runOut.Status != coretask.StatusRunning || !runner.submitted {
 		t.Fatalf("task_run output = %#v submitted=%v, want running submitted", runOut, runner.submitted)
 	}
+	if !strings.Contains(runOut.ModelText(), "scheduled") {
+		t.Fatalf("task_run model text = %q, want scheduled feedback", runOut.ModelText())
+	}
 	status := byName[TaskSchedulerStatusOp].Run(ctx, coretask.SchedulerStatusRequest{})
 	if status.IsError() {
 		t.Fatalf("task_scheduler_status error = %#v", status.Error)
@@ -795,6 +903,15 @@ func TestTaskCreateSchemaIncludesEnums(t *testing.T) {
 func hasOperation(specs []operation.Spec, name string) bool {
 	for _, spec := range specs {
 		if string(spec.Ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func operationRefsContain(refs []operation.Ref, name string) bool {
+	for _, ref := range refs {
+		if string(ref.Name) == name {
 			return true
 		}
 	}

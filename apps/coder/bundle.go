@@ -2,10 +2,15 @@
 package coder
 
 import (
+	"context"
+	"embed"
+
+	"github.com/fluxplane/agentruntime/adapters/agentdir"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -22,11 +27,16 @@ const (
 	ImagePlugin      = "image"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
+	ReflectCommand   = "reflect"
 )
+
+//go:embed resources/.agents/**
+var embeddedResources embed.FS
 
 // Bundle returns pure app resource declarations. Runtime implementations are
 // supplied by the host command.
 func Bundle() resource.ContributionBundle {
+	embedded := embeddedResourceBundle()
 	operations := fullCapabilityOperationNames()
 	delegationOperations := defaultDelegationOperationNames()
 	agentSpec := sdk.BuildAgent(AgentName).
@@ -36,6 +46,7 @@ func Bundle() resource.ContributionBundle {
 			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web_search datasource queries, and web_request only for fetching known URLs. " +
 			"Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation. " +
 			"Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks. " +
+			"When the user asks you to create a task for immediate execution, create or update the task to status=ready, call task_run for that task, and report whether it started, is already running, is not ready, or is waiting for capacity. " +
 			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. " +
 			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
 		AsLLMAgent(DefaultModel).
@@ -90,6 +101,41 @@ func Bundle() resource.ContributionBundle {
 			Ecosystem: "agentdir",
 		})
 		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
+	}
+	bundle.Commands = append(bundle.Commands, embedded.Commands...)
+	return bundle
+}
+
+func embeddedResourceBundle() resource.ContributionBundle {
+	bundle, err := agentdir.LoadFS(context.Background(), embeddedResources, "resources/.agents", resource.SourceRef{
+		ID:        DefaultNamespace + ":embedded-agentdir",
+		Ecosystem: "agentdir",
+		Scope:     resource.ScopeEmbedded,
+		Location:  "apps/coder/resources/.agents",
+		Trust: policy.Trust{
+			Kind:  policy.TrustSource,
+			Level: policy.TrustVerified,
+		},
+	})
+	if err != nil {
+		return resource.ContributionBundle{Diagnostics: []resource.Diagnostic{{
+			Severity: resource.SeverityError,
+			Source: resource.SourceRef{
+				ID:        DefaultNamespace + ":embedded-agentdir",
+				Ecosystem: "agentdir",
+				Scope:     resource.ScopeEmbedded,
+				Location:  "apps/coder/resources/.agents",
+			},
+			Message: err.Error(),
+		}}}
+	}
+	for i := range bundle.Commands {
+		if bundle.Commands[i].Path.String() == "/"+ReflectCommand {
+			bundle.Commands[i].Policy = policy.InvocationPolicy{
+				AllowedCallers: []policy.CallerKind{policy.CallerUser},
+				RequiredTrust:  policy.TrustVerified,
+			}
+		}
 	}
 	return bundle
 }

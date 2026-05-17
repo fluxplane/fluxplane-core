@@ -7,8 +7,22 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 )
+
+type codeExecuteResult struct {
+	Preset          string   `json:"preset"`
+	Image           string   `json:"image"`
+	Files           []string `json:"files,omitempty"`
+	Command         []string `json:"command,omitempty"`
+	Stdout          string   `json:"stdout,omitempty"`
+	Stderr          string   `json:"stderr,omitempty"`
+	ExitCode        int      `json:"exit_code"`
+	TimedOut        bool     `json:"timed_out,omitempty"`
+	DurationMS      int64    `json:"duration_ms"`
+	TimeoutMS       int64    `json:"timeout_ms,omitempty"`
+	StdoutTruncated bool     `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool     `json:"stderr_truncated,omitempty"`
+}
 
 func renderCodeExecuteResult(result operation.Result, fallbackDuration time.Duration) (string, bool) {
 	exec, ok := codeExecuteResultData(result)
@@ -65,21 +79,21 @@ func renderCodeExecuteResult(result operation.Result, fallbackDuration time.Dura
 	return strings.Join(lines, "\n") + "\n", true
 }
 
-func codeExecuteResultData(result operation.Result) (codeplugin.ExecuteResult, bool) {
+func codeExecuteResultData(result operation.Result) (codeExecuteResult, bool) {
 	rendered, ok := result.Output.(operation.Rendered)
 	if !ok {
-		return codeplugin.ExecuteResult{}, false
+		return codeExecuteResult{}, false
 	}
-	var exec codeplugin.ExecuteResult
+	var exec codeExecuteResult
 	payload, err := json.Marshal(rendered.Data)
 	if err != nil {
-		return codeplugin.ExecuteResult{}, false
+		return codeExecuteResult{}, false
 	}
 	if err := json.Unmarshal(payload, &exec); err != nil {
-		return codeplugin.ExecuteResult{}, false
+		return codeExecuteResult{}, false
 	}
 	if exec.Preset == "" && exec.Image == "" && exec.Stdout == "" && exec.Stderr == "" && exec.ExitCode == 0 && exec.DurationMS == 0 {
-		return codeplugin.ExecuteResult{}, false
+		return codeExecuteResult{}, false
 	}
 	return exec, true
 }

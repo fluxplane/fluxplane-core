@@ -280,7 +280,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		available = opts.Plugins(hostSystem)
 	}
 	if taskScheduler != nil {
-		available = replacePlugin(available, taskplugin.NewWithRunner(taskScheduler))
+		available = replacePlugin(available, taskplugin.NewWithRunnerAndSystem(taskScheduler, hostSystem))
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistoryplugin.New(threadStore))
@@ -428,7 +428,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name)),
 		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
-		taskplugin.NewWithRunner(taskRunner),
+		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),

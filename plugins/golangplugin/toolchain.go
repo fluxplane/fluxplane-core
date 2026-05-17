@@ -699,7 +699,7 @@ func goDocSymbolSelector(symbol language.Symbol) string {
 }
 
 func goListArgs(req golang.GoListQuery) ([]string, []string, error) {
-	args := []string{"list", "-json"}
+	args := []string{"list", "-json", "-buildvcs=false"}
 	if req.IncludeErrors {
 		args = append(args, "-e")
 	}
@@ -820,7 +820,7 @@ func goBuildArgs(req golang.GoBuildQuery) ([]string, []string, error) {
 	if strings.TrimSpace(req.Output) != "" {
 		return nil, nil, fmt.Errorf("output is unsupported for go_build")
 	}
-	args := []string{"build"}
+	args := []string{"build", "-buildvcs=false"}
 	if len(req.Tags) > 0 {
 		tags, err := validateGoTags(req.Tags)
 		if err != nil {
@@ -876,7 +876,7 @@ func goFmtArgs(req golang.GoFmtQuery) ([]string, []string, bool, error) {
 
 func goInstallArgs(req golang.GoInstallQuery) ([]string, []string, bool, []string, error) {
 	dryRun := boolDefault(req.DryRun, true)
-	args := []string{"install"}
+	args := []string{"install", "-buildvcs=false"}
 	if dryRun {
 		args = append(args, "-n")
 	}

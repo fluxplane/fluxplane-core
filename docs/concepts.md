@@ -102,14 +102,26 @@ In AgentRuntime, durable task state lives in `core/task` and is projected by
 `plugins/taskplugin`, which contributes `/task`, `/plan`, narrow
 task-creator/planner agents, and typed operations such as `task_create`,
 grouped `task_modify`, `task_get`, `task_list`, artifact readers, and
-`task_validate`. It also contributes scheduler controls such as `task_run`,
+`task_validate`, plus `review_request` for reviewer-assigned review tasks. It
+also contributes scheduler controls such as `task_run`,
 `task_scheduler_status`, and `task_scheduler_set_enabled`. Task creation
 returns after recording the task; indexed ready-task summaries trigger the
 orchestration task executor, with periodic index scans retained as
-reconciliation. From a live session, `task_list` defaults to the current
-session thread; tasks created by delegated planner sessions are attributed to
-their parent user session, and the explicit global scope is available for
-historical tasks from other sessions.
+reconciliation. A request that asks for immediate execution should call
+`task_run` after the task is ready so the caller sees whether scheduling
+started, is already running, is not ready, or is waiting for capacity. The local
+scheduler supports role-specific worker profile pools and per-role capacity.
+From a live session, `task_list` defaults to the current session thread; tasks
+created by delegated planner sessions are attributed to their parent user
+session, and the explicit global scope is available for historical tasks from
+other sessions. Task artifacts may store small values inline, but large
+worker/tool results are represented as referenced artifacts with bounded
+preview metadata so task history stays inspectable without embedding
+provider-sized payloads in every event; `task_read_artifact` can read bounded
+inline values or safe workspace refs. Terminal one-shot runs wait for
+scheduler-run tasks from the submitted turn to finish before closing the local
+runtime; REPL turns only watch briefly and then return the prompt while tasks
+continue in the background.
 
 ## Command
 

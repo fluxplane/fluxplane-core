@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
 
@@ -60,6 +62,7 @@ type StepRunRequest struct {
 	ExecutionID coretask.ExecutionID
 	Step        coretask.Step
 	Profile     string
+	Profiles    []string
 	ExternalID  string
 }
 
@@ -76,10 +79,17 @@ type Config struct {
 	ReconcileInterval time.Duration
 	MaxParallel       int
 	RoleProfiles      map[coretask.Role]string
+	WorkerPools       map[coretask.Role]WorkerPoolConfig
 	RuntimeEvents     RuntimeEventPublisher
 	OnError           func(error)
 	Now               func() time.Time
 	NewID             func(string) string
+}
+
+// WorkerPoolConfig configures profile selection and capacity for a role.
+type WorkerPoolConfig struct {
+	Profiles    []string
+	MaxParallel int
 }
 
 // SubmitResult reports whether a task run was accepted for asynchronous work.
@@ -98,6 +108,7 @@ type Scheduler struct {
 	reconcileInterval time.Duration
 	maxParallel       int
 	roleProfiles      map[coretask.Role]string
+	workerPools       map[coretask.Role]workerPool
 	runtimeEvents     RuntimeEventPublisher
 	onError           func(error)
 	now               func() time.Time
@@ -107,7 +118,7 @@ type Scheduler struct {
 	enabled     bool
 	active      bool
 	ctx         context.Context
-	running     map[coretask.ID]struct{}
+	running     map[coretask.ID]runningTask
 	diagnostics []coretask.Diagnostic
 }
 
@@ -137,13 +148,25 @@ func New(cfg Config) (*Scheduler, error) {
 		reconcileInterval: cfg.ReconcileInterval,
 		maxParallel:       cfg.MaxParallel,
 		roleProfiles:      cloneRoleProfiles(cfg.RoleProfiles),
+		workerPools:       cloneWorkerPools(cfg.RoleProfiles, cfg.WorkerPools, cfg.MaxParallel),
 		runtimeEvents:     cfg.RuntimeEvents,
 		onError:           cfg.OnError,
 		now:               cfg.Now,
 		newID:             cfg.NewID,
 		enabled:           true,
-		running:           map[coretask.ID]struct{}{},
+		running:           map[coretask.ID]runningTask{},
 	}, nil
+}
+
+type runningTask struct {
+	Role    coretask.Role
+	Profile string
+}
+
+type workerPool struct {
+	Profiles    []string
+	MaxParallel int
+	Next        int
 }
 
 // SetRuntimeEventPublisher configures where scheduler-produced task events are
@@ -194,7 +217,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if summary.ID == "" || summary.Status != coretask.StatusReady {
 			continue
 		}
-		if !s.reserve(summary.ID) {
+		if !s.reserve(summary.ID, firstRole(summary.Assignee, coretask.RoleDeveloper)) {
 			continue
 		}
 		go func(taskID coretask.ID) {
@@ -219,9 +242,17 @@ func (s *Scheduler) SubmitTask(ctx context.Context, taskID coretask.ID) (SubmitR
 // remains available while automatic scheduling is disabled.
 func (s *Scheduler) NotifyTaskReady(ctx context.Context, taskID coretask.ID) error {
 	if !s.isEnabled() {
+		s.appendSchedulerDiagnostic(ctx, taskID, "", "", "task_auto_schedule_disabled", "ready task was not auto-scheduled because automatic task scheduling is disabled; use task_run to start it manually")
 		return nil
 	}
-	_, err := s.submitTask(ctx, taskID)
+	submitted, err := s.submitTask(ctx, taskID)
+	if err == nil && !submitted.Started && !submitted.Running && submitted.Status == coretask.StatusReady {
+		message := submitted.Summary
+		if strings.TrimSpace(message) == "" {
+			message = "ready task was not auto-scheduled"
+		}
+		s.appendSchedulerDiagnostic(ctx, taskID, "", "", "task_auto_schedule_deferred", message)
+	}
 	return err
 }
 
@@ -241,12 +272,13 @@ func (s *Scheduler) submitTask(ctx context.Context, taskID coretask.ID) (SubmitR
 		result.Summary = fmt.Sprintf("Task %s is %s, not ready.", taskID, state.Task.Status)
 		return result, nil
 	}
-	if !s.reserve(taskID) {
+	role := firstRole(state.Task.Assignee, coretask.RoleDeveloper)
+	if !s.reserve(taskID, role) {
 		result.Running = s.isRunning(taskID)
 		if result.Running {
 			result.Summary = fmt.Sprintf("Task %s is already running.", taskID)
 		} else {
-			result.Summary = "Task scheduler has no available capacity."
+			result.Summary = fmt.Sprintf("Task %s is ready but waiting for scheduler capacity.", taskID)
 		}
 		return result, nil
 	}
@@ -268,16 +300,33 @@ func (s *Scheduler) Status() coretask.SchedulerStatusResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	running := make([]coretask.ID, 0, len(s.running))
-	for id := range s.running {
+	runningByRole := map[coretask.Role][]coretask.ID{}
+	for id, task := range s.running {
 		running = append(running, id)
+		runningByRole[task.Role] = append(runningByRole[task.Role], id)
 	}
 	sort.Slice(running, func(i, j int) bool { return running[i] < running[j] })
+	for role := range runningByRole {
+		sort.Slice(runningByRole[role], func(i, j int) bool { return runningByRole[role][i] < runningByRole[role][j] })
+	}
+	capacityByRole := map[coretask.Role]int{}
+	maxByRole := map[coretask.Role]int{}
+	profilesByRole := map[coretask.Role][]string{}
+	for role, pool := range s.workerPools {
+		maxByRole[role] = pool.MaxParallel
+		capacityByRole[role] = pool.MaxParallel - s.runningForRoleLocked(role)
+		profilesByRole[role] = append([]string(nil), pool.Profiles...)
+	}
 	return coretask.SchedulerStatusResult{
 		Enabled:           s.enabled,
 		Active:            s.active,
 		Running:           running,
+		RunningByRole:     runningByRole,
 		Capacity:          s.maxParallel - len(s.running),
 		MaxParallel:       s.maxParallel,
+		CapacityByRole:    capacityByRole,
+		MaxParallelByRole: maxByRole,
+		ProfilesByRole:    profilesByRole,
 		ReconcileInterval: s.reconcileInterval.String(),
 		Diagnostics:       append([]coretask.Diagnostic(nil), s.diagnostics...),
 	}
@@ -310,7 +359,7 @@ func (s *Scheduler) isRunning(taskID coretask.ID) bool {
 	return exists
 }
 
-func (s *Scheduler) reserve(taskID coretask.ID) bool {
+func (s *Scheduler) reserve(taskID coretask.ID, role coretask.Role) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.running) >= s.maxParallel {
@@ -319,8 +368,24 @@ func (s *Scheduler) reserve(taskID coretask.ID) bool {
 	if _, exists := s.running[taskID]; exists {
 		return false
 	}
-	s.running[taskID] = struct{}{}
+	role = firstRole(role, coretask.RoleDeveloper)
+	pool := s.workerPools[role]
+	if pool.MaxParallel > 0 && s.runningForRoleLocked(role) >= pool.MaxParallel {
+		return false
+	}
+	profile := firstNonEmpty(firstProfile(pool.Profiles), s.roleProfiles[role], defaultWorker)
+	s.running[taskID] = runningTask{Role: role, Profile: profile}
 	return true
+}
+
+func (s *Scheduler) runningForRoleLocked(role coretask.Role) int {
+	var count int
+	for _, task := range s.running {
+		if task.Role == role {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *Scheduler) release(taskID coretask.ID) {
@@ -462,7 +527,7 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 		Assignee:           state.Task.Assignee,
 		Scope:              append([]string(nil), state.Task.Scope...),
 	}
-	profile, blocked := s.resolveProfile(state.Task, step)
+	profiles, blocked := s.resolveProfiles(state.Task, step)
 	if blocked {
 		return s.blockTask(ctx, state.Task.ID, execID, "task is assigned to a human")
 	}
@@ -470,7 +535,8 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 		Task:        state.Task,
 		ExecutionID: execID,
 		Step:        step,
-		Profile:     profile,
+		Profile:     firstProfile(profiles),
+		Profiles:    profiles,
 		ExternalID:  string(execID) + ":task",
 	})
 	if err != nil {
@@ -480,7 +546,8 @@ func (s *Scheduler) runWholeTask(ctx context.Context, state runtimetask.State) e
 		}
 		return err
 	}
-	events := artifactEvents(state.Task.ID, execID, "", bindDeclaredOutputs(result, step.Outputs))
+	result, artifacts := normalizeWorkerResult(ctx, result, step.Outputs, execID, "")
+	events := artifactEvents(state.Task.ID, execID, "", artifacts)
 	if len(events) > 0 {
 		if appended, err := s.withExpectedRetry(ctx, state.Task.ID, func(current runtimetask.State) (bool, []event.Event) {
 			exec, ok := current.Executions[execID]
@@ -558,7 +625,7 @@ func (s *Scheduler) runStepDAG(ctx context.Context, taskID coretask.ID) error {
 }
 
 func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID coretask.ExecutionID, step coretask.Step) error {
-	profile, blocked := s.resolveProfile(task, step)
+	profiles, blocked := s.resolveProfiles(task, step)
 	if blocked {
 		if err := s.blockStep(ctx, task.ID, execID, step.ID, "step is assigned to a human"); err != nil {
 			return err
@@ -570,7 +637,7 @@ func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID core
 		TaskID: task.ID, ExecutionID: execID, StepID: step.ID,
 		Title:    firstNonEmpty(step.Title, step.Objective, string(step.ID)),
 		Assignee: firstRole(step.Assignee, task.Assignee),
-		Profile:  profile, ExternalID: externalID,
+		Profile:  firstProfile(profiles), ExternalID: externalID,
 	})
 	if err != nil {
 		return err
@@ -578,14 +645,15 @@ func (s *Scheduler) runStep(ctx context.Context, task coretask.Task, execID core
 	if !dispatched {
 		return nil
 	}
-	result, err := s.worker.RunStep(ctx, StepRunRequest{Task: task, ExecutionID: execID, Step: step, Profile: profile, ExternalID: externalID})
+	result, err := s.worker.RunStep(ctx, StepRunRequest{Task: task, ExecutionID: execID, Step: step, Profile: firstProfile(profiles), Profiles: profiles, ExternalID: externalID})
 	if err != nil {
 		return s.appendStepTerminal(ctx, task.ID, execID, step.ID, coretask.StepFailed{
 			TaskID: task.ID, ExecutionID: execID, StepID: step.ID,
 			Error: &operation.Error{Code: "task_worker_failed", Message: err.Error()},
 		})
 	}
-	events := artifactEvents(task.ID, execID, step.ID, bindDeclaredOutputs(result, step.Outputs))
+	result, artifacts := normalizeWorkerResult(ctx, result, step.Outputs, execID, step.ID)
+	events := artifactEvents(task.ID, execID, step.ID, artifacts)
 	events = append(events, coretask.StepCompleted{TaskID: task.ID, ExecutionID: execID, StepID: step.ID, Output: result.Output})
 	return s.appendStepTerminal(ctx, task.ID, execID, step.ID, events...)
 }
@@ -885,6 +953,101 @@ func bindDeclaredOutputs(result StepRunResult, outputs []coretask.ArtifactSpec) 
 	return artifacts
 }
 
+func normalizeWorkerResult(ctx context.Context, result StepRunResult, outputs []coretask.ArtifactSpec, execID coretask.ExecutionID, stepID coretask.StepID) (StepRunResult, []coretask.ArtifactSpec) {
+	original := result
+	result.Output = normalizeWorkerOutput(ctx, result.Output, execID, stepID)
+	artifacts := bindDeclaredOutputs(original, outputs)
+	for i := range artifacts {
+		artifacts[i] = normalizeWorkerArtifact(ctx, artifacts[i], execID, stepID, i)
+	}
+	return result, artifacts
+}
+
+func normalizeWorkerOutput(ctx context.Context, value operation.Value, execID coretask.ExecutionID, stepID coretask.StepID) operation.Value {
+	if value == nil {
+		return nil
+	}
+	_, replacement := replaceLargeWorkerValue(ctx, value, execID, stepID, "output")
+	if replacement == nil {
+		return value
+	}
+	return replacement.ModelText()
+}
+
+func normalizeWorkerArtifact(ctx context.Context, artifact coretask.ArtifactSpec, execID coretask.ExecutionID, stepID coretask.StepID, index int) coretask.ArtifactSpec {
+	if artifact.Value == nil {
+		return artifact
+	}
+	_, replacement := replaceLargeWorkerValue(ctx, artifact.Value, execID, stepID, fmt.Sprintf("artifact-%d", index))
+	if replacement == nil {
+		return artifact
+	}
+	if artifact.Kind == "" {
+		artifact.Kind = coretask.ArtifactReference
+	}
+	artifact.Ref = replacement.Path
+	artifact.Value = replacement.Preview
+	if artifact.Metadata == nil {
+		artifact.Metadata = map[string]string{}
+	}
+	artifact.Metadata["replaced"] = "true"
+	artifact.Metadata["replacement_kind"] = replacement.Kind
+	artifact.Metadata["replacement_path"] = replacement.Path
+	artifact.Metadata["replacement_size_bytes"] = fmt.Sprintf("%d", replacement.SizeBytes)
+	artifact.Metadata["replacement_threshold_bytes"] = fmt.Sprintf("%d", replacement.ThresholdBytes)
+	artifact.Metadata["replacement_digest"] = replacement.Digest
+	artifact.Metadata["replacement_media_type"] = replacement.MediaType
+	artifact.Metadata["replacement_preview"] = replacement.Preview
+	if replacement.Tail != "" {
+		artifact.Metadata["replacement_tail"] = replacement.Tail
+	}
+	if replacement.OmittedBytes > 0 {
+		artifact.Metadata["replacement_omitted_bytes"] = fmt.Sprintf("%d", replacement.OmittedBytes)
+	}
+	return artifact
+}
+
+func replaceLargeWorkerValue(ctx context.Context, value operation.Value, execID coretask.ExecutionID, stepID coretask.StepID, suffix string) (operation.Value, *operationruntime.ResultReplacement) {
+	text := workerValueText(value)
+	result := operation.OK(operation.Rendered{Text: text, Model: text, Data: value})
+	_, replacement, err := operationruntime.ReplaceLargeResult(ctx, result, operationruntime.ReplacementOptions{
+		Operation: operation.Ref{Name: "task_worker_output"},
+		CallID:    operation.CallID(workerReplacementCallID(execID, stepID, suffix)),
+	})
+	if err != nil || replacement == nil {
+		return value, nil
+	}
+	return replacement.ModelText(), replacement
+}
+
+func workerReplacementCallID(execID coretask.ExecutionID, stepID coretask.StepID, suffix string) string {
+	parts := []string{string(execID)}
+	if stepID != "" {
+		parts = append(parts, string(stepID))
+	}
+	if suffix != "" {
+		parts = append(parts, suffix)
+	}
+	return strings.Join(parts, ":")
+}
+
+func workerValueText(value operation.Value) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(data)
+	}
+}
+
 func validateCompletion(state runtimetask.State) coretask.TaskValidationResult {
 	result := coretask.TaskValidationResult{
 		TaskID: state.Task.ID,
@@ -975,26 +1138,41 @@ func completionBlockedReason(validation coretask.TaskValidationResult) string {
 	return "task completion blocked: validation did not pass"
 }
 
-func (s *Scheduler) resolveProfile(task coretask.Task, step coretask.Step) (string, bool) {
+func (s *Scheduler) resolveProfiles(task coretask.Task, step coretask.Step) ([]string, bool) {
 	if strings.TrimSpace(step.Profile) != "" {
-		return strings.TrimSpace(step.Profile), false
+		return []string{strings.TrimSpace(step.Profile)}, false
 	}
 	role := firstRole(step.Assignee, task.Assignee)
-	if profile := strings.TrimSpace(s.roleProfiles[role]); profile != "" {
-		return profile, false
-	}
 	switch role {
 	case coretask.RoleHuman:
-		return "", true
-	case coretask.RoleExplorer:
-		return defaultExplorer, false
-	case coretask.RoleReviewer:
-		return defaultReviewer, false
-	case coretask.RoleDeveloper, coretask.RoleTester:
-		return defaultWorker, false
-	default:
-		return defaultWorker, false
+		return nil, true
 	}
+	profiles := s.nextProfiles(role)
+	if len(profiles) == 0 {
+		profiles = []string{defaultWorker}
+	}
+	return profiles, false
+}
+
+func (s *Scheduler) nextProfiles(role coretask.Role) []string {
+	role = firstRole(role, coretask.RoleDeveloper)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pool := s.workerPools[role]
+	if len(pool.Profiles) == 0 {
+		if profile := strings.TrimSpace(s.roleProfiles[role]); profile != "" {
+			return []string{profile}
+		}
+		return []string{defaultWorker}
+	}
+	start := pool.Next % len(pool.Profiles)
+	pool.Next = (pool.Next + 1) % len(pool.Profiles)
+	s.workerPools[role] = pool
+	out := make([]string, 0, len(pool.Profiles))
+	for i := range pool.Profiles {
+		out = append(out, pool.Profiles[(start+i)%len(pool.Profiles)])
+	}
+	return out
 }
 
 func firstRole(values ...coretask.Role) coretask.Role {
@@ -1019,6 +1197,52 @@ func cloneRoleProfiles(in map[coretask.Role]string) map[coretask.Role]string {
 		}
 	}
 	return out
+}
+
+func cloneWorkerPools(roleProfiles map[coretask.Role]string, in map[coretask.Role]WorkerPoolConfig, globalMax int) map[coretask.Role]workerPool {
+	out := map[coretask.Role]workerPool{}
+	roles := []coretask.Role{coretask.RoleDeveloper, coretask.RoleTester, coretask.RoleExplorer, coretask.RoleReviewer}
+	defaults := cloneRoleProfiles(roleProfiles)
+	for _, role := range roles {
+		profile := firstNonEmpty(defaults[role], defaultWorker)
+		out[role] = workerPool{Profiles: []string{profile}, MaxParallel: globalMax}
+	}
+	for role, cfg := range in {
+		profiles := compactProfiles(cfg.Profiles)
+		if len(profiles) == 0 {
+			profiles = out[role].Profiles
+		}
+		maxParallel := cfg.MaxParallel
+		if maxParallel <= 0 {
+			maxParallel = globalMax
+		}
+		out[role] = workerPool{Profiles: profiles, MaxParallel: maxParallel}
+	}
+	return out
+}
+
+func compactProfiles(in []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, profile := range in {
+		profile = strings.TrimSpace(profile)
+		if profile == "" {
+			continue
+		}
+		if _, exists := seen[profile]; exists {
+			continue
+		}
+		seen[profile] = struct{}{}
+		out = append(out, profile)
+	}
+	return out
+}
+
+func firstProfile(profiles []string) string {
+	if len(profiles) == 0 {
+		return ""
+	}
+	return profiles[0]
 }
 
 func summary(task coretask.Task) coretask.TaskSummary {
@@ -1070,10 +1294,21 @@ func (w ChannelWorker) RunStep(ctx context.Context, req StepRunRequest) (StepRun
 	if w.Client == nil {
 		return StepRunResult{}, fmt.Errorf("taskexecutor: channel client is nil")
 	}
-	profile := firstNonEmpty(req.Profile, defaultWorker)
-	session, err := w.open(ctx, profile, req)
-	if err != nil && profile == defaultReviewer {
-		session, err = w.open(ctx, defaultWorker, req)
+	profiles := compactProfiles(req.Profiles)
+	if len(profiles) == 0 {
+		profiles = []string{firstNonEmpty(req.Profile, defaultWorker)}
+	}
+	var (
+		session clientapi.SessionHandle
+		profile string
+		err     error
+	)
+	for _, candidate := range profiles {
+		session, err = w.open(ctx, candidate, req)
+		if err == nil {
+			profile = candidate
+			break
+		}
 	}
 	if err != nil {
 		return StepRunResult{}, err

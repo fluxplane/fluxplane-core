@@ -106,8 +106,11 @@ dependent cancellation, terminal writes, and task modification retries now use
 optimistic stream checks or bounded retry policy. Thread-store create, append,
 and fork writes also retry append conflicts so concurrent worker/session
 transcript writes do not undermine task execution. Remaining work is focused
-load/concurrency coverage and shaping external worker pool integration behind
-the scheduler worker boundary.
+load/concurrency coverage and shaping durable/external worker queues behind the
+scheduler worker boundary. The first local worker-pool slice is implemented:
+roles can define profile lists and per-role capacity, profile selection rotates
+within a role pool, fallback profiles are tried in order by the channel worker,
+and scheduler status reports running/capacity/profile details by role.
 
 ## Relationship To Other Domains
 
@@ -168,8 +171,14 @@ Task lifecycle semantics are intentionally explicit:
    catalog references.
 6. Add deeper long-running/multi-process scheduler soak coverage when the
    scheduler gains durable queues or external worker pools.
-7. Add artifact/result ergonomics so oversized tool results become inspectable
-   task artifacts or summaries instead of inaccessible provider-sized payloads.
+7. Artifact/result ergonomics are implemented for the first local slice:
+   oversized tool-result replacements carry previews/tails, artifact reads
+   default to bounded previews, and scheduler worker outputs are recorded as
+   referenced task artifacts with preview metadata. Future work can add safe
+   dereference helpers for local refs through a runtime system boundary.
+8. `review_request` and `task_read_artifact` are implemented for the first
+   local slice: reviews are reviewer-assigned tasks linked to a subject task,
+   and artifact reads return bounded inline or safe workspace-ref content.
 
 Keep validating task steps as a DAG. `core/task.Task.Validate`
 rejects unknown dependencies, self-dependencies, and dependency cycles so

@@ -137,6 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `review_request` operation for linked reviewer tasks, and
   `task_read_artifact` for bounded inline or safe workspace-ref artifact
   content reads.
+- Coder and task-creator instructions now treat "create a task and run it" as
+  a two-step flow: create or update the task to `ready`, call `task_run`, and
+  report the scheduler state. Ready-task notification failures now leave
+  durable task diagnostics when automatic scheduling is disabled or local
+  capacity is saturated.
+- `task coder:live-test` now uses a repository-local writable state directory,
+  and local launch event-store open failures include the SQLite path to make
+  environment problems actionable.
 - Fixed a direct-channel run event race that could panic with
   `send on closed channel` while forwarding live run events; run event
   emission is now guarded against channel-close races, and `Wait` no longer
@@ -148,6 +156,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   planner-created tasks are indexed against their parent user session.
 - Terminal task following now watches scheduled background tasks briefly and
   then returns the REPL prompt while active tasks continue in the background.
+- One-shot terminal runs (`--input` and goal turns) now wait for scheduler-run
+  tasks from the submitted turn to finish before closing the local runtime,
+  while REPL turns keep the brief background-follow behavior.
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.
@@ -157,6 +168,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `coder` now exposes `go_info`, `go_env`, `go_version`, `go_doc`, `go_list`,
   `go_test`, `go_fmt`, `go_vet`, `go_build`, `go_install`, `go_callers`, and
   `go_callees` to delegated child agents.
+- `go_list`, `go_build`, and `go_install` now pass `-buildvcs=false` so
+  diagnostics and dry-run automation work reliably in copied or temporary
+  workspaces without valid VCS metadata.
 - Project inventory now reports `.agents` and `.claude` directories as
   first-class project facets.
 - Project documentation outlines now use goldmark AST parsing and return nested

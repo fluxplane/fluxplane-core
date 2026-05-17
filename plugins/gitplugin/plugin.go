@@ -452,7 +452,7 @@ func (p Plugin) commit() operationruntime.TypedResultHandler[commitInput, map[st
 		if err != nil {
 			return operation.Failed("git_commit_failed", err.Error(), data)
 		}
-		headResult, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second})
+		headResult, err := p.system.Process().Run(ctx, system.ProcessRequest{Command: "git", Args: []string{"rev-parse", "HEAD"}, Timeout: 30 * time.Second, MaxStdout: 1024, MaxStderr: 1024})
 		if err != nil {
 			data["rev_parse_stdout"] = headResult.Stdout
 			data["rev_parse_stderr"] = headResult.Stderr

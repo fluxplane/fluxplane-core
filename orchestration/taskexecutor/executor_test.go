@@ -2,6 +2,8 @@ package taskexecutor
 
 import (
 	"context"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -468,6 +470,52 @@ func TestSchedulerBindsDeclaredStepOutputs(t *testing.T) {
 	}
 }
 
+func TestSchedulerStoresLargeWorkerOutputAsReferenceArtifact(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{
+		ID:      "task_1",
+		Title:   "Large output",
+		Status:  coretask.StatusReady,
+		Outputs: []coretask.ArtifactSpec{{ID: "summary", Kind: coretask.ArtifactReport, Required: true}},
+		Steps: []coretask.Step{{
+			ID:      "run",
+			Title:   "Run",
+			Outputs: []coretask.ArtifactSpec{{ID: "summary", Kind: coretask.ArtifactReport, Required: true}},
+		}},
+	}
+	createTask(t, store, task)
+	scheduler := newScheduler(t, store, largeOutputWorker{output: strings.Repeat("large-output ", 2048)})
+
+	if err := scheduler.RunTask(ctx, task.ID); err != nil {
+		t.Fatalf("RunTask: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	step := state.Executions[state.CurrentExecution].Steps["run"]
+	var summary coretask.ArtifactSpec
+	for _, artifact := range step.Artifacts {
+		if artifact.ID == "summary" {
+			summary = artifact
+			break
+		}
+	}
+	if summary.ID == "" {
+		t.Fatalf("step artifacts = %#v, want summary artifact", step.Artifacts)
+	}
+	if summary.Ref == "" || summary.Metadata["replaced"] != "true" || summary.Metadata["replacement_preview"] == "" {
+		t.Fatalf("summary artifact = %#v, want replacement ref and preview metadata", summary)
+	}
+	if _, err := os.Stat(summary.Ref); err != nil {
+		t.Fatalf("replacement ref %q: %v", summary.Ref, err)
+	}
+	if step.Output == nil || len(step.Output.(string)) >= len(strings.Repeat("large-output ", 2048)) {
+		t.Fatalf("step output = %#v, want compact replacement output", step.Output)
+	}
+}
+
 func TestSchedulerEventNotifyAndReconciliationCompleteReadyTaskBurst(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -546,6 +594,57 @@ func TestNotifyingEventStoreNotifiesReadyTaskIndexEvents(t *testing.T) {
 	}
 }
 
+func TestNotifyTaskReadyRecordsDiagnosticWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Ready", Status: coretask.StatusReady}
+	createTask(t, store, task)
+	scheduler := newScheduler(t, store, &recordingWorker{})
+	scheduler.SetEnabled(false)
+
+	if err := scheduler.NotifyTaskReady(ctx, task.ID); err != nil {
+		t.Fatalf("NotifyTaskReady: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(state.Task.Diagnostics) != 1 || state.Task.Diagnostics[0].Code != "task_auto_schedule_disabled" {
+		t.Fatalf("diagnostics = %#v, want auto-schedule disabled diagnostic", state.Task.Diagnostics)
+	}
+}
+
+func TestNotifyTaskReadyRecordsDiagnosticWhenCapacityUnavailable(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	block := make(chan struct{})
+	worker := &blockingWorker{started: make(chan struct{}), block: block}
+	task1 := coretask.Task{ID: "task_1", Title: "First", Status: coretask.StatusReady}
+	task2 := coretask.Task{ID: "task_2", Title: "Second", Status: coretask.StatusReady}
+	createTask(t, store, task1)
+	createTask(t, store, task2)
+	scheduler, err := New(Config{Store: store, Worker: worker, MaxParallel: 1, Now: testTime, NewID: func(prefix string) string { return prefix + "test" }})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer close(block)
+
+	if err := scheduler.NotifyTaskReady(ctx, task1.ID); err != nil {
+		t.Fatalf("NotifyTaskReady task1: %v", err)
+	}
+	<-worker.started
+	if err := scheduler.NotifyTaskReady(ctx, task2.ID); err != nil {
+		t.Fatalf("NotifyTaskReady task2: %v", err)
+	}
+	state, err := store.Project(ctx, task2.ID)
+	if err != nil {
+		t.Fatalf("Project task2: %v", err)
+	}
+	if len(state.Task.Diagnostics) != 1 || state.Task.Diagnostics[0].Code != "task_auto_schedule_deferred" {
+		t.Fatalf("diagnostics = %#v, want auto-schedule deferred diagnostic", state.Task.Diagnostics)
+	}
+}
+
 func TestSchedulerUsesConfiguredRoleProfiles(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
@@ -566,6 +665,38 @@ func TestSchedulerUsesConfiguredRoleProfiles(t *testing.T) {
 	}
 	if len(worker.profiles) != 1 || worker.profiles[0] != "strict-reviewer" {
 		t.Fatalf("profiles = %#v, want configured reviewer profile", worker.profiles)
+	}
+}
+
+func TestSchedulerRotatesWorkerPoolProfiles(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	createTask(t, store, coretask.Task{ID: "task_1", Title: "Review 1", Status: coretask.StatusReady, Assignee: coretask.RoleReviewer})
+	createTask(t, store, coretask.Task{ID: "task_2", Title: "Review 2", Status: coretask.StatusReady, Assignee: coretask.RoleReviewer})
+	worker := &recordingWorker{}
+	scheduler, err := New(Config{
+		Store: store, Worker: worker, Now: testTime,
+		NewID: func(prefix string) string { return prefix + stringID(len(worker.steps)+1) },
+		WorkerPools: map[coretask.Role]WorkerPoolConfig{
+			coretask.RoleReviewer: {Profiles: []string{"reviewer-a", "reviewer-b"}, MaxParallel: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := scheduler.RunTask(ctx, "task_1"); err != nil {
+		t.Fatalf("RunTask task_1: %v", err)
+	}
+	if err := scheduler.RunTask(ctx, "task_2"); err != nil {
+		t.Fatalf("RunTask task_2: %v", err)
+	}
+	if got := worker.profiles; len(got) != 2 || got[0] != "reviewer-a" || got[1] != "reviewer-b" {
+		t.Fatalf("profiles = %#v, want reviewer-a then reviewer-b", got)
+	}
+	status := scheduler.Status()
+	if status.MaxParallelByRole[coretask.RoleReviewer] != 2 || len(status.ProfilesByRole[coretask.RoleReviewer]) != 2 {
+		t.Fatalf("status = %#v, want reviewer pool metadata", status)
 	}
 }
 
@@ -635,6 +766,30 @@ func (w *recordingWorker) RunStep(_ context.Context, req StepRunRequest) (StepRu
 			Value: "done",
 		}},
 	}, nil
+}
+
+type largeOutputWorker struct {
+	output string
+}
+
+func (w largeOutputWorker) RunStep(_ context.Context, _ StepRunRequest) (StepRunResult, error) {
+	return StepRunResult{Output: w.output}, nil
+}
+
+type blockingWorker struct {
+	started chan struct{}
+	block   chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingWorker) RunStep(ctx context.Context, _ StepRunRequest) (StepRunResult, error) {
+	w.once.Do(func() { close(w.started) })
+	select {
+	case <-ctx.Done():
+		return StepRunResult{}, ctx.Err()
+	case <-w.block:
+		return StepRunResult{Output: "done"}, nil
+	}
 }
 
 type concurrencyRecordingWorker struct {

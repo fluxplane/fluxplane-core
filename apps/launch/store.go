@@ -20,7 +20,7 @@ func openLocalThreadStore(registry *event.Registry) (corethread.Store, event.Sto
 	}
 	events, err := sqleventstore.Open(path, registry)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("launch: open event store %s: %w", path, err)
 	}
 	threads, err := runtimethread.NewStore(events)
 	if err != nil {
