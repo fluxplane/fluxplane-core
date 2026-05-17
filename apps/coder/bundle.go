@@ -70,7 +70,7 @@ func Bundle() resource.ContributionBundle {
 			Agent:       agent.Ref{Name: AgentName},
 			Metadata:    map[string]string{"app": AppName},
 			Delegation: coresession.DelegationPolicy{
-				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}},
+				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}, {Name: "task-planner"}},
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations:      operationRefs(delegationOperations),

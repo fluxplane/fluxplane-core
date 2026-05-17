@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
@@ -64,6 +65,11 @@ func TestBundleComposes(t *testing.T) {
 	}
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
+	}
+	for _, name := range []string{taskplugin.WorkerSession, taskplugin.ExplorerSession, taskplugin.ReviewerSession, taskplugin.TaskSession, taskplugin.PlanSession} {
+		if !sessionAllowsProfile(session, name) {
+			t.Fatalf("delegation allowed profiles = %#v, missing %s", session.Delegation.AllowedProfiles, name)
+		}
 	}
 	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_validate", "task_run", "task_scheduler_status", "task_scheduler_set_enabled", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
@@ -158,6 +164,15 @@ func hasDatasourceSpec(specs []coredatasource.Spec, name, kind string) bool {
 func operationRefsContain(refs []operation.Ref, name string) bool {
 	for _, ref := range refs {
 		if ref.Name == operation.Name(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionAllowsProfile(spec coresession.Spec, name string) bool {
+	for _, ref := range spec.Delegation.AllowedProfiles {
+		if string(ref.Name) == name {
 			return true
 		}
 	}

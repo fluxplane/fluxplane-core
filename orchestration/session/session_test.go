@@ -405,6 +405,46 @@ func TestExecuteInboundCommandDispatchesSessionTargetToSubagent(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundCommandDispatchesPlanTargetToTaskPlannerProfile(t *testing.T) {
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"plan"},
+		Target: invocation.Target{
+			Kind:    invocation.TargetSession,
+			Session: "task-planner",
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	client := &sessionTargetClient{output: "drafted task"}
+	s := Session{
+		Commands: commands,
+		Subagents: subagent.New(subagent.Config{
+			Client:      client,
+			MaxParallel: 1,
+		}),
+		Delegation: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}, {Name: "task-planner"}},
+		},
+	}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:     "run-plan",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"plan"},
+			Args: []string{"create a demo golang http server in ./tmp/demo-app"},
+		},
+	})
+	if result.Status != CommandStatusOK || result.Output != "drafted task" {
+		t.Fatalf("result = %#v, want planner session output", result)
+	}
+	if client.input != "create a demo golang http server in ./tmp/demo-app" {
+		t.Fatalf("child input = %q, want command args", client.input)
+	}
+}
+
 func TestSessionTargetCreatedOutputFallsBackToTaskEvent(t *testing.T) {
 	output := sessionTargetCreatedOutput([]coretask.Created{{
 		TaskID: "task_1",

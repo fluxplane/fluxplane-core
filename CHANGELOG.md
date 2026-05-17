@@ -113,6 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `send on closed channel` while forwarding live run events; run event
   emission is now guarded against channel-close races, and `Wait` no longer
   blocks behind undrained run-event forwarding.
+- Fixed coder `/plan` delegation so the default coder session allows the
+  `task-planner` profile used by the task planning command.
 - Replaced the old plan execution plugin with `taskplugin` and
   `orchestration/taskexecutor`: coder/local launch, event catalog, terminal UI,
   and Slack progress rendering now use task events and task worker profiles.
