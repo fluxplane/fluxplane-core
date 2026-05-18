@@ -112,8 +112,9 @@ type Spec struct {
 // IdentitySpec declares canonical users and groups for app-local identity
 // resolution and authorization subjects.
 type IdentitySpec struct {
-	Users  []user.User  `json:"users,omitempty"`
-	Groups []user.Group `json:"groups,omitempty"`
+	Users  []user.User      `json:"users,omitempty"`
+	Groups []user.Group     `json:"groups,omitempty"`
+	Rules  []user.GroupRule `json:"rules,omitempty"`
 }
 
 // Validate checks the manifest is structurally useful without resolving refs.

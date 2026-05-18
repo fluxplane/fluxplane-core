@@ -116,7 +116,7 @@ func Compose(cfg Config) (Composition, error) {
 	}
 	security := mergeSecurity(cfg.Security, bundles)
 	identityResolver := cfg.IdentityResolver
-	if identitySpec := mergeIdentity(bundles); len(identitySpec.Users) > 0 || len(identitySpec.Groups) > 0 {
+	if identitySpec := mergeIdentity(bundles); len(identitySpec.Users) > 0 || len(identitySpec.Groups) > 0 || len(identitySpec.Rules) > 0 {
 		resolver, err := identity.NewDirectoryResolver(identitySpec, identityResolver)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
@@ -150,6 +150,7 @@ func mergeIdentity(bundles []resource.ContributionBundle) coreapp.IdentitySpec {
 		for _, appSpec := range bundle.Apps {
 			out.Users = append(out.Users, appSpec.Identity.Users...)
 			out.Groups = append(out.Groups, appSpec.Identity.Groups...)
+			out.Rules = append(out.Rules, appSpec.Identity.Rules...)
 		}
 	}
 	return out

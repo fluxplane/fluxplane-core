@@ -17,6 +17,7 @@ type DirectoryResolver struct {
 	fallback Resolver
 	users    map[user.ID]user.User
 	groups   map[user.ID]user.Group
+	rules    []user.GroupRule
 	byID     map[identityKey]user.ID
 	byEmail  map[string]user.ID
 }
@@ -38,6 +39,7 @@ func NewDirectoryResolver(spec coreapp.IdentitySpec, fallback Resolver) (Directo
 		fallback: fallback,
 		users:    map[user.ID]user.User{},
 		groups:   map[user.ID]user.Group{},
+		rules:    nil,
 		byID:     map[identityKey]user.ID{},
 		byEmail:  map[string]user.ID{},
 	}
@@ -47,6 +49,13 @@ func NewDirectoryResolver(spec coreapp.IdentitySpec, fallback Resolver) (Directo
 			continue
 		}
 		r.groups[group.ID] = mergeGroups(r.groups[group.ID], group)
+	}
+	for _, rule := range spec.Rules {
+		rule = normalizeRule(rule)
+		if len(rule.Groups) == 0 {
+			continue
+		}
+		r.rules = append(r.rules, rule)
 	}
 	for _, configured := range spec.Users {
 		configured = normalizeUser(configured)
@@ -84,7 +93,7 @@ func NewDirectoryResolver(spec coreapp.IdentitySpec, fallback Resolver) (Directo
 
 // Empty reports whether the resolver has no configured users or groups.
 func (r DirectoryResolver) Empty() bool {
-	return len(r.users) == 0 && len(r.groups) == 0
+	return len(r.users) == 0 && len(r.groups) == 0 && len(r.rules) == 0
 }
 
 // ResolveIdentity resolves inbound caller evidence to a canonical actor when a
@@ -98,14 +107,13 @@ func (r DirectoryResolver) ResolveIdentity(ctx context.Context, req Request) (Re
 	if !matched {
 		if base.Actor.Resolution == user.ResolutionResolved && base.Actor.User.ID != "" && r.hasOverlay(base.Actor.User.ID) {
 			base.Actor = r.actorFor(base.Actor.User.ID, base.Actor)
-			base.Trust = r.raiseTrust(base.Trust, base.Actor.Trust)
 		}
+		base.Actor = r.applyRules(base.Actor)
+		base.Trust = r.raiseTrust(base.Trust, base.Actor.Trust)
 		return base, nil
 	}
-	actor := r.actorFor(userID, base.Actor)
-	trust := r.raiseTrust(base.Trust, actor.Trust)
-	base.Actor = actor
-	base.Trust = trust
+	base.Actor = r.applyRules(r.actorFor(userID, base.Actor))
+	base.Trust = r.raiseTrust(base.Trust, base.Actor.Trust)
 	return base, nil
 }
 
@@ -216,7 +224,11 @@ func (r DirectoryResolver) raiseTrust(trust policy.Trust, actorTrust user.TrustL
 	if trust.Downgraded {
 		return trust
 	}
-	trust.Level = maxPolicyTrust(trust.Level, policyTrustFromUser(actorTrust))
+	raised := maxPolicyTrust(trust.Level, policyTrustFromUser(actorTrust))
+	if raised == trust.Level {
+		return trust
+	}
+	trust.Level = raised
 	if trust.Reason == "" {
 		trust.Reason = "identity_directory"
 	}
@@ -240,6 +252,65 @@ func (r DirectoryResolver) groupsFor(configured user.User) []user.Group {
 			seen[group.ID] = true
 			out = append(out, group)
 		}
+	}
+	return out
+}
+
+func (r DirectoryResolver) applyRules(actor user.Actor) user.Actor {
+	for _, rule := range r.rules {
+		if !ruleMatches(rule.Match, actor) {
+			continue
+		}
+		for _, id := range rule.Groups {
+			if id == "" || containsUserID(actor.User.Groups, id) {
+				continue
+			}
+			actor.User.Groups = append(actor.User.Groups, id)
+		}
+	}
+	groups := r.groupsFor(actor.User)
+	actor.Groups = mergeGroupsByID(actor.Groups, groups)
+	actor.User.Groups = mergeGroupIDs(actor.User.Groups, actor.Groups)
+	trust := user.NormalizeTrust(actor.User.Trust)
+	if actor.Trust != "" {
+		trust = user.Max(trust, actor.Trust)
+	}
+	for _, group := range actor.Groups {
+		trust = user.Max(trust, group.Trust)
+	}
+	actor.Trust = trust
+	actor.User.Trust = trust
+	return actor
+}
+
+func ruleMatches(match user.IdentityMatch, actor user.Actor) bool {
+	provider := normalizeProvider(match.Provider)
+	if provider != "" && !providerEquivalent(provider, normalizeProvider(actor.Identity.Provider)) {
+		return false
+	}
+	if id := strings.TrimSpace(match.ProviderID); id != "" && id != strings.TrimSpace(actor.Identity.ProviderID) {
+		return false
+	}
+	if match.Resolution != "" && user.NormalizeResolution(match.Resolution) != user.NormalizeResolution(actor.Resolution) {
+		return false
+	}
+	return true
+}
+
+func mergeGroupsByID(base, overlay []user.Group) []user.Group {
+	out := append([]user.Group(nil), base...)
+	seen := map[user.ID]bool{}
+	for _, group := range out {
+		if group.ID != "" {
+			seen[group.ID] = true
+		}
+	}
+	for _, group := range overlay {
+		if group.ID == "" || seen[group.ID] {
+			continue
+		}
+		seen[group.ID] = true
+		out = append(out, group)
 	}
 	return out
 }
@@ -290,6 +361,13 @@ func normalizeGroup(group user.Group) user.Group {
 	group.ID = user.ID(strings.TrimSpace(string(group.ID)))
 	group.Members = cleanUserIDs(group.Members)
 	return group
+}
+
+func normalizeRule(rule user.GroupRule) user.GroupRule {
+	rule.Match.Provider = strings.TrimSpace(rule.Match.Provider)
+	rule.Match.ProviderID = strings.TrimSpace(rule.Match.ProviderID)
+	rule.Groups = cleanUserIDs(rule.Groups)
+	return rule
 }
 
 func mergeUsers(base, overlay user.User) user.User {

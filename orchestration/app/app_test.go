@@ -72,6 +72,28 @@ func TestComposeBuildsIdentityResolverFromAppIdentity(t *testing.T) {
 	}
 }
 
+func TestComposeBuildsIdentityResolverFromIdentityRules(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Apps: []coreapp.Spec{{
+				Name: "demo",
+				Identity: coreapp.IdentitySpec{
+					Rules: []user.GroupRule{{
+						Match:  user.IdentityMatch{Provider: "slack", Resolution: user.ResolutionUnresolved},
+						Groups: []user.ID{"anonymous"},
+					}},
+				},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if composition.IdentityResolver == nil {
+		t.Fatal("IdentityResolver is nil, want directory resolver for rules-only identity config")
+	}
+}
+
 func TestComposeIndexesLLMProviderContributions(t *testing.T) {
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{

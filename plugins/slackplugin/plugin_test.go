@@ -2,6 +2,7 @@ package slackplugin
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -44,6 +45,57 @@ func TestAccessPolicyChecksKindAndTrust(t *testing.T) {
 	}
 	if got := policy.TrustFor(inboundMessage{UserID: "U1", ChannelID: "Cinternal"}); got != user.TrustInternal {
 		t.Fatalf("internal trust = %q", got)
+	}
+}
+
+func TestAccessPolicyAudienceTrustDoesNotInheritSharedChannelSenderTrust(t *testing.T) {
+	policy := AccessPolicy{
+		Mode:         "open",
+		DefaultTrust: user.TrustPublic,
+		Operators:    []string{"Uadmin"},
+	}
+	msg := inboundMessage{UserID: "Uadmin", ChannelID: "Cpublic", Kind: "mention"}
+	if got := policy.TrustFor(msg); got != user.TrustOperator {
+		t.Fatalf("sender trust = %q, want operator", got)
+	}
+	if got := policy.AudienceTrustFor(msg); got != user.TrustPublic {
+		t.Fatalf("audience trust = %q, want public for shared channel", got)
+	}
+}
+
+func TestAccessPolicyAudienceTrustCanFollowDirectConversationSenderTrust(t *testing.T) {
+	policy := AccessPolicy{
+		Mode:         "open",
+		DefaultTrust: user.TrustPublic,
+		Operators:    []string{"Uadmin"},
+	}
+	msg := inboundMessage{UserID: "Uadmin", ChannelID: "D1", Kind: "dm", IsDirect: true}
+	if got := policy.AudienceTrustFor(msg); got != user.TrustOperator {
+		t.Fatalf("audience trust = %q, want operator for direct conversation", got)
+	}
+}
+
+func TestSlackInputContentKeepsAudienceTrustOutOfSenderIdentity(t *testing.T) {
+	content := slackInputContent(inboundMessage{
+		Text:      "hello",
+		UserID:    "Uadmin",
+		ChannelID: "Cpublic",
+		ThreadTS:  "111.222",
+		TeamID:    "T1",
+		Kind:      "mention",
+	}, user.TrustPublic, "strict")
+	if content.Text != "hello" {
+		t.Fatalf("text = %q, want hello", content.Text)
+	}
+	if content.SlackContext.AudienceTrust != user.TrustPublic {
+		t.Fatalf("audience trust = %q, want public", content.SlackContext.AudienceTrust)
+	}
+	data, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	if strings.Contains(string(data), "sender_trust") {
+		t.Fatalf("content JSON = %s, want no sender_trust", data)
 	}
 }
 
@@ -296,6 +348,13 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	}
 	if session.submission.Kind != clientapi.SubmissionInput || session.submission.Input == nil {
 		t.Fatalf("submission = %#v, want input submission", session.submission)
+	}
+	content, ok := session.submission.Input.Content.(slackInputPayload)
+	if !ok {
+		t.Fatalf("input content = %#v, want slackInputPayload", session.submission.Input.Content)
+	}
+	if content.SlackContext.AudienceTrust != user.TrustOperator {
+		t.Fatalf("audience trust = %q, want operator for direct admin conversation", content.SlackContext.AudienceTrust)
 	}
 }
 

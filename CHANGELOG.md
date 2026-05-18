@@ -43,11 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claims.
 - Added app manifest `identity` configuration for canonical users, provider
   identities, groups, and trust-aware identity resolution.
+- Added app manifest `identity.rules` so resolved or unresolved provider
+  identities can receive app-defined groups and group trust without enumerating
+  every canonical user.
 - Added Slack API-backed identity resolution and `/whoami`, so Slack users can
   resolve to canonical email users while app identity config remains an
   additive group/trust overlay.
 - Added named plugin instances via `plugins[].instance`, allowing multiple
   configured instances of the same plugin type such as `gitlab/company-a`.
+- Added GitLab merge request review datasource entities and a native
+  `gitlab_mr` action operation for MR creation, comments, review actions,
+  merge/rebase, and pipeline retry/cancel.
 
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary
@@ -63,6 +69,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that were not projected for that authority.
 - GitLab now uses native typed plugin instances backed by the official GitLab
   Go client instead of the connector plugin bridge.
+- Slack message context now separates resolved sender identity from
+  Slack-specific audience trust, so sender trust is provided by core identity
+  context while channel sharing remains conservative.
 - GitLab personal access tokens are resolved through plugin-instance auth
   requests. A configured `auth.token_env` is used directly; otherwise the
   resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.

@@ -105,6 +105,11 @@ identity:
     - id: admins
       members: [timo@company.org]
       trust: operator
+  rules:
+    - match:
+        provider: slack
+        resolution: resolved
+      groups: [users]
 sources:
   - location: .agents
 model_policy:
@@ -133,6 +138,9 @@ plugins:
 	}
 	if len(app.Identity.Groups) != 1 || app.Identity.Groups[0].ID != "admins" || app.Identity.Groups[0].Trust != "operator" {
 		t.Fatalf("identity groups = %#v, want admins operator group", app.Identity.Groups)
+	}
+	if len(app.Identity.Rules) != 1 || app.Identity.Rules[0].Match.Provider != "slack" || app.Identity.Rules[0].Match.Resolution != "resolved" || app.Identity.Rules[0].Groups[0] != "users" {
+		t.Fatalf("identity rules = %#v, want Slack resolved users rule", app.Identity.Rules)
 	}
 	if got := bundle.Plugins[0].Config["scope"]; got != "project" {
 		t.Fatalf("plugin scope = %#v, want project", got)

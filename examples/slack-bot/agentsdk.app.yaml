@@ -15,6 +15,29 @@ distribution:
       image: slack-bot
       tags: [latest]
 
+identity:
+  groups:
+    - id: slack-bot-admin
+      trust: operator
+    - id: slack-bot-users
+      trust: internal
+    - id: anonymous
+      trust: public
+  rules:
+    - match:
+        provider: slack
+        resolution: resolved
+      groups: [slack-bot-users]
+    - match:
+        provider: slack
+        provider_id: U03HY52RQLV
+        resolution: resolved
+      groups: [slack-bot-admin]
+    - match:
+        provider: slack
+        resolution: unresolved
+      groups: [anonymous]
+
 plugins:
   - kind: identity
   - kind: slack
@@ -43,9 +66,14 @@ datasources:
     kind: gitlab
     entities:
       - gitlab.project
+      - gitlab.merge_request
+      - gitlab.merge_request_diff
+      - gitlab.merge_request_note
+      - gitlab.pipeline
+      - gitlab.user
     config:
       instance: main
-    description: GitLab projects visible to the configured plugin instance.
+    description: GitLab projects and merge request review data visible to the configured plugin instance.
 
   - name: jira
     connector: jira

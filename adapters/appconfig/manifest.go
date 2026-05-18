@@ -433,6 +433,7 @@ type Manifest struct {
 type identityDoc struct {
 	Users  []identityUserDoc  `json:"users,omitempty" yaml:"users,omitempty"`
 	Groups []identityGroupDoc `json:"groups,omitempty" yaml:"groups,omitempty"`
+	Rules  []identityRuleDoc  `json:"rules,omitempty" yaml:"rules,omitempty"`
 }
 
 type identityUserDoc struct {
@@ -459,6 +460,17 @@ type identityGroupDoc struct {
 	Members     []string          `json:"members,omitempty" yaml:"members,omitempty"`
 	Trust       user.TrustLevel   `json:"trust,omitempty" yaml:"trust,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+type identityRuleDoc struct {
+	Match  identityMatchDoc `json:"match,omitempty" yaml:"match,omitempty"`
+	Groups []string         `json:"groups,omitempty" yaml:"groups,omitempty"`
+}
+
+type identityMatchDoc struct {
+	Provider   string               `json:"provider,omitempty" yaml:"provider,omitempty"`
+	ProviderID string               `json:"provider_id,omitempty" yaml:"provider_id,omitempty"`
+	Resolution user.ResolutionState `json:"resolution,omitempty" yaml:"resolution,omitempty"`
 }
 
 func (d identityDoc) Spec() coreapp.IdentitySpec {
@@ -500,6 +512,21 @@ func (d identityDoc) Spec() coreapp.IdentitySpec {
 			}
 		}
 		spec.Groups = append(spec.Groups, group)
+	}
+	for _, raw := range d.Rules {
+		rule := user.GroupRule{
+			Match: user.IdentityMatch{
+				Provider:   strings.TrimSpace(raw.Match.Provider),
+				ProviderID: strings.TrimSpace(raw.Match.ProviderID),
+				Resolution: raw.Match.Resolution,
+			},
+		}
+		for _, group := range raw.Groups {
+			if group = strings.TrimSpace(group); group != "" {
+				rule.Groups = append(rule.Groups, user.ID(group))
+			}
+		}
+		spec.Rules = append(spec.Rules, rule)
 	}
 	return spec
 }

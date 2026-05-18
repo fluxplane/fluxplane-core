@@ -51,6 +51,19 @@ type Group struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
+// IdentityMatch selects an inbound or resolved provider identity.
+type IdentityMatch struct {
+	Provider   string          `json:"provider,omitempty"`
+	ProviderID string          `json:"provider_id,omitempty"`
+	Resolution ResolutionState `json:"resolution,omitempty"`
+}
+
+// GroupRule adds groups to actors whose final identity matches.
+type GroupRule struct {
+	Match  IdentityMatch `json:"match,omitempty"`
+	Groups []ID          `json:"groups,omitempty"`
+}
+
 // Actor is the resolved user identity for one inbound interaction.
 type Actor struct {
 	User       User            `json:"user,omitempty"`

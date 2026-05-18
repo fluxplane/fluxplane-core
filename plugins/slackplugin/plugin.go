@@ -766,7 +766,7 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	trust := c.access.TrustFor(msg)
 	run, err := session.Submit(turnCtx, clientapi.NewSubmission().
 		WithInput(clientapi.Input{
-			Content: slackInputContent(msg, trust, c.access.Sharing),
+			Content: slackInputContent(msg, c.access.AudienceTrustFor(msg), c.access.Sharing),
 		}).
 		WithCaller(slackCaller(c.name, msg)).
 		WithTrust(slackPolicyTrust(trust)))
@@ -858,18 +858,34 @@ func slackPolicyTrust(trust user.TrustLevel) policy.Trust {
 	return out
 }
 
-func slackInputContent(msg inboundMessage, trust user.TrustLevel, sharing string) map[string]any {
-	return map[string]any{
-		"text": msg.Text,
-		"slack_context": map[string]any{
-			"channel_id":       msg.ChannelID,
-			"thread_ts":        msg.ThreadTS,
-			"user_id":          msg.UserID,
-			"team_id":          msg.TeamID,
-			"interaction_kind": msg.Kind,
-			"sender_trust":     trust,
-			"audience_trust":   trust,
-			"sharing":          firstNonEmpty(sharing, "strict"),
+type slackInputPayload struct {
+	Text         string              `json:"text"`
+	SlackContext slackContextPayload `json:"slack_context"`
+}
+
+type slackContextPayload struct {
+	ChannelID       string          `json:"channel_id,omitempty"`
+	ThreadTS        string          `json:"thread_ts,omitempty"`
+	UserID          string          `json:"user_id,omitempty"`
+	TeamID          string          `json:"team_id,omitempty"`
+	InteractionKind string          `json:"interaction_kind,omitempty"`
+	IsDirect        bool            `json:"is_direct,omitempty"`
+	AudienceTrust   user.TrustLevel `json:"audience_trust,omitempty"`
+	Sharing         string          `json:"sharing,omitempty"`
+}
+
+func slackInputContent(msg inboundMessage, audienceTrust user.TrustLevel, sharing string) slackInputPayload {
+	return slackInputPayload{
+		Text: msg.Text,
+		SlackContext: slackContextPayload{
+			ChannelID:       msg.ChannelID,
+			ThreadTS:        msg.ThreadTS,
+			UserID:          msg.UserID,
+			TeamID:          msg.TeamID,
+			InteractionKind: msg.Kind,
+			IsDirect:        msg.IsDirect,
+			AudienceTrust:   user.NormalizeTrust(audienceTrust),
+			Sharing:         firstNonEmpty(sharing, "strict"),
 		},
 	}
 }
@@ -912,6 +928,18 @@ func (p AccessPolicy) TrustFor(msg inboundMessage) user.TrustLevel {
 	case contains(p.Operators, msg.UserID):
 		return user.TrustOperator
 	case contains(p.InternalUsers, msg.UserID), contains(p.InternalChannels, msg.ChannelID):
+		return user.TrustInternal
+	default:
+		return user.NormalizeTrust(p.DefaultTrust)
+	}
+}
+
+func (p AccessPolicy) AudienceTrustFor(msg inboundMessage) user.TrustLevel {
+	if msg.IsDirect || msg.Kind == "dm" {
+		return p.TrustFor(msg)
+	}
+	switch {
+	case contains(p.InternalChannels, msg.ChannelID):
 		return user.TrustInternal
 	default:
 		return user.NormalizeTrust(p.DefaultTrust)

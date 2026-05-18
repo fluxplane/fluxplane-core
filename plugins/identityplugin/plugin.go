@@ -91,15 +91,15 @@ func renderCurrentIdentity(scope map[string]string) string {
 		if value := strings.TrimSpace(scope["user.username"]); value != "" && value != scope["user.id"] {
 			lines = append(lines, "- username: "+value)
 		}
-		if value := strings.TrimSpace(scope["user.groups"]); value != "" {
-			lines = append(lines, "- groups: "+strings.ReplaceAll(value, ",", ", "))
-		}
 	} else {
 		identity := providerIdentity(scope)
 		if identity != "" {
 			lines = append(lines, "- channel identity: "+identity)
 		}
 		lines = append(lines, "- note: no canonical core user has been resolved for this turn")
+	}
+	if value := strings.TrimSpace(scope["user.groups"]); value != "" {
+		lines = append(lines, "- groups: "+strings.ReplaceAll(value, ",", ", "))
 	}
 	if identity := providerIdentity(scope); identity != "" && resolution == user.ResolutionResolved {
 		lines = append(lines, "- identity: "+identity)

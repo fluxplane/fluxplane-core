@@ -101,12 +101,24 @@ identity:
   groups:
     - id: admins
       trust: operator
+  rules:
+    - match:
+        provider: slack
+        resolution: resolved
+      groups: [slack-bot-users]
 ```
 
 Resolved users contribute `user:<id>` and `group:<id>` authorization subjects.
-Unmatched channel identities stay unresolved and keep their channel/provider ID.
-Use `/whoami` in a session to inspect the caller, resolved user, trust, and
-authorization subjects that the runtime sees for the current turn.
+Rules can add groups after provider-specific resolution, such as assigning every
+resolved Slack email user to `slack-bot-users` while keeping unresolved channel
+identities in an `anonymous` group. Use `/whoami` in a session to inspect the
+caller, resolved user, trust, and authorization subjects that the runtime sees
+for the current turn.
+
+For Slack apps, sender identity and trust should come from resolved core
+identity context, not from Slack message metadata. Slack-specific audience trust
+is a sharing constraint for the conversation and stays separate from the
+sender's effective trust.
 
 Commands, workflows, and operation declarations can also be separate
 multi-document resources:
@@ -338,6 +350,11 @@ datasources:
     kind: gitlab
     entities:
       - gitlab.project
+      - gitlab.merge_request
+      - gitlab.merge_request_diff
+      - gitlab.merge_request_note
+      - gitlab.pipeline
+      - gitlab.user
     config:
       instance: company-a
 ```

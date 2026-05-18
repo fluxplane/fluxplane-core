@@ -48,6 +48,7 @@ func TestCurrentProviderRendersUnresolvedChannelIdentityWithoutClaims(t *testing
 		"user.username":        "slack_user:U123",
 		"identity.provider":    "slack_user",
 		"identity.provider_id": "U123",
+		"user.groups":          "anonymous",
 		"caller.source":        "slack:main",
 		"trust.level":          "untrusted",
 		"is_admin":             "true",
@@ -63,6 +64,7 @@ func TestCurrentProviderRendersUnresolvedChannelIdentityWithoutClaims(t *testing
 		"- resolved: false",
 		"- channel identity: slack_user:U123",
 		"- note: no canonical core user has been resolved for this turn",
+		"- groups: anonymous",
 		"- trust: untrusted",
 	} {
 		if !strings.Contains(content, want) {

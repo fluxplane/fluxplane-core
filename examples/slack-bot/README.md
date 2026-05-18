@@ -46,12 +46,26 @@ identity:
   groups:
     - id: admins
       trust: operator
+  rules:
+    - match:
+        provider: slack
+        resolution: resolved
+      groups: [slack-bot-users]
 ```
 
 If Slack cannot return an email and no explicit identity mapping exists, the bot
 sees an unresolved `slack_user:<id>` identity and does not receive raw Slack
-claims in context. Use `/whoami` or `/context --fresh --key identity.current`
-to inspect the identity visible to the runtime and model.
+claims in context. This example assigns resolved Slack users to
+`slack-bot-users`, unresolved Slack identities to `anonymous`, and the configured
+admin Slack ID to `slack-bot-admin` only after Slack resolution succeeds. Use
+`/whoami` or `/context --fresh --key identity.current` to inspect the identity
+visible to the runtime and model.
+
+Slack context distinguishes the sender from the audience. The sender's
+canonical identity, groups, and trust come from `identity.current`; the Slack
+message context only carries conversation metadata such as channel/thread IDs,
+sharing mode, and audience trust. A privileged sender in a shared channel does
+not make the channel audience privileged.
 
 Slack app requirements:
 

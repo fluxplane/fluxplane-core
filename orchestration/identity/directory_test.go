@@ -124,6 +124,75 @@ func TestDirectoryResolverOverlaysGroupsForFallbackUser(t *testing.T) {
 	}
 }
 
+func TestDirectoryResolverAppliesResolvedSlackGroupRules(t *testing.T) {
+	resolver, err := NewDirectoryResolver(slackBotIdentitySpec(), resolvedSlackFallback("U111", "mara@company.org"))
+	if err != nil {
+		t.Fatalf("NewDirectoryResolver: %v", err)
+	}
+	result, err := resolver.ResolveIdentity(context.Background(), Request{Inbound: slackInbound("U111", policy.TrustUntrusted, false)})
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	if result.Actor.User.ID != "mara@company.org" || result.Actor.Resolution != user.ResolutionResolved {
+		t.Fatalf("actor = %#v, want resolved email user", result.Actor)
+	}
+	if !hasActorGroup(result.Actor, "slack-bot-users") || hasActorGroup(result.Actor, "slack-bot-admin") {
+		t.Fatalf("groups = %#v, want slack-bot-users only", result.Actor.Groups)
+	}
+	if result.Trust.Level != policy.TrustVerified {
+		t.Fatalf("trust = %#v, want verified from users group", result.Trust)
+	}
+}
+
+func TestDirectoryResolverAppliesSlackAdminRuleOnlyWhenResolved(t *testing.T) {
+	resolver, err := NewDirectoryResolver(slackBotIdentitySpec(), resolvedSlackFallback("U03HY52RQLV", "admin@company.org"))
+	if err != nil {
+		t.Fatalf("NewDirectoryResolver: %v", err)
+	}
+	result, err := resolver.ResolveIdentity(context.Background(), Request{Inbound: slackInbound("U03HY52RQLV", policy.TrustUntrusted, false)})
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	if !hasActorGroup(result.Actor, "slack-bot-admin") || !hasActorGroup(result.Actor, "slack-bot-users") {
+		t.Fatalf("groups = %#v, want admin and users", result.Actor.Groups)
+	}
+	if result.Trust.Level != policy.TrustPrivileged {
+		t.Fatalf("trust = %#v, want privileged from admin group", result.Trust)
+	}
+
+	unresolved, err := NewDirectoryResolver(slackBotIdentitySpec(), nil)
+	if err != nil {
+		t.Fatalf("NewDirectoryResolver unresolved: %v", err)
+	}
+	result, err = unresolved.ResolveIdentity(context.Background(), Request{Inbound: slackInbound("U03HY52RQLV", policy.TrustUntrusted, false)})
+	if err != nil {
+		t.Fatalf("ResolveIdentity unresolved: %v", err)
+	}
+	if result.Actor.Resolution != user.ResolutionUnresolved || !hasActorGroup(result.Actor, "anonymous") || hasActorGroup(result.Actor, "slack-bot-admin") {
+		t.Fatalf("actor = %#v, want unresolved anonymous without admin", result.Actor)
+	}
+	if result.Trust.Level != policy.TrustUntrusted {
+		t.Fatalf("trust = %#v, want untrusted unresolved", result.Trust)
+	}
+}
+
+func TestDirectoryResolverRuleTrustRespectsDowngrade(t *testing.T) {
+	resolver, err := NewDirectoryResolver(slackBotIdentitySpec(), resolvedSlackFallback("U03HY52RQLV", "admin@company.org"))
+	if err != nil {
+		t.Fatalf("NewDirectoryResolver: %v", err)
+	}
+	result, err := resolver.ResolveIdentity(context.Background(), Request{Inbound: slackInbound("U03HY52RQLV", policy.TrustUntrusted, true)})
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	if !hasActorGroup(result.Actor, "slack-bot-admin") {
+		t.Fatalf("groups = %#v, want admin group still visible", result.Actor.Groups)
+	}
+	if result.Trust.Level != policy.TrustUntrusted {
+		t.Fatalf("trust = %#v, want downgraded untrusted preserved", result.Trust)
+	}
+}
+
 func TestDirectoryResolverRejectsConflictingProviderMapping(t *testing.T) {
 	_, err := NewDirectoryResolver(coreapp.IdentitySpec{
 		Users: []user.User{
@@ -134,4 +203,60 @@ func TestDirectoryResolverRejectsConflictingProviderMapping(t *testing.T) {
 	if err == nil {
 		t.Fatal("NewDirectoryResolver succeeded, want conflict")
 	}
+}
+
+func slackBotIdentitySpec() coreapp.IdentitySpec {
+	return coreapp.IdentitySpec{
+		Groups: []user.Group{
+			{ID: "slack-bot-admin", Trust: user.TrustOperator},
+			{ID: "slack-bot-users", Trust: user.TrustInternal},
+			{ID: "anonymous", Trust: user.TrustPublic},
+		},
+		Rules: []user.GroupRule{
+			{Match: user.IdentityMatch{Provider: "slack", Resolution: user.ResolutionResolved}, Groups: []user.ID{"slack-bot-users"}},
+			{Match: user.IdentityMatch{Provider: "slack", ProviderID: "U03HY52RQLV", Resolution: user.ResolutionResolved}, Groups: []user.ID{"slack-bot-admin"}},
+			{Match: user.IdentityMatch{Provider: "slack", Resolution: user.ResolutionUnresolved}, Groups: []user.ID{"anonymous"}},
+		},
+	}
+}
+
+func resolvedSlackFallback(slackID, email string) Resolver {
+	return ResolverFunc(func(_ context.Context, req Request) (Result, error) {
+		result, err := (DefaultResolver{}).ResolveIdentity(context.Background(), req)
+		if err != nil {
+			return Result{}, err
+		}
+		result.Actor = user.Actor{
+			User:       user.User{ID: user.ID(email), Username: email, Trust: user.TrustPublic},
+			Identity:   user.Identity{Provider: "slack", ProviderID: slackID, Email: email},
+			Trust:      user.TrustPublic,
+			Resolution: user.ResolutionResolved,
+		}
+		return result, nil
+	})
+}
+
+func slackInbound(slackID string, trust policy.TrustLevel, downgraded bool) channel.Inbound {
+	return channel.Inbound{
+		Caller: policy.Caller{
+			Kind:      policy.CallerUser,
+			Principal: policy.Principal{Kind: "slack_user", ID: slackID},
+			Source:    "slack:main",
+		},
+		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: trust, Downgraded: downgraded},
+	}
+}
+
+func hasActorGroup(actor user.Actor, id user.ID) bool {
+	for _, groupID := range actor.User.Groups {
+		if groupID == id {
+			return true
+		}
+	}
+	for _, group := range actor.Groups {
+		if group.ID == id {
+			return true
+		}
+	}
+	return false
 }
