@@ -105,6 +105,24 @@ func TestServeCommandForwardsYolo(t *testing.T) {
 	}
 }
 
+func TestServeCommandForwardsEnvFileFlags(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--env-file", ".env", "--env-file=.env.local"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(got.EnvFiles) != 2 || got.EnvFiles[0] != ".env" || got.EnvFiles[1] != ".env.local" {
+		t.Fatalf("env files = %#v, want root env files", got.EnvFiles)
+	}
+}
+
 func TestServeCommandForwardsModelSelection(t *testing.T) {
 	var got Options
 	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {

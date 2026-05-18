@@ -33,11 +33,15 @@ daemon:
       session: main
 runtime:
   workspace:
+    env_files:
+      - .env
     roots:
       - name: tmp
         path: /tmp/agentruntime-sample
         access: read_write
         create: true
+        env_files:
+          - tmp.env
     scratch_root: tmp
 ---
 kind: session
@@ -81,6 +85,12 @@ name: assistant
 	}
 	if loaded.Launch.Workspace.ScratchRoot != "tmp" || len(loaded.Launch.Workspace.Roots) != 1 || loaded.Launch.Workspace.Roots[0].Name != "tmp" {
 		t.Fatalf("workspace = %#v, want tmp scratch root", loaded.Launch.Workspace)
+	}
+	if len(loaded.Launch.Workspace.EnvFiles) != 1 || loaded.Launch.Workspace.EnvFiles[0] != ".env" {
+		t.Fatalf("root env files = %#v, want .env", loaded.Launch.Workspace.EnvFiles)
+	}
+	if len(loaded.Launch.Workspace.Roots[0].EnvFiles) != 1 || loaded.Launch.Workspace.Roots[0].EnvFiles[0] != "tmp.env" {
+		t.Fatalf("named root env files = %#v, want tmp.env", loaded.Launch.Workspace.Roots[0].EnvFiles)
 	}
 }
 

@@ -50,14 +50,16 @@ type Config struct {
 type WorkspaceConfig struct {
 	Roots       []WorkspaceRootConfig
 	ScratchRoot string
+	EnvFiles    []string
 }
 
 // WorkspaceRootConfig configures one named workspace root.
 type WorkspaceRootConfig struct {
-	Name   string
-	Path   string
-	Access WorkspaceAccess
-	Create bool
+	Name     string
+	Path     string
+	Access   WorkspaceAccess
+	Create   bool
+	EnvFiles []string
 }
 
 // WorkspaceAccess controls permitted operations for a workspace root.
@@ -75,7 +77,7 @@ type Host struct {
 	process   *HostProcess
 	browser   BrowserManager
 	clarifier Clarifier
-	env       Environment
+	env       *WorkspaceEnvironment
 }
 
 // NewHost returns a host-backed system rooted at cfg.Root.
@@ -100,13 +102,17 @@ func NewHost(cfg Config) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	env, err := newWorkspaceEnvironment(workspace)
+	if err != nil {
+		return nil, err
+	}
 	return &Host{
 		workspace: workspace,
 		network:   &HostNetwork{allowPrivate: cfg.AllowPrivateNetwork},
-		process:   NewHostProcess(workspace),
+		process:   NewHostProcessWithEnvironment(workspace, env),
 		browser:   cfg.Browser,
 		clarifier: cfg.Clarifier,
-		env:       HostEnvironment{},
+		env:       env,
 	}, nil
 }
 
@@ -139,12 +145,14 @@ type Environment interface {
 	Lookup(context.Context, string) (string, bool, error)
 }
 
-// HostEnvironment implements Environment using os.Getenv.
-type HostEnvironment struct{}
+// HostEnvironment implements Environment using an explicitly allowed env set.
+type HostEnvironment struct {
+	values map[string]string
+}
 
-// Lookup returns the host environment variable value for key.
-func (HostEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
-	value, ok := os.LookupEnv(key)
+// Lookup returns an allowed environment variable value for key.
+func (e HostEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e.values[strings.TrimSpace(key)]
 	return value, ok, nil
 }
 
@@ -226,11 +234,12 @@ type HostWorkspace struct {
 }
 
 type workspaceRoot struct {
-	name  string
-	root  string
-	rel   string
-	read  bool
-	write bool
+	name     string
+	root     string
+	rel      string
+	read     bool
+	write    bool
+	envFiles []string
 }
 
 // Root returns the canonical workspace root.
@@ -265,9 +274,10 @@ func newHostWorkspace(primary string, cfg WorkspaceConfig) (*HostWorkspace, erro
 	w := &HostWorkspace{
 		root: primary,
 		roots: []workspaceRoot{{
-			root:  primary,
-			read:  true,
-			write: true,
+			root:     primary,
+			read:     true,
+			write:    true,
+			envFiles: trimStrings(cfg.EnvFiles),
 		}},
 		scratchRoot: strings.TrimSpace(cfg.ScratchRoot),
 	}
@@ -303,11 +313,12 @@ func newHostWorkspace(primary string, cfg WorkspaceConfig) (*HostWorkspace, erro
 			return nil, fmt.Errorf("workspace roots[%d].access: %w", i, err)
 		}
 		w.roots = append(w.roots, workspaceRoot{
-			name:  name,
-			root:  real,
-			rel:   "@" + name,
-			read:  read,
-			write: write,
+			name:     name,
+			root:     real,
+			rel:      "@" + name,
+			read:     read,
+			write:    write,
+			envFiles: trimStrings(rootCfg.EnvFiles),
 		})
 	}
 	if w.scratchRoot != "" {
@@ -1278,6 +1289,7 @@ type ProcessOutput struct {
 // HostProcess executes direct host processes without a shell interpreter.
 type HostProcess struct {
 	workspace *HostWorkspace
+	env       *WorkspaceEnvironment
 	mu        sync.Mutex
 	nextID    atomic.Uint64
 	procs     map[string]*managedProcess
@@ -1285,7 +1297,13 @@ type HostProcess struct {
 
 // NewHostProcess returns a host process manager.
 func NewHostProcess(workspace *HostWorkspace) *HostProcess {
-	return &HostProcess{workspace: workspace, procs: map[string]*managedProcess{}}
+	env, _ := newWorkspaceEnvironment(workspace)
+	return NewHostProcessWithEnvironment(workspace, env)
+}
+
+// NewHostProcessWithEnvironment returns a host process manager using env.
+func NewHostProcessWithEnvironment(workspace *HostWorkspace, env *WorkspaceEnvironment) *HostProcess {
+	return &HostProcess{workspace: workspace, env: env, procs: map[string]*managedProcess{}}
 }
 
 // Run executes one direct process and waits for completion.
@@ -1318,6 +1336,7 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 		runCtx, cancel = context.WithCancel(baseCtx)
 	}
 	workdir := p.workspace.Root()
+	processRoot := p.workspace.roots[0]
 	if strings.TrimSpace(req.Workdir) != "" {
 		resolved, err := p.workspace.ResolveProcessWorkdir(req.Workdir)
 		if err != nil {
@@ -1334,13 +1353,18 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 			return nil, fmt.Errorf("workdir is not a directory")
 		}
 		workdir = resolved.Abs
+		if root, ok := p.workspace.rootForAbs(workdir); ok {
+			processRoot = root
+		}
 	}
 	cmd := exec.CommandContext(runCtx, command, req.Args...)
 	cmd.Dir = workdir
-	cmd.Env = req.Env
-	if len(cmd.Env) == 0 {
-		cmd.Env = DefaultProcessEnv()
+	env, err := p.env.processEnv(processRoot, req.Env)
+	if err != nil {
+		cancel()
+		return nil, err
 	}
+	cmd.Env = env
 	configureCommandProcess(cmd)
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1581,9 +1605,8 @@ func positiveOr(value, fallback int) int {
 
 // DefaultProcessEnv returns a small environment for host process execution.
 func DefaultProcessEnv() []string {
-	keys := []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE"}
-	env := make([]string, 0, len(keys))
-	for _, key := range keys {
+	env := make([]string, 0, len(defaultProcessEnvKeys))
+	for _, key := range defaultProcessEnvKeys {
 		if value, ok := os.LookupEnv(key); ok {
 			env = append(env, key+"="+value)
 		}

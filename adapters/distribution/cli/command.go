@@ -55,6 +55,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 				Yolo:                opts.yolo,
 				Dev:                 opts.dev,
 				WorkspaceRoots:      opts.workspaceRoots,
+				EnvFiles:            opts.envFiles,
 				Prompt:              dist.Spec.Name,
 				In:                  os.Stdin,
 				Out:                 os.Stdout,
@@ -74,6 +75,7 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.PersistentFlags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.PersistentFlags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
+	cmd.PersistentFlags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	cmd.AddCommand(newDescribeCommand(dist))
 	cmd.AddCommand(newModelsCommand(dist))
 	return cmd
@@ -92,6 +94,7 @@ type options struct {
 	yolo             bool
 	dev              bool
 	workspaceRoots   []string
+	envFiles         []string
 }
 
 // RunOptions configures a distribution REPL or one-shot run.
@@ -114,6 +117,7 @@ type RunOptions struct {
 	Yolo                bool
 	Dev                 bool
 	WorkspaceRoots      []string
+	EnvFiles            []string
 	Prompt              string
 	In                  io.Reader
 	Out                 io.Writer
@@ -206,7 +210,7 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 		return nil, err
 	}
 	return dist.Runtime.OpenSession(ctx, distribution.OpenRequest{
-		Launch:       distribution.LaunchConfig{Workspace: distribution.WorkspaceConfig{Roots: roots}},
+		Launch:       distribution.LaunchConfig{Workspace: distribution.WorkspaceConfig{Roots: roots, EnvFiles: trimStrings(opts.EnvFiles)}},
 		Session:      coresession.Ref{Name: coresession.Name(strings.TrimSpace(opts.Session))},
 		Conversation: channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
 		Provider:     opts.Provider,
@@ -247,6 +251,19 @@ func writerOr(value io.Writer, fallback io.Writer) io.Writer {
 		return value
 	}
 	return fallback
+}
+
+func trimStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func newDescribeCommand(dist distribution.Distribution) *cobra.Command {

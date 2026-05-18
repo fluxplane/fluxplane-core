@@ -152,6 +152,34 @@ func TestRunCommandDefaultsPathToCurrentDirectory(t *testing.T) {
 	}
 }
 
+func TestRunCommandForwardsEnvFileFlags(t *testing.T) {
+	runtime := &fakeRunRuntime{}
+	loader := func(_ context.Context, path string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec: coredistribution.Spec{
+					Name:           "sample",
+					DefaultSession: coresession.Ref{Name: "main"},
+				},
+				Runtime: runtime,
+			},
+		}, nil
+	}
+	cmd := NewRunCommandWithLoader(loader)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--input", "hello", "--env-file", ".env", "--env-file=.env.local"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	files := runtime.request.Launch.Workspace.EnvFiles
+	if len(files) != 2 || files[0] != ".env" || files[1] != ".env.local" {
+		t.Fatalf("env files = %#v, want root env files", files)
+	}
+}
+
 func TestRunCommandRejectsInvalidThinking(t *testing.T) {
 	cmd := NewRunCommandWithLoader(func(context.Context, string) (distribution.Loaded, error) {
 		t.Fatal("loader should not be called")

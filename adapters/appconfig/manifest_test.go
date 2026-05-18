@@ -733,11 +733,16 @@ kind: app
 name: sample
 runtime:
   workspace:
+    env_files:
+      - .env
+      - .env.local
     roots:
       - name: tmp
         path: /tmp/agentruntime-sample
         access: read_write
         create: true
+        env_files:
+          - .env.tmp
     scratch_root: tmp
 `))
 	if err != nil {
@@ -749,12 +754,18 @@ runtime:
 	if file.Runtime.Workspace.ScratchRoot != "tmp" {
 		t.Fatalf("scratch root = %q, want tmp", file.Runtime.Workspace.ScratchRoot)
 	}
+	if got := file.Runtime.Workspace.EnvFiles; len(got) != 2 || got[0] != ".env" || got[1] != ".env.local" {
+		t.Fatalf("env files = %#v, want root env files", got)
+	}
 	if len(file.Runtime.Workspace.Roots) != 1 {
 		t.Fatalf("roots = %#v, want one root", file.Runtime.Workspace.Roots)
 	}
 	root := file.Runtime.Workspace.Roots[0]
 	if root.Name != "tmp" || root.Path != "/tmp/agentruntime-sample" || root.Access != "read_write" || !root.Create {
 		t.Fatalf("root = %#v, want tmp read_write create", root)
+	}
+	if len(root.EnvFiles) != 1 || root.EnvFiles[0] != ".env.tmp" {
+		t.Fatalf("root env files = %#v, want .env.tmp", root.EnvFiles)
 	}
 }
 

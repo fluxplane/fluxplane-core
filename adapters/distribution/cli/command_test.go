@@ -208,6 +208,30 @@ func TestCommandPropagatesWorkspaceRootFlags(t *testing.T) {
 	}
 }
 
+func TestCommandPropagatesEnvFileFlagsToRootWorkspace(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommand(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--env-file", ".env", "--env-file=.env.local"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	files := runtime.request.Launch.Workspace.EnvFiles
+	if len(files) != 2 || files[0] != ".env" || files[1] != ".env.local" {
+		t.Fatalf("env files = %#v, want root env files", files)
+	}
+}
+
 func TestCommandDoesNotSetDefaultEffort(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{

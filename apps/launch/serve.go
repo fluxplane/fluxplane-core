@@ -41,6 +41,7 @@ type Options struct {
 	AuthPath      string
 	Provider      string
 	Model         string
+	EnvFiles      []string
 	ModelResolver agentfactory.ModelResolver
 }
 
@@ -70,6 +71,7 @@ func Serve(ctx context.Context, opts Options) error {
 	if err := validateServeLaunch(loaded, opts.AppDir); err != nil {
 		return err
 	}
+	loaded.Launch.Workspace.EnvFiles = append(loaded.Launch.Workspace.EnvFiles, trimLaunchStrings(opts.EnvFiles)...)
 	return ServeDistribution(ctx, ServeDistributionOptions{
 		Root:                loaded.Root,
 		Spec:                loaded.Distribution.Spec,
@@ -216,6 +218,19 @@ func configureServeLogging(debug bool) {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+}
+
+func trimLaunchStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func slackAccess(doc orchestrationdistribution.Access) slackplugin.AccessPolicy {

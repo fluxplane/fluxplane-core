@@ -381,6 +381,16 @@ func (f File) Validate() error {
 		default:
 			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].access must be read_only or read_write", i)
 		}
+		for j, envFile := range root.EnvFiles {
+			if strings.TrimSpace(envFile) == "" {
+				return fmt.Errorf("appconfig: runtime.workspace.roots[%d].env_files[%d] is empty", i, j)
+			}
+		}
+	}
+	for i, envFile := range f.Runtime.Workspace.EnvFiles {
+		if strings.TrimSpace(envFile) == "" {
+			return fmt.Errorf("appconfig: runtime.workspace.env_files[%d] is empty", i)
+		}
 	}
 	for i, listener := range f.Daemon.Listeners {
 		if strings.TrimSpace(listener.Name) == "" {
@@ -566,13 +576,15 @@ type RuntimeConfig struct {
 type WorkspaceConfig struct {
 	Roots       []WorkspaceRootDoc `json:"roots,omitempty" yaml:"roots,omitempty"`
 	ScratchRoot string             `json:"scratch_root,omitempty" yaml:"scratch_root,omitempty"`
+	EnvFiles    []string           `json:"env_files,omitempty" yaml:"env_files,omitempty"`
 }
 
 type WorkspaceRootDoc struct {
-	Name   string `json:"name" yaml:"name"`
-	Path   string `json:"path" yaml:"path"`
-	Access string `json:"access,omitempty" yaml:"access,omitempty"`
-	Create bool   `json:"create,omitempty" yaml:"create,omitempty"`
+	Name     string   `json:"name" yaml:"name"`
+	Path     string   `json:"path" yaml:"path"`
+	Access   string   `json:"access,omitempty" yaml:"access,omitempty"`
+	Create   bool     `json:"create,omitempty" yaml:"create,omitempty"`
+	EnvFiles []string `json:"env_files,omitempty" yaml:"env_files,omitempty"`
 }
 
 type modelConfigDoc struct {

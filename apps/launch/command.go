@@ -13,6 +13,7 @@ type serveCommandOptions struct {
 	authPath string
 	provider string
 	model    string
+	envFiles []string
 }
 
 type ServeRunner func(context.Context, Options) error
@@ -43,6 +44,7 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 				AuthPath: opts.authPath,
 				Provider: opts.provider,
 				Model:    opts.model,
+				EnvFiles: opts.envFiles,
 			})
 		},
 	}
@@ -52,5 +54,6 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served sessions")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
+	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	return cmd
 }

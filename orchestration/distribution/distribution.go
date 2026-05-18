@@ -42,14 +42,16 @@ type LaunchConfig struct {
 type WorkspaceConfig struct {
 	Roots       []WorkspaceRoot
 	ScratchRoot string
+	EnvFiles    []string
 }
 
 // WorkspaceRoot describes one additional local workspace root.
 type WorkspaceRoot struct {
-	Name   string
-	Path   string
-	Access string
-	Create bool
+	Name     string
+	Path     string
+	Access   string
+	Create   bool
+	EnvFiles []string
 }
 
 // ParseWorkspaceRoots parses repeated local workspace root flag values. Values

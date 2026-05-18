@@ -202,6 +202,9 @@ func mergeLaunchConfig(base, override distribution.LaunchConfig) distribution.La
 	if len(override.Workspace.Roots) > 0 {
 		base.Workspace.Roots = append(base.Workspace.Roots, override.Workspace.Roots...)
 	}
+	if len(override.Workspace.EnvFiles) > 0 {
+		base.Workspace.EnvFiles = append(base.Workspace.EnvFiles, override.Workspace.EnvFiles...)
+	}
 	if strings.TrimSpace(override.Workspace.ScratchRoot) != "" {
 		base.Workspace.ScratchRoot = override.Workspace.ScratchRoot
 	}
@@ -422,13 +425,17 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 }
 
 func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) system.WorkspaceConfig {
-	out := system.WorkspaceConfig{ScratchRoot: strings.TrimSpace(cfg.ScratchRoot)}
+	out := system.WorkspaceConfig{
+		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
+		EnvFiles:    trimLaunchStrings(cfg.EnvFiles),
+	}
 	for _, root := range cfg.Roots {
 		out.Roots = append(out.Roots, system.WorkspaceRootConfig{
-			Name:   strings.TrimSpace(root.Name),
-			Path:   strings.TrimSpace(root.Path),
-			Access: system.WorkspaceAccess(strings.TrimSpace(root.Access)),
-			Create: root.Create,
+			Name:     strings.TrimSpace(root.Name),
+			Path:     strings.TrimSpace(root.Path),
+			Access:   system.WorkspaceAccess(strings.TrimSpace(root.Access)),
+			Create:   root.Create,
+			EnvFiles: trimLaunchStrings(root.EnvFiles),
 		})
 	}
 	return out

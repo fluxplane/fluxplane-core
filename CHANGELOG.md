@@ -73,10 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repository tree entries, repository files, jobs, and bounded job traces.
 - Added reusable datasource field-index lookup helpers for indexed record search,
   exact lookup, pagination, and shared index readiness errors.
-
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary
   context and project inventory discovery under named `@root/...` prefixes.
+- Added opt-in workspace-scoped env file loading via runtime workspace config
+  and repeated `--env-file` flags for local run and serve commands.
 
 ### Changed
 

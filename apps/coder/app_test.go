@@ -61,6 +61,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "--workspace-root") {
 		t.Fatalf("help = %q, want workspace-root flag", help)
 	}
+	if !strings.Contains(help, "--env-file") {
+		t.Fatalf("help = %q, want env-file flag", help)
+	}
 	if !strings.Contains(help, "discover") {
 		t.Fatalf("help = %q, want discover command", help)
 	}
@@ -95,6 +98,9 @@ func TestServeCommandHasWorkspaceRootFlag(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "--workspace-root") {
 		t.Fatalf("help = %q, want workspace-root flag", out.String())
+	}
+	if !strings.Contains(out.String(), "--env-file") {
+		t.Fatalf("help = %q, want env-file flag", out.String())
 	}
 }
 

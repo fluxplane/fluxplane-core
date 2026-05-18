@@ -336,13 +336,17 @@ func launchConfig(file appconfig.File) distribution.LaunchConfig {
 }
 
 func workspace(doc appconfig.WorkspaceConfig) distribution.WorkspaceConfig {
-	out := distribution.WorkspaceConfig{ScratchRoot: strings.TrimSpace(doc.ScratchRoot)}
+	out := distribution.WorkspaceConfig{
+		ScratchRoot: strings.TrimSpace(doc.ScratchRoot),
+		EnvFiles:    trimStringSlice(doc.EnvFiles),
+	}
 	for _, root := range doc.Roots {
 		out.Roots = append(out.Roots, distribution.WorkspaceRoot{
-			Name:   strings.TrimSpace(root.Name),
-			Path:   strings.TrimSpace(root.Path),
-			Access: strings.TrimSpace(root.Access),
-			Create: root.Create,
+			Name:     strings.TrimSpace(root.Name),
+			Path:     strings.TrimSpace(root.Path),
+			Access:   strings.TrimSpace(root.Access),
+			Create:   root.Create,
+			EnvFiles: trimStringSlice(root.EnvFiles),
 		})
 	}
 	return out
@@ -406,6 +410,19 @@ func cloneStringMap(input map[string]string) map[string]string {
 	out := make(map[string]string, len(input))
 	for key, value := range input {
 		out[key] = value
+	}
+	return out
+}
+
+func trimStringSlice(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(input))
+	for _, value := range input {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
 	}
 	return out
 }

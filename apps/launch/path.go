@@ -32,6 +32,7 @@ type RunPathOptions struct {
 	Yolo                bool
 	Dev                 bool
 	AuthPath            string
+	EnvFiles            []string
 	In                  io.Reader
 	Out                 io.Writer
 	Err                 io.Writer
@@ -79,6 +80,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		Usage:               opts.Usage,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
+		EnvFiles:            opts.EnvFiles,
 		Prompt:              loaded.Distribution.Spec.Name,
 		In:                  opts.In,
 		Out:                 opts.Out,
@@ -101,6 +103,7 @@ type runCommandOptions struct {
 	yolo             bool
 	dev              bool
 	authPath         string
+	envFiles         []string
 }
 
 func NewRunCommand() *cobra.Command {
@@ -140,6 +143,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Yolo:                opts.yolo,
 				Dev:                 opts.dev,
 				AuthPath:            opts.authPath,
+				EnvFiles:            opts.envFiles,
 				In:                  cmd.InOrStdin(),
 				Out:                 cmd.OutOrStdout(),
 				Err:                 cmd.ErrOrStderr(),
@@ -160,5 +164,6 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
+	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	return cmd
 }

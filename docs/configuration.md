@@ -188,11 +188,16 @@ they resolve inside the app root or a configured extra root.
 ```yaml
 runtime:
   workspace:
+    env_files:
+      - .env
+      - .env.local
     roots:
       - name: tmp
         path: /tmp/agentruntime-demo
         access: read_write
         create: true
+        env_files:
+          - .env.tmp
     scratch_root: tmp
 ```
 
@@ -204,6 +209,10 @@ Fields:
 - `roots[].access` accepts `read_write` or `read_only`; omitted access defaults
   to `read_write`.
 - `roots[].create` creates the directory at launch when it does not exist.
+- `env_files` lists root workspace env files or globs to load into the runtime
+  system boundary. Repeated CLI `--env-file` values are appended to this root
+  list only.
+- `roots[].env_files` lists env files or globs scoped to that named root.
 - `scratch_root` chooses the named root used by runtime-owned scratch
   directories, such as generated image outputs.
 
@@ -211,6 +220,12 @@ With the example above, `file_create` may write `@tmp/report.txt` or
 `/tmp/agentruntime-demo/report.txt`. It still cannot write arbitrary files
 elsewhere under `/tmp`, and symlinks that escape the configured root are
 rejected.
+
+Env files are opt-in. There is no implicit `.env` loading. Within one
+workspace, env files are applied in order and later values win; values are not
+merged between root and named workspaces. Child processes launched through
+`runtime/system.System` receive only the minimal runtime baseline plus the env
+set for their resolved workspace root.
 
 ### Agents
 

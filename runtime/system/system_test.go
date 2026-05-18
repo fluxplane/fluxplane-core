@@ -324,6 +324,108 @@ func TestHostProcessRejectsReadOnlyNamedRootWorkdir(t *testing.T) {
 	}
 }
 
+func TestHostEnvironmentLoadsRootEnvFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ROOT_TOKEN=root\nSHARED=first\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env.local"), []byte("SHARED=last\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sys, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env", ".env.*"}}})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	value, ok, err := sys.Environment().Lookup(context.Background(), "ROOT_TOKEN")
+	if err != nil || !ok || value != "root" {
+		t.Fatalf("Lookup ROOT_TOKEN = %q, %v, %v; want root, true, nil", value, ok, err)
+	}
+	value, ok, err = sys.Environment().Lookup(context.Background(), "SHARED")
+	if err != nil || !ok || value != "last" {
+		t.Fatalf("Lookup SHARED = %q, %v, %v; want last, true, nil", value, ok, err)
+	}
+}
+
+func TestHostProcessUsesWorkspaceScopedEnvFiles(t *testing.T) {
+	root := t.TempDir()
+	named := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ROOT_ONLY=root\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(named, ".env"), []byte("NAMED_ONLY=named\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sys, err := NewHost(Config{
+		Root: root,
+		Workspace: WorkspaceConfig{
+			EnvFiles: []string{".env"},
+			Roots: []WorkspaceRootConfig{{
+				Name:     "named",
+				Path:     named,
+				Access:   WorkspaceAccessReadWrite,
+				EnvFiles: []string{".env"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	rootRun, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("Run root env: %v", err)
+	}
+	if !strings.Contains(rootRun.Stdout, "ROOT_ONLY=root\n") || strings.Contains(rootRun.Stdout, "NAMED_ONLY=named\n") {
+		t.Fatalf("root env stdout = %q, want only root env", rootRun.Stdout)
+	}
+
+	namedRun, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Workdir: "@named", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("Run named env: %v", err)
+	}
+	if !strings.Contains(namedRun.Stdout, "NAMED_ONLY=named\n") || strings.Contains(namedRun.Stdout, "ROOT_ONLY=root\n") {
+		t.Fatalf("named env stdout = %q, want only named env", namedRun.Stdout)
+	}
+}
+
+func TestHostProcessRejectsUnknownEnvOverride(t *testing.T) {
+	sys, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	_, err = sys.Process().Run(context.Background(), ProcessRequest{
+		Command: "env",
+		Env:     []string{"UNCONFIGURED_SECRET=value"},
+		Timeout: time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), `process env key "UNCONFIGURED_SECRET" is not allowed`) {
+		t.Fatalf("Run error = %v, want disallowed env key", err)
+	}
+}
+
+func TestHostProcessAllowsConfiguredAndToolchainEnvOverrides(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("CONFIGURED=value\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sys, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	run, err := sys.Process().Run(context.Background(), ProcessRequest{
+		Command: "env",
+		Env:     []string{"CONFIGURED=override", "GOOS=testos"},
+		Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(run.Stdout, "CONFIGURED=override\n") || !strings.Contains(run.Stdout, "GOOS=testos\n") {
+		t.Fatalf("stdout = %q, want configured and toolchain overrides", run.Stdout)
+	}
+}
+
 func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	root := t.TempDir()
 	tmp := filepath.Join(t.TempDir(), "scratch")
@@ -469,8 +571,11 @@ func TestAuthorizedSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 }
 
 func TestAuthorizedSystemEnforcesEnvironmentSecretRead(t *testing.T) {
-	t.Setenv("AGENTRUNTIME_SYSTEM_TEST_SECRET", "secret")
-	host, err := NewHost(Config{Root: t.TempDir()})
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("AGENTRUNTIME_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}

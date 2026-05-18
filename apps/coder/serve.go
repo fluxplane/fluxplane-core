@@ -21,6 +21,7 @@ type serveOptions struct {
 	yolo           bool
 	model          string
 	workspaceRoots []string
+	envFiles       []string
 }
 
 func newServeCommand(startup startupResources) *cobra.Command {
@@ -41,6 +42,7 @@ func newServeCommand(startup startupResources) *cobra.Command {
 			}
 			launchConfig := coderServeLaunch(addr)
 			launchConfig.Workspace.Roots = append(launchConfig.Workspace.Roots, roots...)
+			launchConfig.Workspace.EnvFiles = append(launchConfig.Workspace.EnvFiles, trimCoderServeStrings(opts.envFiles)...)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coder serve listening on unix:%s\n", addr)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "base_url: http://unix\n")
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "session: %s\n", SessionName)
@@ -74,6 +76,7 @@ func newServeCommand(startup startupResources) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.model, "model", DefaultModel, "model name or provider/model")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
+	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	return cmd
 }
 
@@ -118,4 +121,17 @@ func coderServeSocketPath(value string) string {
 	}
 	name := fmt.Sprintf("agentruntime-coder-%d.sock", os.Getuid())
 	return filepath.Join(base, name)
+}
+
+func trimCoderServeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
