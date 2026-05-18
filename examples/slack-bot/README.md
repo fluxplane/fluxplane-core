@@ -19,6 +19,9 @@ agentsdk remote --app examples/slack-bot --input "hello from local"
 The `slack-bot` connector instance supplies the bot token and Socket Mode app token.
 The Slack channel itself uses native Slack APIs rather than connector operation
 execution.
+The Jira datasource uses native Atlassian auth. For service-account deployments,
+configure the Jira plugin with `auth.method: token` and set `auth.token_env` to
+the runtime bearer token environment variable.
 
 The configured datasources expose Slack users, channels, and messages, GitLab
 projects, Jira issues and projects, local markdown/text files, and public web
@@ -82,13 +85,13 @@ Slack app requirements:
 - Event Subscriptions enabled with bot events: `app_mention`, `message.im`,
   `message.channels`, `message.groups`, and `message.mpim`.
 
-Connector datasource scopes:
+Connector and native datasource scopes:
 
 - Slack message search requires `search:read`.
 - Slack channel discovery requires `channels:read`, `groups:read`, `im:read`,
   and `mpim:read`.
 - Slack channel membership requires `channels:read` and `groups:read`.
-- Jira project discovery requires `read:jira-work`.
+- Jira issue and project discovery requires `read:jira-work`.
 
 If serve logs `slack channel connected` but never logs
 `slack channel event received` after a DM or mention, Slack is not delivering

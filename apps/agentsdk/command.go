@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	connectcli "github.com/fluxplane/agentruntime/adapters/connectors/cli"
+	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
 	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/apps/evaluator"
@@ -14,7 +14,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/spf13/cobra"
@@ -46,7 +45,10 @@ func NewCommand() *cobra.Command {
 		DefaultSocket:       defaultRemoteSocket,
 		Events:              mustTerminalEventRegistry(),
 	}))
-	cmd.AddCommand(connectcli.NewCommand(connectorPluginRegistry))
+	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
+		NativeRegistry:    launch.AuthPluginRegistry,
+		ConnectorRegistry: connectorPluginRegistry,
+	}))
 	cmd.AddCommand(newDatasourceCommand())
 	cmd.AddCommand(newDiscoverCommand())
 	return cmd
@@ -56,7 +58,6 @@ func connectorPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
 		openaiplugin.New(),
 		slackplugin.New(nil),
-		jiraplugin.New(nil, nil),
 	}, nil
 }
 

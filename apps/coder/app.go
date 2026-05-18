@@ -4,6 +4,7 @@ import (
 	"context"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
 	"github.com/fluxplane/agentruntime/apps/launch"
@@ -28,6 +29,9 @@ const defaultConversation = "agentsdk-coder"
 func NewCommand() *cobra.Command {
 	startup := loadStartupResources(context.Background())
 	cmd := distcli.NewCommand(distributionFromStartup(startup))
+	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
+		NativeRegistry: launch.AuthPluginRegistry,
+	}))
 	cmd.AddCommand(newDiscoverCommand(startup))
 	cmd.AddCommand(newServeCommand(startup))
 	return cmd

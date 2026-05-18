@@ -463,12 +463,23 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
 		gitlabplugin.New(hostSystem),
 		imageplugin.New(hostSystem),
-		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
+		jiraplugin.New(hostSystem),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),
 		textplugin.New(),
 		webplugin.New(hostSystem),
 	}
+}
+
+// AuthPluginRegistry returns first-party plugins that expose auth declarations
+// for distribution-level connect commands.
+func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
+	return []pluginhost.Plugin{
+		openaiplugin.New(),
+		slackplugin.New(nil),
+		gitlabplugin.New(nil),
+		jiraplugin.New(nil),
+	}, nil
 }
 
 func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {
@@ -651,7 +662,6 @@ func connectorProviderNames(ctx context.Context) ([]string, error) {
 	plugins := []pluginhost.Plugin{
 		openaiplugin.New(),
 		slackplugin.New(nil),
-		jiraplugin.New(nil, nil),
 	}
 	seen := map[string]bool{}
 	var names []string

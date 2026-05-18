@@ -311,6 +311,11 @@ than once with `instance` and per-instance `config`.
 plugins:
   - kind: slack
   - kind: jira
+    config:
+      cloud_id: your-atlassian-cloud-id
+      site_url: https://company.atlassian.net
+      auth:
+        method: oauth2
   - kind: web
   - kind: gitlab
     instance: company-a
@@ -322,13 +327,14 @@ plugins:
 connectors:
   slack-main:
     kind: slack
-  jira:
-    kind: jira
 ```
 
 Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `agentsdk connect`. Native GitLab instances declare a
-`personal_access_token` env auth method and OAuth2 metadata. When
+credentials with `agentsdk connect`. Native Jira uses Atlassian OAuth2 stored
+credentials from `agentsdk connect jira --instance jira`; service-account
+deployments can set `auth.method: token` and `auth.token_env` for a bearer
+token environment variable. Native GitLab instances declare a
+`personal_access_token` env auth method and OAuth2 metadata. When GitLab
 `auth.token_env` is set, it is the configured environment-variable address for
 that instance. When it is omitted, the resolver probes the advertised aliases:
 `GITLAB_ACCESS_TOKEN`, `GITLAB_PERSONAL_ACCESS_TOKEN`,

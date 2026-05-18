@@ -46,13 +46,14 @@ plugins:
     config:
       base_url: https://gitlab.example.com
   - kind: jira
+    config:
+      auth:
+        method: oauth2
   - kind: web
 
 connectors:
   slack-bot:
     kind: slack
-  jira:
-    kind: jira
 
 datasource:
   index:
@@ -86,12 +87,11 @@ datasource:
       description: GitLab projects and merge request review data visible to the configured plugin instance.
 
     - name: jira
-      connector: jira
       kind: jira
       entities:
         - jira.issue
         - jira.project
-      description: Jira issues visible to the configured connector.
+      description: Jira issues visible to the configured native plugin instance.
 
     - name: local-docs
       kind: filesystem
