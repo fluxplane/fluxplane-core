@@ -71,13 +71,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Go client instead of the connector plugin bridge.
 - Slack message context now separates resolved sender identity from
   Slack-specific audience trust, so sender trust is provided by core identity
-  context while channel sharing remains conservative.
+  context while channel sharing remains conservative; one-to-one DMs omit
+  audience trust.
 - GitLab personal access tokens are resolved through plugin-instance auth
   requests. A configured `auth.token_env` is used directly; otherwise the
   resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.
 - Slack identity resolution now prefers connector user-token profile access for
   email lookup before falling back to bot-token `users.info`, so Slack users can
   resolve to canonical email users when the connected workspace grants profile
+- Datasource search now treats `index: true` datasources as index-backed:
+  searches read the local datasource index instead of falling back to provider
+  APIs, and launch starts a background index warmup for those datasources.
   email access.
 - App manifests now declare plugin type with `plugins[].kind` instead of
   `plugins[].name`.

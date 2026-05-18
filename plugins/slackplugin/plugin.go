@@ -875,7 +875,7 @@ type slackContextPayload struct {
 }
 
 func slackInputContent(msg inboundMessage, audienceTrust user.TrustLevel, sharing string) slackInputPayload {
-	return slackInputPayload{
+	payload := slackInputPayload{
 		Text: msg.Text,
 		SlackContext: slackContextPayload{
 			ChannelID:       msg.ChannelID,
@@ -884,10 +884,13 @@ func slackInputContent(msg inboundMessage, audienceTrust user.TrustLevel, sharin
 			TeamID:          msg.TeamID,
 			InteractionKind: msg.Kind,
 			IsDirect:        msg.IsDirect,
-			AudienceTrust:   user.NormalizeTrust(audienceTrust),
 			Sharing:         firstNonEmpty(sharing, "strict"),
 		},
 	}
+	if !isDirectSlackMessage(msg) {
+		payload.SlackContext.AudienceTrust = user.NormalizeTrust(audienceTrust)
+	}
+	return payload
 }
 
 type AccessPolicy struct {
@@ -935,7 +938,7 @@ func (p AccessPolicy) TrustFor(msg inboundMessage) user.TrustLevel {
 }
 
 func (p AccessPolicy) AudienceTrustFor(msg inboundMessage) user.TrustLevel {
-	if msg.IsDirect || msg.Kind == "dm" {
+	if isDirectSlackMessage(msg) {
 		return p.TrustFor(msg)
 	}
 	switch {
@@ -944,6 +947,10 @@ func (p AccessPolicy) AudienceTrustFor(msg inboundMessage) user.TrustLevel {
 	default:
 		return user.NormalizeTrust(p.DefaultTrust)
 	}
+}
+
+func isDirectSlackMessage(msg inboundMessage) bool {
+	return msg.IsDirect || msg.Kind == "dm"
 }
 
 func contains(values []string, value string) bool {

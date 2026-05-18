@@ -117,8 +117,8 @@ for the current turn.
 
 For Slack apps, sender identity and trust should come from resolved core
 identity context, not from Slack message metadata. Slack-specific audience trust
-is a sharing constraint for the conversation and stays separate from the
-sender's effective trust.
+is a sharing constraint for shared conversations and stays separate from the
+sender's effective trust; one-to-one DMs omit audience trust.
 
 Commands, workflows, and operation declarations can also be separate
 multi-document resources:
@@ -320,6 +320,7 @@ Datasources define searchable or retrievable entity sets.
 datasources:
   - name: local-docs
     kind: filesystem
+    index: true
     entities:
       - file.document
     description: Local markdown and text files.
@@ -328,6 +329,11 @@ datasources:
     semantic:
       enabled: true
 ```
+
+Set `index: true` when `datasource_search` should use the local datasource
+index instead of provider APIs. Build the index with
+`agentsdk datasource index build`; `agentsdk serve` also starts a background
+warmup for indexed datasources.
 
 Connector-backed datasources reference a connector instance:
 
@@ -348,6 +354,7 @@ Native GitLab datasources reference the named GitLab plugin instance:
 datasources:
   - name: company-a-gitlab
     kind: gitlab
+    index: true
     entities:
       - gitlab.project
       - gitlab.merge_request

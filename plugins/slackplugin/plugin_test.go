@@ -99,6 +99,25 @@ func TestSlackInputContentKeepsAudienceTrustOutOfSenderIdentity(t *testing.T) {
 	}
 }
 
+func TestSlackInputContentOmitsAudienceTrustForDirectMessages(t *testing.T) {
+	content := slackInputContent(inboundMessage{
+		Text:      "hello",
+		UserID:    "Uadmin",
+		ChannelID: "D1",
+		ThreadTS:  "111.222",
+		TeamID:    "T1",
+		Kind:      "dm",
+		IsDirect:  true,
+	}, user.TrustOperator, "strict")
+	data, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	if strings.Contains(string(data), "audience_trust") {
+		t.Fatalf("content JSON = %s, want no audience_trust for direct message", data)
+	}
+}
+
 func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	dispatcher := NewDispatcher()
 	poster := &fakePoster{}
@@ -353,8 +372,8 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	if !ok {
 		t.Fatalf("input content = %#v, want slackInputPayload", session.submission.Input.Content)
 	}
-	if content.SlackContext.AudienceTrust != user.TrustOperator {
-		t.Fatalf("audience trust = %q, want operator for direct admin conversation", content.SlackContext.AudienceTrust)
+	if content.SlackContext.AudienceTrust != "" {
+		t.Fatalf("audience trust = %q, want empty for direct admin conversation", content.SlackContext.AudienceTrust)
 	}
 }
 

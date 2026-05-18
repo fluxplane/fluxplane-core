@@ -64,8 +64,9 @@ visible to the runtime and model.
 Slack context distinguishes the sender from the audience. The sender's
 canonical identity, groups, and trust come from `identity.current`; the Slack
 message context only carries conversation metadata such as channel/thread IDs,
-sharing mode, and audience trust. A privileged sender in a shared channel does
-not make the channel audience privileged.
+sharing mode, and audience trust for shared conversations. One-to-one DMs omit
+audience trust. A privileged sender in a shared channel does not make the
+channel audience privileged.
 
 Slack app requirements:
 
