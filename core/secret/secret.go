@@ -116,15 +116,16 @@ func (r AuthRequest) SecretRef() Ref {
 // AuthMethodSpec describes a way a plugin can authenticate without carrying
 // credentials.
 type AuthMethodSpec struct {
-	Name        string         `json:"name" yaml:"name"`
-	Method      AuthMethodKind `json:"method" yaml:"method"`
-	Kind        Kind           `json:"kind" yaml:"kind"`
-	DisplayName string         `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Description string         `json:"description,omitempty" yaml:"description,omitempty"`
-	Secret      Ref            `json:"secret,omitempty" yaml:"secret,omitempty"`
-	Env         EnvSpec        `json:"env,omitempty" yaml:"env,omitempty"`
-	Header      HeaderSpec     `json:"header,omitempty" yaml:"header,omitempty"`
-	OAuth2      OAuth2Spec     `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
+	Name        string           `json:"name" yaml:"name"`
+	Method      AuthMethodKind   `json:"method" yaml:"method"`
+	Kind        Kind             `json:"kind" yaml:"kind"`
+	DisplayName string           `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string           `json:"description,omitempty" yaml:"description,omitempty"`
+	Secret      Ref              `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Env         EnvSpec          `json:"env,omitempty" yaml:"env,omitempty"`
+	Header      HeaderSpec       `json:"header,omitempty" yaml:"header,omitempty"`
+	OAuth2      OAuth2Spec       `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
+	SetupFields []SetupFieldSpec `json:"setup_fields,omitempty" yaml:"setup_fields,omitempty"`
 }
 
 // EnvSpec describes an environment-variable backed auth method. Name is the
@@ -142,10 +143,22 @@ type HeaderSpec struct {
 
 // OAuth2Spec describes OAuth2 authorization-code endpoints and scopes.
 type OAuth2Spec struct {
-	AuthorizeURL string   `json:"authorize_url,omitempty" yaml:"authorize_url,omitempty"`
-	TokenURL     string   `json:"token_url,omitempty" yaml:"token_url,omitempty"`
-	RefreshURL   string   `json:"refresh_url,omitempty" yaml:"refresh_url,omitempty"`
-	Scopes       []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	AuthorizeURL string            `json:"authorize_url,omitempty" yaml:"authorize_url,omitempty"`
+	TokenURL     string            `json:"token_url,omitempty" yaml:"token_url,omitempty"`
+	RefreshURL   string            `json:"refresh_url,omitempty" yaml:"refresh_url,omitempty"`
+	Scopes       []string          `json:"scopes,omitempty" yaml:"scopes,omitempty"`
+	ExtraParams  map[string]string `json:"extra_params,omitempty" yaml:"extra_params,omitempty"`
+}
+
+// SetupFieldSpec describes non-model-visible setup inputs needed to establish
+// an auth method.
+type SetupFieldSpec struct {
+	Name        string  `json:"name" yaml:"name"`
+	DisplayName string  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string  `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool    `json:"required,omitempty" yaml:"required,omitempty"`
+	Sensitive   bool    `json:"sensitive,omitempty" yaml:"sensitive,omitempty"`
+	Env         EnvSpec `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 // Placeholder is the model-visible opaque secret token.
