@@ -80,6 +80,7 @@ datasource:
         - gitlab.merge_request_note
         - gitlab.pipeline
         - gitlab.user
+        - gitlab.group
       config:
         instance: main
       description: GitLab projects and merge request review data visible to the configured plugin instance.

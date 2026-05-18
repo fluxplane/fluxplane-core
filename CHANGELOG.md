@@ -94,6 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vector documents. GitLab indexes projects and users through structured fields,
   so project slug and user searches hit the local index without embedding
   GitLab content.
+- GitLab datasources now expose `gitlab.group`, including structured field
+  indexing and a `gitlab.user` to `gitlab.group` relationship.
 - App manifests now group datasource configuration under `datasource`, with
   global `datasource.index` defaults and per-datasource `index.enabled` and
   `index.freshness` options.

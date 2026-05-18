@@ -516,13 +516,169 @@ func TestDatasourceProviderGetsUser(t *testing.T) {
 	}
 }
 
+func TestDatasourceProviderSearchesGroups(t *testing.T) {
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				groups: []*gitlab.Group{{
+					ID:          7,
+					Name:        "Platform",
+					Path:        "platform",
+					FullPath:    "engineering/platform",
+					FullName:    "Engineering / Platform",
+					Description: "Platform group",
+					WebURL:      "https://gitlab.example/groups/engineering/platform",
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{GroupEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{Entity: GroupEntity, Query: "platform"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if strings.Join(calls, ",") != "list_groups" {
+		t.Fatalf("calls = %#v, want list_groups", calls)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "engineering/platform" || result.Records[0].Metadata["full_path"] != "engineering/platform" {
+		t.Fatalf("records = %#v, want GitLab group", result.Records)
+	}
+}
+
+func TestDatasourceProviderIndexedSearchUsesGroupFieldIndex(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{ModelName: "test-embedding"}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	_, err = index.UpdateRecord(context.Background(), coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "company-a-gitlab", Entity: GroupEntity, ID: "engineering/platform"},
+		Title: "engineering/platform",
+		Body:  "Engineering Platform",
+		Metadata: map[string]string{
+			"id":        "7",
+			"name":      "Platform",
+			"path":      "platform",
+			"full_path": "engineering/platform",
+			"full_name": "Engineering / Platform",
+		},
+	}, groupEntitySpec())
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{calls: &calls}, nil
+		},
+	}
+	provider = provider.WithSemanticIndex(index).(gitlabDatasourceProvider)
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{GroupEntity},
+		Config:   map[string]string{"instance": "company-a"},
+		Index:    coredatasource.IndexSpec{Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{Entity: GroupEntity, Query: "engineering/platform"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("GitLab API calls = %#v, want none", calls)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "engineering/platform" || result.Records[0].Entity != GroupEntity {
+		t.Fatalf("records = %#v, want indexed GitLab group", result.Records)
+	}
+}
+
+func TestDatasourceProviderCorpusIncludesGroups(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{groups: []*gitlab.Group{{
+				ID:       7,
+				Name:     "Platform",
+				Path:     "platform",
+				FullPath: "engineering/platform",
+				FullName: "Engineering / Platform",
+				WebURL:   "https://gitlab.example/groups/engineering/platform",
+			}}}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{GroupEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: GroupEntity})
+	if err != nil {
+		t.Fatalf("Corpus: %v", err)
+	}
+	if len(page.Documents) != 1 || page.Documents[0].Ref.ID != "engineering/platform" || page.Documents[0].Metadata["full_path"] != "engineering/platform" {
+		t.Fatalf("documents = %#v, want GitLab group corpus document", page.Documents)
+	}
+}
+
+func TestDatasourceProviderGetsGroup(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{groups: []*gitlab.Group{{
+				ID:       7,
+				Name:     "Platform",
+				Path:     "platform",
+				FullPath: "engineering/platform",
+			}}}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{GroupEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: GroupEntity, ID: "engineering/platform"})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.ID != "engineering/platform" || record.Metadata["name"] != "Platform" {
+		t.Fatalf("record = %#v, want GitLab group", record)
+	}
+}
+
 func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	provider := gitlabDatasourceProvider{}
 	entities := map[coredatasource.EntityType]coredatasource.EntitySpec{}
 	for _, entity := range provider.Entities() {
 		entities[entity.Type] = entity
 	}
-	for _, want := range []coredatasource.EntityType{ProjectEntity, MergeRequestEntity, MergeRequestDiffEntity, MergeRequestNoteEntity, PipelineEntity, UserEntity} {
+	for _, want := range []coredatasource.EntityType{ProjectEntity, MergeRequestEntity, MergeRequestDiffEntity, MergeRequestNoteEntity, PipelineEntity, UserEntity, GroupEntity} {
 		if _, ok := entities[want]; !ok {
 			t.Fatalf("entities = %#v, missing %s", entities, want)
 		}
@@ -532,6 +688,9 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	}
 	if !hasCapability(entities[UserEntity], coredatasource.EntityCapabilitySearch) || !hasCapability(entities[UserEntity], coredatasource.EntityCapabilityGet) || !hasCapability(entities[UserEntity], coredatasource.EntityCapabilityIndex) {
 		t.Fatalf("user capabilities = %#v, want search/get/index", entities[UserEntity].Capabilities)
+	}
+	if !hasCapability(entities[GroupEntity], coredatasource.EntityCapabilitySearch) || !hasCapability(entities[GroupEntity], coredatasource.EntityCapabilityGet) || !hasCapability(entities[GroupEntity], coredatasource.EntityCapabilityIndex) {
+		t.Fatalf("group capabilities = %#v, want search/get/index", entities[GroupEntity].Capabilities)
 	}
 	for typ, entity := range entities {
 		if hasCapability(entity, coredatasource.EntityCapabilitySemanticSearch) {
@@ -553,6 +712,13 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		if relations[name] != target {
 			t.Fatalf("relation %s = %s, want %s", name, relations[name], target)
 		}
+	}
+	userRelations := map[string]coredatasource.EntityType{}
+	for _, relation := range entities[UserEntity].Relations {
+		userRelations[relation.Name] = relation.TargetEntity
+	}
+	if userRelations["groups"] != GroupEntity {
+		t.Fatalf("user groups relation = %s, want %s", userRelations["groups"], GroupEntity)
 	}
 }
 
@@ -627,6 +793,42 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 	}
 }
 
+func TestDatasourceRelationsReturnUserGroups(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return &fakeGitLabClient{
+				memberships: []*gitlab.UserMembership{{
+					SourceID:    7,
+					SourceName:  "Engineering / Platform",
+					SourceType:  "Namespace",
+					AccessLevel: gitlab.DeveloperPermissions,
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{UserEntity, GroupEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Relationer).Relation(context.Background(), coredatasource.RelationRequest{Entity: UserEntity, ID: "42", Relation: "groups"})
+	if err != nil {
+		t.Fatalf("user groups Relation: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].Entity != GroupEntity || result.Records[0].ID != "7" {
+		t.Fatalf("group records = %#v", result.Records)
+	}
+	if result.Records[0].Metadata["role"] != "developer" {
+		t.Fatalf("group role = %#v, want developer", result.Records[0].Metadata)
+	}
+}
+
 func TestMROperationDispatchesSupportedActions(t *testing.T) {
 	calls := []string{}
 	client := &fakeGitLabClient{
@@ -694,19 +896,34 @@ func hasCapability(entity coredatasource.EntitySpec, capability coredatasource.E
 }
 
 type fakeGitLabClient struct {
-	projects  []*gitlab.Project
-	users     []*gitlab.User
-	mrs       []*gitlab.BasicMergeRequest
-	diffs     []*gitlab.MergeRequestDiff
-	notes     []*gitlab.Note
-	pipelines []*gitlab.PipelineInfo
-	updatedMR *gitlab.MergeRequest
-	calls     *[]string
+	projects    []*gitlab.Project
+	groups      []*gitlab.Group
+	users       []*gitlab.User
+	memberships []*gitlab.UserMembership
+	mrs         []*gitlab.BasicMergeRequest
+	diffs       []*gitlab.MergeRequestDiff
+	notes       []*gitlab.Note
+	pipelines   []*gitlab.PipelineInfo
+	updatedMR   *gitlab.MergeRequest
+	calls       *[]string
 }
 
 func (c fakeGitLabClient) ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error) {
 	c.record("list_projects")
 	return c.projects, nil
+}
+
+func (c fakeGitLabClient) ListGroups(context.Context, *gitlab.ListGroupsOptions) ([]*gitlab.Group, error) {
+	c.record("list_groups")
+	return c.groups, nil
+}
+
+func (c fakeGitLabClient) GetGroup(context.Context, any, *gitlab.GetGroupOptions) (*gitlab.Group, error) {
+	c.record("get_group")
+	if len(c.groups) == 0 {
+		return nil, nil
+	}
+	return c.groups[0], nil
 }
 
 func (c fakeGitLabClient) ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
@@ -720,6 +937,11 @@ func (c fakeGitLabClient) GetUser(context.Context, int64, *gitlab.GetUserOptions
 		return nil, nil
 	}
 	return c.users[0], nil
+}
+
+func (c fakeGitLabClient) GetUserMemberships(context.Context, int64, *gitlab.GetUserMembershipOptions) ([]*gitlab.UserMembership, error) {
+	c.record("get_user_memberships")
+	return c.memberships, nil
 }
 
 func (c fakeGitLabClient) GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error) {

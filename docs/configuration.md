@@ -396,13 +396,14 @@ datasource:
         - gitlab.merge_request_note
         - gitlab.pipeline
         - gitlab.user
+        - gitlab.group
       config:
         instance: company-a
 ```
 
-GitLab currently indexes `gitlab.project` and `gitlab.user` through structured
-fields only. Other GitLab entities remain live/provider searched until they
-explicitly declare an index capability.
+GitLab currently indexes `gitlab.project`, `gitlab.user`, and `gitlab.group`
+through structured fields only. Other GitLab entities remain live/provider
+searched until they explicitly declare an index capability.
 
 ### Daemon Channels
 

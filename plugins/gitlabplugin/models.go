@@ -18,6 +18,7 @@ const (
 	MergeRequestNoteEntity coredatasource.EntityType = "gitlab.merge_request_note"
 	PipelineEntity         coredatasource.EntityType = "gitlab.pipeline"
 	UserEntity             coredatasource.EntityType = "gitlab.user"
+	GroupEntity            coredatasource.EntityType = "gitlab.group"
 )
 
 type Project struct {
@@ -103,6 +104,19 @@ type User struct {
 	Role     string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role in the relationship result."`
 }
 
+type Group struct {
+	ID          int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab group id."`
+	Name        string `json:"name" datasource:"searchable" jsonschema:"description=Group name."`
+	Path        string `json:"path" datasource:"searchable,filterable" jsonschema:"description=Group path slug."`
+	FullPath    string `json:"full_path" datasource:"searchable,filterable" jsonschema:"description=Full group namespace path."`
+	FullName    string `json:"full_name,omitempty" datasource:"searchable" jsonschema:"description=Full group display name."`
+	Description string `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Group description."`
+	Visibility  string `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Group visibility."`
+	ParentID    int64  `json:"parent_id,omitempty" datasource:"filterable" jsonschema:"description=Parent group id."`
+	WebURL      string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Group web URL."`
+	Role        string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role in the relationship result."`
+}
+
 func entitySpecs() []coredatasource.EntitySpec {
 	return []coredatasource.EntitySpec{
 		projectEntitySpec(),
@@ -111,6 +125,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		mergeRequestNoteEntitySpec(),
 		pipelineEntitySpec(),
 		userEntitySpec(),
+		groupEntitySpec(),
 	}
 }
 
@@ -191,6 +206,20 @@ func pipelineEntitySpec() coredatasource.EntitySpec {
 
 func userEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[User](UserEntity, "GitLab user.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+		coredatasource.EntityCapabilityIndex,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "groups", Description: "Groups and namespaces this user is a member of.", TargetEntity: GroupEntity},
+	}
+	return entity
+}
+
+func groupEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Group](GroupEntity, "GitLab group namespace.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityGet,
@@ -344,6 +373,35 @@ func userFromGitLab(user *gitlab.User) User {
 	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
 }
 
+func groupFromGitLab(group *gitlab.Group) Group {
+	if group == nil {
+		return Group{}
+	}
+	return Group{
+		ID:          group.ID,
+		Name:        group.Name,
+		Path:        group.Path,
+		FullPath:    group.FullPath,
+		FullName:    group.FullName,
+		Description: group.Description,
+		Visibility:  string(group.Visibility),
+		ParentID:    group.ParentID,
+		WebURL:      group.WebURL,
+	}
+}
+
+func groupFromUserMembership(membership *gitlab.UserMembership) Group {
+	if membership == nil {
+		return Group{}
+	}
+	return Group{
+		ID:       membership.SourceID,
+		Name:     membership.SourceName,
+		FullName: membership.SourceName,
+		Role:     accessLevelName(membership.AccessLevel),
+	}
+}
+
 func userFromReviewer(reviewer *gitlab.MergeRequestReviewer) User {
 	if reviewer == nil {
 		return User{}
@@ -424,6 +482,29 @@ func projectTitle(project Project) string {
 	return project.Name
 }
 
+func groupIDString(group Group) string {
+	if group.FullPath != "" {
+		return group.FullPath
+	}
+	if group.ID != 0 {
+		return strconv.FormatInt(group.ID, 10)
+	}
+	return ""
+}
+
+func groupTitle(group Group) string {
+	if group.FullPath != "" {
+		return group.FullPath
+	}
+	if group.FullName != "" {
+		return group.FullName
+	}
+	if group.Path != "" {
+		return group.Path
+	}
+	return group.Name
+}
+
 func formatTime(value *time.Time) string {
 	if value == nil || value.IsZero() {
 		return ""
@@ -479,4 +560,27 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func accessLevelName(value gitlab.AccessLevelValue) string {
+	switch value {
+	case gitlab.MinimalAccessPermissions:
+		return "minimal"
+	case gitlab.GuestPermissions:
+		return "guest"
+	case gitlab.PlannerPermissions:
+		return "planner"
+	case gitlab.ReporterPermissions:
+		return "reporter"
+	case gitlab.DeveloperPermissions:
+		return "developer"
+	case gitlab.MaintainerPermissions:
+		return "maintainer"
+	case gitlab.OwnerPermissions:
+		return "owner"
+	case gitlab.AdminPermissions:
+		return "admin"
+	default:
+		return ""
+	}
 }

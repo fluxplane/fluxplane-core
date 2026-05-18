@@ -54,8 +54,11 @@ type AuthConfig struct {
 
 type gitlabClient interface {
 	ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error)
+	ListGroups(context.Context, *gitlab.ListGroupsOptions) ([]*gitlab.Group, error)
+	GetGroup(context.Context, any, *gitlab.GetGroupOptions) (*gitlab.Group, error)
 	ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error)
 	GetUser(context.Context, int64, *gitlab.GetUserOptions) (*gitlab.User, error)
+	GetUserMemberships(context.Context, int64, *gitlab.GetUserMembershipOptions) ([]*gitlab.UserMembership, error)
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
 	ListMergeRequests(context.Context, *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
 	ListProjectMergeRequests(context.Context, any, *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
@@ -390,6 +393,16 @@ func (c officialClient) ListProjects(ctx context.Context, opts *gitlab.ListProje
 	return projects, err
 }
 
+func (c officialClient) ListGroups(ctx context.Context, opts *gitlab.ListGroupsOptions) ([]*gitlab.Group, error) {
+	groups, _, err := c.client.Groups.ListGroups(opts, gitlab.WithContext(ctx))
+	return groups, err
+}
+
+func (c officialClient) GetGroup(ctx context.Context, id any, opts *gitlab.GetGroupOptions) (*gitlab.Group, error) {
+	group, _, err := c.client.Groups.GetGroup(id, opts, gitlab.WithContext(ctx))
+	return group, err
+}
+
 func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
 	users, _, err := c.client.Users.ListUsers(opts, gitlab.WithContext(ctx))
 	return users, err
@@ -398,6 +411,11 @@ func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOpt
 func (c officialClient) GetUser(ctx context.Context, id int64, opts *gitlab.GetUserOptions) (*gitlab.User, error) {
 	user, _, err := c.client.Users.GetUser(id, opts, gitlab.WithContext(ctx))
 	return user, err
+}
+
+func (c officialClient) GetUserMemberships(ctx context.Context, id int64, opts *gitlab.GetUserMembershipOptions) ([]*gitlab.UserMembership, error) {
+	memberships, _, err := c.client.Users.GetUserMemberships(id, opts, gitlab.WithContext(ctx))
+	return memberships, err
 }
 
 func (c officialClient) GetProject(ctx context.Context, id any, opts *gitlab.GetProjectOptions) (*gitlab.Project, error) {
