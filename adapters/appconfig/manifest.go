@@ -925,6 +925,7 @@ type ChannelDoc struct {
 	Name      string    `json:"name" yaml:"name"`
 	Type      string    `json:"type" yaml:"type"`
 	Connector string    `json:"connector,omitempty" yaml:"connector,omitempty"`
+	Instance  string    `json:"instance,omitempty" yaml:"instance,omitempty"`
 	Listener  string    `json:"listener,omitempty" yaml:"listener,omitempty"`
 	Session   string    `json:"session,omitempty" yaml:"session,omitempty"`
 	Access    AccessDoc `json:"access,omitempty" yaml:"access,omitempty"`

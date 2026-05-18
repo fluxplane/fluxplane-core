@@ -13,7 +13,6 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
-	"github.com/fluxplane/agentruntime/adapters/connectauth"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
 	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
@@ -30,6 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -110,7 +110,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		return err
 	}
 	defer runtime.Close()
-	channels, err := serveChannels(ctx, opts.Launch.Channels, Options{AuthPath: opts.AuthPath, Debug: opts.Debug}, runtime.Dispatcher)
+	channels, err := serveChannels(ctx, opts.Launch.Channels, opts.Bundles, Options{AuthPath: opts.AuthPath, Debug: opts.Debug}, runtime.Dispatcher, runtime.System)
 	if err != nil {
 		return err
 	}
@@ -173,17 +173,22 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 	return nil
 }
 
-func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, opts Options, dispatcher *slackplugin.Dispatcher) ([]channelruntime.Channel, error) {
+func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slackplugin.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
-	store := connectauth.NewStore(opts.AuthPath)
+	store := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
 	for _, doc := range docs {
 		switch doc.Type {
 		case "direct":
 			continue
 		case "slack":
-			creds, err := store.LoadSlack(ctx, doc.Connector)
+			ref := resource.PluginRef{Name: slackplugin.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slackplugin.Name)}
+			cfg := slackConfigForInstance(bundles, ref.InstanceName())
+			session, err := slackplugin.Resolve(ctx, sys, store, ref, cfg)
 			if err != nil {
 				return nil, err
+			}
+			if session.AppToken == "" {
+				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run agentsdk connect slack --instance %s --auth %s --field app_token=<value>", doc.Name, ref.InstanceName(), slackplugin.BotTokenMethod)
 			}
 			sessionName := doc.Session
 			if sessionName == "" {
@@ -192,11 +197,9 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 			ch, err := slackplugin.NewChannel(slackplugin.ChannelConfig{
 				Name:       doc.Name,
 				Session:    agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
-				BotToken:   creds.BotToken,
-				UserToken:  creds.UserToken,
-				AppToken:   creds.AppToken,
-				BotUserID:  creds.BotUserID,
-				TeamID:     creds.TeamID,
+				BotToken:   session.BotToken,
+				UserToken:  session.UserToken,
+				AppToken:   session.AppToken,
 				Debug:      opts.Debug,
 				Access:     slackAccess(doc.Access),
 				Dispatcher: dispatcher,

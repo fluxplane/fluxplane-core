@@ -10,17 +10,17 @@ import (
 	"strings"
 	"testing"
 
-	connectoroperation "github.com/codewandler/connectors/operation"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -122,7 +122,7 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	dispatcher := NewDispatcher()
 	poster := &fakePoster{}
 	dispatcher.Register("slack-main", poster)
-	plugin := New(dispatcher)
+	plugin := NewWithDispatcher(nil, dispatcher)
 	ctx := operation.NewContext(ContextWithTarget(context.Background(), Target{ChannelID: "C1", ThreadTS: "123.4"}), nil)
 
 	result := plugin.channelSend(ctx, channelSendInput{Text: "working"})
@@ -134,13 +134,40 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	}
 }
 
-func TestPluginContributesSlackConnectorProvider(t *testing.T) {
-	providers, err := New(nil).ConnectorProviders(context.Background(), pluginhost.Context{})
-	if err != nil {
-		t.Fatalf("ConnectorProviders: %v", err)
+func TestPluginIsNotConnectorProvider(t *testing.T) {
+	if _, ok := any(New(nil)).(pluginhost.ConnectorProviderContributor); ok {
+		t.Fatal("Slack plugin must not contribute connector providers")
 	}
-	if len(providers) != 1 || providers[0].Name != "slack" {
-		t.Fatalf("providers = %#v, want slack", providers)
+}
+
+func TestPluginDeclaresStoredBotTokenAndOAuthAuthMethods(t *testing.T) {
+	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	if err != nil {
+		t.Fatalf("AuthMethods: %v", err)
+	}
+	if len(methods) != 3 {
+		t.Fatalf("methods len = %d, want stored, env, oauth2", len(methods))
+	}
+	if methods[0].Name != BotTokenMethod || methods[0].Secret.ResourceName() != "plugin/slack/main/bot_token" {
+		t.Fatalf("stored method = %#v", methods[0])
+	}
+	if methods[2].Name != OAuth2Method || methods[2].Secret.ResourceName() != "plugin/slack/main/oauth2_token" {
+		t.Fatalf("oauth2 method = %#v", methods[2])
+	}
+}
+
+func TestResolveUsesStoredBotTokenWithoutAppTokenForDatasource(t *testing.T) {
+	store := runtimesecret.NewFileStore(t.TempDir())
+	ref := resource.PluginRef{Name: Name, Instance: "main"}
+	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
+		t.Fatalf("SaveSecret: %v", err)
+	}
+	session, err := Resolve(context.Background(), nil, store, ref, Config{Auth: AuthConfig{Method: BotTokenMethod}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if session.BotToken != "xoxb-test" || session.AppToken != "" {
+		t.Fatalf("session = %#v, want bot token only", session)
 	}
 }
 
@@ -153,7 +180,7 @@ func TestPluginContributesSlackDatasourceEntities(t *testing.T) {
 		t.Fatalf("providers len = %d, want 1", len(providers))
 	}
 	got := entityTypes(providers[0].Entities())
-	for _, want := range []coredatasource.EntityType{UserEntity, ChannelEntity, MessageEntity} {
+	for _, want := range []coredatasource.EntityType{UserEntity, ChannelEntity, MessageEntity, ThreadMessageEntity} {
 		if !got[want] {
 			t.Fatalf("entities = %#v, missing %s", got, want)
 		}
@@ -225,37 +252,33 @@ func TestNormalizeSlackMessageRecordKeepsCanonicalChannelMetadata(t *testing.T) 
 }
 
 func TestSlackMessageDatasourceSearchPreservesChannelIdentity(t *testing.T) {
-	executor := &slackDatasourceExecutor{
-		result: connectoroperation.Result{
-			Status: connectoroperation.StatusOK,
-			Data: map[string]any{
-				"messages": map[string]any{
-					"matches": []any{
-						map[string]any{
-							"iid":       "m1",
-							"ts":        "1710000000.000100",
-							"text":      "The ticket has a short description first.",
-							"permalink": "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
-							"channel": map[string]any{
-								"name": "lyse-internal",
-							},
-							"user": "U1",
-						},
-					},
-				},
-			},
-		},
+	server := slackDatasourceServer(t)
+	defer server.Close()
+	store := runtimesecret.NewFileStore(t.TempDir())
+	ref := resource.PluginRef{Name: Name, Instance: "slack-bot"}
+	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
+		Ref:   BotTokenSecretRef(ref),
+		Kind:  "bearer_token",
+		Value: "xoxb-test",
+	}); err != nil {
+		t.Fatalf("SaveSecret: %v", err)
 	}
-	plugin := NewWithConnectors(nil, executor, []connectorplugin.Instance{{ID: "slack-bot", Kind: Name}})
-	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	plugin := New(nil, store)
+	plugin.clientFactory = func(token, appToken string) *slack.Client {
+		if token != "xoxb-test" || appToken != "" {
+			t.Fatalf("client token=%q app=%q, want bot token only", token, appToken)
+		}
+		return slack.New(token, slack.OptionAPIURL(server.URL+"/"))
+	}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{Ref: ref})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
 	}
 	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{
-		Name:      "slack-bot",
-		Connector: "slack-bot",
-		Kind:      Name,
-		Entities:  []coredatasource.EntityType{MessageEntity},
+		Name:     "slack-bot",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{MessageEntity},
+		Config:   map[string]string{"instance": "slack-bot"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -267,9 +290,6 @@ func TestSlackMessageDatasourceSearchPreservesChannelIdentity(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
-	}
-	if executor.instanceID != "slack-bot" || executor.operation != "slack.message.search" {
-		t.Fatalf("executor call = instance %q operation %q", executor.instanceID, executor.operation)
 	}
 	if len(result.Records) != 1 {
 		t.Fatalf("records = %#v, want one", result.Records)
@@ -773,21 +793,6 @@ func (p *fakePoster) PostMessageContext(_ context.Context, channelID string, opt
 	return channelID, "456.7", nil
 }
 
-type slackDatasourceExecutor struct {
-	instanceID string
-	operation  string
-	params     map[string]any
-	result     connectoroperation.Result
-	err        error
-}
-
-func (e *slackDatasourceExecutor) ExecWithInstance(_ context.Context, instanceID, opName, _ string, params map[string]any) (connectoroperation.Result, error) {
-	e.instanceID = instanceID
-	e.operation = opName
-	e.params = params
-	return e.result, e.err
-}
-
 type capturingClient struct {
 	session *capturingSession
 }
@@ -859,4 +864,34 @@ func (r capturingRun) Wait(context.Context) (clientapi.Result, error) {
 
 func socketModeTestClient() *socketmode.Client {
 	return socketmode.New(slack.New("xoxb-test"))
+}
+
+func slackDatasourceServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search.messages" {
+			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("query"); got != "lyse" {
+			t.Fatalf("query = %q, want lyse", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"ok": true,
+			"messages": {
+				"total": 1,
+				"matches": [{
+					"type": "message",
+					"ts": "1710000000.000100",
+					"text": "The ticket has a short description first.",
+					"permalink": "https://example.slack.com/archives/C04LYSEINTERNAL/p1710000000000100",
+					"channel": {"id": "C04LYSEINTERNAL", "name": "lyse-internal"},
+					"user": "U1"
+				}]
+			}
+		}`))
+	}))
 }

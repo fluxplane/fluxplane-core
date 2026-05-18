@@ -16,7 +16,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
-	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
@@ -28,6 +27,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -66,7 +66,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
 	}
-	connectorEngine, connectorInstances, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
+	connectorEngine, _, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
 	}
@@ -86,7 +86,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		}
 		return nil
 	}
-	plugins := datasourceIndexPlugins(hostSystem, connectorEngine, connectorInstances)
+	plugins := datasourceIndexPlugins(hostSystem, opts.AuthPath)
 	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
@@ -117,10 +117,11 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	return DatasourceIndexRuntime{Registry: registry, Index: index, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
-func datasourceIndexPlugins(hostSystem system.System, executor connectorplugin.Executor, instances []connectorplugin.Instance) []pluginhost.Plugin {
+func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
 	dispatcher := slackplugin.NewDispatcher()
+	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	return []pluginhost.Plugin{
-		slackplugin.NewWithConnectors(dispatcher, executor, connectorInstancesForKind(instances, slackplugin.Name)),
+		slackplugin.NewWithDispatcher(hostSystem, dispatcher, slackStore),
 		gitlabplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
 		confluenceplugin.New(hostSystem),

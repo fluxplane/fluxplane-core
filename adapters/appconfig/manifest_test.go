@@ -352,14 +352,16 @@ default_agent:
   name: slack_bot
 plugins:
   - kind: slack
-connectors:
-  slack-bot:
-    kind: slack
+    instance: slack-bot
+    config:
+      auth:
+        method: bot_token
 datasource:
   datasources:
     - name: slack-bot
-      connector: slack-bot
       kind: slack
+      config:
+        instance: slack-bot
       entities: [slack.user]
     - name: local-docs
       kind: filesystem
@@ -374,7 +376,7 @@ daemon:
   channels:
     - name: slack-main
       type: slack
-      connector: slack
+      instance: slack-bot
       session: slack-main
       access:
         mode: open
@@ -443,8 +445,11 @@ system: |
 	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {
 		t.Fatalf("channels = %#v", file.Daemon.Channels)
 	}
-	if len(file.Connectors) != 1 || file.Connectors["slack-bot"].Kind != "slack" {
-		t.Fatalf("connectors = %#v, want slack-bot slack", file.Connectors)
+	if len(file.Connectors) != 0 {
+		t.Fatalf("connectors = %#v, want none", file.Connectors)
+	}
+	if file.Daemon.Channels[0].Instance != "slack-bot" {
+		t.Fatalf("channel instance = %q, want slack-bot", file.Daemon.Channels[0].Instance)
 	}
 }
 

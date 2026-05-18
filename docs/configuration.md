@@ -325,6 +325,10 @@ than once with `instance` and per-instance `config`.
 ```yaml
 plugins:
   - kind: slack
+    instance: slack-main
+    config:
+      auth:
+        method: bot_token
   - kind: jira
     config:
       cloud_id: your-atlassian-cloud-id
@@ -345,14 +349,14 @@ plugins:
       auth:
         token_env: GITLAB_COMPANY_A_TOKEN
 
-connectors:
-  slack-main:
-    kind: slack
 ```
 
 Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `agentsdk connect`. Native Jira and Confluence use Atlassian
-OAuth2 stored credentials from `agentsdk connect jira --instance jira` and
+credentials with `agentsdk connect`. Native Slack uses stored bot-token
+credentials from `agentsdk connect slack --instance slack-main --auth bot_token`;
+Slack daemon channels also require an app token for Socket Mode. Native Jira
+and Confluence use Atlassian OAuth2 stored credentials from
+`agentsdk connect jira --instance jira` and
 `agentsdk connect confluence --instance confluence`; service-account
 deployments can set `auth.method: token` and `auth.token_env` for a bearer
 token environment variable. Native GitLab instances declare a
@@ -410,18 +414,20 @@ background embed worker started by `agentsdk serve`. `agentsdk serve` starts
 background warmup for indexed datasources with the configured concurrency and
 logs start, fresh-skip, page, complete, and failure progress per entity.
 
-Connector-backed datasources reference a connector instance:
+Native Slack datasources reference the named Slack plugin instance:
 
 ```yaml
 datasource:
   datasources:
     - name: slack-main
-      connector: slack-main
       kind: slack
       entities:
         - slack.user
         - slack.channel
         - slack.message
+        - slack.thread_message
+      config:
+        instance: slack-main
 ```
 
 Native GitLab datasources reference the named GitLab plugin instance:
@@ -491,14 +497,14 @@ daemon:
         mode: open
 ```
 
-Slack channels use a connector instead of a local listener:
+Slack channels use a native plugin instance instead of a local listener:
 
 ```yaml
 daemon:
   channels:
     - name: slack-main
       type: slack
-      connector: slack-main
+      instance: slack-main
       session: support
       access:
         mode: open

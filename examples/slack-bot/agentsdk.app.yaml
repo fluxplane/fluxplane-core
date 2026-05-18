@@ -41,6 +41,10 @@ identity:
 plugins:
   - kind: identity
   - kind: slack
+    instance: slack-bot
+    config:
+      auth:
+        method: bot_token
   - kind: gitlab
     instance: main
     config:
@@ -55,22 +59,20 @@ plugins:
         method: oauth2
   - kind: web
 
-connectors:
-  slack-bot:
-    kind: slack
-
 datasource:
   index:
     concurrency: 4
     freshness: 15m
   datasources:
     - name: slack-bot
-      connector: slack-bot
       kind: slack
+      config:
+        instance: slack-bot
       entities:
         - slack.user
         - slack.channel
         - slack.message
+        - slack.thread_message
       description: Slack workspace content available to the bot.
 
     - name: gitlab
@@ -137,7 +139,7 @@ daemon:
 
     - name: slack-main
       type: slack
-      connector: slack-bot
+      instance: slack-bot
       session: slack-main
       access:
         mode: open
@@ -180,11 +182,14 @@ system: |
   long-running turns. Use datasource_list when you need to enumerate GitLab
   projects, GitLab users, or visible GitLab groups. Use datasource_search with
   entity filters when you need to search Slack users, Slack channels, Slack
-  messages, GitLab projects, GitLab users, GitLab groups, Jira issues, Jira
-  projects, Confluence pages, Confluence spaces, local documentation files
-  (`file.document`), or public web results (`web.search_result`). Use
+  messages, Slack thread messages, GitLab projects, GitLab users, GitLab
+  groups, Jira issues, Jira projects, Confluence pages, Confluence spaces,
+  local documentation files (`file.document`), or public web results
+  (`web.search_result`). Use
   datasource_get when you need a specific datasource record by id. Use
   datasource_relation for exact relationships such as Slack channel members
-  (`slack.channel` relation `members`) or GitLab project users/groups, user
-  memberships, user groups/projects, group hierarchy, group users, and group
-  projects; only use Slack message search for observed or inferred participants.
+  (`slack.channel` relation `members`) and Slack message threads
+  (`slack.message` relation `thread_messages`) or GitLab project users/groups,
+  user memberships, user groups/projects, group hierarchy, group users, and
+  group projects; only use Slack message search for observed or inferred
+  participants.

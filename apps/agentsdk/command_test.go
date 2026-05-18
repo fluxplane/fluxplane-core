@@ -279,7 +279,7 @@ func TestConnectProviderInfoUsesProductRegistry(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "Slack (slack)") || !strings.Contains(got, "Auth methods:") {
+	if !strings.Contains(got, "slack") || !strings.Contains(got, "Auth methods:") || !strings.Contains(got, "bot_token") {
 		t.Fatalf("info = %q, want slack connect info", got)
 	}
 }

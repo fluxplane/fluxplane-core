@@ -15,7 +15,6 @@ import (
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/browsercdp"
-	"github.com/fluxplane/agentruntime/adapters/connectauth"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
@@ -55,6 +54,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
 )
@@ -252,7 +252,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
 	}
 
-	connectorEngine, connectorInstances, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
+	connectorEngine, _, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
 	if err != nil {
 		return Runtime{}, err
 	}
@@ -310,7 +310,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
-	available := availablePlugins(runtimeSystem, connectorEngine, connectorInstances, dispatcher, taskScheduler)
+	available := availablePlugins(runtimeSystem, dispatcher, taskScheduler, opts.AuthPath)
 	if opts.Plugins != nil {
 		available = opts.Plugins(runtimeSystem)
 	}
@@ -350,7 +350,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
-	identityResolver := launchIdentityResolver(ctx, opts.AuthPath, opts.Launch.Channels)
+	identityResolver := launchIdentityResolver(ctx, runtimeSystem, opts.AuthPath, opts.Launch.Channels, bundles)
 	composition, err := app.Compose(app.Config{
 		Context:          ctx,
 		Bundles:          bundles,
@@ -462,13 +462,38 @@ func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agen
 	return fallback
 }
 
-func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.Executor, connectorInstances []connectorplugin.Instance, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner) []pluginhost.Plugin {
+func nativeAuthPath(path string) string {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(path) == "~/.connectors" {
+		return runtimesecret.DefaultFileStorePath
+	}
+	return path
+}
+
+func slackConfigForInstance(bundles []resource.ContributionBundle, instance string) slackplugin.Config {
+	instance = strings.TrimSpace(instance)
+	for _, bundle := range bundles {
+		for _, ref := range bundle.Plugins {
+			if strings.TrimSpace(ref.Name) != slackplugin.Name || ref.InstanceName() != instance {
+				continue
+			}
+			cfg, err := pluginhost.DecodeConfig[slackplugin.Config](ref.Config)
+			if err != nil {
+				return slackplugin.Config{Auth: slackplugin.AuthConfig{Method: slackplugin.BotTokenMethod}}
+			}
+			return slackplugin.NormalizeConfig(cfg)
+		}
+	}
+	return slackplugin.Config{Auth: slackplugin.AuthConfig{Method: slackplugin.BotTokenMethod}}
+}
+
+func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner, authPath string) []pluginhost.Plugin {
+	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	return []pluginhost.Plugin{
 		workspaceplugin.New(hostSystem),
 		identityplugin.New(),
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
-		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
+		slackplugin.NewWithDispatcher(hostSystem, dispatcher, slackStore),
 		gitlabplugin.New(hostSystem),
 		imageplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
@@ -520,32 +545,23 @@ func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []plug
 	return append(plugins, plugin)
 }
 
-func connectorInstancesForKind(instances []connectorplugin.Instance, kind string) []connectorplugin.Instance {
-	var out []connectorplugin.Instance
-	for _, instance := range instances {
-		if instance.Kind == kind {
-			out = append(out, instance)
-		}
-	}
-	return out
-}
-
-func launchIdentityResolver(ctx context.Context, authPath string, channels []distribution.Channel) identity.Resolver {
-	store := connectauth.NewStore(authPath)
+func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, channels []distribution.Channel, bundles []resource.ContributionBundle) identity.Resolver {
+	store := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	var resolvers []identity.Resolver
 	for _, doc := range channels {
 		if doc.Type != "slack" {
 			continue
 		}
-		creds, err := store.LoadSlack(ctx, doc.Connector)
+		ref := resource.PluginRef{Name: slackplugin.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slackplugin.Name)}
+		session, err := slackplugin.Resolve(ctx, sys, store, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
 		}
 		resolver := slackplugin.NewIdentityResolver(slackplugin.IdentityResolverConfig{
 			ChannelName: doc.Name,
-			BotToken:    creds.BotToken,
-			UserToken:   creds.UserToken,
-			AppToken:    creds.AppToken,
+			BotToken:    session.BotToken,
+			UserToken:   session.UserToken,
+			AppToken:    session.AppToken,
 		})
 		if resolver != nil {
 			resolvers = append(resolvers, resolver)
@@ -671,7 +687,6 @@ func newConnectEngine(ctx context.Context, basePath string) (*connectorsruntime.
 func connectorProviderNames(ctx context.Context) ([]string, error) {
 	plugins := []pluginhost.Plugin{
 		openaiplugin.New(),
-		slackplugin.New(nil),
 	}
 	seen := map[string]bool{}
 	var names []string

@@ -3,7 +3,7 @@
 Native rewrite Slack daemon example.
 
 ```bash
-agentsdk connect slack --instance slack-bot
+agentsdk connect slack --instance slack-bot --auth bot_token --field bot_token=xoxb-... --field app_token=xapp-...
 agentsdk connect gitlab --instance gitlab
 agentsdk connect jira --instance jira
 agentsdk connect confluence --instance confluence
@@ -17,26 +17,26 @@ agentsdk remote --app examples/slack-bot
 agentsdk remote --app examples/slack-bot --input "hello from local"
 ```
 
-The `slack-bot` connector instance supplies the bot token and Socket Mode app token.
-The Slack channel itself uses native Slack APIs rather than connector operation
-execution.
+The native `slack/slack-bot` plugin instance supplies the bot token and Socket
+Mode app token. Slack datasources can read with the bot token alone when scopes
+permit; the daemon channel requires the `xapp-...` app token for Socket Mode.
 The Jira and Confluence datasources use native Atlassian auth. For
 service-account deployments, configure the Atlassian plugin with
 `auth.method: token` and set `auth.token_env` to the runtime bearer token
 environment variable.
 
-The configured datasources expose Slack users, channels, and messages, GitLab
-projects, Jira issues and projects, Confluence pages and spaces, local
-markdown/text files, and public web search results through `datasource_search`;
-record retrieval uses
+The configured datasources expose Slack users, channels, messages, thread
+messages, GitLab projects, Jira issues and projects, Confluence pages and
+spaces, local markdown/text files, and public web search results through
+`datasource_search`; record retrieval uses
 `datasource_get` or `datasource_batch_get` where the entity supports it. Use
-`datasource_relation` for exact Slack channel membership; message search only
-supports observed or inferred participants.
+`datasource_relation` for exact Slack channel membership and message thread
+reads; message search only supports observed or inferred participants.
 Web search is exposed only through the canonical `web_search` datasource and
 its `web.search_result` entity; the agent does not get the direct `web_request`
 tool in this example.
 
-Slack callers are resolved through Slack `users.info` when connector
+Slack callers are resolved through Slack `users.info` when native Slack
 credentials are available. The Slack profile email becomes the canonical
 `core/user` ID. Add `identity` entries in `agentsdk.app.yaml` only for
 overlays such as special groups, trust, or pinned provider-ID mappings:
@@ -84,16 +84,20 @@ Slack app requirements:
 - App Home > Messages Tab enabled, so users can DM the app from Slack.
 - Bot Token Scopes include `app_mentions:read`, `chat:write`, `im:history`,
   `im:read`, `channels:history`, `channels:read`, `groups:history`,
-  `groups:read`, `mpim:history`, `mpim:read`, `search:read`, and `users:read`.
+  `groups:read`, `mpim:history`, `mpim:read`, `search:read`, `users:read`,
+  and `users:read.email`.
 - Event Subscriptions enabled with bot events: `app_mention`, `message.im`,
   `message.channels`, `message.groups`, and `message.mpim`.
 
-Connector and native datasource scopes:
+Native datasource scopes:
 
 - Slack message search requires `search:read`.
 - Slack channel discovery requires `channels:read`, `groups:read`, `im:read`,
   and `mpim:read`.
 - Slack channel membership requires `channels:read` and `groups:read`.
+- Slack thread reads require the matching history scope for the conversation
+  type, such as `channels:history`, `groups:history`, `im:history`, or
+  `mpim:history`.
 - Jira issue and project discovery requires `read:jira-work`.
 - Confluence page and space discovery requires `read:page:confluence` and
   `read:space:confluence`.

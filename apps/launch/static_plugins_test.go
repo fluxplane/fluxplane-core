@@ -13,7 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 )
 
-func TestBundlesWithStaticPluginContributionsUsesLaunchConnectorsAndDatasourcePlugin(t *testing.T) {
+func TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin(t *testing.T) {
 	result := StaticPluginView(context.Background(), StaticPluginOptions{
 		Bundles: []resource.ContributionBundle{{
 			Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"},
@@ -23,11 +23,7 @@ func TestBundlesWithStaticPluginContributionsUsesLaunchConnectorsAndDatasourcePl
 			}},
 			Plugins: []resource.PluginRef{{Name: slackplugin.Name}},
 		}},
-		Launch: distribution.LaunchConfig{
-			Connectors: map[string]distribution.Connector{
-				"slack-bot": {Kind: slackplugin.Name},
-			},
-		},
+		Launch: distribution.LaunchConfig{},
 	})
 	if len(result.Diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
@@ -47,7 +43,6 @@ func TestBundlesWithStaticPluginContributionsUsesLaunchConnectorsAndDatasourcePl
 		"Plugin contributions:",
 		"operations",
 		"channel_send",
-		"slack_bot_search",
 		"context_providers",
 		"datasource.catalog",
 		"datasource.detected",

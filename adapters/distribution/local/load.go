@@ -372,6 +372,7 @@ func channels(docs []appconfig.ChannelDoc) []distribution.Channel {
 			Name:      doc.Name,
 			Type:      doc.Type,
 			Connector: doc.Connector,
+			Instance:  doc.Instance,
 			Listener:  doc.Listener,
 			Session:   doc.Session,
 			Access: distribution.Access{

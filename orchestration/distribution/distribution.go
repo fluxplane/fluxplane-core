@@ -131,6 +131,7 @@ type Channel struct {
 	Name      string
 	Type      string
 	Connector string
+	Instance  string
 	Listener  string
 	Session   string
 	Access    Access

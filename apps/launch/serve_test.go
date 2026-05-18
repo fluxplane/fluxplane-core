@@ -3,40 +3,34 @@ package launch
 import (
 	"context"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/codewandler/connectors/connector"
-	"github.com/codewandler/connectors/credential"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 )
 
-func TestServeChannelsUsesEmptySlackConnectorFallback(t *testing.T) {
+func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	instances := credential.NewInstanceStore(filepath.Join(dir, "instances"))
-	credentials := credential.NewFileStore(filepath.Join(dir, "credentials"))
-	if err := instances.Save(ctx, credential.Instance{
-		ID:        "workspace-prod",
-		Connector: "slack",
-	}); err != nil {
-		t.Fatalf("Save instance: %v", err)
+	store := runtimesecret.NewFileStore(dir)
+	ref := resource.PluginRef{Name: slackplugin.Name, Instance: "workspace-prod"}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slackplugin.BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
+		t.Fatalf("Save bot token: %v", err)
 	}
-	if err := credentials.Save(ctx, "workspace-prod", connector.Credentials{
-		Auth:   connector.AuthState{Kind: connector.AuthToken, Token: "xoxb-test"},
-		Fields: map[string]string{"app_token": "xapp-test"},
-	}); err != nil {
-		t.Fatalf("Save credentials: %v", err)
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slackplugin.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+		t.Fatalf("Save app token: %v", err)
 	}
 
 	channels, err := serveChannels(ctx, []distribution.Channel{{
-		Name:    "slack-main",
-		Type:    "slack",
-		Session: "slack-main",
-	}}, Options{AuthPath: dir}, slackplugin.NewDispatcher())
+		Name:     "slack-main",
+		Type:     "slack",
+		Instance: "workspace-prod",
+		Session:  "slack-main",
+	}}, nil, Options{AuthPath: dir}, slackplugin.NewDispatcher(), nil)
 	if err != nil {
 		t.Fatalf("serveChannels: %v", err)
 	}

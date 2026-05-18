@@ -3,14 +3,12 @@ package launch
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -134,29 +132,11 @@ func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 	if opts.Plugins != nil {
 		return opts.Plugins(nil)
 	}
-	instances := connectorInstancesFromLaunch(opts.Launch.Connectors)
-	plugins := availablePlugins(nil, nil, instances, nil, nil)
+	plugins := availablePlugins(nil, nil, nil, "")
 	if hasAnyDatasource(opts.Bundles) {
 		plugins = append(plugins, datasourceplugin.New(nil))
 	}
 	return plugins
-}
-
-func connectorInstancesFromLaunch(connectors map[string]distribution.Connector) []connectorplugin.Instance {
-	names := make([]string, 0, len(connectors))
-	for name := range connectors {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	out := make([]connectorplugin.Instance, 0, len(names))
-	for _, name := range names {
-		kind := strings.TrimSpace(connectors[name].Kind)
-		if kind == "" {
-			continue
-		}
-		out = append(out, connectorplugin.Instance{ID: name, Kind: kind})
-	}
-	return out
 }
 
 func pluginsByName(plugins []pluginhost.Plugin) (map[string]pluginhost.Plugin, error) {

@@ -129,12 +129,13 @@ auth files:
   `~/.claude/.credentials.json` for `claudecode`.
 - `MINIMAX_API_KEY` for MiniMax.
 
-### Connectors And Datasources
+### Auth And Datasources
 
-Inspect and configure connector auth:
+Inspect and configure provider auth:
 
 ```bash
 agentsdk connect slack --info
+agentsdk connect slack --instance slack-bot --auth bot_token --field bot_token=xoxb-... --field app_token=xapp-...
 agentsdk connect --help
 ```
 

@@ -130,9 +130,49 @@ func runNativeProvider(ctx context.Context, provider string, plugin pluginhost.P
 	case coresecret.AuthMethodEnv:
 		printEnvInstructions(out, provider, method)
 		return nil
+	case coresecret.AuthMethodStored:
+		return runStored(ctx, opts, ref, method)
 	default:
 		return fmt.Errorf("connect %s: auth method %q is not supported by this command", provider, method.Method)
 	}
+}
+
+func runStored(ctx context.Context, opts options, ref resource.PluginRef, method coresecret.AuthMethodSpec) error {
+	out := writerOr(opts.out, os.Stdout)
+	fields, err := collectFields(opts, method.SetupFields)
+	if err != nil {
+		return err
+	}
+	store := runtimesecret.NewFileStore(opts.authPath)
+	kind := method.Kind
+	if kind == "" {
+		kind = coresecret.KindBearerToken
+	}
+	saved := 0
+	for _, spec := range method.SetupFields {
+		name := strings.TrimSpace(spec.Name)
+		value := strings.TrimSpace(fields[name])
+		if name == "" || value == "" {
+			continue
+		}
+		ref := coresecret.Plugin(ref.Name, ref.InstanceName(), name)
+		if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{
+			Ref:   ref,
+			Kind:  kind,
+			Value: value,
+			Metadata: map[string]string{
+				"auth_method": strings.TrimSpace(method.Name),
+			},
+		}); err != nil {
+			return err
+		}
+		saved++
+	}
+	if saved == 0 {
+		return fmt.Errorf("connect %s: no stored auth fields were provided", ref.Name)
+	}
+	_, _ = fmt.Fprintf(out, "Connected %s instance %s\n", ref.Name, ref.InstanceName())
+	return nil
 }
 
 func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method coresecret.AuthMethodSpec) error {

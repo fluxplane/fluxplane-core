@@ -15,7 +15,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +56,6 @@ func NewCommand() *cobra.Command {
 func connectorPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
 		openaiplugin.New(),
-		slackplugin.New(nil),
 	}, nil
 }
 

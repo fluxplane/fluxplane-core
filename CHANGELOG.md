@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added native Slack bot-token auth, connector-free Slack channel credential
+  loading, and native Slack datasource reads for users, channels, message
+  search, thread messages, and channel/thread relations.
 - Added native Jira Atlassian auth and datasource support, including stored
   OAuth2 credentials, token-based service account auth, and connector-free Jira
   issue/project access.
