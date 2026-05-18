@@ -840,6 +840,8 @@ func renderSearchRecord(result coredatasource.SearchResult, record coredatasourc
 	}
 	if metadata := renderSlackMessageMetadata(record); metadata != "" {
 		line += " [" + metadata + "]"
+	} else if metadata := renderKeyMetadata(record); metadata != "" {
+		line += " [" + metadata + "]"
 	}
 	if strings.TrimSpace(line) == "-" {
 		line = "- " + record.Title
@@ -874,6 +876,50 @@ func renderSlackMessageMetadata(record coredatasource.Record) string {
 	}
 	if permalink != "" {
 		parts = append(parts, "message="+permalink)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func renderKeyMetadata(record coredatasource.Record) string {
+	if len(record.Metadata) == 0 {
+		return ""
+	}
+	keys := []string{
+		"project_id",
+		"path_with_namespace",
+		"full_path",
+		"username",
+		"iid",
+		"sha",
+		"ref",
+		"status",
+		"job_id",
+		"pipeline_id",
+	}
+	var parts []string
+	seen := map[string]bool{}
+	for _, key := range keys {
+		value := strings.TrimSpace(record.Metadata[key])
+		if value == "" && key == "project_id" && record.Entity == "gitlab.project" {
+			value = strings.TrimSpace(record.Metadata["id"])
+		}
+		if value == "" || value == record.ID {
+			continue
+		}
+		if key == "path_with_namespace" {
+			key = "path"
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parts = append(parts, key+"="+value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(parts) > 4 {
+		parts = parts[:4]
 	}
 	return strings.Join(parts, "; ")
 }
@@ -937,6 +983,9 @@ func renderList(result coredatasource.ListResult) string {
 		if record.URL != "" {
 			line += " (" + record.URL + ")"
 		}
+		if metadata := renderKeyMetadata(record); metadata != "" {
+			line += " [" + metadata + "]"
+		}
 		if len(record.Links) > 0 {
 			line += " related: " + renderRefsInline(record.Links)
 		}
@@ -968,6 +1017,9 @@ func renderRelation(result coredatasource.RelationResult) string {
 		if record.URL != "" {
 			line += " (" + record.URL + ")"
 		}
+		if metadata := renderKeyMetadata(record); metadata != "" {
+			line += " [" + metadata + "]"
+		}
 		parts = append(parts, line)
 	}
 	if result.NextCursor != "" {
@@ -983,6 +1035,9 @@ func renderBatchGet(result coredatasource.BatchGetResult) string {
 		line := "- " + record.ID
 		if record.Title != "" && record.Title != record.ID {
 			line += " - " + record.Title
+		}
+		if metadata := renderKeyMetadata(record); metadata != "" {
+			line += " [" + metadata + "]"
 		}
 		lines = append(lines, line)
 	}

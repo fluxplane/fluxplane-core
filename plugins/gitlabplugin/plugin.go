@@ -76,6 +76,19 @@ type gitlabClient interface {
 	GetMergeRequestReviewers(context.Context, any, int64) ([]*gitlab.MergeRequestReviewer, error)
 	ListProjectPipelines(context.Context, any, *gitlab.ListProjectPipelinesOptions) ([]*gitlab.PipelineInfo, error)
 	GetPipeline(context.Context, any, int64) (*gitlab.Pipeline, error)
+	ListBranches(context.Context, any, *gitlab.ListBranchesOptions) ([]*gitlab.Branch, error)
+	GetBranch(context.Context, any, string) (*gitlab.Branch, error)
+	ListTags(context.Context, any, *gitlab.ListTagsOptions) ([]*gitlab.Tag, error)
+	GetTag(context.Context, any, string) (*gitlab.Tag, error)
+	ListCommits(context.Context, any, *gitlab.ListCommitsOptions) ([]*gitlab.Commit, error)
+	GetCommit(context.Context, any, string, *gitlab.GetCommitOptions) (*gitlab.Commit, error)
+	ListMergeRequestsByCommit(context.Context, any, string) ([]*gitlab.BasicMergeRequest, error)
+	ListTree(context.Context, any, *gitlab.ListTreeOptions) ([]*gitlab.TreeNode, error)
+	GetFile(context.Context, any, string, *gitlab.GetFileOptions) (*gitlab.File, error)
+	ListProjectJobs(context.Context, any, *gitlab.ListJobsOptions) ([]*gitlab.Job, error)
+	ListPipelineJobs(context.Context, any, int64, *gitlab.ListJobsOptions) ([]*gitlab.Job, error)
+	GetJob(context.Context, any, int64) (*gitlab.Job, error)
+	GetTraceFile(context.Context, any, int64) ([]byte, error)
 	CreateMergeRequest(context.Context, any, *gitlab.CreateMergeRequestOptions) (*gitlab.MergeRequest, error)
 	UpdateMergeRequest(context.Context, any, int64, *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error)
 	CreateMergeRequestNote(context.Context, any, int64, *gitlab.CreateMergeRequestNoteOptions) (*gitlab.Note, error)
@@ -538,6 +551,79 @@ func (c officialClient) ListProjectPipelines(ctx context.Context, id any, opts *
 func (c officialClient) GetPipeline(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
 	out, _, err := c.client.Pipelines.GetPipeline(id, pipeline, gitlab.WithContext(ctx))
 	return out, err
+}
+
+func (c officialClient) ListBranches(ctx context.Context, id any, opts *gitlab.ListBranchesOptions) ([]*gitlab.Branch, error) {
+	out, _, err := c.client.Branches.ListBranches(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetBranch(ctx context.Context, id any, branch string) (*gitlab.Branch, error) {
+	out, _, err := c.client.Branches.GetBranch(id, branch, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListTags(ctx context.Context, id any, opts *gitlab.ListTagsOptions) ([]*gitlab.Tag, error) {
+	out, _, err := c.client.Tags.ListTags(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetTag(ctx context.Context, id any, tag string) (*gitlab.Tag, error) {
+	out, _, err := c.client.Tags.GetTag(id, tag, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListCommits(ctx context.Context, id any, opts *gitlab.ListCommitsOptions) ([]*gitlab.Commit, error) {
+	out, _, err := c.client.Commits.ListCommits(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetCommit(ctx context.Context, id any, sha string, opts *gitlab.GetCommitOptions) (*gitlab.Commit, error) {
+	out, _, err := c.client.Commits.GetCommit(id, sha, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListMergeRequestsByCommit(ctx context.Context, id any, sha string) ([]*gitlab.BasicMergeRequest, error) {
+	out, _, err := c.client.Commits.ListMergeRequestsByCommit(id, sha, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListTree(ctx context.Context, id any, opts *gitlab.ListTreeOptions) ([]*gitlab.TreeNode, error) {
+	out, _, err := c.client.Repositories.ListTree(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetFile(ctx context.Context, id any, fileName string, opts *gitlab.GetFileOptions) (*gitlab.File, error) {
+	out, _, err := c.client.RepositoryFiles.GetFile(id, fileName, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListProjectJobs(ctx context.Context, id any, opts *gitlab.ListJobsOptions) ([]*gitlab.Job, error) {
+	out, _, err := c.client.Jobs.ListProjectJobs(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListPipelineJobs(ctx context.Context, id any, pipeline int64, opts *gitlab.ListJobsOptions) ([]*gitlab.Job, error) {
+	out, _, err := c.client.Jobs.ListPipelineJobs(id, pipeline, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetJob(ctx context.Context, id any, jobID int64) (*gitlab.Job, error) {
+	out, _, err := c.client.Jobs.GetJob(id, jobID, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetTraceFile(ctx context.Context, id any, jobID int64) ([]byte, error) {
+	reader, _, err := c.client.Jobs.GetTraceFile(id, jobID, gitlab.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if reader == nil {
+		return nil, nil
+	}
+	data := make([]byte, reader.Len())
+	_, _ = reader.ReadAt(data, 0)
+	return data, nil
 }
 
 func (c officialClient) CreateMergeRequest(ctx context.Context, id any, opts *gitlab.CreateMergeRequestOptions) (*gitlab.MergeRequest, error) {

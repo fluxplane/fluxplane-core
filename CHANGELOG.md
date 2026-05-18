@@ -69,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added GitLab user membership modeling, including field-indexed membership
   lookups, service-account visible group/project resolution, and explicit group
   hierarchy relations.
+- Added lazy GitLab Code and CI datasource reads for branches, tags, commits,
+  repository tree entries, repository files, jobs, and bounded job traces.
 - Added reusable datasource field-index lookup helpers for indexed record search,
   exact lookup, pagination, and shared index readiness errors.
 
@@ -78,6 +80,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- GitLab user membership indexing now streams group and project member pages
+  into the field index instead of waiting for a full membership scan, and
+  datasource index warmup logs when it is scheduled or skipped.
+- GitLab project records now use the numeric GitLab project id as the stable
+  datasource id, expose `project_id` metadata, and resolve path ids through
+  project lookup before related Code/CI requests.
 - HTTP/SSE remote submissions now use explicit downgrade-only trust delegation
   instead of accepting raw caller/trust authority fields, and listener-derived
   authority is applied before session execution.

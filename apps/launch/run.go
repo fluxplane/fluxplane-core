@@ -801,7 +801,18 @@ type datasourceIndexWarmupResult struct {
 
 func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, cfg coreapp.DatasourceIndexSpec) <-chan datasourceIndexWarmupResult {
 	done := make(chan datasourceIndexWarmupResult, 1)
-	if registry == nil || index == nil || !registryHasIndexedDatasource(registry) {
+	if registry == nil {
+		slog.Info("datasource index warmup skipped", "reason", "registry_missing")
+		close(done)
+		return done
+	}
+	if index == nil {
+		slog.Info("datasource index warmup skipped", "reason", "index_missing")
+		close(done)
+		return done
+	}
+	if !registryHasIndexedDatasource(registry) {
+		slog.Info("datasource index warmup skipped", "reason", "no_indexed_datasources")
 		close(done)
 		return done
 	}
@@ -813,6 +824,7 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 			done <- datasourceIndexWarmupResult{Err: err}
 			return
 		}
+		slog.Info("datasource index warmup scheduled", "concurrency", concurrency, "freshness", freshness)
 		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 			Registry:    registry,
 			Index:       index,

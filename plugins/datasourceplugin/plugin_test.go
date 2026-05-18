@@ -212,6 +212,40 @@ func TestSearchRendersSlackMessageChannelIdentity(t *testing.T) {
 	}
 }
 
+func TestSearchRendersKeyRecordMetadata(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.project"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "gitlab.project"},
+			records: []coredatasource.Record{{
+				ID:         "sbf/services",
+				Datasource: "gitlab",
+				Entity:     "gitlab.project",
+				Title:      "sbf/services",
+				Metadata: map[string]string{
+					"id":                  "12",
+					"path_with_namespace": "sbf/services",
+				},
+			}},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"gitlab"},
+	}), nil)
+
+	result := New(registry).search(ctx, searchInput{Query: "sbf/services", Entities: []string{"gitlab.project"}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	rendered := result.Output.(operation.Rendered)
+	if !strings.Contains(rendered.Text, "project_id=12") {
+		t.Fatalf("rendered text = %q, want project id metadata", rendered.Text)
+	}
+}
+
 func TestSearchRejectsAmbiguousBroadSearch(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{

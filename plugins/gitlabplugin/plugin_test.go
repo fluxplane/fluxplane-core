@@ -2,6 +2,7 @@ package gitlabplugin
 
 import (
 	"context"
+	"encoding/base64"
 	"strconv"
 	"strings"
 	"testing"
@@ -334,7 +335,7 @@ func TestDatasourceProviderSearchesProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(result.Records) != 1 || result.Records[0].ID != "fluxplane/runtime" {
+	if len(result.Records) != 1 || result.Records[0].ID != "12" || result.Records[0].Title != "fluxplane/runtime" || result.Records[0].Metadata["project_id"] != "12" {
 		t.Fatalf("records = %#v", result.Records)
 	}
 }
@@ -345,7 +346,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 		t.Fatalf("semantic.New: %v", err)
 	}
 	_, err = index.UpdateRecord(context.Background(), coredatasource.CorpusDocument{
-		Ref:   coredatasource.RecordRef{Datasource: "company-a-gitlab", Entity: ProjectEntity, ID: "fluxplane/runtime"},
+		Ref:   coredatasource.RecordRef{Datasource: "company-a-gitlab", Entity: ProjectEntity, ID: "12"},
 		Title: "fluxplane/runtime",
 		Body:  "Runtime repository for agent execution",
 		Metadata: map[string]string{
@@ -390,7 +391,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 	if len(calls) != 0 {
 		t.Fatalf("GitLab API calls = %#v, want none", calls)
 	}
-	if len(result.Records) != 1 || result.Records[0].ID != "fluxplane/runtime" {
+	if len(result.Records) != 1 || result.Records[0].ID != "12" {
 		t.Fatalf("records = %#v, want indexed runtime project", result.Records)
 	}
 }
@@ -425,6 +426,53 @@ func TestDatasourceProviderIndexedSearchReportsMissingIndex(t *testing.T) {
 	}
 	if len(calls) != 0 {
 		t.Fatalf("GitLab API calls = %#v, want none", calls)
+	}
+}
+
+func TestDatasourceProviderIndexedSearchFallsBackForNonIndexedEntity(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{ModelName: "test-embedding"}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				commits: []*gitlab.Commit{{
+					ID:      "abc123",
+					ShortID: "abc123",
+					Title:   "Fix runtime",
+				}},
+			}, nil
+		},
+	}
+	provider = provider.WithSemanticIndex(index).(gitlabDatasourceProvider)
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{CommitEntity},
+		Config:   map[string]string{"instance": "company-a"},
+		Index:    coredatasource.IndexSpec{Enabled: true},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{
+		Entity:  CommitEntity,
+		Query:   "runtime",
+		Filters: map[string]string{"project_id": "engineering/runtime"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !containsCall(calls, "list_commits") {
+		t.Fatalf("GitLab API calls = %#v, want live commit lookup", calls)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "engineering/runtime!abc123" {
+		t.Fatalf("records = %#v, want live commit record", result.Records)
 	}
 }
 
@@ -717,6 +765,12 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 					FullPath: "engineering/platform",
 					FullName: "Engineering / Platform",
 				}},
+				descendantGroups: []*gitlab.Group{{
+					ID:       8,
+					Name:     "Core",
+					FullPath: "engineering/platform/core",
+					FullName: "Engineering / Platform / Core",
+				}},
 				groupMembers: []*gitlab.GroupMember{{
 					ID:          42,
 					Username:    "timo",
@@ -750,11 +804,77 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Corpus: %v", err)
 	}
-	if len(page.Documents) != 2 {
-		t.Fatalf("documents = %#v, want group and project membership documents", page.Documents)
+	if len(page.Documents) != 3 {
+		t.Fatalf("documents = %#v, want visible group, descendant group, and project membership documents", page.Documents)
 	}
 	if page.Documents[0].Metadata["user_id"] != "42" || page.Documents[0].Metadata["source_type"] == "" {
 		t.Fatalf("document metadata = %#v, want indexed membership fields", page.Documents[0].Metadata)
+	}
+	if !hasDocumentID(page.Documents, "42:namespace:8") {
+		t.Fatalf("documents = %#v, want descendant group membership document", page.Documents)
+	}
+}
+
+func TestDatasourceProviderCorpusStreamsMemberships(t *testing.T) {
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				groups: []*gitlab.Group{{
+					ID:       7,
+					Name:     "Platform",
+					FullPath: "engineering/platform",
+					FullName: "Engineering / Platform",
+				}},
+				groupMembers: []*gitlab.GroupMember{{
+					ID:          42,
+					Username:    "timo",
+					Name:        "Timo",
+					AccessLevel: gitlab.DeveloperPermissions,
+				}, {
+					ID:          43,
+					Username:    "ana",
+					Name:        "Ana",
+					AccessLevel: gitlab.ReporterPermissions,
+				}},
+				projects: []*gitlab.Project{{
+					ID:                12,
+					Name:              "Runtime",
+					PathWithNamespace: "engineering/runtime",
+				}},
+				projectMembers: []*gitlab.ProjectMember{{
+					ID:          42,
+					Username:    "timo",
+					Name:        "Timo",
+					AccessLevel: gitlab.MaintainerPermissions,
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{MembershipEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: MembershipEntity, Limit: 1})
+	if err != nil {
+		t.Fatalf("Corpus: %v", err)
+	}
+	if len(page.Documents) != 1 || page.NextCursor == "" || page.Complete {
+		t.Fatalf("page = %#v, want one streamed membership and next cursor", page)
+	}
+	if !containsCall(calls, "list_groups") || !containsCall(calls, "list_all_group_members") {
+		t.Fatalf("calls = %#v, want group source and group member page", calls)
+	}
+	if containsCall(calls, "list_projects") || containsCall(calls, "list_all_project_members") {
+		t.Fatalf("calls = %#v, want first page before project scan", calls)
 	}
 }
 
@@ -831,7 +951,7 @@ func TestDatasourceRelationsUseMembershipFieldIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user projects Relation: %v", err)
 	}
-	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "engineering/runtime" {
+	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "12" {
 		t.Fatalf("project records = %#v", projects.Records)
 	}
 	if len(calls) != 0 {
@@ -909,7 +1029,23 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	for _, entity := range provider.Entities() {
 		entities[entity.Type] = entity
 	}
-	for _, want := range []coredatasource.EntityType{ProjectEntity, MergeRequestEntity, MergeRequestDiffEntity, MergeRequestNoteEntity, PipelineEntity, UserEntity, GroupEntity, MembershipEntity} {
+	for _, want := range []coredatasource.EntityType{
+		ProjectEntity,
+		MergeRequestEntity,
+		MergeRequestDiffEntity,
+		MergeRequestNoteEntity,
+		PipelineEntity,
+		BranchEntity,
+		TagEntity,
+		CommitEntity,
+		RepositoryTreeEntity,
+		RepositoryFileEntity,
+		JobEntity,
+		JobTraceEntity,
+		UserEntity,
+		GroupEntity,
+		MembershipEntity,
+	} {
 		if _, ok := entities[want]; !ok {
 			t.Fatalf("entities = %#v, missing %s", entities, want)
 		}
@@ -932,6 +1068,11 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	for _, typ := range []coredatasource.EntityType{MergeRequestEntity, MergeRequestDiffEntity, MergeRequestNoteEntity, PipelineEntity} {
 		if hasCapability(entities[typ], coredatasource.EntityCapabilityList) {
 			t.Fatalf("entity %s capabilities = %#v, want no list", typ, entities[typ].Capabilities)
+		}
+	}
+	for _, typ := range []coredatasource.EntityType{BranchEntity, TagEntity, CommitEntity, RepositoryTreeEntity, RepositoryFileEntity, JobEntity, JobTraceEntity} {
+		if hasCapability(entities[typ], coredatasource.EntityCapabilityIndex) {
+			t.Fatalf("entity %s capabilities = %#v, want no index", typ, entities[typ].Capabilities)
 		}
 	}
 	for typ, entity := range entities {
@@ -973,10 +1114,15 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		projectRelations[relation.Name] = relation.TargetEntity
 	}
 	for name, target := range map[string]coredatasource.EntityType{
-		"merge_requests": MergeRequestEntity,
-		"pipelines":      PipelineEntity,
-		"users":          UserEntity,
-		"groups":         GroupEntity,
+		"merge_requests":  MergeRequestEntity,
+		"pipelines":       PipelineEntity,
+		"branches":        BranchEntity,
+		"tags":            TagEntity,
+		"commits":         CommitEntity,
+		"repository_tree": RepositoryTreeEntity,
+		"jobs":            JobEntity,
+		"users":           UserEntity,
+		"groups":          GroupEntity,
 	} {
 		if projectRelations[name] != target {
 			t.Fatalf("project relation %s = %s, want %s", name, projectRelations[name], target)
@@ -1007,6 +1153,155 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	} {
 		if membershipRelations[name] != target {
 			t.Fatalf("membership relation %s = %s, want %s", name, membershipRelations[name], target)
+		}
+	}
+}
+
+func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
+	commit := &gitlab.Commit{ID: "abc123", ShortID: "abc123", Title: "Fix runtime", Message: "Fix runtime tests"}
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				projects: []*gitlab.Project{{
+					ID:                12,
+					Name:              "Runtime",
+					PathWithNamespace: "engineering/runtime",
+				}},
+				branches: []*gitlab.Branch{{
+					Name:    "main",
+					Default: true,
+					Commit:  commit,
+					WebURL:  "https://gitlab.example/engineering/runtime/-/tree/main",
+				}},
+				tags: []*gitlab.Tag{{
+					Name:   "v1.0.0",
+					Target: "abc123",
+					Commit: commit,
+				}},
+				commits: []*gitlab.Commit{commit},
+				tree: []*gitlab.TreeNode{{
+					ID:   "blob123",
+					Name: "main.go",
+					Type: "blob",
+					Path: "cmd/app/main.go",
+					Mode: "100644",
+				}},
+				file: &gitlab.File{
+					FileName: "main.go",
+					FilePath: "cmd/app/main.go",
+					Ref:      "HEAD",
+					Encoding: "base64",
+					Content:  base64.StdEncoding.EncodeToString([]byte("package main\n")),
+					Size:     13,
+				},
+				pipelines: []*gitlab.PipelineInfo{{
+					ID:        99,
+					ProjectID: 12,
+					Status:    "success",
+					SHA:       "abc123",
+					Ref:       "main",
+				}},
+				jobs: []*gitlab.Job{{
+					ID:     123,
+					Name:   "test",
+					Stage:  "test",
+					Status: "failed",
+					Ref:    "main",
+					Commit: commit,
+					Pipeline: gitlab.JobPipeline{
+						ID:        99,
+						ProjectID: 12,
+						Ref:       "main",
+						Sha:       "abc123",
+						Status:    "failed",
+					},
+				}},
+				trace: []byte("go test ./...\nFAIL\n"),
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{ProjectEntity, BranchEntity, TagEntity, CommitEntity, RepositoryTreeEntity, RepositoryFileEntity, PipelineEntity, JobEntity, JobTraceEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	relation := accessor.(coredatasource.Relationer)
+
+	branches, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: ProjectEntity, ID: "engineering/runtime", Relation: "branches"})
+	if err != nil {
+		t.Fatalf("branches Relation: %v", err)
+	}
+	if len(branches.Records) != 1 || branches.Records[0].ID != "12!main" {
+		t.Fatalf("branches = %#v, want main branch", branches.Records)
+	}
+
+	tags, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: ProjectEntity, ID: "engineering/runtime", Relation: "tags"})
+	if err != nil {
+		t.Fatalf("tags Relation: %v", err)
+	}
+	if len(tags.Records) != 1 || tags.Records[0].ID != "12!v1.0.0" {
+		t.Fatalf("tags = %#v, want v1 tag", tags.Records)
+	}
+
+	commits, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: ProjectEntity, ID: "engineering/runtime", Relation: "commits"})
+	if err != nil {
+		t.Fatalf("commits Relation: %v", err)
+	}
+	if len(commits.Records) != 1 || commits.Records[0].ID != "12!abc123" {
+		t.Fatalf("commits = %#v, want commit", commits.Records)
+	}
+
+	tree, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: ProjectEntity, ID: "engineering/runtime", Relation: "repository_tree"})
+	if err != nil {
+		t.Fatalf("repository_tree Relation: %v", err)
+	}
+	if len(tree.Records) != 1 || tree.Records[0].ID != "12!HEAD!cmd/app/main.go" {
+		t.Fatalf("tree = %#v, want HEAD file entry", tree.Records)
+	}
+
+	file, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: RepositoryTreeEntity, ID: "12!HEAD!cmd/app/main.go", Relation: "file"})
+	if err != nil {
+		t.Fatalf("file Relation: %v", err)
+	}
+	if len(file.Records) != 1 || !strings.Contains(file.Records[0].Content, "package main") {
+		t.Fatalf("file = %#v, want decoded content preview", file.Records)
+	}
+
+	jobs, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: ProjectEntity, ID: "engineering/runtime", Relation: "jobs"})
+	if err != nil {
+		t.Fatalf("jobs Relation: %v", err)
+	}
+	if len(jobs.Records) != 1 || jobs.Records[0].ID != "12!123" {
+		t.Fatalf("jobs = %#v, want project job", jobs.Records)
+	}
+
+	pipelineJobs, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: PipelineEntity, ID: "engineering/runtime!99", Relation: "jobs"})
+	if err != nil {
+		t.Fatalf("pipeline jobs Relation: %v", err)
+	}
+	if len(pipelineJobs.Records) != 1 || pipelineJobs.Records[0].ID != "engineering/runtime!123" {
+		t.Fatalf("pipeline jobs = %#v, want pipeline job", pipelineJobs.Records)
+	}
+
+	trace, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: JobEntity, ID: "engineering/runtime!123", Relation: "trace"})
+	if err != nil {
+		t.Fatalf("trace Relation: %v", err)
+	}
+	if len(trace.Records) != 1 || !strings.Contains(trace.Records[0].Content, "FAIL") {
+		t.Fatalf("trace = %#v, want bounded job trace", trace.Records)
+	}
+
+	for _, want := range []string{"list_branches", "list_tags", "list_commits", "list_tree", "get_file", "list_project_jobs", "list_pipeline_jobs", "get_trace_file"} {
+		if !containsCall(calls, want) {
+			t.Fatalf("GitLab API calls = %#v, missing %s", calls, want)
 		}
 	}
 }
@@ -1054,7 +1349,7 @@ func TestDatasourceListsGitLabResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List projects: %v", err)
 	}
-	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "engineering/runtime" {
+	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "12" {
 		t.Fatalf("project records = %#v", projects.Records)
 	}
 	users, err := lister.List(context.Background(), coredatasource.ListRequest{Entity: UserEntity})
@@ -1240,7 +1535,7 @@ func TestDatasourceRelationsReturnUserMembershipsAndProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("user projects Relation: %v", err)
 	}
-	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "engineering/runtime" {
+	if len(projects.Records) != 1 || projects.Records[0].Entity != ProjectEntity || projects.Records[0].ID != "12" {
 		t.Fatalf("project records = %#v", projects.Records)
 	}
 	group, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MembershipEntity, ID: "42:namespace:7", Relation: "group"})
@@ -1436,7 +1731,7 @@ func TestDatasourceRelationsReturnGroupProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("group projects Relation: %v", err)
 	}
-	if len(result.Records) != 1 || result.Records[0].Entity != ProjectEntity || result.Records[0].ID != "engineering/runtime" {
+	if len(result.Records) != 1 || result.Records[0].Entity != ProjectEntity || result.Records[0].ID != "12" {
 		t.Fatalf("project records = %#v", result.Records)
 	}
 	users, err := accessor.(coredatasource.Relationer).Relation(context.Background(), coredatasource.RelationRequest{Entity: GroupEntity, ID: "engineering", Relation: "users"})
@@ -1585,6 +1880,15 @@ func containsCall(calls []string, want string) bool {
 	return false
 }
 
+func hasDocumentID(documents []coredatasource.CorpusDocument, want string) bool {
+	for _, document := range documents {
+		if document.Ref.ID == want {
+			return true
+		}
+	}
+	return false
+}
+
 func toString(value any) string {
 	switch value := value.(type) {
 	case string:
@@ -1624,6 +1928,13 @@ type fakeGitLabClient struct {
 	diffs                  []*gitlab.MergeRequestDiff
 	notes                  []*gitlab.Note
 	pipelines              []*gitlab.PipelineInfo
+	branches               []*gitlab.Branch
+	tags                   []*gitlab.Tag
+	commits                []*gitlab.Commit
+	tree                   []*gitlab.TreeNode
+	file                   *gitlab.File
+	jobs                   []*gitlab.Job
+	trace                  []byte
 	updatedMR              *gitlab.MergeRequest
 	calls                  *[]string
 }
@@ -1785,6 +2096,83 @@ func (c fakeGitLabClient) GetPipeline(context.Context, any, int64) (*gitlab.Pipe
 		Name:      c.pipelines[0].Name,
 		WebURL:    c.pipelines[0].WebURL,
 	}, nil
+}
+
+func (c fakeGitLabClient) ListBranches(context.Context, any, *gitlab.ListBranchesOptions) ([]*gitlab.Branch, error) {
+	c.record("list_branches")
+	return c.branches, nil
+}
+
+func (c fakeGitLabClient) GetBranch(context.Context, any, string) (*gitlab.Branch, error) {
+	c.record("get_branch")
+	if len(c.branches) == 0 {
+		return nil, nil
+	}
+	return c.branches[0], nil
+}
+
+func (c fakeGitLabClient) ListTags(context.Context, any, *gitlab.ListTagsOptions) ([]*gitlab.Tag, error) {
+	c.record("list_tags")
+	return c.tags, nil
+}
+
+func (c fakeGitLabClient) GetTag(context.Context, any, string) (*gitlab.Tag, error) {
+	c.record("get_tag")
+	if len(c.tags) == 0 {
+		return nil, nil
+	}
+	return c.tags[0], nil
+}
+
+func (c fakeGitLabClient) ListCommits(context.Context, any, *gitlab.ListCommitsOptions) ([]*gitlab.Commit, error) {
+	c.record("list_commits")
+	return c.commits, nil
+}
+
+func (c fakeGitLabClient) GetCommit(context.Context, any, string, *gitlab.GetCommitOptions) (*gitlab.Commit, error) {
+	c.record("get_commit")
+	if len(c.commits) == 0 {
+		return nil, nil
+	}
+	return c.commits[0], nil
+}
+
+func (c fakeGitLabClient) ListMergeRequestsByCommit(context.Context, any, string) ([]*gitlab.BasicMergeRequest, error) {
+	c.record("list_merge_requests_by_commit")
+	return c.mrs, nil
+}
+
+func (c fakeGitLabClient) ListTree(context.Context, any, *gitlab.ListTreeOptions) ([]*gitlab.TreeNode, error) {
+	c.record("list_tree")
+	return c.tree, nil
+}
+
+func (c fakeGitLabClient) GetFile(context.Context, any, string, *gitlab.GetFileOptions) (*gitlab.File, error) {
+	c.record("get_file")
+	return c.file, nil
+}
+
+func (c fakeGitLabClient) ListProjectJobs(context.Context, any, *gitlab.ListJobsOptions) ([]*gitlab.Job, error) {
+	c.record("list_project_jobs")
+	return c.jobs, nil
+}
+
+func (c fakeGitLabClient) ListPipelineJobs(context.Context, any, int64, *gitlab.ListJobsOptions) ([]*gitlab.Job, error) {
+	c.record("list_pipeline_jobs")
+	return c.jobs, nil
+}
+
+func (c fakeGitLabClient) GetJob(context.Context, any, int64) (*gitlab.Job, error) {
+	c.record("get_job")
+	if len(c.jobs) == 0 {
+		return nil, nil
+	}
+	return c.jobs[0], nil
+}
+
+func (c fakeGitLabClient) GetTraceFile(context.Context, any, int64) ([]byte, error) {
+	c.record("get_trace_file")
+	return c.trace, nil
 }
 
 func (c fakeGitLabClient) CreateMergeRequest(context.Context, any, *gitlab.CreateMergeRequestOptions) (*gitlab.MergeRequest, error) {
