@@ -337,10 +337,11 @@ default_agent:
   name: main
 plugins:
   - kind: web
-datasources:
-  - name: docs
-    kind: filesystem
-    entities: [file.document]
+datasource:
+  datasources:
+    - name: docs
+      kind: filesystem
+      entities: [file.document]
 llm_providers:
   - name: localai
     models:

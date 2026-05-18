@@ -79,7 +79,7 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 	if !a.hasEntity(entity) {
 		return coredatasource.SearchResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, entity)
 	}
-	if a.spec.Index && req.Mode != "provider" && req.Mode != "live" {
+	if a.spec.Index.Enabled && req.Mode != "provider" && req.Mode != "live" {
 		return a.indexSearch(ctx, entity, req)
 	}
 	client, err := a.client(ctx)

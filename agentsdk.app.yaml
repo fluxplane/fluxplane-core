@@ -28,24 +28,28 @@ semantic_search:
     retrieval:
       mode: hybrid
       limit: 8
-datasources:
-  - name: local-docs
-    kind: filesystem
-    entities:
-      - file.document
-    description: Markdown documentation from this repository, including docs and root-level docs.
-    path: .
-    include: ["*.md", "*.markdown"]
-    semantic:
-      enabled: true
+datasource:
+  index:
+    concurrency: 4
+    freshness: 15m
+  datasources:
+    - name: local-docs
+      kind: filesystem
       entities:
-        file.document:
-          chunking:
-            target_tokens: 350
-            overlap_tokens: 50
-          retrieval:
-            mode: hybrid
-            limit: 8
+        - file.document
+      description: Markdown documentation from this repository, including docs and root-level docs.
+      path: .
+      include: ["*.md", "*.markdown"]
+      semantic:
+        enabled: true
+        entities:
+          file.document:
+            chunking:
+              target_tokens: 350
+              overlap_tokens: 50
+            retrieval:
+              mode: hybrid
+              limit: 8
 daemon:
   listeners:
     - name: local

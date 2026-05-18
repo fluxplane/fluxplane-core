@@ -58,12 +58,20 @@ type QueueStore interface {
 	QueueStatus(context.Context, StatusRequest) ([]QueueState, error)
 }
 
+// IndexRunStore persists per datasource/entity index warmup state.
+type IndexRunStore interface {
+	PutIndexRun(context.Context, IndexRunState) error
+	IndexRun(context.Context, IndexRunKey) (IndexRunState, bool, error)
+	IndexRuns(context.Context, StatusRequest) ([]IndexRunState, error)
+}
+
 // Store is the complete persistence dependency required by Index.
 type Store interface {
 	VectorStore
 	MetadataStore
 	FieldStore
 	QueueStore
+	IndexRunStore
 }
 
 // Index coordinates chunking, embedding, vector writes, and metadata state.
@@ -377,7 +385,27 @@ func (i *Index) Status(ctx context.Context, req StatusRequest) (StatusResult, er
 	if err != nil {
 		return StatusResult{}, err
 	}
-	return StatusResult{Documents: docs, Records: records, Queue: queue}, nil
+	runs, err := i.store.IndexRuns(ctx, req)
+	if err != nil {
+		return StatusResult{}, err
+	}
+	return StatusResult{Documents: docs, Records: records, Queue: queue, Runs: runs}, nil
+}
+
+// PutIndexRun stores per datasource/entity indexing metadata.
+func (i *Index) PutIndexRun(ctx context.Context, run IndexRunState) error {
+	if i == nil {
+		return fmt.Errorf("semantic: index is nil")
+	}
+	return i.store.PutIndexRun(ctx, run)
+}
+
+// IndexRun returns the latest stored run state for one datasource/entity phase.
+func (i *Index) IndexRun(ctx context.Context, key IndexRunKey) (IndexRunState, bool, error) {
+	if i == nil {
+		return IndexRunState{}, false, fmt.Errorf("semantic: index is nil")
+	}
+	return i.store.IndexRun(ctx, key)
 }
 
 func (i *Index) planChunks(doc coredatasource.CorpusDocument) []Chunk {
@@ -477,6 +505,38 @@ type StatusResult struct {
 	Documents []DocumentState
 	Records   []FieldRecordState
 	Queue     []QueueState
+	Runs      []IndexRunState
+}
+
+const (
+	IndexRunStatusRunning  = "running"
+	IndexRunStatusComplete = "complete"
+	IndexRunStatusFailed   = "failed"
+)
+
+// IndexRunKey identifies one datasource/entity index run checkpoint.
+type IndexRunKey struct {
+	Datasource coredatasource.Name       `json:"datasource"`
+	Entity     coredatasource.EntityType `json:"entity"`
+	Phase      string                    `json:"phase,omitempty"`
+}
+
+// IndexRunState is the persisted status for one datasource/entity indexing run.
+type IndexRunState struct {
+	Key         string                    `json:"key"`
+	Datasource  coredatasource.Name       `json:"datasource"`
+	Entity      coredatasource.EntityType `json:"entity"`
+	Phase       string                    `json:"phase,omitempty"`
+	Status      string                    `json:"status,omitempty"`
+	StartedAt   time.Time                 `json:"started_at,omitempty"`
+	CompletedAt time.Time                 `json:"completed_at,omitempty"`
+	Documents   int                       `json:"documents,omitempty"`
+	Indexed     int                       `json:"indexed,omitempty"`
+	Queued      int                       `json:"queued,omitempty"`
+	Skipped     int                       `json:"skipped,omitempty"`
+	Deleted     int                       `json:"deleted,omitempty"`
+	Failed      int                       `json:"failed,omitempty"`
+	LastError   string                    `json:"last_error,omitempty"`
 }
 
 // FieldSearchRequest describes a structured field search query.

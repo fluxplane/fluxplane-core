@@ -54,51 +54,57 @@ connectors:
   jira:
     kind: jira
 
-datasources:
-  - name: slack-bot
-    connector: slack-bot
-    kind: slack
-    entities:
-      - slack.user
-      - slack.channel
-      - slack.message
-    description: Slack workspace content available to the bot.
+datasource:
+  index:
+    concurrency: 4
+    freshness: 15m
+  datasources:
+    - name: slack-bot
+      connector: slack-bot
+      kind: slack
+      entities:
+        - slack.user
+        - slack.channel
+        - slack.message
+      description: Slack workspace content available to the bot.
 
-  - name: gitlab
-    kind: gitlab
-    index: true
-    entities:
-      - gitlab.project
-      - gitlab.merge_request
-      - gitlab.merge_request_diff
-      - gitlab.merge_request_note
-      - gitlab.pipeline
-      - gitlab.user
-    config:
-      instance: main
-    description: GitLab projects and merge request review data visible to the configured plugin instance.
+    - name: gitlab
+      kind: gitlab
+      index:
+        enabled: true
+        freshness: 15m
+      entities:
+        - gitlab.project
+        - gitlab.merge_request
+        - gitlab.merge_request_diff
+        - gitlab.merge_request_note
+        - gitlab.pipeline
+        - gitlab.user
+      config:
+        instance: main
+      description: GitLab projects and merge request review data visible to the configured plugin instance.
 
-  - name: jira
-    connector: jira
-    kind: jira
-    entities:
-      - jira.issue
-      - jira.project
-    description: Jira issues visible to the configured connector.
+    - name: jira
+      connector: jira
+      kind: jira
+      entities:
+        - jira.issue
+        - jira.project
+      description: Jira issues visible to the configured connector.
 
-  - name: local-docs
-    kind: filesystem
-    entities:
-      - file.document
-    description: Local markdown and text files in this example.
-    path: .
-    include: ["*.md", "*.txt"]
+    - name: local-docs
+      kind: filesystem
+      entities:
+        - file.document
+      description: Local markdown and text files in this example.
+      path: .
+      include: ["*.md", "*.txt"]
 
-  - name: web_search
-    kind: web_search
-    entities:
-      - web.search_result
-    description: Public web search results.
+    - name: web_search
+      kind: web_search
+      entities:
+        - web.search_result
+      description: Public web search results.
 
 daemon:
   listeners:

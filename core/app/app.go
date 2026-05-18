@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/user"
@@ -50,6 +51,18 @@ type SemanticSearchSpec struct {
 	Embeddings EmbeddingSpec     `json:"embeddings,omitempty"`
 	Store      SemanticStoreSpec `json:"store,omitempty"`
 	Defaults   SemanticDefaults  `json:"defaults,omitempty"`
+}
+
+// DatasourceSpec describes app-level datasource configuration.
+type DatasourceSpec struct {
+	Index       DatasourceIndexSpec   `json:"index,omitempty"`
+	Datasources []coredatasource.Spec `json:"datasources,omitempty"`
+}
+
+// DatasourceIndexSpec describes global datasource index defaults.
+type DatasourceIndexSpec struct {
+	Concurrency int    `json:"concurrency,omitempty"`
+	Freshness   string `json:"freshness,omitempty"`
 }
 
 // EmbeddingSpec declares the embedding provider/model requested by the app.
@@ -102,6 +115,7 @@ type Spec struct {
 	Sources        []SourceSpec               `json:"sources,omitempty"`
 	Discovery      DiscoveryPolicy            `json:"discovery,omitempty"`
 	Model          ModelPolicy                `json:"model,omitempty"`
+	Datasource     DatasourceSpec             `json:"datasource,omitempty"`
 	SemanticSearch SemanticSearchSpec         `json:"semantic_search,omitempty"`
 	Security       policy.AuthorizationPolicy `json:"security,omitempty"`
 	Identity       IdentitySpec               `json:"identity,omitempty"`
@@ -122,6 +136,11 @@ func (s Spec) Validate() error {
 	for i, source := range s.Sources {
 		if strings.TrimSpace(source.Location) == "" {
 			return fmt.Errorf("app: sources[%d] location is empty", i)
+		}
+	}
+	for i, datasource := range s.Datasource.Datasources {
+		if err := datasource.Validate(); err != nil {
+			return fmt.Errorf("app: datasource.datasources[%d]: %w", i, err)
 		}
 	}
 	for i, plugin := range s.Plugins {

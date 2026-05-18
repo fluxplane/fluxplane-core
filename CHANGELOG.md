@@ -86,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   email lookup before falling back to bot-token `users.info`, so Slack users can
   resolve to canonical email users when the connected workspace grants profile
   email access.
-- Datasource search now lets providers own `index: true` behavior; native
+- Datasource search now lets providers own `index.enabled` behavior; native
   GitLab indexed search reads the local datasource index instead of falling
   back to provider APIs, launch starts a background index warmup for indexed
   datasources, and index builds emit progress output.
@@ -94,6 +94,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vector documents. GitLab indexes projects and users through structured fields,
   so project slug and user searches hit the local index without embedding
   GitLab content.
+- App manifests now group datasource configuration under `datasource`, with
+  global `datasource.index` defaults and per-datasource `index.enabled` and
+  `index.freshness` options.
+- Datasource index warmup now runs datasource/entity jobs concurrently and
+  skips fresh per-entity index runs based on persisted run metadata.
 - Semantic datasource embedding is now queued during normal index builds and
   drained by a separate embed worker/CLI command, so field indexing is not
   blocked by embedding work.

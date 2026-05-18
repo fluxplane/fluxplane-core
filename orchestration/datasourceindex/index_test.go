@@ -3,6 +3,7 @@ package datasourceindex
 import (
 	"context"
 	"testing"
+	"time"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
@@ -57,7 +58,7 @@ func TestBuildIndexedOnlySkipsNonIndexedDatasources(t *testing.T) {
 			Name:     "indexed",
 			Kind:     "fake",
 			Entities: []coredatasource.EntityType{"file.document"},
-			Index:    true,
+			Index:    coredatasource.IndexSpec{Enabled: true},
 		},
 		entity: coredatasource.EntitySpec{
 			Type:         "file.document",
@@ -116,7 +117,7 @@ func TestBuildReportsProgress(t *testing.T) {
 			Name:     "docs",
 			Kind:     "fake",
 			Entities: []coredatasource.EntityType{"file.document"},
-			Index:    true,
+			Index:    coredatasource.IndexSpec{Enabled: true},
 		},
 		entity: coredatasource.EntitySpec{
 			Type:         "file.document",
@@ -165,7 +166,7 @@ func TestBuildFieldsPhaseIndexesRecordsWithoutSemanticDocuments(t *testing.T) {
 			Name:     "gitlab",
 			Kind:     "fake",
 			Entities: []coredatasource.EntityType{"gitlab.project"},
-			Index:    true,
+			Index:    coredatasource.IndexSpec{Enabled: true},
 		},
 		entity: coredatasource.EntitySpec{
 			Type:         "gitlab.project",
@@ -222,6 +223,89 @@ func TestBuildFieldsPhaseIndexesRecordsWithoutSemanticDocuments(t *testing.T) {
 	}
 }
 
+func TestBuildSkipsFreshDatasourceEntity(t *testing.T) {
+	ctx := context.Background()
+	accessor := &countingCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.project"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.project",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "fluxplane/runtime"},
+			Title: "fluxplane/runtime",
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	now := time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC)
+	_, err = Build(ctx, Request{Registry: registry, Index: index, Phase: PhaseFields, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("Build first: %v", err)
+	}
+	result, err := Build(ctx, Request{
+		Registry:  registry,
+		Index:     index,
+		Phase:     PhaseFields,
+		Freshness: time.Hour,
+		Now:       func() time.Time { return now.Add(5 * time.Minute) },
+	})
+	if err != nil {
+		t.Fatalf("Build second: %v", err)
+	}
+	if result.Skipped != 1 || result.Documents != 0 {
+		t.Fatalf("result = %#v, want fresh entity skip", result)
+	}
+	if accessor.calls != 1 {
+		t.Fatalf("corpus calls = %d, want first run only", accessor.calls)
+	}
+}
+
+func TestBuildRunsDatasourceEntitiesConcurrently(t *testing.T) {
+	ctx := context.Background()
+	started := make(chan coredatasource.Name, 2)
+	release := make(chan struct{})
+	accessors := []coredatasource.Accessor{
+		blockingCorpusAccessor{name: "one", started: started, release: release},
+		blockingCorpusAccessor{name: "two", started: started, release: release},
+	}
+	registry, err := coredatasource.NewRegistry(accessors, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := Build(ctx, Request{Registry: registry, Index: index, Phase: PhaseFields, Concurrency: 2})
+		done <- err
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for concurrent corpus starts")
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+}
+
 type fakeCorpusAccessor struct {
 	spec   coredatasource.Spec
 	entity coredatasource.EntitySpec
@@ -234,4 +318,53 @@ func (a fakeCorpusAccessor) Entities() []coredatasource.EntitySpec {
 }
 func (a fakeCorpusAccessor) Corpus(context.Context, coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
 	return coredatasource.CorpusPage{Documents: a.docs, Complete: true}, nil
+}
+
+type countingCorpusAccessor struct {
+	spec   coredatasource.Spec
+	entity coredatasource.EntitySpec
+	docs   []coredatasource.CorpusDocument
+	calls  int
+}
+
+func (a *countingCorpusAccessor) Spec() coredatasource.Spec { return a.spec }
+func (a *countingCorpusAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{a.entity}
+}
+func (a *countingCorpusAccessor) Corpus(context.Context, coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	a.calls++
+	return coredatasource.CorpusPage{Documents: a.docs, Complete: true}, nil
+}
+
+type blockingCorpusAccessor struct {
+	name    coredatasource.Name
+	started chan<- coredatasource.Name
+	release <-chan struct{}
+}
+
+func (a blockingCorpusAccessor) Spec() coredatasource.Spec {
+	return coredatasource.Spec{
+		Name:     a.name,
+		Kind:     "fake",
+		Entities: []coredatasource.EntityType{"test.entity"},
+		Index:    coredatasource.IndexSpec{Enabled: true},
+	}
+}
+func (a blockingCorpusAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{{
+		Type:         "test.entity",
+		Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+	}}
+}
+func (a blockingCorpusAccessor) Corpus(ctx context.Context, _ coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	a.started <- a.name
+	select {
+	case <-a.release:
+	case <-ctx.Done():
+		return coredatasource.CorpusPage{}, ctx.Err()
+	}
+	return coredatasource.CorpusPage{Documents: []coredatasource.CorpusDocument{{
+		Ref:   coredatasource.RecordRef{Datasource: a.name, Entity: "test.entity", ID: "1"},
+		Title: string(a.name),
+	}}}, nil
 }

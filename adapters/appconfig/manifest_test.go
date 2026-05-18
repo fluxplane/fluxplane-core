@@ -219,21 +219,27 @@ semantic_search:
       mode: hybrid
       limit: 8
       min_score: 0.3
-datasources:
-  - name: local-docs
-    kind: filesystem
-    index: true
-    entities: [file.document]
-    semantic:
-      enabled: true
-      entities:
-        file.document:
-          corpus:
-            title_fields: [title]
-            body_fields: [content]
-            metadata_fields: [path]
-          incremental:
-            updated_at_field: updated_at
+datasource:
+  index:
+    concurrency: 4
+    freshness: 15m
+  datasources:
+    - name: local-docs
+      kind: filesystem
+      index:
+        enabled: true
+        freshness: 5m
+      entities: [file.document]
+      semantic:
+        enabled: true
+        entities:
+          file.document:
+            corpus:
+              title_fields: [title]
+              body_fields: [content]
+              metadata_fields: [path]
+            incremental:
+              updated_at_field: updated_at
 `)
 
 	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
@@ -247,12 +253,15 @@ datasources:
 	if app.SemanticSearch.Defaults.Chunking.TargetTokens != 900 || app.SemanticSearch.Defaults.Retrieval.Mode != "hybrid" {
 		t.Fatalf("semantic defaults = %#v", app.SemanticSearch.Defaults)
 	}
+	if app.Datasource.Index.Concurrency != 4 || app.Datasource.Index.Freshness != "15m" {
+		t.Fatalf("datasource index defaults = %#v", app.Datasource.Index)
+	}
 	ds := bundle.Datasources[0]
 	if !ds.Semantic.Enabled {
 		t.Fatalf("datasource semantic = %#v, want enabled", ds.Semantic)
 	}
-	if !ds.Index {
-		t.Fatalf("datasource index = false, want true")
+	if !ds.Index.Enabled || ds.Index.Freshness != "5m" {
+		t.Fatalf("datasource index = %#v, want enabled freshness", ds.Index)
 	}
 	entity := ds.Semantic.Entities["file.document"]
 	if len(entity.Corpus.BodyFields) != 1 || entity.Corpus.BodyFields[0] != "content" {
@@ -338,16 +347,17 @@ plugins:
 connectors:
   slack-bot:
     kind: slack
-datasources:
-  - name: slack-bot
-    connector: slack-bot
-    kind: slack
-    entities: [slack.user]
-  - name: local-docs
-    kind: filesystem
-    entities: [file.document]
-    path: docs
-    include: ["*.md"]
+datasource:
+  datasources:
+    - name: slack-bot
+      connector: slack-bot
+      kind: slack
+      entities: [slack.user]
+    - name: local-docs
+      kind: filesystem
+      entities: [file.document]
+      path: docs
+      include: ["*.md"]
 daemon:
   listeners:
     - name: control

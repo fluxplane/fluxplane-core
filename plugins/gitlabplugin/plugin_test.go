@@ -314,7 +314,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 		Kind:     Name,
 		Entities: []coredatasource.EntityType{ProjectEntity},
 		Config:   map[string]string{"instance": "company-a"},
-		Index:    true,
+		Index:    coredatasource.IndexSpec{Enabled: true},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -350,7 +350,7 @@ func TestDatasourceProviderIndexedSearchReportsMissingIndex(t *testing.T) {
 		Kind:     Name,
 		Entities: []coredatasource.EntityType{ProjectEntity},
 		Config:   map[string]string{"instance": "company-a"},
-		Index:    true,
+		Index:    coredatasource.IndexSpec{Enabled: true},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -437,7 +437,7 @@ func TestDatasourceProviderIndexedSearchUsesUserFieldIndex(t *testing.T) {
 		Kind:     Name,
 		Entities: []coredatasource.EntityType{UserEntity},
 		Config:   map[string]string{"instance": "company-a"},
-		Index:    true,
+		Index:    coredatasource.IndexSpec{Enabled: true},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)

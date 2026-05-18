@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
@@ -46,6 +47,7 @@ type DatasourceIndexOptions struct {
 type DatasourceIndexRuntime struct {
 	Registry *coredatasource.Registry
 	Index    *semantic.Index
+	Config   coreapp.DatasourceIndexSpec
 	Close    func() error
 }
 
@@ -111,7 +113,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
 	}
-	return DatasourceIndexRuntime{Registry: registry, Index: index, Close: closeFn}, nil
+	return DatasourceIndexRuntime{Registry: registry, Index: index, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
 func datasourceIndexPlugins(hostSystem system.System, executor connectorplugin.Executor, instances []connectorplugin.Instance) []pluginhost.Plugin {
@@ -134,6 +136,37 @@ func semanticSearchFromBundles(bundles []resource.ContributionBundle) coreapp.Se
 		}
 	}
 	return coreapp.SemanticSearchSpec{}
+}
+
+func datasourceIndexFromBundles(bundles []resource.ContributionBundle) coreapp.DatasourceIndexSpec {
+	for _, bundle := range bundles {
+		for _, app := range bundle.Apps {
+			return app.Datasource.Index
+		}
+	}
+	return coreapp.DatasourceIndexSpec{}
+}
+
+func DatasourceIndexBuildConfig(cfg coreapp.DatasourceIndexSpec, concurrencyOverride int, freshnessOverride string) (int, time.Duration, error) {
+	concurrency := concurrencyOverride
+	if concurrency <= 0 {
+		concurrency = cfg.Concurrency
+	}
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	freshnessValue := strings.TrimSpace(freshnessOverride)
+	if freshnessValue == "" {
+		freshnessValue = strings.TrimSpace(cfg.Freshness)
+	}
+	if freshnessValue == "" {
+		return concurrency, 0, nil
+	}
+	freshness, err := time.ParseDuration(freshnessValue)
+	if err != nil {
+		return 0, 0, fmt.Errorf("datasource index freshness: %w", err)
+	}
+	return concurrency, freshness, nil
 }
 
 func newSemanticIndex(root string, bundles []resource.ContributionBundle, storeOverride, providerOverride, modelOverride string) (*semantic.Index, error) {

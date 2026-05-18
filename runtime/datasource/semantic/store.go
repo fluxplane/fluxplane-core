@@ -238,6 +238,59 @@ func (s *JSONStore) QueueStatus(ctx context.Context, req StatusRequest) ([]Queue
 	return queue, nil
 }
 
+func (s *JSONStore) PutIndexRun(ctx context.Context, run IndexRunState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return err
+	}
+	if state.IndexRuns == nil {
+		state.IndexRuns = map[string]IndexRunState{}
+	}
+	run.Key = indexRunKey(IndexRunKey{Datasource: run.Datasource, Entity: run.Entity, Phase: run.Phase})
+	if run.Key == "" {
+		return nil
+	}
+	state.IndexRuns[run.Key] = run
+	return s.saveLocked(ctx, state)
+}
+
+func (s *JSONStore) IndexRun(ctx context.Context, key IndexRunKey) (IndexRunState, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return IndexRunState{}, false, err
+	}
+	run, ok := state.IndexRuns[indexRunKey(key)]
+	return run, ok, nil
+}
+
+func (s *JSONStore) IndexRuns(ctx context.Context, req StatusRequest) ([]IndexRunState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var runs []IndexRunState
+	for _, run := range state.IndexRuns {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if req.Datasource != "" && run.Datasource != req.Datasource {
+			continue
+		}
+		if req.Entity != "" && run.Entity != req.Entity {
+			continue
+		}
+		runs = append(runs, run)
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].Key < runs[j].Key })
+	return runs, nil
+}
+
 func (s *JSONStore) SearchRecords(ctx context.Context, req FieldSearchRequest) ([]FieldHit, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -407,11 +460,14 @@ func (s *JSONStore) loadLocked(ctx context.Context) (jsonState, error) {
 		if s.memory.Queue == nil {
 			s.memory.Queue = map[string]QueueJob{}
 		}
+		if s.memory.IndexRuns == nil {
+			s.memory.IndexRuns = map[string]IndexRunState{}
+		}
 		return s.memory, nil
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return jsonState{Documents: map[string]DocumentState{}}, nil
+		return jsonState{Documents: map[string]DocumentState{}, Records: map[string]FieldRecord{}, Queue: map[string]QueueJob{}, IndexRuns: map[string]IndexRunState{}}, nil
 	}
 	if err != nil {
 		return jsonState{}, err
@@ -431,6 +487,9 @@ func (s *JSONStore) loadLocked(ctx context.Context) (jsonState, error) {
 	if state.Queue == nil {
 		state.Queue = map[string]QueueJob{}
 	}
+	if state.IndexRuns == nil {
+		state.IndexRuns = map[string]IndexRunState{}
+	}
 	return state, nil
 }
 
@@ -449,6 +508,9 @@ func (s *JSONStore) saveLocked(ctx context.Context, state jsonState) error {
 		if state.Queue == nil {
 			state.Queue = map[string]QueueJob{}
 		}
+		if state.IndexRuns == nil {
+			state.IndexRuns = map[string]IndexRunState{}
+		}
 		s.memory = state
 		return nil
 	}
@@ -466,7 +528,19 @@ type jsonState struct {
 	Documents map[string]DocumentState `json:"documents,omitempty"`
 	Records   map[string]FieldRecord   `json:"records,omitempty"`
 	Queue     map[string]QueueJob      `json:"semantic_queue,omitempty"`
+	IndexRuns map[string]IndexRunState `json:"index_runs,omitempty"`
 	Chunks    []EmbeddedChunk          `json:"chunks,omitempty"`
+}
+
+func indexRunKey(key IndexRunKey) string {
+	if key.Datasource == "" || key.Entity == "" {
+		return ""
+	}
+	phase := strings.TrimSpace(key.Phase)
+	if phase == "" {
+		phase = "all"
+	}
+	return string(key.Datasource) + "\x00" + string(key.Entity) + "\x00" + phase
 }
 
 func matchesFilters(record FieldRecord, filters map[string]string) bool {

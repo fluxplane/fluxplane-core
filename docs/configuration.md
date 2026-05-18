@@ -330,58 +330,74 @@ resources.
 Datasources define searchable or retrievable entity sets.
 
 ```yaml
-datasources:
-  - name: local-docs
-    kind: filesystem
-    index: true
-    entities:
-      - file.document
-    description: Local markdown and text files.
-    path: .
-    include: ["*.md", "*.txt"]
-    semantic:
-      enabled: true
+datasource:
+  index:
+    concurrency: 4
+    freshness: 15m
+  datasources:
+    - name: local-docs
+      kind: filesystem
+      index:
+        enabled: true
+        freshness: 15m
+      entities:
+        - file.document
+      description: Local markdown and text files.
+      path: .
+      include: ["*.md", "*.txt"]
+      semantic:
+        enabled: true
 ```
 
-Set `index: true` when a datasource provider should use its local datasource
-index for search where supported. The datasource index can hold structured
-field records, semantic vector documents, or both, depending on the entity
-capabilities declared by the provider. Build the index with
-`agentsdk datasource index build`; use `--phase fields` or `--phase semantic`
-to run only one indexing phase. Semantic documents are queued by build and
-embedded later with `agentsdk datasource index embed` or the background embed
-worker started by `agentsdk serve`. `agentsdk serve` also starts a background
-warmup for indexed datasources and logs indexing progress.
+`datasource.index` holds global datasource indexing defaults. Set
+`datasource.datasources[*].index.enabled: true` when a provider should use its
+local datasource index for search where supported. The per-datasource
+`index.freshness` value overrides the global freshness. A freshness of `0`
+always rebuilds.
+
+The datasource index can hold structured field records, semantic vector
+documents, or both, depending on the entity capabilities declared by the
+provider. Build the index with `agentsdk datasource index build`; use
+`--phase fields` or `--phase semantic` to run only one indexing phase.
+`--force` and `--full` bypass freshness checks. Semantic documents are queued
+by build and embedded later with `agentsdk datasource index embed` or the
+background embed worker started by `agentsdk serve`. `agentsdk serve` starts
+background warmup for indexed datasources with the configured concurrency and
+logs start, fresh-skip, page, complete, and failure progress per entity.
 
 Connector-backed datasources reference a connector instance:
 
 ```yaml
-datasources:
-  - name: slack-main
-    connector: slack-main
-    kind: slack
-    entities:
-      - slack.user
-      - slack.channel
-      - slack.message
+datasource:
+  datasources:
+    - name: slack-main
+      connector: slack-main
+      kind: slack
+      entities:
+        - slack.user
+        - slack.channel
+        - slack.message
 ```
 
 Native GitLab datasources reference the named GitLab plugin instance:
 
 ```yaml
-datasources:
-  - name: company-a-gitlab
-    kind: gitlab
-    index: true
-    entities:
-      - gitlab.project
-      - gitlab.merge_request
-      - gitlab.merge_request_diff
-      - gitlab.merge_request_note
-      - gitlab.pipeline
-      - gitlab.user
-    config:
-      instance: company-a
+datasource:
+  datasources:
+    - name: company-a-gitlab
+      kind: gitlab
+      index:
+        enabled: true
+        freshness: 15m
+      entities:
+        - gitlab.project
+        - gitlab.merge_request
+        - gitlab.merge_request_diff
+        - gitlab.merge_request_note
+        - gitlab.pipeline
+        - gitlab.user
+      config:
+        instance: company-a
 ```
 
 GitLab currently indexes `gitlab.project` and `gitlab.user` through structured

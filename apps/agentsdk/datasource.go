@@ -18,8 +18,11 @@ type datasourceIndexOptions struct {
 	datasource     string
 	entity         string
 	full           bool
+	force          bool
 	dryRun         bool
 	limit          int
+	concurrency    int
+	freshness      string
 	phase          string
 	connectorsPath string
 	storePath      string
@@ -61,8 +64,11 @@ func newDatasourceIndexBuildCommand() *cobra.Command {
 	}
 	addDatasourceIndexFlags(cmd, &opts)
 	cmd.Flags().BoolVar(&opts.full, "full", false, "delete stale indexed records after a complete scan")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "bypass datasource index freshness checks")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "scan corpus without writing index state")
 	cmd.Flags().IntVar(&opts.limit, "limit", 0, "maximum corpus records per datasource/entity")
+	cmd.Flags().IntVar(&opts.concurrency, "concurrency", 0, "datasource/entity indexing concurrency")
+	cmd.Flags().StringVar(&opts.freshness, "freshness", "", "skip datasource/entity indexing when the latest successful run is fresher than this duration")
 	cmd.Flags().StringVar(&opts.phase, "phase", datasourceindex.PhaseAll, "index phase: all, fields, or semantic")
 	return cmd
 }
@@ -126,16 +132,23 @@ func runDatasourceIndexBuild(ctx context.Context, opts datasourceIndexOptions, a
 		return err
 	}
 	defer func() { _ = env.Close() }()
+	concurrency, freshness, err := launch.DatasourceIndexBuildConfig(env.Config, opts.concurrency, opts.freshness)
+	if err != nil {
+		return err
+	}
 	result, err := datasourceindex.Build(ctx, datasourceindex.Request{
-		Registry:   env.Registry,
-		Index:      env.Index,
-		Datasource: coredatasource.Name(strings.TrimSpace(opts.datasource)),
-		Entity:     coredatasource.EntityType(strings.TrimSpace(opts.entity)),
-		Full:       opts.full,
-		DryRun:     opts.dryRun,
-		Limit:      opts.limit,
-		Phase:      opts.phase,
-		Progress:   datasourceIndexProgressWriter(out),
+		Registry:    env.Registry,
+		Index:       env.Index,
+		Datasource:  coredatasource.Name(strings.TrimSpace(opts.datasource)),
+		Entity:      coredatasource.EntityType(strings.TrimSpace(opts.entity)),
+		Full:        opts.full,
+		Force:       opts.force,
+		DryRun:      opts.dryRun,
+		Limit:       opts.limit,
+		Concurrency: concurrency,
+		Freshness:   freshness,
+		Phase:       opts.phase,
+		Progress:    datasourceIndexProgressWriter(out),
 	})
 	if err != nil {
 		return err
@@ -168,6 +181,8 @@ func datasourceIndexProgressWriter(out io.Writer) datasourceindex.ProgressReport
 		switch event.Kind {
 		case datasourceindex.ProgressEntityStart:
 			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s start\n", event.Datasource, event.Entity, event.Phase)
+		case datasourceindex.ProgressEntityFresh:
+			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s fresh until=%s\n", event.Datasource, event.Entity, event.Phase, event.FreshUntil.Format("2006-01-02T15:04:05Z"))
 		case datasourceindex.ProgressPageFetched:
 			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s page documents=%d tombstones=%d\n", event.Datasource, event.Entity, event.Phase, event.Documents, event.Tombstones)
 		case datasourceindex.ProgressDocumentFailed, datasourceindex.ProgressTombstoneFailed:
@@ -221,6 +236,9 @@ func runDatasourceIndexStatus(ctx context.Context, opts datasourceIndexOptions, 
 	}
 	for _, job := range status.Queue {
 		_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6s %s\n", job.Ref.Datasource, job.Ref.Entity, job.Ref.ID, "queue", job.Status, "-", "-")
+	}
+	for _, run := range status.Runs {
+		_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6s %s\n", run.Datasource, run.Entity, run.Phase, "run", run.Status, "-", run.CompletedAt.Format("2006-01-02T15:04:05Z"))
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
@@ -452,7 +453,7 @@ func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
 			Name:     "docs",
 			Kind:     "memory",
 			Entities: []coredatasource.EntityType{"file.document"},
-			Index:    true,
+			Index:    coredatasource.IndexSpec{Enabled: true},
 		},
 		entity: coredatasource.EntitySpec{
 			Type:         "file.document",
@@ -472,7 +473,7 @@ func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("semantic.New: %v", err)
 	}
-	done := startDatasourceIndexWarmup(ctx, registry, index)
+	done := startDatasourceIndexWarmup(ctx, registry, index, coreapp.DatasourceIndexSpec{})
 	warmup := <-done
 	if warmup.Err != nil {
 		t.Fatalf("warmup error: %v", warmup.Err)

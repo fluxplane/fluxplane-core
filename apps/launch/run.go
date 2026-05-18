@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
@@ -334,7 +335,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		plugins = append(plugins, datasourceplugin.NewWithSemantic(registry, index))
 		ensurePluginRef(bundles, datasourceplugin.Name)
-		warmupDone := startDatasourceIndexWarmup(ctx, registry, index)
+		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, datasourceIndexFromBundles(bundles))
 		startDatasourceIndexEmbedWorker(ctx, warmupDone, index)
 	}
 	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
@@ -785,7 +786,7 @@ type datasourceIndexWarmupResult struct {
 	Err    error
 }
 
-func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index) <-chan datasourceIndexWarmupResult {
+func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, cfg coreapp.DatasourceIndexSpec) <-chan datasourceIndexWarmupResult {
 	done := make(chan datasourceIndexWarmupResult, 1)
 	if registry == nil || index == nil || !registryHasIndexedDatasource(registry) {
 		close(done)
@@ -793,10 +794,18 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 	}
 	go func() {
 		defer close(done)
+		concurrency, freshness, err := DatasourceIndexBuildConfig(cfg, 0, "")
+		if err != nil {
+			slog.Warn("datasource index warmup config failed", "error", err)
+			done <- datasourceIndexWarmupResult{Err: err}
+			return
+		}
 		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 			Registry:    registry,
 			Index:       index,
 			IndexedOnly: true,
+			Concurrency: concurrency,
+			Freshness:   freshness,
 			Progress:    datasourceIndexSlogProgress,
 		})
 		if err != nil {
@@ -839,6 +848,8 @@ func datasourceIndexSlogProgress(event datasourceindex.ProgressEvent) {
 	switch event.Kind {
 	case datasourceindex.ProgressEntityStart:
 		slog.Info("datasource index warmup start", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase)
+	case datasourceindex.ProgressEntityFresh:
+		slog.Info("datasource index warmup fresh", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "fresh_until", event.FreshUntil)
 	case datasourceindex.ProgressPageFetched:
 		slog.Info("datasource index warmup page", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "documents", event.Documents, "tombstones", event.Tombstones)
 	case datasourceindex.ProgressDocumentFailed, datasourceindex.ProgressTombstoneFailed:
@@ -872,7 +883,7 @@ func registryHasIndexedDatasource(registry *coredatasource.Registry) bool {
 		return false
 	}
 	for _, accessor := range registry.All() {
-		if accessor.Spec().Index {
+		if accessor.Spec().Index.Enabled {
 			return true
 		}
 	}

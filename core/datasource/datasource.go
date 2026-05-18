@@ -63,7 +63,7 @@ type Spec struct {
 	Connector   string            `json:"connector,omitempty"`
 	Kind        string            `json:"kind,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
-	Index       bool              `json:"index,omitempty"`
+	Index       IndexSpec         `json:"index,omitempty"`
 	Semantic    SemanticSpec      `json:"semantic,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -106,6 +106,12 @@ func (s Spec) Validate() error {
 type SemanticSpec struct {
 	Enabled  bool                          `json:"enabled,omitempty"`
 	Entities map[EntityType]EntitySemantic `json:"entities,omitempty"`
+}
+
+// IndexSpec configures local datasource indexing for one datasource instance.
+type IndexSpec struct {
+	Enabled   bool   `json:"enabled,omitempty"`
+	Freshness string `json:"freshness,omitempty"`
 }
 
 // EntitySemantic configures semantic indexing for one datasource entity.

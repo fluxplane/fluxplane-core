@@ -134,7 +134,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 					Config:   cloneMap(plugin.Config),
 				})
 			}
-			for _, ds := range manifest.Datasources {
+			for _, ds := range manifest.Datasource.Datasources {
 				bundle.Datasources = append(bundle.Datasources, ds.Spec())
 			}
 			for i, raw := range manifest.Commands {
@@ -414,13 +414,13 @@ type Manifest struct {
 	Sources        []sourceSpec               `json:"sources,omitempty" yaml:"sources,omitempty"`
 	Discovery      discovery                  `json:"discovery,omitempty" yaml:"discovery,omitempty"`
 	ModelPolicy    modelPolicy                `json:"model_policy,omitempty" yaml:"model_policy,omitempty"`
+	Datasource     datasourceConfigDoc        `json:"datasource,omitempty" yaml:"datasource,omitempty"`
 	SemanticSearch semanticSearchDoc          `json:"semantic_search,omitempty" yaml:"semantic_search,omitempty"`
 	Security       policy.AuthorizationPolicy `json:"security,omitempty" yaml:"security,omitempty"`
 	Identity       identityDoc                `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Models         modelConfigDoc             `json:"models,omitempty" yaml:"models,omitempty"`
 	Distribution   distributionDoc            `json:"distribution,omitempty" yaml:"distribution,omitempty"`
 	Plugins        []pluginRef                `json:"plugins,omitempty" yaml:"plugins,omitempty"`
-	Datasources    []DatasourceDoc            `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	Commands       []commandDoc               `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Workflows      []workflowDoc              `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	Operations     []operationDoc             `json:"operations,omitempty" yaml:"operations,omitempty"`
@@ -681,19 +681,47 @@ type distributionCommandDoc struct {
 	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
+type datasourceConfigDoc struct {
+	Index       datasourceIndexDefaultsDoc `json:"index,omitempty" yaml:"index,omitempty"`
+	Datasources []DatasourceDoc            `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+}
+
+func (d datasourceConfigDoc) Spec() coreapp.DatasourceSpec {
+	out := coreapp.DatasourceSpec{
+		Index: coreapp.DatasourceIndexSpec{
+			Concurrency: d.Index.Concurrency,
+			Freshness:   strings.TrimSpace(d.Index.Freshness),
+		},
+	}
+	for _, ds := range d.Datasources {
+		out.Datasources = append(out.Datasources, ds.Spec())
+	}
+	return out
+}
+
+type datasourceIndexDefaultsDoc struct {
+	Concurrency int    `json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
+	Freshness   string `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+}
+
 // DatasourceDoc declares one configured datasource instance.
 type DatasourceDoc struct {
-	Name        string            `json:"name" yaml:"name"`
-	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-	Entities    []string          `json:"entities,omitempty" yaml:"entities,omitempty"`
-	Connector   string            `json:"connector,omitempty" yaml:"connector,omitempty"`
-	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Type        string            `json:"type,omitempty" yaml:"type,omitempty"`
-	Path        string            `json:"path,omitempty" yaml:"path,omitempty"`
-	Include     []string          `json:"include,omitempty" yaml:"include,omitempty"`
-	Config      map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
-	Index       bool              `json:"index,omitempty" yaml:"index,omitempty"`
-	Semantic    semanticDoc       `json:"semantic,omitempty" yaml:"semantic,omitempty"`
+	Name        string             `json:"name" yaml:"name"`
+	Description string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Entities    []string           `json:"entities,omitempty" yaml:"entities,omitempty"`
+	Connector   string             `json:"connector,omitempty" yaml:"connector,omitempty"`
+	Kind        string             `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Type        string             `json:"type,omitempty" yaml:"type,omitempty"`
+	Path        string             `json:"path,omitempty" yaml:"path,omitempty"`
+	Include     []string           `json:"include,omitempty" yaml:"include,omitempty"`
+	Config      map[string]string  `json:"config,omitempty" yaml:"config,omitempty"`
+	Index       datasourceIndexDoc `json:"index,omitempty" yaml:"index,omitempty"`
+	Semantic    semanticDoc        `json:"semantic,omitempty" yaml:"semantic,omitempty"`
+}
+
+type datasourceIndexDoc struct {
+	Enabled   bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Freshness string `json:"freshness,omitempty" yaml:"freshness,omitempty"`
 }
 
 func (d DatasourceDoc) Spec() coredatasource.Spec {
@@ -731,8 +759,11 @@ func (d DatasourceDoc) Spec() coredatasource.Spec {
 		Connector:   strings.TrimSpace(d.Connector),
 		Kind:        datasourceKind(d),
 		Config:      cfg,
-		Index:       d.Index,
-		Semantic:    d.Semantic.Spec(),
+		Index: coredatasource.IndexSpec{
+			Enabled:   d.Index.Enabled,
+			Freshness: strings.TrimSpace(d.Index.Freshness),
+		},
+		Semantic: d.Semantic.Spec(),
 	}
 }
 
@@ -1412,6 +1443,7 @@ func (m Manifest) Spec() coreapp.Spec {
 		DefaultAgent:   agent.Ref(m.DefaultAgent),
 		Discovery:      m.Discovery.Spec(),
 		Model:          m.ModelPolicy.Spec(),
+		Datasource:     m.Datasource.Spec(),
 		SemanticSearch: m.SemanticSearch.Spec(),
 		Security:       m.Security,
 		Identity:       m.Identity.Spec(),
