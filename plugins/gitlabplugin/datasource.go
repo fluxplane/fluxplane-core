@@ -36,6 +36,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 	return gitlabAccessor{
 		spec:          spec,
 		system:        p.system,
+		ref:           p.ref,
 		config:        p.config,
 		clientFactory: p.clientFactory,
 		entity:        projectEntitySpec(),
@@ -45,6 +46,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 type gitlabAccessor struct {
 	spec          coredatasource.Spec
 	system        system.System
+	ref           resource.PluginRef
 	config        Config
 	clientFactory gitlabClientFactory
 	entity        coredatasource.EntitySpec
@@ -160,7 +162,7 @@ func (a gitlabAccessor) client(ctx context.Context) (gitlabClient, error) {
 	if factory == nil {
 		factory = newOfficialClient
 	}
-	return factory(ctx, a.system, a.config)
+	return factory(ctx, a.system, a.ref, a.config)
 }
 
 func supportsProjectEntity(entities []coredatasource.EntityType) bool {

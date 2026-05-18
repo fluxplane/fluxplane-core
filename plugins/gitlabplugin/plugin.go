@@ -10,9 +10,11 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 	"golang.org/x/oauth2"
@@ -23,6 +25,13 @@ const (
 	projectSearchOp = "project_search"
 	projectGetOp    = "project_get"
 	defaultBaseURL  = "https://gitlab.com"
+
+	accessTokenPurpose           = "access_token"
+	personalAccessTokenMethod    = "personal_access_token"
+	oauth2Method                 = "oauth2"
+	gitlabAccessTokenEnv         = "GITLAB_ACCESS_TOKEN"
+	gitlabPersonalAccessTokenEnv = "GITLAB_PERSONAL_ACCESS_TOKEN"
+	gitlabTokenEnv               = "GITLAB_TOKEN"
 )
 
 type Plugin struct {
@@ -41,7 +50,7 @@ type Config struct {
 }
 
 type AuthConfig struct {
-	Kind     string `json:"kind,omitempty"`
+	Method   string `json:"method,omitempty"`
 	TokenEnv string `json:"token_env,omitempty"`
 }
 
@@ -50,12 +59,13 @@ type gitlabClient interface {
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
 }
 
-type gitlabClientFactory func(context.Context, system.System, Config) (gitlabClient, error)
+type gitlabClientFactory func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error)
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.AuthMethodContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys, clientFactory: newOfficialClient}
@@ -106,6 +116,11 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) (
 	}}, nil
 }
 
+func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
+	p = p.withRef(ctx.Ref)
+	return p.authMethods(), nil
+}
+
 func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 	if p.ref.Name == "" && ref.Name != "" {
 		p.ref = ref
@@ -146,7 +161,7 @@ func (p Plugin) client(ctx context.Context) (gitlabClient, error) {
 	if factory == nil {
 		factory = newOfficialClient
 	}
-	return factory(ctx, p.system, p.config())
+	return factory(ctx, p.system, p.ref, p.config())
 }
 
 func (p Plugin) searchProjects(ctx operation.Context, req projectSearchInput) operation.Result {
@@ -194,7 +209,7 @@ func (p Plugin) networkAccess() ([]operationruntime.AccessDescriptor, error) {
 
 func normalizeConfig(cfg Config) Config {
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
-	cfg.Auth.Kind = strings.TrimSpace(cfg.Auth.Kind)
+	cfg.Auth.Method = strings.TrimSpace(cfg.Auth.Method)
 	cfg.Auth.TokenEnv = strings.TrimSpace(cfg.Auth.TokenEnv)
 	return cfg
 }
@@ -206,11 +221,68 @@ func (c Config) baseURL() string {
 	return defaultBaseURL
 }
 
-func newOfficialClient(ctx context.Context, sys system.System, cfg Config) (gitlabClient, error) {
+func (c Config) authMethods(ref resource.PluginRef) []coresecret.AuthMethodSpec {
+	methods := []coresecret.AuthMethodSpec{}
+	authMethod := strings.ToLower(strings.TrimSpace(c.Auth.Method))
+	if authMethod == "" || authMethod == "env" || authMethod == "personal_access_token" || authMethod == "personal-access-token" {
+		methods = append(methods, personalAccessTokenAuthMethod(ref, c.Auth.TokenEnv))
+	}
+	if authMethod == "" || authMethod == "oauth2" {
+		methods = append(methods, oauth2AuthMethod(ref, c.baseURL()))
+	}
+	return methods
+}
+
+func (p Plugin) authMethods() []coresecret.AuthMethodSpec {
+	return p.config().authMethods(p.ref)
+}
+
+func personalAccessTokenAuthMethod(_ resource.PluginRef, tokenEnv string) coresecret.AuthMethodSpec {
+	return coresecret.AuthMethodSpec{
+		Name:        personalAccessTokenMethod,
+		Method:      coresecret.AuthMethodEnv,
+		Kind:        coresecret.KindAPIKey,
+		DisplayName: "GitLab personal access token",
+		Description: "GitLab personal access token resolved from a configured environment variable.",
+		Env: coresecret.EnvSpec{
+			Name:    strings.TrimSpace(tokenEnv),
+			Aliases: tokenEnvAliases(),
+		},
+		Header: coresecret.HeaderSpec{Name: "Private-Token"},
+	}
+}
+
+func oauth2AuthMethod(ref resource.PluginRef, baseURL string) coresecret.AuthMethodSpec {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	return coresecret.AuthMethodSpec{
+		Name:        oauth2Method,
+		Method:      coresecret.AuthMethodOAuth2,
+		Kind:        coresecret.KindOAuth2Token,
+		DisplayName: "GitLab OAuth2",
+		Description: "GitLab OAuth2 authorization-code credentials stored for this plugin instance.",
+		Secret:      coresecret.Plugin(Name, ref.InstanceName(), oauth2Method+"_token"),
+		Header:      coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		OAuth2: coresecret.OAuth2Spec{
+			AuthorizeURL: baseURL + "/oauth/authorize",
+			TokenURL:     baseURL + "/oauth/token",
+			RefreshURL:   baseURL + "/oauth/token",
+			Scopes:       []string{"read_api"},
+		},
+	}
+}
+
+func tokenEnvAliases() []string {
+	return []string{gitlabAccessTokenEnv, gitlabPersonalAccessTokenEnv, gitlabTokenEnv}
+}
+
+func newOfficialClient(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	if sys == nil {
 		return nil, fmt.Errorf("gitlabplugin: system is nil")
 	}
-	token, err := tokenFromEnv(ctx, sys, cfg.Auth.TokenEnv)
+	auth, err := authFromSecrets(ctx, sys, ref, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -220,15 +292,15 @@ func newOfficialClient(ctx context.Context, sys system.System, cfg Config) (gitl
 		gitlab.WithoutRetries(),
 	}
 	var client *gitlab.Client
-	switch strings.ToLower(strings.TrimSpace(cfg.Auth.Kind)) {
-	case "", "private_token", "private-token":
-		client, err = gitlab.NewClient(token, options...)
-	case "bearer", "oauth", "oauth_token", "oauth-token":
+	switch auth.Material.Kind {
+	case coresecret.KindAPIKey:
+		client, err = gitlab.NewClient(auth.Material.Value, options...)
+	case coresecret.KindBearerToken, coresecret.KindOAuth2Token:
 		client, err = gitlab.NewAuthSourceClient(gitlab.OAuthTokenSource{
-			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token}),
+			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: auth.Material.Value}),
 		}, options...)
 	default:
-		return nil, fmt.Errorf("gitlabplugin: unsupported auth kind %q", cfg.Auth.Kind)
+		return nil, fmt.Errorf("gitlabplugin: unsupported auth material kind %q", auth.Material.Kind)
 	}
 	if err != nil {
 		return nil, err
@@ -236,23 +308,38 @@ func newOfficialClient(ctx context.Context, sys system.System, cfg Config) (gitl
 	return officialClient{client: client}, nil
 }
 
-func tokenFromEnv(ctx context.Context, sys system.System, name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", nil
-	}
+func authFromSecrets(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (runtimesecret.Resolution, error) {
 	env := sys.Environment()
 	if env == nil {
-		return "", fmt.Errorf("gitlabplugin: system environment is nil")
+		return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: system environment is nil")
 	}
-	token, ok, err := env.Lookup(ctx, name)
+	broker := runtimesecret.NewBroker(runtimesecret.EnvResolver{
+		Environment: env,
+	})
+	methods := cfg.authMethods(ref)
+	if len(methods) == 0 {
+		return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: unsupported auth method %q", cfg.Auth.Method)
+	}
+	request := coresecret.AuthRequest{
+		Plugin:   Name,
+		Instance: ref.InstanceName(),
+		Purpose:  accessTokenPurpose,
+		Methods:  methods,
+	}
+	auth, ok, err := broker.UseAvailable(ctx, request)
 	if err != nil {
-		return "", fmt.Errorf("gitlabplugin: lookup token env %q: %w", name, err)
+		return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: use auth secret: %w", err)
 	}
-	if !ok || strings.TrimSpace(token) == "" {
-		return "", fmt.Errorf("gitlabplugin: token env %q is not set", name)
+	if !ok || strings.TrimSpace(auth.Material.Value) == "" {
+		if strings.EqualFold(strings.TrimSpace(cfg.Auth.Method), oauth2Method) {
+			return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: oauth2 auth secret is not configured for instance %s", ref.InstanceName())
+		}
+		if cfg.Auth.TokenEnv == "" {
+			return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: auth secret is not configured; set auth.token_env to one of %s", strings.Join(tokenEnvAliases(), ", "))
+		}
+		return runtimesecret.Resolution{}, fmt.Errorf("gitlabplugin: auth secret is not configured; set %s", cfg.Auth.TokenEnv)
 	}
-	return token, nil
+	return auth, nil
 }
 
 type officialClient struct {

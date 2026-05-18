@@ -285,9 +285,14 @@ connectors:
 ```
 
 Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `agentsdk connect`. Native GitLab instances read credentials
-through the configured environment variable and use the official GitLab Go
-client through the runtime network boundary.
+credentials with `agentsdk connect`. Native GitLab instances declare a
+`personal_access_token` env auth method and OAuth2 metadata. `auth.token_env`
+is the configured environment-variable address for that instance; aliases such
+as `GITLAB_ACCESS_TOKEN`, `GITLAB_PERSONAL_ACCESS_TOKEN`, and `GITLAB_TOKEN`
+are advertised as setup hints, not implicit runtime fallback. The runtime
+secret broker authorizes `secret.use` on the logical plugin secret before an
+env resolver reads the configured variable. The actual token is never part of
+the app manifest or model context.
 
 `instance` lets the same plugin type be declared more than once. The runtime
 resolves each declaration independently, so `gitlab/company-a` and

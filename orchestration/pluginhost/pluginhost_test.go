@@ -9,6 +9,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 )
 
 func TestHostResolvesPluginContributions(t *testing.T) {
@@ -188,6 +189,27 @@ func TestHostResolvesDatasourceProviders(t *testing.T) {
 	}
 }
 
+func TestHostResolvesAuthMethods(t *testing.T) {
+	host, err := New(fakeAuthMethodPlugin{name: "gitlab"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "gitlab", Instance: "company-a"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.AuthMethods) != 1 {
+		t.Fatalf("auth methods len = %d, want 1", len(resolution.AuthMethods))
+	}
+	method := resolution.AuthMethods[0].Method
+	if method.Name != "personal_access_token" || method.Method != coresecret.AuthMethodEnv || method.Env.Name != "GITLAB_PERSONAL_ACCESS_TOKEN" {
+		t.Fatalf("auth method = %#v", method)
+	}
+	if resolution.AuthMethods[0].Source.ID != "plugin:gitlab/company-a" {
+		t.Fatalf("source ID = %q, want plugin:gitlab/company-a", resolution.AuthMethods[0].Source.ID)
+	}
+}
+
 func TestHostResolvesContextProviders(t *testing.T) {
 	host, err := New(fakeContextProviderPlugin{name: "docs"})
 	if err != nil {
@@ -349,4 +371,25 @@ func (fakeContextProvider) Spec() corecontext.ProviderSpec {
 
 func (fakeContextProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {
 	return []corecontext.Block{{Provider: "docs.catalog", Kind: corecontext.BlockText, Content: "docs"}}, nil
+}
+
+type fakeAuthMethodPlugin struct {
+	name string
+}
+
+func (p fakeAuthMethodPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeAuthMethodPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p fakeAuthMethodPlugin) AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error) {
+	return []coresecret.AuthMethodSpec{{
+		Name:   "personal_access_token",
+		Method: coresecret.AuthMethodEnv,
+		Kind:   coresecret.KindAPIKey,
+		Env:    coresecret.EnvSpec{Name: "GITLAB_PERSONAL_ACCESS_TOKEN"},
+	}}, nil
 }

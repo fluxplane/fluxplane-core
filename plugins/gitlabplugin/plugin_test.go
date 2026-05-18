@@ -7,6 +7,7 @@ import (
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreoperation "github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -32,10 +33,45 @@ func TestPluginContributesNamedGitLabOperations(t *testing.T) {
 	}
 }
 
+func TestPluginDeclaresAuthMethods(t *testing.T) {
+	plugin := New(fakeSystem{})
+	plugin.cfg = Config{Auth: AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv}}
+	methods, err := plugin.AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "company-a"}})
+	if err != nil {
+		t.Fatalf("AuthMethods: %v", err)
+	}
+	if len(methods) != 2 {
+		t.Fatalf("methods len = %d, want 2", len(methods))
+	}
+	method := methods[0]
+	if method.Name != personalAccessTokenMethod || method.Method != "env" || method.Kind != "api_key" {
+		t.Fatalf("method = %#v", method)
+	}
+	if method.Env.Name != gitlabPersonalAccessTokenEnv {
+		t.Fatalf("env name = %q", method.Env.Name)
+	}
+	if len(method.Env.Aliases) != 3 || method.Env.Aliases[0] != gitlabAccessTokenEnv || method.Env.Aliases[1] != gitlabPersonalAccessTokenEnv || method.Env.Aliases[2] != gitlabTokenEnv {
+		t.Fatalf("env aliases = %#v", method.Env.Aliases)
+	}
+	if method.Header.Name != "Private-Token" {
+		t.Fatalf("header = %#v", method.Header)
+	}
+	oauth := methods[1]
+	if oauth.Name != oauth2Method || oauth.Method != "oauth2" || oauth.Kind != "oauth2_token" {
+		t.Fatalf("oauth method = %#v", oauth)
+	}
+	if oauth.Secret.ResourceName() != "plugin/gitlab/company-a/oauth2_token" {
+		t.Fatalf("oauth secret = %#v", oauth.Secret)
+	}
+	if oauth.OAuth2.TokenURL != defaultBaseURL+"/oauth/token" || len(oauth.OAuth2.Scopes) != 1 || oauth.OAuth2.Scopes[0] != "read_api" {
+		t.Fatalf("oauth2 = %#v", oauth.OAuth2)
+	}
+}
+
 func TestPluginSearchOperationUsesInjectedClient(t *testing.T) {
 	plugin := New(fakeSystem{})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
-	plugin.clientFactory = func(context.Context, system.System, Config) (gitlabClient, error) {
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
 		return fakeGitLabClient{projects: []*gitlab.Project{
 			{
 				ID:                12,
@@ -66,7 +102,7 @@ func TestPluginSearchOperationUsesInjectedClient(t *testing.T) {
 	}
 }
 
-func TestOfficialClientUsesSystemNetworkAndTokenEnv(t *testing.T) {
+func TestOfficialClientUsesSystemNetworkAndPersonalAccessTokenEnv(t *testing.T) {
 	network := &recordingNetwork{
 		response: system.HTTPResponse{
 			StatusCode: 200,
@@ -76,10 +112,10 @@ func TestOfficialClientUsesSystemNetworkAndTokenEnv(t *testing.T) {
 	}
 	client, err := newOfficialClient(context.Background(), fakeSystem{
 		network: network,
-		env:     fakeEnvironment{values: map[string]string{"GITLAB_TOKEN": "secret-token"}},
-	}, Config{
+		env:     fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token"}},
+	}, resource.PluginRef{Name: Name, Instance: "company-a"}, Config{
 		BaseURL: "https://gitlab.example",
-		Auth:    AuthConfig{TokenEnv: "GITLAB_TOKEN"},
+		Auth:    AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv},
 	})
 	if err != nil {
 		t.Fatalf("newOfficialClient: %v", err)
@@ -100,11 +136,42 @@ func TestOfficialClientUsesSystemNetworkAndTokenEnv(t *testing.T) {
 	}
 }
 
+func TestOfficialClientDoesNotTreatAliasesAsFallback(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`[]`),
+	}}
+	_, err := newOfficialClient(context.Background(), fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{gitlabTokenEnv: "fallback-token"}},
+	}, resource.PluginRef{Name: Name, Instance: "company-a"}, Config{
+		BaseURL: "https://gitlab.example",
+		Auth:    AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv},
+	})
+	if err == nil || !strings.Contains(err.Error(), "set "+gitlabPersonalAccessTokenEnv) {
+		t.Fatalf("newOfficialClient error = %v, want configured env missing", err)
+	}
+}
+
+func TestOfficialClientRequiresSecretUseForTokenEnv(t *testing.T) {
+	_, err := newOfficialClient(denySecretUseContext(), fakeSystem{
+		network: &recordingNetwork{},
+		env:     fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token"}},
+	}, resource.PluginRef{Name: Name, Instance: "company-a"}, Config{
+		BaseURL: "https://gitlab.example",
+		Auth:    AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv},
+	})
+	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+		t.Fatalf("newOfficialClient error = %v, want authorization deny", err)
+	}
+}
+
 func TestDatasourceProviderSearchesProjects(t *testing.T) {
 	provider := gitlabDatasourceProvider{
 		system: fakeSystem{},
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
-		clientFactory: func(context.Context, system.System, Config) (gitlabClient, error) {
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{projects: []*gitlab.Project{
 				{
 					ID:                12,
@@ -205,4 +272,17 @@ func headerValue(headers map[string]string, key string) string {
 		}
 	}
 	return ""
+}
+
+func denySecretUseContext() context.Context {
+	return policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged},
+		Policy: policy.AuthorizationPolicy{Grants: []policy.Grant{{
+			Subjects:      []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "someone-else"}},
+			Resources:     []policy.ResourceRef{{Kind: policy.ResourceSecret, Name: "plugin/gitlab/company-a/access_token"}},
+			Actions:       []policy.Action{policy.ActionSecretUse},
+			RequiredTrust: policy.TrustPrivileged,
+		}}},
+	})
 }

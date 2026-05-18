@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clients can route requests through the runtime network boundary.
 - Added generic typed plugin config decoding in `pluginhost.Context` for
   configurable plugin instances.
+- Added initial `core/secret` and `runtime/secret` primitives for plugin auth
+  method declarations, plugin-instance auth requests, env-backed secret
+  resolution, scoped opaque secret handles, and `secret.use` authorization.
 - Added system-boundary authorization checks for workspace, network, process,
   and environment access, plus `secret.*` policy resources for environment
   variable backed secrets, browser network authorization, canonical workspace
@@ -60,6 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that were not projected for that authority.
 - GitLab now uses native typed plugin instances backed by the official GitLab
   Go client instead of the connector plugin bridge.
+- GitLab personal access tokens are resolved through plugin-instance auth
+  requests and a configured `auth.token_env`; env aliases are advertised as
+  setup hints rather than implicit fallback.
 - App manifests now declare plugin type with `plugins[].kind` instead of
   `plugins[].name`.
 - GitLab datasources now initialize their API client lazily, and datasource

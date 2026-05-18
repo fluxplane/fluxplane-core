@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 )
 
@@ -69,6 +70,12 @@ type DatasourceProviderContributor interface {
 	DatasourceProviders(context.Context, Context) ([]coredatasource.Provider, error)
 }
 
+// AuthMethodContributor is implemented by plugins that declare supported
+// authentication methods without carrying credential values.
+type AuthMethodContributor interface {
+	AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error)
+}
+
 // OperationContribution is one executable operation contributed by a plugin.
 type OperationContribution struct {
 	Source    resource.SourceRef
@@ -104,6 +111,12 @@ type ContextProviderContribution struct {
 	Provider corecontext.Provider
 }
 
+// AuthMethodContribution is one plugin auth method declaration.
+type AuthMethodContribution struct {
+	Source resource.SourceRef
+	Method coresecret.AuthMethodSpec
+}
+
 // Resolution is the complete contribution set resolved for plugin refs.
 type Resolution struct {
 	Bundles             []resource.ContributionBundle
@@ -112,6 +125,7 @@ type Resolution struct {
 	Channels            []ChannelContribution
 	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
+	AuthMethods         []AuthMethodContribution
 }
 
 // Host resolves plugin refs through registered plugin implementations.
@@ -261,6 +275,21 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.DatasourceProviders = append(out.DatasourceProviders, DatasourceProviderContribution{
 					Source:   source,
 					Provider: provider,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(AuthMethodContributor); ok {
+			methods, err := contributor.AuthMethods(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q auth methods: %w", pluginLabel(ref), err)
+			}
+			for _, method := range methods {
+				if err := coresecret.ValidateAuthMethod(method); err != nil {
+					return Resolution{}, fmt.Errorf("pluginhost: plugin %q auth method: %w", pluginLabel(ref), err)
+				}
+				out.AuthMethods = append(out.AuthMethods, AuthMethodContribution{
+					Source: source,
+					Method: method,
 				})
 			}
 		}
