@@ -133,6 +133,7 @@ func projectEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[Project](ProjectEntity, "GitLab project.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
 		coredatasource.EntityCapabilityIndex,
@@ -140,6 +141,8 @@ func projectEntitySpec() coredatasource.EntitySpec {
 	entity.Relations = []coredatasource.RelationSpec{
 		{Name: "merge_requests", Description: "Merge requests in this project.", TargetEntity: MergeRequestEntity},
 		{Name: "pipelines", Description: "Pipelines in this project.", TargetEntity: PipelineEntity},
+		{Name: "users", Description: "Users with access to this project.", TargetEntity: UserEntity},
+		{Name: "groups", Description: "Groups and namespaces with access to this project.", TargetEntity: GroupEntity},
 	}
 	entity.Detectors = []coredatasource.DetectorSpec{{
 		Name:          "gitlab_project_url",
@@ -208,6 +211,7 @@ func userEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[User](UserEntity, "GitLab user.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
 		coredatasource.EntityCapabilityIndex,
@@ -222,8 +226,13 @@ func groupEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[Group](GroupEntity, "GitLab group namespace.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
 		coredatasource.EntityCapabilityIndex,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "projects", Description: "Projects in this group namespace.", TargetEntity: ProjectEntity},
 	}
 	return entity
 }
@@ -373,6 +382,13 @@ func userFromGitLab(user *gitlab.User) User {
 	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
 }
 
+func userFromProject(user *gitlab.ProjectUser) User {
+	if user == nil {
+		return User{}
+	}
+	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
+}
+
 func groupFromGitLab(group *gitlab.Group) Group {
 	if group == nil {
 		return Group{}
@@ -387,6 +403,19 @@ func groupFromGitLab(group *gitlab.Group) Group {
 		Visibility:  string(group.Visibility),
 		ParentID:    group.ParentID,
 		WebURL:      group.WebURL,
+	}
+}
+
+func groupFromProject(group *gitlab.ProjectGroup) Group {
+	if group == nil {
+		return Group{}
+	}
+	return Group{
+		ID:       group.ID,
+		Name:     group.Name,
+		FullPath: group.FullPath,
+		FullName: group.FullName,
+		WebURL:   group.WebURL,
 	}
 }
 

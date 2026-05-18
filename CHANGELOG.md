@@ -54,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added GitLab merge request review datasource entities and a native
   `gitlab_mr` action operation for MR creation, comments, review actions,
   merge/rebase, and pipeline retry/cancel.
+- Added GitLab project, user, and group datasource relations so agents can
+  traverse project members, project groups, user groups, and group projects.
+- Added a generic `datasource_list` operation and GitLab project, user, and
+  group listing support for agents that need to enumerate resources.
 
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary

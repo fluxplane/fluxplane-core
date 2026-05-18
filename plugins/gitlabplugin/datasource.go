@@ -164,6 +164,44 @@ func (a gitlabAccessor) indexSearch(ctx context.Context, entity coredatasource.E
 	return a.searchResult(entity, records), nil
 }
 
+func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest) (coredatasource.ListResult, error) {
+	entity := req.Entity
+	if entity == "" {
+		entity = ProjectEntity
+	}
+	if !a.hasEntity(entity) {
+		return coredatasource.ListResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, entity)
+	}
+	client, err := a.client(ctx)
+	if err != nil {
+		return coredatasource.ListResult{}, err
+	}
+	limit := normalizedLimit(req.Limit)
+	page := cursorPage(req.Cursor)
+	switch entity {
+	case ProjectEntity:
+		projects, err := searchProjects(ctx, client, "", limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return a.listResult(entity, recordsFrom(projects, a.projectRecord), len(projects), limit, page), nil
+	case UserEntity:
+		users, err := searchUsers(ctx, client, "", req.Filters, limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return a.listResult(entity, recordsFrom(users, a.userRecord), len(users), limit, page), nil
+	case GroupEntity:
+		groups, err := searchGroups(ctx, client, "", req.Filters, limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return a.listResult(entity, recordsFrom(groups, a.groupRecord), len(groups), limit, page), nil
+	default:
+		return coredatasource.ListResult{}, fmt.Errorf("datasource %q entity %q does not support list", a.spec.Name, entity)
+	}
+}
+
 func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
 	if !a.hasEntity(req.Entity) {
 		return coredatasource.Record{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
@@ -288,6 +326,18 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return coredatasource.RelationResult{}, err
 			}
 			return a.relationResult(req, PipelineEntity, recordsFrom(pipelinesFromInfo(pipelines), a.pipelineRecord), len(pipelines), limit)
+		case "users":
+			users, err := listProjectUsers(ctx, client, project, limit, cursorPage(req.Cursor))
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, UserEntity, recordsFrom(users, a.userRecord), len(users), limit)
+		case "groups":
+			groups, err := listProjectGroups(ctx, client, project, limit, cursorPage(req.Cursor))
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, GroupEntity, recordsFrom(groups, a.groupRecord), len(groups), limit)
 		}
 	case MergeRequestEntity:
 		project, iid, err := parseMergeRequestID(req.ID)
@@ -341,6 +391,16 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return coredatasource.RelationResult{}, err
 			}
 			return a.relationResult(req, GroupEntity, recordsFrom(groups, a.groupRecord), len(groups), limit)
+		}
+	case GroupEntity:
+		group := projectID(req.ID)
+		switch req.Relation {
+		case "projects":
+			projects, err := listGroupProjects(ctx, client, group, limit, cursorPage(req.Cursor))
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, ProjectEntity, recordsFrom(projects, a.projectRecord), len(projects), limit)
 		}
 	}
 	return coredatasource.RelationResult{}, fmt.Errorf("datasource %q entity %q does not expose relation %q", a.spec.Name, req.Entity, req.Relation)
@@ -403,6 +463,21 @@ func (a gitlabAccessor) hasEntity(entity coredatasource.EntityType) bool {
 
 func (a gitlabAccessor) searchResult(entity coredatasource.EntityType, records []coredatasource.Record) coredatasource.SearchResult {
 	return coredatasource.SearchResult{Datasource: a.spec.Name, Entity: entity, Records: records, Total: len(records)}
+}
+
+func (a gitlabAccessor) listResult(entity coredatasource.EntityType, records []coredatasource.Record, total, limit, page int) coredatasource.ListResult {
+	next := ""
+	if total >= limit {
+		next = strconv.Itoa(page + 1)
+	}
+	return coredatasource.ListResult{
+		Datasource: a.spec.Name,
+		Entity:     entity,
+		Records:    records,
+		Total:      total,
+		NextCursor: next,
+		Complete:   next == "",
+	}
 }
 
 func (a gitlabAccessor) relationResult(req coredatasource.RelationRequest, target coredatasource.EntityType, records []coredatasource.Record, total, limit int) (coredatasource.RelationResult, error) {
@@ -661,6 +736,54 @@ func getProject(ctx context.Context, client gitlabClient, id string) (Project, e
 		return Project{}, err
 	}
 	return projectFromGitLab(project), nil
+}
+
+func listProjectUsers(ctx context.Context, client gitlabClient, project any, perPage, page int) ([]User, error) {
+	users, err := client.ListProjectUsers(ctx, project, &gitlab.ListProjectUserOptions{
+		ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]User, 0, len(users))
+	for _, user := range users {
+		out = append(out, userFromProject(user))
+	}
+	return out, nil
+}
+
+func listProjectGroups(ctx context.Context, client gitlabClient, project any, perPage, page int) ([]Group, error) {
+	withShared := true
+	groups, err := client.ListProjectGroups(ctx, project, &gitlab.ListProjectGroupOptions{
+		ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
+		WithShared:  &withShared,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Group, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, groupFromProject(group))
+	}
+	return out, nil
+}
+
+func listGroupProjects(ctx context.Context, client gitlabClient, group any, perPage, page int) ([]Project, error) {
+	simple := true
+	includeSubGroups := true
+	projects, err := client.ListGroupProjects(ctx, group, &gitlab.ListGroupProjectsOptions{
+		ListOptions:      gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
+		Simple:           &simple,
+		IncludeSubGroups: &includeSubGroups,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Project, 0, len(projects))
+	for _, project := range projects {
+		out = append(out, projectFromGitLab(project))
+	}
+	return out, nil
 }
 
 func listUserGroups(ctx context.Context, client gitlabClient, userID int64, perPage, page int) ([]Group, error) {

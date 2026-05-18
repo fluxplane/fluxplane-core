@@ -147,6 +147,7 @@ turns:
 tools:
   - channel_send
   - datasource_search
+  - datasource_list
   - datasource_get
   - datasource_relation
   - datasource_batch_get
@@ -163,11 +164,14 @@ datasources:
 system: |
   You are a helpful Slack assistant. Keep replies concise and format them with
   standard Markdown. Use channel_send only for useful intermediate updates in
-  long-running turns. Use datasource_search with entity filters when you need to
-  search Slack users, Slack channels, Slack messages, GitLab projects, Jira
-  issues, Jira projects, local documentation files (`file.document`), or public
-  web results (`web.search_result`). Use datasource_get when you need a
-  specific datasource record by id. Use
+  long-running turns. Use datasource_list when you need to enumerate GitLab
+  projects, GitLab users, or GitLab groups. Use datasource_search with entity
+  filters when you need to search Slack users, Slack channels, Slack messages,
+  GitLab projects, GitLab users, GitLab groups, Jira issues, Jira projects,
+  local documentation files (`file.document`), or public web results
+  (`web.search_result`). Use datasource_get when you need a specific datasource
+  record by id. Use
   datasource_relation for exact relationships such as Slack channel members
-  (`slack.channel` relation `members`); only use Slack message search for
-  observed or inferred participants.
+  (`slack.channel` relation `members`) or GitLab project users/groups, user
+  groups, and group projects; only use Slack message search for observed or
+  inferred participants.

@@ -35,6 +35,7 @@ type EntityCapability string
 
 const (
 	EntityCapabilitySearch         EntityCapability = "search"
+	EntityCapabilityList           EntityCapability = "list"
 	EntityCapabilityGet            EntityCapability = "get"
 	EntityCapabilityRelation       EntityCapability = "relation"
 	EntityCapabilityIndex          EntityCapability = "index"
@@ -259,6 +260,14 @@ type SearchRequest struct {
 	MinScore float64           `json:"min_score,omitempty"`
 }
 
+// ListRequest describes one provider record listing.
+type ListRequest struct {
+	Entity  EntityType        `json:"entity,omitempty"`
+	Limit   int               `json:"limit,omitempty"`
+	Cursor  string            `json:"cursor,omitempty"`
+	Filters map[string]string `json:"filters,omitempty"`
+}
+
 // CorpusRequest requests indexable corpus documents for one entity.
 type CorpusRequest struct {
 	Entity EntityType `json:"entity,omitempty"`
@@ -324,6 +333,16 @@ type SearchResult struct {
 	Entity     EntityType `json:"entity"`
 	Records    []Record   `json:"records,omitempty"`
 	Total      int        `json:"total,omitempty"`
+}
+
+// ListResult is the normalized result for one datasource listing.
+type ListResult struct {
+	Datasource Name       `json:"datasource"`
+	Entity     EntityType `json:"entity"`
+	Records    []Record   `json:"records,omitempty"`
+	Total      int        `json:"total,omitempty"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+	Complete   bool       `json:"complete"`
 }
 
 // BatchGetResult is the normalized result for a multi-record lookup.
@@ -405,6 +424,11 @@ type Accessor interface {
 // Searcher is implemented by accessors that support text search.
 type Searcher interface {
 	Search(context.Context, SearchRequest) (SearchResult, error)
+}
+
+// Lister is implemented by accessors that support listing records.
+type Lister interface {
+	List(context.Context, ListRequest) (ListResult, error)
 }
 
 // Getter is implemented by accessors that support direct record retrieval.

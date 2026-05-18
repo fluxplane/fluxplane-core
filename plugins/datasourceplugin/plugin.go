@@ -23,6 +23,7 @@ import (
 const (
 	Name                = "datasource"
 	SearchOperation     = "datasource_search"
+	ListOperation       = "datasource_list"
 	GetOperation        = "datasource_get"
 	RelationOperation   = "datasource_relation"
 	BatchGetOperation   = "datasource_batch_get"
@@ -56,7 +57,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec()},
-		Operations:       []operation.Spec{searchSpec(), getSpec(), relationSpec(), batchGetSpec()},
+		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
 	}, nil
 }
 
@@ -64,6 +65,9 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 	return []operation.Operation{
 		operationruntime.NewTypedResult[searchInput, operation.Rendered](searchSpec(), p.search, operationruntime.WithAccessFields[searchInput](
 			operationruntime.StaticAccess[searchInput](policy.ResourceRef{Kind: policy.ResourceDatasource, Name: "*"}, policy.ActionDatasourceSearch),
+		)),
+		operationruntime.NewTypedResult[listInput, operation.Rendered](listSpec(), p.list, operationruntime.WithAccessFields[listInput](
+			operationruntime.DatasourceAccess(func(input listInput) string { return input.Datasource }, policy.ActionDatasourceRead),
 		)),
 		operationruntime.NewTypedResult[getInput, operation.Rendered](getSpec(), p.get, operationruntime.WithAccessFields[getInput](
 			operationruntime.DatasourceAccess(func(input getInput) string { return input.Datasource }, policy.ActionDatasourceRead),
@@ -101,6 +105,19 @@ func searchSpec() operation.Spec {
 	return operationruntime.WithTypedContract[searchInput, operation.Rendered](operation.Spec{
 		Ref:         operation.Ref{Name: SearchOperation},
 		Description: "Search configured datasources the current agent is allowed to access.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectFilesystem, operation.EffectReadExternal},
+			Idempotency: operation.IdempotencyIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+func listSpec() operation.Spec {
+	return operationruntime.WithTypedContract[listInput, operation.Rendered](operation.Spec{
+		Ref:         operation.Ref{Name: ListOperation},
+		Description: "List records from a configured datasource entity the current agent is allowed to access.",
 		Semantics: operation.Semantics{
 			Determinism: operation.DeterminismNonDeterministic,
 			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectFilesystem, operation.EffectReadExternal},
@@ -159,6 +176,14 @@ type searchInput struct {
 	MinScore float64           `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
 }
 
+type listInput struct {
+	Datasource string            `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
+	Entity     string            `json:"entity" jsonschema:"description=Entity type to list from, such as gitlab.project.,required"`
+	Limit      int               `json:"limit,omitempty" jsonschema:"description=Maximum records to return for one page."`
+	Cursor     string            `json:"cursor,omitempty" jsonschema:"description=Pagination cursor from a previous list call."`
+	Filters    map[string]string `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for datasource listing."`
+}
+
 type getInput struct {
 	Datasource string `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
 	Entity     string `json:"entity" jsonschema:"description=Entity type to retrieve from, such as jira.issue.,required"`
@@ -183,6 +208,10 @@ type batchGetInput struct {
 type searchOutput struct {
 	Results []coredatasource.SearchResult `json:"results,omitempty"`
 	Errors  []sourceError                 `json:"errors,omitempty"`
+}
+
+type listOutput struct {
+	Result coredatasource.ListResult `json:"result,omitempty"`
 }
 
 type getOutput struct {
@@ -224,6 +253,51 @@ func (p Plugin) search(ctx operation.Context, input searchInput) operation.Resul
 	}
 	out := p.withRecordLinks(ctx, p.runSearches(ctx, targets, queries, limit, input.Filters, searchMode(input.Mode), input.MinScore))
 	return operation.OK(operation.Rendered{Text: renderSearch(out), Data: out})
+}
+
+func (p Plugin) list(ctx operation.Context, input listInput) operation.Result {
+	if p.registry == nil {
+		return operation.Failed("datasource_registry_missing", "datasource registry is nil", nil)
+	}
+	name := coredatasource.Name(strings.TrimSpace(input.Datasource))
+	entity := coredatasource.EntityType(strings.TrimSpace(input.Entity))
+	if name == "" || entity == "" {
+		return operation.Failed("invalid_datasource_list_input", "datasource and entity are required", nil)
+	}
+	if err := allowed(ctx, name); err != nil {
+		return operation.Failed("datasource_list_denied", err.Error(), nil)
+	}
+	accessor, ok := p.registry.Get(name)
+	if !ok {
+		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
+	}
+	if !accessorHasEntity(accessor, entity) {
+		return operation.Failed("datasource_entity_mismatch", "datasource entity does not match requested entity", map[string]any{
+			"datasource": name,
+			"entity":     entity,
+		})
+	}
+	if entitySpec, ok := accessorEntity(accessor, entity); ok && !entitySupports(accessor, entitySpec, coredatasource.EntityCapabilityList) {
+		return operation.Failed("datasource_list_unsupported", fmt.Sprintf("datasource %q entity %q does not support list", name, entity), nil)
+	}
+	lister, ok := accessor.(coredatasource.Lister)
+	if !ok {
+		return operation.Failed("datasource_list_unsupported", fmt.Sprintf("datasource %q does not support list", name), nil)
+	}
+	result, err := lister.List(ctx, coredatasource.ListRequest{
+		Entity:  entity,
+		Limit:   input.Limit,
+		Cursor:  strings.TrimSpace(input.Cursor),
+		Filters: input.Filters,
+	})
+	if err != nil {
+		return operation.Failed("datasource_list_failed", err.Error(), nil)
+	}
+	for i := range result.Records {
+		result.Records[i] = p.withRecordLinksForRecord(ctx, result.Records[i])
+	}
+	out := listOutput{Result: result}
+	return operation.OK(operation.Rendered{Text: renderList(result), Data: out})
 }
 
 func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queries []string, limit int, filters map[string]string, mode string, minScore float64) searchOutput {
@@ -535,6 +609,9 @@ func entitySupports(accessor coredatasource.Accessor, entity coredatasource.Enti
 		return entity.Supports(capability)
 	}
 	switch capability {
+	case coredatasource.EntityCapabilityList:
+		_, ok := accessor.(coredatasource.Lister)
+		return ok
 	case coredatasource.EntityCapabilitySearch:
 		_, ok := accessor.(coredatasource.Searcher)
 		return ok
@@ -551,7 +628,7 @@ func entitySupports(accessor coredatasource.Accessor, entity coredatasource.Enti
 
 func entityCapabilities(accessor coredatasource.Accessor, entity coredatasource.EntitySpec) []coredatasource.EntityCapability {
 	var out []coredatasource.EntityCapability
-	for _, capability := range []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet, coredatasource.EntityCapabilityRelation} {
+	for _, capability := range []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityList, coredatasource.EntityCapabilityGet, coredatasource.EntityCapabilityRelation} {
 		if entitySupports(accessor, entity, capability) {
 			out = append(out, capability)
 		}
@@ -843,6 +920,32 @@ func renderRecord(record coredatasource.Record) string {
 		return record.ID
 	}
 	return strings.Join(parts, "\n")
+}
+
+func renderList(result coredatasource.ListResult) string {
+	var lines []string
+	status := "partial"
+	if result.Complete {
+		status = "complete"
+	}
+	lines = append(lines, fmt.Sprintf("%s from %s: %s, %s", result.Entity, result.Datasource, plural(len(result.Records), "record"), status))
+	for _, record := range result.Records {
+		line := "- " + record.ID
+		if record.Title != "" && record.Title != record.ID {
+			line += " - " + record.Title
+		}
+		if record.URL != "" {
+			line += " (" + record.URL + ")"
+		}
+		if len(record.Links) > 0 {
+			line += " related: " + renderRefsInline(record.Links)
+		}
+		lines = append(lines, line)
+	}
+	if result.NextCursor != "" {
+		lines = append(lines, "next_cursor: "+result.NextCursor)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderRelation(result coredatasource.RelationResult) string {

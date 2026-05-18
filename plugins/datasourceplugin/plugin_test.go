@@ -2,6 +2,7 @@ package datasourceplugin
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,6 +32,40 @@ func (a memoryAccessor) Search(_ context.Context, req coredatasource.SearchReque
 		}
 	}
 	return coredatasource.SearchResult{Datasource: a.spec.Name, Entity: req.Entity, Records: records, Total: len(records)}, nil
+}
+
+func (a memoryAccessor) List(_ context.Context, req coredatasource.ListRequest) (coredatasource.ListResult, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	offset := 0
+	if req.Cursor != "" {
+		parsed, err := strconv.Atoi(req.Cursor)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		offset = parsed
+	}
+	if offset > len(a.records) {
+		offset = len(a.records)
+	}
+	end := offset + limit
+	if end > len(a.records) {
+		end = len(a.records)
+	}
+	next := ""
+	if end < len(a.records) {
+		next = strconv.Itoa(end)
+	}
+	return coredatasource.ListResult{
+		Datasource: a.spec.Name,
+		Entity:     req.Entity,
+		Records:    append([]coredatasource.Record(nil), a.records[offset:end]...),
+		Total:      len(a.records),
+		NextCursor: next,
+		Complete:   next == "",
+	}, nil
 }
 
 func (a memoryAccessor) Get(_ context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
@@ -241,6 +276,77 @@ func TestSearchEnforcesAgentDatasourceAccess(t *testing.T) {
 	out, ok := rendered.Data.(searchOutput)
 	if !ok || len(out.Results) != 1 || len(out.Results[0].Records) != 1 {
 		t.Fatalf("data = %#v", rendered.Data)
+	}
+}
+
+func TestListReturnsAllowedDatasourceRecords(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.project"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.project",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityList},
+			},
+			records: []coredatasource.Record{
+				{ID: "runtime", Datasource: "gitlab", Entity: "gitlab.project", Title: "Runtime"},
+				{ID: "agents", Datasource: "gitlab", Entity: "gitlab.project", Title: "Agents"},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	result := New(registry).list(ctx, listInput{Datasource: "gitlab", Entity: "gitlab.project", Limit: 1})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	rendered := result.Output.(operation.Rendered)
+	out := rendered.Data.(listOutput)
+	if len(out.Result.Records) != 1 || out.Result.Records[0].ID != "runtime" || out.Result.NextCursor != "1" || out.Result.Complete {
+		t.Fatalf("list output = %#v, want first page with next cursor", out.Result)
+	}
+	if !strings.Contains(rendered.Text, "next_cursor: 1") {
+		t.Fatalf("rendered text = %q, want next cursor", rendered.Text)
+	}
+}
+
+func TestListEnforcesAgentDatasourceAccess(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.project"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.project",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityList},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	result := New(registry).list(operation.NewContext(context.Background(), nil), listInput{Datasource: "gitlab", Entity: "gitlab.project"})
+	if result.Status != operation.StatusFailed || result.Error == nil || result.Error.Code != "datasource_list_denied" {
+		t.Fatalf("result = %#v, want access denied", result)
+	}
+}
+
+func TestListRejectsUnsupportedEntity(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.merge_request"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.merge_request",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	result := New(registry).list(ctx, listInput{Datasource: "gitlab", Entity: "gitlab.merge_request"})
+	if result.Status != operation.StatusFailed || result.Error == nil || result.Error.Code != "datasource_list_unsupported" {
+		t.Fatalf("result = %#v, want unsupported list", result)
 	}
 }
 
