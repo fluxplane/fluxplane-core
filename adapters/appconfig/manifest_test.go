@@ -33,8 +33,8 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
     "source_api": "auto"
   },
   "plugins": [
-    {"name": "git"},
-    {"name": "browser", "instance": "browser-ci", "config": {"headless": true}}
+    {"kind": "git"},
+    {"kind": "browser", "instance": "browser-ci", "config": {"headless": true}}
   ]
 }`)
 
@@ -75,10 +75,10 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	if len(app.Plugins) != 2 {
 		t.Fatalf("app plugins len = %d, want 2", len(app.Plugins))
 	}
-	if app.Plugins[0].Name != "git" {
+	if app.Plugins[0].Kind != "git" {
 		t.Fatalf("plugin[0] = %#v, want git", app.Plugins[0])
 	}
-	if app.Plugins[1].Name != "browser" || app.Plugins[1].Instance != "browser-ci" || app.Plugins[1].Config["headless"] != true {
+	if app.Plugins[1].Kind != "browser" || app.Plugins[1].Instance != "browser-ci" || app.Plugins[1].Config["headless"] != true {
 		t.Fatalf("plugin[1] = %#v, want browser with config", app.Plugins[1])
 	}
 	if len(bundle.Plugins) != 2 {
@@ -111,7 +111,7 @@ model_policy:
   provider: openai
   approved_only: true
 plugins:
-  - name: memory
+  - kind: memory
     config:
       scope: project
 `)
@@ -156,7 +156,7 @@ plugins: [git]
 	if len(app.Sources) != 1 || app.Sources[0].Location != ".agents" {
 		t.Fatalf("sources = %#v, want .agents", app.Sources)
 	}
-	if len(app.Plugins) != 1 || app.Plugins[0].Name != "git" {
+	if len(app.Plugins) != 1 || app.Plugins[0].Kind != "git" {
 		t.Fatalf("plugins = %#v, want git", app.Plugins)
 	}
 }
@@ -322,7 +322,7 @@ name: slack-bot
 default_agent:
   name: slack_bot
 plugins:
-  - name: slack
+  - kind: slack
 connectors:
   slack-bot:
     kind: slack
@@ -736,9 +736,16 @@ func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
 }
 
 func TestDecodeManifestRejectsEmptyPluginViaValidation(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"name":""}]}`))
+	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"kind":""}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want empty plugin validation error")
+	}
+}
+
+func TestDecodeManifestRejectsPluginNameField(t *testing.T) {
+	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"name":"web"}]}`))
+	if err == nil {
+		t.Fatal("DecodeManifest error is nil, want plugin name field validation error")
 	}
 }
 

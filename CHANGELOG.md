@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added typed access descriptor helper builders for common path, datasource,
   process, network, connector, task, and static resource mappings, reducing
   repetitive operation authorization boilerplate.
+- Added `runtime/system` HTTP client and round-tripper helpers so official SDK
+  clients can route requests through the runtime network boundary.
+- Added generic typed plugin config decoding in `pluginhost.Context` for
+  configurable plugin instances.
 - Added system-boundary authorization checks for workspace, network, process,
   and environment access, plus `secret.*` policy resources for environment
   variable backed secrets, browser network authorization, canonical workspace
@@ -54,6 +58,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model tool projection and operation execution are now scoped to each inbound
   turn's resolved caller/trust, so downgraded or public turns cannot use tools
   that were not projected for that authority.
+- GitLab now uses native typed plugin instances backed by the official GitLab
+  Go client instead of the connector plugin bridge.
+- App manifests now declare plugin type with `plugins[].kind` instead of
+  `plugins[].name`.
+- GitLab datasources now initialize their API client lazily, and datasource
+  provider matching no longer masks provider-specific errors with unrelated
+  fallback provider errors.
+- `agentsdk serve` now accepts and forwards daemon-wide `--provider` and
+  `--model` overrides again.
 
 ## [0.13.0] - 2026-05-17
 

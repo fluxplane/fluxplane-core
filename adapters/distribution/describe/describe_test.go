@@ -221,7 +221,7 @@ func testDistribution() distribution.Distribution {
 				Name:         "testdist",
 				DefaultAgent: agent.Ref{Name: "assistant"},
 				Plugins: []coreapp.PluginRef{{
-					Name: "testplugin",
+					Kind: "testplugin",
 				}},
 			}},
 			Sessions: []coresession.Spec{{

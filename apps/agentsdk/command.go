@@ -14,7 +14,6 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
@@ -57,7 +56,6 @@ func connectorPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
 		openaiplugin.New(),
 		slackplugin.New(nil),
-		gitlabplugin.New(nil, nil),
 		jiraplugin.New(nil, nil),
 	}, nil
 }

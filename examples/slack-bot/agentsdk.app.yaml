@@ -16,17 +16,19 @@ distribution:
       tags: [latest]
 
 plugins:
-  - name: identity
-  - name: slack
-  - name: gitlab
-  - name: jira
-  - name: web
+  - kind: identity
+  - kind: slack
+  - kind: gitlab
+    instance: main
+    config:
+      auth:
+        token_env: GITLAB_TOKEN
+  - kind: jira
+  - kind: web
 
 connectors:
   slack-bot:
     kind: slack
-  gitlab:
-    kind: gitlab
   jira:
     kind: jira
 
@@ -41,11 +43,12 @@ datasources:
     description: Slack workspace content available to the bot.
 
   - name: gitlab
-    connector: gitlab
     kind: gitlab
     entities:
       - gitlab.project
-    description: GitLab projects visible to the configured connector.
+    config:
+      instance: main
+    description: GitLab projects visible to the configured plugin instance.
 
   - name: jira
     connector: jira

@@ -113,6 +113,41 @@ func TestHostInstantiatesPluginFactoryPerRef(t *testing.T) {
 	}
 }
 
+func TestHostDecodesTypedPluginConfigBeforeInstantiate(t *testing.T) {
+	host, err := New(fakeConfiguredFactoryPlugin{name: "echo"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{
+		Name:     "echo",
+		Instance: "company-a",
+		Config:   map[string]any{"prefix": "configured"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.Bundles) != 1 || len(resolution.Bundles[0].Commands) != 1 {
+		t.Fatalf("resolution = %#v", resolution)
+	}
+	if got := resolution.Bundles[0].Commands[0].Path.String(); got != "/configured/company-a" {
+		t.Fatalf("command = %q, want /configured/company-a", got)
+	}
+}
+
+func TestHostRejectsInvalidTypedPluginConfig(t *testing.T) {
+	host, err := New(fakeConfiguredFactoryPlugin{name: "echo"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = host.Resolve(context.Background(), resource.PluginRef{
+		Name:   "echo",
+		Config: map[string]any{"prefix": make(chan int)},
+	})
+	if err == nil {
+		t.Fatal("Resolve error is nil, want config decode error")
+	}
+}
+
 func TestHostResolvesConnectorProviders(t *testing.T) {
 	host, err := New(fakeConnectorProviderPlugin{name: "openai"})
 	if err != nil {
@@ -209,6 +244,31 @@ func (p fakeInstancePlugin) Contributions(context.Context, Context) (resource.Co
 	return resource.ContributionBundle{
 		Commands: []command.Spec{{Path: command.Path{p.name}}},
 	}, nil
+}
+
+type fakeConfiguredFactoryPlugin struct {
+	Configurable[fakePluginConfig]
+	name string
+}
+
+type fakePluginConfig struct {
+	Prefix string `json:"prefix,omitempty"`
+}
+
+func (p fakeConfiguredFactoryPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeConfiguredFactoryPlugin) Instantiate(_ context.Context, ctx Context) (Plugin, error) {
+	cfg, err := ConfigAs[fakePluginConfig](ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fakeInstancePlugin{name: cfg.Prefix + "/" + ctx.Ref.InstanceName()}, nil
+}
+
+func (p fakeConfiguredFactoryPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
 }
 
 func (p fakeOperationPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {

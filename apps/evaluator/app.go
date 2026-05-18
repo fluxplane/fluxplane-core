@@ -115,7 +115,7 @@ func Bundle() resource.ContributionBundle {
 			Model:        coreapp.ModelPolicy{Provider: "codex", Model: DefaultModel, UseCase: "evaluation"},
 			DefaultAgent: agent.Ref{Name: AgentName},
 			Plugins: []coreapp.PluginRef{
-				{Name: AppName},
+				{Kind: AppName},
 			},
 		}},
 		Agents: []agent.Spec{agentSpec},

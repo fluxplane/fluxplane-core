@@ -455,7 +455,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
 		slackplugin.NewWithConnectors(dispatcher, connectorEngine, connectorInstancesForKind(connectorInstances, slackplugin.Name)),
-		gitlabplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, gitlabplugin.Name)),
+		gitlabplugin.New(hostSystem),
 		imageplugin.New(hostSystem),
 		jiraplugin.New(connectorEngine, connectorInstancesForKind(connectorInstances, jiraplugin.Name)),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
@@ -644,7 +644,6 @@ func connectorProviderNames(ctx context.Context) ([]string, error) {
 	plugins := []pluginhost.Plugin{
 		openaiplugin.New(),
 		slackplugin.New(nil),
-		gitlabplugin.New(nil, nil),
 		jiraplugin.New(nil, nil),
 	}
 	seen := map[string]bool{}

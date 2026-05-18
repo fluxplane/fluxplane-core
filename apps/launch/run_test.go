@@ -2,9 +2,11 @@ package launch
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
@@ -296,6 +298,62 @@ func TestLaunchOpensCoderWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	}
 	if _, ok := accessor.(coredatasource.Searcher); !ok {
 		t.Fatalf("accessor = %T, want datasource searcher", accessor)
+	}
+}
+
+func TestDatasourceRegistryOpensNativeGitLabDatasource(t *testing.T) {
+	withStateDir(t)
+	ctx := context.Background()
+	root := filepath.Join("..", "..", "examples", "slack-bot")
+	file, err := appconfig.LoadDirFile(ctx, root)
+	if err != nil {
+		t.Fatalf("LoadDirFile: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	if !bundleHasPlugin([]resource.ContributionBundle{file.Bundle}, "gitlab") {
+		t.Fatalf("decoded plugins = %#v, want gitlab", file.Bundle.Plugins)
+	}
+	plugins := availablePlugins(sys, nil, nil, nil, nil)
+	host, err := pluginhost.New(plugins...)
+	if err != nil {
+		t.Fatalf("pluginhost.New: %v", err)
+	}
+	resolved, err := host.Resolve(ctx, file.Bundle.Plugins...)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	var hasGitLabProvider bool
+	for _, contribution := range resolved.DatasourceProviders {
+		for _, entity := range contribution.Provider.Entities() {
+			if entity.Type == "gitlab.project" {
+				hasGitLabProvider = true
+			}
+		}
+	}
+	if !hasGitLabProvider {
+		t.Fatalf("datasource providers = %#v, want gitlab.project provider", resolved.DatasourceProviders)
+	}
+	bundle := file.Bundle
+	bundle.Datasources = []coredatasource.Spec{{
+		Name:     "gitlab",
+		Kind:     "gitlab",
+		Entities: []coredatasource.EntityType{"gitlab.project"},
+		Config:   map[string]string{"instance": "main"},
+	}}
+	registry, err := datasourceRegistry(ctx, []resource.ContributionBundle{bundle}, plugins, root)
+	if err != nil {
+		t.Fatalf("datasourceRegistry: %v", err)
+	}
+	accessor, ok := registry.Get(coredatasource.Name("gitlab"))
+	if !ok {
+		t.Fatal("expected gitlab datasource accessor")
+	}
+	entities := accessor.Entities()
+	if len(entities) != 1 || entities[0].Type != "gitlab.project" {
+		t.Fatalf("entities = %#v, want gitlab.project", entities)
 	}
 }
 

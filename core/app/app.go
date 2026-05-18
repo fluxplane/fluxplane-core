@@ -87,7 +87,7 @@ type SemanticRetrievalSpec struct {
 // PluginRef identifies a requested plugin in an app manifest. Plugin
 // instantiation belongs outside core.
 type PluginRef struct {
-	Name     string         `json:"name"`
+	Kind     string         `json:"kind"`
 	Instance string         `json:"instance,omitempty"`
 	Config   map[string]any `json:"config,omitempty"`
 }
@@ -124,8 +124,8 @@ func (s Spec) Validate() error {
 		}
 	}
 	for i, plugin := range s.Plugins {
-		if strings.TrimSpace(plugin.Name) == "" {
-			return fmt.Errorf("app: plugins[%d] name is empty", i)
+		if strings.TrimSpace(plugin.Kind) == "" {
+			return fmt.Errorf("app: plugins[%d] kind is empty", i)
 		}
 		if strings.ContainsAny(strings.TrimSpace(plugin.Instance), `/\`) {
 			return fmt.Errorf("app: plugins[%d] instance is invalid", i)

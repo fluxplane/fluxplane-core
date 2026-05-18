@@ -129,7 +129,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			bundle.Apps = append(bundle.Apps, spec)
 			for _, plugin := range spec.Plugins {
 				bundle.Plugins = append(bundle.Plugins, resource.PluginRef{
-					Name:     plugin.Name,
+					Name:     plugin.Kind,
 					Instance: plugin.Instance,
 					Config:   cloneMap(plugin.Config),
 				})
@@ -1584,7 +1584,7 @@ type pluginRef coreapp.PluginRef
 
 func (pluginRef) JSONSchema() *invjsonschema.Schema {
 	properties := invjsonschema.NewProperties()
-	properties.Set("name", &invjsonschema.Schema{Type: "string"})
+	properties.Set("kind", &invjsonschema.Schema{Type: "string"})
 	properties.Set("instance", &invjsonschema.Schema{Type: "string"})
 	properties.Set("config", &invjsonschema.Schema{
 		Type:                 "object",
@@ -1602,18 +1602,18 @@ func (pluginRef) JSONSchema() *invjsonschema.Schema {
 
 func (p *pluginRef) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
-		var name string
-		if err := node.Decode(&name); err != nil {
+		var kind string
+		if err := node.Decode(&kind); err != nil {
 			return err
 		}
-		*p = pluginRef{Name: strings.TrimSpace(name)}
+		*p = pluginRef{Kind: strings.TrimSpace(kind)}
 		return nil
 	}
 	var ref coreapp.PluginRef
 	if err := node.Decode(&ref); err != nil {
 		return err
 	}
-	ref.Name = strings.TrimSpace(ref.Name)
+	ref.Kind = strings.TrimSpace(ref.Kind)
 	ref.Instance = strings.TrimSpace(ref.Instance)
 	ref.Config = cloneMap(ref.Config)
 	*p = pluginRef(ref)

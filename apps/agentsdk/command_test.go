@@ -201,6 +201,24 @@ func TestRunHelpIncludesLaunchFlags(t *testing.T) {
 	}
 }
 
+func TestServeHelpIncludesModelFlags(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"serve", "--help"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"serve [app-dir]", "--provider", "--model", "--debug", "--yolo", "--connectors-path"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
 func TestBuildHelpIncludesDockerFlags(t *testing.T) {
 	cmd := NewCommand()
 	out := bytes.Buffer{}
@@ -318,7 +336,7 @@ name: plugin-discovery
 default_agent:
   name: main
 plugins:
-  - name: web
+  - kind: web
 datasources:
   - name: docs
     kind: filesystem

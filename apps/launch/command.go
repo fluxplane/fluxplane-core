@@ -11,6 +11,8 @@ type serveCommandOptions struct {
 	yolo     bool
 	dev      bool
 	authPath string
+	provider string
+	model    string
 }
 
 type ServeRunner func(context.Context, Options) error
@@ -39,9 +41,13 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 				Yolo:     opts.yolo,
 				Dev:      opts.dev,
 				AuthPath: opts.authPath,
+				Provider: opts.provider,
+				Model:    opts.model,
 			})
 		},
 	}
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider")
+	cmd.Flags().StringVar(&opts.model, "model", "", "model name or provider/model")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print daemon startup details")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served sessions")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")

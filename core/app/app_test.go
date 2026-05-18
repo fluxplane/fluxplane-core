@@ -21,7 +21,7 @@ func TestSpecValidateAllowsEngineerManifestShape(t *testing.T) {
 			SourceAPI:    "auto",
 			ApprovedOnly: &approvedOnly,
 		},
-		Plugins: []PluginRef{{Name: "browser"}, {Name: "memory"}},
+		Plugins: []PluginRef{{Kind: "browser"}, {Kind: "memory"}},
 	}
 
 	if err := spec.Validate(); err != nil {
@@ -44,7 +44,7 @@ func TestSpecValidateRejectsEmptyPlugin(t *testing.T) {
 }
 
 func TestSpecValidateRejectsInvalidPluginInstance(t *testing.T) {
-	err := Spec{Plugins: []PluginRef{{Name: "gitlab", Instance: "company/a"}}}.Validate()
+	err := Spec{Plugins: []PluginRef{{Kind: "gitlab", Instance: "company/a"}}}.Validate()
 	if err == nil {
 		t.Fatal("Validate error is nil, want invalid plugin instance error")
 	}

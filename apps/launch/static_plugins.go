@@ -85,6 +85,10 @@ func staticPluginContributions(ctx context.Context, bundles []resource.Contribut
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
 		}
 		pluginCtx := pluginhost.Context{Ref: ref}
+		pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+		if err != nil {
+			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+		}
 		resolvedPlugin := plugin
 		if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
 			resolvedPlugin, err = factory.Instantiate(ctx, pluginCtx)

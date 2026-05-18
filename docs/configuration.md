@@ -262,35 +262,37 @@ agent: support
 
 Plugins contribute optional commands, operations, context providers,
 datasources, and channel integrations. Connector instances name external auth
-targets that plugins can use.
+targets for connector-backed plugins. Native plugins can also be declared more
+than once with `instance` and per-instance `config`.
 
 ```yaml
 plugins:
-  - name: slack
-  - name: jira
-  - name: web
-  - name: gitlab
+  - kind: slack
+  - kind: jira
+  - kind: web
+  - kind: gitlab
     instance: company-a
     config:
       base_url: https://gitlab.company-a.example
+      auth:
+        token_env: GITLAB_COMPANY_A_TOKEN
 
 connectors:
   slack-main:
     kind: slack
   jira:
     kind: jira
-  company-a:
-    kind: gitlab
 ```
 
-Connector credentials live outside the app manifest. Manage them with
-`agentsdk connect`.
+Connector credentials live outside the app manifest. Manage connector-backed
+credentials with `agentsdk connect`. Native GitLab instances read credentials
+through the configured environment variable and use the official GitLab Go
+client through the runtime network boundary.
 
 `instance` lets the same plugin type be declared more than once. The runtime
 resolves each declaration independently, so `gitlab/company-a` and
 `gitlab/company-b` can carry different config and contribute separately scoped
-resources. The current GitLab implementation uses the instance name as the
-connector instance ID while its native typed client is being introduced.
+resources.
 
 ### Datasources
 
@@ -320,6 +322,18 @@ datasources:
       - slack.user
       - slack.channel
       - slack.message
+```
+
+Native GitLab datasources reference the named GitLab plugin instance:
+
+```yaml
+datasources:
+  - name: company-a-gitlab
+    kind: gitlab
+    entities:
+      - gitlab.project
+    config:
+      instance: company-a
 ```
 
 ### Daemon Channels

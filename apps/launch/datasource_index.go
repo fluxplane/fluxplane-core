@@ -117,7 +117,7 @@ func datasourceIndexPlugins(hostSystem system.System, executor connectorplugin.E
 	dispatcher := slackplugin.NewDispatcher()
 	return []pluginhost.Plugin{
 		slackplugin.NewWithConnectors(dispatcher, executor, connectorInstancesForKind(instances, slackplugin.Name)),
-		gitlabplugin.New(executor, connectorInstancesForKind(instances, gitlabplugin.Name)),
+		gitlabplugin.New(hostSystem),
 		jiraplugin.New(executor, connectorInstancesForKind(instances, jiraplugin.Name)),
 		taskplugin.New(),
 		skillplugin.New(),

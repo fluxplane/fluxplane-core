@@ -23,6 +23,7 @@ type Manifest struct {
 // Context is passed to a plugin when resolving contributions.
 type Context struct {
 	Ref        resource.PluginRef `json:"ref"`
+	Config     any                `json:"-"`
 	EventStore event.Store        `json:"-"`
 }
 
@@ -178,6 +179,10 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", pluginLabel(ref))
 		}
 		pluginCtx := Context{Ref: ref, EventStore: h.eventStore}
+		pluginCtx, err := PrepareContext(ctx, plugin, pluginCtx)
+		if err != nil {
+			return Resolution{}, fmt.Errorf("pluginhost: %w", err)
+		}
 		resolvedPlugin := plugin
 		if factory, ok := plugin.(InstanceFactory); ok {
 			var err error

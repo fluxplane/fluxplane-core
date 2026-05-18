@@ -104,3 +104,27 @@ func TestServeCommandForwardsYolo(t *testing.T) {
 		t.Fatalf("yolo = false, want true")
 	}
 }
+
+func TestServeCommandForwardsModelSelection(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--provider", "codex", "--model", "gpt-5.5", "examples/slack-bot"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.AppDir != "examples/slack-bot" {
+		t.Fatalf("app dir = %q, want examples/slack-bot", got.AppDir)
+	}
+	if got.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", got.Provider)
+	}
+	if got.Model != "gpt-5.5" {
+		t.Fatalf("model = %q, want gpt-5.5", got.Model)
+	}
+}

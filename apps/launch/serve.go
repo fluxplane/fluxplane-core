@@ -39,6 +39,8 @@ type Options struct {
 	Yolo          bool
 	Dev           bool
 	AuthPath      string
+	Provider      string
+	Model         string
 	ModelResolver agentfactory.ModelResolver
 }
 
@@ -48,6 +50,8 @@ type ServeDistributionOptions struct {
 	Bundles             []resource.ContributionBundle
 	Launch              orchestrationdistribution.LaunchConfig
 	AuthPath            string
+	Provider            string
+	Model               string
 	Debug               bool
 	Yolo                bool
 	Dev                 bool
@@ -72,6 +76,8 @@ func Serve(ctx context.Context, opts Options) error {
 		Bundles:             loaded.Distribution.Bundles,
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
+		Provider:            opts.Provider,
+		Model:               opts.Model,
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
@@ -88,6 +94,8 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		Bundles:             opts.Bundles,
 		Launch:              opts.Launch,
 		AuthPath:            opts.AuthPath,
+		Provider:            opts.Provider,
+		Model:               opts.Model,
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
