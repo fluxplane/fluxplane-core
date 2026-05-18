@@ -97,6 +97,13 @@ func (r *slackIdentityResolver) ResolveIdentity(ctx context.Context, req identit
 			DisplayName: displayName,
 			Claims:      claims,
 		},
+		Identities: []user.Identity{{
+			Provider:    "slack",
+			ProviderID:  slackID,
+			Email:       email,
+			DisplayName: displayName,
+			Claims:      claims,
+		}},
 		Trust:      base.Actor.Trust,
 		Resolution: user.ResolutionResolved,
 	}

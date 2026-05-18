@@ -75,6 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   audience trust.
 - `identity.current` now renders all identities known for the current actor,
   including plugin-enriched external accounts such as `gitlab/main:<username>`.
+- Slack API identity resolution now records the resolved Slack account in the
+  actor identity list so multi-identity context includes the entry identity.
 - GitLab personal access tokens are resolved through plugin-instance auth
   requests. A configured `auth.token_env` is used directly; otherwise the
   resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.

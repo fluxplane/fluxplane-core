@@ -34,6 +34,12 @@ func TestSlackIdentityResolverResolvesEmail(t *testing.T) {
 	if result.Actor.User.ID != "timo@company.org" {
 		t.Fatalf("user id = %q, want Slack profile email", result.Actor.User.ID)
 	}
+	if len(result.Actor.Identities) != 1 {
+		t.Fatalf("actor identities = %d, want Slack entry identity", len(result.Actor.Identities))
+	}
+	if got := result.Actor.Identities[0]; got.Provider != "slack" || got.ProviderID != "U123" || got.Email != "timo@company.org" {
+		t.Fatalf("actor identity = %#v, want resolved Slack identity", got)
+	}
 	if result.Trust.Level != policy.TrustUntrusted {
 		t.Fatalf("trust = %#v, want unchanged inbound trust", result.Trust)
 	}
