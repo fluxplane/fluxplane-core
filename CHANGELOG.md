@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Slack API-backed identity resolution and `/whoami`, so Slack users can
   resolve to canonical email users while app identity config remains an
   additive group/trust overlay.
+- Added verified user email aliases in app identity config, allowing canonical
+  users to link provider accounts that expose different email addresses.
 - Added named plugin instances via `plugins[].instance`, allowing multiple
   configured instances of the same plugin type such as `gitlab/company-a`.
 - Added GitLab merge request review datasource entities and a native
@@ -84,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitLab personal access tokens are resolved through plugin-instance auth
   requests. A configured `auth.token_env` is used directly; otherwise the
   resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.
+- GitLab identity enrichment now tries configured verified user email aliases
+  against public GitLab user lookup before falling back to provider identity
+  emails.
 - The Slack bot example now demonstrates configuring a custom GitLab plugin
   instance base URL.
 - Slack identity resolution now prefers connector user-token profile access for

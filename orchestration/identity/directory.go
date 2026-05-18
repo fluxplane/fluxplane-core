@@ -65,6 +65,19 @@ func NewDirectoryResolver(spec coreapp.IdentitySpec, fallback Resolver) (Directo
 		r.users[configured.ID] = mergeUsers(r.users[configured.ID], configured)
 	}
 	for _, configured := range r.users {
+		if email := strings.TrimSpace(string(configured.ID)); strings.Contains(email, "@") {
+			if err := r.indexEmail(configured.ID, email); err != nil {
+				return DirectoryResolver{}, err
+			}
+		}
+		for _, email := range configured.Emails {
+			if !email.Verified {
+				continue
+			}
+			if err := r.indexEmail(configured.ID, email.Address); err != nil {
+				return DirectoryResolver{}, err
+			}
+		}
 		for _, identity := range configured.Identities {
 			if err := r.indexIdentity(configured.ID, identity); err != nil {
 				return DirectoryResolver{}, err
@@ -210,6 +223,7 @@ func (r DirectoryResolver) actorFor(id user.ID, base user.Actor) user.Actor {
 	}
 	identity := matchedIdentity(configured, base.Identity)
 	configured.Trust = trust
+	configured.Emails = mergeUserEmails(configured.Emails, base.User.Emails)
 	configured.Identities = mergeIdentities(configured.Identities, identity)
 	identities := MergeIdentities(configured.Identities, base.Identities...)
 	return user.Actor{
@@ -358,6 +372,7 @@ func normalizeUser(configured user.User) user.User {
 		configured.Username = string(configured.ID)
 	}
 	configured.Groups = cleanUserIDs(configured.Groups)
+	configured.Emails = cleanUserEmails(configured.Emails)
 	return configured
 }
 
@@ -388,6 +403,7 @@ func mergeUsers(base, overlay user.User) user.User {
 		base.Trust = overlay.Trust
 	}
 	base.Groups = mergeUserIDs(base.Groups, overlay.Groups)
+	base.Emails = mergeUserEmails(base.Emails, overlay.Emails)
 	base.Identities = mergeUserIdentities(base.Identities, overlay.Identities)
 	base.Annotations = mergeStringMap(base.Annotations, overlay.Annotations)
 	return base
@@ -422,6 +438,7 @@ func overlayUser(base, overlay user.User, id user.ID) user.User {
 		overlay.Trust = base.Trust
 	}
 	overlay.Groups = mergeUserIDs(base.Groups, overlay.Groups)
+	overlay.Emails = mergeUserEmails(overlay.Emails, base.Emails)
 	overlay.Identities = mergeUserIdentities(overlay.Identities, base.Identities)
 	overlay.Annotations = mergeStringMap(base.Annotations, overlay.Annotations)
 	return overlay
@@ -454,6 +471,61 @@ func mergeUserIdentities(base, overlay []user.Identity) []user.Identity {
 		out = mergeIdentities(out, identity)
 	}
 	return out
+}
+
+func mergeUserEmails(base, overlay []user.Email) []user.Email {
+	out := append([]user.Email(nil), base...)
+	for _, email := range overlay {
+		email = normalizeEmail(email)
+		if email.Address == "" {
+			continue
+		}
+		var merged bool
+		for i, existing := range out {
+			if strings.EqualFold(strings.TrimSpace(existing.Address), email.Address) {
+				out[i] = mergeEmail(existing, email)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			out = append(out, email)
+		}
+	}
+	return out
+}
+
+func cleanUserEmails(values []user.Email) []user.Email {
+	var out []user.Email
+	for _, email := range values {
+		out = mergeUserEmails(out, []user.Email{email})
+	}
+	return out
+}
+
+func normalizeEmail(email user.Email) user.Email {
+	email.Address = strings.ToLower(strings.TrimSpace(email.Address))
+	email.Source = strings.TrimSpace(email.Source)
+	return email
+}
+
+func mergeEmail(base, overlay user.Email) user.Email {
+	base = normalizeEmail(base)
+	overlay = normalizeEmail(overlay)
+	if base.Address == "" {
+		return overlay
+	}
+	if overlay.Verified {
+		base.Verified = true
+	}
+	if overlay.Primary {
+		base.Primary = true
+	}
+	if overlay.Source != "" {
+		base.Source = overlay.Source
+	}
+	base.Annotations = mergeStringMap(base.Annotations, overlay.Annotations)
+	return base
 }
 
 func mergeStringMap(base, overlay map[string]string) map[string]string {

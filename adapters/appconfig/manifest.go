@@ -442,8 +442,17 @@ type identityUserDoc struct {
 	DisplayName string                `json:"display_name,omitempty" yaml:"display_name,omitempty"`
 	Trust       user.TrustLevel       `json:"trust,omitempty" yaml:"trust,omitempty"`
 	Groups      []string              `json:"groups,omitempty" yaml:"groups,omitempty"`
+	Emails      []identityEmailDoc    `json:"emails,omitempty" yaml:"emails,omitempty"`
 	Identities  []identityIdentityDoc `json:"identities,omitempty" yaml:"identities,omitempty"`
 	Annotations map[string]string     `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+type identityEmailDoc struct {
+	Address     string            `json:"address" yaml:"address"`
+	Verified    *bool             `json:"verified,omitempty" yaml:"verified,omitempty"`
+	Primary     bool              `json:"primary,omitempty" yaml:"primary,omitempty"`
+	Source      string            `json:"source,omitempty" yaml:"source,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
 type identityIdentityDoc struct {
@@ -487,6 +496,23 @@ func (d identityDoc) Spec() coreapp.IdentitySpec {
 			if group = strings.TrimSpace(group); group != "" {
 				configured.Groups = append(configured.Groups, user.ID(group))
 			}
+		}
+		for _, email := range raw.Emails {
+			address := strings.ToLower(strings.TrimSpace(email.Address))
+			if address == "" {
+				continue
+			}
+			verified := true
+			if email.Verified != nil {
+				verified = *email.Verified
+			}
+			configured.Emails = append(configured.Emails, user.Email{
+				Address:     address,
+				Verified:    verified,
+				Primary:     email.Primary,
+				Source:      strings.TrimSpace(email.Source),
+				Annotations: cloneStringMap(email.Annotations),
+			})
 		}
 		for _, identity := range raw.Identities {
 			configured.Identities = append(configured.Identities, user.Identity{

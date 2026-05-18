@@ -182,22 +182,31 @@ func (r gitlabExternalIdentityResolver) ResolveExternalIdentities(ctx context.Co
 	if existing := firstProviderIdentity(actor, provider); existing.Provider != "" || existing.ProviderID != "" {
 		return identity.ExternalResult{Identities: []coreuser.Identity{existing}}, nil
 	}
-	email := actorEmail(actor)
-	if email == "" {
+	emails := actorEmails(actor)
+	if len(emails) == 0 {
 		return identity.ExternalResult{}, nil
 	}
 	client, err := r.plugin.client(ctx)
 	if err != nil {
 		return identity.ExternalResult{}, nil
 	}
-	users, err := client.ListUsers(ctx, &gitlab.ListUsersOptions{
-		ListOptions: gitlab.ListOptions{PerPage: 2},
-		PublicEmail: gitlab.Ptr(email),
-	})
-	if err != nil || len(users) == 0 || users[0] == nil {
+	var gitlabUser *gitlab.User
+	email := ""
+	for _, candidate := range emails {
+		users, err := client.ListUsers(ctx, &gitlab.ListUsersOptions{
+			ListOptions: gitlab.ListOptions{PerPage: 2},
+			PublicEmail: gitlab.Ptr(candidate),
+		})
+		if err != nil || len(users) == 0 || users[0] == nil {
+			continue
+		}
+		gitlabUser = users[0]
+		email = candidate
+		break
+	}
+	if gitlabUser == nil {
 		return identity.ExternalResult{}, nil
 	}
-	gitlabUser := users[0]
 	providerID := strings.TrimSpace(gitlabUser.Username)
 	if providerID == "" && gitlabUser.ID != 0 {
 		providerID = strconv.FormatInt(gitlabUser.ID, 10)
@@ -240,16 +249,38 @@ func firstProviderIdentity(actor coreuser.Actor, provider string) coreuser.Ident
 	return coreuser.Identity{}
 }
 
-func actorEmail(actor coreuser.Actor) string {
-	if email := strings.ToLower(strings.TrimSpace(string(actor.User.ID))); strings.Contains(email, "@") {
-		return email
+func actorEmails(actor coreuser.Actor) []string {
+	var out []string
+	add := func(email string) {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email == "" || !strings.Contains(email, "@") {
+			return
+		}
+		for _, existing := range out {
+			if existing == email {
+				return
+			}
+		}
+		out = append(out, email)
 	}
-	for _, identity := range append(append([]coreuser.Identity(nil), actor.Identities...), actor.User.Identities...) {
-		if email := strings.ToLower(strings.TrimSpace(identity.Email)); strings.Contains(email, "@") {
-			return email
+	for _, email := range actor.User.Emails {
+		if email.Verified && email.Primary {
+			add(email.Address)
 		}
 	}
-	return ""
+	for _, email := range actor.User.Emails {
+		if email.Verified && !email.Primary {
+			add(email.Address)
+		}
+	}
+	add(string(actor.User.ID))
+	for _, identity := range actor.Identities {
+		add(identity.Email)
+	}
+	for _, identity := range actor.User.Identities {
+		add(identity.Email)
+	}
+	return out
 }
 
 func normalizeConfig(cfg Config) Config {

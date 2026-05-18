@@ -18,6 +18,7 @@ func TestCurrentProviderRendersResolvedUser(t *testing.T) {
 		"identity.provider":    "local",
 		"identity.provider_id": "timo",
 		"identity.all":         "local:timo;gitlab/main:tfriedl",
+		"user.email.all":       "timo@localhost primary;timo.alias@localhost alias",
 		"caller.source":        "local",
 		"trust.level":          "privileged",
 	}})
@@ -33,6 +34,9 @@ func TestCurrentProviderRendersResolvedUser(t *testing.T) {
 		"- user: timo@localhost",
 		"- groups: local_operators, local_users",
 		"- entry identity: local:timo",
+		"emails:",
+		"- timo@localhost primary",
+		"- timo.alias@localhost alias",
 		"identities:",
 		"- local:timo",
 		"- gitlab/main:tfriedl",

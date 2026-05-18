@@ -819,6 +819,9 @@ func contextRequestScope(inbound channel.Inbound) map[string]string {
 		if groups := actorGroupIDs(*inbound.Actor); len(groups) > 0 {
 			out["user.groups"] = strings.Join(groups, ",")
 		}
+		if emails := actorEmailLabels(*inbound.Actor); len(emails) > 0 {
+			out["user.email.all"] = strings.Join(emails, ";")
+		}
 		if identities := actorIdentityLabels(*inbound.Actor); len(identities) > 0 {
 			out["identity.all"] = strings.Join(identities, ";")
 		}
@@ -858,6 +861,30 @@ func actorIdentityLabels(actor user.Actor) []string {
 		add(identity)
 	}
 	return out
+}
+
+func actorEmailLabels(actor user.Actor) []string {
+	var primary []string
+	var aliases []string
+	seen := map[string]bool{}
+	add := func(email user.Email) {
+		address := strings.ToLower(strings.TrimSpace(email.Address))
+		if address == "" || !email.Verified || seen[address] {
+			return
+		}
+		seen[address] = true
+		label := address
+		if email.Primary {
+			label += " primary"
+			primary = append(primary, label)
+			return
+		}
+		aliases = append(aliases, label+" alias")
+	}
+	for _, email := range actor.User.Emails {
+		add(email)
+	}
+	return append(primary, aliases...)
 }
 
 func actorGroupIDs(actor user.Actor) []string {

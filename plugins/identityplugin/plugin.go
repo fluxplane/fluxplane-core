@@ -104,6 +104,12 @@ func renderCurrentIdentity(scope map[string]string) string {
 	if identity := providerIdentity(scope); identity != "" && resolution == user.ResolutionResolved {
 		lines = append(lines, "- entry identity: "+identity)
 	}
+	if emails := emailList(scope); len(emails) > 0 {
+		lines = append(lines, "emails:")
+		for _, email := range emails {
+			lines = append(lines, "- "+email)
+		}
+	}
 	if identities := identityList(scope); len(identities) > 0 {
 		lines = append(lines, "identities:")
 		for _, identity := range identities {
@@ -139,6 +145,15 @@ func providerIdentity(scope map[string]string) string {
 
 func identityList(scope map[string]string) []string {
 	raw := strings.TrimSpace(scope["identity.all"])
+	return splitScopeList(raw)
+}
+
+func emailList(scope map[string]string) []string {
+	raw := strings.TrimSpace(scope["user.email.all"])
+	return splitScopeList(raw)
+}
+
+func splitScopeList(raw string) []string {
 	if raw == "" {
 		return nil
 	}

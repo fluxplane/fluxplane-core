@@ -28,7 +28,17 @@ type User struct {
 	DisplayName string            `json:"display_name,omitempty"`
 	Trust       TrustLevel        `json:"trust,omitempty"`
 	Groups      []ID              `json:"groups,omitempty"`
+	Emails      []Email           `json:"emails,omitempty"`
 	Identities  []Identity        `json:"identities,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Email is a verified canonical email alias for a user.
+type Email struct {
+	Address     string            `json:"address"`
+	Verified    bool              `json:"verified,omitempty"`
+	Primary     bool              `json:"primary,omitempty"`
+	Source      string            `json:"source,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 

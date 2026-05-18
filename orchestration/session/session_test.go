@@ -1436,7 +1436,7 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "slack_user", ID: "U123"}},
 		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
 		Actor: &user.Actor{
-			User:       user.User{ID: "timo@company.org", Username: "timo@company.org", Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}},
+			User:       user.User{ID: "timo@company.org", Username: "timo@company.org", Emails: []user.Email{{Address: "timo@company.org", Primary: true, Verified: true}, {Address: "timo.alias@company.org", Verified: true}}, Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}},
 			Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
 			Identities: []user.Identity{{Provider: "slack", ProviderID: "U123"}, {Provider: "gitlab/main", ProviderID: "tfriedl"}},
 			Resolution: user.ResolutionResolved,
@@ -1451,6 +1451,9 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 	}
 	if gotScope["identity.all"] != "slack:U123;gitlab/main:tfriedl" {
 		t.Fatalf("identity.all = %q, want Slack and GitLab identities", gotScope["identity.all"])
+	}
+	if gotScope["user.email.all"] != "timo@company.org primary;timo.alias@company.org alias" {
+		t.Fatalf("user.email.all = %q, want primary and alias emails", gotScope["user.email.all"])
 	}
 }
 

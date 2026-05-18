@@ -94,6 +94,10 @@ identity:
   users:
     - id: timo@company.org
       display_name: Timo
+      emails:
+        - address: timo@company.org
+          primary: true
+        - address: timo.alias@company.org
       identities:
         - provider: slack
           provider_id: U0123456789
@@ -123,10 +127,23 @@ entry Slack identity and a configured or plugin-resolved GitLab identity:
 identity:
   users:
     - id: timo@company.org
+      emails:
+        - address: timo@company.org
+          primary: true
+        - address: timo.alias@company.org
       identities:
         - provider: gitlab/main
           provider_id: tfriedl
 ```
+
+Configured `emails` are verified aliases by default and can link the same
+canonical user across providers whose visible email addresses differ. Set
+`verified: false` for an email that should be displayed only and not used for
+directory matching or plugin account lookup. GitLab identity lookup only uses
+configured verified aliases and public GitLab user search; a normal GitLab token
+cannot read another user's private email addresses unless the user made the
+email public, the token has administrator access, or the token belongs to that
+same user.
 
 For Slack apps, sender identity and trust should come from resolved core
 identity context, not from Slack message metadata. Slack-specific audience trust

@@ -98,6 +98,11 @@ identity:
   users:
     - id: timo@company.org
       username: timo
+      emails:
+        - address: timo@company.org
+          primary: true
+        - address: timo.alias@company.org
+          verified: true
       identities:
         - provider: slack
           provider_id: U123
@@ -135,6 +140,9 @@ plugins:
 	}
 	if len(app.Identity.Users) != 1 || app.Identity.Users[0].ID != "timo@company.org" || app.Identity.Users[0].Identities[0].ProviderID != "U123" {
 		t.Fatalf("identity users = %#v, want canonical Slack user", app.Identity.Users)
+	}
+	if len(app.Identity.Users[0].Emails) != 2 || !app.Identity.Users[0].Emails[0].Primary || !app.Identity.Users[0].Emails[0].Verified || app.Identity.Users[0].Emails[1].Address != "timo.alias@company.org" {
+		t.Fatalf("identity emails = %#v, want verified primary and alias emails", app.Identity.Users[0].Emails)
 	}
 	if len(app.Identity.Groups) != 1 || app.Identity.Groups[0].ID != "admins" || app.Identity.Groups[0].Trust != "operator" {
 		t.Fatalf("identity groups = %#v, want admins operator group", app.Identity.Groups)

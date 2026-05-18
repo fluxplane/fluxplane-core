@@ -79,6 +79,69 @@ func TestExternalIdentityResolverLooksUpGitLabUserByCanonicalEmail(t *testing.T)
 	}
 }
 
+func TestExternalIdentityResolverLooksUpGitLabUserByVerifiedEmailAlias(t *testing.T) {
+	var queries []string
+	plugin := New(fakeSystem{})
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return fakeGitLabClient{
+			usersByPublicEmail: map[string][]*gitlab.User{
+				"timo@company.org": []*gitlab.User{{ID: 42, Username: "tfriedl", Name: "Timo Friedl"}},
+			},
+			userPublicEmailQueries: &queries,
+		}, nil
+	}
+	resolvers, err := plugin.ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	if err != nil {
+		t.Fatalf("ExternalIdentityResolvers: %v", err)
+	}
+	result, err := resolvers[0].ResolveExternalIdentities(context.Background(), identity.ExternalRequest{Actor: coreuser.Actor{
+		User: coreuser.User{
+			ID: "timo.friedl@company.org",
+			Emails: []coreuser.Email{
+				{Address: "timo.friedl@company.org", Primary: true, Verified: true},
+				{Address: "timo@company.org", Verified: true},
+				{Address: "private@company.org"},
+			},
+		},
+		Identity:   coreuser.Identity{Provider: "slack", ProviderID: "U123"},
+		Resolution: coreuser.ResolutionResolved,
+	}})
+	if err != nil {
+		t.Fatalf("ResolveExternalIdentities: %v", err)
+	}
+	if len(result.Identities) != 1 || result.Identities[0].ProviderID != "tfriedl" || result.Identities[0].Email != "timo@company.org" {
+		t.Fatalf("identities = %#v, want looked-up gitlab identity from verified alias", result.Identities)
+	}
+	if strings.Join(queries, ",") != "timo.friedl@company.org,timo@company.org" {
+		t.Fatalf("queries = %#v, want primary then verified alias only", queries)
+	}
+}
+
+func TestExternalIdentityResolverReturnsNoIdentityWhenGitLabEmailIsPrivate(t *testing.T) {
+	plugin := New(fakeSystem{})
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return fakeGitLabClient{usersByPublicEmail: map[string][]*gitlab.User{}}, nil
+	}
+	resolvers, err := plugin.ExternalIdentityResolvers(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
+	if err != nil {
+		t.Fatalf("ExternalIdentityResolvers: %v", err)
+	}
+	result, err := resolvers[0].ResolveExternalIdentities(context.Background(), identity.ExternalRequest{Actor: coreuser.Actor{
+		User: coreuser.User{
+			ID:     "timo.friedl@company.org",
+			Emails: []coreuser.Email{{Address: "timo.friedl@company.org", Primary: true, Verified: true}},
+		},
+		Identity:   coreuser.Identity{Provider: "slack", ProviderID: "U123"},
+		Resolution: coreuser.ResolutionResolved,
+	}})
+	if err != nil {
+		t.Fatalf("ResolveExternalIdentities: %v", err)
+	}
+	if len(result.Identities) != 0 {
+		t.Fatalf("identities = %#v, want none without public/configured GitLab email", result.Identities)
+	}
+}
+
 func TestPluginDeclaresAuthMethods(t *testing.T) {
 	plugin := New(fakeSystem{})
 	plugin.cfg = Config{Auth: AuthConfig{TokenEnv: gitlabPersonalAccessTokenEnv}}
@@ -1069,19 +1132,21 @@ func hasCapability(entity coredatasource.EntitySpec, capability coredatasource.E
 }
 
 type fakeGitLabClient struct {
-	projects      []*gitlab.Project
-	groups        []*gitlab.Group
-	groupProjects []*gitlab.Project
-	users         []*gitlab.User
-	projectUsers  []*gitlab.ProjectUser
-	projectGroups []*gitlab.ProjectGroup
-	memberships   []*gitlab.UserMembership
-	mrs           []*gitlab.BasicMergeRequest
-	diffs         []*gitlab.MergeRequestDiff
-	notes         []*gitlab.Note
-	pipelines     []*gitlab.PipelineInfo
-	updatedMR     *gitlab.MergeRequest
-	calls         *[]string
+	projects               []*gitlab.Project
+	groups                 []*gitlab.Group
+	groupProjects          []*gitlab.Project
+	users                  []*gitlab.User
+	usersByPublicEmail     map[string][]*gitlab.User
+	userPublicEmailQueries *[]string
+	projectUsers           []*gitlab.ProjectUser
+	projectGroups          []*gitlab.ProjectGroup
+	memberships            []*gitlab.UserMembership
+	mrs                    []*gitlab.BasicMergeRequest
+	diffs                  []*gitlab.MergeRequestDiff
+	notes                  []*gitlab.Note
+	pipelines              []*gitlab.PipelineInfo
+	updatedMR              *gitlab.MergeRequest
+	calls                  *[]string
 }
 
 func (c fakeGitLabClient) ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error) {
@@ -1107,8 +1172,17 @@ func (c fakeGitLabClient) ListGroupProjects(context.Context, any, *gitlab.ListGr
 	return c.groupProjects, nil
 }
 
-func (c fakeGitLabClient) ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
+func (c fakeGitLabClient) ListUsers(_ context.Context, opts *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
 	c.record("list_users")
+	if opts != nil && opts.PublicEmail != nil {
+		email := strings.ToLower(strings.TrimSpace(*opts.PublicEmail))
+		if c.userPublicEmailQueries != nil {
+			*c.userPublicEmailQueries = append(*c.userPublicEmailQueries, email)
+		}
+		if c.usersByPublicEmail != nil {
+			return c.usersByPublicEmail[email], nil
+		}
+	}
 	return c.users, nil
 }
 

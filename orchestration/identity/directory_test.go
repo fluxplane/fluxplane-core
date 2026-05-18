@@ -124,6 +124,33 @@ func TestDirectoryResolverOverlaysGroupsForFallbackUser(t *testing.T) {
 	}
 }
 
+func TestDirectoryResolverMapsVerifiedEmailAliasToCanonicalUser(t *testing.T) {
+	resolver, err := NewDirectoryResolver(coreapp.IdentitySpec{
+		Users: []user.User{{
+			ID:       "timo.friedl@company.org",
+			Username: "timo",
+			Emails: []user.Email{
+				{Address: "timo.friedl@company.org", Primary: true, Verified: true},
+				{Address: "timo@company.org", Verified: true},
+				{Address: "unverified@company.org"},
+			},
+		}},
+	}, resolvedSlackFallback("U123", "timo@company.org"))
+	if err != nil {
+		t.Fatalf("NewDirectoryResolver: %v", err)
+	}
+	result, err := resolver.ResolveIdentity(context.Background(), Request{Inbound: slackInbound("U123", policy.TrustUntrusted, false)})
+	if err != nil {
+		t.Fatalf("ResolveIdentity: %v", err)
+	}
+	if result.Actor.User.ID != "timo.friedl@company.org" {
+		t.Fatalf("user = %#v, want canonical user from verified email alias", result.Actor.User)
+	}
+	if len(result.Actor.User.Emails) != 3 || !result.Actor.User.Emails[0].Primary || !result.Actor.User.Emails[1].Verified {
+		t.Fatalf("emails = %#v, want configured aliases preserved", result.Actor.User.Emails)
+	}
+}
+
 func TestDirectoryResolverAppliesResolvedSlackGroupRules(t *testing.T) {
 	resolver, err := NewDirectoryResolver(slackBotIdentitySpec(), resolvedSlackFallback("U111", "mara@company.org"))
 	if err != nil {
@@ -202,6 +229,18 @@ func TestDirectoryResolverRejectsConflictingProviderMapping(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("NewDirectoryResolver succeeded, want conflict")
+	}
+}
+
+func TestDirectoryResolverRejectsConflictingVerifiedEmailAlias(t *testing.T) {
+	_, err := NewDirectoryResolver(coreapp.IdentitySpec{
+		Users: []user.User{
+			{ID: "timo@company.org", Emails: []user.Email{{Address: "alias@company.org", Verified: true}}},
+			{ID: "other@company.org", Emails: []user.Email{{Address: "alias@company.org", Verified: true}}},
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("NewDirectoryResolver succeeded, want email alias conflict")
 	}
 }
 
