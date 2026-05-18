@@ -37,6 +37,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
@@ -464,6 +465,7 @@ func availablePlugins(hostSystem system.System, connectorEngine connectorplugin.
 		gitlabplugin.New(hostSystem),
 		imageplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
+		confluenceplugin.New(hostSystem),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),
 		textplugin.New(),
@@ -479,6 +481,7 @@ func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 		slackplugin.New(nil),
 		gitlabplugin.New(nil),
 		jiraplugin.New(nil),
+		confluenceplugin.New(nil),
 	}, nil
 }
 

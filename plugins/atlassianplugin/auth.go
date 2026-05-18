@@ -34,6 +34,7 @@ type Product struct {
 	Name         string
 	DisplayName  string
 	ResourcePath string
+	RESTPath     string
 	Scopes       []string
 }
 
@@ -240,7 +241,11 @@ func RefreshToken(ctx context.Context, client *http.Client, clientID, clientSecr
 }
 
 func BaseURL(product Product, cloudID string) string {
-	return "https://api.atlassian.com/ex/" + strings.Trim(strings.TrimSpace(product.ResourcePath), "/") + "/" + strings.TrimSpace(cloudID) + "/rest/api/3"
+	restPath := strings.TrimSpace(product.RESTPath)
+	if restPath == "" {
+		restPath = "/rest/api/3"
+	}
+	return "https://api.atlassian.com/ex/" + strings.Trim(strings.TrimSpace(product.ResourcePath), "/") + "/" + strings.TrimSpace(cloudID) + "/" + strings.Trim(restPath, "/")
 }
 
 func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, bool, error) {
@@ -372,7 +377,7 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 			{
 				Name:        "site_url",
 				DisplayName: "Site URL",
-				Description: "Optional Atlassian site URL used for human-facing Jira links.",
+				Description: "Optional Atlassian site URL used for human-facing links.",
 				Env: coresecret.EnvSpec{
 					Aliases: SiteURLEnvAliases(product),
 				},

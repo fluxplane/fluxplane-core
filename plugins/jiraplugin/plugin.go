@@ -85,6 +85,7 @@ func AtlassianProduct() atlassianplugin.Product {
 		Name:         Name,
 		DisplayName:  "Jira Cloud",
 		ResourcePath: "jira",
+		RESTPath:     "/rest/api/3",
 		Scopes:       []string{"read:jira-work", "offline_access"},
 	}
 }

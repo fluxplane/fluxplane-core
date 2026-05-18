@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
@@ -122,6 +123,7 @@ func datasourceIndexPlugins(hostSystem system.System, executor connectorplugin.E
 		slackplugin.NewWithConnectors(dispatcher, executor, connectorInstancesForKind(instances, slackplugin.Name)),
 		gitlabplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
+		confluenceplugin.New(hostSystem),
 		taskplugin.New(),
 		skillplugin.New(),
 		textplugin.New(),

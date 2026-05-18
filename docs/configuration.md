@@ -316,6 +316,12 @@ plugins:
       site_url: https://company.atlassian.net
       auth:
         method: oauth2
+  - kind: confluence
+    config:
+      cloud_id: your-atlassian-cloud-id
+      site_url: https://company.atlassian.net
+      auth:
+        method: oauth2
   - kind: web
   - kind: gitlab
     instance: company-a
@@ -330,8 +336,9 @@ connectors:
 ```
 
 Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `agentsdk connect`. Native Jira uses Atlassian OAuth2 stored
-credentials from `agentsdk connect jira --instance jira`; service-account
+credentials with `agentsdk connect`. Native Jira and Confluence use Atlassian
+OAuth2 stored credentials from `agentsdk connect jira --instance jira` and
+`agentsdk connect confluence --instance confluence`; service-account
 deployments can set `auth.method: token` and `auth.token_env` for a bearer
 token environment variable. Native GitLab instances declare a
 `personal_access_token` env auth method and OAuth2 metadata. When GitLab
@@ -427,6 +434,26 @@ datasource:
 GitLab currently indexes `gitlab.project`, `gitlab.user`, and `gitlab.group`
 through structured fields only. Other GitLab entities remain live/provider
 searched until they explicitly declare an index capability.
+
+Native Atlassian datasources reference the matching Jira or Confluence plugin
+instance and use the same Atlassian auth setup:
+
+```yaml
+datasource:
+  datasources:
+    - name: jira
+      kind: jira
+      entities:
+        - jira.issue
+        - jira.project
+    - name: confluence
+      kind: confluence
+      index:
+        enabled: true
+      entities:
+        - confluence.page
+        - confluence.space
+```
 
 ### Daemon Channels
 

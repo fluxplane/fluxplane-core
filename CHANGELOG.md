@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added native Jira Atlassian auth and datasource support, including stored
   OAuth2 credentials, token-based service account auth, and connector-free Jira
   issue/project access.
+- Added native Confluence Atlassian auth and datasource support, including
+  stored OAuth2 credentials, token-based service account auth, and
+  connector-free Confluence page/space read access.
 - Added typed runtime authorization policy grants for users, groups, services,
   systems, and agents, including wildcard resource/action matching, operation
   safety enforcement, projection filtering, local coder defaults, and

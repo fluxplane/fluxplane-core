@@ -6,6 +6,7 @@ Native rewrite Slack daemon example.
 agentsdk connect slack --instance slack-bot
 agentsdk connect gitlab --instance gitlab
 agentsdk connect jira --instance jira
+agentsdk connect confluence --instance confluence
 agentsdk serve examples/slack-bot
 ```
 
@@ -19,13 +20,15 @@ agentsdk remote --app examples/slack-bot --input "hello from local"
 The `slack-bot` connector instance supplies the bot token and Socket Mode app token.
 The Slack channel itself uses native Slack APIs rather than connector operation
 execution.
-The Jira datasource uses native Atlassian auth. For service-account deployments,
-configure the Jira plugin with `auth.method: token` and set `auth.token_env` to
-the runtime bearer token environment variable.
+The Jira and Confluence datasources use native Atlassian auth. For
+service-account deployments, configure the Atlassian plugin with
+`auth.method: token` and set `auth.token_env` to the runtime bearer token
+environment variable.
 
 The configured datasources expose Slack users, channels, and messages, GitLab
-projects, Jira issues and projects, local markdown/text files, and public web
-search results through `datasource_search`; record retrieval uses
+projects, Jira issues and projects, Confluence pages and spaces, local
+markdown/text files, and public web search results through `datasource_search`;
+record retrieval uses
 `datasource_get` or `datasource_batch_get` where the entity supports it. Use
 `datasource_relation` for exact Slack channel membership; message search only
 supports observed or inferred participants.
@@ -92,6 +95,8 @@ Connector and native datasource scopes:
   and `mpim:read`.
 - Slack channel membership requires `channels:read` and `groups:read`.
 - Jira issue and project discovery requires `read:jira-work`.
+- Confluence page and space discovery requires `read:page:confluence` and
+  `read:space:confluence`.
 
 If serve logs `slack channel connected` but never logs
 `slack channel event received` after a DM or mention, Slack is not delivering

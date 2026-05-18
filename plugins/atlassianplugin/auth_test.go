@@ -56,3 +56,14 @@ func TestStoreOAuthTokenPersistsSiteMetadataAndRefreshSecret(t *testing.T) {
 		t.Fatalf("refresh value = %q", refresh.Value)
 	}
 }
+
+func TestBaseURLUsesProductRESTPath(t *testing.T) {
+	jira := Product{Name: "jira", ResourcePath: "jira"}
+	if got := BaseURL(jira, "cloud-1"); got != "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3" {
+		t.Fatalf("jira base url = %q", got)
+	}
+	confluence := Product{Name: "confluence", ResourcePath: "confluence", RESTPath: "/wiki/api/v2"}
+	if got := BaseURL(confluence, "cloud-1"); got != "https://api.atlassian.com/ex/confluence/cloud-1/wiki/api/v2" {
+		t.Fatalf("confluence base url = %q", got)
+	}
+}

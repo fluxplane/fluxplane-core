@@ -49,6 +49,10 @@ plugins:
     config:
       auth:
         method: oauth2
+  - kind: confluence
+    config:
+      auth:
+        method: oauth2
   - kind: web
 
 connectors:
@@ -93,6 +97,13 @@ datasource:
         - jira.issue
         - jira.project
       description: Jira issues visible to the configured native plugin instance.
+
+    - name: confluence
+      kind: confluence
+      entities:
+        - confluence.page
+        - confluence.space
+      description: Confluence pages and spaces visible to the configured native plugin instance.
 
     - name: local-docs
       kind: filesystem
@@ -160,6 +171,7 @@ datasources:
   - slack-bot
   - gitlab
   - jira
+  - confluence
   - local-docs
   - web_search
 system: |
@@ -169,9 +181,9 @@ system: |
   projects, GitLab users, or visible GitLab groups. Use datasource_search with
   entity filters when you need to search Slack users, Slack channels, Slack
   messages, GitLab projects, GitLab users, GitLab groups, Jira issues, Jira
-  projects, local documentation files (`file.document`), or public web results
-  (`web.search_result`). Use datasource_get when you need a specific datasource
-  record by id. Use
+  projects, Confluence pages, Confluence spaces, local documentation files
+  (`file.document`), or public web results (`web.search_result`). Use
+  datasource_get when you need a specific datasource record by id. Use
   datasource_relation for exact relationships such as Slack channel members
   (`slack.channel` relation `members`) or GitLab project users/groups, user
   memberships, user groups/projects, group hierarchy, group users, and group
