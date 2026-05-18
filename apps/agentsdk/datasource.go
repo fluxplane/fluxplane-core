@@ -213,21 +213,13 @@ func runDatasourceIndexStatus(ctx context.Context, opts datasourceIndexOptions, 
 		return err
 	}
 	_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6s %s\n", "DATASOURCE", "ENTITY", "ID", "TYPE", "STATUS", "CHUNKS", "INDEXED")
-	seen := map[string]bool{}
 	for _, doc := range status.Documents {
-		seen[doc.Key] = true
 		_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6d %s\n", doc.Ref.Datasource, doc.Ref.Entity, doc.Ref.ID, "semantic", doc.Status, doc.ChunkCount, doc.IndexedAt.Format("2006-01-02T15:04:05Z"))
 	}
 	for _, record := range status.Records {
-		if seen[record.Key] {
-			continue
-		}
 		_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6s %s\n", record.Ref.Datasource, record.Ref.Entity, record.Ref.ID, "field", "indexed", "-", "-")
 	}
 	for _, job := range status.Queue {
-		if seen[job.Key] {
-			continue
-		}
 		_, _ = fmt.Fprintf(out, "%-24s %-20s %-32s %-10s %-8s %-6s %s\n", job.Ref.Datasource, job.Ref.Entity, job.Ref.ID, "queue", job.Status, "-", "-")
 	}
 	return nil
