@@ -20,6 +20,7 @@ import (
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeproject "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -79,19 +80,32 @@ func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Go language structure operations."}
 }
 
-// Contributions returns Go operation specs.
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+// LanguageSupport returns the reusable Go language activation descriptor.
+func LanguageSupport() runtimelanguage.Support {
 	specs := specs()
 	parserRefs := refsByName(specs, parserOperationNames())
 	toolchainRefs := refsByName(specs, toolchainOperationNames())
-	return resource.ContributionBundle{
-		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
+	return runtimelanguage.StaticSupport{Spec: runtimelanguage.SupportSpec{
+		Provider: language.ProviderSpec{
+			Name:         language.ProviderName(Name),
+			Language:     language.LanguageGo,
+			Description:  "Go parser and toolchain support.",
+			Capabilities: goCapabilities(),
+		},
+		Signals: []runtimelanguage.SignalMatcher{
+			{Language: language.LanguageGo},
+			{Toolchain: "go"},
+			{Path: "go.mod"},
+			{Path: "go.work"},
+		},
 		OperationSets: []operation.Set{
 			{
 				Name:        ParserSet,
 				Description: "Go parser and workspace language operations that do not require the go binary.",
 				Operations:  parserRefs,
 			},
+		},
+		ToolchainOperationSets: []operation.Set{
 			{
 				Name:        ToolchainSet,
 				Description: "Go toolchain operations backed by external go commands.",
@@ -99,6 +113,18 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			},
 		},
 		Toolchains: []language.ToolchainSpec{goToolchainSpec(toolchainRefs)},
+	}}
+}
+
+// Contributions returns Go operation specs.
+func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	specs := specs()
+	support := LanguageSupport().SupportSpec()
+	return resource.ContributionBundle{
+		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
+		OperationSets: append(append([]operation.Set{}, support.OperationSets...),
+			support.ToolchainOperationSets...),
+		Toolchains: support.Toolchains,
 		Operations: specs,
 		EventTypes: []coreevent.Event{language.ToolchainStatusObserved{}},
 	}, nil
@@ -261,6 +287,23 @@ func parserOperationNames() []string {
 
 func toolchainOperationNames() []string {
 	return []string{InfoOp, EnvOp, VersionOp, DocOp, ListOp, TestOp, FmtOp, VetOp, BuildOp, InstallOp}
+}
+
+func goCapabilities() []language.Capability {
+	return []language.Capability{
+		language.CapabilityProject,
+		language.CapabilityPackage,
+		language.CapabilityOutline,
+		language.CapabilitySymbol,
+		language.CapabilityDefinition,
+		language.CapabilitySymbolInfo,
+		language.CapabilityReferences,
+		language.CapabilityImplementations,
+		language.CapabilityCalls,
+		language.CapabilityImports,
+		language.CapabilityDiagnostics,
+		language.CapabilityFormat,
+	}
 }
 
 func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {

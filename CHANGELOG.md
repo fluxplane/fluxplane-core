@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context and project inventory discovery under named `@root/...` prefixes.
 - Added opt-in workspace-scoped env file loading via runtime workspace config
   and repeated `--env-file` flags for local run and serve commands.
+- Added reusable runtime language-support descriptors for project-signal and
+  toolchain-gated operation activation.
 
 ### Changed
 
@@ -143,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback provider errors.
 - `agentsdk serve` now accepts and forwards daemon-wide `--provider` and
   `--model` overrides again.
+- Coder language operation activation now consumes Go and Markdown support
+  descriptors instead of hardcoding language-specific operation set selection.
 
 ## [0.13.0] - 2026-05-17
 

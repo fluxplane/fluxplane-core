@@ -14,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/yuin/goldmark"
@@ -48,16 +49,39 @@ func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Markdown outline and local link diagnostics."}
 }
 
-// Contributions returns markdown operation specs.
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+// LanguageSupport returns the reusable Markdown language activation descriptor.
+func LanguageSupport() runtimelanguage.Support {
 	specs := specs()
-	return resource.ContributionBundle{
+	return runtimelanguage.StaticSupport{Spec: runtimelanguage.SupportSpec{
+		Provider: language.ProviderSpec{
+			Name:        language.ProviderName(Name),
+			Language:    language.LanguageMarkdown,
+			Description: "Markdown outline and link support.",
+			Capabilities: []language.Capability{
+				language.CapabilityOutline,
+				language.CapabilityDiagnostics,
+			},
+		},
+		Signals: []runtimelanguage.SignalMatcher{
+			{Language: language.LanguageMarkdown},
+			{Path: "README.md"},
+			{Path: "AGENTS.md"},
+		},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Markdown outline, link listing, and local diagnostics.",
 			Operations:  refs(specs),
 		}},
-		Operations: specs,
+	}}
+}
+
+// Contributions returns markdown operation specs.
+func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	specs := specs()
+	support := LanguageSupport().SupportSpec()
+	return resource.ContributionBundle{
+		OperationSets: support.OperationSets,
+		Operations:    specs,
 	}, nil
 }
 

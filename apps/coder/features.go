@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
+	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
 )
 
 // FeatureName identifies a coder-local inert feature preset.
@@ -25,7 +26,7 @@ const (
 type ActivationInput struct {
 	ProjectSignals    []coreproject.Signal
 	ToolchainStatuses []language.ToolchainStatus
-	OperationSets     []operation.Set
+	LanguageSupports  []runtimelanguage.Support
 }
 
 // FeatureSpec describes operations implied by a coder feature.
@@ -50,7 +51,7 @@ func fullCapabilityActivation() ActivationInput {
 			{Kind: "documentation", Path: "README.md", Language: "markdown", Confidence: 1},
 		},
 		ToolchainStatuses: []language.ToolchainStatus{{ID: "go", Available: true}},
-		OperationSets:     builtinLanguageOperationSets(),
+		LanguageSupports:  builtinLanguageSupports(),
 	}
 }
 
@@ -151,7 +152,7 @@ func expandOperations(cfg OperationExpansionConfig) []string {
 		seen[name] = true
 		ordered = append(ordered, name)
 	}
-	sets := operationSetsByName(cfg.Activation.OperationSets)
+	sets := operationSetsByName(runtimelanguage.OperationSets(cfg.Activation.LanguageSupports))
 	for _, feature := range cfg.Features {
 		for _, name := range feature.Operations {
 			add(name)
@@ -161,20 +162,12 @@ func expandOperations(cfg OperationExpansionConfig) []string {
 		}
 		switch feature.Name {
 		case FeatureLanguageSupport:
-			if hasLanguageSignal(cfg.Activation.ProjectSignals, "go") {
-				addOperationSet(add, sets[golangplugin.ParserSet])
-			}
-			if hasLanguageSignal(cfg.Activation.ProjectSignals, "markdown") {
-				addOperationSet(add, sets[markdownplugin.Name])
+			for _, set := range runtimelanguage.SignalActivatedOperationSets(cfg.Activation.LanguageSupports, cfg.Activation.ProjectSignals) {
+				addOperationSet(add, set)
 			}
 		case FeatureAvailableToolchains:
-			for _, status := range cfg.Activation.ToolchainStatuses {
-				if !status.Available {
-					continue
-				}
-				if status.ID == "go" {
-					addOperationSet(add, sets[golangplugin.ToolchainSet])
-				}
+			for _, set := range runtimelanguage.ToolchainActivatedOperationSets(cfg.Activation.LanguageSupports, cfg.Activation.ProjectSignals, cfg.Activation.ToolchainStatuses) {
+				addOperationSet(add, set)
 			}
 		}
 	}
@@ -211,20 +204,10 @@ func addOperationSet(add func(string), set operation.Set) {
 	}
 }
 
-func hasLanguageSignal(signals []coreproject.Signal, lang language.LanguageID) bool {
-	for _, signal := range signals {
-		if signal.Language == lang {
-			return true
-		}
-	}
-	return false
-}
-
-func builtinLanguageOperationSets() []operation.Set {
-	return []operation.Set{
-		{Name: golangplugin.ParserSet, Operations: refs(golangParserOperations())},
-		{Name: golangplugin.ToolchainSet, Operations: refs(golangToolchainOperations())},
-		{Name: markdownplugin.Name, Operations: refs(markdownOperations())},
+func builtinLanguageSupports() []runtimelanguage.Support {
+	return []runtimelanguage.Support{
+		golangplugin.LanguageSupport(),
+		markdownplugin.LanguageSupport(),
 	}
 }
 
@@ -248,12 +231,4 @@ func golangToolchainOperations() []string {
 
 func markdownOperations() []string {
 	return []string{markdownplugin.OutlineOp, markdownplugin.LinksOp, markdownplugin.DiagnosticsOp}
-}
-
-func refs(names []string) []operation.Ref {
-	out := make([]operation.Ref, 0, len(names))
-	for _, name := range names {
-		out = append(out, operation.Ref{Name: operation.Name(name)})
-	}
-	return out
 }

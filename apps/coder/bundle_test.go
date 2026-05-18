@@ -115,7 +115,7 @@ func TestExpandOperationsUsesActivationSignals(t *testing.T) {
 				ID:        "go",
 				Available: false,
 			}},
-			OperationSets: builtinLanguageOperationSets(),
+			LanguageSupports: builtinLanguageSupports(),
 		},
 	})
 	if !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
@@ -130,7 +130,7 @@ func TestExpandOperationsUsesActivationSignals(t *testing.T) {
 		Activation: ActivationInput{
 			ProjectSignals:    []coreproject.Signal{{Language: "go", Toolchain: "go"}},
 			ToolchainStatuses: []language.ToolchainStatus{{ID: "go", Available: true}},
-			OperationSets:     builtinLanguageOperationSets(),
+			LanguageSupports:  builtinLanguageSupports(),
 		},
 		Add:    []string{"custom_op"},
 		Remove: []string{"go_fmt"},

@@ -524,6 +524,20 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
+	for _, want := range []string{
+		"project_inventory",
+		"file_read",
+		"file_create",
+		"file_edit",
+		"git_status",
+		"shell_exec",
+		"go_outline",
+		"markdown_outline",
+	} {
+		if !operationCatalogContains(composition.OperationCatalog, want) {
+			t.Fatalf("operation catalog missing %q", want)
+		}
+	}
 	cfg := ToolProjectionConfig()
 	cfg.Commands = composition.CommandCatalog
 	cfg.Operations = composition.OperationCatalog
@@ -536,7 +550,20 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	for _, spec := range projected.Tools {
 		names[string(spec.Name)] = true
 	}
-	for _, want := range []string{"task_create", "task_modify", "task_run", "image"} {
+	for _, want := range []string{
+		"project_inventory",
+		"file_read",
+		"file_create",
+		"file_edit",
+		"git_status",
+		"shell_exec",
+		"go_outline",
+		"markdown_outline",
+		"task_create",
+		"task_modify",
+		"task_run",
+		"image",
+	} {
 		if !names[want] {
 			t.Fatalf("projected tool names missing %q: %#v", want, names)
 		}
@@ -546,6 +573,15 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 			t.Fatalf("projected tool names include %q, want single image action tool: %#v", unwanted, names)
 		}
 	}
+}
+
+func operationCatalogContains(catalog session.OperationCatalog, name string) bool {
+	for _, binding := range catalog {
+		if binding.ID.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBundleAppliesModelOverride(t *testing.T) {
