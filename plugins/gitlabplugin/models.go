@@ -190,7 +190,13 @@ func pipelineEntitySpec() coredatasource.EntitySpec {
 }
 
 func userEntitySpec() coredatasource.EntitySpec {
-	return runtimedatasource.EntityOf[User](UserEntity, "GitLab user.")
+	entity := runtimedatasource.EntityOf[User](UserEntity, "GitLab user.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityIndex,
+	}
+	return entity
 }
 
 func projectFromGitLab(project *gitlab.Project) Project {
@@ -329,6 +335,13 @@ func userFromBasic(user *gitlab.BasicUser, role string) User {
 		return User{Role: role}
 	}
 	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL, Role: role}
+}
+
+func userFromGitLab(user *gitlab.User) User {
+	if user == nil {
+		return User{}
+	}
+	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
 }
 
 func userFromReviewer(reviewer *gitlab.MergeRequestReviewer) User {

@@ -55,6 +55,7 @@ type AuthConfig struct {
 type gitlabClient interface {
 	ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error)
 	ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error)
+	GetUser(context.Context, int64, *gitlab.GetUserOptions) (*gitlab.User, error)
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
 	ListMergeRequests(context.Context, *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
 	ListProjectMergeRequests(context.Context, any, *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
@@ -392,6 +393,11 @@ func (c officialClient) ListProjects(ctx context.Context, opts *gitlab.ListProje
 func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
 	users, _, err := c.client.Users.ListUsers(opts, gitlab.WithContext(ctx))
 	return users, err
+}
+
+func (c officialClient) GetUser(ctx context.Context, id int64, opts *gitlab.GetUserOptions) (*gitlab.User, error) {
+	user, _, err := c.client.Users.GetUser(id, opts, gitlab.WithContext(ctx))
+	return user, err
 }
 
 func (c officialClient) GetProject(ctx context.Context, id any, opts *gitlab.GetProjectOptions) (*gitlab.Project, error) {

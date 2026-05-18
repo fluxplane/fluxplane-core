@@ -91,8 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back to provider APIs, launch starts a background index warmup for indexed
   datasources, and index builds emit progress output.
 - Datasource indexing now separates structured field records from semantic
-  vector documents. GitLab indexes projects through structured fields only, so
-  project slug searches hit the local index without embedding GitLab content.
+  vector documents. GitLab indexes projects and users through structured fields,
+  so project slug and user searches hit the local index without embedding
+  GitLab content.
 - Semantic datasource embedding is now queued during normal index builds and
   drained by a separate embed worker/CLI command, so field indexing is not
   blocked by embedding work.

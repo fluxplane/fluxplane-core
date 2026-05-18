@@ -117,6 +117,12 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return a.searchResult(entity, recordsFrom(pipelines, a.pipelineRecord)), nil
+	case UserEntity:
+		users, err := searchUsers(ctx, client, req.Query, req.Filters, req.Limit, 1)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return a.searchResult(entity, recordsFrom(users, a.userRecord)), nil
 	default:
 		return coredatasource.SearchResult{}, fmt.Errorf("datasource %q entity %q does not support search", a.spec.Name, entity)
 	}
@@ -221,6 +227,12 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			return coredatasource.Record{}, err
 		}
 		return a.pipelineRecord(pipelineFromFull(pipeline)), nil
+	case UserEntity:
+		user, err := getUser(ctx, client, req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.userRecord(user), nil
 	default:
 		return coredatasource.Record{}, fmt.Errorf("datasource %q entity %q does not support get", a.spec.Name, req.Entity)
 	}
@@ -330,6 +342,12 @@ func (a gitlabAccessor) Corpus(ctx context.Context, req coredatasource.CorpusReq
 			return coredatasource.CorpusPage{}, err
 		}
 		return corpusPage(recordsFrom(projects, a.projectRecord), len(projects), limit, page), nil
+	case UserEntity:
+		users, err := searchUsers(ctx, client, "", nil, limit, page)
+		if err != nil {
+			return coredatasource.CorpusPage{}, err
+		}
+		return corpusPage(recordsFrom(users, a.userRecord), len(users), limit, page), nil
 	default:
 		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q entity %q is not indexed", a.spec.Name, entity)
 	}
@@ -481,8 +499,11 @@ func (a gitlabAccessor) userRecord(user User) coredatasource.Record {
 		Content:    strings.Join(cleaned([]string{user.Name, user.Username, user.Role}), " "),
 		URL:        user.WebURL,
 		Metadata: map[string]string{
+			"id":       strconv.FormatInt(user.ID, 10),
 			"username": user.Username,
+			"name":     user.Name,
 			"state":    user.State,
+			"web_url":  user.WebURL,
 			"role":     user.Role,
 		},
 		Raw: user,
@@ -523,6 +544,46 @@ func getProject(ctx context.Context, client gitlabClient, id string) (Project, e
 		return Project{}, err
 	}
 	return projectFromGitLab(project), nil
+}
+
+func searchUsers(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]User, error) {
+	if client == nil {
+		return nil, fmt.Errorf("gitlabplugin: client is nil")
+	}
+	opt := &gitlab.ListUsersOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)}}
+	if value := strings.TrimSpace(query); value != "" {
+		opt.Search = &value
+	}
+	if value := strings.TrimSpace(filters["username"]); value != "" {
+		opt.Username = &value
+	}
+	if value := strings.TrimSpace(filters["public_email"]); value != "" {
+		opt.PublicEmail = &value
+	}
+	users, err := client.ListUsers(ctx, opt)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]User, 0, len(users))
+	for _, user := range users {
+		out = append(out, userFromGitLab(user))
+	}
+	return out, nil
+}
+
+func getUser(ctx context.Context, client gitlabClient, id string) (User, error) {
+	if client == nil {
+		return User{}, fmt.Errorf("gitlabplugin: client is nil")
+	}
+	userID, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil {
+		return User{}, fmt.Errorf("gitlab user id must be numeric")
+	}
+	user, err := client.GetUser(ctx, userID, nil)
+	if err != nil {
+		return User{}, err
+	}
+	return userFromGitLab(user), nil
 }
 
 func searchMergeRequests(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]MergeRequest, error) {

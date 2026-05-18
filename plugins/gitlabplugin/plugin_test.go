@@ -364,6 +364,158 @@ func TestDatasourceProviderIndexedSearchReportsMissingIndex(t *testing.T) {
 	}
 }
 
+func TestDatasourceProviderSearchesUsers(t *testing.T) {
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				users: []*gitlab.User{{
+					ID:       42,
+					Username: "tfriedl",
+					Name:     "Timo Friedl",
+					State:    "active",
+					WebURL:   "https://gitlab.example/tfriedl",
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{UserEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{Entity: UserEntity, Query: "timo"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if strings.Join(calls, ",") != "list_users" {
+		t.Fatalf("calls = %#v, want list_users", calls)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "42" || result.Records[0].Metadata["username"] != "tfriedl" {
+		t.Fatalf("records = %#v, want indexed GitLab user", result.Records)
+	}
+}
+
+func TestDatasourceProviderIndexedSearchUsesUserFieldIndex(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{ModelName: "test-embedding"}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	_, err = index.UpdateRecord(context.Background(), coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "company-a-gitlab", Entity: UserEntity, ID: "42"},
+		Title: "tfriedl",
+		Body:  "Timo Friedl tfriedl",
+		Metadata: map[string]string{
+			"id":       "42",
+			"username": "tfriedl",
+			"name":     "Timo Friedl",
+			"state":    "active",
+			"web_url":  "https://gitlab.example/tfriedl",
+		},
+	}, userEntitySpec())
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{calls: &calls}, nil
+		},
+	}
+	provider = provider.WithSemanticIndex(index).(gitlabDatasourceProvider)
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{UserEntity},
+		Config:   map[string]string{"instance": "company-a"},
+		Index:    true,
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{Entity: UserEntity, Query: "tfriedl"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("GitLab API calls = %#v, want none", calls)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "42" || result.Records[0].Entity != UserEntity {
+		t.Fatalf("records = %#v, want indexed GitLab user", result.Records)
+	}
+}
+
+func TestDatasourceProviderCorpusIncludesUsers(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{users: []*gitlab.User{{
+				ID:       42,
+				Username: "tfriedl",
+				Name:     "Timo Friedl",
+				State:    "active",
+				WebURL:   "https://gitlab.example/tfriedl",
+			}}}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{UserEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	page, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: UserEntity})
+	if err != nil {
+		t.Fatalf("Corpus: %v", err)
+	}
+	if len(page.Documents) != 1 || page.Documents[0].Ref.ID != "42" || page.Documents[0].Metadata["username"] != "tfriedl" {
+		t.Fatalf("documents = %#v, want GitLab user corpus document", page.Documents)
+	}
+}
+
+func TestDatasourceProviderGetsUser(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{users: []*gitlab.User{{
+				ID:       42,
+				Username: "tfriedl",
+				Name:     "Timo Friedl",
+			}}}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{UserEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: UserEntity, ID: "42"})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.ID != "42" || record.Metadata["username"] != "tfriedl" {
+		t.Fatalf("record = %#v, want GitLab user", record)
+	}
+}
+
 func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	provider := gitlabDatasourceProvider{}
 	entities := map[coredatasource.EntityType]coredatasource.EntitySpec{}
@@ -377,6 +529,9 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	}
 	if !hasCapability(entities[ProjectEntity], coredatasource.EntityCapabilityIndex) {
 		t.Fatalf("project capabilities = %#v, missing index", entities[ProjectEntity].Capabilities)
+	}
+	if !hasCapability(entities[UserEntity], coredatasource.EntityCapabilitySearch) || !hasCapability(entities[UserEntity], coredatasource.EntityCapabilityGet) || !hasCapability(entities[UserEntity], coredatasource.EntityCapabilityIndex) {
+		t.Fatalf("user capabilities = %#v, want search/get/index", entities[UserEntity].Capabilities)
 	}
 	for typ, entity := range entities {
 		if hasCapability(entity, coredatasource.EntityCapabilitySemanticSearch) {
@@ -555,7 +710,16 @@ func (c fakeGitLabClient) ListProjects(context.Context, *gitlab.ListProjectsOpti
 }
 
 func (c fakeGitLabClient) ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
+	c.record("list_users")
 	return c.users, nil
+}
+
+func (c fakeGitLabClient) GetUser(context.Context, int64, *gitlab.GetUserOptions) (*gitlab.User, error) {
+	c.record("get_user")
+	if len(c.users) == 0 {
+		return nil, nil
+	}
+	return c.users[0], nil
 }
 
 func (c fakeGitLabClient) GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error) {

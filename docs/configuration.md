@@ -384,9 +384,9 @@ datasources:
       instance: company-a
 ```
 
-GitLab currently indexes `gitlab.project` through structured fields only. Other
-GitLab entities remain live/provider searched until they explicitly declare an
-index capability.
+GitLab currently indexes `gitlab.project` and `gitlab.user` through structured
+fields only. Other GitLab entities remain live/provider searched until they
+explicitly declare an index capability.
 
 ### Daemon Channels
 
