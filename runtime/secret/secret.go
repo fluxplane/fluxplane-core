@@ -205,16 +205,14 @@ func (b *Broker) UseAvailable(ctx context.Context, req coresecret.AuthRequest) (
 		if err := coresecret.ValidateAuthMethod(method); err != nil {
 			return Resolution{}, false, err
 		}
-		ref, ok := refForMethod(method)
-		if !ok {
-			continue
-		}
-		material, found, err := b.resolver.ResolveSecret(ctx, ref)
-		if found && method.Kind != "" {
-			material.Kind = method.Kind
-		}
-		if err != nil || found {
-			return Resolution{Ref: ref, Method: method, Material: material}, found, err
+		for _, ref := range refsForMethod(method) {
+			material, found, err := b.resolver.ResolveSecret(ctx, ref)
+			if found && method.Kind != "" {
+				material.Kind = method.Kind
+			}
+			if err != nil || found {
+				return Resolution{Ref: ref, Method: method, Material: material}, found, err
+			}
 		}
 	}
 	return Resolution{}, false, nil
@@ -270,19 +268,36 @@ func (b *Broker) ResolveHandle(ctx context.Context, handle string) (coresecret.M
 	return record.Material, true, nil
 }
 
-func refForMethod(method coresecret.AuthMethodSpec) (coresecret.Ref, bool) {
+func refsForMethod(method coresecret.AuthMethodSpec) []coresecret.Ref {
 	switch method.Method {
 	case coresecret.AuthMethodEnv:
 		if strings.TrimSpace(method.Env.Name) == "" {
-			return coresecret.Ref{}, false
+			return envRefs(method.Env.Aliases)
 		}
-		return coresecret.Env(method.Env.Name), true
+		return []coresecret.Ref{coresecret.Env(method.Env.Name)}
 	case coresecret.AuthMethodOAuth2, coresecret.AuthMethodStored:
 		ref := method.Secret.Normalize()
-		return ref, ref.ResourceName() != ""
+		if ref.ResourceName() == "" {
+			return nil
+		}
+		return []coresecret.Ref{ref}
 	default:
-		return coresecret.Ref{}, false
+		return nil
 	}
+}
+
+func envRefs(names []string) []coresecret.Ref {
+	refs := make([]coresecret.Ref, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		refs = append(refs, coresecret.Env(name))
+	}
+	return refs
 }
 
 func authorize(ctx context.Context, ref coresecret.Ref) error {

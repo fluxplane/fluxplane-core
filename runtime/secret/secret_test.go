@@ -103,7 +103,7 @@ func TestBrokerUseAvailableAuthorizesLogicalPluginSecret(t *testing.T) {
 	}
 }
 
-func TestBrokerUseAvailableDoesNotTreatAliasesAsFallback(t *testing.T) {
+func TestBrokerUseAvailableConfiguredEnvDoesNotProbeAliases(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_TOKEN": "fallback"}})
 	_, ok, err := broker.UseAvailable(authorizedPluginContext(), coresecret.AuthRequest{
 		Plugin:   "gitlab",
@@ -117,13 +117,13 @@ func TestBrokerUseAvailableDoesNotTreatAliasesAsFallback(t *testing.T) {
 		}},
 	})
 	if err != nil || ok {
-		t.Fatalf("UseAvailable alias fallback = %v, %v; want no material", ok, err)
+		t.Fatalf("UseAvailable configured env aliases = %v, %v; want no material", ok, err)
 	}
 }
 
-func TestBrokerUseAvailableSkipsUnconfiguredEnvMethod(t *testing.T) {
+func TestBrokerUseAvailableProbesAliasesWhenEnvNameUnset(t *testing.T) {
 	broker := NewBroker(EnvResolver{Environment: mapEnvironment{"GITLAB_TOKEN": "fallback"}})
-	_, ok, err := broker.UseAvailable(authorizedPluginContext(), coresecret.AuthRequest{
+	resolution, ok, err := broker.UseAvailable(authorizedPluginContext(), coresecret.AuthRequest{
 		Plugin:   "gitlab",
 		Instance: "company-a",
 		Purpose:  "access_token",
@@ -134,8 +134,8 @@ func TestBrokerUseAvailableSkipsUnconfiguredEnvMethod(t *testing.T) {
 			Env:    coresecret.EnvSpec{Aliases: []string{"GITLAB_TOKEN"}},
 		}},
 	})
-	if err != nil || ok {
-		t.Fatalf("UseAvailable unconfigured env = %v, %v; want skipped without material", ok, err)
+	if err != nil || !ok || resolution.Ref.ResourceName() != "env/GITLAB_TOKEN" || resolution.Material.Value != "fallback" {
+		t.Fatalf("UseAvailable alias probe = %#v, %v, %v; want fallback", resolution, ok, err)
 	}
 }
 

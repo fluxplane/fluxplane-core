@@ -64,8 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitLab now uses native typed plugin instances backed by the official GitLab
   Go client instead of the connector plugin bridge.
 - GitLab personal access tokens are resolved through plugin-instance auth
-  requests and a configured `auth.token_env`; env aliases are advertised as
-  setup hints rather than implicit fallback.
+  requests. A configured `auth.token_env` is used directly; otherwise the
+  resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.
+- Slack identity resolution now prefers connector user-token profile access for
+  email lookup before falling back to bot-token `users.info`, so Slack users can
+  resolve to canonical email users when the connected workspace grants profile
+  email access.
 - App manifests now declare plugin type with `plugins[].kind` instead of
   `plugins[].name`.
 - GitLab datasources now initialize their API client lazily, and datasource

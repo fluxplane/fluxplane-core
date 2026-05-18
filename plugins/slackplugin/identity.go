@@ -14,7 +14,9 @@ import (
 type IdentityResolverConfig struct {
 	ChannelName string
 	BotToken    string
+	UserToken   string
 	AppToken    string
+	UserAPI     *slack.Client
 	API         *slack.Client
 	Fallback    identity.Resolver
 }
@@ -23,15 +25,8 @@ type IdentityResolverConfig struct {
 // reading their Slack profile email. Trust is not raised here; app identity
 // overlays decide whether a resolved user or group carries higher trust.
 func NewIdentityResolver(cfg IdentityResolverConfig) identity.Resolver {
-	api := cfg.API
-	if api == nil && strings.TrimSpace(cfg.BotToken) != "" {
-		options := []slack.Option{}
-		if strings.TrimSpace(cfg.AppToken) != "" {
-			options = append(options, slack.OptionAppLevelToken(strings.TrimSpace(cfg.AppToken)))
-		}
-		api = slack.New(strings.TrimSpace(cfg.BotToken), options...)
-	}
-	if api == nil {
+	apis := slackIdentityAPIs(cfg)
+	if len(apis) == 0 {
 		return cfg.Fallback
 	}
 	fallback := cfg.Fallback
@@ -40,7 +35,7 @@ func NewIdentityResolver(cfg IdentityResolverConfig) identity.Resolver {
 	}
 	return &slackIdentityResolver{
 		channelName: strings.TrimSpace(cfg.ChannelName),
-		api:         api,
+		apis:        apis,
 		fallback:    fallback,
 		cache:       map[string]identity.Result{},
 	}
@@ -48,7 +43,7 @@ func NewIdentityResolver(cfg IdentityResolverConfig) identity.Resolver {
 
 type slackIdentityResolver struct {
 	channelName string
-	api         *slack.Client
+	apis        []*slack.Client
 	fallback    identity.Resolver
 	mu          sync.RWMutex
 	cache       map[string]identity.Result
@@ -71,8 +66,8 @@ func (r *slackIdentityResolver) ResolveIdentity(ctx context.Context, req identit
 		cached.Trust = base.Trust
 		return cached, nil
 	}
-	slackUser, err := r.api.GetUserInfoContext(ctx, slackID)
-	if err != nil || slackUser == nil || slackUser.Deleted {
+	slackUser := r.lookupSlackUser(ctx, slackID)
+	if slackUser == nil || slackUser.Deleted {
 		return base, nil
 	}
 	email := strings.ToLower(strings.TrimSpace(slackUser.Profile.Email))
@@ -108,6 +103,55 @@ func (r *slackIdentityResolver) ResolveIdentity(ctx context.Context, req identit
 	result := identity.Result{Actor: actor, Caller: base.Caller, Trust: base.Trust}
 	r.store(slackID, result)
 	return result, nil
+}
+
+func slackIdentityAPIs(cfg IdentityResolverConfig) []*slack.Client {
+	var apis []*slack.Client
+	if cfg.UserAPI != nil {
+		apis = append(apis, cfg.UserAPI)
+	}
+	if token := strings.TrimSpace(cfg.UserToken); token != "" {
+		apis = append(apis, slack.New(token))
+	}
+	if cfg.API != nil {
+		apis = append(apis, cfg.API)
+	}
+	if token := strings.TrimSpace(cfg.BotToken); token != "" {
+		apis = append(apis, slack.New(token))
+	}
+	return apis
+}
+
+func (r *slackIdentityResolver) lookupSlackUser(ctx context.Context, slackID string) *slack.User {
+	for _, api := range r.apis {
+		if api == nil {
+			continue
+		}
+		slackUser, err := api.GetUserInfoContext(ctx, slackID)
+		if err == nil && slackUser != nil && strings.TrimSpace(slackUser.Profile.Email) != "" {
+			return slackUser
+		}
+		if err == nil && slackUser != nil && !slackUser.Deleted {
+			if profile := lookupSlackProfile(ctx, api, slackID); strings.TrimSpace(profile.Email) != "" {
+				slackUser.Profile.Email = profile.Email
+				slackUser.Profile.DisplayName = firstNonEmptySlack(slackUser.Profile.DisplayName, profile.DisplayName)
+				slackUser.Profile.RealName = firstNonEmptySlack(slackUser.Profile.RealName, profile.RealName)
+				return slackUser
+			}
+		}
+	}
+	return nil
+}
+
+func lookupSlackProfile(ctx context.Context, api *slack.Client, slackID string) slack.UserProfile {
+	if api == nil {
+		return slack.UserProfile{}
+	}
+	profile, err := api.GetUserProfileContext(ctx, &slack.GetUserProfileParameters{UserID: slackID})
+	if err != nil || profile == nil {
+		return slack.UserProfile{}
+	}
+	return *profile
 }
 
 func (r *slackIdentityResolver) matches(req identity.Request) bool {

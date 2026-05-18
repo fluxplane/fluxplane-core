@@ -50,7 +50,7 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 	if method.Env.Name != gitlabPersonalAccessTokenEnv {
 		t.Fatalf("env name = %q", method.Env.Name)
 	}
-	if len(method.Env.Aliases) != 3 || method.Env.Aliases[0] != gitlabAccessTokenEnv || method.Env.Aliases[1] != gitlabPersonalAccessTokenEnv || method.Env.Aliases[2] != gitlabTokenEnv {
+	if len(method.Env.Aliases) != 4 || method.Env.Aliases[0] != gitlabAccessTokenEnv || method.Env.Aliases[1] != gitlabPersonalAccessTokenEnv || method.Env.Aliases[2] != gitlabPersonalTokenEnv || method.Env.Aliases[3] != gitlabTokenEnv {
 		t.Fatalf("env aliases = %#v", method.Env.Aliases)
 	}
 	if method.Header.Name != "Private-Token" {
@@ -136,7 +136,31 @@ func TestOfficialClientUsesSystemNetworkAndPersonalAccessTokenEnv(t *testing.T) 
 	}
 }
 
-func TestOfficialClientDoesNotTreatAliasesAsFallback(t *testing.T) {
+func TestOfficialClientProbesAliasesWhenTokenEnvUnset(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`[]`),
+	}}
+	client, err := newOfficialClient(context.Background(), fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{gitlabTokenEnv: "fallback-token"}},
+	}, resource.PluginRef{Name: Name, Instance: "company-a"}, Config{
+		BaseURL: "https://gitlab.example",
+	})
+	if err != nil {
+		t.Fatalf("newOfficialClient: %v", err)
+	}
+	query := "runtime"
+	if _, err := client.ListProjects(context.Background(), &gitlab.ListProjectsOptions{Search: &query}); err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if got := headerValue(network.request.Headers, "Private-Token"); got != "fallback-token" {
+		t.Fatalf("private token header = %q, want fallback-token", got)
+	}
+}
+
+func TestOfficialClientConfiguredTokenEnvDoesNotProbeAliases(t *testing.T) {
 	network := &recordingNetwork{response: system.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},

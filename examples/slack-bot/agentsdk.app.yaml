@@ -20,9 +20,6 @@ plugins:
   - kind: slack
   - kind: gitlab
     instance: main
-    config:
-      auth:
-        token_env: GITLAB_PERSONAL_ACCESS_TOKEN
   - kind: jira
   - kind: web
 

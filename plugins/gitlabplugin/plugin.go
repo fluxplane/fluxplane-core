@@ -31,6 +31,7 @@ const (
 	oauth2Method                 = "oauth2"
 	gitlabAccessTokenEnv         = "GITLAB_ACCESS_TOKEN"
 	gitlabPersonalAccessTokenEnv = "GITLAB_PERSONAL_ACCESS_TOKEN"
+	gitlabPersonalTokenEnv       = "GITLAB_PERSONAL_TOKEN"
 	gitlabTokenEnv               = "GITLAB_TOKEN"
 )
 
@@ -243,7 +244,7 @@ func personalAccessTokenAuthMethod(_ resource.PluginRef, tokenEnv string) corese
 		Method:      coresecret.AuthMethodEnv,
 		Kind:        coresecret.KindAPIKey,
 		DisplayName: "GitLab personal access token",
-		Description: "GitLab personal access token resolved from a configured environment variable.",
+		Description: "GitLab personal access token resolved from a configured environment variable or known aliases.",
 		Env: coresecret.EnvSpec{
 			Name:    strings.TrimSpace(tokenEnv),
 			Aliases: tokenEnvAliases(),
@@ -275,7 +276,7 @@ func oauth2AuthMethod(ref resource.PluginRef, baseURL string) coresecret.AuthMet
 }
 
 func tokenEnvAliases() []string {
-	return []string{gitlabAccessTokenEnv, gitlabPersonalAccessTokenEnv, gitlabTokenEnv}
+	return []string{gitlabAccessTokenEnv, gitlabPersonalAccessTokenEnv, gitlabPersonalTokenEnv, gitlabTokenEnv}
 }
 
 func newOfficialClient(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {

@@ -517,6 +517,7 @@ func launchIdentityResolver(ctx context.Context, authPath string, channels []dis
 		resolver := slackplugin.NewIdentityResolver(slackplugin.IdentityResolverConfig{
 			ChannelName: doc.Name,
 			BotToken:    creds.BotToken,
+			UserToken:   creds.UserToken,
 			AppToken:    creds.AppToken,
 		})
 		if resolver != nil {

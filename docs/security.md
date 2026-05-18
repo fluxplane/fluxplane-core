@@ -92,9 +92,10 @@ scheme, such as `env` or `plugin`, is an addressing scheme rather than
 provenance. Plugin auth requests authorize the logical plugin secret, for
 example `plugin/gitlab/main/access_token`, then resolvers obtain material from
 configured methods such as env vars or, later, stored OAuth2 tokens. Env-backed
-use resolves only the configured variable; declared aliases are setup metadata.
-The model sees only availability metadata or `${secret:<handle>}` placeholders,
-never the raw value. Direct raw environment reads still require `secret.read`.
+use resolves the configured variable when present, or probes declared aliases
+when the method has no configured variable. The model sees only availability
+metadata or `${secret:<handle>}` placeholders, never the raw value. Direct raw
+environment reads still require `secret.read`.
 
 ```mermaid
 flowchart LR
