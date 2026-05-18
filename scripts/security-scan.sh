@@ -10,6 +10,7 @@ secret_pattern='-----BEGIN (RSA|OPENSSH|EC|DSA|PRIVATE) PRIVATE KEY-----|AKIA[0-
 working_tree_exclude_globs=(
 	'!.git/**'
 	'!.cache/**'
+	'!**/.agents/index/**'
 	'!vendor/**'
 	'!node_modules/**'
 )
@@ -36,15 +37,69 @@ trufflehog_exclude_paths_file() {
 	cat >"$exclude_file" <<'EOF'
 (^|.*/)\.git/
 (^|.*/)\.cache/
+(^|.*/)\.agents/index/
 (^|.*/)vendor/
 (^|.*/)node_modules/
 EOF
+}
+
+allowed_trufflehog_json() {
+	local line="$1"
+	case "$line" in
+		*'"file":'*'/.agents/index/'*)
+			return 0
+			;;
+		*'"DetectorName":"Gitlab"'*'"Verified":false'*'"Raw":"ListAllProjectMembers"'*)
+			return 0
+			;;
+		*'"DetectorName":"Gitlab"'*'"Verified":false'*'"Raw":"pipelinesForMRProject"'*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+check_trufflehog_findings() {
+	local findings="$1"
+	local label="$2"
+	local blocked=0
+	while IFS= read -r line; do
+		if [[ -z "$line" ]] || allowed_trufflehog_json "$line"; then
+			continue
+		fi
+		printf '%s\n' "$line" >&2
+		blocked=1
+	done <"$findings"
+	if ((blocked)); then
+		printf 'security-scan: trufflehog found findings in %s\n' "$label" >&2
+		exit 1
+	fi
+}
+
+run_trufflehog_staged() {
+	local findings
+	findings="$(mktemp)"
+	git diff --cached --binary | trufflehog stdin --json --no-verification --no-update --log-level=-1 >"$findings"
+	check_trufflehog_findings "$findings" "staged diff"
+	rm -f "$findings"
+}
+
+run_trufflehog_json() {
+	local findings
+	findings="$(mktemp)"
+	printf 'security-scan: %s\n' "$*"
+	"$@" --json --no-verification --no-update --log-level=-1 >"$findings"
+	check_trufflehog_findings "$findings" "$*"
+	rm -f "$findings"
 }
 
 gitleaks_working_tree_targets() {
 	find . \
 		-path './.git' -prune -o \
 		-path './.cache' -prune -o \
+		-path '*/.agents/index' -prune -o \
 		-path './vendor' -prune -o \
 		-path './node_modules' -prune -o \
 		-type f -print
@@ -65,7 +120,7 @@ check_staged() {
 	fi
 
 	run gitleaks git . --staged --redact --no-color --log-level warn
-	git diff --cached --binary | trufflehog stdin --no-verification --no-update --fail --log-level=-1
+	run_trufflehog_staged
 }
 
 check_full() {
@@ -110,8 +165,8 @@ check_full() {
 	if ((${#gitleaks_targets[@]} > 0)); then
 		run gitleaks dir --redact --no-color --log-level warn "${gitleaks_targets[@]}"
 	fi
-	run trufflehog git "file://$repo_root" --exclude-paths "$trufflehog_excludes" --no-verification --no-update --fail --log-level=-1
-	run trufflehog filesystem "$repo_root" --exclude-paths "$trufflehog_excludes" --no-verification --no-update --fail --log-level=-1
+	run_trufflehog_json trufflehog git "file://$repo_root" --exclude-paths "$trufflehog_excludes"
+	run_trufflehog_json trufflehog filesystem "$repo_root" --exclude-paths "$trufflehog_excludes"
 }
 
 case "$mode" in

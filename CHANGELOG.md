@@ -63,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   traverse project members, project groups, user groups, and group projects.
 - Added a generic `datasource_list` operation and GitLab project, user, and
   group listing support for agents that need to enumerate resources.
+- Added GitLab user membership modeling, including field-indexed membership
+  lookups, service-account visible group/project resolution, and explicit group
+  hierarchy relations.
+- Added reusable datasource field-index lookup helpers for indexed record search,
+  exact lookup, pagination, and shared index readiness errors.
 
 - Added multi-root local workspace startup via repeated `--workspace-root` flags
   for local distribution runs and `coder serve`, plus workspace root summary
