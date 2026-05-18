@@ -73,16 +73,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Slack-specific audience trust, so sender trust is provided by core identity
   context while channel sharing remains conservative; one-to-one DMs omit
   audience trust.
+- `identity.current` now renders all identities known for the current actor,
+  including plugin-enriched external accounts such as `gitlab/main:<username>`.
 - GitLab personal access tokens are resolved through plugin-instance auth
   requests. A configured `auth.token_env` is used directly; otherwise the
   resolver probes advertised env aliases including `GITLAB_PERSONAL_TOKEN`.
+- The Slack bot example now demonstrates configuring a custom GitLab plugin
+  instance base URL.
 - Slack identity resolution now prefers connector user-token profile access for
   email lookup before falling back to bot-token `users.info`, so Slack users can
   resolve to canonical email users when the connected workspace grants profile
-- Datasource search now treats `index: true` datasources as index-backed:
-  searches read the local datasource index instead of falling back to provider
-  APIs, and launch starts a background index warmup for those datasources.
   email access.
+- Datasource search now lets providers own `index: true` behavior; native
+  GitLab indexed search reads the local datasource index instead of falling
+  back to provider APIs, launch starts a background index warmup for indexed
+  datasources, and index builds emit progress output.
+- Datasource indexing now separates structured field records from semantic
+  vector documents. GitLab indexes projects through structured fields only, so
+  project slug searches hit the local index without embedding GitLab content.
+- Semantic datasource embedding is now queued during normal index builds and
+  drained by a separate embed worker/CLI command, so field indexing is not
+  blocked by embedding work.
 - App manifests now declare plugin type with `plugins[].kind` instead of
   `plugins[].name`.
 - GitLab datasources now initialize their API client lazily, and datasource

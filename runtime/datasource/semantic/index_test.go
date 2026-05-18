@@ -45,3 +45,114 @@ func TestIndexUpdateSkipsUnchangedDocumentAndSearches(t *testing.T) {
 		t.Fatalf("hits = %#v, want runbook", results.Hits)
 	}
 }
+
+func TestIndexEnqueueDefersEmbeddingUntilQueueProcessing(t *testing.T) {
+	ctx := context.Background()
+	embedder := &countingEmbedder{model: "test-embedding"}
+	index, err := New(embedder, NewJSONStore(""), Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	doc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "runbook.md"},
+		Title: "Login runbook",
+		Body:  "Reset login cache after deploy.",
+	}
+	enqueued, err := index.Enqueue(ctx, doc)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if enqueued.Status != QueueStatusQueued {
+		t.Fatalf("enqueue result = %#v, want queued", enqueued)
+	}
+	if embedder.calls != 0 {
+		t.Fatalf("embed calls = %d, want none during enqueue", embedder.calls)
+	}
+	status, err := index.Status(ctx, StatusRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("Status queued: %v", err)
+	}
+	if len(status.Queue) != 1 || len(status.Documents) != 0 {
+		t.Fatalf("status = %#v, want one queued job and no documents", status)
+	}
+	processed, err := index.ProcessQueue(ctx, ProcessQueueRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("ProcessQueue: %v", err)
+	}
+	if processed.Embedded != 1 || processed.Failed != 0 {
+		t.Fatalf("processed = %#v, want one embedded", processed)
+	}
+	if embedder.calls != 1 {
+		t.Fatalf("embed calls = %d, want one after queue processing", embedder.calls)
+	}
+	status, err = index.Status(ctx, StatusRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("Status embedded: %v", err)
+	}
+	if len(status.Queue) != 0 || len(status.Documents) != 1 {
+		t.Fatalf("status = %#v, want one document and no queued jobs", status)
+	}
+}
+
+func TestIndexUpdateRecordSearchesIndexedFields(t *testing.T) {
+	ctx := context.Background()
+	store := NewJSONStore("")
+	index, err := New(HashEmbedder{ModelName: "test-embedding"}, store, Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	entity := coredatasource.EntitySpec{
+		Type: "gitlab.project",
+		Fields: []coredatasource.FieldSpec{
+			{Name: "id", Identifier: true, Filterable: true},
+			{Name: "name", Searchable: true},
+			{Name: "path_with_namespace", Searchable: true, Filterable: true},
+		},
+	}
+	doc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "fluxplane/runtime"},
+		Title: "fluxplane/runtime",
+		Body:  "Runtime repository",
+		Metadata: map[string]string{
+			"id":                  "12",
+			"name":                "runtime",
+			"path_with_namespace": "fluxplane/runtime",
+		},
+	}
+	if _, err := index.UpdateRecord(ctx, doc, entity); err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+	status, err := index.Status(ctx, StatusRequest{Datasource: "gitlab", Entity: "gitlab.project"})
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if len(status.Records) != 1 || len(status.Documents) != 0 {
+		t.Fatalf("status = %#v, want one field record and no semantic documents", status)
+	}
+	results, err := index.SearchFields(ctx, FieldSearchRequest{
+		Query:       "fluxplane/runtime",
+		Datasources: []coredatasource.Name{"gitlab"},
+		Entities:    []coredatasource.EntityType{"gitlab.project"},
+		Filters:     map[string]string{"path_with_namespace": "fluxplane/runtime"},
+	})
+	if err != nil {
+		t.Fatalf("SearchFields: %v", err)
+	}
+	if len(results.Hits) != 1 || results.Hits[0].Record.ID != "fluxplane/runtime" {
+		t.Fatalf("hits = %#v, want runtime project", results.Hits)
+	}
+}
+
+type countingEmbedder struct {
+	model string
+	calls int
+}
+
+func (e *countingEmbedder) Model() string {
+	return e.model
+}
+
+func (e *countingEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	e.calls++
+	return HashEmbedder{ModelName: e.model}.Embed(ctx, texts)
+}

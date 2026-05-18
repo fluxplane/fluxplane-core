@@ -36,6 +36,7 @@ func EntityOf[T any](typ coredatasource.EntityType, description string) coredata
 			Sortable:    hasTagToken(field.Tag.Get("datasource"), "sortable"),
 			Identifier:  hasTagToken(field.Tag.Get("datasource"), "id"),
 			URL:         hasTagToken(field.Tag.Get("datasource"), "url"),
+			Corpus:      field.Tag.Get("corpus") != "",
 		})
 	}
 	return spec

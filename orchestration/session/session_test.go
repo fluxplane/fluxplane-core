@@ -1436,8 +1436,9 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 		Caller: policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "slack_user", ID: "U123"}},
 		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
 		Actor: &user.Actor{
-			User:       user.User{ID: "timo@company.org", Username: "timo@company.org"},
+			User:       user.User{ID: "timo@company.org", Username: "timo@company.org", Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}},
 			Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
+			Identities: []user.Identity{{Provider: "slack", ProviderID: "U123"}, {Provider: "gitlab/main", ProviderID: "tfriedl"}},
 			Resolution: user.ResolutionResolved,
 		},
 		Message: &channel.Message{Content: "hello"},
@@ -1447,6 +1448,9 @@ func TestExecuteInboundInputPassesResolvedIdentityToContextProviders(t *testing.
 	}
 	if gotScope["user.id"] != "timo@company.org" || gotScope["identity.provider"] != "slack" || gotScope["trust.level"] != "verified" || gotScope["user.resolution"] != "resolved" {
 		t.Fatalf("scope = %#v, want resolved user, identity, and trust", gotScope)
+	}
+	if gotScope["identity.all"] != "slack:U123;gitlab/main:tfriedl" {
+		t.Fatalf("identity.all = %q, want Slack and GitLab identities", gotScope["identity.all"])
 	}
 }
 
@@ -1470,7 +1474,7 @@ func TestInputObservationMetadataUsesSafeIdentityScalars(t *testing.T) {
 			Metadata: map[string]any{"is_admin": true},
 		},
 	})
-	for _, key := range []string{"channel", "conversation", "caller.kind", "caller.principal.kind", "caller.principal.id", "caller.source", "trust.level", "trust.kind", "user.resolution", "user.id", "user.username", "identity.provider", "identity.provider_id"} {
+	for _, key := range []string{"channel", "conversation", "caller.kind", "caller.principal.kind", "caller.principal.id", "caller.source", "trust.level", "trust.kind", "user.resolution", "user.id", "user.username", "identity.provider", "identity.provider_id", "identity.all"} {
 		if metadata[key] == nil {
 			t.Fatalf("metadata = %#v, want key %q", metadata, key)
 		}

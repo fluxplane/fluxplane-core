@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 )
 
 // Manifest describes one plugin implementation.
@@ -76,6 +77,12 @@ type AuthMethodContributor interface {
 	AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error)
 }
 
+// ExternalIdentityContributor is implemented by plugins that can link a
+// resolved canonical user to provider-specific account identities.
+type ExternalIdentityContributor interface {
+	ExternalIdentityResolvers(context.Context, Context) ([]identity.ExternalResolver, error)
+}
+
 // OperationContribution is one executable operation contributed by a plugin.
 type OperationContribution struct {
 	Source    resource.SourceRef
@@ -117,6 +124,13 @@ type AuthMethodContribution struct {
 	Method coresecret.AuthMethodSpec
 }
 
+// ExternalIdentityContribution is one external identity resolver contributed by
+// a plugin instance.
+type ExternalIdentityContribution struct {
+	Source   resource.SourceRef
+	Resolver identity.ExternalResolver
+}
+
 // Resolution is the complete contribution set resolved for plugin refs.
 type Resolution struct {
 	Bundles             []resource.ContributionBundle
@@ -126,6 +140,7 @@ type Resolution struct {
 	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
 	AuthMethods         []AuthMethodContribution
+	ExternalIdentities  []ExternalIdentityContribution
 }
 
 // Host resolves plugin refs through registered plugin implementations.
@@ -290,6 +305,21 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.AuthMethods = append(out.AuthMethods, AuthMethodContribution{
 					Source: source,
 					Method: method,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(ExternalIdentityContributor); ok {
+			resolvers, err := contributor.ExternalIdentityResolvers(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q external identity resolvers: %w", pluginLabel(ref), err)
+			}
+			for _, resolver := range resolvers {
+				if resolver == nil {
+					continue
+				}
+				out.ExternalIdentities = append(out.ExternalIdentities, ExternalIdentityContribution{
+					Source:   source,
+					Resolver: resolver,
 				})
 			}
 		}

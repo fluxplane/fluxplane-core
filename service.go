@@ -31,38 +31,39 @@ import (
 )
 
 type (
-	ChannelClient        = clientapi.ChannelClient
-	Session              = clientapi.SessionHandle
-	Run                  = clientapi.RunHandle
-	OpenRequest          = clientapi.OpenRequest
-	ResumeRequest        = clientapi.ResumeRequest
-	ListSessionsRequest  = clientapi.ListSessionsRequest
-	SessionInfo          = clientapi.SessionInfo
-	SessionSummary       = clientapi.SessionSummary
-	RunID                = clientapi.RunID
-	SubmissionKind       = clientapi.SubmissionKind
-	Submission           = clientapi.Submission
-	TrustDowngrade       = clientapi.TrustDowngrade
-	Input                = clientapi.Input
-	Signal               = clientapi.Signal
-	EventKind            = clientapi.EventKind
-	EventCursor          = clientapi.EventCursor
-	OperationEvent       = clientapi.OperationEvent
-	Event                = clientapi.Event
-	EventOptions         = clientapi.EventOptions
-	Result               = clientapi.Result
-	Composition          = appcomposition.Composition
-	ResourceBundle       = resource.ContributionBundle
-	AgentProvider        = harness.AgentProvider
-	IdentityResolver     = identity.Resolver
-	LLMModel             = llmagent.Model
-	LLMModelResolver     = agentfactory.ModelResolver
-	LLMStreamPolicy      = llmagent.StreamPolicy
-	ToolProjectionConfig = toolprojection.Config
-	SessionName          = coresession.Name
-	SessionRef           = coresession.Ref
-	SessionSpec          = coresession.Spec
-	DelegationPolicy     = coresession.DelegationPolicy
+	ChannelClient            = clientapi.ChannelClient
+	Session                  = clientapi.SessionHandle
+	Run                      = clientapi.RunHandle
+	OpenRequest              = clientapi.OpenRequest
+	ResumeRequest            = clientapi.ResumeRequest
+	ListSessionsRequest      = clientapi.ListSessionsRequest
+	SessionInfo              = clientapi.SessionInfo
+	SessionSummary           = clientapi.SessionSummary
+	RunID                    = clientapi.RunID
+	SubmissionKind           = clientapi.SubmissionKind
+	Submission               = clientapi.Submission
+	TrustDowngrade           = clientapi.TrustDowngrade
+	Input                    = clientapi.Input
+	Signal                   = clientapi.Signal
+	EventKind                = clientapi.EventKind
+	EventCursor              = clientapi.EventCursor
+	OperationEvent           = clientapi.OperationEvent
+	Event                    = clientapi.Event
+	EventOptions             = clientapi.EventOptions
+	Result                   = clientapi.Result
+	Composition              = appcomposition.Composition
+	ResourceBundle           = resource.ContributionBundle
+	AgentProvider            = harness.AgentProvider
+	IdentityResolver         = identity.Resolver
+	ExternalIdentityResolver = identity.ExternalResolver
+	LLMModel                 = llmagent.Model
+	LLMModelResolver         = agentfactory.ModelResolver
+	LLMStreamPolicy          = llmagent.StreamPolicy
+	ToolProjectionConfig     = toolprojection.Config
+	SessionName              = coresession.Name
+	SessionRef               = coresession.Ref
+	SessionSpec              = coresession.Spec
+	DelegationPolicy         = coresession.DelegationPolicy
 )
 
 const (
@@ -116,6 +117,7 @@ type Config struct {
 	LLMStreamPolicy   LLMStreamPolicy
 	ToolProjection    ToolProjectionConfig
 	IdentityResolver  IdentityResolver
+	ExternalIdentity  ExternalIdentityResolver
 	Security          policy.AuthorizationPolicy
 	SecurityTrace     bool
 }
@@ -185,6 +187,7 @@ func New(cfg Config) (*Service, error) {
 		ThreadStore:       threadStore,
 		StopEvaluator:     stopEvaluator,
 		IdentityResolver:  cfg.IdentityResolver,
+		ExternalIdentity:  cfg.ExternalIdentity,
 		ToolProjection:    cfg.ToolProjection,
 		Security:          cfg.Security,
 		SecurityTrace:     cfg.SecurityTrace,
@@ -334,6 +337,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.IdentityResolver == nil {
 		cfg.IdentityResolver = composition.IdentityResolver
+	}
+	if cfg.ExternalIdentity == nil {
+		cfg.ExternalIdentity = composition.ExternalIdentity
 	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor

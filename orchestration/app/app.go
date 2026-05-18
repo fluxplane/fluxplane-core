@@ -34,6 +34,7 @@ type Config struct {
 	OperationExecutor operationruntime.Executor
 	Security          policy.AuthorizationPolicy
 	IdentityResolver  identity.Resolver
+	ExternalIdentity  identity.ExternalResolver
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -54,6 +55,7 @@ type Composition struct {
 	OperationExecutor operationruntime.Executor
 	Security          policy.AuthorizationPolicy
 	IdentityResolver  identity.Resolver
+	ExternalIdentity  identity.ExternalResolver
 	EventRegistry     *event.Registry
 	EventStore        event.Store
 	Bundles           []resource.ContributionBundle
@@ -68,7 +70,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore)
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginExternalIdentities, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -124,6 +126,15 @@ func Compose(cfg Config) (Composition, error) {
 		}
 		identityResolver = resolver
 	}
+	externalIdentity := cfg.ExternalIdentity
+	if len(pluginExternalIdentities) > 0 {
+		resolvers := make([]identity.ExternalResolver, 0, len(pluginExternalIdentities)+1)
+		if externalIdentity != nil {
+			resolvers = append(resolvers, externalIdentity)
+		}
+		resolvers = append(resolvers, pluginExternalIdentities...)
+		externalIdentity = identity.ChainExternalResolver{Resolvers: resolvers}
+	}
 
 	return Composition{
 		Agent:                cfg.Agent,
@@ -137,6 +148,7 @@ func Compose(cfg Config) (Composition, error) {
 		OperationExecutor:    cfg.OperationExecutor,
 		Security:             security,
 		IdentityResolver:     identityResolver,
+		ExternalIdentity:     externalIdentity,
 		EventRegistry:        eventRegistry,
 		EventStore:           cfg.EventStore,
 		Bundles:              bundles,
@@ -174,16 +186,17 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []identity.ExternalResolver, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
 	var datasourceProviders []coredatasource.Provider
+	var externalIdentities []identity.ExternalResolver
 	var diagnostics []resource.Diagnostic
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, datasourceProviders, diagnostics, err
+		return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, err
 	}
 	host.SetEventStore(eventStore)
 	for _, bundle := range bundles {
@@ -193,7 +206,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, datasourceProviders, diagnostics, err
+			return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
@@ -203,8 +216,11 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		for _, provider := range contributed.DatasourceProviders {
 			datasourceProviders = append(datasourceProviders, provider.Provider)
 		}
+		for _, resolver := range contributed.ExternalIdentities {
+			externalIdentities = append(externalIdentities, resolver.Resolver)
+		}
 	}
-	return out, operations, contextProviders, datasourceProviders, diagnostics, nil
+	return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, nil
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {

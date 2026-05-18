@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 )
@@ -91,6 +92,29 @@ func TestComposeBuildsIdentityResolverFromIdentityRules(t *testing.T) {
 	}
 	if composition.IdentityResolver == nil {
 		t.Fatal("IdentityResolver is nil, want directory resolver for rules-only identity config")
+	}
+}
+
+func TestComposeCollectsPluginExternalIdentityResolvers(t *testing.T) {
+	composition, err := Compose(Config{
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: "external-identity"}},
+		}},
+		Plugins: []pluginhost.Plugin{externalIdentityPlugin{}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if composition.ExternalIdentity == nil {
+		t.Fatal("ExternalIdentity is nil, want plugin resolver")
+	}
+	actor := identity.EnrichActor(context.Background(), user.Actor{
+		User:       user.User{ID: "timo@company.org"},
+		Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
+		Resolution: user.ResolutionResolved,
+	}, composition.ExternalIdentity)
+	if len(actor.Identities) != 2 || actor.Identities[1].Provider != "gitlab/main" || actor.Identities[1].ProviderID != "tfriedl" {
+		t.Fatalf("identities = %#v, want Slack plus GitLab identity", actor.Identities)
 	}
 }
 
@@ -632,6 +656,25 @@ func (eventPlugin) Contributions(context.Context, pluginhost.Context) (resource.
 	return resource.ContributionBundle{
 		EventTypes: []coreevent.Event{testPluginEvent{}},
 	}, nil
+}
+
+type externalIdentityPlugin struct{}
+
+func (externalIdentityPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: "external-identity"}
+}
+
+func (externalIdentityPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (externalIdentityPlugin) ExternalIdentityResolvers(context.Context, pluginhost.Context) ([]identity.ExternalResolver, error) {
+	return []identity.ExternalResolver{identity.ExternalResolverFunc(func(_ context.Context, req identity.ExternalRequest) (identity.ExternalResult, error) {
+		if req.Actor.User.ID != "timo@company.org" {
+			return identity.ExternalResult{}, nil
+		}
+		return identity.ExternalResult{Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}}, nil
+	})}, nil
 }
 
 func (echoPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {

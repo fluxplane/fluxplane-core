@@ -139,12 +139,14 @@ user can be resolved, context marks the actor unresolved and renders only
 provider, provider ID, source, groups, and trust. Raw channel claims are
 resolver evidence, not prompt context. `/whoami` reports the same caller, actor,
 trust, and authorization subjects that policy enforcement uses for the current
-turn. Slack sender trust is not duplicated in Slack message metadata; sender
-identity and trust come from resolved core identity. Slack-specific audience
-trust remains a sharing constraint for shared Slack conversations, so an
-operator posting in a shared Slack channel does not make the whole audience
-privileged. One-to-one DMs omit audience trust because the sender identity is
-the relevant security subject.
+turn. After canonical user resolution, plugin-contributed external identity
+resolvers may add provider accounts such as `gitlab/main:<username>` to the
+same model-visible identity block. Slack sender trust is not duplicated in
+Slack message metadata; sender identity and trust come from resolved core
+identity. Slack-specific audience trust remains a sharing constraint for shared
+Slack conversations, so an operator posting in a shared Slack channel does not
+make the whole audience privileged. One-to-one DMs omit audience trust because
+the sender identity is the relevant security subject.
 
 The first standard coding operation batch lives behind `plugins/codingplugin`.
 It aggregates filesystem, web, browser, git, shell, background process, scratch

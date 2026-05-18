@@ -1,9 +1,14 @@
 # Datasource Embeddings
 
-Datasource semantic search uses a runtime `Embedder` interface plus a separate
-semantic index store. Datasource providers expose corpus text; the semantic
-index service chunks that corpus, embeds changed chunks, and writes vectors plus
-incremental metadata.
+Datasource semantic search uses a runtime `Embedder` interface plus a datasource
+index store. Datasource providers expose corpus text; normal index builds queue
+that corpus, and the embed phase later chunks changed documents, embeds changed
+chunks, and writes vectors plus incremental metadata.
+
+The datasource index also stores structured field records. Entity fields marked
+as searchable, filterable, or identifier fields can be queried without running
+embeddings. Providers decide whether a search should use field records,
+semantic vectors, live APIs, or a combination.
 
 ## Default Provider
 
@@ -53,8 +58,8 @@ testing the indexing pipeline without loading or downloading the local model.
 
 ## Store
 
-The current semantic index store is a JSON file store, not SQLite. By default it
-is written under the app root:
+The current datasource index store is a JSON file store, not SQLite. By default
+it is written under the app root:
 
 ```text
 .agents/index/datasources.json
@@ -97,6 +102,27 @@ agentsdk datasource index build <app-dir> \
   --entity file.document \
   --full
 ```
+
+This scans datasource corpus, writes structured field records, and queues
+semantic corpus work. It does not run embeddings inline.
+
+Embed queued semantic corpus:
+
+```bash
+agentsdk datasource index embed <app-dir> \
+  --datasource local-docs \
+  --entity file.document
+```
+
+Run only one indexing phase:
+
+```bash
+agentsdk datasource index build <app-dir> --phase fields
+agentsdk datasource index build <app-dir> --phase semantic
+```
+
+The `semantic` build phase queues semantic corpus only; use `embed` to run the
+embedding worker.
 
 Show index status:
 

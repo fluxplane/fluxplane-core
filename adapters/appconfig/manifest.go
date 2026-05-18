@@ -692,6 +692,7 @@ type DatasourceDoc struct {
 	Path        string            `json:"path,omitempty" yaml:"path,omitempty"`
 	Include     []string          `json:"include,omitempty" yaml:"include,omitempty"`
 	Config      map[string]string `json:"config,omitempty" yaml:"config,omitempty"`
+	Index       bool              `json:"index,omitempty" yaml:"index,omitempty"`
 	Semantic    semanticDoc       `json:"semantic,omitempty" yaml:"semantic,omitempty"`
 }
 
@@ -730,6 +731,7 @@ func (d DatasourceDoc) Spec() coredatasource.Spec {
 		Connector:   strings.TrimSpace(d.Connector),
 		Kind:        datasourceKind(d),
 		Config:      cfg,
+		Index:       d.Index,
 		Semantic:    d.Semantic.Spec(),
 	}
 }

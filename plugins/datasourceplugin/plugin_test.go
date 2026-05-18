@@ -8,6 +8,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
 
 type memoryAccessor struct {
@@ -105,6 +106,32 @@ func TestSearchSelectsEntitiesWithoutDatasourceInput(t *testing.T) {
 	out := rendered.Data.(searchOutput)
 	if len(out.Results) != 1 || out.Results[0].Datasource != "jira" || out.Results[0].Entity != "jira.issue" {
 		t.Fatalf("results = %#v", out.Results)
+	}
+}
+
+func TestBuildRegistryPassesSemanticIndexToAwareProviders(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	provider := indexAwareProvider{
+		entity: coredatasource.EntitySpec{Type: "file.document"},
+	}
+	registry, err := BuildRegistryWithOptions(context.Background(), []coredatasource.Spec{{
+		Name:     "docs",
+		Kind:     "memory",
+		Entities: []coredatasource.EntityType{"file.document"},
+	}}, []coredatasource.Provider{provider}, RegistryOptions{SemanticIndex: index})
+	if err != nil {
+		t.Fatalf("BuildRegistryWithOptions: %v", err)
+	}
+	accessor, ok := registry.Get("docs")
+	if !ok {
+		t.Fatal("expected docs accessor")
+	}
+	got := accessor.(indexAwareAccessor)
+	if got.index != index {
+		t.Fatalf("semantic index was not passed to provider")
 	}
 }
 
@@ -610,4 +637,33 @@ func (a *filterCaptureAccessor) Search(ctx context.Context, req coredatasource.S
 	a.searches++
 	a.filters = req.Filters
 	return a.memoryAccessor.Search(ctx, req)
+}
+
+type indexAwareProvider struct {
+	entity coredatasource.EntitySpec
+	index  *semantic.Index
+}
+
+func (p indexAwareProvider) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{p.entity}
+}
+
+func (p indexAwareProvider) WithSemanticIndex(index *semantic.Index) coredatasource.Provider {
+	p.index = index
+	return p
+}
+
+func (p indexAwareProvider) Open(context.Context, coredatasource.Spec) (coredatasource.Accessor, error) {
+	return indexAwareAccessor{
+		memoryAccessor: memoryAccessor{
+			spec:   coredatasource.Spec{Name: "docs", Kind: "memory", Entities: []coredatasource.EntityType{"file.document"}},
+			entity: p.entity,
+		},
+		index: p.index,
+	}, nil
+}
+
+type indexAwareAccessor struct {
+	memoryAccessor
+	index *semantic.Index
 }

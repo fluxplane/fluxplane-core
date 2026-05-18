@@ -42,6 +42,8 @@ identity:
       identities:
         - provider: slack
           provider_id: U0123456789
+        - provider: gitlab/main
+          provider_id: tfriedl
       groups: [admins]
   groups:
     - id: admins
@@ -59,7 +61,9 @@ claims in context. This example assigns resolved Slack users to
 `slack-bot-users`, unresolved Slack identities to `anonymous`, and the configured
 admin Slack ID to `slack-bot-admin` only after Slack resolution succeeds. Use
 `/whoami` or `/context --fresh --key identity.current` to inspect the identity
-visible to the runtime and model.
+visible to the runtime and model. When GitLab identity can be resolved from app
+identity config or GitLab profile lookup, `identity.current` includes it
+alongside the Slack entry identity.
 
 Slack context distinguishes the sender from the audience. The sender's
 canonical identity, groups, and trust come from `identity.current`; the Slack

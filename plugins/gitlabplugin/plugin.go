@@ -8,12 +8,11 @@ import (
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	coreuser "github.com/fluxplane/agentruntime/core/user"
+	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
@@ -21,10 +20,8 @@ import (
 )
 
 const (
-	Name            = "gitlab"
-	projectSearchOp = "project_search"
-	projectGetOp    = "project_get"
-	defaultBaseURL  = "https://gitlab.com"
+	Name           = "gitlab"
+	defaultBaseURL = "https://gitlab.com"
 
 	accessTokenPurpose           = "access_token"
 	personalAccessTokenMethod    = "personal_access_token"
@@ -57,7 +54,27 @@ type AuthConfig struct {
 
 type gitlabClient interface {
 	ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error)
+	ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error)
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
+	ListMergeRequests(context.Context, *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
+	ListProjectMergeRequests(context.Context, any, *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
+	GetMergeRequest(context.Context, any, int64, *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error)
+	ListMergeRequestDiffs(context.Context, any, int64, *gitlab.ListMergeRequestDiffsOptions) ([]*gitlab.MergeRequestDiff, error)
+	ListMergeRequestNotes(context.Context, any, int64, *gitlab.ListMergeRequestNotesOptions) ([]*gitlab.Note, error)
+	ListMergeRequestPipelines(context.Context, any, int64) ([]*gitlab.PipelineInfo, error)
+	GetMergeRequestParticipants(context.Context, any, int64) ([]*gitlab.BasicUser, error)
+	GetMergeRequestReviewers(context.Context, any, int64) ([]*gitlab.MergeRequestReviewer, error)
+	ListProjectPipelines(context.Context, any, *gitlab.ListProjectPipelinesOptions) ([]*gitlab.PipelineInfo, error)
+	GetPipeline(context.Context, any, int64) (*gitlab.Pipeline, error)
+	CreateMergeRequest(context.Context, any, *gitlab.CreateMergeRequestOptions) (*gitlab.MergeRequest, error)
+	UpdateMergeRequest(context.Context, any, int64, *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error)
+	CreateMergeRequestNote(context.Context, any, int64, *gitlab.CreateMergeRequestNoteOptions) (*gitlab.Note, error)
+	ApproveMergeRequest(context.Context, any, int64, *gitlab.ApproveMergeRequestOptions) (*gitlab.MergeRequestApprovals, error)
+	UnapproveMergeRequest(context.Context, any, int64) error
+	AcceptMergeRequest(context.Context, any, int64, *gitlab.AcceptMergeRequestOptions) (*gitlab.MergeRequest, error)
+	RebaseMergeRequest(context.Context, any, int64, *gitlab.RebaseMergeRequestOptions) error
+	RetryPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
+	CancelPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
 }
 
 type gitlabClientFactory func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error)
@@ -67,13 +84,14 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
+var _ pluginhost.ExternalIdentityContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys, clientFactory: newOfficialClient}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: Name, Description: "GitLab project operations."}
+	return pluginhost.Manifest{Name: Name, Description: "GitLab datasource and merge request operations."}
 }
 
 func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginhost.Plugin, error) {
@@ -86,25 +104,12 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
-	search := operationSpec(p.operationName(projectSearchOp), "Search GitLab projects by name.", projectSearchInput{}, projectSearchOutput{})
-	get := operationSpec(p.operationName(projectGetOp), "Get one GitLab project by numeric id or path with namespace.", projectGetInput{}, Project{})
-	return resource.ContributionBundle{Operations: []operation.Spec{search, get}}, nil
+	return resource.ContributionBundle{Operations: []operation.Spec{p.mrOperationSpec()}}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
 	p = p.withRef(ctx.Ref)
-	return []operation.Operation{
-		operationruntime.NewTypedResult[projectSearchInput, projectSearchOutput](
-			operationSpec(p.operationName(projectSearchOp), "Search GitLab projects by name.", projectSearchInput{}, projectSearchOutput{}),
-			p.searchProjects,
-			operationruntime.WithAccess(p.searchAccess),
-		),
-		operationruntime.NewTypedResult[projectGetInput, Project](
-			operationSpec(p.operationName(projectGetOp), "Get one GitLab project by numeric id or path with namespace.", projectGetInput{}, Project{}),
-			p.getProject,
-			operationruntime.WithAccess(p.getAccess),
-		),
-	}, nil
+	return []operation.Operation{p.mrOperation()}, nil
 }
 
 func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
@@ -122,24 +127,16 @@ func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]corese
 	return p.authMethods(), nil
 }
 
+func (p Plugin) ExternalIdentityResolvers(_ context.Context, ctx pluginhost.Context) ([]identity.ExternalResolver, error) {
+	p = p.withRef(ctx.Ref)
+	return []identity.ExternalResolver{gitlabExternalIdentityResolver{plugin: p}}, nil
+}
+
 func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 	if p.ref.Name == "" && ref.Name != "" {
 		p.ref = ref
 	}
 	return p
-}
-
-func operationSpec[I, O any](name, description string, _ I, _ O) operation.Spec {
-	return operationruntime.WithTypedContract[I, O](operation.Spec{
-		Ref:         operation.Ref{Name: operation.Name(name)},
-		Description: description,
-		Semantics: operation.Semantics{
-			Determinism: operation.DeterminismNonDeterministic,
-			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectReadExternal},
-			Idempotency: operation.IdempotencyIdempotent,
-			Risk:        operation.RiskLow,
-		},
-	})
 }
 
 func (p Plugin) operationName(suffix string) string {
@@ -165,47 +162,87 @@ func (p Plugin) client(ctx context.Context) (gitlabClient, error) {
 	return factory(ctx, p.system, p.ref, p.config())
 }
 
-func (p Plugin) searchProjects(ctx operation.Context, req projectSearchInput) operation.Result {
-	if strings.TrimSpace(req.Query) == "" {
-		return operation.Failed("invalid_"+p.operationName(projectSearchOp)+"_input", "query is required", nil)
-	}
-	client, err := p.client(ctx)
-	if err != nil {
-		return operation.Failed(p.operationName(projectSearchOp)+"_failed", err.Error(), nil)
-	}
-	projects, err := searchProjects(ctx, client, req.Query, req.PerPage, req.Page)
-	if err != nil {
-		return operation.Failed(p.operationName(projectSearchOp)+"_failed", err.Error(), nil)
-	}
-	return operation.OK(projectSearchOutput{Projects: projects})
+type gitlabExternalIdentityResolver struct {
+	plugin Plugin
 }
 
-func (p Plugin) getProject(ctx operation.Context, req projectGetInput) operation.Result {
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		return operation.Failed("invalid_"+p.operationName(projectGetOp)+"_input", "id is required", nil)
+func (r gitlabExternalIdentityResolver) ResolveExternalIdentities(ctx context.Context, req identity.ExternalRequest) (identity.ExternalResult, error) {
+	actor := req.Actor
+	if coreuser.NormalizeResolution(actor.Resolution) != coreuser.ResolutionResolved || actor.User.ID == "" {
+		return identity.ExternalResult{}, nil
 	}
-	client, err := p.client(ctx)
+	provider := r.plugin.identityProvider()
+	if existing := firstProviderIdentity(actor, provider); existing.Provider != "" || existing.ProviderID != "" {
+		return identity.ExternalResult{Identities: []coreuser.Identity{existing}}, nil
+	}
+	email := actorEmail(actor)
+	if email == "" {
+		return identity.ExternalResult{}, nil
+	}
+	client, err := r.plugin.client(ctx)
 	if err != nil {
-		return operation.Failed(p.operationName(projectGetOp)+"_failed", err.Error(), nil)
+		return identity.ExternalResult{}, nil
 	}
-	project, err := getProject(ctx, client, id)
-	if err != nil {
-		return operation.Failed(p.operationName(projectGetOp)+"_failed", err.Error(), nil)
+	users, err := client.ListUsers(ctx, &gitlab.ListUsersOptions{
+		ListOptions: gitlab.ListOptions{PerPage: 2},
+		PublicEmail: gitlab.Ptr(email),
+	})
+	if err != nil || len(users) == 0 || users[0] == nil {
+		return identity.ExternalResult{}, nil
 	}
-	return operation.OK(project)
+	gitlabUser := users[0]
+	providerID := strings.TrimSpace(gitlabUser.Username)
+	if providerID == "" && gitlabUser.ID != 0 {
+		providerID = strconv.FormatInt(gitlabUser.ID, 10)
+	}
+	if providerID == "" {
+		return identity.ExternalResult{}, nil
+	}
+	claims := map[string]string{"instance": r.plugin.ref.InstanceName()}
+	if gitlabUser.ID != 0 {
+		claims["gitlab_id"] = strconv.FormatInt(gitlabUser.ID, 10)
+	}
+	return identity.ExternalResult{Identities: []coreuser.Identity{{
+		Provider:    provider,
+		ProviderID:  providerID,
+		Email:       email,
+		DisplayName: firstNonEmpty(gitlabUser.Name, gitlabUser.Username),
+		Claims:      claims,
+	}}}, nil
 }
 
-func (p Plugin) searchAccess(operation.Context, projectSearchInput) ([]operationruntime.AccessDescriptor, error) {
-	return p.networkAccess()
+func (p Plugin) identityProvider() string {
+	key := p.ref.Key()
+	if key == "" {
+		return Name
+	}
+	return key
 }
 
-func (p Plugin) getAccess(operation.Context, projectGetInput) ([]operationruntime.AccessDescriptor, error) {
-	return p.networkAccess()
+func firstProviderIdentity(actor coreuser.Actor, provider string) coreuser.Identity {
+	for _, identity := range actor.Identities {
+		if strings.EqualFold(strings.TrimSpace(identity.Provider), provider) {
+			return identity
+		}
+	}
+	for _, identity := range actor.User.Identities {
+		if strings.EqualFold(strings.TrimSpace(identity.Provider), provider) {
+			return identity
+		}
+	}
+	return coreuser.Identity{}
 }
 
-func (p Plugin) networkAccess() ([]operationruntime.AccessDescriptor, error) {
-	return []operationruntime.AccessDescriptor{operationruntime.NetworkDescriptor(p.config().baseURL(), policy.ActionNetworkFetch)}, nil
+func actorEmail(actor coreuser.Actor) string {
+	if email := strings.ToLower(strings.TrimSpace(string(actor.User.ID))); strings.Contains(email, "@") {
+		return email
+	}
+	for _, identity := range append(append([]coreuser.Identity(nil), actor.Identities...), actor.User.Identities...) {
+		if email := strings.ToLower(strings.TrimSpace(identity.Email)); strings.Contains(email, "@") {
+			return email
+		}
+	}
+	return ""
 }
 
 func normalizeConfig(cfg Config) Config {
@@ -270,7 +307,7 @@ func oauth2AuthMethod(ref resource.PluginRef, baseURL string) coresecret.AuthMet
 			AuthorizeURL: baseURL + "/oauth/authorize",
 			TokenURL:     baseURL + "/oauth/token",
 			RefreshURL:   baseURL + "/oauth/token",
-			Scopes:       []string{"read_api"},
+			Scopes:       []string{"api"},
 		},
 	}
 }
@@ -352,121 +389,109 @@ func (c officialClient) ListProjects(ctx context.Context, opts *gitlab.ListProje
 	return projects, err
 }
 
+func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
+	users, _, err := c.client.Users.ListUsers(opts, gitlab.WithContext(ctx))
+	return users, err
+}
+
 func (c officialClient) GetProject(ctx context.Context, id any, opts *gitlab.GetProjectOptions) (*gitlab.Project, error) {
 	project, _, err := c.client.Projects.GetProject(id, opts, gitlab.WithContext(ctx))
 	return project, err
 }
 
-const ProjectEntity coredatasource.EntityType = "gitlab.project"
-
-type Project struct {
-	ID                int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab project id."`
-	Name              string `json:"name" datasource:"searchable" jsonschema:"description=Project name."`
-	PathWithNamespace string `json:"path_with_namespace" datasource:"searchable,filterable" jsonschema:"description=Full project path with namespace."`
-	Description       string `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Project description."`
-	WebURL            string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
-	DefaultBranch     string `json:"default_branch,omitempty" datasource:"filterable" jsonschema:"description=Default branch name."`
-	Visibility        string `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Project visibility."`
+func (c officialClient) ListMergeRequests(ctx context.Context, opts *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error) {
+	mrs, _, err := c.client.MergeRequests.ListMergeRequests(opts, gitlab.WithContext(ctx))
+	return mrs, err
 }
 
-type projectSearchInput struct {
-	Query   string `json:"query" jsonschema:"description=Project search query.,required"`
-	PerPage int    `json:"per_page,omitempty" jsonschema:"description=Maximum projects per page. Defaults to 20."`
-	Page    int    `json:"page,omitempty" jsonschema:"description=Result page number. Defaults to 1."`
+func (c officialClient) ListProjectMergeRequests(ctx context.Context, id any, opts *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error) {
+	mrs, _, err := c.client.MergeRequests.ListProjectMergeRequests(id, opts, gitlab.WithContext(ctx))
+	return mrs, err
 }
 
-type projectSearchOutput struct {
-	Projects []Project `json:"projects,omitempty"`
+func (c officialClient) GetMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error) {
+	out, _, err := c.client.MergeRequests.GetMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
 }
 
-type projectGetInput struct {
-	ID string `json:"id" jsonschema:"description=Numeric project id or URL-encoded/path-with-namespace project id.,required"`
+func (c officialClient) ListMergeRequestDiffs(ctx context.Context, id any, mr int64, opts *gitlab.ListMergeRequestDiffsOptions) ([]*gitlab.MergeRequestDiff, error) {
+	diffs, _, err := c.client.MergeRequests.ListMergeRequestDiffs(id, mr, opts, gitlab.WithContext(ctx))
+	return diffs, err
 }
 
-func searchProjects(ctx context.Context, client gitlabClient, query string, perPage, page int) ([]Project, error) {
-	if client == nil {
-		return nil, fmt.Errorf("gitlabplugin: client is nil")
-	}
-	if perPage <= 0 {
-		perPage = 20
-	}
-	if page <= 0 {
-		page = 1
-	}
-	search := strings.TrimSpace(query)
-	simple := true
-	var searchParam *string
-	if search != "" {
-		searchParam = &search
-	}
-	projects, err := client.ListProjects(ctx, &gitlab.ListProjectsOptions{
-		ListOptions: gitlab.ListOptions{PerPage: int64(perPage), Page: int64(page)},
-		Search:      searchParam,
-		Simple:      &simple,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Project, 0, len(projects))
-	for _, project := range projects {
-		out = append(out, projectFromGitLab(project))
-	}
-	return out, nil
+func (c officialClient) ListMergeRequestNotes(ctx context.Context, id any, mr int64, opts *gitlab.ListMergeRequestNotesOptions) ([]*gitlab.Note, error) {
+	notes, _, err := c.client.Notes.ListMergeRequestNotes(id, mr, opts, gitlab.WithContext(ctx))
+	return notes, err
 }
 
-func getProject(ctx context.Context, client gitlabClient, id string) (Project, error) {
-	if client == nil {
-		return Project{}, fmt.Errorf("gitlabplugin: client is nil")
-	}
-	pid := projectID(id)
-	project, err := client.GetProject(ctx, pid, nil)
-	if err != nil {
-		return Project{}, err
-	}
-	return projectFromGitLab(project), nil
+func (c officialClient) ListMergeRequestPipelines(ctx context.Context, id any, mr int64) ([]*gitlab.PipelineInfo, error) {
+	pipelines, _, err := c.client.MergeRequests.ListMergeRequestPipelines(id, mr, gitlab.WithContext(ctx))
+	return pipelines, err
 }
 
-func projectID(id string) any {
-	id = strings.TrimSpace(id)
-	if n, err := strconv.ParseInt(id, 10, 64); err == nil {
-		return n
-	}
-	return id
+func (c officialClient) GetMergeRequestParticipants(ctx context.Context, id any, mr int64) ([]*gitlab.BasicUser, error) {
+	users, _, err := c.client.MergeRequests.GetMergeRequestParticipants(id, mr, gitlab.WithContext(ctx))
+	return users, err
 }
 
-func projectFromGitLab(project *gitlab.Project) Project {
-	if project == nil {
-		return Project{}
-	}
-	return Project{
-		ID:                project.ID,
-		Name:              project.Name,
-		PathWithNamespace: project.PathWithNamespace,
-		Description:       project.Description,
-		WebURL:            project.WebURL,
-		DefaultBranch:     project.DefaultBranch,
-		Visibility:        string(project.Visibility),
-	}
+func (c officialClient) GetMergeRequestReviewers(ctx context.Context, id any, mr int64) ([]*gitlab.MergeRequestReviewer, error) {
+	users, _, err := c.client.MergeRequests.GetMergeRequestReviewers(id, mr, gitlab.WithContext(ctx))
+	return users, err
 }
 
-func projectEntitySpec() coredatasource.EntitySpec {
-	entity := runtimedatasource.EntityOf[Project](ProjectEntity, "GitLab project.")
-	entity.Capabilities = []coredatasource.EntityCapability{
-		coredatasource.EntityCapabilitySearch,
-		coredatasource.EntityCapabilityGet,
-		coredatasource.EntityCapabilitySemanticSearch,
-	}
-	entity.Detectors = []coredatasource.DetectorSpec{
-		{
-			Name:          "gitlab_project_url",
-			Kind:          coredatasource.DetectorURL,
-			Pattern:       `https?://[^\s<>"']+/([^/\s<>"']+/[^/\s<>"'#?]+)(?:[/?#][^\s<>"']*)?`,
-			QueryTemplate: "$1",
-			URLTemplate:   "$0",
-			Confidence:    0.8,
-		},
-	}
-	return entity
+func (c officialClient) ListProjectPipelines(ctx context.Context, id any, opts *gitlab.ListProjectPipelinesOptions) ([]*gitlab.PipelineInfo, error) {
+	pipelines, _, err := c.client.Pipelines.ListProjectPipelines(id, opts, gitlab.WithContext(ctx))
+	return pipelines, err
+}
+
+func (c officialClient) GetPipeline(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
+	out, _, err := c.client.Pipelines.GetPipeline(id, pipeline, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateMergeRequest(ctx context.Context, id any, opts *gitlab.CreateMergeRequestOptions) (*gitlab.MergeRequest, error) {
+	out, _, err := c.client.MergeRequests.CreateMergeRequest(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) UpdateMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.UpdateMergeRequestOptions) (*gitlab.MergeRequest, error) {
+	out, _, err := c.client.MergeRequests.UpdateMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateMergeRequestNote(ctx context.Context, id any, mr int64, opts *gitlab.CreateMergeRequestNoteOptions) (*gitlab.Note, error) {
+	out, _, err := c.client.Notes.CreateMergeRequestNote(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ApproveMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.ApproveMergeRequestOptions) (*gitlab.MergeRequestApprovals, error) {
+	out, _, err := c.client.MergeRequestApprovals.ApproveMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) UnapproveMergeRequest(ctx context.Context, id any, mr int64) error {
+	_, err := c.client.MergeRequestApprovals.UnapproveMergeRequest(id, mr, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) AcceptMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.AcceptMergeRequestOptions) (*gitlab.MergeRequest, error) {
+	out, _, err := c.client.MergeRequests.AcceptMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) RebaseMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.RebaseMergeRequestOptions) error {
+	_, err := c.client.MergeRequests.RebaseMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) RetryPipelineBuild(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
+	out, _, err := c.client.Pipelines.RetryPipelineBuild(id, pipeline, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CancelPipelineBuild(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
+	out, _, err := c.client.Pipelines.CancelPipelineBuild(id, pipeline, gitlab.WithContext(ctx))
+	return out, err
 }
 
 func normalize(value string) string {

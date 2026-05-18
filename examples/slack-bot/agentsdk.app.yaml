@@ -43,6 +43,8 @@ plugins:
   - kind: slack
   - kind: gitlab
     instance: main
+    config:
+      base_url: https://gitlab.example.com
   - kind: jira
   - kind: web
 
@@ -64,6 +66,7 @@ datasources:
 
   - name: gitlab
     kind: gitlab
+    index: true
     entities:
       - gitlab.project
       - gitlab.merge_request

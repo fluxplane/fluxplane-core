@@ -17,6 +17,7 @@ func TestCurrentProviderRendersResolvedUser(t *testing.T) {
 		"user.groups":          "local_operators,local_users",
 		"identity.provider":    "local",
 		"identity.provider_id": "timo",
+		"identity.all":         "local:timo;gitlab/main:tfriedl",
 		"caller.source":        "local",
 		"trust.level":          "privileged",
 	}})
@@ -31,7 +32,10 @@ func TestCurrentProviderRendersResolvedUser(t *testing.T) {
 		"- resolved: true",
 		"- user: timo@localhost",
 		"- groups: local_operators, local_users",
-		"- identity: local:timo",
+		"- entry identity: local:timo",
+		"identities:",
+		"- local:timo",
+		"- gitlab/main:tfriedl",
 		"- trust: privileged",
 	} {
 		if !strings.Contains(content, want) {

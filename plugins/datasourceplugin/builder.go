@@ -5,12 +5,25 @@ import (
 	"fmt"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
+
+// RegistryOptions configures datasource registry construction.
+type RegistryOptions struct {
+	SemanticIndex *semantic.Index
+}
 
 // BuildRegistry materializes configured datasource specs through providers.
 func BuildRegistry(ctx context.Context, specs []coredatasource.Spec, providers []coredatasource.Provider) (*coredatasource.Registry, error) {
+	return BuildRegistryWithOptions(ctx, specs, providers, RegistryOptions{})
+}
+
+// BuildRegistryWithOptions materializes configured datasource specs through
+// providers and passes optional runtime services to providers that accept them.
+func BuildRegistryWithOptions(ctx context.Context, specs []coredatasource.Spec, providers []coredatasource.Provider, opts RegistryOptions) (*coredatasource.Registry, error) {
 	var accessors []coredatasource.Accessor
 	var entities []coredatasource.EntitySpec
+	providers = providersWithOptions(providers, opts)
 	for _, provider := range providers {
 		if provider == nil {
 			continue
@@ -28,6 +41,25 @@ func BuildRegistry(ctx context.Context, specs []coredatasource.Spec, providers [
 		accessors = append(accessors, accessor)
 	}
 	return coredatasource.NewRegistry(accessors, entities)
+}
+
+func providersWithOptions(providers []coredatasource.Provider, opts RegistryOptions) []coredatasource.Provider {
+	if opts.SemanticIndex == nil {
+		return providers
+	}
+	out := append([]coredatasource.Provider(nil), providers...)
+	for i, provider := range out {
+		if provider == nil {
+			continue
+		}
+		indexAware, ok := provider.(interface {
+			WithSemanticIndex(*semantic.Index) coredatasource.Provider
+		})
+		if ok {
+			out[i] = indexAware.WithSemanticIndex(opts.SemanticIndex)
+		}
+	}
+	return out
 }
 
 func openDatasource(ctx context.Context, spec coredatasource.Spec, providers []coredatasource.Provider) (coredatasource.Accessor, error) {

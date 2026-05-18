@@ -819,9 +819,43 @@ func contextRequestScope(inbound channel.Inbound) map[string]string {
 		if groups := actorGroupIDs(*inbound.Actor); len(groups) > 0 {
 			out["user.groups"] = strings.Join(groups, ",")
 		}
+		if identities := actorIdentityLabels(*inbound.Actor); len(identities) > 0 {
+			out["identity.all"] = strings.Join(identities, ";")
+		}
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func actorIdentityLabels(actor user.Actor) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(identity user.Identity) {
+		provider := strings.TrimSpace(identity.Provider)
+		id := strings.TrimSpace(identity.ProviderID)
+		if provider == "" && id == "" {
+			return
+		}
+		label := provider
+		if provider != "" && id != "" {
+			label = provider + ":" + id
+		} else if id != "" {
+			label = id
+		}
+		if label == "" || seen[label] {
+			return
+		}
+		seen[label] = true
+		out = append(out, label)
+	}
+	add(actor.Identity)
+	for _, identity := range actor.Identities {
+		add(identity)
+	}
+	for _, identity := range actor.User.Identities {
+		add(identity)
 	}
 	return out
 }

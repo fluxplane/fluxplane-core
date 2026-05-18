@@ -37,6 +37,7 @@ const (
 	EntityCapabilitySearch         EntityCapability = "search"
 	EntityCapabilityGet            EntityCapability = "get"
 	EntityCapabilityRelation       EntityCapability = "relation"
+	EntityCapabilityIndex          EntityCapability = "index"
 	EntityCapabilitySemanticSearch EntityCapability = "semantic_search"
 )
 
@@ -62,6 +63,7 @@ type Spec struct {
 	Connector   string            `json:"connector,omitempty"`
 	Kind        string            `json:"kind,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
+	Index       bool              `json:"index,omitempty"`
 	Semantic    SemanticSpec      `json:"semantic,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -184,6 +186,7 @@ type FieldSpec struct {
 	Sortable    bool      `json:"sortable,omitempty"`
 	Identifier  bool      `json:"identifier,omitempty"`
 	URL         bool      `json:"url,omitempty"`
+	Corpus      bool      `json:"corpus,omitempty"`
 }
 
 // RelationSpec describes a provider-backed relationship from one entity to another.
@@ -242,10 +245,12 @@ func (s EntitySpec) Validate() error {
 
 // SearchRequest describes one provider search.
 type SearchRequest struct {
-	Entity  EntityType        `json:"entity,omitempty"`
-	Query   string            `json:"query,omitempty"`
-	Limit   int               `json:"limit,omitempty"`
-	Filters map[string]string `json:"filters,omitempty"`
+	Entity   EntityType        `json:"entity,omitempty"`
+	Query    string            `json:"query,omitempty"`
+	Limit    int               `json:"limit,omitempty"`
+	Filters  map[string]string `json:"filters,omitempty"`
+	Mode     string            `json:"mode,omitempty"`
+	MinScore float64           `json:"min_score,omitempty"`
 }
 
 // CorpusRequest requests indexable corpus documents for one entity.

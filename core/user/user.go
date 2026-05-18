@@ -68,6 +68,7 @@ type GroupRule struct {
 type Actor struct {
 	User       User            `json:"user,omitempty"`
 	Identity   Identity        `json:"identity,omitempty"`
+	Identities []Identity      `json:"identities,omitempty"`
 	Groups     []Group         `json:"groups,omitempty"`
 	Trust      TrustLevel      `json:"trust,omitempty"`
 	Resolution ResolutionState `json:"resolution,omitempty"`

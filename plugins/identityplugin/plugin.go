@@ -102,7 +102,13 @@ func renderCurrentIdentity(scope map[string]string) string {
 		lines = append(lines, "- groups: "+strings.ReplaceAll(value, ",", ", "))
 	}
 	if identity := providerIdentity(scope); identity != "" && resolution == user.ResolutionResolved {
-		lines = append(lines, "- identity: "+identity)
+		lines = append(lines, "- entry identity: "+identity)
+	}
+	if identities := identityList(scope); len(identities) > 0 {
+		lines = append(lines, "identities:")
+		for _, identity := range identities {
+			lines = append(lines, "- "+identity)
+		}
 	}
 	if source := strings.TrimSpace(scope["caller.source"]); source != "" {
 		lines = append(lines, "- source: "+source)
@@ -129,4 +135,22 @@ func providerIdentity(scope map[string]string) string {
 	default:
 		return provider
 	}
+}
+
+func identityList(scope map[string]string) []string {
+	raw := strings.TrimSpace(scope["identity.all"])
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, part := range strings.Split(raw, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" || seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+	}
+	return out
 }

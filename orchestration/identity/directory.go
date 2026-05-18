@@ -211,9 +211,11 @@ func (r DirectoryResolver) actorFor(id user.ID, base user.Actor) user.Actor {
 	identity := matchedIdentity(configured, base.Identity)
 	configured.Trust = trust
 	configured.Identities = mergeIdentities(configured.Identities, identity)
+	identities := MergeIdentities(configured.Identities, base.Identities...)
 	return user.Actor{
 		User:       configured,
 		Identity:   identity,
+		Identities: identities,
 		Groups:     groups,
 		Trust:      trust,
 		Resolution: user.ResolutionResolved,
@@ -257,6 +259,7 @@ func (r DirectoryResolver) groupsFor(configured user.User) []user.Group {
 }
 
 func (r DirectoryResolver) applyRules(actor user.Actor) user.Actor {
+	actor = NormalizeActorIdentities(actor)
 	for _, rule := range r.rules {
 		if !ruleMatches(rule.Match, actor) {
 			continue
@@ -280,6 +283,7 @@ func (r DirectoryResolver) applyRules(actor user.Actor) user.Actor {
 	}
 	actor.Trust = trust
 	actor.User.Trust = trust
+	actor = NormalizeActorIdentities(actor)
 	return actor
 }
 

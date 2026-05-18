@@ -51,3 +51,28 @@ func TestDefaultResolverMarksProviderIdentityUnresolved(t *testing.T) {
 		t.Fatalf("identity = %#v, want slack_user U123", resolved.Actor.Identity)
 	}
 }
+
+func TestEnrichActorAddsExternalIdentities(t *testing.T) {
+	actor := user.Actor{
+		User:       user.User{ID: "timo@company.org", Identities: []user.Identity{{Provider: "slack", ProviderID: "U123"}}},
+		Identity:   user.Identity{Provider: "slack", ProviderID: "U123"},
+		Resolution: user.ResolutionResolved,
+	}
+	enriched := EnrichActor(context.Background(), actor, ChainExternalResolver{Resolvers: []ExternalResolver{
+		ExternalResolverFunc(func(context.Context, ExternalRequest) (ExternalResult, error) {
+			return ExternalResult{Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}}, nil
+		}),
+		ExternalResolverFunc(func(context.Context, ExternalRequest) (ExternalResult, error) {
+			return ExternalResult{Identities: []user.Identity{{Provider: "gitlab/main", ProviderID: "tfriedl"}}}, nil
+		}),
+	}})
+	if len(enriched.Identities) != 2 {
+		t.Fatalf("identities = %#v, want entry plus deduped external identity", enriched.Identities)
+	}
+	if enriched.Identities[1].Provider != "gitlab/main" || enriched.Identities[1].ProviderID != "tfriedl" {
+		t.Fatalf("identities = %#v, want GitLab identity", enriched.Identities)
+	}
+	if len(enriched.User.Identities) != 2 {
+		t.Fatalf("user identities = %#v, want merged identities", enriched.User.Identities)
+	}
+}

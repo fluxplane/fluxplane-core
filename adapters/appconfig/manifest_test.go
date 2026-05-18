@@ -222,6 +222,7 @@ semantic_search:
 datasources:
   - name: local-docs
     kind: filesystem
+    index: true
     entities: [file.document]
     semantic:
       enabled: true
@@ -249,6 +250,9 @@ datasources:
 	ds := bundle.Datasources[0]
 	if !ds.Semantic.Enabled {
 		t.Fatalf("datasource semantic = %#v, want enabled", ds.Semantic)
+	}
+	if !ds.Index {
+		t.Fatalf("datasource index = false, want true")
 	}
 	entity := ds.Semantic.Entities["file.document"]
 	if len(entity.Corpus.BodyFields) != 1 || entity.Corpus.BodyFields[0] != "content" {

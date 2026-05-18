@@ -142,6 +142,7 @@ Manage configured datasource indexes:
 
 ```bash
 agentsdk datasource index build .
+agentsdk datasource index embed .
 agentsdk datasource index status .
 agentsdk datasource index clear .
 ```

@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
+	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
@@ -28,7 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-// DatasourceIndexOptions configures local semantic datasource indexing assembly.
+// DatasourceIndexOptions configures local datasource indexing assembly.
 type DatasourceIndexOptions struct {
 	Root      string
 	Spec      coredistribution.Spec
@@ -41,14 +42,14 @@ type DatasourceIndexOptions struct {
 	Dev       bool
 }
 
-// DatasourceIndexRuntime contains the assembled registry and semantic index.
+// DatasourceIndexRuntime contains the assembled registry and datasource index.
 type DatasourceIndexRuntime struct {
 	Registry *coredatasource.Registry
 	Index    *semantic.Index
 	Close    func() error
 }
 
-// NewDatasourceIndexRuntime assembles datasource providers and semantic index dependencies.
+// NewDatasourceIndexRuntime assembles datasource providers and index dependencies.
 func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions) (DatasourceIndexRuntime, error) {
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {
@@ -100,12 +101,12 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		closeThreadStore = closeStore
 		plugins = appendPluginIfMissing(plugins, sessionhistoryplugin.New(threadStore))
 	}
-	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
+	index, err = newSemanticIndex(root, bundles, opts.StorePath, opts.Provider, opts.Model)
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
 	}
-	index, err = newSemanticIndex(root, bundles, opts.StorePath, opts.Provider, opts.Model)
+	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index})
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err

@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	osuser "os/user"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
@@ -49,6 +51,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
+	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
@@ -318,19 +321,21 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	if opts.Dev || hasAnyDatasource(bundles) {
-		registry, err := datasourceRegistry(ctx, bundles, plugins, root)
-		if err != nil {
-			closeRuntime()
-			return Runtime{}, err
-		}
 		index, err := newSemanticIndex(root, bundles, "", "", "")
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
 		semanticIndex = index
+		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index})
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
 		plugins = append(plugins, datasourceplugin.NewWithSemantic(registry, index))
 		ensurePluginRef(bundles, datasourceplugin.Name)
+		warmupDone := startDatasourceIndexWarmup(ctx, registry, index)
+		startDatasourceIndexEmbedWorker(ctx, warmupDone, index)
 	}
 	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
 	if opts.Yolo {
@@ -692,6 +697,10 @@ func resolveConnectorsPath(path string) (string, error) {
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
+	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{})
+}
+
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, opts datasourceplugin.RegistryOptions) (*coredatasource.Registry, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err
@@ -707,7 +716,7 @@ func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBund
 	providers = append(providers, datasourceplugin.NewFilesystemProvider(os.DirFS(root)))
 	specs := datasourceSpecs(bundles)
 	specs = appendDatasourceSpecs(specs, datasourceSpecs(resolved.Bundles)...)
-	return datasourceplugin.BuildRegistry(ctx, specs, providers)
+	return datasourceplugin.BuildRegistryWithOptions(ctx, specs, providers, opts)
 }
 
 func ensureSkillDatasource(bundles []resource.ContributionBundle) {
@@ -769,6 +778,105 @@ func appendDatasourceSpecs(specs []coredatasource.Spec, candidates ...coredataso
 		seen[spec.Name] = true
 	}
 	return specs
+}
+
+type datasourceIndexWarmupResult struct {
+	Result datasourceindex.Result
+	Err    error
+}
+
+func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index) <-chan datasourceIndexWarmupResult {
+	done := make(chan datasourceIndexWarmupResult, 1)
+	if registry == nil || index == nil || !registryHasIndexedDatasource(registry) {
+		close(done)
+		return done
+	}
+	go func() {
+		defer close(done)
+		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
+			Registry:    registry,
+			Index:       index,
+			IndexedOnly: true,
+			Progress:    datasourceIndexSlogProgress,
+		})
+		if err != nil {
+			slog.Warn("datasource index warmup failed", "error", err)
+		}
+		done <- datasourceIndexWarmupResult{Result: result, Err: err}
+	}()
+	return done
+}
+
+func startDatasourceIndexEmbedWorker(ctx context.Context, warmupDone <-chan datasourceIndexWarmupResult, index *semantic.Index) {
+	if index == nil {
+		return
+	}
+	go func() {
+		if warmupDone != nil {
+			warmup, ok := <-warmupDone
+			if !ok {
+				return
+			}
+			if warmup.Err != nil {
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		embedResult, err := index.ProcessQueue(ctx, semantic.ProcessQueueRequest{Progress: datasourceIndexEmbedSlogProgress})
+		if err != nil {
+			slog.Warn("datasource semantic embed warmup failed", "error", err)
+			return
+		}
+		if embedResult.Queued > 0 || embedResult.Failed > 0 {
+			slog.Info("datasource semantic embed warmup summary", "queued", embedResult.Queued, "embedded", embedResult.Embedded, "skipped", embedResult.Skipped, "failed", embedResult.Failed)
+		}
+	}()
+}
+
+func datasourceIndexSlogProgress(event datasourceindex.ProgressEvent) {
+	switch event.Kind {
+	case datasourceindex.ProgressEntityStart:
+		slog.Info("datasource index warmup start", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase)
+	case datasourceindex.ProgressPageFetched:
+		slog.Info("datasource index warmup page", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "documents", event.Documents, "tombstones", event.Tombstones)
+	case datasourceindex.ProgressDocumentFailed, datasourceindex.ProgressTombstoneFailed:
+		slog.Warn("datasource index warmup item failed", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "id", event.RecordID, "error", event.Message)
+	case datasourceindex.ProgressDocumentQueued:
+		slog.Info("datasource index warmup queued", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "id", event.RecordID)
+	case datasourceindex.ProgressEntityComplete:
+		slog.Info("datasource index warmup complete", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "documents", event.Documents, "indexed", event.Indexed, "queued", event.Queued, "skipped", event.Skipped, "deleted", event.Deleted, "failed", event.Failed)
+	case datasourceindex.ProgressComplete:
+		slog.Info("datasource index warmup summary", "phase", event.Phase, "documents", event.Documents, "indexed", event.Indexed, "queued", event.Queued, "skipped", event.Skipped, "deleted", event.Deleted, "failed", event.Failed)
+	}
+}
+
+func datasourceIndexEmbedSlogProgress(event semantic.QueueProgressEvent) {
+	switch event.Kind {
+	case semantic.QueueProgressStart:
+		slog.Info("datasource semantic embed warmup start", "phase", datasourceindex.PhaseEmbed, "queued", event.Queued)
+	case semantic.QueueProgressEmbedded:
+		slog.Info("datasource semantic embed warmup embedded", "datasource", event.Datasource, "entity", event.Entity, "phase", datasourceindex.PhaseEmbed, "id", event.RecordID)
+	case semantic.QueueProgressSkipped:
+		slog.Info("datasource semantic embed warmup skipped", "datasource", event.Datasource, "entity", event.Entity, "phase", datasourceindex.PhaseEmbed, "id", event.RecordID, "status", event.Status)
+	case semantic.QueueProgressFailed:
+		slog.Warn("datasource semantic embed warmup failed", "datasource", event.Datasource, "entity", event.Entity, "phase", datasourceindex.PhaseEmbed, "id", event.RecordID, "error", event.Message)
+	case semantic.QueueProgressComplete:
+		slog.Info("datasource semantic embed warmup complete", "phase", datasourceindex.PhaseEmbed, "queued", event.Queued, "embedded", event.Embedded, "skipped", event.Skipped, "failed", event.Failed)
+	}
+}
+
+func registryHasIndexedDatasource(registry *coredatasource.Registry) bool {
+	if registry == nil {
+		return false
+	}
+	for _, accessor := range registry.All() {
+		if accessor.Spec().Index {
+			return true
+		}
+	}
+	return false
 }
 
 func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {

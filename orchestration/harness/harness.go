@@ -46,6 +46,7 @@ type Config struct {
 	SessionAgents     *sessionagent.Runner
 	StopEvaluator     session.StopEvaluator
 	IdentityResolver  identity.Resolver
+	ExternalIdentity  identity.ExternalResolver
 	ToolSetCatalog    session.ToolSetCatalog
 	ToolProjection    toolprojection.Config
 	Security          policy.AuthorizationPolicy
@@ -74,6 +75,7 @@ type Service struct {
 	sessionAgents     *sessionagent.Runner
 	stopEvaluator     session.StopEvaluator
 	identityResolver  identity.Resolver
+	externalIdentity  identity.ExternalResolver
 	toolSetCatalog    session.ToolSetCatalog
 	toolProjection    toolprojection.Config
 	security          policy.AuthorizationPolicy
@@ -106,6 +108,7 @@ func New(cfg Config) *Service {
 		sessionAgents:     cfg.SessionAgents,
 		stopEvaluator:     cfg.StopEvaluator,
 		identityResolver:  cfg.IdentityResolver,
+		externalIdentity:  cfg.ExternalIdentity,
 		toolSetCatalog:    cfg.ToolSetCatalog,
 		toolProjection:    cfg.ToolProjection,
 		security:          cfg.Security,
@@ -293,7 +296,8 @@ func (s *Service) resolveInboundIdentity(ctx context.Context, inbound channel.In
 	}
 	inbound.Caller = resolved.Caller
 	inbound.Trust = resolved.Trust
-	inbound.Actor = &resolved.Actor
+	actor := identity.EnrichActor(ctx, resolved.Actor, s.externalIdentity)
+	inbound.Actor = &actor
 	return inbound, nil
 }
 

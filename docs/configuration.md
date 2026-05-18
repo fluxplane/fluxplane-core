@@ -115,6 +115,19 @@ identities in an `anonymous` group. Use `/whoami` in a session to inspect the
 caller, resolved user, trust, and authorization subjects that the runtime sees
 for the current turn.
 
+Canonical users may also carry additional provider identities. For example,
+after Slack resolves `timo@company.org`, `identity.current` can show both the
+entry Slack identity and a configured or plugin-resolved GitLab identity:
+
+```yaml
+identity:
+  users:
+    - id: timo@company.org
+      identities:
+        - provider: gitlab/main
+          provider_id: tfriedl
+```
+
 For Slack apps, sender identity and trust should come from resolved core
 identity context, not from Slack message metadata. Slack-specific audience trust
 is a sharing constraint for shared conversations and stays separate from the
@@ -330,10 +343,15 @@ datasources:
       enabled: true
 ```
 
-Set `index: true` when `datasource_search` should use the local datasource
-index instead of provider APIs. Build the index with
-`agentsdk datasource index build`; `agentsdk serve` also starts a background
-warmup for indexed datasources.
+Set `index: true` when a datasource provider should use its local datasource
+index for search where supported. The datasource index can hold structured
+field records, semantic vector documents, or both, depending on the entity
+capabilities declared by the provider. Build the index with
+`agentsdk datasource index build`; use `--phase fields` or `--phase semantic`
+to run only one indexing phase. Semantic documents are queued by build and
+embedded later with `agentsdk datasource index embed` or the background embed
+worker started by `agentsdk serve`. `agentsdk serve` also starts a background
+warmup for indexed datasources and logs indexing progress.
 
 Connector-backed datasources reference a connector instance:
 
@@ -365,6 +383,10 @@ datasources:
     config:
       instance: company-a
 ```
+
+GitLab currently indexes `gitlab.project` through structured fields only. Other
+GitLab entities remain live/provider searched until they explicitly declare an
+index capability.
 
 ### Daemon Channels
 

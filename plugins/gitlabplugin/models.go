@@ -1,0 +1,469 @@
+package gitlabplugin
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
+)
+
+const (
+	ProjectEntity          coredatasource.EntityType = "gitlab.project"
+	MergeRequestEntity     coredatasource.EntityType = "gitlab.merge_request"
+	MergeRequestDiffEntity coredatasource.EntityType = "gitlab.merge_request_diff"
+	MergeRequestNoteEntity coredatasource.EntityType = "gitlab.merge_request_note"
+	PipelineEntity         coredatasource.EntityType = "gitlab.pipeline"
+	UserEntity             coredatasource.EntityType = "gitlab.user"
+)
+
+type Project struct {
+	ID                int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab project id."`
+	Name              string `json:"name" datasource:"searchable" jsonschema:"description=Project name."`
+	PathWithNamespace string `json:"path_with_namespace" datasource:"searchable,filterable" jsonschema:"description=Full project path with namespace."`
+	Description       string `json:"description,omitempty" datasource:"searchable" corpus:"body" jsonschema:"description=Project description."`
+	WebURL            string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
+	DefaultBranch     string `json:"default_branch,omitempty" datasource:"filterable" jsonschema:"description=Default branch name."`
+	Visibility        string `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Project visibility."`
+}
+
+type MergeRequest struct {
+	ID                  int64    `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab merge request id."`
+	IID                 int64    `json:"iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	ProjectID           int64    `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Title               string   `json:"title" datasource:"searchable" jsonschema:"description=Merge request title."`
+	Description         string   `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Merge request description."`
+	State               string   `json:"state,omitempty" datasource:"filterable" jsonschema:"description=Merge request state."`
+	DetailedMergeStatus string   `json:"detailed_merge_status,omitempty" datasource:"filterable" jsonschema:"description=Detailed merge status."`
+	SourceBranch        string   `json:"source_branch,omitempty" datasource:"filterable" jsonschema:"description=Source branch."`
+	TargetBranch        string   `json:"target_branch,omitempty" datasource:"filterable" jsonschema:"description=Target branch."`
+	SHA                 string   `json:"sha,omitempty" datasource:"filterable" jsonschema:"description=Current head sha."`
+	AuthorUsername      string   `json:"author_username,omitempty" datasource:"filterable" jsonschema:"description=Author username."`
+	AssigneeUsernames   []string `json:"assignee_usernames,omitempty" jsonschema:"description=Assignee usernames."`
+	ReviewerUsernames   []string `json:"reviewer_usernames,omitempty" jsonschema:"description=Reviewer usernames."`
+	Labels              []string `json:"labels,omitempty" datasource:"filterable" jsonschema:"description=Labels."`
+	Draft               bool     `json:"draft,omitempty" datasource:"filterable" jsonschema:"description=Whether the MR is draft."`
+	WebURL              string   `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Merge request web URL."`
+	CreatedAt           string   `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+	UpdatedAt           string   `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
+}
+
+type MergeRequestDiff struct {
+	ID            string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this diff file."`
+	ProjectID     int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	MergeRequest  int64  `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	OldPath       string `json:"old_path,omitempty" datasource:"filterable" jsonschema:"description=Old file path."`
+	NewPath       string `json:"new_path" datasource:"searchable,filterable" jsonschema:"description=New file path."`
+	Summary       string `json:"summary,omitempty" datasource:"searchable" jsonschema:"description=Bounded compact diff summary."`
+	NewFile       bool   `json:"new_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file is new."`
+	RenamedFile   bool   `json:"renamed_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file is renamed."`
+	DeletedFile   bool   `json:"deleted_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file is deleted."`
+	GeneratedFile bool   `json:"generated_file,omitempty" datasource:"filterable" jsonschema:"description=Whether GitLab marks it generated."`
+	Collapsed     bool   `json:"collapsed,omitempty" datasource:"filterable" jsonschema:"description=Whether GitLab collapsed the diff."`
+	TooLarge      bool   `json:"too_large,omitempty" datasource:"filterable" jsonschema:"description=Whether GitLab omitted an oversized diff."`
+}
+
+type MergeRequestNote struct {
+	ID              int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab note id."`
+	ProjectID       int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	MergeRequestIID int64  `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	Body            string `json:"body" datasource:"searchable" jsonschema:"description=Note body."`
+	AuthorUsername  string `json:"author_username,omitempty" datasource:"filterable" jsonschema:"description=Author username."`
+	System          bool   `json:"system,omitempty" datasource:"filterable" jsonschema:"description=Whether this is a system note."`
+	Internal        bool   `json:"internal,omitempty" datasource:"filterable" jsonschema:"description=Whether this note is internal."`
+	Resolvable      bool   `json:"resolvable,omitempty" datasource:"filterable" jsonschema:"description=Whether this note is resolvable."`
+	Resolved        bool   `json:"resolved,omitempty" datasource:"filterable" jsonschema:"description=Whether this note is resolved."`
+	CreatedAt       string `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+	UpdatedAt       string `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
+}
+
+type Pipeline struct {
+	ID        int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab pipeline id."`
+	IID       int64  `json:"iid,omitempty" datasource:"filterable" jsonschema:"description=Project-local pipeline iid."`
+	ProjectID int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Status    string `json:"status,omitempty" datasource:"filterable" jsonschema:"description=Pipeline status."`
+	Source    string `json:"source,omitempty" datasource:"filterable" jsonschema:"description=Pipeline source."`
+	Ref       string `json:"ref,omitempty" datasource:"filterable" jsonschema:"description=Git ref."`
+	SHA       string `json:"sha,omitempty" datasource:"filterable" jsonschema:"description=Pipeline sha."`
+	Name      string `json:"name,omitempty" datasource:"searchable" jsonschema:"description=Pipeline name."`
+	WebURL    string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Pipeline web URL."`
+	CreatedAt string `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+	UpdatedAt string `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
+}
+
+type User struct {
+	ID       int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab user id."`
+	Username string `json:"username" datasource:"searchable,filterable" jsonschema:"description=GitLab username."`
+	Name     string `json:"name,omitempty" datasource:"searchable" jsonschema:"description=Display name."`
+	State    string `json:"state,omitempty" datasource:"filterable" jsonschema:"description=User state."`
+	WebURL   string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=User web URL."`
+	Role     string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role in the relationship result."`
+}
+
+func entitySpecs() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{
+		projectEntitySpec(),
+		mergeRequestEntitySpec(),
+		mergeRequestDiffEntitySpec(),
+		mergeRequestNoteEntitySpec(),
+		pipelineEntitySpec(),
+		userEntitySpec(),
+	}
+}
+
+func projectEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Project](ProjectEntity, "GitLab project.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+		coredatasource.EntityCapabilityIndex,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "merge_requests", Description: "Merge requests in this project.", TargetEntity: MergeRequestEntity},
+		{Name: "pipelines", Description: "Pipelines in this project.", TargetEntity: PipelineEntity},
+	}
+	entity.Detectors = []coredatasource.DetectorSpec{{
+		Name:          "gitlab_project_url",
+		Kind:          coredatasource.DetectorURL,
+		Pattern:       `https?://[^\s<>"']+/([^/\s<>"']+/[^/\s<>"'#?]+)(?:[/?#][^\s<>"']*)?`,
+		QueryTemplate: "$1",
+		URLTemplate:   "$0",
+		Confidence:    0.8,
+	}}
+	return entity
+}
+
+func mergeRequestEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequest](MergeRequestEntity, "GitLab merge request.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "diffs", Description: "Files changed by this merge request.", TargetEntity: MergeRequestDiffEntity},
+		{Name: "notes", Description: "Notes on this merge request.", TargetEntity: MergeRequestNoteEntity},
+		{Name: "pipelines", Description: "Pipelines for this merge request.", TargetEntity: PipelineEntity},
+		{Name: "participants", Description: "Users participating in this merge request.", TargetEntity: UserEntity},
+		{Name: "reviewers", Description: "Reviewers assigned to this merge request.", TargetEntity: UserEntity},
+	}
+	entity.Detectors = []coredatasource.DetectorSpec{{
+		Name:          "gitlab_merge_request_url",
+		Kind:          coredatasource.DetectorURL,
+		Pattern:       `https?://[^\s<>"']+/([^/\s<>"']+/[^/\s<>"']+)/-/merge_requests/([0-9]+)(?:[/?#][^\s<>"']*)?`,
+		QueryTemplate: "$1!$2",
+		URLTemplate:   "$0",
+		Confidence:    0.9,
+	}}
+	return entity
+}
+
+func mergeRequestDiffEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestDiff](MergeRequestDiffEntity, "GitLab merge request diff file.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func mergeRequestNoteEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestNote](MergeRequestNoteEntity, "GitLab merge request note.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func pipelineEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Pipeline](PipelineEntity, "GitLab pipeline.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func userEntitySpec() coredatasource.EntitySpec {
+	return runtimedatasource.EntityOf[User](UserEntity, "GitLab user.")
+}
+
+func projectFromGitLab(project *gitlab.Project) Project {
+	if project == nil {
+		return Project{}
+	}
+	return Project{
+		ID:                project.ID,
+		Name:              project.Name,
+		PathWithNamespace: project.PathWithNamespace,
+		Description:       project.Description,
+		WebURL:            project.WebURL,
+		DefaultBranch:     project.DefaultBranch,
+		Visibility:        string(project.Visibility),
+	}
+}
+
+func mergeRequestFromBasic(mr *gitlab.BasicMergeRequest) MergeRequest {
+	if mr == nil {
+		return MergeRequest{}
+	}
+	return MergeRequest{
+		ID:                  mr.ID,
+		IID:                 mr.IID,
+		ProjectID:           mr.ProjectID,
+		Title:               mr.Title,
+		Description:         mr.Description,
+		State:               mr.State,
+		DetailedMergeStatus: mr.DetailedMergeStatus,
+		SourceBranch:        mr.SourceBranch,
+		TargetBranch:        mr.TargetBranch,
+		SHA:                 mr.SHA,
+		AuthorUsername:      basicUsername(mr.Author),
+		AssigneeUsernames:   basicUsernames(mr.Assignees),
+		ReviewerUsernames:   basicUsernames(mr.Reviewers),
+		Labels:              labels(mr.Labels),
+		Draft:               mr.Draft,
+		WebURL:              mr.WebURL,
+		CreatedAt:           formatTime(mr.CreatedAt),
+		UpdatedAt:           formatTime(mr.UpdatedAt),
+	}
+}
+
+func mergeRequestFromFull(mr *gitlab.MergeRequest) MergeRequest {
+	if mr == nil {
+		return MergeRequest{}
+	}
+	out := mergeRequestFromBasic(&mr.BasicMergeRequest)
+	if out.DetailedMergeStatus == "" {
+		out.DetailedMergeStatus = mr.DetailedMergeStatus
+	}
+	return out
+}
+
+func diffFromGitLab(projectID, mrIID int64, diff *gitlab.MergeRequestDiff) MergeRequestDiff {
+	if diff == nil {
+		return MergeRequestDiff{}
+	}
+	path := firstNonEmpty(diff.NewPath, diff.OldPath)
+	id := fmt.Sprintf("%d!%d!%s", projectID, mrIID, path)
+	return MergeRequestDiff{
+		ID:            id,
+		ProjectID:     projectID,
+		MergeRequest:  mrIID,
+		OldPath:       diff.OldPath,
+		NewPath:       diff.NewPath,
+		Summary:       compactDiff(diff.Diff),
+		NewFile:       diff.NewFile,
+		RenamedFile:   diff.RenamedFile,
+		DeletedFile:   diff.DeletedFile,
+		GeneratedFile: diff.GeneratedFile,
+		Collapsed:     diff.Collapsed,
+		TooLarge:      diff.TooLarge,
+	}
+}
+
+func noteFromGitLab(note *gitlab.Note) MergeRequestNote {
+	if note == nil {
+		return MergeRequestNote{}
+	}
+	return MergeRequestNote{
+		ID:              note.ID,
+		ProjectID:       note.ProjectID,
+		MergeRequestIID: note.NoteableIID,
+		Body:            note.Body,
+		AuthorUsername:  note.Author.Username,
+		System:          note.System,
+		Internal:        note.Internal,
+		Resolvable:      note.Resolvable,
+		Resolved:        note.Resolved,
+		CreatedAt:       formatTime(note.CreatedAt),
+		UpdatedAt:       formatTime(note.UpdatedAt),
+	}
+}
+
+func pipelineFromInfo(pipeline *gitlab.PipelineInfo) Pipeline {
+	if pipeline == nil {
+		return Pipeline{}
+	}
+	return Pipeline{
+		ID:        pipeline.ID,
+		IID:       pipeline.IID,
+		ProjectID: pipeline.ProjectID,
+		Status:    pipeline.Status,
+		Source:    pipeline.Source,
+		Ref:       pipeline.Ref,
+		SHA:       pipeline.SHA,
+		Name:      pipeline.Name,
+		WebURL:    pipeline.WebURL,
+		CreatedAt: formatTime(pipeline.CreatedAt),
+		UpdatedAt: formatTime(pipeline.UpdatedAt),
+	}
+}
+
+func pipelineFromFull(pipeline *gitlab.Pipeline) Pipeline {
+	if pipeline == nil {
+		return Pipeline{}
+	}
+	return Pipeline{
+		ID:        pipeline.ID,
+		IID:       pipeline.IID,
+		ProjectID: pipeline.ProjectID,
+		Status:    pipeline.Status,
+		Source:    string(pipeline.Source),
+		Ref:       pipeline.Ref,
+		SHA:       pipeline.SHA,
+		Name:      pipeline.Name,
+		WebURL:    pipeline.WebURL,
+		CreatedAt: formatTime(pipeline.CreatedAt),
+		UpdatedAt: formatTime(pipeline.UpdatedAt),
+	}
+}
+
+func userFromBasic(user *gitlab.BasicUser, role string) User {
+	if user == nil {
+		return User{Role: role}
+	}
+	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL, Role: role}
+}
+
+func userFromReviewer(reviewer *gitlab.MergeRequestReviewer) User {
+	if reviewer == nil {
+		return User{}
+	}
+	user := userFromBasic(reviewer.User, "reviewer")
+	if reviewer.State != "" {
+		user.Role = "reviewer:" + reviewer.State
+	}
+	return user
+}
+
+func projectID(id string) any {
+	id = strings.TrimSpace(id)
+	if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+		return n
+	}
+	return id
+}
+
+func mergeRequestID(project any, iid int64) string {
+	return fmt.Sprintf("%v!%d", project, iid)
+}
+
+func parseMergeRequestID(id string) (any, int64, error) {
+	left, right, ok := strings.Cut(strings.TrimSpace(id), "!")
+	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return nil, 0, fmt.Errorf("merge request id must be project!iid")
+	}
+	iid, err := strconv.ParseInt(strings.TrimSpace(right), 10, 64)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid merge request iid %q", right)
+	}
+	return projectID(left), iid, nil
+}
+
+func parseProjectChildID(id string) (any, int64, error) {
+	left, right, ok := strings.Cut(strings.TrimSpace(id), "!")
+	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return nil, 0, fmt.Errorf("id must be project!id")
+	}
+	child, err := strconv.ParseInt(strings.TrimSpace(right), 10, 64)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid child id %q", right)
+	}
+	return projectID(left), child, nil
+}
+
+func parseMergeRequestChildID(id string) (any, int64, string, error) {
+	project, rest, ok := strings.Cut(strings.TrimSpace(id), "!")
+	if !ok {
+		return nil, 0, "", fmt.Errorf("id must be project!merge_request_iid!child")
+	}
+	mr, child, ok := strings.Cut(rest, "!")
+	if !ok || strings.TrimSpace(child) == "" {
+		return nil, 0, "", fmt.Errorf("id must be project!merge_request_iid!child")
+	}
+	iid, err := strconv.ParseInt(strings.TrimSpace(mr), 10, 64)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("invalid merge request iid %q", mr)
+	}
+	return projectID(project), iid, child, nil
+}
+
+func projectIDString(project Project) string {
+	if project.PathWithNamespace != "" {
+		return project.PathWithNamespace
+	}
+	if project.ID != 0 {
+		return strconv.FormatInt(project.ID, 10)
+	}
+	return ""
+}
+
+func projectTitle(project Project) string {
+	if project.PathWithNamespace != "" {
+		return project.PathWithNamespace
+	}
+	return project.Name
+}
+
+func formatTime(value *time.Time) string {
+	if value == nil || value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func labels(values gitlab.Labels) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func basicUsername(user *gitlab.BasicUser) string {
+	if user == nil {
+		return ""
+	}
+	return user.Username
+}
+
+func basicUsernames(users []*gitlab.BasicUser) []string {
+	out := make([]string, 0, len(users))
+	for _, user := range users {
+		if user != nil && strings.TrimSpace(user.Username) != "" {
+			out = append(out, user.Username)
+		}
+	}
+	return out
+}
+
+func compactDiff(diff string) string {
+	const maxLines = 80
+	const maxBytes = 12000
+	diff = strings.TrimSpace(diff)
+	if len(diff) > maxBytes {
+		diff = diff[:maxBytes] + "\n... truncated ..."
+	}
+	lines := strings.Split(diff, "\n")
+	if len(lines) <= maxLines {
+		return diff
+	}
+	return strings.Join(append(lines[:maxLines], "... truncated ..."), "\n")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

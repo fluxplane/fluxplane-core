@@ -30,6 +30,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/textplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
+	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -444,6 +445,57 @@ func TestDatasourceIndexDevIncludesSessionHistoryCorpus(t *testing.T) {
 	}
 }
 
+func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
+	ctx := context.Background()
+	accessor := warmupCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "docs",
+			Kind:     "memory",
+			Entities: []coredatasource.EntityType{"file.document"},
+			Index:    true,
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "file.document",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySemanticSearch},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "runbook.md"},
+			Title: "Runbook",
+			Body:  "warmup indexed document",
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	done := startDatasourceIndexWarmup(ctx, registry, index)
+	warmup := <-done
+	if warmup.Err != nil {
+		t.Fatalf("warmup error: %v", warmup.Err)
+	}
+	if warmup.Result.Queued != 1 {
+		t.Fatalf("warmup result = %#v, want one queued", warmup.Result)
+	}
+	status, err := index.Status(ctx, semantic.StatusRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if len(status.Queue) != 1 {
+		t.Fatalf("queue = %#v, want one queued semantic job", status.Queue)
+	}
+	processed, err := index.ProcessQueue(ctx, semantic.ProcessQueueRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("ProcessQueue: %v", err)
+	}
+	if processed.Embedded != 1 {
+		t.Fatalf("processed = %#v, want one embedded document", processed)
+	}
+}
+
 func hasOperationSpec(runtime Runtime, name string) bool {
 	for _, spec := range runtime.Composition.OperationSpecs {
 		if string(spec.Ref.Name) == name {
@@ -532,4 +584,18 @@ type fakeRuntime struct{}
 
 func (fakeRuntime) OpenSession(context.Context, distribution.OpenRequest) (clientapi.SessionHandle, error) {
 	return nil, nil
+}
+
+type warmupCorpusAccessor struct {
+	spec   coredatasource.Spec
+	entity coredatasource.EntitySpec
+	docs   []coredatasource.CorpusDocument
+}
+
+func (a warmupCorpusAccessor) Spec() coredatasource.Spec { return a.spec }
+func (a warmupCorpusAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{a.entity}
+}
+func (a warmupCorpusAccessor) Corpus(context.Context, coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	return coredatasource.CorpusPage{Documents: a.docs, Complete: true}, nil
 }

@@ -42,10 +42,28 @@ type MetadataStore interface {
 	Documents(context.Context, StatusRequest) ([]DocumentState, error)
 }
 
+// FieldStore persists structured datasource records and searches indexed fields.
+type FieldStore interface {
+	UpsertRecord(context.Context, FieldRecord) error
+	DeleteRecord(context.Context, coredatasource.RecordRef) error
+	SearchRecords(context.Context, FieldSearchRequest) ([]FieldHit, error)
+	RecordStatus(context.Context, StatusRequest) ([]FieldRecordState, error)
+}
+
+// QueueStore persists semantic corpus work that should be embedded off-track.
+type QueueStore interface {
+	PutQueueJob(context.Context, QueueJob) error
+	DeleteQueueJob(context.Context, string) error
+	QueueJobs(context.Context, QueueRequest) ([]QueueJob, error)
+	QueueStatus(context.Context, StatusRequest) ([]QueueState, error)
+}
+
 // Store is the complete persistence dependency required by Index.
 type Store interface {
 	VectorStore
 	MetadataStore
+	FieldStore
+	QueueStore
 }
 
 // Index coordinates chunking, embedding, vector writes, and metadata state.
@@ -157,6 +175,107 @@ func (i *Index) Update(ctx context.Context, doc coredatasource.CorpusDocument) (
 	return UpdateResult{Key: key, Status: "indexed", Chunks: len(embedded)}, nil
 }
 
+// UpdateRecord indexes structured fields for one corpus document.
+func (i *Index) UpdateRecord(ctx context.Context, doc coredatasource.CorpusDocument, entity coredatasource.EntitySpec) (UpdateResult, error) {
+	if i == nil {
+		return UpdateResult{}, fmt.Errorf("semantic: index is nil")
+	}
+	key := DocumentKey(doc.Ref)
+	if key == "" {
+		return UpdateResult{}, fmt.Errorf("semantic: document ref is incomplete")
+	}
+	record := fieldRecordFromDocument(key, doc, entity)
+	if err := i.store.UpsertRecord(ctx, record); err != nil {
+		return UpdateResult{}, err
+	}
+	return UpdateResult{Key: key, Status: "indexed"}, nil
+}
+
+// Enqueue stores one corpus document for asynchronous semantic embedding.
+func (i *Index) Enqueue(ctx context.Context, doc coredatasource.CorpusDocument) (UpdateResult, error) {
+	if i == nil {
+		return UpdateResult{}, fmt.Errorf("semantic: index is nil")
+	}
+	key := DocumentKey(doc.Ref)
+	if key == "" {
+		return UpdateResult{}, fmt.Errorf("semantic: document ref is incomplete")
+	}
+	fingerprint := documentFingerprint(doc)
+	policyHash := PolicyHash(effectiveChunking(i.config.Chunking))
+	previous, ok, err := i.store.Document(ctx, key)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	if ok && previous.Status == QueueStatusIndexed && previous.Fingerprint == fingerprint && previous.EmbeddingModel == i.config.Model && previous.ChunkingPolicyHash == policyHash {
+		if err := i.store.DeleteQueueJob(ctx, key); err != nil {
+			return UpdateResult{}, err
+		}
+		return UpdateResult{Key: key, Status: "skipped", Chunks: previous.ChunkCount}, nil
+	}
+	now := time.Now().UTC()
+	if err := i.store.PutQueueJob(ctx, QueueJob{
+		Key:                key,
+		Ref:                doc.Ref,
+		Document:           doc,
+		Fingerprint:        fingerprint,
+		EmbeddingModel:     i.config.Model,
+		ChunkingPolicyHash: policyHash,
+		Status:             QueueStatusQueued,
+		EnqueuedAt:         now,
+		UpdatedAt:          now,
+	}); err != nil {
+		return UpdateResult{}, err
+	}
+	return UpdateResult{Key: key, Status: QueueStatusQueued}, nil
+}
+
+// ProcessQueue drains queued semantic corpus work and embeds it.
+func (i *Index) ProcessQueue(ctx context.Context, req ProcessQueueRequest) (ProcessQueueResult, error) {
+	if i == nil {
+		return ProcessQueueResult{}, fmt.Errorf("semantic: index is nil")
+	}
+	jobs, err := i.store.QueueJobs(ctx, QueueRequest{
+		Datasource: req.Datasource,
+		Entity:     req.Entity,
+		Statuses:   []string{QueueStatusQueued, QueueStatusFailed},
+		Limit:      req.Limit,
+	})
+	if err != nil {
+		return ProcessQueueResult{}, err
+	}
+	out := ProcessQueueResult{Queued: len(jobs)}
+	reportQueue(req.Progress, QueueProgressEvent{Kind: QueueProgressStart, Queued: out.Queued})
+	for _, job := range jobs {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		result, err := i.Update(ctx, job.Document)
+		if err != nil {
+			out.Failed++
+			job.Status = QueueStatusFailed
+			job.LastError = err.Error()
+			job.Attempts++
+			job.UpdatedAt = time.Now().UTC()
+			_ = i.store.PutQueueJob(context.WithoutCancel(ctx), job)
+			reportQueue(req.Progress, QueueProgressEvent{Kind: QueueProgressFailed, Datasource: job.Ref.Datasource, Entity: job.Ref.Entity, RecordID: job.Ref.ID, Status: job.Status, Message: err.Error(), Embedded: out.Embedded, Skipped: out.Skipped, Failed: out.Failed})
+			continue
+		}
+		if err := i.store.DeleteQueueJob(ctx, job.Key); err != nil {
+			return out, err
+		}
+		switch strings.TrimSpace(result.Status) {
+		case QueueStatusIndexed:
+			out.Embedded++
+			reportQueue(req.Progress, QueueProgressEvent{Kind: QueueProgressEmbedded, Datasource: job.Ref.Datasource, Entity: job.Ref.Entity, RecordID: job.Ref.ID, Status: result.Status, Embedded: out.Embedded, Skipped: out.Skipped, Failed: out.Failed})
+		default:
+			out.Skipped++
+			reportQueue(req.Progress, QueueProgressEvent{Kind: QueueProgressSkipped, Datasource: job.Ref.Datasource, Entity: job.Ref.Entity, RecordID: job.Ref.ID, Status: result.Status, Embedded: out.Embedded, Skipped: out.Skipped, Failed: out.Failed})
+		}
+	}
+	reportQueue(req.Progress, QueueProgressEvent{Kind: QueueProgressComplete, Queued: out.Queued, Embedded: out.Embedded, Skipped: out.Skipped, Failed: out.Failed})
+	return out, nil
+}
+
 // Delete removes one record from the semantic index.
 func (i *Index) Delete(ctx context.Context, ref coredatasource.RecordRef) error {
 	key := DocumentKey(ref)
@@ -166,7 +285,13 @@ func (i *Index) Delete(ctx context.Context, ref coredatasource.RecordRef) error 
 	if err := i.store.DeleteChunks(ctx, DeleteRequest{DocumentKey: key}); err != nil {
 		return err
 	}
-	return i.store.DeleteDocument(ctx, key)
+	if err := i.store.DeleteDocument(ctx, key); err != nil {
+		return err
+	}
+	if err := i.store.DeleteRecord(ctx, ref); err != nil {
+		return err
+	}
+	return i.store.DeleteQueueJob(ctx, key)
 }
 
 // Search performs semantic vector retrieval.
@@ -226,13 +351,33 @@ func (i *Index) Search(ctx context.Context, req SearchRequest) (SearchResult, er
 	return SearchResult{Hits: out}, nil
 }
 
+// SearchFields performs structured field search.
+func (i *Index) SearchFields(ctx context.Context, req FieldSearchRequest) (FieldSearchResult, error) {
+	if i == nil {
+		return FieldSearchResult{}, fmt.Errorf("semantic: index is nil")
+	}
+	hits, err := i.store.SearchRecords(ctx, req)
+	if err != nil {
+		return FieldSearchResult{}, err
+	}
+	return FieldSearchResult{Hits: hits}, nil
+}
+
 // Status returns index metadata rows matching a filter.
 func (i *Index) Status(ctx context.Context, req StatusRequest) (StatusResult, error) {
 	docs, err := i.store.Documents(ctx, req)
 	if err != nil {
 		return StatusResult{}, err
 	}
-	return StatusResult{Documents: docs}, nil
+	records, err := i.store.RecordStatus(ctx, req)
+	if err != nil {
+		return StatusResult{}, err
+	}
+	queue, err := i.store.QueueStatus(ctx, req)
+	if err != nil {
+		return StatusResult{}, err
+	}
+	return StatusResult{Documents: docs, Records: records, Queue: queue}, nil
 }
 
 func (i *Index) planChunks(doc coredatasource.CorpusDocument) []Chunk {
@@ -330,6 +475,129 @@ type StatusRequest struct {
 // StatusResult describes indexed documents.
 type StatusResult struct {
 	Documents []DocumentState
+	Records   []FieldRecordState
+	Queue     []QueueState
+}
+
+// FieldSearchRequest describes a structured field search query.
+type FieldSearchRequest struct {
+	Query       string
+	Datasources []coredatasource.Name
+	Entities    []coredatasource.EntityType
+	Filters     map[string]string
+	Limit       int
+}
+
+// FieldSearchResult contains structured field hits.
+type FieldSearchResult struct {
+	Hits []FieldHit
+}
+
+// FieldHit is one structured field search result.
+type FieldHit struct {
+	Record coredatasource.Record
+	Score  float64
+	Reason string
+}
+
+// FieldRecord is one indexed structured datasource record.
+type FieldRecord struct {
+	Key         string                   `json:"key"`
+	Ref         coredatasource.RecordRef `json:"ref"`
+	Title       string                   `json:"title,omitempty"`
+	Content     string                   `json:"content,omitempty"`
+	URL         string                   `json:"url,omitempty"`
+	Fields      map[string][]string      `json:"fields,omitempty"`
+	Search      []string                 `json:"search,omitempty"`
+	Identifiers []string                 `json:"identifiers,omitempty"`
+	Filters     map[string][]string      `json:"filters,omitempty"`
+}
+
+// FieldRecordState is the status row for one indexed field record.
+type FieldRecordState struct {
+	Key string                   `json:"key"`
+	Ref coredatasource.RecordRef `json:"ref"`
+}
+
+const (
+	QueueStatusQueued  = "queued"
+	QueueStatusFailed  = "failed"
+	QueueStatusIndexed = "indexed"
+)
+
+const (
+	QueueProgressStart    = "queue_start"
+	QueueProgressEmbedded = "queue_embedded"
+	QueueProgressSkipped  = "queue_skipped"
+	QueueProgressFailed   = "queue_failed"
+	QueueProgressComplete = "queue_complete"
+)
+
+// QueueRequest filters queued semantic embedding jobs.
+type QueueRequest struct {
+	Datasource coredatasource.Name
+	Entity     coredatasource.EntityType
+	Statuses   []string
+	Limit      int
+}
+
+// QueueJob is one persisted semantic embedding work item.
+type QueueJob struct {
+	Key                string                        `json:"key"`
+	Ref                coredatasource.RecordRef      `json:"ref"`
+	Document           coredatasource.CorpusDocument `json:"document"`
+	Fingerprint        string                        `json:"fingerprint,omitempty"`
+	EmbeddingModel     string                        `json:"embedding_model,omitempty"`
+	ChunkingPolicyHash string                        `json:"chunking_policy_hash,omitempty"`
+	Status             string                        `json:"status,omitempty"`
+	LastError          string                        `json:"last_error,omitempty"`
+	Attempts           int                           `json:"attempts,omitempty"`
+	EnqueuedAt         time.Time                     `json:"enqueued_at,omitempty"`
+	UpdatedAt          time.Time                     `json:"updated_at,omitempty"`
+}
+
+// QueueState is the status row for one queued semantic embedding job.
+type QueueState struct {
+	Key        string                   `json:"key"`
+	Ref        coredatasource.RecordRef `json:"ref"`
+	Status     string                   `json:"status,omitempty"`
+	LastError  string                   `json:"last_error,omitempty"`
+	Attempts   int                      `json:"attempts,omitempty"`
+	EnqueuedAt time.Time                `json:"enqueued_at,omitempty"`
+	UpdatedAt  time.Time                `json:"updated_at,omitempty"`
+}
+
+// ProcessQueueRequest selects queued semantic embedding jobs to process.
+type ProcessQueueRequest struct {
+	Datasource coredatasource.Name
+	Entity     coredatasource.EntityType
+	Limit      int
+	Progress   QueueProgressReporter
+}
+
+// ProcessQueueResult summarizes a semantic embedding queue drain.
+type ProcessQueueResult struct {
+	Queued   int
+	Embedded int
+	Skipped  int
+	Failed   int
+}
+
+// QueueProgressReporter receives semantic embedding queue progress.
+type QueueProgressReporter func(QueueProgressEvent)
+
+// QueueProgressEvent describes one semantic embedding queue observation.
+type QueueProgressEvent struct {
+	Kind       string
+	Datasource coredatasource.Name
+	Entity     coredatasource.EntityType
+	RecordID   string
+	Status     string
+	Message    string
+	Queued     int
+	Embedded   int
+	Skipped    int
+	Failed     int
 }
 
 // DocumentState is the persisted incremental state for one record.
@@ -344,6 +612,12 @@ type DocumentState struct {
 	ChunkCount         int                      `json:"chunk_count,omitempty"`
 	Status             string                   `json:"status,omitempty"`
 	LastError          string                   `json:"last_error,omitempty"`
+}
+
+func reportQueue(reporter QueueProgressReporter, event QueueProgressEvent) {
+	if reporter != nil {
+		reporter(event)
+	}
 }
 
 // Chunk is one planned index chunk.
@@ -392,6 +666,68 @@ func DocumentKey(ref coredatasource.RecordRef) string {
 		return ""
 	}
 	return string(ref.Datasource) + "\x00" + string(ref.Entity) + "\x00" + strings.TrimSpace(ref.ID)
+}
+
+func fieldRecordFromDocument(key string, doc coredatasource.CorpusDocument, entity coredatasource.EntitySpec) FieldRecord {
+	record := FieldRecord{
+		Key:     key,
+		Ref:     doc.Ref,
+		Title:   doc.Title,
+		Content: doc.Body,
+		URL:     doc.URL,
+		Fields:  map[string][]string{},
+		Filters: map[string][]string{},
+	}
+	addFieldValue := func(name string, values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			record.Fields[name] = appendUnique(record.Fields[name], value)
+		}
+	}
+	addFieldValue("id", doc.Ref.ID)
+	addFieldValue("title", doc.Title)
+	addFieldValue("body", doc.Body)
+	addFieldValue("url", doc.URL)
+	for key, value := range doc.Metadata {
+		addFieldValue(key, value)
+	}
+	for _, field := range entity.Fields {
+		values := append([]string(nil), record.Fields[field.Name]...)
+		if len(values) == 0 {
+			continue
+		}
+		if field.Identifier {
+			record.Identifiers = appendUnique(record.Identifiers, values...)
+		}
+		if field.Searchable || field.Identifier {
+			record.Search = appendUnique(record.Search, values...)
+		}
+		if field.Filterable {
+			record.Filters[field.Name] = appendUnique(record.Filters[field.Name], values...)
+		}
+	}
+	record.Identifiers = appendUnique(record.Identifiers, doc.Ref.ID)
+	record.Search = appendUnique(record.Search, doc.Ref.ID, doc.Title, doc.Body)
+	return record
+}
+
+func appendUnique(values []string, candidates ...string) []string {
+	seen := map[string]bool{}
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		values = append(values, candidate)
+		seen[candidate] = true
+	}
+	return values
 }
 
 // PolicyHash returns a stable hash for chunking policy.

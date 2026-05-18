@@ -8,7 +8,7 @@ import (
 
 type testEntity struct {
 	ID     string `json:"id" datasource:"id,filterable" jsonschema:"description=Stable id.,required"`
-	Title  string `json:"title,omitempty" datasource:"searchable,sortable" jsonschema:"description=Display title."`
+	Title  string `json:"title,omitempty" datasource:"searchable,sortable" corpus:"title" jsonschema:"description=Display title."`
 	Hidden string `json:"-"`
 }
 
@@ -25,7 +25,7 @@ func TestEntityOfDerivesFieldSpecsFromTags(t *testing.T) {
 		t.Fatalf("id field = %#v", id)
 	}
 	title := spec.Fields[1]
-	if title.Name != "title" || !title.Searchable || !title.Sortable || title.Required {
+	if title.Name != "title" || !title.Searchable || !title.Sortable || !title.Corpus || title.Required {
 		t.Fatalf("title field = %#v", title)
 	}
 }
