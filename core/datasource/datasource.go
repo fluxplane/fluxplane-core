@@ -446,7 +446,9 @@ type Relationer interface {
 	Relation(context.Context, RelationRequest) (RelationResult, error)
 }
 
-// CorpusProvider is implemented by accessors that expose semantic index corpus.
+// CorpusProvider is implemented by accessors that enumerate records for local
+// datasource indexing. The indexer may use those records for field indexing,
+// semantic indexing, or both depending on entity capabilities.
 type CorpusProvider interface {
 	Corpus(context.Context, CorpusRequest) (CorpusPage, error)
 }

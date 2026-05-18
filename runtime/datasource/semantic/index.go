@@ -6,9 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +48,7 @@ type MetadataStore interface {
 type FieldStore interface {
 	UpsertRecord(context.Context, FieldRecord) error
 	DeleteRecord(context.Context, coredatasource.RecordRef) error
+	Record(context.Context, coredatasource.RecordRef) (FieldRecord, bool, error)
 	SearchRecords(context.Context, FieldSearchRequest) ([]FieldHit, error)
 	RecordStatus(context.Context, StatusRequest) ([]FieldRecordState, error)
 }
@@ -302,6 +305,111 @@ func (i *Index) Delete(ctx context.Context, ref coredatasource.RecordRef) error 
 	return i.store.DeleteQueueJob(ctx, key)
 }
 
+var (
+	ErrFieldIndexNotConfigured = errors.New("datasource field index is not configured")
+	ErrFieldIndexNotBuilt      = errors.New("datasource field index is not built")
+)
+
+// FieldLookupRequest describes a structured field-index lookup.
+type FieldLookupRequest struct {
+	Index      *Index
+	Datasource coredatasource.Name
+	Entity     coredatasource.EntityType
+	Query      string
+	Filters    map[string]string
+	Limit      int
+	Cursor     string
+}
+
+// FieldLookupResult contains field-index records and pagination state.
+type FieldLookupResult struct {
+	Records    []coredatasource.Record
+	NextCursor string
+	Complete   bool
+}
+
+// SearchFieldIndex performs a datasource field-index lookup with readiness and
+// cursor handling.
+func SearchFieldIndex(ctx context.Context, req FieldLookupRequest) (FieldLookupResult, error) {
+	if err := RequireFieldIndexBuilt(ctx, req.Index, req.Datasource, req.Entity); err != nil {
+		return FieldLookupResult{}, err
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	offset, err := fieldCursorOffset(req.Cursor)
+	if err != nil {
+		return FieldLookupResult{}, err
+	}
+	result, err := req.Index.SearchFields(ctx, FieldSearchRequest{
+		Query:       req.Query,
+		Datasources: []coredatasource.Name{req.Datasource},
+		Entities:    []coredatasource.EntityType{req.Entity},
+		Filters:     req.Filters,
+		Limit:       limit + 1,
+		Offset:      offset,
+	})
+	if err != nil {
+		return FieldLookupResult{}, err
+	}
+	records := make([]coredatasource.Record, 0, len(result.Hits))
+	for _, hit := range result.Hits {
+		records = append(records, hit.Record)
+	}
+	next := ""
+	if len(records) > limit {
+		records = records[:limit]
+		next = strconv.Itoa(offset + limit)
+	}
+	return FieldLookupResult{Records: records, NextCursor: next, Complete: next == ""}, nil
+}
+
+// GetFieldRecord returns one exact field-index record by datasource/entity/id.
+func GetFieldRecord(ctx context.Context, index *Index, datasource coredatasource.Name, entity coredatasource.EntityType, id string) (coredatasource.Record, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return coredatasource.Record{}, coredatasource.ErrNotFound
+	}
+	if err := RequireFieldIndexBuilt(ctx, index, datasource, entity); err != nil {
+		return coredatasource.Record{}, err
+	}
+	return index.FieldRecord(ctx, coredatasource.RecordRef{Datasource: datasource, Entity: entity, ID: id})
+}
+
+// RequireFieldIndexBuilt reports whether field records exist or a field/all
+// indexing run completed for a datasource entity.
+func RequireFieldIndexBuilt(ctx context.Context, index *Index, datasource coredatasource.Name, entity coredatasource.EntityType) error {
+	if index == nil {
+		return fmt.Errorf("%w for %s/%s", ErrFieldIndexNotConfigured, datasource, entity)
+	}
+	status, err := index.Status(ctx, StatusRequest{Datasource: datasource, Entity: entity})
+	if err != nil {
+		return err
+	}
+	if len(status.Records) > 0 {
+		return nil
+	}
+	for _, run := range status.Runs {
+		if run.Status == IndexRunStatusComplete && (run.Phase == "all" || run.Phase == "fields") {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w for %s/%s", ErrFieldIndexNotBuilt, datasource, entity)
+}
+
+func fieldCursorOffset(cursor string) (int, error) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(cursor)
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("invalid field index cursor %q", cursor)
+	}
+	return offset, nil
+}
+
 // Search performs semantic vector retrieval.
 func (i *Index) Search(ctx context.Context, req SearchRequest) (SearchResult, error) {
 	if i == nil {
@@ -369,6 +477,21 @@ func (i *Index) SearchFields(ctx context.Context, req FieldSearchRequest) (Field
 		return FieldSearchResult{}, err
 	}
 	return FieldSearchResult{Hits: hits}, nil
+}
+
+// FieldRecord returns one exact structured field-index record.
+func (i *Index) FieldRecord(ctx context.Context, ref coredatasource.RecordRef) (coredatasource.Record, error) {
+	if i == nil {
+		return coredatasource.Record{}, fmt.Errorf("semantic: index is nil")
+	}
+	record, ok, err := i.store.Record(ctx, ref)
+	if err != nil {
+		return coredatasource.Record{}, err
+	}
+	if !ok {
+		return coredatasource.Record{}, coredatasource.ErrNotFound
+	}
+	return fieldRecordToRecord(record), nil
 }
 
 // Status returns index metadata rows matching a filter.
@@ -546,6 +669,7 @@ type FieldSearchRequest struct {
 	Entities    []coredatasource.EntityType
 	Filters     map[string]string
 	Limit       int
+	Offset      int
 }
 
 // FieldSearchResult contains structured field hits.

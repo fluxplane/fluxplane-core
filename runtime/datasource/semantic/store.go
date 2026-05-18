@@ -132,6 +132,21 @@ func (s *JSONStore) DeleteRecord(ctx context.Context, ref coredatasource.RecordR
 	return s.saveLocked(ctx, state)
 }
 
+func (s *JSONStore) Record(ctx context.Context, ref coredatasource.RecordRef) (FieldRecord, bool, error) {
+	key := DocumentKey(ref)
+	if key == "" {
+		return FieldRecord{}, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return FieldRecord{}, false, err
+	}
+	record, ok := state.Records[key]
+	return record, ok, nil
+}
+
 func (s *JSONStore) PutQueueJob(ctx context.Context, job QueueJob) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -327,6 +342,14 @@ func (s *JSONStore) SearchRecords(ctx context.Context, req FieldSearchRequest) (
 		}
 		return hits[i].Score > hits[j].Score
 	})
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(hits) {
+		return nil, nil
+	}
+	hits = hits[offset:]
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
