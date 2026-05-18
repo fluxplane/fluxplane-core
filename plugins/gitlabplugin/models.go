@@ -19,6 +19,7 @@ const (
 	PipelineEntity         coredatasource.EntityType = "gitlab.pipeline"
 	UserEntity             coredatasource.EntityType = "gitlab.user"
 	GroupEntity            coredatasource.EntityType = "gitlab.group"
+	MembershipEntity       coredatasource.EntityType = "gitlab.user_membership"
 )
 
 type Project struct {
@@ -117,6 +118,18 @@ type Group struct {
 	Role        string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role in the relationship result."`
 }
 
+type Membership struct {
+	ID          string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this membership."`
+	UserID      int64  `json:"user_id" datasource:"filterable" jsonschema:"description=GitLab user id."`
+	SourceID    int64  `json:"source_id" datasource:"filterable" jsonschema:"description=GitLab group or project id."`
+	SourceName  string `json:"source_name" datasource:"searchable" jsonschema:"description=Membership source display name."`
+	SourceType  string `json:"source_type" datasource:"filterable" jsonschema:"description=Membership source type, Namespace or Project."`
+	SourcePath  string `json:"source_path,omitempty" datasource:"searchable,filterable" jsonschema:"description=Full group or project path when available."`
+	SourceURL   string `json:"source_url,omitempty" datasource:"url" jsonschema:"description=Membership source web URL when available."`
+	AccessLevel string `json:"access_level,omitempty" datasource:"filterable" jsonschema:"description=GitLab access level name."`
+	Role        string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role name for this membership."`
+}
+
 func entitySpecs() []coredatasource.EntitySpec {
 	return []coredatasource.EntitySpec{
 		projectEntitySpec(),
@@ -126,6 +139,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		pipelineEntitySpec(),
 		userEntitySpec(),
 		groupEntitySpec(),
+		membershipEntitySpec(),
 	}
 }
 
@@ -217,7 +231,9 @@ func userEntitySpec() coredatasource.EntitySpec {
 		coredatasource.EntityCapabilityIndex,
 	}
 	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "memberships", Description: "Namespace and project memberships for this user.", TargetEntity: MembershipEntity},
 		{Name: "groups", Description: "Groups and namespaces this user is a member of.", TargetEntity: GroupEntity},
+		{Name: "projects", Description: "Projects this user is a member of.", TargetEntity: ProjectEntity},
 	}
 	return entity
 }
@@ -232,7 +248,26 @@ func groupEntitySpec() coredatasource.EntitySpec {
 		coredatasource.EntityCapabilityIndex,
 	}
 	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "parent", Description: "Parent group namespace for this subgroup.", TargetEntity: GroupEntity},
+		{Name: "subgroups", Description: "Direct child group namespaces in this group namespace.", TargetEntity: GroupEntity},
+		{Name: "descendant_groups", Description: "Recursive child group namespaces in this group namespace.", TargetEntity: GroupEntity},
 		{Name: "projects", Description: "Projects in this group namespace.", TargetEntity: ProjectEntity},
+		{Name: "users", Description: "Users who are members of this group namespace.", TargetEntity: UserEntity},
+	}
+	return entity
+}
+
+func membershipEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Membership](MembershipEntity, "GitLab user membership.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilityList,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+		coredatasource.EntityCapabilityIndex,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "group", Description: "Group namespace target for this membership.", TargetEntity: GroupEntity},
+		{Name: "project", Description: "Project target for this membership.", TargetEntity: ProjectEntity},
 	}
 	return entity
 }
@@ -382,11 +417,54 @@ func userFromGitLab(user *gitlab.User) User {
 	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
 }
 
+func userFromGroupMember(user *gitlab.GroupMember) User {
+	if user == nil {
+		return User{}
+	}
+	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL, Role: accessLevelName(user.AccessLevel)}
+}
+
 func userFromProject(user *gitlab.ProjectUser) User {
 	if user == nil {
 		return User{}
 	}
 	return User{ID: user.ID, Username: user.Username, Name: user.Name, State: user.State, WebURL: user.WebURL}
+}
+
+func membershipFromGroupMember(userID int64, group Group, member *gitlab.GroupMember) Membership {
+	access := gitlab.NoPermissions
+	if member != nil {
+		access = member.AccessLevel
+	}
+	return Membership{
+		ID:          membershipID(userID, "Namespace", group.ID),
+		UserID:      userID,
+		SourceID:    group.ID,
+		SourceName:  firstNonEmpty(group.FullName, group.Name, group.FullPath),
+		SourceType:  "Namespace",
+		SourcePath:  group.FullPath,
+		SourceURL:   group.WebURL,
+		AccessLevel: accessLevelName(access),
+		Role:        accessLevelName(access),
+	}
+}
+
+func membershipFromProjectMember(userID int64, project Project, member *gitlab.ProjectMember) Membership {
+	access := gitlab.NoPermissions
+	if member != nil {
+		access = member.AccessLevel
+	}
+	return Membership{
+		ID:          membershipID(userID, "Project", project.ID),
+		UserID:      userID,
+		SourceID:    project.ID,
+		SourceName:  project.Name,
+		SourceType:  "Project",
+		SourcePath:  project.PathWithNamespace,
+		SourceURL:   project.WebURL,
+		AccessLevel: accessLevelName(access),
+		Role:        accessLevelName(access),
+	}
 }
 
 func groupFromGitLab(group *gitlab.Group) Group {
@@ -416,18 +494,6 @@ func groupFromProject(group *gitlab.ProjectGroup) Group {
 		FullPath: group.FullPath,
 		FullName: group.FullName,
 		WebURL:   group.WebURL,
-	}
-}
-
-func groupFromUserMembership(membership *gitlab.UserMembership) Group {
-	if membership == nil {
-		return Group{}
-	}
-	return Group{
-		ID:       membership.SourceID,
-		Name:     membership.SourceName,
-		FullName: membership.SourceName,
-		Role:     accessLevelName(membership.AccessLevel),
 	}
 }
 
@@ -534,6 +600,60 @@ func groupTitle(group Group) string {
 	return group.Name
 }
 
+func membershipID(userID int64, sourceType string, sourceID int64) string {
+	sourceType = strings.ToLower(normalizedMembershipSourceType(sourceType))
+	return fmt.Sprintf("%d:%s:%d", userID, sourceType, sourceID)
+}
+
+func parseMembershipID(id string) (int64, string, int64, error) {
+	parts := strings.Split(strings.TrimSpace(id), ":")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return 0, "", 0, fmt.Errorf("membership id must be user_id:source_type:source_id")
+	}
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("invalid membership user id %q", parts[0])
+	}
+	sourceID, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("invalid membership source id %q", parts[2])
+	}
+	return userID, normalizedMembershipSourceType(parts[1]), sourceID, nil
+}
+
+func normalizedMembershipSourceType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "namespace", "group":
+		return "Namespace"
+	case "project":
+		return "Project"
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func isNamespaceMembership(value string) bool {
+	return strings.EqualFold(normalizedMembershipSourceType(value), "Namespace")
+}
+
+func isProjectMembership(value string) bool {
+	return strings.EqualFold(normalizedMembershipSourceType(value), "Project")
+}
+
+func membershipTitle(membership Membership) string {
+	label := firstNonEmpty(membership.SourceName, membership.SourcePath)
+	if label == "" && membership.SourceID != 0 {
+		label = strconv.FormatInt(membership.SourceID, 10)
+	}
+	if membership.SourceType != "" {
+		label = membership.SourceType + " " + label
+	}
+	if membership.Role != "" {
+		label += " (" + membership.Role + ")"
+	}
+	return strings.TrimSpace(label)
+}
+
 func formatTime(value *time.Time) string {
 	if value == nil || value.IsZero() {
 		return ""
@@ -611,5 +731,29 @@ func accessLevelName(value gitlab.AccessLevelValue) string {
 		return "admin"
 	default:
 		return ""
+	}
+}
+
+func accessLevelRank(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "minimal":
+		return int(gitlab.MinimalAccessPermissions)
+	case "guest":
+		return int(gitlab.GuestPermissions)
+	case "planner":
+		return int(gitlab.PlannerPermissions)
+	case "reporter":
+		return int(gitlab.ReporterPermissions)
+	case "developer":
+		return int(gitlab.DeveloperPermissions)
+	case "maintainer":
+		return int(gitlab.MaintainerPermissions)
+	case "owner":
+		return int(gitlab.OwnerPermissions)
+	case "admin":
+		return int(gitlab.AdminPermissions)
+	default:
+		rank, _ := strconv.Atoi(value)
+		return rank
 	}
 }

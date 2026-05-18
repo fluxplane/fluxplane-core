@@ -56,13 +56,16 @@ type gitlabClient interface {
 	ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error)
 	ListGroups(context.Context, *gitlab.ListGroupsOptions) ([]*gitlab.Group, error)
 	GetGroup(context.Context, any, *gitlab.GetGroupOptions) (*gitlab.Group, error)
+	ListSubGroups(context.Context, any, *gitlab.ListSubGroupsOptions) ([]*gitlab.Group, error)
+	ListDescendantGroups(context.Context, any, *gitlab.ListDescendantGroupsOptions) ([]*gitlab.Group, error)
 	ListGroupProjects(context.Context, any, *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, error)
+	ListAllGroupMembers(context.Context, any, *gitlab.ListGroupMembersOptions) ([]*gitlab.GroupMember, error)
 	ListUsers(context.Context, *gitlab.ListUsersOptions) ([]*gitlab.User, error)
 	GetUser(context.Context, int64, *gitlab.GetUserOptions) (*gitlab.User, error)
-	GetUserMemberships(context.Context, int64, *gitlab.GetUserMembershipOptions) ([]*gitlab.UserMembership, error)
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
 	ListProjectUsers(context.Context, any, *gitlab.ListProjectUserOptions) ([]*gitlab.ProjectUser, error)
 	ListProjectGroups(context.Context, any, *gitlab.ListProjectGroupOptions) ([]*gitlab.ProjectGroup, error)
+	ListAllProjectMembers(context.Context, any, *gitlab.ListProjectMembersOptions) ([]*gitlab.ProjectMember, error)
 	ListMergeRequests(context.Context, *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
 	ListProjectMergeRequests(context.Context, any, *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error)
 	GetMergeRequest(context.Context, any, int64, *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error)
@@ -437,9 +440,24 @@ func (c officialClient) GetGroup(ctx context.Context, id any, opts *gitlab.GetGr
 	return group, err
 }
 
+func (c officialClient) ListSubGroups(ctx context.Context, id any, opts *gitlab.ListSubGroupsOptions) ([]*gitlab.Group, error) {
+	groups, _, err := c.client.Groups.ListSubGroups(id, opts, gitlab.WithContext(ctx))
+	return groups, err
+}
+
+func (c officialClient) ListDescendantGroups(ctx context.Context, id any, opts *gitlab.ListDescendantGroupsOptions) ([]*gitlab.Group, error) {
+	groups, _, err := c.client.Groups.ListDescendantGroups(id, opts, gitlab.WithContext(ctx))
+	return groups, err
+}
+
 func (c officialClient) ListGroupProjects(ctx context.Context, id any, opts *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, error) {
 	projects, _, err := c.client.Groups.ListGroupProjects(id, opts, gitlab.WithContext(ctx))
 	return projects, err
+}
+
+func (c officialClient) ListAllGroupMembers(ctx context.Context, id any, opts *gitlab.ListGroupMembersOptions) ([]*gitlab.GroupMember, error) {
+	members, _, err := c.client.Groups.ListAllGroupMembers(id, opts, gitlab.WithContext(ctx))
+	return members, err
 }
 
 func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOptions) ([]*gitlab.User, error) {
@@ -450,11 +468,6 @@ func (c officialClient) ListUsers(ctx context.Context, opts *gitlab.ListUsersOpt
 func (c officialClient) GetUser(ctx context.Context, id int64, opts *gitlab.GetUserOptions) (*gitlab.User, error) {
 	user, _, err := c.client.Users.GetUser(id, opts, gitlab.WithContext(ctx))
 	return user, err
-}
-
-func (c officialClient) GetUserMemberships(ctx context.Context, id int64, opts *gitlab.GetUserMembershipOptions) ([]*gitlab.UserMembership, error) {
-	memberships, _, err := c.client.Users.GetUserMemberships(id, opts, gitlab.WithContext(ctx))
-	return memberships, err
 }
 
 func (c officialClient) GetProject(ctx context.Context, id any, opts *gitlab.GetProjectOptions) (*gitlab.Project, error) {
@@ -470,6 +483,11 @@ func (c officialClient) ListProjectUsers(ctx context.Context, id any, opts *gitl
 func (c officialClient) ListProjectGroups(ctx context.Context, id any, opts *gitlab.ListProjectGroupOptions) ([]*gitlab.ProjectGroup, error) {
 	groups, _, err := c.client.Projects.ListProjectsGroups(id, opts, gitlab.WithContext(ctx))
 	return groups, err
+}
+
+func (c officialClient) ListAllProjectMembers(ctx context.Context, id any, opts *gitlab.ListProjectMembersOptions) ([]*gitlab.ProjectMember, error) {
+	members, _, err := c.client.ProjectMembers.ListAllProjectMembers(id, opts, gitlab.WithContext(ctx))
+	return members, err
 }
 
 func (c officialClient) ListMergeRequests(ctx context.Context, opts *gitlab.ListMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, error) {
