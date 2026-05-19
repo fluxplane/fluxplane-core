@@ -184,6 +184,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
   service-account bearer tokens and optional account-email Basic auth against
   site REST endpoints.
+- Added a `max_scanned` glob operation option and separated glob scan limits
+  from returned match limits so low `max_results` values do not hide later
+  matches.
 
 ### Fixed
 - Fixed shell discovery through authorized system wrappers so `shell` and

@@ -3,6 +3,7 @@ package filesystemplugin
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -673,6 +674,35 @@ func TestGlobMatchesBraceAlternationThroughPlugin(t *testing.T) {
 		}
 		if strings.Contains(rendered.Text, ".agents/notes/note.md") {
 			t.Fatalf("glob text = %q, did not want notes match", rendered.Text)
+		}
+	})
+}
+
+func TestGlobMaxScannedIsSeparateFromMaxResultsThroughPlugin(t *testing.T) {
+	runFilesystemBackends(t, func(t *testing.T, env *filesystemTestEnv) {
+		for i := 0; i < 75; i++ {
+			env.WriteFile(t, fmt.Sprintf("padding/file-%03d.txt", i), []byte("padding"))
+		}
+		env.WriteFile(t, "apps/coder/resources/.agents/commands/reflect.yaml", []byte("reflect"))
+		op := env.Operation(t, GlobOp)
+
+		result := op.Run(operation.NewContext(context.Background(), event.Discard()), map[string]any{
+			"pattern":     "apps/coder/resources/.agents/**/reflect.yaml",
+			"max_results": 1,
+			"max_scanned": 200,
+		})
+		if result.IsError() {
+			t.Fatalf("glob error = %#v", result.Error)
+		}
+		rendered, ok := result.Output.(operation.Rendered)
+		if !ok {
+			t.Fatalf("output = %#v, want rendered", result.Output)
+		}
+		if !strings.Contains(rendered.Text, "apps/coder/resources/.agents/commands/reflect.yaml") {
+			t.Fatalf("glob text = %q, want reflect.yaml", rendered.Text)
+		}
+		if strings.Contains(rendered.Text, "Traversal truncated") {
+			t.Fatalf("glob text = %q, did not expect traversal truncation", rendered.Text)
 		}
 	})
 }

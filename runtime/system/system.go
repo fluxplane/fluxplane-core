@@ -232,6 +232,7 @@ type WalkEntry struct {
 type GlobOptions struct {
 	Base       string
 	MaxResults int
+	MaxScanned int
 }
 
 // ScratchDir is an isolated temporary directory owned by the runtime system.
@@ -787,15 +788,20 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 	if strings.TrimSpace(base) == "" {
 		base = "."
 	}
-	entries, root, truncated, err := w.Walk(ctx, base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: opts.MaxResults})
-	if err != nil {
-		return nil, false, err
-	}
 	limit := opts.MaxResults
 	if limit <= 0 || limit > 10000 {
 		limit = 1000
 	}
+	scanLimit := opts.MaxScanned
+	if scanLimit <= 0 || scanLimit > 100000 {
+		scanLimit = 10000
+	}
+	entries, root, truncated, err := w.Walk(ctx, base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
+	if err != nil {
+		return nil, false, err
+	}
 	matches := make([]ResolvedPath, 0)
+	resultsTruncated := false
 	for _, entry := range entries {
 		rel := entry.Path.Rel
 		matchRel := rel
@@ -803,13 +809,14 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
 		}
 		if compiled.Match(matchRel) || compiled.Match(rel) {
-			matches = append(matches, entry.Path)
-			if len(matches) >= limit {
-				return matches, true, nil
+			if len(matches) < limit {
+				matches = append(matches, entry.Path)
+			} else {
+				resultsTruncated = true
 			}
 		}
 	}
-	return matches, truncated, nil
+	return matches, truncated || resultsTruncated, nil
 }
 
 // CreateScratch creates an isolated temporary directory for runtime-owned work.

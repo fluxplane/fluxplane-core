@@ -358,11 +358,20 @@ func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts system.
 	if err != nil {
 		return nil, false, err
 	}
-	entries, root, truncated, err := w.Walk(ctx, opts.Base, system.WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: opts.MaxResults})
+	limit := opts.MaxResults
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+	scanLimit := opts.MaxScanned
+	if scanLimit <= 0 || scanLimit > 100000 {
+		scanLimit = 10000
+	}
+	entries, root, truncated, err := w.Walk(ctx, opts.Base, system.WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
 	if err != nil {
 		return nil, false, err
 	}
-	var out []system.ResolvedPath
+	out := make([]system.ResolvedPath, 0)
+	resultsTruncated := false
 	for _, entry := range entries {
 		rel := entry.Path.Rel
 		matchRel := rel
@@ -370,10 +379,14 @@ func (w *MemoryWorkspace) Glob(ctx context.Context, pattern string, opts system.
 			matchRel = strings.TrimPrefix(matchRel, root.Rel+"/")
 		}
 		if compiled.Match(matchRel) || compiled.Match(rel) {
-			out = append(out, entry.Path)
+			if len(out) < limit {
+				out = append(out, entry.Path)
+			} else {
+				resultsTruncated = true
+			}
 		}
 	}
-	return out, truncated, nil
+	return out, truncated || resultsTruncated, nil
 }
 
 func (w *MemoryWorkspace) CreateScratch(context.Context, string) (system.ScratchDir, error) {

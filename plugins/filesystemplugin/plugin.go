@@ -633,7 +633,8 @@ func (p Plugin) fileMove(ws system.Workspace) operation.Handler {
 type globInput struct {
 	Pattern    string `json:"pattern" jsonschema:"description=Glob pattern to match.,required"`
 	Path       string `json:"path,omitempty" jsonschema:"description=Directory to search from. Defaults to workspace root."`
-	MaxResults int    `json:"max_results,omitempty" jsonschema:"description=Maximum number of results."`
+	MaxResults int    `json:"max_results,omitempty" jsonschema:"description=Maximum number of matching paths to return."`
+	MaxScanned int    `json:"max_scanned,omitempty" jsonschema:"description=Maximum number of filesystem entries to scan before stopping."`
 }
 
 func (p Plugin) glob(ws system.Workspace) operation.Handler {
@@ -650,7 +651,11 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 		if limit <= 0 || limit > 5000 {
 			limit = 1000
 		}
-		paths, truncated, err := ws.Glob(ctx, req.Pattern, system.GlobOptions{Base: base, MaxResults: limit})
+		scanLimit := req.MaxScanned
+		if scanLimit <= 0 || scanLimit > 100000 {
+			scanLimit = 10000
+		}
+		paths, truncated, err := ws.Glob(ctx, req.Pattern, system.GlobOptions{Base: base, MaxResults: limit, MaxScanned: scanLimit})
 		if err != nil {
 			return operation.Failed("glob_failed", err.Error(), nil)
 		}
@@ -659,8 +664,13 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 			matches = append(matches, matched.Rel)
 		}
 		recordUsage(ctx, GlobOp, base, usage.DirectionRead, float64(len(matches)))
-		text := fmt.Sprintf("Matches: %d\n%s", len(matches), strings.Join(matches, "\n"))
-		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Data: map[string]any{"matches": matches, "truncated": truncated}})
+		lines := []string{fmt.Sprintf("Matches: %d", len(matches))}
+		lines = append(lines, matches...)
+		if truncated {
+			lines = append(lines, "Traversal truncated before scanning all paths.")
+		}
+		text := strings.Join(lines, "\n")
+		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Data: map[string]any{"matches": matches, "truncated": truncated, "max_scanned": scanLimit}})
 	}
 }
 
