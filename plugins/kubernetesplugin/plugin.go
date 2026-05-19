@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +21,7 @@ import (
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
@@ -28,6 +31,8 @@ import (
 
 const (
 	Name = "kubernetes"
+
+	PortForwardOp = "k8s_port_forward"
 
 	NamespaceEntity  coredatasource.EntityType = "kubernetes.namespace"
 	PodEntity        coredatasource.EntityType = "kubernetes.pod"
@@ -131,6 +136,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.SignalDeriverContributor = Plugin{}
 
@@ -158,11 +164,21 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p.ref = ctx.Ref
+	specs := operationSpecs()
 	return resource.ContributionBundle{
 		DataSources:    []coredata.SourceSpec{DataSourceSpec(p.ref)},
+		OperationSets:  []operation.Set{{Name: Name, Description: "Kubernetes cluster operations.", Operations: operationRefs(specs)}},
+		Operations:     specs,
 		Observers:      []coreenvironment.ObserverSpec{kubernetesObserverSpec(p.ref)},
 		SignalDerivers: []coreenvironment.SignalDeriverSpec{kubernetesSignalDeriverSpec()},
 	}, nil
+}
+
+func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {
+	if p.system == nil {
+		return nil, fmt.Errorf("kubernetesplugin: system is nil")
+	}
+	return []operation.Operation{portForwardOperation(p)}, nil
 }
 
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
@@ -460,7 +476,27 @@ func (p Plugin) clientset(ctx context.Context) (kubernetes.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return kubernetes.NewForConfig(cfg)
+	client, err := p.httpClientForRestConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return kubernetes.NewForConfigAndClient(cfg, client)
+}
+
+func (p Plugin) httpClientForRestConfig(cfg *rest.Config) (*http.Client, error) {
+	client, err := rest.HTTPClientFor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if p.system == nil || p.system.Network() == nil {
+		return client, nil
+	}
+	boundaryTransport := system.NewRoundTripper(p.system.Network(), system.WithHTTPClientTimeout(30*time.Second), system.WithHTTPClientMaxBytes(10*1024*1024))
+	wrappedTransport, err := rest.HTTPWrappersForConfig(cfg, boundaryTransport)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: wrappedTransport, Timeout: client.Timeout}, nil
 }
 
 func (p Plugin) restConfig(ctx context.Context) (*rest.Config, string, error) {

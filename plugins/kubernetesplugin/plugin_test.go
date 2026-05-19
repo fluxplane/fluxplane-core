@@ -2,19 +2,205 @@ package kubernetesplugin
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
+
+func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {
+	process := &recordingProcess{
+		handle:  fakeProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: "custom-label", Command: "kubectl", Running: true}},
+		started: true,
+	}
+	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}, Context: "dev", Kubeconfig: "/tmp/kubeconfig"})
+
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	op := findOperation(t, ops, PortForwardOp)
+	result := op.Run(operation.NewContext(context.Background(), nil), portForwardInput{
+		Namespace:  "default",
+		Kind:       "service",
+		Name:       "api",
+		LocalPort:  18080,
+		RemotePort: 80,
+		Label:      "custom-label",
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("Run status = %s error = %#v", result.Status, result.Error)
+	}
+	if len(process.ensureRequests) != 1 {
+		t.Fatalf("ensure requests = %d, want 1", len(process.ensureRequests))
+	}
+	req := process.ensureRequests[0]
+	wantArgs := "--context dev --kubeconfig /tmp/kubeconfig -n default port-forward --address 127.0.0.1 service/api 18080:80"
+	if strings.Join(req.Args, " ") != wantArgs {
+		t.Fatalf("args = %q, want %q", strings.Join(req.Args, " "), wantArgs)
+	}
+	if req.Command != "kubectl" || req.Label != "custom-label" {
+		t.Fatalf("process request = %#v, want kubectl custom-label", req)
+	}
+	if req.Metadata["resource"] != "service/api" || req.Metadata["remote_port"] != "80" {
+		t.Fatalf("metadata = %#v", req.Metadata)
+	}
+}
+func TestPortForwardInfersSingleServicePort(t *testing.T) {
+	process := &recordingProcess{}
+	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin.client = fake.NewSimpleClientset(&corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
+	})
+	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
+
+	result := portForwardOperation(plugin).Run(operation.NewContext(context.Background(), nil), portForwardInput{
+		Namespace: "default",
+		Kind:      "service",
+		Name:      "api",
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("Run status = %s error = %#v", result.Status, result.Error)
+	}
+	if len(process.ensureRequests) != 1 {
+		t.Fatalf("ensure requests = %d, want 1", len(process.ensureRequests))
+	}
+	args := strings.Join(process.ensureRequests[0].Args, " ")
+	if !strings.Contains(args, "service/api 8080:8080") {
+		t.Fatalf("args = %q, want inferred 8080:8080", args)
+	}
+}
+
+func TestPortForwardFailsWhenServicePortInferenceIsAmbiguous(t *testing.T) {
+	process := &recordingProcess{}
+	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin.client = fake.NewSimpleClientset(&corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"},
+		Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}, {Port: 443}}},
+	})
+	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
+
+	result := portForwardOperation(plugin).Run(operation.NewContext(context.Background(), nil), portForwardInput{
+		Namespace: "default",
+		Kind:      "service",
+		Name:      "api",
+	})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("Run status = %s, want failed", result.Status)
+	}
+	if result.Error == nil || !strings.Contains(result.Error.Message, "multiple ports") {
+		t.Fatalf("error = %#v, want multiple ports", result.Error)
+	}
+	if len(process.ensureRequests) != 0 {
+		t.Fatalf("ensure requests = %d, want 0", len(process.ensureRequests))
+	}
+}
+
+func TestPortForwardRejectsNamespaceOutsidePolicy(t *testing.T) {
+	process := &recordingProcess{}
+	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), process: process})
+	plugin.cfg = NormalizeConfig(Config{Namespaces: []string{"default"}})
+
+	result := portForwardOperation(plugin).Run(operation.NewContext(context.Background(), nil), portForwardInput{
+		Namespace:  "kube-system",
+		Name:       "api",
+		RemotePort: 80,
+	})
+	if result.Status != operation.StatusFailed {
+		t.Fatalf("Run status = %s, want failed", result.Status)
+	}
+	if len(process.ensureRequests) != 0 {
+		t.Fatalf("ensure requests = %d, want 0", len(process.ensureRequests))
+	}
+}
+
+func TestPortForwardIntentIncludesKubectlCommand(t *testing.T) {
+	intents, err := portForwardIntent(operation.NewContext(context.Background(), nil), portForwardInput{
+		Namespace:  "default",
+		Kind:       "svc",
+		Name:       "api",
+		RemotePort: 80,
+	})
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	if len(intents.Operations) != 1 {
+		t.Fatalf("operations = %d, want 1", len(intents.Operations))
+	}
+	target, ok := intents.Operations[0].Target.(operation.ProcessTarget)
+	if !ok {
+		t.Fatalf("target = %T, want operation.ProcessTarget", intents.Operations[0].Target)
+	}
+	if target.Command != "kubectl" || !strings.Contains(argumentsString(target.Args), "service/api") {
+		t.Fatalf("target = %#v", target)
+	}
+}
+
+func findOperation(t *testing.T, ops []operation.Operation, name string) operation.Operation {
+	t.Helper()
+	for _, op := range ops {
+		if string(op.Spec().Ref.Name) == name {
+			return op
+		}
+	}
+	t.Fatalf("operation %q not found", name)
+	return nil
+}
+
+func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
+	network := &recordingNetwork{
+		response: system.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
+	}
+	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), network: network})
+	client, err := plugin.httpClientForRestConfig(&rest.Config{Host: "https://cluster.example", BearerToken: "token"})
+	if err != nil {
+		t.Fatalf("httpClientForRestConfig: %v", err)
+	}
+
+	resp, err := client.Get("https://cluster.example/api/v1/namespaces/default/pods")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if len(network.requests) != 1 {
+		t.Fatalf("network requests = %d, want 1", len(network.requests))
+	}
+	req := network.requests[0]
+	if req.URL != "https://cluster.example/api/v1/namespaces/default/pods" {
+		t.Fatalf("url = %q", req.URL)
+	}
+	if req.Headers["Authorization"] != "Bearer token" {
+		t.Fatalf("authorization header = %q", req.Headers["Authorization"])
+	}
+}
+
+func argumentsString(args []operation.Argument) string {
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		parts = append(parts, string(arg))
+	}
+	return strings.Join(parts, " ")
+}
 
 func TestNormalizeConfigSplitsSortsAndDeduplicatesNamespaces(t *testing.T) {
 	cfg := NormalizeConfig(Config{Namespaces: []string{"platform, default", "platform", " kube-system "}})
@@ -226,6 +412,100 @@ func hasSignal(signals []coreenvironment.Signal, kind, target string) bool {
 		}
 	}
 	return false
+}
+
+type fakeSystem struct {
+	*systemtest.MemorySystem
+	process system.ProcessManager
+	network system.Network
+}
+
+func (s fakeSystem) Process() system.ProcessManager { return s.process }
+
+func (s fakeSystem) Network() system.Network {
+	if s.network != nil {
+		return s.network
+	}
+	return s.MemorySystem.Network()
+}
+
+type recordingProcess struct {
+	ensureRequests []system.ProcessRequest
+	handle         system.ProcessHandle
+	started        bool
+	err            error
+}
+
+type recordingNetwork struct {
+	requests []system.HTTPRequest
+	response system.HTTPResponse
+	err      error
+}
+
+func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+	n.requests = append(n.requests, req)
+	if n.err != nil {
+		return system.HTTPResponse{}, n.err
+	}
+	return n.response, nil
+}
+
+func (p *recordingProcess) Run(context.Context, system.ProcessRequest) (system.ProcessResult, error) {
+	return system.ProcessResult{}, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Ensure(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+	p.ensureRequests = append(p.ensureRequests, req)
+	if p.err != nil {
+		return nil, false, p.err
+	}
+	handle := p.handle
+	if handle == nil {
+		handle = fakeProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}
+	}
+	return handle, p.started, nil
+}
+
+func (p *recordingProcess) List(context.Context) ([]system.ProcessInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Status(context.Context, string) (system.ProcessInfo, error) {
+	return system.ProcessInfo{}, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Output(context.Context, string) (system.ProcessOutput, error) {
+	return system.ProcessOutput{}, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
+	return system.ProcessResult{}, errors.New("not implemented")
+}
+
+func (p *recordingProcess) Stop(context.Context, string) error { return errors.New("not implemented") }
+
+func (p *recordingProcess) Kill(context.Context, string) error { return errors.New("not implemented") }
+
+type fakeProcessHandle struct {
+	info system.ProcessInfo
+}
+
+func (h fakeProcessHandle) ID() string { return h.info.ID }
+
+func (h fakeProcessHandle) Info() system.ProcessInfo { return h.info }
+
+func (h fakeProcessHandle) Events() <-chan system.ProcessEvent {
+	ch := make(chan system.ProcessEvent)
+	close(ch)
+	return ch
+}
+
+func (h fakeProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
+	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }
 
 var _ = metav1.NamespaceDefault
