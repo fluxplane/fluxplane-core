@@ -300,7 +300,7 @@ func mergeRequestEntitySpec() coredatasource.EntitySpec {
 	entity.Detectors = []coredatasource.DetectorSpec{{
 		Name:          "gitlab_merge_request_url",
 		Kind:          coredatasource.DetectorURL,
-		Pattern:       `https?://[^\s<>"']+/([^/\s<>"']+/[^/\s<>"']+)/-/merge_requests/([0-9]+)(?:[/?#][^\s<>"']*)?`,
+		Pattern:       `https?://[^/\s<>"']+/([^\s<>"']+)/-/merge_requests/([0-9]+)(?:[/?#][^\s<>"']*)?`,
 		QueryTemplate: "$1!$2",
 		URLTemplate:   "$0",
 		Confidence:    0.9,

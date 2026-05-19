@@ -13,12 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated Kubernetes resources for app runtime MySQL/NATS backends, and
   Kubernetes Secrets generated from manifest-declared root workspace env files.
 
+- Added `coder datasource gitlab check` to diagnose GitLab datasource auth,
+  token metadata, merge-request diff access, and local index expectations from
+  an app directory.
+
 - Added Atlassian API-token env support for native Jira and Confluence auth,
   including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
   service-account bearer tokens and optional account-email Basic auth against
   site REST endpoints.
 
 ### Fixed
+- Preserved nested GitLab project paths when detecting merge request URLs so
+  links like `/ai/agents/slack-bot/-/merge_requests/2310` resolve to
+  `ai/agents/slack-bot!2310` instead of losing the parent namespace.
+
 - Routed native Confluence bearer-token sessions through Confluence's v1 REST
   endpoints so scoped service-account API tokens can read pages and spaces.
 

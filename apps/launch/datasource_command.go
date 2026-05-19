@@ -10,6 +10,7 @@ import (
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	"github.com/spf13/cobra"
 )
@@ -31,12 +32,24 @@ type datasourceIndexOptions struct {
 	dev            bool
 }
 
+type datasourceGitLabCheckOptions struct {
+	datasource   string
+	mergeRequest string
+	output       string
+	envFiles     []string
+	hostEnv      bool
+	storePath    string
+	provider     string
+	model        string
+}
+
 func NewDatasourceCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "datasource",
 		Short: "Manage configured datasources",
 	}
 	cmd.AddCommand(newDatasourceIndexCommand())
+	cmd.AddCommand(newDatasourceGitLabCommand())
 	return cmd
 }
 
@@ -49,6 +62,39 @@ func newDatasourceIndexCommand() *cobra.Command {
 	cmd.AddCommand(newDatasourceIndexEmbedCommand())
 	cmd.AddCommand(newDatasourceIndexStatusCommand())
 	cmd.AddCommand(newDatasourceIndexClearCommand())
+	return cmd
+}
+
+func newDatasourceGitLabCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gitlab",
+		Short: "Diagnose GitLab datasource access",
+	}
+	cmd.AddCommand(newDatasourceGitLabCheckCommand())
+	return cmd
+}
+
+func newDatasourceGitLabCheckCommand() *cobra.Command {
+	opts := datasourceGitLabCheckOptions{
+		datasource: gitlabplugin.Name,
+		envFiles:   []string{".env"},
+	}
+	cmd := &cobra.Command{
+		Use:   "check [app-dir]",
+		Short: "Check GitLab datasource credentials, MR diff access, and index status",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDatasourceGitLabCheck(cmd.Context(), opts, optionalAppDir(args), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&opts.datasource, "datasource", opts.datasource, "GitLab datasource name to select")
+	cmd.Flags().StringVar(&opts.mergeRequest, "mr", "", "merge request URL or project!iid to check")
+	cmd.Flags().StringVar(&opts.output, "output", "text", "output format: text or json")
+	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
+	cmd.Flags().BoolVar(&opts.hostEnv, "host-env", false, "allow host environment values to override env-file values")
+	cmd.Flags().StringVar(&opts.storePath, "store", "", "datasource index store path")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "embedding provider: axon, hash, or openai")
+	cmd.Flags().StringVar(&opts.model, "model", "", "embedding model id")
 	return cmd
 }
 

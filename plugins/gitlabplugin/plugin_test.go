@@ -3,6 +3,7 @@ package gitlabplugin
 import (
 	"context"
 	"encoding/base64"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -32,6 +33,20 @@ func TestPluginContributesNamedGitLabMROperation(t *testing.T) {
 	}
 	if bundle.Operations[0].Semantics.Risk != coreoperation.RiskHigh {
 		t.Fatalf("operation risk = %s, want high", bundle.Operations[0].Semantics.Risk)
+	}
+}
+
+func TestMergeRequestDetectorKeepsNestedProjectPath(t *testing.T) {
+	entity := mergeRequestEntitySpec()
+	if len(entity.Detectors) != 1 {
+		t.Fatalf("detectors len = %d, want 1", len(entity.Detectors))
+	}
+	matches := regexp.MustCompile(entity.Detectors[0].Pattern).FindStringSubmatch("https://gitlab.example.com/ai/agents/slack-bot/-/merge_requests/2310")
+	if len(matches) != 3 {
+		t.Fatalf("matches = %#v, want project path and iid captures", matches)
+	}
+	if matches[1] != "ai/agents/slack-bot" || matches[2] != "2310" {
+		t.Fatalf("captures = %#v, want nested project path and iid", matches)
 	}
 }
 
