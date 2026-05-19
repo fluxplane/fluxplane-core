@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	Name          = "slack"
-	ChannelSendOp = "channel_send"
+	Name             = "slack"
+	ChannelSendOp    = "channel_send"
+	ReportProgressOp = "slack_report_progress"
 )
 
 type slackClientFactory func(token, appToken string) *slack.Client
@@ -76,7 +77,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations:  []operation.Spec{p.channelSendSpec()},
+		Operations:  []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }
@@ -85,6 +86,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	p = p.withRef(ctx.Ref)
 	return []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](p.channelSendSpec(), p.channelSend),
+		operationruntime.NewTypedResult[reportProgressInput, reportProgressOutput](p.reportProgressSpec(), p.reportProgress),
 	}, nil
 }
 
@@ -145,7 +147,7 @@ func (p Plugin) newClient(token, appToken string) *slack.Client {
 func (p Plugin) channelSendSpec() operation.Spec {
 	return operationruntime.WithTypedContract[channelSendInput, channelSendOutput](operation.Spec{
 		Ref:         operation.Ref{Name: ChannelSendOp},
-		Description: "Send an intermediate message to the current Slack thread.",
+		Description: "Send a user-visible intermediate message to the current Slack thread. Prefer slack_report_progress for concise progress updates during long-running Slack requests.",
 		Semantics: operation.Semantics{
 			Determinism: operation.DeterminismNonDeterministic,
 			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal},
@@ -179,6 +181,49 @@ func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) opera
 		return operation.Failed("slack_channel_send_failed", err.Error(), nil)
 	}
 	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
+}
+
+func (p Plugin) reportProgressSpec() operation.Spec {
+	return operationruntime.WithTypedContract[reportProgressInput, reportProgressOutput](operation.Spec{
+		Ref:         operation.Ref{Name: ReportProgressOp},
+		Description: "Set concise, user-visible Slack assistant status for a long-running request. Use this in Slack turns when work takes more than a few seconds. Do not include secrets, raw tool inputs, or chain-of-thought.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+type reportProgressInput struct {
+	Status string `json:"status" jsonschema:"description=Short user-visible status to show in Slack.,required"`
+	Detail string `json:"detail,omitempty" jsonschema:"description=Optional concise progress detail safe for the user to see."`
+	Done   bool   `json:"done,omitempty" jsonschema:"description=Set true when this progress item is complete or the request is finishing."`
+}
+
+type reportProgressOutput struct {
+	Channel string `json:"channel,omitempty"`
+	Thread  string `json:"thread,omitempty"`
+}
+
+func (p Plugin) reportProgress(ctx operation.Context, input reportProgressInput) operation.Result {
+	target, ok := TargetFromContext(ctx)
+	if !ok {
+		return operation.Failed("slack_channel_missing", "slack_report_progress requires an active Slack channel turn", nil)
+	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		return operation.Failed("invalid_slack_report_progress_input", "status is required", nil)
+	}
+	if observer, ok := RunObserverFromContext(ctx); ok && observer != nil {
+		if input.Done {
+			observer.setStatus(ctx, "")
+		} else {
+			observer.setStatusImmediate(ctx, status)
+		}
+	}
+	return operation.OK(reportProgressOutput{Channel: target.ChannelID, Thread: target.ThreadTS})
 }
 
 func InvocationTarget() invocation.Target {

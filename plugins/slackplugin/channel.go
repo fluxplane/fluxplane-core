@@ -403,13 +403,15 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	if err != nil {
 		return err
 	}
-	turnCtx := ContextWithTarget(ctx, Target{
+	target := Target{
 		ChannelName: c.name,
 		ChannelID:   msg.ChannelID,
 		ThreadTS:    msg.ThreadTS,
 		UserID:      msg.UserID,
 		TeamID:      msg.TeamID,
-	})
+	}
+	observer := newRunObserver(c, target)
+	turnCtx := ContextWithRunObserver(ContextWithTarget(ctx, target), observer)
 	trust := c.access.TrustFor(msg)
 	run, err := session.Submit(turnCtx, clientapi.NewSubmission().
 		WithInput(clientapi.Input{
@@ -420,7 +422,6 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	if err != nil {
 		return err
 	}
-	observer := newRunObserver(c, Target{ChannelName: c.name, ChannelID: msg.ChannelID, ThreadTS: msg.ThreadTS, UserID: msg.UserID, TeamID: msg.TeamID})
 	observer.setStatus(turnCtx, slackWorkingStatus)
 	eventsDone := observer.Observe(run.Events())
 	result, err := run.Wait(turnCtx)

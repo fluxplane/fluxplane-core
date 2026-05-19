@@ -445,16 +445,53 @@ func TestRunObserverOperationEventsUseStatusNotTaskCards(t *testing.T) {
 	if strings.Contains(joined, "chat.startStream") || strings.Contains(joined, "task_update") {
 		t.Fatalf("operation status created task stream: %s", joined)
 	}
-	for _, want := range []string{"assistant.threads.setStatus", "is+working..."} {
+	for _, want := range []string{"assistant.threads.setStatus", "Searching+datasources..."} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("requests = %s\nmissing %q", joined, want)
 		}
 	}
-	if strings.Contains(joined, "searching+datasources") || strings.Contains(joined, "reading+a+datasource+record") {
+	if strings.Contains(joined, "reading+a+datasource+record") {
 		t.Fatalf("operation details leaked into Slack status: %s", joined)
 	}
-	if strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
+	if strings.Contains(joined, "DEV-381") || strings.Contains(joined, "secret") || strings.Contains(joined, "chain") {
 		t.Fatalf("requests leaked thinking text: %s", joined)
+	}
+}
+
+func TestRunObserverOperationEventsDoNotCreateProgressPanel(t *testing.T) {
+	server, requests := slackCaptureServer(t, nil)
+	defer server.Close()
+
+	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	observer := newRunObserver(&SlackChannel{name: "slack-main", api: api}, Target{ChannelID: "C1", ThreadTS: "111.222"})
+	observer.Handle(clientapi.Event{
+		Kind:  clientapi.EventOperationRequested,
+		RunID: "run-1",
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-1",
+			Operation: operation.Ref{Name: "web_search"},
+			Input:     map[string]any{"query": "private customer details"},
+		},
+	})
+	observer.Handle(clientapi.Event{
+		Kind:  clientapi.EventOperationRequested,
+		RunID: "run-1",
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-2",
+			Operation: operation.Ref{Name: "go_test"},
+		},
+	})
+	observer.Finish(context.Background(), "")
+
+	joined := joinSlackRequests(requests)
+	if strings.Contains(joined, "/chat.postMessage") || strings.Contains(joined, "/chat.update") {
+		t.Fatalf("requests = %s\nprogress panel should not be posted or updated", joined)
+	}
+	if !strings.Contains(joined, "/assistant.threads.setStatus") || !strings.Contains(joined, "Searching+the+web") {
+		t.Fatalf("requests = %s\nwant assistant status updates only", joined)
+	}
+	if strings.Contains(joined, "private") || strings.Contains(joined, "customer") {
+		t.Fatalf("operation status leaked raw operation input: %s", joined)
 	}
 }
 

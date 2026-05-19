@@ -22,7 +22,7 @@ const (
 	streamFlushInterval = 300 * time.Millisecond
 	statusMinInterval   = 800 * time.Millisecond
 	slackAppendRetries  = 2
-	slackWorkingStatus  = "is working..."
+	slackWorkingStatus  = "Working on your request..."
 )
 
 type runSummary struct {
@@ -52,6 +52,25 @@ type runObserver struct {
 	summary       runSummary
 	activeTasks   map[string]bool
 	appendFailed  bool
+}
+type runObserverKey struct{}
+
+func ContextWithRunObserver(ctx context.Context, observer *runObserver) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if observer == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, runObserverKey{}, observer)
+}
+
+func RunObserverFromContext(ctx context.Context) (*runObserver, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	observer, ok := ctx.Value(runObserverKey{}).(*runObserver)
+	return observer, ok && observer != nil
 }
 
 func newRunObserver(channel *SlackChannel, target Target) *runObserver {
@@ -169,8 +188,9 @@ func (o *runObserver) handleOperationRequested(event clientapi.Event) {
 	o.summary.OperationEvents++
 	o.mu.Unlock()
 	name := event.Operation.Operation.String()
+	status := slackOperationStatus(event.Operation.Operation)
 	slog.Info("slack run tool start", "channel", o.channel.name, "run", event.RunID, "tool", name, "input", compactValue(event.Operation.Input, 320))
-	o.setStatus(context.Background(), slackWorkingStatus)
+	o.setStatusImmediate(context.Background(), status)
 }
 
 func (o *runObserver) handleOperationCompleted(event clientapi.Event) {
@@ -480,7 +500,7 @@ func (o *runObserver) handleModelStream(runID clientapi.RunID, event llmagent.St
 	case llmagent.StreamToolCallDelta:
 		if event.Final {
 			slog.Info("slack run model tool call", "channel", o.channel.name, "run", runID, "tool", event.Tool)
-			o.setStatus(context.Background(), slackWorkingStatus)
+			o.setStatusImmediate(context.Background(), slackToolCallStatus(string(event.Tool)))
 		} else if o.channel.debug && strings.TrimSpace(event.Text) != "" {
 			slog.Debug("slack run tool args delta", "channel", o.channel.name, "run", runID, "tool", event.Tool, "args", compactText(event.Text, 240))
 		}
@@ -690,7 +710,50 @@ func (o *runObserver) finalMarkdownPatch(finalMarkdown string, flushErr error) s
 	return ""
 }
 
+func slackOperationStatus(ref operation.Ref) string {
+	switch ref.Name {
+	case "datasource_search":
+		return "Searching datasources..."
+	case "datasource_get", "datasource_batch_get", "datasource_list":
+		return "Reading datasource records..."
+	case "web_search":
+		return "Searching the web..."
+	case "web_request":
+		return "Fetching web content..."
+	case "file_read", "grep", "glob", "dir_list", "dir_tree", "project_files":
+		return "Inspecting workspace files..."
+	case "file_create", "file_edit", "file_move", "file_copy":
+		return "Updating workspace files..."
+	case "go_test":
+		return "Running Go tests..."
+	case "go_build":
+		return "Building Go packages..."
+	case "go_fmt":
+		return "Formatting Go code..."
+	case "go_vet":
+		return "Running Go vet..."
+	case "shell_exec", "process_start", "project_task_run":
+		return "Running a command..."
+	case "task_create", "task_modify", "task_run", "task_get", "task_list":
+		return "Updating task state..."
+	default:
+		return slackWorkingStatus
+	}
+}
+
+func slackToolCallStatus(tool string) string {
+	return slackOperationStatus(operation.Ref{Name: operation.Name(tool)})
+}
+
+func (o *runObserver) setStatusImmediate(ctx context.Context, status string) {
+	o.setStatusWithThrottle(ctx, status, false)
+}
+
 func (o *runObserver) setStatus(ctx context.Context, status string) {
+	o.setStatusWithThrottle(ctx, status, true)
+}
+
+func (o *runObserver) setStatusWithThrottle(ctx context.Context, status string, throttle bool) {
 	if o == nil || o.channel == nil || o.channel.api == nil || o.target.ChannelID == "" || o.target.ThreadTS == "" {
 		return
 	}
@@ -704,7 +767,7 @@ func (o *runObserver) setStatus(ctx context.Context, status string) {
 		o.mu.Unlock()
 		return
 	}
-	if status != "" && !o.statusUpdated.IsZero() && now.Sub(o.statusUpdated) < statusMinInterval {
+	if throttle && status != "" && !o.statusUpdated.IsZero() && now.Sub(o.statusUpdated) < statusMinInterval {
 		o.mu.Unlock()
 		return
 	}
