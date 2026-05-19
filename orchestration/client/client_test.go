@@ -6,6 +6,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 )
 
@@ -80,17 +81,31 @@ func TestSubmissionBuilderWithCommand(t *testing.T) {
 	}
 }
 
+func TestSubmissionBuilderWithOperation(t *testing.T) {
+	submission := NewSubmission().WithOperation(operation.Ref{Name: "echo"}, "hello")
+	if submission.Kind != SubmissionOperation {
+		t.Fatalf("kind = %q, want operation", submission.Kind)
+	}
+	if submission.Operation == nil || submission.Operation.Operation.Name != "echo" || submission.Operation.Input != "hello" {
+		t.Fatalf("operation = %#v, want echo hello", submission.Operation)
+	}
+	if err := submission.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
 func TestSubmissionBuilderPayloadSettersClearPreviousPayloads(t *testing.T) {
 	submission := NewSubmission().
 		WithText("hello").
 		WithCommand(command.Invocation{Path: command.Path{"echo"}}).
+		WithOperation(operation.Ref{Name: "echo"}, "hello").
 		WithEvent(testEvent{}).
 		WithSignal(Signal{Name: "timer.tick"})
 	if submission.Kind != SubmissionSignal {
 		t.Fatalf("kind = %q, want signal", submission.Kind)
 	}
-	if submission.Input != nil || submission.Command != nil || submission.Event != nil {
-		t.Fatalf("cleared payloads input=%#v command=%#v event=%#v", submission.Input, submission.Command, submission.Event)
+	if submission.Input != nil || submission.Command != nil || submission.Operation != nil || submission.Event != nil {
+		t.Fatalf("cleared payloads input=%#v command=%#v operation=%#v event=%#v", submission.Input, submission.Command, submission.Operation, submission.Event)
 	}
 	if submission.Signal == nil || submission.Signal.Name != "timer.tick" {
 		t.Fatalf("signal = %#v, want timer.tick", submission.Signal)

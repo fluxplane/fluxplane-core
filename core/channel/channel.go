@@ -5,6 +5,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/user"
 )
@@ -71,24 +72,41 @@ type Message struct {
 type InboundKind string
 
 const (
-	InboundMessage InboundKind = "message"
-	InboundCommand InboundKind = "command"
-	InboundEvent   InboundKind = "event"
+	InboundMessage   InboundKind = "message"
+	InboundCommand   InboundKind = "command"
+	InboundOperation InboundKind = "operation"
+	InboundEvent     InboundKind = "event"
 )
+
+// OperationInvocation is a direct operation submission entering a session
+// through a channel.
+type OperationInvocation struct {
+	Operation operation.Ref   `json:"operation"`
+	Input     operation.Value `json:"input,omitempty"`
+}
+
+// Validate checks that the invocation names an operation.
+func (i OperationInvocation) Validate() error {
+	if i.Operation.Name == "" {
+		return fmt.Errorf("channel: operation invocation name is empty")
+	}
+	return nil
+}
 
 // Inbound is the normalized envelope for external input entering the runtime.
 type Inbound struct {
-	ID            string              `json:"id,omitempty"`
-	Channel       Ref                 `json:"channel,omitempty"`
-	Conversation  ConversationRef     `json:"conversation,omitempty"`
-	Caller        policy.Caller       `json:"caller,omitempty"`
-	Trust         policy.Trust        `json:"trust,omitempty"`
-	Actor         *user.Actor         `json:"actor,omitempty"`
-	Kind          InboundKind         `json:"kind"`
-	Message       *Message            `json:"message,omitempty"`
-	Command       *command.Invocation `json:"command,omitempty"`
-	Event         event.Event         `json:"event,omitempty"`
-	CorrelationID string              `json:"correlation_id,omitempty"`
+	ID            string               `json:"id,omitempty"`
+	Channel       Ref                  `json:"channel,omitempty"`
+	Conversation  ConversationRef      `json:"conversation,omitempty"`
+	Caller        policy.Caller        `json:"caller,omitempty"`
+	Trust         policy.Trust         `json:"trust,omitempty"`
+	Actor         *user.Actor          `json:"actor,omitempty"`
+	Kind          InboundKind          `json:"kind"`
+	Message       *Message             `json:"message,omitempty"`
+	Command       *command.Invocation  `json:"command,omitempty"`
+	Operation     *OperationInvocation `json:"operation,omitempty"`
+	Event         event.Event          `json:"event,omitempty"`
+	CorrelationID string               `json:"correlation_id,omitempty"`
 }
 
 // Validate checks that the inbound envelope has exactly the payload required by
@@ -108,6 +126,14 @@ func (i Inbound) Validate() error {
 			return err
 		}
 		return rejectInboundExtras(i, "command")
+	case InboundOperation:
+		if i.Operation == nil {
+			return fmt.Errorf("channel: inbound operation payload is nil")
+		}
+		if err := i.Operation.Validate(); err != nil {
+			return err
+		}
+		return rejectInboundExtras(i, "operation")
 	case InboundEvent:
 		if i.Event == nil {
 			return fmt.Errorf("channel: inbound event payload is nil")
@@ -171,6 +197,9 @@ func rejectInboundExtras(inbound Inbound, expected string) error {
 	}
 	if expected != "command" && inbound.Command != nil {
 		return fmt.Errorf("channel: inbound %s cannot also carry command", expected)
+	}
+	if expected != "operation" && inbound.Operation != nil {
+		return fmt.Errorf("channel: inbound %s cannot also carry operation", expected)
 	}
 	if expected != "event" && inbound.Event != nil {
 		return fmt.Errorf("channel: inbound %s cannot also carry event", expected)

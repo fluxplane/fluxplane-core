@@ -103,12 +103,13 @@ type submitRequest struct {
 }
 
 type remoteSubmission struct {
-	ID             clientapi.RunID           `json:"id,omitempty"`
-	Kind           clientapi.SubmissionKind  `json:"kind"`
-	Input          *clientapi.Input          `json:"input,omitempty"`
-	Command        *command.Invocation       `json:"command,omitempty"`
-	TrustDowngrade *clientapi.TrustDowngrade `json:"trust_downgrade,omitempty"`
-	Metadata       map[string]any            `json:"metadata,omitempty"`
+	ID             clientapi.RunID                `json:"id,omitempty"`
+	Kind           clientapi.SubmissionKind       `json:"kind"`
+	Input          *clientapi.Input               `json:"input,omitempty"`
+	Command        *command.Invocation            `json:"command,omitempty"`
+	Operation      *clientapi.OperationInvocation `json:"operation,omitempty"`
+	TrustDowngrade *clientapi.TrustDowngrade      `json:"trust_downgrade,omitempty"`
+	Metadata       map[string]any                 `json:"metadata,omitempty"`
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
@@ -167,6 +168,7 @@ func (s *Server) normalizeRemoteSubmission(remote remoteSubmission) (clientapi.S
 		Kind:           remote.Kind,
 		Input:          remote.Input,
 		Command:        remote.Command,
+		Operation:      remote.Operation,
 		TrustDowngrade: remote.TrustDowngrade,
 		Metadata:       remote.Metadata,
 	}

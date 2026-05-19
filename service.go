@@ -42,6 +42,7 @@ type (
 	RunID                    = clientapi.RunID
 	SubmissionKind           = clientapi.SubmissionKind
 	Submission               = clientapi.Submission
+	OperationInvocation      = clientapi.OperationInvocation
 	TrustDowngrade           = clientapi.TrustDowngrade
 	Input                    = clientapi.Input
 	Signal                   = clientapi.Signal
@@ -67,10 +68,11 @@ type (
 )
 
 const (
-	SubmissionInput   = clientapi.SubmissionInput
-	SubmissionCommand = clientapi.SubmissionCommand
-	SubmissionEvent   = clientapi.SubmissionEvent
-	SubmissionSignal  = clientapi.SubmissionSignal
+	SubmissionInput     = clientapi.SubmissionInput
+	SubmissionCommand   = clientapi.SubmissionCommand
+	SubmissionOperation = clientapi.SubmissionOperation
+	SubmissionEvent     = clientapi.SubmissionEvent
+	SubmissionSignal    = clientapi.SubmissionSignal
 
 	EventSubmissionReceived = clientapi.EventSubmissionReceived
 	EventInputCompleted     = clientapi.EventInputCompleted

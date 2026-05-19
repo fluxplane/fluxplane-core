@@ -366,6 +366,31 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Outbound:   result.Outbound,
 		}, nil)
 		waitForForward = true
+	case clientapi.SubmissionOperation:
+		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
+			ID:           string(r.id),
+			Channel:      info.Channel,
+			Conversation: info.Conversation,
+			Caller:       r.submission.Caller,
+			Trust:        r.submission.Trust,
+			Kind:         channel.InboundOperation,
+			Operation: &channel.OperationInvocation{
+				Operation: r.submission.Operation.Operation,
+				Input:     r.submission.Operation.Input,
+			},
+		})
+		if err != nil {
+			r.fail(info, err)
+			return
+		}
+		r.setResult(clientapi.Result{
+			RunID:      r.id,
+			Session:    info,
+			Submission: r.submission,
+			Operation:  &result.Operation,
+			Outbound:   result.Outbound,
+		}, nil)
+		waitForForward = true
 	case clientapi.SubmissionEvent, clientapi.SubmissionSignal:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:

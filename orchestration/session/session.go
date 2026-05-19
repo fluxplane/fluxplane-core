@@ -313,6 +313,23 @@ type InputResult struct {
 	Error    *CommandError              `json:"error,omitempty"`
 }
 
+// OperationStatus classifies the outcome of direct operation dispatch.
+type OperationStatus string
+
+const (
+	OperationStatusOK     OperationStatus = "ok"
+	OperationStatusFailed OperationStatus = "failed"
+)
+
+// OperationResult is the structured outcome of direct session operation
+// dispatch.
+type OperationResult struct {
+	Status    OperationStatus           `json:"status"`
+	Operation operation.Ref             `json:"operation"`
+	Effect    *environment.EffectResult `json:"effect,omitempty"`
+	Error     *CommandError             `json:"error,omitempty"`
+}
+
 type inputExecutionOptions struct {
 	Goal             string
 	MaxContinuations int
@@ -1939,6 +1956,51 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	return CommandResult{Status: status, Spec: spec, Policy: evaluation, Effect: &effect}
 }
 
+// ExecuteInboundOperation dispatches a direct channel operation envelope through
+// the session operation executor.
+func (s Session) ExecuteInboundOperation(ctx context.Context, inbound channel.Inbound) OperationResult {
+	if err := inbound.Validate(); err != nil {
+		return operationFailed("invalid_operation_inbound", err.Error(), nil)
+	}
+	if inbound.Kind != channel.InboundOperation || inbound.Operation == nil {
+		return operationFailed("invalid_operation_inbound", "inbound envelope does not contain an operation", nil)
+	}
+	if s.Operations == nil && len(s.OperationCatalog) == 0 {
+		return operationFailed("operation_registry_missing", "operation registry is nil", nil)
+	}
+	opCtx := operation.NewContext(ensureContext(ctx), s.eventSink())
+	callID := operationCallID(inbound.ID, 1)
+	requested := sessionenv.OperationRequested{
+		RunID:     inbound.ID,
+		CallID:    callID,
+		Operation: inbound.Operation.Operation,
+		Input:     inbound.Operation.Input,
+	}
+	if err := s.appendThreadEvents(ctx, requested); err != nil {
+		return operationFailed("thread_append_failed", err.Error(), nil)
+	}
+	s.emitLive(requested)
+	effect := s.applyOperation(opCtx, inbound.Operation.Operation, inbound.Operation.Input, callID)
+	completed := sessionenv.OperationCompleted{
+		RunID:     inbound.ID,
+		CallID:    callID,
+		Operation: inbound.Operation.Operation,
+		Result:    effect.Result,
+	}
+	if err := s.appendThreadEvents(ctx, completed, sessionenv.OutboundProduced{
+		RunID:   inbound.ID,
+		Message: outboundMessageForOperationResult(effect.Result),
+	}); err != nil {
+		return operationFailed("thread_append_failed", err.Error(), nil)
+	}
+	s.emitLive(completed)
+	status := OperationStatusOK
+	if effect.Result.IsError() {
+		status = OperationStatusFailed
+	}
+	return OperationResult{Status: status, Operation: inbound.Operation.Operation, Effect: &effect}
+}
+
 func (s Session) executeTargetSessionCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
 	if s.SessionAgents == nil {
 		return commandFailed("session_target_unavailable", "session-targeted command requires a session-agent runner", map[string]any{
@@ -3059,6 +3121,13 @@ func agentError(err *agent.Error) *CommandError {
 func commandFailed(code, message string, details map[string]any) CommandResult {
 	return CommandResult{
 		Status: CommandStatusFailed,
+		Error:  &CommandError{Code: code, Message: message, Details: details},
+	}
+}
+
+func operationFailed(code, message string, details map[string]any) OperationResult {
+	return OperationResult{
+		Status: OperationStatusFailed,
 		Error:  &CommandError{Code: code, Message: message, Details: details},
 	}
 }

@@ -221,10 +221,11 @@ func (s *Service) ListSessions(_ context.Context, req ListSessionsRequest) ([]Se
 
 // InboundResult is the result of handling one normalized channel input.
 type InboundResult struct {
-	Session  SessionInfo
-	Input    session.InputResult
-	Command  session.CommandResult
-	Outbound *channel.Outbound
+	Session   SessionInfo
+	Input     session.InputResult
+	Command   session.CommandResult
+	Operation session.OperationResult
+	Outbound  *channel.Outbound
 }
 
 // HandleInbound resolves the target session for an inbound channel envelope and
@@ -280,6 +281,8 @@ func (s *Service) HandleSessionInbound(ctx context.Context, info SessionInfo, in
 		return s.handleInput(ctx, info, normalized)
 	case channel.InboundCommand:
 		return s.handleCommand(ctx, info, normalized)
+	case channel.InboundOperation:
+		return s.handleOperation(ctx, info, normalized)
 	default:
 		return InboundResult{Session: info}, fmt.Errorf("harness: inbound kind %q is not executable yet", normalized.Kind)
 	}
@@ -517,6 +520,57 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	return InboundResult{Session: info, Command: result, Outbound: outbound}, nil
 }
 
+func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {
+	runID := clientapi.RunID(inbound.ID)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:       clientapi.EventSubmissionReceived,
+		RunID:      runID,
+		Session:    toClientSessionInfo(info),
+		Submission: submissionForInbound(normalizedSubmissionOperation, runID, inbound),
+	})
+	profile, _, _ := s.profileForInfo(info)
+	runtimeFailures := &runtimeEventPersistenceFailures{}
+	exec := session.Session{
+		Agent:             s.agent,
+		Profile:           profile,
+		Commands:          s.commands,
+		Operations:        s.operations,
+		Resolver:          s.resolver,
+		CommandCatalog:    s.commandCatalog,
+		OperationCatalog:  s.operationCatalog,
+		WorkflowCatalog:   s.workflowCatalog,
+		OperationExecutor: s.executorForInfo(info),
+		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
+		ThreadStore:       s.threadStore,
+		Thread:            info.Thread,
+		SessionAgents:     s.currentSessionAgents(),
+		Delegation:        s.delegationForInfo(info),
+		StopEvaluator:     s.stopEvaluator,
+		RunID:             string(runID),
+		Security:          s.security,
+		SecurityTrace:     s.securityTrace,
+	}
+	result := exec.ExecuteInboundOperation(ctx, inbound)
+	if err := runtimeFailures.Err(); err != nil {
+		return InboundResult{Session: info, Operation: result}, err
+	}
+	outbound := operationOutbound(inbound, result)
+	if outbound != nil {
+		s.publish(info.Thread.ID, clientapi.Event{
+			Kind:     clientapi.EventOutboundProduced,
+			RunID:    runID,
+			Session:  toClientSessionInfo(info),
+			Outbound: outbound,
+		})
+	}
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventRunCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
+	return InboundResult{Session: info, Operation: result, Outbound: outbound}, nil
+}
+
 func (s *Service) agentForSession(ctx context.Context, info SessionInfo) (agent.Agent, error) {
 	if s == nil || s.agentProvider == nil || info.Session.Name == "" {
 		return s.agent, nil
@@ -573,11 +627,35 @@ func commandOutbound(inbound channel.Inbound, result session.CommandResult) *cha
 	return &out
 }
 
+func operationOutbound(inbound channel.Inbound, result session.OperationResult) *channel.Outbound {
+	out := channel.Outbound{
+		Channel:       inbound.Channel,
+		Conversation:  inbound.Conversation,
+		CorrelationID: inbound.CorrelationID,
+		CausationID:   inbound.ID,
+		Kind:          channel.OutboundMessage,
+	}
+	switch {
+	case result.Effect != nil:
+		content := result.Effect.Result.Output
+		if result.Effect.Result.IsError() && result.Effect.Result.Error != nil {
+			content = result.Effect.Result.Error.Message
+		}
+		out.Message = &channel.Message{Content: content}
+	case result.Error != nil:
+		out.Message = &channel.Message{Content: result.Error.Message}
+	default:
+		out.Message = &channel.Message{Content: string(result.Status)}
+	}
+	return &out
+}
+
 type normalizedSubmissionKind int
 
 const (
 	normalizedSubmissionInput normalizedSubmissionKind = iota
 	normalizedSubmissionCommand
+	normalizedSubmissionOperation
 )
 
 func submissionForInbound(kind normalizedSubmissionKind, runID clientapi.RunID, inbound channel.Inbound) *clientapi.Submission {
@@ -598,6 +676,14 @@ func submissionForInbound(kind normalizedSubmissionKind, runID clientapi.RunID, 
 	case normalizedSubmissionCommand:
 		submission.Kind = clientapi.SubmissionCommand
 		submission.Command = inbound.Command
+	case normalizedSubmissionOperation:
+		submission.Kind = clientapi.SubmissionOperation
+		if inbound.Operation != nil {
+			submission.Operation = &clientapi.OperationInvocation{
+				Operation: inbound.Operation.Operation,
+				Input:     inbound.Operation.Input,
+			}
+		}
 	}
 	return &submission
 }

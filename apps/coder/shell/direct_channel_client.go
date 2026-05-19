@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/operation"
 )
 
 // DirectChannelClient adapts the agentruntime direct channel API to ShellClient.
@@ -80,7 +81,7 @@ func (c *DirectChannelClient) CloseSession(ctx context.Context, sessionID string
 func (c *DirectChannelClient) SubmitCommand(ctx context.Context, sessionID string, req CommandRequest) ([]TranscriptEvent, error) {
 	line := strings.TrimSpace(req.Line)
 	start := TranscriptEvent{ID: newEventID("cmd-start"), SessionID: sessionID, Time: time.Now(), Kind: EventCommandStarted, Summary: line, Data: map[string]string{"cwd": req.CWD}}
-	invocation, err := shellCommandInvocation(line, req.CWD)
+	invocation, err := shellOperationInvocation(line, req.CWD)
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -88,7 +89,7 @@ func (c *DirectChannelClient) SubmitCommand(ctx context.Context, sessionID strin
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -158,8 +159,27 @@ func (c *DirectChannelClient) sessionHandle(sessionID string) (agentruntime.Sess
 func transcriptEventsForResult(sessionID string, result agentruntime.Result, outputKind TranscriptKind, completeKind TranscriptKind) []TranscriptEvent {
 	now := time.Now()
 	events := []TranscriptEvent{}
+	hasOutbound := false
 	if result.Outbound != nil && result.Outbound.Message != nil {
 		events = append(events, TranscriptEvent{ID: newEventID("out"), SessionID: sessionID, Time: now, Kind: outputKind, Summary: fmt.Sprint(result.Outbound.Message.Content)})
+		hasOutbound = true
+	}
+	if result.Operation != nil {
+		summary := string(result.Operation.Status)
+		if result.Operation.Error != nil {
+			return append(events, TranscriptEvent{ID: newEventID("op-error"), SessionID: sessionID, Time: now, Kind: EventError, Summary: result.Operation.Error.Message})
+		}
+		if !hasOutbound && result.Operation.Effect != nil {
+			effect := result.Operation.Effect.Result
+			if effect.IsError() && effect.Error != nil {
+				return append(events, TranscriptEvent{ID: newEventID("op-error"), SessionID: sessionID, Time: now, Kind: EventError, Summary: effect.Error.Message})
+			}
+			if text := operationResultText(effect); strings.TrimSpace(text) != "" {
+				events = append(events, TranscriptEvent{ID: newEventID("op-out"), SessionID: sessionID, Time: now, Kind: outputKind, Summary: text})
+			}
+		}
+		events = append(events, TranscriptEvent{ID: newEventID("op-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		return events
 	}
 	if result.Command != nil {
 		summary := string(result.Command.Status)
@@ -177,6 +197,16 @@ func transcriptEventsForResult(sessionID string, result agentruntime.Result, out
 		events = append(events, TranscriptEvent{ID: newEventID("input-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
 	}
 	return events
+}
+
+func operationResultText(result operation.Result) string {
+	if result.Output == nil {
+		return ""
+	}
+	if rendered, ok := result.Output.(operation.ModelRenderable); ok {
+		return rendered.ModelText()
+	}
+	return fmt.Sprint(result.Output)
 }
 
 func parseSlashInvocation(line string) (command.Invocation, error) {
@@ -275,16 +305,16 @@ func newRemoteDirectChannelClient(endpoint string) (ShellClient, error) {
 	}), nil
 }
 
-func shellCommandInvocation(line string, cwd string) (command.Invocation, error) {
+func shellOperationInvocation(line string, cwd string) (agentruntime.OperationInvocation, error) {
 	fields, err := splitShellFields(line)
 	if err != nil {
-		return command.Invocation{}, err
+		return agentruntime.OperationInvocation{}, err
 	}
 	if len(fields) == 0 {
-		return command.Invocation{}, fmt.Errorf("shell command is empty")
+		return agentruntime.OperationInvocation{}, fmt.Errorf("shell command is empty")
 	}
-	return command.Invocation{
-		Path: command.Path{"shell", "exec"},
+	return agentruntime.OperationInvocation{
+		Operation: operation.Ref{Name: "shell_exec"},
 		Input: map[string]any{
 			"command": fields[0],
 			"args":    fields[1:],

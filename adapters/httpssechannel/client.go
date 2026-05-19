@@ -308,6 +308,7 @@ func remoteSubmissionFromClient(submission clientapi.Submission) remoteSubmissio
 		Kind:           submission.Kind,
 		Input:          submission.Input,
 		Command:        submission.Command,
+		Operation:      submission.Operation,
 		TrustDowngrade: submission.TrustDowngrade,
 		Metadata:       submission.Metadata,
 	}

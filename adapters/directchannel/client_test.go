@@ -89,6 +89,54 @@ func TestClientSendsCommandThroughHarness(t *testing.T) {
 sawSessionOutbound:
 }
 
+func TestClientSendsOperationThroughHarness(t *testing.T) {
+	ctx := context.Background()
+	client := testClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-operation"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithOperation(operation.Ref{Name: "echo"}, "hello"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Operation == nil {
+		t.Fatal("Operation is nil")
+	}
+	if result.Operation.Status != session.OperationStatusOK {
+		t.Fatalf("status = %s", result.Operation.Status)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+	seenSubmission := false
+	seenOperationCompleted := false
+	for event := range run.Events() {
+		if event.Kind == clientapi.EventSubmissionReceived {
+			seenSubmission = true
+			if event.Submission == nil || event.Submission.Operation == nil || event.Submission.Operation.Operation.Name != "echo" {
+				t.Fatalf("submission event = %#v", event)
+			}
+		}
+		if event.Kind == clientapi.EventOperationCompleted {
+			seenOperationCompleted = true
+		}
+	}
+	if !seenSubmission {
+		t.Fatal("expected operation submission event")
+	}
+	if !seenOperationCompleted {
+		t.Fatal("expected operation completed event")
+	}
+}
+
 func TestSessionSubmitInputReturnsRunHandle(t *testing.T) {
 	ctx := context.Background()
 	client := testClient(t)

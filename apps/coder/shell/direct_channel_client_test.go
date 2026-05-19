@@ -7,6 +7,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/operation"
 )
 
 func TestDirectChannelClientCreatesSessionAndConnectionDescription(t *testing.T) {
@@ -54,6 +55,47 @@ func TestDirectChannelClientSubmitAskUsesChannelClient(t *testing.T) {
 	}
 }
 
+func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "shell_exec"}}, func(_ operation.Context, input operation.Value) operation.Result {
+		payload, ok := input.(map[string]any)
+		if !ok {
+			return operation.Failed("bad_input", "input was not a map", nil)
+		}
+		if payload["command"] != "go" || payload["workdir"] != "/workspace" {
+			return operation.Failed("bad_input", fmt.Sprintf("input = %#v", payload), nil)
+		}
+		return operation.OK("ran")
+	})); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	service, err := agentruntime.New(agentruntime.Config{Operations: ops})
+	if err != nil {
+		t.Fatalf("agentruntime.New() error = %v", err)
+	}
+	client := NewDirectChannelClient(DirectChannelClientOptions{Client: service})
+	info, err := client.CreateSession(context.Background(), CreateSessionRequest{CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	events, err := client.SubmitCommand(context.Background(), info.ID, CommandRequest{Line: "go test ./apps/coder", CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("SubmitCommand() error = %v", err)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events = %#v, want start output complete", events)
+	}
+	if events[0].Kind != EventCommandStarted {
+		t.Fatalf("events[0] = %#v", events[0])
+	}
+	if events[1].Kind != EventCommandOutput || events[1].Summary != "ran" {
+		t.Fatalf("events[1] = %#v", events[1])
+	}
+	if events[2].Kind != EventCommandComplete || events[2].Summary != "ok" {
+		t.Fatalf("events[2] = %#v", events[2])
+	}
+}
+
 func TestParseSlashInvocation(t *testing.T) {
 	inv, err := parseSlashInvocation("/echo 'hello world'")
 	if err != nil {
@@ -67,13 +109,13 @@ func TestParseSlashInvocation(t *testing.T) {
 	}
 }
 
-func TestShellCommandInvocationTargetsRegisteredCoderCommand(t *testing.T) {
-	inv, err := shellCommandInvocation("go test ./apps/coder", "/workspace")
+func TestShellOperationInvocationTargetsShellExecOperation(t *testing.T) {
+	inv, err := shellOperationInvocation("go test ./apps/coder", "/workspace")
 	if err != nil {
-		t.Fatalf("shellCommandInvocation() error = %v", err)
+		t.Fatalf("shellOperationInvocation() error = %v", err)
 	}
-	if inv.Path.String() != "/shell/exec" {
-		t.Fatalf("path = %q, want /shell/exec", inv.Path.String())
+	if inv.Operation.Name != "shell_exec" {
+		t.Fatalf("operation = %q, want shell_exec", inv.Operation.Name)
 	}
 	input, ok := inv.Input.(map[string]any)
 	if !ok {

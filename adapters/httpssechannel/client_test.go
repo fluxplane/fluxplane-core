@@ -136,6 +136,33 @@ func TestClientSendsCommandThroughHTTPAndSSE(t *testing.T) {
 	assertRemoteRunEvent(t, run, clientapi.EventCommandCompleted)
 }
 
+func TestClientSendsOperationThroughHTTPAndSSE(t *testing.T) {
+	ctx := context.Background()
+	client := testRemoteClient(t)
+	sessionHandle, err := client.Open(ctx, clientapi.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-operation"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	run, err := sessionHandle.Submit(ctx, clientapi.NewSubmission().WithOperation(operation.Ref{Name: "echo"}, "hello"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	result, err := run.Wait(ctx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Operation == nil || result.Operation.Status != session.OperationStatusOK {
+		t.Fatalf("operation result = %#v", result.Operation)
+	}
+	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
+		t.Fatalf("outbound = %#v", result.Outbound)
+	}
+	assertRemoteRunEvent(t, run, clientapi.EventOperationCompleted)
+}
+
 func TestClientRoundTripsOperationLifecycleWithCallIDs(t *testing.T) {
 	ctx := context.Background()
 	client := testRemoteClient(t)

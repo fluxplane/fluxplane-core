@@ -87,6 +87,38 @@ func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundOperationDispatchesOperation(t *testing.T) {
+	opRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(input)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+
+	result := (Session{
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+	}).ExecuteInboundOperation(context.Background(), channel.Inbound{
+		ID:   "run-1",
+		Kind: channel.InboundOperation,
+		Operation: &channel.OperationInvocation{
+			Operation: opRef,
+			Input:     "hello",
+		},
+	})
+
+	if result.Status != OperationStatusOK {
+		t.Fatalf("status = %q, want %q: %#v", result.Status, OperationStatusOK, result)
+	}
+	if result.Operation.Name != "echo" {
+		t.Fatalf("operation = %#v, want echo", result.Operation)
+	}
+	if result.Effect == nil || result.Effect.Result.Output != "hello" {
+		t.Fatalf("effect = %#v, want hello", result.Effect)
+	}
+}
+
 func TestExecuteInboundCommandLeavesOversizedOperationResult(t *testing.T) {
 	large := strings.Repeat("large command result ", 800)
 	opRef := operation.Ref{Name: "echo"}

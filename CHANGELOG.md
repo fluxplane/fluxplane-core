@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added first-class channel operation submissions and wired `coder shell`
+  command execution through direct `shell_exec` operation calls.
 - Added OpenRouter defaults for generated Docker Compose app deployments,
   including `OPENROUTER_API_KEY` process-env injection and medium reasoning
   effort in generated app serve commands.

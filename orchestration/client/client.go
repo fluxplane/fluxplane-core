@@ -96,22 +96,39 @@ const DefaultRunEventBuffer = 1024
 type SubmissionKind string
 
 const (
-	SubmissionInput   SubmissionKind = "input"
-	SubmissionCommand SubmissionKind = "command"
-	SubmissionEvent   SubmissionKind = "event"
-	SubmissionSignal  SubmissionKind = "signal"
+	SubmissionInput     SubmissionKind = "input"
+	SubmissionCommand   SubmissionKind = "command"
+	SubmissionOperation SubmissionKind = "operation"
+	SubmissionEvent     SubmissionKind = "event"
+	SubmissionSignal    SubmissionKind = "signal"
 )
+
+// OperationInvocation is a direct operation call submitted through a channel
+// session.
+type OperationInvocation struct {
+	Operation operation.Ref   `json:"operation"`
+	Input     operation.Value `json:"input,omitempty"`
+}
+
+// Validate checks that the invocation names an operation.
+func (i OperationInvocation) Validate() error {
+	if i.Operation.Name == "" {
+		return fmt.Errorf("client: operation invocation name is empty")
+	}
+	return nil
+}
 
 // Submission is the neutral shape for anything sent to a session.
 type Submission struct {
-	ID      RunID               `json:"id,omitempty"`
-	Kind    SubmissionKind      `json:"kind"`
-	Input   *Input              `json:"input,omitempty"`
-	Command *command.Invocation `json:"command,omitempty"`
-	Event   event.Event         `json:"event,omitempty"`
-	Signal  *Signal             `json:"signal,omitempty"`
-	Caller  policy.Caller       `json:"caller,omitempty"`
-	Trust   policy.Trust        `json:"trust,omitempty"`
+	ID        RunID                `json:"id,omitempty"`
+	Kind      SubmissionKind       `json:"kind"`
+	Input     *Input               `json:"input,omitempty"`
+	Command   *command.Invocation  `json:"command,omitempty"`
+	Operation *OperationInvocation `json:"operation,omitempty"`
+	Event     event.Event          `json:"event,omitempty"`
+	Signal    *Signal              `json:"signal,omitempty"`
+	Caller    policy.Caller        `json:"caller,omitempty"`
+	Trust     policy.Trust         `json:"trust,omitempty"`
 	// TrustDowngrade requests a lower trust level on remote transports that
 	// explicitly allow trust simulation. It must never raise authority.
 	TrustDowngrade *TrustDowngrade `json:"trust_downgrade,omitempty"`
@@ -148,6 +165,14 @@ func (s Submission) WithCommand(invocation command.Invocation) Submission {
 	s.clearPayload()
 	s.Kind = SubmissionCommand
 	s.Command = &invocation
+	return s
+}
+
+// WithOperation configures the submission as a direct operation invocation.
+func (s Submission) WithOperation(ref operation.Ref, input operation.Value) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionOperation
+	s.Operation = &OperationInvocation{Operation: ref, Input: input}
 	return s
 }
 
@@ -200,6 +225,7 @@ func (s Submission) WithMetadata(metadata map[string]any) Submission {
 func (s *Submission) clearPayload() {
 	s.Input = nil
 	s.Command = nil
+	s.Operation = nil
 	s.Event = nil
 	s.Signal = nil
 }
@@ -246,6 +272,14 @@ func (s Submission) Validate() error {
 			return err
 		}
 		return rejectSubmissionExtras(s, "command")
+	case SubmissionOperation:
+		if s.Operation == nil {
+			return fmt.Errorf("client: operation submission payload is nil")
+		}
+		if err := s.Operation.Validate(); err != nil {
+			return err
+		}
+		return rejectSubmissionExtras(s, "operation")
 	case SubmissionEvent:
 		if s.Event == nil {
 			return fmt.Errorf("client: event submission payload is nil")
@@ -270,6 +304,9 @@ func rejectSubmissionExtras(submission Submission, expected string) error {
 	}
 	if expected != "command" && submission.Command != nil {
 		return fmt.Errorf("client: %s submission cannot also carry command", expected)
+	}
+	if expected != "operation" && submission.Operation != nil {
+		return fmt.Errorf("client: %s submission cannot also carry operation", expected)
 	}
 	if expected != "event" && submission.Event != nil {
 		return fmt.Errorf("client: %s submission cannot also carry event", expected)
@@ -342,10 +379,11 @@ type EventOptions struct {
 
 // Result is the terminal result of one run.
 type Result struct {
-	RunID      RunID                  `json:"run_id,omitempty"`
-	Session    SessionInfo            `json:"session"`
-	Submission Submission             `json:"submission"`
-	Input      *session.InputResult   `json:"input,omitempty"`
-	Command    *session.CommandResult `json:"command,omitempty"`
-	Outbound   *channel.Outbound      `json:"outbound,omitempty"`
+	RunID      RunID                    `json:"run_id,omitempty"`
+	Session    SessionInfo              `json:"session"`
+	Submission Submission               `json:"submission"`
+	Input      *session.InputResult     `json:"input,omitempty"`
+	Command    *session.CommandResult   `json:"command,omitempty"`
+	Operation  *session.OperationResult `json:"operation,omitempty"`
+	Outbound   *channel.Outbound        `json:"outbound,omitempty"`
 }

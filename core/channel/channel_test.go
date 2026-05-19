@@ -5,6 +5,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 )
 
 func TestInboundValidateMessage(t *testing.T) {
@@ -27,6 +28,29 @@ func TestInboundValidateRejectsUnionExtras(t *testing.T) {
 
 func TestInboundValidateCommandRequiresValidCommand(t *testing.T) {
 	inbound := Inbound{Kind: InboundCommand, Command: &command.Invocation{}}
+	if err := inbound.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want error")
+	}
+}
+
+func TestInboundValidateOperation(t *testing.T) {
+	inbound := Inbound{
+		Kind: InboundOperation,
+		Operation: &OperationInvocation{
+			Operation: operation.Ref{Name: "echo"},
+			Input:     "hello",
+		},
+	}
+	if err := inbound.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestInboundValidateOperationRequiresName(t *testing.T) {
+	inbound := Inbound{
+		Kind:      InboundOperation,
+		Operation: &OperationInvocation{},
+	}
 	if err := inbound.Validate(); err == nil {
 		t.Fatal("Validate succeeded, want error")
 	}
