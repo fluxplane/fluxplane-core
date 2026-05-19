@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added SQL-backed datasource mirror and `core/data` store adapters with SQLite
   tests and gated MySQL testcontainers coverage for scoped GitLab/Slack
   materialized query shapes.
+- Added app-level `data.store` configuration and wired datasource indexing and
+  tools to use `core/data.Store` as the primary materialized datasource mirror,
+  with MySQL available through the SQL data store adapter.
 - Added a synthetic `datasource` datasource in the generic datasource plugin so
   agents can list/search visible datasource sources, entities, and relations
   through the same tool surface used for provider data.
@@ -80,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added initial `core/secret` and `runtime/secret` primitives for plugin auth
   method declarations, plugin-instance auth requests, env-backed secret
   resolution, scoped opaque secret handles, and `secret.use` authorization.
+- Added `adapters/natseventstore` as a NATS JetStream-backed `event.Store`
+  implementation with testcontainer integration coverage.
 - Added system-boundary authorization checks for workspace, network, process,
   and environment access, plus `secret.*` policy resources for environment
   variable backed secrets, browser network authorization, canonical workspace
