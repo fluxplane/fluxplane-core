@@ -48,6 +48,7 @@ func newAppCommandWithOptions(opts appCommandOptions) *cobra.Command {
 	cmd.AddCommand(launch.NewServeCommandWithRunner(opts.serveRunner))
 	cmd.AddCommand(newAppBuildCommandWithRunner(opts.buildRunner))
 	cmd.AddCommand(newAppDeployCommand())
+	cmd.AddCommand(newAppUndeployCommand())
 	cmd.AddCommand(newAppConfigCommand(opts.configLoader, opts.editorRunner))
 	cmd.AddCommand(newAppHealthcheckCommand())
 	return cmd
@@ -223,6 +224,67 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 		Out:            out,
 		Err:            errOut,
 		Runner:         opts.runner,
+	})
+	return err
+}
+
+type appUndeployOptions struct {
+	target    string
+	namespace string
+	dryRun    bool
+	volumes   bool
+	runner    distdeploy.CommandRunner
+}
+
+func newAppUndeployCommand() *cobra.Command {
+	return newAppUndeployCommandWithRunner(nil)
+}
+
+func newAppUndeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
+	var opts appUndeployOptions
+	opts.runner = runner
+	cmd := &cobra.Command{
+		Use:   "undeploy [path]",
+		Short: "Undeploy a local app",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppUndeploy(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout(), cmd.ErrOrStderr())
+		},
+	}
+	cmd.Flags().StringVar(&opts.target, "target", "", "Undeploy target: docker-compose|kubernetes")
+	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Kubernetes namespace for kubernetes undeploy target")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved teardown commands without running them")
+	cmd.Flags().BoolVar(&opts.volumes, "volumes", false, "delete persistent Docker volumes or Kubernetes PVCs")
+	return cmd
+}
+
+func runAppUndeploy(ctx context.Context, opts appUndeployOptions, appDir string, out, errOut io.Writer) error {
+	target := strings.TrimSpace(opts.target)
+	if target == "" {
+		target = "docker-compose"
+	}
+	if target != "docker-compose" && target != "kubernetes" {
+		return fmt.Errorf("app undeploy: unsupported target %q", target)
+	}
+	if target == "kubernetes" {
+		_, err := distdeploy.UndeployKubernetes(ctx, distdeploy.KubernetesUndeployOptions{
+			AppDir:    appDir,
+			Namespace: opts.namespace,
+			DryRun:    opts.dryRun,
+			Volumes:   opts.volumes,
+			Out:       out,
+			Err:       errOut,
+			Runner:    opts.runner,
+		})
+		return err
+	}
+	_, err := distdeploy.UndeployDockerCompose(ctx, distdeploy.ComposeUndeployOptions{
+		AppDir:  appDir,
+		DryRun:  opts.dryRun,
+		Volumes: opts.volumes,
+		Out:     out,
+		Err:     errOut,
+		Runner:  opts.runner,
 	})
 	return err
 }

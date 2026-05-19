@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated Kubernetes resources for app runtime MySQL/NATS backends, and
   Kubernetes Secrets generated from manifest-declared root workspace env files.
 
+- Added `coder app undeploy` for Docker Compose and plain Kubernetes manifest
+  teardown, preserving volumes/PVCs by default with opt-in `--volumes` deletion.
+
+- Changed generated Kubernetes manifests to default to `.deploy/kubernetes.yaml`
+  and automatically ignore `.deploy/`, keeping rendered Secret values out of
+  normal app-root files.
+
 - Added `coder datasource gitlab check` to diagnose GitLab datasource auth,
   token metadata, merge-request diff access, and local index expectations from
   an app directory.

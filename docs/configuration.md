@@ -565,6 +565,7 @@ coder build --target docker-base --tag fluxplane/coder-base:local
 coder app build . --image support-bot:local
 coder app deploy . --target docker-compose --image support-bot:local
 coder app deploy . --target kubernetes --namespace ai-bots --image support-bot:local
+coder app undeploy . --target kubernetes --namespace ai-bots
 ```
 
 For Kubernetes deploys, `--registry-mode namespace` imports the app image into
@@ -575,7 +576,13 @@ converted into a Kubernetes Secret and injected into the app container
 environment. Runtime backend DSN variables generated for MySQL or NATS are set
 directly on the app Deployment and override matching env-file keys. Named root
 `env_files` are not supported by Kubernetes deploy until workspace roots are
-mounted there.
+mounted there. Generated Kubernetes manifests are written to
+`.deploy/kubernetes.yaml`, and `.deploy/` is added to the app's `.gitignore`
+when the manifest is written.
+
+`coder app undeploy` deletes generated app resources and preserves persistent
+Docker volumes or Kubernetes PVCs by default. Add `--volumes` only when runtime
+backend state should be removed too.
 
 ### Model Providers
 

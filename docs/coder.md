@@ -41,8 +41,8 @@ Top-level behavior and commands:
 - `app run [path]` runs a local agentruntime app manifest.
 - `app serve [path]` serves a local app daemon.
 - `app build [path]` generates app artifacts such as `bin/<name>`,
-  `Dockerfile`, `docker-compose.yaml`, `kubernetes.yaml`, and the Docker image.
-  Use `--target` to build a subset.
+  `Dockerfile`, `docker-compose.yaml`, `.deploy/kubernetes.yaml`, and the
+  Docker image. Use `--target` to build a subset.
 - `app deploy --target docker-compose [path]` builds the coder base image,
   generates app Docker/Compose artifacts, builds the app image, and runs
   `docker compose up`.
@@ -50,6 +50,9 @@ Top-level behavior and commands:
   kubectl manifests, creates Kubernetes Secrets from configured root env files,
   pushes the app image through the selected registry mode, and runs
   `kubectl apply -f`.
+- `app undeploy --target docker-compose|kubernetes [path]` deletes generated
+  deployment resources while preserving Docker volumes and Kubernetes PVCs by
+  default. Pass `--volumes` to delete persistent storage.
 - `app config show [path]` shows resolved local app configuration.
 - `app config edit [path]` opens the resolved local app manifest.
 
@@ -182,18 +185,29 @@ Build and deploy an app with Kubernetes manifests:
 coder app deploy . --target kubernetes --namespace ai-bots --image my-app:local
 ```
 
-`coder app deploy --target kubernetes` writes `kubernetes.yaml` and applies it
-with `kubectl`. The default `--registry-mode namespace` is for local k3d
-clusters: it imports the built image into the current k3d cluster and the app
-Deployment references the local image tag with `IfNotPresent`. For managed
-clusters, use `--registry-mode external --registry <registry-prefix>` for ECR
-or another node-reachable registry.
+`coder app deploy --target kubernetes` writes `.deploy/kubernetes.yaml`, ensures
+`.deploy/` is ignored by the app's `.gitignore`, and applies the manifest with
+`kubectl`. The default `--registry-mode namespace` is for local k3d clusters:
+it imports the built image into the current k3d cluster and the app Deployment
+references the local image tag with `IfNotPresent`. For managed clusters, use
+`--registry-mode external --registry <registry-prefix>` for ECR or another
+node-reachable registry.
 
 Root workspace env files declared in `runtime.workspace.env_files` are parsed
 with the same dotenv rules as local runtime and emitted as a Kubernetes Secret
 named `<app>-env`, injected with `envFrom`. Dry-run output lists only the Secret
 name and key names, not values. Named workspace-root env files are rejected for
 Kubernetes deploy until those roots can be mounted with equivalent semantics.
+
+Undeploy generated resources without deleting persistent state:
+
+```bash
+coder app undeploy . --target docker-compose
+coder app undeploy . --target kubernetes --namespace ai-bots
+```
+
+Add `--volumes` only when you want to delete generated Compose volumes or
+Kubernetes PVCs, including runtime backend state.
 
 Run app-scoped resources without importing them into the coder session:
 

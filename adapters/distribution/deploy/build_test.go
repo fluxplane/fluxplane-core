@@ -509,12 +509,13 @@ name: assistant
 	if !result.DryRun || result.SecretName != "sample-env" {
 		t.Fatalf("result = %#v", result)
 	}
+	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
 	for _, want := range []string{
-		"write=" + filepath.Join(app, "kubernetes.yaml"),
+		"write=" + manifest,
 		"secret=sample-env keys=OPENROUTER_API_KEY",
 		"command=k3d image import sample:test --cluster <current-k3d-cluster>",
 		"command=kubectl delete deployment/coder-registry service/coder-registry pvc/coder-registry-data -n sample --ignore-not-found",
-		"command=kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+		"command=kubectl apply -f " + manifest,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
@@ -559,17 +560,28 @@ name: assistant
 	if result.Image != "sample:test" {
 		t.Fatalf("image = %q", result.Image)
 	}
+	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
 	joined := strings.Join(runner.calls, "\n")
 	for _, want := range []string{
 		"docker build -t fluxplane/coder-base:local ",
 		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
 		"k3d image import sample:test --cluster sample-cluster",
 		"kubectl delete deployment/coder-registry service/coder-registry pvc/coder-registry-data -n sample --ignore-not-found",
-		"kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+		"kubectl apply -f " + manifest,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("commands missing %q:\n%s", want, joined)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(app, "kubernetes.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("root kubernetes.yaml exists after deploy: %v", err)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(app, ".gitignore"))
+	if err != nil {
+		t.Fatalf("ReadFile .gitignore: %v", err)
+	}
+	if !strings.Contains(string(gitignore), ".deploy/") {
+		t.Fatalf(".gitignore = %q, want .deploy/", gitignore)
 	}
 	if strings.Contains(joined, ".svc.cluster.local") || strings.Contains(joined, "127.0.0.1:5000") {
 		t.Fatalf("commands used registry pull path:\n%s", joined)
@@ -608,14 +620,251 @@ name: assistant
 	if strings.Contains(out.String(), "coder-registry") || strings.Contains(out.String(), "<registry-manifest>") {
 		t.Fatalf("external registry dry-run included namespace registry:\n%s", out.String())
 	}
+	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
 	for _, want := range []string{
 		"command=docker tag sample:test 123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test",
 		"command=docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test",
-		"command=kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+		"command=kubectl apply -f " + manifest,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestUndeployDockerComposeDryRunPreservesVolumes(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var calls []string
+	var out bytes.Buffer
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	})
+
+	result, err := UndeployDockerCompose(context.Background(), ComposeUndeployOptions{
+		AppDir: app,
+		DryRun: true,
+		Out:    &out,
+		Runner: runner,
+	})
+	if err != nil {
+		t.Fatalf("UndeployDockerCompose dry-run: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("dry-run calls = %#v, want none", calls)
+	}
+	want := "command=docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " down"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("dry-run output = %q, want %q", out.String(), want)
+	}
+	if strings.Contains(out.String(), " -v") || result.Volumes {
+		t.Fatalf("dry-run should preserve volumes: output=%q result=%#v", out.String(), result)
+	}
+}
+
+func TestUndeployDockerComposeDryRunDeletesVolumesWhenRequested(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var out bytes.Buffer
+	result, err := UndeployDockerCompose(context.Background(), ComposeUndeployOptions{
+		AppDir:  app,
+		DryRun:  true,
+		Volumes: true,
+		Out:     &out,
+	})
+	if err != nil {
+		t.Fatalf("UndeployDockerCompose dry-run: %v", err)
+	}
+	want := "command=docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " down -v"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("dry-run output = %q, want %q", out.String(), want)
+	}
+	if !result.Volumes {
+		t.Fatalf("result.Volumes = false, want true")
+	}
+}
+
+func TestUndeployKubernetesDryRunPreservesPVCsAndSkipsEnvFiles(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: support-bot
+runtime:
+  workspace:
+    env_files: [.env]
+  data:
+    store:
+      kind: mysql
+  events:
+    store:
+      kind: nats
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var calls []string
+	var out bytes.Buffer
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	})
+
+	result, err := UndeployKubernetes(context.Background(), KubernetesUndeployOptions{
+		AppDir:    app,
+		Namespace: "ai-bots",
+		DryRun:    true,
+		Out:       &out,
+		Runner:    runner,
+	})
+	if err != nil {
+		t.Fatalf("UndeployKubernetes dry-run: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("dry-run calls = %#v, want none", calls)
+	}
+	if result.Namespace != "ai-bots" {
+		t.Fatalf("namespace = %q, want ai-bots", result.Namespace)
+	}
+	if !strings.Contains(out.String(), "command=kubectl delete -f <kubernetes-teardown-manifest> --ignore-not-found") {
+		t.Fatalf("dry-run output = %q", out.String())
+	}
+	if strings.Contains(out.String(), "delete pvc") {
+		t.Fatalf("dry-run should preserve PVCs:\n%s", out.String())
+	}
+}
+
+func TestUndeployKubernetesDryRunDeletesPVCsWithVolumes(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: support-bot
+runtime:
+  data:
+    store:
+      kind: mysql
+  events:
+    store:
+      kind: nats
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var out bytes.Buffer
+	result, err := UndeployKubernetes(context.Background(), KubernetesUndeployOptions{
+		AppDir:    app,
+		Namespace: "ai-bots",
+		DryRun:    true,
+		Volumes:   true,
+		Out:       &out,
+	})
+	if err != nil {
+		t.Fatalf("UndeployKubernetes dry-run: %v", err)
+	}
+	want := "command=kubectl delete pvc data-mysql-0 data-nats-0 coder-registry-data -n ai-bots --ignore-not-found"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("dry-run output = %q, want %q", out.String(), want)
+	}
+	if !result.Volumes || len(result.Commands) != 2 {
+		t.Fatalf("result = %#v, want volume teardown command", result)
+	}
+}
+
+func TestUndeployKubernetesRunsDeleteWithGeneratedManifest(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: support-bot
+runtime:
+  workspace:
+    env_files: [.env]
+  data:
+    store:
+      kind: mysql
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var manifestPath string
+	var calls []string
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if len(calls) == 1 {
+			if name != "kubectl" || strings.Join(args[:2], " ") != "delete -f" {
+				t.Fatalf("first command = %s %v, want kubectl delete -f", name, args)
+			}
+			manifestPath = args[2]
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				t.Fatalf("ReadFile teardown manifest: %v", err)
+			}
+			text := string(data)
+			for _, want := range []string{
+				"kind: Secret",
+				"  name: support-bot-env",
+				"kind: StatefulSet",
+				"  name: mysql",
+				"kind: Deployment",
+				"  name: support-bot",
+			} {
+				if !strings.Contains(text, want) {
+					t.Fatalf("teardown manifest missing %q:\n%s", want, text)
+				}
+			}
+		}
+		return nil
+	})
+
+	result, err := UndeployKubernetes(context.Background(), KubernetesUndeployOptions{
+		AppDir:    app,
+		Namespace: "ai-bots",
+		Volumes:   true,
+		Runner:    runner,
+	})
+	if err != nil {
+		t.Fatalf("UndeployKubernetes: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %#v, want manifest delete and pvc delete", calls)
+	}
+	if !strings.Contains(calls[1], "kubectl delete pvc data-mysql-0 coder-registry-data -n ai-bots --ignore-not-found") {
+		t.Fatalf("pvc command = %q", calls[1])
+	}
+	if manifestPath == "" {
+		t.Fatalf("manifest path was not captured")
+	}
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Fatalf("teardown manifest was not removed: %v", err)
+	}
+	if len(result.Commands) != 2 {
+		t.Fatalf("commands = %#v, want two commands", result.Commands)
 	}
 }
 

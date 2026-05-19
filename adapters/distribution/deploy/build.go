@@ -254,6 +254,25 @@ type ComposeDeployResult struct {
 	DryRun    bool
 }
 
+// ComposeUndeployOptions configures local Docker Compose teardown.
+type ComposeUndeployOptions struct {
+	AppDir  string
+	DryRun  bool
+	Volumes bool
+	Out     io.Writer
+	Err     io.Writer
+	Runner  CommandRunner
+}
+
+// ComposeUndeployResult describes the local Docker Compose teardown command.
+type ComposeUndeployResult struct {
+	AppDir  string
+	Compose string
+	Command []string
+	DryRun  bool
+	Volumes bool
+}
+
 // KubernetesOptions configures kubectl-manifest deployment.
 type KubernetesOptions struct {
 	AppDir         string
@@ -284,6 +303,27 @@ type KubernetesResult struct {
 	Commands   [][]string
 	DryRun     bool
 	SecretName string
+}
+
+// KubernetesUndeployOptions configures kubectl-manifest teardown.
+type KubernetesUndeployOptions struct {
+	AppDir    string
+	Namespace string
+	DryRun    bool
+	Volumes   bool
+	Out       io.Writer
+	Err       io.Writer
+	Runner    CommandRunner
+}
+
+// KubernetesUndeployResult describes generated Kubernetes teardown steps.
+type KubernetesUndeployResult struct {
+	AppDir    string
+	Name      string
+	Namespace string
+	Commands  [][]string
+	DryRun    bool
+	Volumes   bool
 }
 
 // KubernetesManifestOptions configures plain Kubernetes manifest generation.
@@ -353,7 +393,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	binaryPath := filepath.Join(outDir, "bin", composeServiceName(name))
 	dockerfilePath := filepath.Join(outDir, "Dockerfile")
 	composePath := filepath.Join(outDir, "docker-compose.yaml")
-	kubernetesPath := filepath.Join(outDir, "kubernetes.yaml")
+	kubernetesPath := kubernetesManifestPath(loaded.Root, outDir, opts.OutDir)
 	composeImage := firstTag(tags)
 	if composeImage == "" {
 		composeImage = defaultAppImage
@@ -412,7 +452,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			if err != nil {
 				return AppBuildResult{}, err
 			}
-			if err := maybeWriteFile(kubernetesPath, content.Content, 0o600, opts.DryRun, opts.Force, out); err != nil {
+			if err := maybeWriteKubernetesManifest(loaded.Root, kubernetesPath, content.Content, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "docker-image":
@@ -504,6 +544,50 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	return result, nil
 }
 
+// UndeployDockerCompose stops a local Docker Compose app deployment.
+func UndeployDockerCompose(ctx context.Context, opts ComposeUndeployOptions) (ComposeUndeployResult, error) {
+	appDir := strings.TrimSpace(opts.AppDir)
+	if appDir == "" {
+		appDir = "."
+	}
+	loaded, err := distlocal.Load(ctx, appDir)
+	if err != nil {
+		return ComposeUndeployResult{}, err
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	errOut := opts.Err
+	if errOut == nil {
+		errOut = io.Discard
+	}
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	composePath := filepath.Join(loaded.Root, "docker-compose.yaml")
+	command := []string{"docker", "compose", "-f", composePath, "down"}
+	if opts.Volumes {
+		command = append(command, "-v")
+	}
+	result := ComposeUndeployResult{
+		AppDir:  loaded.Root,
+		Compose: composePath,
+		Command: command,
+		DryRun:  opts.DryRun,
+		Volumes: opts.Volumes,
+	}
+	if opts.DryRun {
+		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
+		return result, nil
+	}
+	if err := runner.Run(ctx, loaded.Root, command[0], command[1:], out, errOut); err != nil {
+		return ComposeUndeployResult{}, err
+	}
+	return result, nil
+}
+
 // DeployKubernetes builds local app artifacts, pushes the app image according to
 // the registry mode, and applies generated kubectl manifests.
 func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesResult, error) {
@@ -581,7 +665,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	if err != nil {
 		return KubernetesResult{}, err
 	}
-	manifest := filepath.Join(app.OutDir, "kubernetes.yaml")
+	manifest := kubernetesManifestPath(loaded.Root, app.OutDir, "")
 	rendered, err := kubernetesContent(loaded, kubernetesRenderOptions{
 		Name:            name,
 		Namespace:       namespace,
@@ -593,7 +677,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	if err != nil {
 		return KubernetesResult{}, err
 	}
-	if err := maybeWriteFile(manifest, rendered.Content, 0o600, opts.DryRun, opts.Force, out); err != nil {
+	if err := maybeWriteKubernetesManifest(loaded.Root, manifest, rendered.Content, opts.DryRun, opts.Force, out); err != nil {
 		return KubernetesResult{}, err
 	}
 
@@ -649,6 +733,73 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	}
 	if err := runner.Run(ctx, "", apply[0], apply[1:], out, errOut); err != nil {
 		return KubernetesResult{}, err
+	}
+	return result, nil
+}
+
+// UndeployKubernetes deletes generated Kubernetes app resources.
+func UndeployKubernetes(ctx context.Context, opts KubernetesUndeployOptions) (KubernetesUndeployResult, error) {
+	appDir := strings.TrimSpace(opts.AppDir)
+	if appDir == "" {
+		appDir = "."
+	}
+	loaded, err := distlocal.Load(ctx, appDir)
+	if err != nil {
+		return KubernetesUndeployResult{}, err
+	}
+	name := distributionName(loaded.Distribution.Spec)
+	namespace := kubernetesName(firstNonEmpty(strings.TrimSpace(opts.Namespace), name))
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	errOut := opts.Err
+	if errOut == nil {
+		errOut = io.Discard
+	}
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	content := kubernetesTeardownContent(loaded, kubernetesTeardownOptions{
+		Name:      name,
+		Namespace: namespace,
+	})
+	result := KubernetesUndeployResult{
+		AppDir:    loaded.Root,
+		Name:      name,
+		Namespace: namespace,
+		DryRun:    opts.DryRun,
+		Volumes:   opts.Volumes,
+	}
+	deleteCommand := []string{"kubectl", "delete", "-f", "<kubernetes-teardown-manifest>", "--ignore-not-found"}
+	var tempFile string
+	if !opts.DryRun {
+		tempFile, err = writeTempManifest("coder-kubernetes-undeploy-*.yaml", content)
+		if err != nil {
+			return KubernetesUndeployResult{}, err
+		}
+		defer func() { _ = os.Remove(tempFile) }()
+		deleteCommand = []string{"kubectl", "delete", "-f", tempFile, "--ignore-not-found"}
+	}
+	result.Commands = append(result.Commands, deleteCommand)
+	if opts.DryRun {
+		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(deleteCommand, " "))
+	} else if err := runner.Run(ctx, "", deleteCommand[0], deleteCommand[1:], out, errOut); err != nil {
+		return KubernetesUndeployResult{}, err
+	}
+	if opts.Volumes {
+		pvcs := kubernetesTeardownPVCs(loaded)
+		if len(pvcs) > 0 {
+			volumeCommand := append([]string{"kubectl", "delete", "pvc"}, pvcs...)
+			volumeCommand = append(volumeCommand, "-n", namespace, "--ignore-not-found")
+			result.Commands = append(result.Commands, volumeCommand)
+			if opts.DryRun {
+				_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(volumeCommand, " "))
+			} else if err := runner.Run(ctx, "", volumeCommand[0], volumeCommand[1:], out, errOut); err != nil {
+				return KubernetesUndeployResult{}, err
+			}
+		}
 	}
 	return result, nil
 }
@@ -1453,6 +1604,75 @@ func maybeWriteFile(filename, content string, perm fs.FileMode, dryRun, force bo
 	return os.WriteFile(filename, []byte(content), perm)
 }
 
+func kubernetesManifestPath(appRoot, outDir, explicitOutDir string) string {
+	if strings.TrimSpace(explicitOutDir) != "" {
+		return filepath.Join(outDir, "kubernetes.yaml")
+	}
+	return filepath.Join(appDeployDir(appRoot), "kubernetes.yaml")
+}
+
+func appDeployDir(appRoot string) string {
+	return filepath.Join(appRoot, ".deploy")
+}
+
+func maybeWriteKubernetesManifest(appRoot, filename, content string, dryRun, force bool, out io.Writer) error {
+	if err := maybeWriteFile(filename, content, 0o600, dryRun, force, out); err != nil {
+		return err
+	}
+	if dryRun || !isInAppDeployDir(appRoot, filename) {
+		return nil
+	}
+	return ensureGitignoreEntry(appRoot, ".deploy/")
+}
+
+func isInAppDeployDir(appRoot, filename string) bool {
+	rel, err := filepath.Rel(appRoot, filename)
+	if err != nil {
+		return false
+	}
+	return rel == ".deploy" || strings.HasPrefix(rel, ".deploy"+string(filepath.Separator))
+}
+
+func ensureGitignoreEntry(root, entry string) error {
+	filename := filepath.Join(root, ".gitignore")
+	data, err := os.ReadFile(filename)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	text := string(data)
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == entry {
+			return nil
+		}
+	}
+	var b strings.Builder
+	b.WriteString(text)
+	if text != "" && !strings.HasSuffix(text, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString(entry)
+	b.WriteByte('\n')
+	return os.WriteFile(filename, []byte(b.String()), 0o644)
+}
+
+func writeTempManifest(pattern, content string) (string, error) {
+	file, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	name := file.Name()
+	if _, err := io.WriteString(file, content); err != nil {
+		_ = file.Close()
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	return name, nil
+}
+
 func ensureDockerfileForImage(filename, baseImage, connectorsPath string, appRuntime appRuntimeOptions, force bool) error {
 	if _, err := os.Stat(filename); err == nil {
 		return nil
@@ -1708,6 +1928,11 @@ type kubernetesImageRefSet struct {
 	Cluster  string
 }
 
+type kubernetesTeardownOptions struct {
+	Name      string
+	Namespace string
+}
+
 func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions) (kubernetesRenderResult, error) {
 	name := kubernetesName(firstNonEmpty(opts.Name, loaded.Distribution.Spec.Name, "app"))
 	namespace := kubernetesName(firstNonEmpty(opts.Namespace, name))
@@ -1744,6 +1969,38 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 		SecretName:      secret.Name,
 		SecretKeys:      sortedKeys(secret.Values),
 	}, nil
+}
+
+func kubernetesTeardownContent(loaded distribution.Loaded, opts kubernetesTeardownOptions) string {
+	name := kubernetesName(firstNonEmpty(opts.Name, loaded.Distribution.Spec.Name, "app"))
+	namespace := kubernetesName(firstNonEmpty(opts.Namespace, name))
+	var docs []string
+	if len(cleanStrings(loaded.Launch.Workspace.EnvFiles)) > 0 {
+		docs = append(docs, kubernetesSecretIdentity(namespace, kubernetesName(name+"-env")))
+	}
+	if composeUsesMySQL(loaded.Launch) {
+		docs = append(docs, kubernetesServiceIdentity(namespace, "mysql"))
+		docs = append(docs, kubernetesStatefulSetIdentity(namespace, "mysql"))
+	}
+	if composeUsesNATS(loaded.Launch) {
+		docs = append(docs, kubernetesServiceIdentity(namespace, "nats"))
+		docs = append(docs, kubernetesStatefulSetIdentity(namespace, "nats"))
+	}
+	docs = append(docs, kubernetesServiceIdentity(namespace, name))
+	docs = append(docs, kubernetesDeploymentIdentity(namespace, name))
+	return joinYAMLDocuments(docs)
+}
+
+func kubernetesTeardownPVCs(loaded distribution.Loaded) []string {
+	var pvcs []string
+	if composeUsesMySQL(loaded.Launch) {
+		pvcs = append(pvcs, "data-mysql-0")
+	}
+	if composeUsesNATS(loaded.Launch) {
+		pvcs = append(pvcs, "data-nats-0")
+	}
+	pvcs = append(pvcs, "coder-registry-data")
+	return pvcs
 }
 
 func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name string) (kubernetesEnvSecret, error) {
@@ -1804,6 +2061,20 @@ func kubernetesSecret(namespace string, secret kubernetesEnvSecret) string {
 	return b.String()
 }
 
+func kubernetesSecretIdentity(namespace, name string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Secret\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	return b.String()
+}
+
 func kubernetesAppService(namespace, name string) string {
 	var b strings.Builder
 	b.WriteString("apiVersion: v1\n")
@@ -1824,6 +2095,48 @@ func kubernetesAppService(namespace, name string) string {
 	b.WriteString("    - name: control\n")
 	b.WriteString("      port: 18080\n")
 	b.WriteString("      targetPort: control\n")
+	return b.String()
+}
+
+func kubernetesServiceIdentity(namespace, name string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Service\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func kubernetesDeploymentIdentity(namespace, name string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: Deployment\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func kubernetesStatefulSetIdentity(namespace, name string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: StatefulSet\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
 	return b.String()
 }
 

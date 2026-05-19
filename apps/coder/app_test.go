@@ -331,7 +331,7 @@ func TestAppCommandHasAppLifecycleActions(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"init", "run", "serve", "build", "deploy", "config", "healthcheck"} {
+	for _, want := range []string{"init", "run", "serve", "build", "deploy", "undeploy", "config", "healthcheck"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -615,6 +615,69 @@ name: assistant
 	}
 	if len(calls) != 0 {
 		t.Fatalf("dry-run calls = %#v, want none", calls)
+	}
+}
+
+func TestAppUndeployHelpIncludesTargets(t *testing.T) {
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"undeploy", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"undeploy [path]", "--target", "docker-compose|kubernetes", "--namespace", "--dry-run", "--volumes"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestAppUndeployDefaultsToDockerCompose(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "agentsdk.app.yaml", `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var calls []string
+	runner := distdeploy.CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	})
+	cmd := newAppUndeployCommandWithRunner(runner)
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--dry-run", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("dry-run calls = %#v, want none", calls)
+	}
+	want := "command=docker compose -f " + filepath.Join(dir, "docker-compose.yaml") + " down"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output = %q, want %q", out.String(), want)
+	}
+}
+
+func TestAppUndeployRejectsUnsupportedTarget(t *testing.T) {
+	cmd := newAppUndeployCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--target", "nope", "."})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `app undeploy: unsupported target "nope"`) {
+		t.Fatalf("Execute error = %v, want unsupported target error", err)
 	}
 }
 
