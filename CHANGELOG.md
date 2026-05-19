@@ -66,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `k8s_port_forward` to the Kubernetes plugin, starting or reusing
   managed `kubectl port-forward` background processes through the runtime
-  process boundary.
+  process boundary and inferring target ports only when Kubernetes resources
+  expose exactly one port.
 
 - Routed native Kubernetes client-go datasource requests through the runtime
   system network boundary while preserving client-go authentication wrappers.
