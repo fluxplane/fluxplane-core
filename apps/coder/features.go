@@ -78,7 +78,7 @@ func defaultDelegationOperationNames() []string {
 		taskplugin.TaskListArtifactsOp, taskplugin.TaskGetArtifactOp, taskplugin.TaskReadArtifactOp,
 		taskplugin.TaskValidateOp, taskplugin.ReviewRequestOp,
 		taskplugin.TaskRunOp, taskplugin.TaskSchedulerStatusOp, taskplugin.TaskSchedulerSetEnabledOp,
-		"datasource_search", "datasource_get", "datasource_batch_get",
+		"datasource_search", "datasource_list", "datasource_get", "datasource_batch_get",
 	} {
 		allowed[name] = true
 	}
@@ -125,7 +125,7 @@ func FullLocalCodingFeature() FeatureSpec {
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
 			"glob", "grep",
 			"web_search", "web_request",
-			"datasource_search", "datasource_get", "datasource_batch_get",
+			"datasource_search", "datasource_list", "datasource_get", "datasource_batch_get",
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
 			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",
 			"browser_hover", "browser_back", "browser_forward", "browser_pdf", "browser_close",

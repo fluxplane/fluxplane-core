@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/sdk"
 )
@@ -28,6 +29,7 @@ const (
 	TaskPlugin       = "task"
 	SkillsPlugin     = "skills"
 	ImagePlugin      = "image"
+	KubernetesPlugin = "kubernetes"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 	ReflectCommand   = "reflect"
@@ -63,6 +65,7 @@ func Bundle() resource.ContributionBundle {
 		}).
 		WithOperations(operations...).
 		WithDatasource("web_search").
+		WithDatasource(kubernetesplugin.Name).
 		Build()
 
 	bundle := sdk.NewApp(AppName).
@@ -78,6 +81,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: TaskPlugin}).
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
 		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
+		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
 			Name:        SessionName,
@@ -97,6 +101,18 @@ func Bundle() resource.ContributionBundle {
 		Description: "Default public web search datasource.",
 		Kind:        "web_search",
 		Entities:    []coredatasource.EntityType{webplugin.SearchResultEntity},
+	})
+	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
+		Name:        kubernetesplugin.Name,
+		Description: "Default live Kubernetes cluster datasource.",
+		Kind:        kubernetesplugin.Name,
+		Entities: []coredatasource.EntityType{
+			kubernetesplugin.NamespaceEntity,
+			kubernetesplugin.PodEntity,
+			kubernetesplugin.ServiceEntity,
+			kubernetesplugin.DeploymentEntity,
+			kubernetesplugin.ContainerEntity,
+		},
 	})
 	if len(bundle.Apps) > 0 {
 		bundle.Apps[0].Sources = append(bundle.Apps[0].Sources, coreapp.SourceSpec{
