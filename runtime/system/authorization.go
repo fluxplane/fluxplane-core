@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -316,6 +317,13 @@ func (p authorizedProcessManager) Start(ctx context.Context, req ProcessRequest)
 	return p.base.Start(ctx, req)
 }
 
+func (p authorizedProcessManager) Ensure(ctx context.Context, req ProcessRequest) (ProcessHandle, bool, error) {
+	if err := p.exec(ctx, req.Command); err != nil {
+		return nil, false, err
+	}
+	return p.base.Ensure(ctx, req)
+}
+
 func (p authorizedProcessManager) List(ctx context.Context) ([]ProcessInfo, error) {
 	if err := authorizeSystem(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, Name: "*"}, policy.ActionProcessExec); err != nil {
 		return nil, err
@@ -335,6 +343,20 @@ func (p authorizedProcessManager) Output(ctx context.Context, id string) (Proces
 		return ProcessOutput{}, err
 	}
 	return p.base.Output(ctx, id)
+}
+
+func (p authorizedProcessManager) Wait(ctx context.Context, id string, timeout time.Duration) (ProcessResult, error) {
+	if err := authorizeSystem(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessExec); err != nil {
+		return ProcessResult{}, err
+	}
+	return p.base.Wait(ctx, id, timeout)
+}
+
+func (p authorizedProcessManager) Stop(ctx context.Context, id string) error {
+	if err := authorizeSystem(ctx, p.cfg, policy.ResourceRef{Kind: policy.ResourceProcess, ID: strings.TrimSpace(id)}, policy.ActionProcessAdmin); err != nil {
+		return err
+	}
+	return p.base.Stop(ctx, id)
 }
 
 func (p authorizedProcessManager) Kill(ctx context.Context, id string) error {

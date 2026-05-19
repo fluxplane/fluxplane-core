@@ -121,7 +121,31 @@ func (e *WorkspaceEnvironment) processEnv(root workspaceRoot, overrides []string
 		}
 		values[key] = value
 	}
+
 	return formatEnv(values), nil
+}
+
+// ResolveExecutable resolves an executable using the workspace process PATH.
+func (e *WorkspaceEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
+	if strings.TrimSpace(name) == "" || strings.ContainsRune(name, filepath.Separator) {
+		return "", false, nil
+	}
+	pathValue, ok, err := e.Lookup(ctx, "PATH")
+	if err != nil || !ok {
+		return "", false, err
+	}
+	for _, dir := range filepath.SplitList(pathValue) {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode().Perm()&0111 == 0 {
+			continue
+		}
+		return candidate, true, nil
+	}
+	return "", false, nil
 }
 
 func (e *WorkspaceEnvironment) valuesForRoot(root workspaceRoot) map[string]string {
@@ -372,4 +396,15 @@ func trimStrings(input []string) []string {
 
 func hasGlobMeta(pattern string) bool {
 	return strings.ContainsAny(pattern, "*?[")
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }

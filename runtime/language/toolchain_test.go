@@ -3,6 +3,7 @@ package language
 import (
 	"context"
 	"testing"
+	"time"
 
 	corelanguage "github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -73,6 +74,11 @@ func (p *fakeProcess) Start(context.Context, system.ProcessRequest) (system.Proc
 	return nil, nil
 }
 
+func (p *fakeProcess) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+	handle, err := p.Start(ctx, req)
+	return handle, true, err
+}
+
 func (p *fakeProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 
 func (p *fakeProcess) Status(context.Context, string) (system.ProcessInfo, error) {
@@ -82,5 +88,11 @@ func (p *fakeProcess) Status(context.Context, string) (system.ProcessInfo, error
 func (p *fakeProcess) Output(context.Context, string) (system.ProcessOutput, error) {
 	return system.ProcessOutput{}, nil
 }
+
+func (p *fakeProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
+	return p.result, nil
+}
+
+func (p *fakeProcess) Stop(context.Context, string) error { return nil }
 
 func (p *fakeProcess) Kill(context.Context, string) error { return nil }

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Added shell and process lifecycle tooling with script execution, shell
+  discovery, labeled background processes, ensure/wait/stop operations, and
+  process-management documentation.
 - Added an embedded coder skill with a reference guide for writing and
   reviewing `agentsdk.app.yaml` app manifests.
 

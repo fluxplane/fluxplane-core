@@ -21,12 +21,12 @@ func TestShellExecStreamsProcessEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
-	op := findOp(t, ops, ExecOp)
+	op := findOp(t, ops, ProcessRunOp)
 	var events []event.Event
 	ctx := operation.NewContext(context.Background(), event.SinkFunc(func(evt event.Event) {
 		events = append(events, evt)
 	}))
-	result := op.Run(ctx, map[string]any{"command": "printf", "args": []any{"hello"}})
+	result := op.Run(ctx, map[string]any{"command": "printf hello"})
 	if result.IsError() {
 		t.Fatalf("result error = %#v", result.Error)
 	}
@@ -41,7 +41,7 @@ func TestShellExecStreamsProcessEvents(t *testing.T) {
 	}
 }
 
-func TestShellExecIntentUsesNormalizedCommand(t *testing.T) {
+func TestProcessRunIntentUsesNormalizedCommand(t *testing.T) {
 	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)

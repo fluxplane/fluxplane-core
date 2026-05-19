@@ -172,7 +172,7 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 func shellExecCommandSpec() command.Spec {
 	return command.Spec{
 		Path:        command.Path{"shell", "exec"},
-		Description: "Run one direct executable through the shell_exec operation.",
+		Description: "Run shell script text through the shell_exec operation.",
 		Target: invocation.Target{
 			Kind:      invocation.TargetOperation,
 			Operation: operation.Ref{Name: "shell_exec"},

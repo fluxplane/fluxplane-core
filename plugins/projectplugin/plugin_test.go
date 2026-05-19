@@ -319,6 +319,11 @@ func (p *fakeTaskProcess) Start(_ context.Context, req system.ProcessRequest) (s
 	return fakeTaskHandle{request: req, result: result, events: events}, nil
 }
 
+func (p *fakeTaskProcess) Ensure(ctx context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+	handle, err := p.Start(ctx, req)
+	return handle, true, err
+}
+
 func (p *fakeTaskProcess) List(context.Context) ([]system.ProcessInfo, error) { return nil, nil }
 
 func (p *fakeTaskProcess) Status(context.Context, string) (system.ProcessInfo, error) {
@@ -328,6 +333,12 @@ func (p *fakeTaskProcess) Status(context.Context, string) (system.ProcessInfo, e
 func (p *fakeTaskProcess) Output(context.Context, string) (system.ProcessOutput, error) {
 	return system.ProcessOutput{}, nil
 }
+
+func (p *fakeTaskProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
+	return p.result, nil
+}
+
+func (p *fakeTaskProcess) Stop(context.Context, string) error { return nil }
 
 func (p *fakeTaskProcess) Kill(context.Context, string) error { return nil }
 

@@ -1198,9 +1198,12 @@ type ProcessRunner interface {
 type ProcessManager interface {
 	ProcessRunner
 	Start(context.Context, ProcessRequest) (ProcessHandle, error)
+	Ensure(context.Context, ProcessRequest) (ProcessHandle, bool, error)
 	List(context.Context) ([]ProcessInfo, error)
 	Status(context.Context, string) (ProcessInfo, error)
 	Output(context.Context, string) (ProcessOutput, error)
+	Wait(context.Context, string, time.Duration) (ProcessResult, error)
+	Stop(context.Context, string) error
 	Kill(context.Context, string) error
 }
 
@@ -1214,15 +1217,18 @@ type ProcessHandle interface {
 
 // ProcessInfo describes a managed process.
 type ProcessInfo struct {
-	ID        string    `json:"id"`
-	Command   string    `json:"command"`
-	Args      []string  `json:"args,omitempty"`
-	Workdir   string    `json:"workdir,omitempty"`
-	StartedAt time.Time `json:"started_at,omitempty"`
-	EndedAt   time.Time `json:"ended_at,omitempty"`
-	Running   bool      `json:"running,omitempty"`
-	ExitCode  int       `json:"exit_code,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	ID        string            `json:"id"`
+	Label     string            `json:"label,omitempty"`
+	Tags      []string          `json:"tags,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Command   string            `json:"command"`
+	Args      []string          `json:"args,omitempty"`
+	Workdir   string            `json:"workdir,omitempty"`
+	StartedAt time.Time         `json:"started_at,omitempty"`
+	EndedAt   time.Time         `json:"ended_at,omitempty"`
+	Running   bool              `json:"running,omitempty"`
+	ExitCode  int               `json:"exit_code,omitempty"`
+	Error     string            `json:"error,omitempty"`
 }
 
 // ProcessEvent is emitted for streaming process output and lifecycle changes.
@@ -1261,6 +1267,9 @@ type ProcessRequest struct {
 	Timeout   time.Duration
 	MaxStdout int
 	MaxStderr int
+	Label     string
+	Tags      []string
+	Metadata  map[string]string
 }
 
 // ProcessResult is the captured process outcome.
@@ -1383,7 +1392,10 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 		events: make(chan ProcessEvent, 128), done: make(chan struct{}),
 		stdout: cappedBuffer{max: positiveOr(req.MaxStdout, 64*1024)},
 		stderr: cappedBuffer{max: positiveOr(req.MaxStderr, 64*1024)},
-		info:   ProcessInfo{ID: id, Command: command, Args: append([]string(nil), req.Args...), Workdir: workdir, StartedAt: start, Running: true},
+		info: ProcessInfo{
+			ID: id, Label: strings.TrimSpace(req.Label), Tags: trimStrings(req.Tags), Metadata: cloneStringMap(req.Metadata),
+			Command: command, Args: append([]string(nil), req.Args...), Workdir: workdir, StartedAt: start, Running: true,
+		},
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -1398,6 +1410,24 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 	go mp.copyOutput(stderrPipe, "stderr")
 	go mp.wait(runCtx, start)
 	return mp, nil
+}
+
+// Ensure returns a running process for req.Label or starts a new one.
+func (p *HostProcess) Ensure(ctx context.Context, req ProcessRequest) (ProcessHandle, bool, error) {
+	label := strings.TrimSpace(req.Label)
+	if label != "" {
+		p.mu.Lock()
+		for _, proc := range p.procs {
+			info := proc.Info()
+			if info.Label == label && info.Running {
+				p.mu.Unlock()
+				return proc, false, nil
+			}
+		}
+		p.mu.Unlock()
+	}
+	handle, err := p.Start(ctx, req)
+	return handle, true, err
 }
 
 // List returns known managed processes.
@@ -1429,6 +1459,35 @@ func (p *HostProcess) Output(_ context.Context, id string) (ProcessOutput, error
 	return proc.Output(), nil
 }
 
+// Wait waits for one managed process to exit.
+func (p *HostProcess) Wait(ctx context.Context, id string, timeout time.Duration) (ProcessResult, error) {
+	proc, err := p.lookup(id)
+	if err != nil {
+		return ProcessResult{}, err
+	}
+	waitCtx := ctx
+	if waitCtx == nil {
+		waitCtx = context.Background()
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(waitCtx, timeout)
+		defer cancel()
+	}
+	return proc.Wait(waitCtx)
+}
+
+// Stop gracefully terminates a managed process.
+func (p *HostProcess) Stop(_ context.Context, id string) error {
+	proc, err := p.lookup(id)
+	if err != nil {
+		return err
+	}
+	proc.cancel()
+	terminateCommandProcess(proc.cmd)
+	return nil
+}
+
 // Kill terminates a managed process.
 func (p *HostProcess) Kill(_ context.Context, id string) error {
 	proc, err := p.lookup(id)
@@ -1444,10 +1503,16 @@ func (p *HostProcess) lookup(id string) (*managedProcess, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	proc, ok := p.procs[id]
-	if !ok {
-		return nil, fmt.Errorf("process %q not found", id)
+	if ok {
+		return proc, nil
 	}
-	return proc, nil
+	for _, candidate := range p.procs {
+		info := candidate.Info()
+		if info.Label == id {
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("process %q not found", id)
 }
 
 type managedProcess struct {
@@ -1473,6 +1538,8 @@ func (p *managedProcess) Info() ProcessInfo {
 	defer p.infoMu.Unlock()
 	info := p.info
 	info.Args = append([]string(nil), p.info.Args...)
+	info.Tags = append([]string(nil), p.info.Tags...)
+	info.Metadata = cloneStringMap(p.info.Metadata)
 	return info
 }
 
