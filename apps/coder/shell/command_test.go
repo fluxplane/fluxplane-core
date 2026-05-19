@@ -1,6 +1,13 @@
 package codershell
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	agentruntime "github.com/fluxplane/agentruntime"
+)
 
 func TestParseConnectEndpoint(t *testing.T) {
 	for _, tc := range []struct {
@@ -35,5 +42,101 @@ func TestNewCommandExposesConnectFlag(t *testing.T) {
 	}
 	if cmd.Flags().Lookup("connect") == nil {
 		t.Fatal("--connect flag missing")
+	}
+}
+
+func TestNewCommandExposesLocalLaunchFlags(t *testing.T) {
+	cmd := NewCommand()
+	for _, name := range []string{
+		"connect",
+		"provider",
+		"model",
+		"thinking",
+		"effort",
+		"debug",
+		"yolo",
+		"dev",
+		"connectors-path",
+		"env-file",
+		"workspace-root",
+	} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("--%s flag missing", name)
+		}
+	}
+}
+
+func TestCommandPassesLocalLaunchFlagsToClientFactory(t *testing.T) {
+	sentinel := errors.New("stop after capture")
+	var captured ClientFactoryRequest
+	cmd := NewCommandWithOptions(CommandOptions{
+		ClientFactory: func(_ context.Context, req ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+			captured = req
+			return nil, nil, sentinel
+		},
+	})
+	cmd.SetArgs([]string{
+		"--provider", "codex",
+		"--model", "gpt-5.5",
+		"--thinking", "on",
+		"--effort", "high",
+		"--debug",
+		"--yolo",
+		"--dev",
+		"--connectors-path", "/tmp/connectors",
+		"--env-file", ".env",
+		"--workspace-root", "extra=/tmp/extra",
+		"/workspace",
+	})
+
+	err := cmd.Execute()
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Execute error = %v, want sentinel", err)
+	}
+	if captured.Path != "/workspace" {
+		t.Fatalf("path = %q, want /workspace", captured.Path)
+	}
+	if captured.Provider != "codex" || captured.Model != "gpt-5.5" {
+		t.Fatalf("provider/model = %q/%q, want codex/gpt-5.5", captured.Provider, captured.Model)
+	}
+	if captured.Thinking != "on" || !captured.ThinkingSet || captured.Effort != "high" || !captured.EffortSet {
+		t.Fatalf("reasoning = %#v", captured)
+	}
+	if !captured.Debug || !captured.Yolo || !captured.Dev {
+		t.Fatalf("runtime flags = %#v, want debug/yolo/dev", captured)
+	}
+	if captured.AuthPath != "/tmp/connectors" {
+		t.Fatalf("auth path = %q, want /tmp/connectors", captured.AuthPath)
+	}
+	if len(captured.EnvFiles) != 1 || captured.EnvFiles[0] != ".env" {
+		t.Fatalf("env files = %#v, want .env", captured.EnvFiles)
+	}
+	if len(captured.WorkspaceRoots) != 1 || captured.WorkspaceRoots[0] != "extra=/tmp/extra" {
+		t.Fatalf("workspace roots = %#v, want extra=/tmp/extra", captured.WorkspaceRoots)
+	}
+}
+
+func TestCommandRejectsLocalLaunchFlagsForRemoteConnect(t *testing.T) {
+	cmd := NewCommandWithOptions(CommandOptions{
+		ClientFactory: func(context.Context, ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+			t.Fatal("ClientFactory called for remote connect")
+			return nil, nil, nil
+		},
+	})
+	cmd.SetArgs([]string{"--connect", "http://example.test:4321", "--model", "gpt-5.5"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--model is only supported with --connect=direct") {
+		t.Fatalf("Execute error = %v, want local-only model error", err)
+	}
+}
+
+func TestCommandValidatesReasoningFlags(t *testing.T) {
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"--thinking", "auth"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid --thinking") {
+		t.Fatalf("Execute error = %v, want invalid thinking", err)
 	}
 }

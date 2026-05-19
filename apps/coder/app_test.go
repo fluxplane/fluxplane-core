@@ -132,7 +132,6 @@ func TestRootRunFlagsDoNotLeakToSubcommands(t *testing.T) {
 		args []string
 	}{
 		{name: "build", args: []string{"build", "--yolo"}},
-		{name: "shell", args: []string{"shell", "--provider", "codex"}},
 		{name: "discover", args: []string{"discover", "--input", "hello"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

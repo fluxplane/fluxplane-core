@@ -18,8 +18,22 @@ func newShellCommandWithStartup(startup startupResources, defaults serveCommandO
 		},
 	}
 	return codershell.NewCommandWithOptions(codershell.CommandOptions{
-		ClientFactory: func(ctx context.Context, path string) (agentruntime.ChannelClient, func(), error) {
-			result, err := instance.ChannelClient(ctx, ChannelClientOptions{Path: path})
+		ClientFactory: func(ctx context.Context, req codershell.ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+			result, err := instance.ChannelClient(ctx, ChannelClientOptions{
+				Path:           req.Path,
+				WorkspaceRoots: req.WorkspaceRoots,
+				EnvFiles:       req.EnvFiles,
+				AuthPath:       req.AuthPath,
+				Provider:       req.Provider,
+				Model:          req.Model,
+				Thinking:       req.Thinking,
+				ThinkingSet:    req.ThinkingSet,
+				Effort:         req.Effort,
+				EffortSet:      req.EffortSet,
+				Debug:          req.Debug,
+				Yolo:           req.Yolo,
+				Dev:            req.Dev,
+			})
 			if err != nil {
 				return nil, nil, err
 			}

@@ -47,6 +47,7 @@ type ChannelClientOptions struct {
 	WorkspaceRoots []string
 	EnvFiles       []string
 	Workspace      distribution.WorkspaceConfig
+	AuthPath       string
 	Provider       string
 	Model          string
 	Thinking       string
@@ -137,7 +138,7 @@ func (c *Coder) ChannelClient(ctx context.Context, opts ChannelClientOptions) (C
 		Debug:               opts.Debug || c.config.Debug,
 		Yolo:                opts.Yolo || c.config.Yolo,
 		Dev:                 opts.Dev || c.config.Dev,
-		AuthPath:            c.config.AuthPath,
+		AuthPath:            firstNonEmpty(opts.AuthPath, c.config.AuthPath),
 	})
 	if err != nil {
 		return ChannelClientResult{}, err
