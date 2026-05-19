@@ -233,6 +233,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Updated `github.com/codewandler/modeldb` to `v0.15.1` so OpenRouter
+  `openai/gpt-5.5` resolves with OpenAI Responses metadata and medium
+  reasoning effort support.
 - Fixed Slack channel datasource warmup so missing DM or MPIM discovery scopes
   skip only those conversation types instead of aborting app startup indexing.
 - Fixed datasource index clearing so it also invalidates matching mirror/index
