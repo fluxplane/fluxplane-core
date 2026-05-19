@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestShellViewKeepsChromeWithLongTimeline(t *testing.T) {
@@ -15,7 +15,7 @@ func TestShellViewKeepsChromeWithLongTimeline(t *testing.T) {
 	appendViewportTestOutput(&m, 120)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 20})
 
-	view := m.View()
+	view := m.View().Content
 	if lipgloss.Height(view) > 20 {
 		t.Fatalf("view height = %d, want <= 20", lipgloss.Height(view))
 	}
@@ -44,7 +44,7 @@ func TestShellHeaderRendersUnifiedObservedFacts(t *testing.T) {
 	}, NewFakeClient(), "direct")
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
 
-	view := m.View()
+	view := m.View().Content
 	for _, want := range []string{
 		"coder shell",
 		"agentruntime",
@@ -73,7 +73,7 @@ func TestShellHeaderOmitsUnknownGoVersion(t *testing.T) {
 	m := newModel(shellStatus{cwd: "/workspace", projectName: "project", goVersion: "go n/a"}, NewFakeClient(), "fake")
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 20})
 
-	view := m.View()
+	view := m.View().Content
 	if strings.Contains(view, "go n/a") || strings.Contains(view, "go n/") {
 		t.Fatalf("view renders noisy unavailable Go version:\n%s", view)
 	}
@@ -168,6 +168,24 @@ func TestShellSlashCommandCompletionUsesCommandCatalog(t *testing.T) {
 	}
 }
 
+func TestShellSlashCommandPickerOmitsRedundantKindPrefix(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "/co"
+	m.refreshMention()
+
+	picker := m.renderMentionPicker(100)
+	if strings.Contains(picker, "[command]") {
+		t.Fatalf("slash picker contains redundant command kind:\n%s", picker)
+	}
+	if !strings.Contains(picker, "/ commands") {
+		t.Fatalf("slash picker missing command header:\n%s", picker)
+	}
+}
+
 func TestShellSlashCommandCompletionIgnoresNonLeadingSlash(t *testing.T) {
 	m := viewportTestModel()
 	tab := m.shell.ActiveTab()
@@ -179,6 +197,26 @@ func TestShellSlashCommandCompletionIgnoresNonLeadingSlash(t *testing.T) {
 	m.refreshMention()
 	if m.mention.Open {
 		t.Fatalf("completion open for non-leading slash: %#v", m.mention)
+	}
+}
+
+func TestShellSlashCommandCompletionStopsForFreeformArgs(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+
+	tab.InputBuffer = "/goal "
+	m.refreshMention()
+	if m.mention.Open {
+		t.Fatalf("completion open after complete command with trailing space: %#v", m.mention)
+	}
+
+	tab.InputBuffer = "/goal write tests"
+	m.refreshMention()
+	if m.mention.Open {
+		t.Fatalf("completion open while typing freeform command args: %#v", m.mention)
 	}
 }
 
@@ -202,7 +240,7 @@ func TestShellSlashCommandCompletionInsertsMultiSegmentCommand(t *testing.T) {
 		t.Fatalf("results = %#v, missing /env explain", m.mention.Results)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if tab.InputBuffer != "/env explain " {
 		t.Fatalf("input = %q, want /env explain ", tab.InputBuffer)
 	}
@@ -231,7 +269,7 @@ func TestShellSlashOptionCompletionInsertsFlag(t *testing.T) {
 		t.Fatalf("results = %#v, missing --max", m.mention.Results)
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if tab.InputBuffer != "/goal --max " {
 		t.Fatalf("input = %q, want /goal --max ", tab.InputBuffer)
 	}
@@ -255,22 +293,83 @@ func TestShellModeSwitchMarkersDoNotEnterInput(t *testing.T) {
 	}
 
 	tab.InputMode = InputModeAsk
-	tab.InputBuffer = "before"
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!"), Alt: false})
+	tab.InputBuffer = ""
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "!", Code: '!'}))
 	if tab.InputMode != InputModeShell {
 		t.Fatalf("mode after ! = %q, want shell", tab.InputMode)
 	}
-	if tab.InputBuffer != "before" {
+	if tab.InputBuffer != "" {
 		t.Fatalf("input after ! = %q, want unchanged", tab.InputBuffer)
 	}
 
 	tab.InputMode = InputModeShell
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?"), Alt: false})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
 	if tab.InputMode != InputModeAsk {
 		t.Fatalf("mode after ? = %q, want ask", tab.InputMode)
 	}
-	if tab.InputBuffer != "before" {
+	if tab.InputBuffer != "" {
 		t.Fatalf("input after ? = %q, want unchanged", tab.InputBuffer)
+	}
+}
+
+func TestShellModeSwitchMarkersOnlyApplyAtPromptStart(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+
+	tab.InputMode = InputModeAsk
+	tab.InputBuffer = "before"
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "!", Code: '!'}))
+	if tab.InputMode != InputModeAsk {
+		t.Fatalf("mode after non-leading ! = %q, want ask", tab.InputMode)
+	}
+	if tab.InputBuffer != "before!" {
+		t.Fatalf("input after non-leading ! = %q, want before!", tab.InputBuffer)
+	}
+
+	tab.InputMode = InputModeShell
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
+	if tab.InputMode != InputModeShell {
+		t.Fatalf("mode after non-leading ? = %q, want shell", tab.InputMode)
+	}
+	if tab.InputBuffer != "before!?" {
+		t.Fatalf("input after non-leading ? = %q, want before!?", tab.InputBuffer)
+	}
+}
+
+func TestShellHistoryNavigationRestoresInputMode(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeShell
+	tab.recordHistory("go test ./apps/coder/shell", InputModeShell)
+	tab.recordHistory("explain the failure", InputModeAsk)
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if tab.InputBuffer != "explain the failure" || tab.InputMode != InputModeAsk {
+		t.Fatalf("first history = (%q, %q), want ask entry", tab.InputBuffer, tab.InputMode)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if tab.InputBuffer != "go test ./apps/coder/shell" || tab.InputMode != InputModeShell {
+		t.Fatalf("second history = (%q, %q), want shell entry", tab.InputBuffer, tab.InputMode)
+	}
+}
+
+func TestShellIgnoresUnhandledAltModifiedRunes(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "echo"
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "+", Code: '+', Mod: tea.ModAlt}))
+	if tab.InputBuffer != "echo" {
+		t.Fatalf("input after alt rune = %q, want unchanged", tab.InputBuffer)
 	}
 }
 
@@ -282,7 +381,7 @@ func TestShellTabDoesNotToggleInputMode(t *testing.T) {
 	}
 	tab.InputMode = InputModeShell
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
 	if tab.InputMode != InputModeShell {
 		t.Fatalf("mode after tab = %q, want shell", tab.InputMode)
 	}
@@ -311,11 +410,11 @@ func TestShellWindowSizeInitializesTimelineViewport(t *testing.T) {
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 28})
 	layout := m.layout()
 
-	if m.timeline.Width != layout.timelineInnerWidth {
-		t.Fatalf("timeline width = %d, want %d", m.timeline.Width, layout.timelineInnerWidth)
+	if m.timeline.Width() != layout.timelineInnerWidth {
+		t.Fatalf("timeline width = %d, want %d", m.timeline.Width(), layout.timelineInnerWidth)
 	}
-	if m.timeline.Height != layout.timelineInnerHeight {
-		t.Fatalf("timeline height = %d, want %d", m.timeline.Height, layout.timelineInnerHeight)
+	if m.timeline.Height() != layout.timelineInnerHeight {
+		t.Fatalf("timeline height = %d, want %d", m.timeline.Height(), layout.timelineInnerHeight)
 	}
 }
 
@@ -326,11 +425,11 @@ func TestShellViewportScrollAndSubmitReturnsToBottom(t *testing.T) {
 	if !m.timeline.AtBottom() {
 		t.Fatal("timeline is not pinned to bottom after content sync")
 	}
-	bottomOffset := m.timeline.YOffset
+	bottomOffset := m.timeline.YOffset()
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
-	if m.timeline.YOffset >= bottomOffset {
-		t.Fatalf("YOffset after page up = %d, want less than %d", m.timeline.YOffset, bottomOffset)
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	if m.timeline.YOffset() >= bottomOffset {
+		t.Fatalf("YOffset after page up = %d, want less than %d", m.timeline.YOffset(), bottomOffset)
 	}
 	if m.timelinePinned {
 		t.Fatal("timelinePinned = true after user scroll, want false")
@@ -341,9 +440,9 @@ func TestShellViewportScrollAndSubmitReturnsToBottom(t *testing.T) {
 		t.Fatal("active tab is nil")
 	}
 	active.InputBuffer = "echo hi"
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if !m.timeline.AtBottom() {
-		t.Fatalf("timeline YOffset = %d, want bottom", m.timeline.YOffset)
+		t.Fatalf("timeline YOffset = %d, want bottom", m.timeline.YOffset())
 	}
 	if !m.timelinePinned {
 		t.Fatal("timelinePinned = false after explicit submit, want true")
@@ -354,25 +453,19 @@ func TestShellViewportMouseWheelScrollsTimeline(t *testing.T) {
 	m := viewportTestModel()
 	appendViewportTestOutput(&m, 80)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 18})
-	bottomOffset := m.timeline.YOffset
+	bottomOffset := m.timeline.YOffset()
 
-	m = updateModel(t, m, tea.MouseMsg{
-		Action: tea.MouseActionPress,
-		Button: tea.MouseButtonWheelUp,
-	})
-	if m.timeline.YOffset >= bottomOffset {
-		t.Fatalf("YOffset after wheel up = %d, want less than %d", m.timeline.YOffset, bottomOffset)
+	m = updateModel(t, m, tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	if m.timeline.YOffset() >= bottomOffset {
+		t.Fatalf("YOffset after wheel up = %d, want less than %d", m.timeline.YOffset(), bottomOffset)
 	}
 	if m.timelinePinned {
 		t.Fatal("timelinePinned = true after wheel up, want false")
 	}
 
-	m = updateModel(t, m, tea.MouseMsg{
-		Action: tea.MouseActionPress,
-		Button: tea.MouseButtonWheelDown,
-	})
-	if m.timeline.YOffset <= 0 {
-		t.Fatalf("YOffset after wheel down = %d, want positive", m.timeline.YOffset)
+	m = updateModel(t, m, tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	if m.timeline.YOffset() <= 0 {
+		t.Fatalf("YOffset after wheel down = %d, want positive", m.timeline.YOffset())
 	}
 }
 
@@ -380,8 +473,8 @@ func TestShellMentionNavigationDoesNotScrollViewport(t *testing.T) {
 	m := viewportTestModel()
 	appendViewportTestOutput(&m, 80)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 18})
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyPgUp})
-	offset := m.timeline.YOffset
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	offset := m.timeline.YOffset()
 	m.mention = MentionState{
 		Open:  true,
 		Index: 1,
@@ -391,12 +484,12 @@ func TestShellMentionNavigationDoesNotScrollViewport(t *testing.T) {
 		},
 	}
 
-	m = updateModel(t, m, tea.KeyMsg{Type: tea.KeyUp})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
 	if m.mention.Index != 0 {
 		t.Fatalf("mention index = %d, want 0", m.mention.Index)
 	}
-	if m.timeline.YOffset != offset {
-		t.Fatalf("timeline YOffset = %d, want unchanged %d", m.timeline.YOffset, offset)
+	if m.timeline.YOffset() != offset {
+		t.Fatalf("timeline YOffset = %d, want unchanged %d", m.timeline.YOffset(), offset)
 	}
 }
 

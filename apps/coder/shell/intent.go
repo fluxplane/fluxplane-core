@@ -25,11 +25,11 @@ func classifyInput(line string, mode InputMode) InputIntent {
 	if line == "" {
 		return InputIntent{Kind: IntentBlank}
 	}
-	if mode == InputModeAsk {
-		return InputIntent{Kind: IntentAsk, Text: line}
-	}
 	if strings.HasPrefix(line, "/") {
 		return InputIntent{Kind: IntentSlash, Text: line}
+	}
+	if mode == InputModeAsk {
+		return InputIntent{Kind: IntentAsk, Text: line}
 	}
 	if target, ok := parseCD(line); ok {
 		return InputIntent{Kind: IntentCD, Text: line, Arg: target}

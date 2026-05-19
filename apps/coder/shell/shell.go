@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	legacytea "github.com/charmbracelet/bubbletea"
 	mdbubble "github.com/codewandler/markdown/bubbleview"
 	"github.com/codewandler/markdown/stream"
 	mdterminal "github.com/codewandler/markdown/terminal"
@@ -101,7 +102,7 @@ func run(ctx context.Context, opts Options) error {
 	}
 	status.provider = strings.TrimSpace(opts.Provider)
 	status.model = strings.TrimSpace(opts.Model)
-	programOpts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
+	programOpts := []tea.ProgramOption{}
 	if opts.In != nil {
 		programOpts = append(programOpts, tea.WithInput(opts.In))
 	}
@@ -424,7 +425,7 @@ func newModel(status shellStatus, client ShellClient, connection string) model {
 			},
 		}}}
 	}
-	timeline := viewport.New(1, 1)
+	timeline := viewport.New(viewport.WithWidth(1), viewport.WithHeight(1))
 	timeline.MouseWheelEnabled = true
 	m := model{status: status, shell: state, timeline: timeline, timelinePinned: true, activeRuns: map[string]string{}, activeOps: map[string]string{}}
 	m.syncTimelineViewport(true)
@@ -432,6 +433,19 @@ func newModel(status shellStatus, client ShellClient, connection string) model {
 }
 
 func (m model) Init() tea.Cmd { return nil }
+
+func isPlainTextKey(key tea.Key) bool {
+	return !key.Mod.Contains(tea.ModAlt | tea.ModCtrl | tea.ModMeta | tea.ModHyper | tea.ModSuper)
+}
+
+func hasNonTextModifier(key tea.Key, keystroke string) bool {
+	return !isPlainTextKey(key) ||
+		strings.Contains(keystroke, "alt+") ||
+		strings.Contains(keystroke, "ctrl+") ||
+		strings.Contains(keystroke, "meta+") ||
+		strings.Contains(keystroke, "hyper+") ||
+		strings.Contains(keystroke, "super+")
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -452,48 +466,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishStreamTranscript(msg.sessionID, msg.done)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
 		return m, nil
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		m.syncTimelineViewport(false)
 		var cmd tea.Cmd
 		m.timeline, cmd = m.timeline.Update(msg)
 		m.timelinePinned = m.timeline.AtBottom()
 		return m, cmd
-	case tea.KeyMsg:
+	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseMotionMsg:
+		return m, nil
+	case tea.KeyPressMsg:
 		tab := m.shell.ActiveTab()
-		switch msg.Type {
-		case tea.KeyPgUp:
+		key := msg.Key()
+		switch {
+		case key.Code == tea.KeyPgUp:
 			m.syncTimelineViewport(false)
 			m.timeline.PageUp()
 			m.timelinePinned = false
 			return m, nil
-		case tea.KeyPgDown:
+		case key.Code == tea.KeyPgDown:
 			m.syncTimelineViewport(false)
 			m.timeline.PageDown()
 			m.timelinePinned = m.timeline.AtBottom()
 			return m, nil
-		case tea.KeyHome:
+		case key.Code == tea.KeyHome:
 			m.syncTimelineViewport(false)
 			m.timeline.GotoTop()
 			m.timelinePinned = false
 			return m, nil
-		case tea.KeyEnd:
+		case key.Code == tea.KeyEnd:
 			m.syncTimelineViewport(false)
 			m.timeline.GotoBottom()
 			m.timelinePinned = true
 			return m, nil
-		case tea.KeyCtrlU:
+		case msg.Keystroke() == "ctrl+u":
 			m.syncTimelineViewport(false)
 			m.timeline.HalfPageUp()
 			m.timelinePinned = false
 			return m, nil
-		case tea.KeyCtrlD:
+		case msg.Keystroke() == "ctrl+d":
 			m.syncTimelineViewport(false)
 			m.timeline.HalfPageDown()
 			m.timelinePinned = m.timeline.AtBottom()
 			return m, nil
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case msg.Keystroke() == "ctrl+c" || key.Code == tea.KeyEscape:
 			return m, tea.Quit
-		case tea.KeyCtrlT:
+		case msg.Keystroke() == "ctrl+t":
 			cwd := m.status.cwd
 			if tab != nil && strings.TrimSpace(tab.CWD) != "" {
 				cwd = tab.CWD
@@ -502,38 +519,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mention = MentionState{}
 			m.syncTimelineViewport(true)
 			return m, nil
-		case tea.KeyRunes:
-			value := msg.String()
-			if tab != nil && value == "!" && tab.InputMode == InputModeAsk {
+		case key.Text != "":
+			value := key.Text
+			if tab != nil && tab.InputBuffer == "" && value == "!" && tab.InputMode == InputModeAsk {
 				tab.InputMode = InputModeShell
+				tab.resetHistoryNavigation()
 				m.mention = MentionState{}
 				return m, nil
 			}
-			if tab != nil && value == "?" && tab.InputMode == InputModeShell {
+			if tab != nil && tab.InputBuffer == "" && value == "?" && tab.InputMode == InputModeShell {
 				tab.InputMode = InputModeAsk
+				tab.resetHistoryNavigation()
 				m.mention = MentionState{}
 				return m, nil
 			}
 			if value == "q" && tab != nil && tab.InputBuffer == "" {
 				return m, tea.Quit
 			}
-			if len(value) == 1 && value[0] >= '1' && value[0] <= '9' && msg.Alt {
+			if len(value) == 1 && value[0] >= '1' && value[0] <= '9' && key.Mod.Contains(tea.ModAlt) {
 				m.shell.SelectTab(int(value[0] - '1'))
 				m.syncTimelineViewport(true)
+				return m, nil
+			}
+			if hasNonTextModifier(key, msg.Keystroke()) {
 				return m, nil
 			}
 			m.shell.AppendInput(value)
 			m.refreshMention()
 			return m, nil
-		case tea.KeySpace:
+		case key.Code == tea.KeySpace:
 			m.shell.AppendInput(" ")
 			m.mention = MentionState{}
 			return m, nil
-		case tea.KeyBackspace, tea.KeyCtrlH:
+		case key.Code == tea.KeyBackspace || msg.Keystroke() == "ctrl+h":
 			m.shell.BackspaceInput()
 			m.refreshMention()
 			return m, nil
-		case tea.KeyEnter:
+		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
 			m.mention = MentionState{}
 			if cmd := m.submitActiveInputAsync(); cmd != nil {
 				m.syncTimelineViewport(true)
@@ -541,17 +563,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.syncTimelineViewport(true)
 			return m, nil
-		case tea.KeyUp:
+		case key.Code == tea.KeyUp:
 			if m.mention.Open && m.mention.Index > 0 {
 				m.mention.Index--
+				return m, nil
+			}
+			if m.shell.PreviousInputHistory() {
+				m.refreshMention()
 			}
 			return m, nil
-		case tea.KeyDown:
+		case key.Code == tea.KeyDown:
 			if m.mention.Open && m.mention.Index+1 < len(m.mention.Results) {
 				m.mention.Index++
+				return m, nil
+			}
+			if m.shell.NextInputHistory() {
+				m.refreshMention()
 			}
 			return m, nil
-		case tea.KeyTab:
+		case key.Code == tea.KeyTab:
 			if result, ok := m.mention.activeResult(); ok {
 				tab := m.shell.ActiveTab()
 				if tab != nil {
@@ -612,9 +642,12 @@ func (m *model) submitActiveInputAsync() tea.Cmd {
 		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
 		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
 		tab.InputBuffer = ""
+		tab.resetHistoryNavigation()
 		return nil
 	}
 
+	submittedMode := tab.InputMode
+	tab.recordHistory(line, submittedMode)
 	intent := classifyInput(line, tab.InputMode)
 	if intent.Kind == IntentCD {
 		result, err := m.shell.client.ChangeCWD(context.Background(), tab.ID, intent.Arg)
@@ -905,8 +938,8 @@ func (m *model) syncTimelineViewport(follow bool) {
 	}
 	layout := m.layout()
 	pinned := follow || m.timelinePinned || m.timeline.AtBottom() || m.timeline.TotalLineCount() == 0
-	m.timeline.Width = layout.timelineInnerWidth
-	m.timeline.Height = layout.timelineInnerHeight
+	m.timeline.SetWidth(layout.timelineInnerWidth)
+	m.timeline.SetHeight(layout.timelineInnerHeight)
 	m.timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
 	if pinned {
 		m.timeline.GotoBottom()
@@ -949,6 +982,16 @@ func (m *model) refreshMention() {
 			m.mention = MentionState{}
 			return
 		}
+		if state.Kind == completionCommand {
+			if len(results) == 0 || slashCommandInputComplete(tab.InputBuffer, state.Query, results) {
+				m.mention = MentionState{}
+				return
+			}
+		}
+		if state.Kind == completionOption && len(results) == 0 {
+			m.mention = MentionState{}
+			return
+		}
 		state.Results = results
 		m.mention = state
 		return
@@ -964,6 +1007,25 @@ func (m *model) refreshMention() {
 		return
 	}
 	m.mention = MentionState{Open: true, Kind: completionMention, Query: query, Results: results}
+}
+
+func slashCommandInputComplete(input string, query string, results []ResourceSearchResult) bool {
+	if !strings.HasSuffix(input, " ") && !strings.HasSuffix(input, "\t") {
+		return false
+	}
+	query = normalizeSlashCompletionText(query)
+	for _, result := range results {
+		if normalizeSlashCompletionText(result.Label) == query {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSlashCompletionText(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "/"))
+	value = strings.ReplaceAll(value, "/", " ")
+	return strings.Join(strings.Fields(value), " ")
 }
 
 var (
@@ -1013,7 +1075,7 @@ var (
 	footerStyle = lipgloss.NewStyle().Foreground(monokaiMuted).Padding(0, 1)
 )
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	layout := m.layout()
 
 	parts := []string{
@@ -1025,7 +1087,10 @@ func (m model) View() string {
 		parts = append(parts, m.renderMentionPicker(layout.contentWidth))
 	}
 	parts = append(parts, m.renderPrompt(layout.contentWidth))
-	return pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	view := tea.NewView(pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...)))
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
 }
 
 func (m model) renderHeader(width int) string {
@@ -1357,17 +1422,21 @@ func (m model) renderMentionPicker(width int) string {
 		if detail != "" {
 			detail = subtleStyle.Render("  " + detail)
 		}
-		lines = append(lines, prefix+subtleStyle.Render("["+string(result.Kind)+"] ")+style.Render(icon+result.Label)+detail)
+		kindPrefix := subtleStyle.Render("[" + string(result.Kind) + "] ")
+		if m.mention.Kind == completionCommand || m.mention.Kind == completionOption {
+			kindPrefix = ""
+		}
+		lines = append(lines, prefix+kindPrefix+style.Render(icon+result.Label)+detail)
 	}
 	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (m model) renderTimeline(layout shellLayout) string {
 	timeline := m.timeline
-	timeline.Width = layout.timelineInnerWidth
-	timeline.Height = layout.timelineInnerHeight
+	timeline.SetWidth(layout.timelineInnerWidth)
+	timeline.SetHeight(layout.timelineInnerHeight)
 	timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
-	if m.timelinePinned || timeline.TotalLineCount() <= timeline.Height {
+	if m.timelinePinned || timeline.TotalLineCount() <= timeline.Height() {
 		timeline.GotoBottom()
 	}
 	return panelStyle.Width(layout.contentWidth).Height(layout.timelineOuterHeight - 2).Render(timeline.View())
@@ -1468,7 +1537,7 @@ func renderMarkdownBubbleView(text string, width int) string {
 		mdbubble.WithTheme(mdterminal.MonokaiTheme()),
 		mdbubble.WithParserOptions(stream.WithGFMAutolinks()),
 	)
-	updated, cmd := model.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	updated, cmd := model.Update(legacytea.WindowSizeMsg{Width: width, Height: height})
 	if next, ok := updated.(mdbubble.StreamModel); ok {
 		model = next
 	}

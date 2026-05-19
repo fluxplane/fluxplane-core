@@ -111,10 +111,11 @@ func (s *ShellObject) NewTab(ctx context.Context, cwd string) (*TabSession, erro
 		return nil, fmt.Errorf("create shell session: %w", err)
 	}
 	tab := TabSession{
-		ID:        info.ID,
-		Label:     fmt.Sprintf("%d", len(s.tabs)+1),
-		CWD:       strings.TrimSpace(info.CWD),
-		InputMode: InputModeShell,
+		ID:           info.ID,
+		Label:        fmt.Sprintf("%d", len(s.tabs)+1),
+		CWD:          strings.TrimSpace(info.CWD),
+		InputMode:    InputModeShell,
+		historyIndex: -1,
 		Transcript: []TranscriptEvent{
 			transcriptConnectionEvent(info.ID, s.connection),
 		},
@@ -138,40 +139,37 @@ func (s *ShellObject) SelectTab(index int) bool {
 
 func (s *ShellObject) AppendInput(text string) {
 	if tab := s.ActiveTab(); tab != nil {
-		tab.InputBuffer += sanitizeInputText(text)
+		cleaned, pending := sanitizeInputText(tab.inputEscapeRemainder + text)
+		tab.inputEscapeRemainder = pending
+		tab.InputBuffer += cleaned
+		if cleaned != "" {
+			tab.resetHistoryNavigation()
+		}
 	}
 }
 
-func sanitizeInputText(text string) string {
+func sanitizeInputText(text string) (string, string) {
 	if text == "" {
-		return ""
+		return "", ""
 	}
 	var out strings.Builder
 	for i := 0; i < len(text); {
-		if next, ok := consumeLeakedMouseSequence(text, i); ok {
+		if next, ok := consumeLeakedModifierArtifact(text, i); ok {
 			i = next
 			continue
 		}
+		if next, ok := consumeLeakedMouseSequence(text, i); ok {
+			i = next
+			continue
+		} else if isPotentialLeakedMousePrefix(text[i:]) {
+			return out.String(), text[i:]
+		}
 		if text[i] == 0x1b {
-			i++
-			if i < len(text) && text[i] == '[' {
-				i++
-				if i < len(text) && text[i] == 'M' {
-					i++
-					if i+3 <= len(text) {
-						i += 3
-					}
-					continue
-				}
-				for i < len(text) {
-					b := text[i]
-					i++
-					if b >= '@' && b <= '~' {
-						break
-					}
-				}
-				continue
+			next, complete := consumeANSISequence(text, i)
+			if !complete {
+				return out.String(), text[i:]
 			}
+			i = next
 			continue
 		}
 		r, size := rune(text[i]), 1
@@ -187,7 +185,60 @@ func sanitizeInputText(text string) string {
 		}
 		out.WriteRune(r)
 	}
-	return out.String()
+	return out.String(), ""
+}
+
+func consumeLeakedModifierArtifact(text string, start int) (int, bool) {
+	for _, artifact := range []string{"+alt", "+ctrl", "+shift", "+meta"} {
+		if strings.HasPrefix(text[start:], artifact) {
+			return start + len(artifact), true
+		}
+	}
+	for _, artifact := range []string{"alt+", "ctrl+", "shift+", "meta+"} {
+		if !strings.HasPrefix(text[start:], artifact) {
+			continue
+		}
+		if start > 0 {
+			prev := rune(text[start-1])
+			if unicode.IsLetter(prev) || unicode.IsDigit(prev) {
+				continue
+			}
+		}
+		return start + len(artifact), true
+	}
+	return start, false
+}
+
+func consumeANSISequence(text string, start int) (int, bool) {
+	if start < 0 || start >= len(text) || text[start] != 0x1b {
+		return start, false
+	}
+	i := start + 1
+	if i >= len(text) {
+		return len(text), false
+	}
+	if text[i] != '[' {
+		return i + 1, true
+	}
+	i++
+	if i >= len(text) {
+		return len(text), false
+	}
+	if text[i] == 'M' {
+		i++
+		if i+3 <= len(text) {
+			return i + 3, true
+		}
+		return len(text), false
+	}
+	for i < len(text) {
+		b := text[i]
+		i++
+		if b >= '@' && b <= '~' {
+			return i, true
+		}
+	}
+	return len(text), false
 }
 
 func consumeLeakedMouseSequence(text string, start int) (int, bool) {
@@ -199,9 +250,9 @@ func consumeLeakedMouseSequence(text string, start int) (int, bool) {
 		if end <= len(text) {
 			return end, true
 		}
-		return len(text), true
+		return start, false
 	}
-	if start+2 >= len(text) || text[start+1] != '<' {
+	if start+2 >= len(text) || (text[start+1] != '<' && text[start+1] != '>') {
 		return start, false
 	}
 	i := start + 2
@@ -226,6 +277,39 @@ func consumeLeakedMouseSequence(text string, start int) (int, bool) {
 	return start, false
 }
 
+func isPotentialLeakedMousePrefix(text string) bool {
+	if text == "" || text[0] != '[' {
+		return false
+	}
+	if len(text) == 1 {
+		return false
+	}
+	switch text[1] {
+	case 'M':
+		return len(text) < 5
+	case '<', '>':
+		fields := 0
+		digits := 0
+		for i := 2; i < len(text); i++ {
+			b := text[i]
+			switch {
+			case b >= '0' && b <= '9':
+				digits++
+			case b == ';' && digits > 0:
+				fields++
+				digits = 0
+			case (b == 'M' || b == 'm') && digits > 0 && fields == 2:
+				return false
+			default:
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 // BackspaceInput removes one rune from the active tab input buffer.
 func (s *ShellObject) BackspaceInput() {
 	tab := s.ActiveTab()
@@ -234,12 +318,14 @@ func (s *ShellObject) BackspaceInput() {
 	}
 	runes := []rune(tab.InputBuffer)
 	tab.InputBuffer = string(runes[:len(runes)-1])
+	tab.resetHistoryNavigation()
 }
 
 // ClearInput clears the active input buffer.
 func (s *ShellObject) ClearInput() {
 	if tab := s.ActiveTab(); tab != nil {
 		tab.InputBuffer = ""
+		tab.resetHistoryNavigation()
 	}
 }
 
@@ -266,9 +352,12 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
 		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
 		tab.InputBuffer = ""
+		tab.resetHistoryNavigation()
 		return err
 	}
 
+	submittedMode := tab.InputMode
+	tab.recordHistory(line, submittedMode)
 	intent := classifyInput(line, tab.InputMode)
 	if intent.Kind == IntentCD {
 		result, err := s.client.ChangeCWD(ctx, tab.ID, intent.Arg)
@@ -330,6 +419,40 @@ func (s *ShellObject) ToggleInputMode() {
 	tab.InputMode = InputModeAsk
 }
 
+// PreviousInputHistory recalls the previous submitted input for the active tab.
+func (s *ShellObject) PreviousInputHistory() bool {
+	tab := s.ActiveTab()
+	if tab == nil || len(tab.InputHistory) == 0 {
+		return false
+	}
+	if tab.historyIndex < 0 {
+		tab.historyDraft = tab.InputBuffer
+		tab.historyDraftMode = tab.InputMode
+		tab.historyIndex = len(tab.InputHistory) - 1
+	} else if tab.historyIndex > 0 {
+		tab.historyIndex--
+	}
+	tab.applyHistoryEntry()
+	return true
+}
+
+// NextInputHistory recalls the next submitted input for the active tab.
+func (s *ShellObject) NextInputHistory() bool {
+	tab := s.ActiveTab()
+	if tab == nil || tab.historyIndex < 0 {
+		return false
+	}
+	if tab.historyIndex+1 < len(tab.InputHistory) {
+		tab.historyIndex++
+		tab.applyHistoryEntry()
+		return true
+	}
+	tab.InputBuffer = tab.historyDraft
+	tab.InputMode = tab.historyDraftMode
+	tab.resetHistoryNavigation()
+	return true
+}
+
 // SearchResources asks the client for resources using the active session and cwd.
 func (s *ShellObject) SearchResources(ctx context.Context, query ResourceSearchQuery) ([]ResourceSearchResult, error) {
 	tab := s.ActiveTab()
@@ -366,13 +489,70 @@ type TabSession struct {
 	ID    string
 	Label string
 
-	CWD         string
-	InputMode   InputMode
-	InputBuffer string
-	Transcript  []TranscriptEvent
-	Mentions    []ResourceMention
-	Processes   []ProcessSummary
-	Approvals   []ApprovalSummary
+	CWD                  string
+	InputMode            InputMode
+	InputBuffer          string
+	inputEscapeRemainder string
+	InputHistory         []InputHistoryEntry
+	historyIndex         int
+	historyDraft         string
+	historyDraftMode     InputMode
+	Transcript           []TranscriptEvent
+	Mentions             []ResourceMention
+	Processes            []ProcessSummary
+	Approvals            []ApprovalSummary
+}
+
+// InputHistoryEntry is one submitted prompt line plus the input mode it used.
+type InputHistoryEntry struct {
+	Text string
+	Mode InputMode
+}
+
+const maxInputHistoryEntries = 200
+
+func (t *TabSession) recordHistory(text string, mode InputMode) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if mode == "" {
+		mode = InputModeShell
+	}
+	entry := InputHistoryEntry{Text: text, Mode: mode}
+	if len(t.InputHistory) > 0 {
+		last := t.InputHistory[len(t.InputHistory)-1]
+		if last == entry {
+			t.resetHistoryNavigation()
+			return
+		}
+	}
+	t.InputHistory = append(t.InputHistory, entry)
+	if len(t.InputHistory) > maxInputHistoryEntries {
+		copy(t.InputHistory, t.InputHistory[len(t.InputHistory)-maxInputHistoryEntries:])
+		t.InputHistory = t.InputHistory[:maxInputHistoryEntries]
+	}
+	t.resetHistoryNavigation()
+}
+
+func (t *TabSession) applyHistoryEntry() {
+	if t == nil || t.historyIndex < 0 || t.historyIndex >= len(t.InputHistory) {
+		return
+	}
+	entry := t.InputHistory[t.historyIndex]
+	t.InputBuffer = entry.Text
+	if entry.Mode != "" {
+		t.InputMode = entry.Mode
+	}
+}
+
+func (t *TabSession) resetHistoryNavigation() {
+	if t == nil {
+		return
+	}
+	t.historyIndex = -1
+	t.historyDraft = ""
+	t.historyDraftMode = ""
 }
 
 // ProcessSummary is a session-scoped process row for rendering.

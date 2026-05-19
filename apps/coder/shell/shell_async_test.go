@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestShellAskEnterSubmitsImmediatelyAndClearsInput(t *testing.T) {
@@ -20,7 +20,7 @@ func TestShellAskEnterSubmitsImmediatelyAndClearsInput(t *testing.T) {
 	tab.InputMode = InputModeAsk
 	tab.InputBuffer = "explain this code"
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
 		t.Fatal("Update returned nil command, want async ask command")
 	}
@@ -60,7 +60,7 @@ func TestShellAskAsyncResultAppendsWithoutDuplicateSubmit(t *testing.T) {
 	tab.InputMode = InputModeAsk
 	tab.InputBuffer = "summarize"
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
 		t.Fatal("Update returned nil command, want async ask command")
 	}
@@ -94,7 +94,7 @@ func TestShellAskAsyncErrorAppendsTranscriptError(t *testing.T) {
 	tab.InputMode = InputModeAsk
 	tab.InputBuffer = "fail"
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
 		t.Fatal("Update returned nil command, want async ask command")
 	}
@@ -123,7 +123,7 @@ func TestShellStreamingAskUpdatesBeforeCompletion(t *testing.T) {
 	tab.InputMode = InputModeAsk
 	tab.InputBuffer = "stream"
 
-	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if cmd == nil {
 		t.Fatal("Update returned nil command, want stream command")
 	}

@@ -296,7 +296,7 @@ func transcriptEventsForRuntimeEvent(sessionID string, now time.Time, runtimeEve
 		}
 		return []TranscriptEvent{usageTranscriptEvent(sessionID, now, recorded)}
 	case llmagent.EventModelRequestedName:
-		return []TranscriptEvent{{ID: newEventID("model-start"), SessionID: sessionID, Time: now, Kind: EventThinking, Summary: "agent started"}}
+		return nil
 	case llmagent.EventModelStreamedName:
 		streamed, ok := decodeRuntimePayload[llmagent.ModelStreamed](runtimeEvent.Payload)
 		if !ok {

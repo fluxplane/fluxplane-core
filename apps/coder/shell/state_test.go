@@ -28,6 +28,70 @@ func TestAppendInputStripsMouseEscapeSequences(t *testing.T) {
 	}
 }
 
+func TestAppendInputStripsSplitMouseEscapeSequences(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("ec")
+	shell.AppendInput("[M")
+	shell.AppendInput("`")
+	shell.AppendInput("7")
+	shell.AppendInput("%")
+	shell.AppendInput("ho")
+	shell.AppendInput("\x1b[<64;")
+	shell.AppendInput("15;")
+	shell.AppendInput("8M")
+	shell.AppendInput(" ok")
+	if got := shell.ActiveTab().InputBuffer; got != "echo ok" {
+		t.Fatalf("InputBuffer = %q, want echo ok", got)
+	}
+}
+
+func TestAppendInputPreservesLiteralBracketText(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("[abc] [<nope")
+	if got := shell.ActiveTab().InputBuffer; got != "[abc] [<nope" {
+		t.Fatalf("InputBuffer = %q, want literal bracket text", got)
+	}
+}
+
+func TestAppendInputPreservesLiteralSingleBracket(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("[")
+	if got := shell.ActiveTab().InputBuffer; got != "[" {
+		t.Fatalf("InputBuffer = %q, want literal bracket", got)
+	}
+}
+
+func TestAppendInputStripsLeakedModifierArtifacts(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("echo +alt+alt+alt")
+	if got := shell.ActiveTab().InputBuffer; got != "echo " {
+		t.Fatalf("InputBuffer = %q, want modifier artifacts stripped", got)
+	}
+}
+
+func TestAppendInputDoesNotStripModifierWordsInsideText(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("salt+")
+	if got := shell.ActiveTab().InputBuffer; got != "salt+" {
+		t.Fatalf("InputBuffer = %q, want literal word preserved", got)
+	}
+}
+
 func TestShellObjectCreatesSessionScopedTabs(t *testing.T) {
 	client := NewFakeClient()
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: "/workspace"})
@@ -125,6 +189,47 @@ func TestShellObjectAskModeSubmitsAsk(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("ask submission event not recorded")
+	}
+}
+
+func TestShellObjectInputHistoryRestoresMode(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("go test ./apps/coder/shell")
+	if err := shell.SubmitActiveInput(context.Background()); err != nil {
+		t.Fatalf("SubmitActiveInput(shell) error = %v", err)
+	}
+	shell.ToggleInputMode()
+	shell.AppendInput("summarize the failure")
+	if err := shell.SubmitActiveInput(context.Background()); err != nil {
+		t.Fatalf("SubmitActiveInput(ask) error = %v", err)
+	}
+
+	if !shell.PreviousInputHistory() {
+		t.Fatal("PreviousInputHistory() = false, want true")
+	}
+	if got := shell.ActiveTab().InputBuffer; got != "summarize the failure" {
+		t.Fatalf("first history input = %q, want ask text", got)
+	}
+	if got := shell.ActiveTab().InputMode; got != InputModeAsk {
+		t.Fatalf("first history mode = %q, want ask", got)
+	}
+	if !shell.PreviousInputHistory() {
+		t.Fatal("PreviousInputHistory() second = false, want true")
+	}
+	if got := shell.ActiveTab().InputBuffer; got != "go test ./apps/coder/shell" {
+		t.Fatalf("second history input = %q, want shell command", got)
+	}
+	if got := shell.ActiveTab().InputMode; got != InputModeShell {
+		t.Fatalf("second history mode = %q, want shell", got)
+	}
+	if !shell.NextInputHistory() {
+		t.Fatal("NextInputHistory() = false, want true")
+	}
+	if got := shell.ActiveTab().InputMode; got != InputModeAsk {
+		t.Fatalf("next history mode = %q, want ask", got)
 	}
 }
 
@@ -227,6 +332,30 @@ func TestSlashCommandGoesThroughClient(t *testing.T) {
 		}
 	}
 	t.Fatal("slash submission event not found")
+}
+
+func TestSlashCommandGoesThroughClientInAskMode(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.ToggleInputMode()
+	shell.AppendInput("/context")
+	if err := shell.SubmitActiveInput(context.Background()); err != nil {
+		t.Fatalf("SubmitActiveInput(/context) error = %v", err)
+	}
+	foundSlash := false
+	for _, event := range shell.ActiveTab().Transcript {
+		switch event.Kind {
+		case EventSlashSubmitted:
+			foundSlash = true
+		case EventAskSubmitted:
+			t.Fatalf("recorded ask event for slash command: %#v", event)
+		}
+	}
+	if !foundSlash {
+		t.Fatal("slash submission event not found")
+	}
 }
 
 func TestProjectTranscriptBoundsEventsAndBytes(t *testing.T) {
