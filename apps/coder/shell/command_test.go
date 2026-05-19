@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	agentruntime "github.com/fluxplane/agentruntime"
 )
 
 func TestParseConnectEndpoint(t *testing.T) {
@@ -70,9 +68,9 @@ func TestCommandPassesLocalLaunchFlagsToClientFactory(t *testing.T) {
 	sentinel := errors.New("stop after capture")
 	var captured ClientFactoryRequest
 	cmd := NewCommandWithOptions(CommandOptions{
-		ClientFactory: func(_ context.Context, req ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+		ClientFactory: func(_ context.Context, req ClientFactoryRequest) (ClientFactoryResult, error) {
 			captured = req
-			return nil, nil, sentinel
+			return ClientFactoryResult{}, sentinel
 		},
 	})
 	cmd.SetArgs([]string{
@@ -118,9 +116,9 @@ func TestCommandPassesLocalLaunchFlagsToClientFactory(t *testing.T) {
 
 func TestCommandRejectsLocalLaunchFlagsForRemoteConnect(t *testing.T) {
 	cmd := NewCommandWithOptions(CommandOptions{
-		ClientFactory: func(context.Context, ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+		ClientFactory: func(context.Context, ClientFactoryRequest) (ClientFactoryResult, error) {
 			t.Fatal("ClientFactory called for remote connect")
-			return nil, nil, nil
+			return ClientFactoryResult{}, nil
 		},
 	})
 	cmd.SetArgs([]string{"--connect", "http://example.test:4321", "--model", "gpt-5.5"})

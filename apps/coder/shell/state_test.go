@@ -16,6 +16,18 @@ func TestAppendInputStripsANSIEscapeSequences(t *testing.T) {
 	}
 }
 
+func TestAppendInputStripsMouseEscapeSequences(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("ls\x1b[<64;15;8M\x1b[M`7% -la")
+	shell.AppendInput("[<65;15;8M[M`7%")
+	if got := shell.ActiveTab().InputBuffer; got != "ls -la" {
+		t.Fatalf("InputBuffer = %q, want ls -la", got)
+	}
+}
+
 func TestShellObjectCreatesSessionScopedTabs(t *testing.T) {
 	client := NewFakeClient()
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: "/workspace"})

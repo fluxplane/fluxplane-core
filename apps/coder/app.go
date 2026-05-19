@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/awsplugin"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
@@ -179,6 +180,7 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		imageplugin.New(hostSystem),
 		awsplugin.New(hostSystem),
 		dockerplugin.New(hostSystem),
+		gitlabplugin.New(hostSystem),
 		kubernetesplugin.New(hostSystem),
 	}
 }

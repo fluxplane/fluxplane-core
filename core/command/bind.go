@@ -22,6 +22,32 @@ func Bind[T any](inv Invocation) (T, error) {
 	return value.Interface().(T), nil
 }
 
+// FlagNamesFor returns command flag names declared by command:"flag=name" tags
+// on T. It is intended for presentation layers that need command completion
+// metadata without duplicating command binding rules.
+func FlagNamesFor[T any]() []string {
+	typ := reflect.TypeOf((*T)(nil)).Elem()
+	if typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+	out := []string{}
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		binding, ok, err := parseCommandBindingTag(field.Tag.Get("command"))
+		if err != nil || !ok || binding.source != "flag" || binding.name == "" {
+			continue
+		}
+		out = append(out, binding.name)
+	}
+	return out
+}
+
 func bindValue(value reflect.Value, inv Invocation) error {
 	typ := value.Type()
 	if typ.Kind() == reflect.Pointer {

@@ -9,6 +9,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 )
 
+const (
+	// CompletionFlagsAnnotation names a comma-separated list of command flag
+	// names for presentation-layer completion.
+	CompletionFlagsAnnotation = "completion.flags"
+)
+
 // Path identifies a command in channel-facing command space.
 type Path []string
 

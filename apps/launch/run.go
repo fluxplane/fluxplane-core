@@ -902,7 +902,8 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 			done <- datasourceIndexWarmupResult{Err: err}
 			return
 		}
-		slog.Info("datasource index warmup scheduled", "concurrency", concurrency, "freshness", freshness)
+		jobs := indexedDatasourceJobLabels(registry)
+		slog.Info("datasource index warmup scheduled", "concurrency", concurrency, "freshness", freshness, "jobs", jobs, "job_count", len(jobs))
 		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 			Registry:    registry,
 			Index:       index,
@@ -955,8 +956,10 @@ func datasourceIndexSlogProgress(event datasourceindex.ProgressEvent) {
 		slog.Info("datasource index warmup start", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase)
 	case datasourceindex.ProgressEntityFresh:
 		slog.Info("datasource index warmup fresh", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "fresh_until", event.FreshUntil)
+	case datasourceindex.ProgressEntityRunningStale:
+		slog.Warn("datasource index warmup previous run still marked running; rescanning", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "reason", event.Message)
 	case datasourceindex.ProgressPageFetched:
-		slog.Info("datasource index warmup page", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "documents", event.Documents, "tombstones", event.Tombstones)
+		slog.Info("datasource index warmup page", datasourceIndexPageLogArgs(event)...)
 	case datasourceindex.ProgressDocumentFailed, datasourceindex.ProgressTombstoneFailed:
 		slog.Warn("datasource index warmup item failed", "datasource", event.Datasource, "entity", event.Entity, "phase", event.Phase, "id", event.RecordID, "error", event.Message)
 	case datasourceindex.ProgressDocumentQueued:

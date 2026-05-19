@@ -7,9 +7,11 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/apps/launch"
+	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/resource"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 // Config configures a reusable coder product instance.
@@ -39,8 +41,9 @@ type Coder struct {
 
 // ChannelClientResult is an opened local coder channel plus cleanup.
 type ChannelClientResult struct {
-	Client  agentruntime.ChannelClient
-	Cleanup func()
+	Client   agentruntime.ChannelClient
+	Cleanup  func()
+	Commands []command.Spec
 }
 
 // ChannelClientOptions configures a local in-process shell/channel client.
@@ -149,8 +152,9 @@ func (c *Coder) ChannelClient(ctx context.Context, opts ChannelClientOptions) (C
 		return ChannelClientResult{}, err
 	}
 	return ChannelClientResult{
-		Client:  runtime.Service,
-		Cleanup: runtime.Close,
+		Client:   runtime.Service,
+		Cleanup:  runtime.Close,
+		Commands: session.AvailableCommandSpecs(runtime.Composition.Commands, runtime.Composition.CommandCatalog),
 	}, nil
 }
 

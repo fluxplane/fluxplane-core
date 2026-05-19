@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Enabled the GitLab plugin by default in the embedded coder app so GitLab
+  datasource access and merge request operations are available automatically.
+
 - Added shell and process lifecycle tooling with script execution, shell
   discovery, labeled background processes, ensure/wait/stop operations, and
   process-management documentation.
@@ -17,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added plugin-contributed post-edit checks so active plugins can run
   formatter or diagnostic operations immediately after matching file edits.
+
+- Added Docker project inventory facets and a dedicated Docker observer plugin
+  for CLI/daemon availability signals.
 
 - Added an observations and reactions design note for unifying project signals,
   toolchain probes, skill triggers, environment facts, and configurable signal
@@ -57,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added Kubernetes plugin environment observations and signal derivation for
   non-secret selected-context and namespace availability facts.
+
+- Added `k8s_port_forward` to the Kubernetes plugin, starting or reusing
+  managed `kubectl port-forward` background processes through the runtime
+  process boundary.
+
+- Routed native Kubernetes client-go datasource requests through the runtime
+  system network boundary while preserving client-go authentication wrappers.
 
 - Added replayable reaction planned, skipped, and diagnostic events for
   inspecting why signal reactions did or did not run.
@@ -201,12 +214,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and hiding archived project records and archived project membership edges
   from default datasource search/list results.
 
+- Reworked the experimental coder shell header into a unified workspace,
+  session, and observed-environment fact strip.
+
+- Polished the coder shell TUI with a shared Monokai palette and removed the
+  placeholder startup copy from the transcript.
+
+- Separated the coder shell prompt input from the footer help so the input reads
+  as a distinct field and narrow terminals no longer strand `quit` on its own
+  line.
+
+- Kept the coder shell title readable in narrow Ghostty layouts and softened
+  facet styling so metadata no longer looks like accidental text selection.
+
+- Streamed live coder shell agent, operation, and process activity into the TUI
+  while a run is still in progress.
+
+- Moved coder shell usage totals into the bottom footer, removed the outer TUI
+  padding and footer hints, and changed mode switching to typed `!`/`?`
+  markers instead of `alt+tab`.
+
+- Added coder shell slash-command completion backed by the session command
+  dispatcher's available command specs, including built-in command flags.
+
 ### Fixed
 - Batched datasource field-index and data-store writes during corpus indexing
   and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.
 
+- Skipped noisy generated directories such as `.cache/` during glob operation
+  traversal so repo-local Go build caches do not exhaust `max_scanned` before
+  later workspace matches are reached.
+
 - Fixed shell discovery through authorized system wrappers so `shell` and
   `shell_info` operations no longer panic when resolving available shells.
+
+- Filtered leaked mouse scroll escape packets from coder shell prompt input.
 
 - Fixed prompt-target slash commands so they project the same model-visible tools
   as normal session input before re-entering the input execution path.

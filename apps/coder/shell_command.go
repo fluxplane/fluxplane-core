@@ -3,7 +3,6 @@ package coder
 import (
 	"context"
 
-	agentruntime "github.com/fluxplane/agentruntime"
 	codershell "github.com/fluxplane/agentruntime/apps/coder/shell"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +17,7 @@ func newShellCommandWithStartup(startup startupResources, defaults serveCommandO
 		},
 	}
 	return codershell.NewCommandWithOptions(codershell.CommandOptions{
-		ClientFactory: func(ctx context.Context, req codershell.ClientFactoryRequest) (agentruntime.ChannelClient, func(), error) {
+		ClientFactory: func(ctx context.Context, req codershell.ClientFactoryRequest) (codershell.ClientFactoryResult, error) {
 			result, err := instance.ChannelClient(ctx, ChannelClientOptions{
 				Path:           req.Path,
 				WorkspaceRoots: req.WorkspaceRoots,
@@ -35,9 +34,13 @@ func newShellCommandWithStartup(startup startupResources, defaults serveCommandO
 				Dev:            req.Dev,
 			})
 			if err != nil {
-				return nil, nil, err
+				return codershell.ClientFactoryResult{}, err
 			}
-			return result.Client, result.Cleanup, nil
+			return codershell.ClientFactoryResult{
+				Client:   result.Client,
+				Cleanup:  result.Cleanup,
+				Commands: result.Commands,
+			}, nil
 		},
 	})
 }

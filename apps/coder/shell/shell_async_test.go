@@ -3,6 +3,7 @@ package codershell
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,90 @@ func TestShellAskAsyncErrorAppendsTranscriptError(t *testing.T) {
 	}
 }
 
+func TestShellStreamingAskUpdatesBeforeCompletion(t *testing.T) {
+	events := make(chan TranscriptEvent, 4)
+	done := make(chan ShellRunDone, 1)
+	client := &streamingAskTestClient{stream: ShellRunStream{Events: events, Done: done}}
+	m := newModel(shellStatus{cwd: "/workspace", projectName: "project", goVersion: "go1.25"}, client, "test")
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeAsk
+	tab.InputBuffer = "stream"
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Update returned nil command, want stream command")
+	}
+	m = updated.(model)
+	tab = m.shell.ActiveTab()
+	if countTranscriptKind(tab.Transcript, EventAskSubmitted) != 1 {
+		t.Fatalf("ask submitted count = %d, want 1", countTranscriptKind(tab.Transcript, EventAskSubmitted))
+	}
+
+	events <- TranscriptEvent{ID: "delta-1", Kind: EventAskDelta, Summary: "hello"}
+	updated, cmd = m.Update(cmd())
+	if cmd == nil {
+		t.Fatal("stream event update returned nil command, want next stream command")
+	}
+	m = updated.(model)
+	tab = m.shell.ActiveTab()
+	if countTranscriptKind(tab.Transcript, EventAskDelta) != 1 {
+		t.Fatalf("ask delta count = %d, want 1", countTranscriptKind(tab.Transcript, EventAskDelta))
+	}
+	if got := m.observedFacts()[0].Value; got != "agent streaming" {
+		t.Fatalf("active fact = %q, want agent streaming", got)
+	}
+
+	done <- ShellRunDone{Events: []TranscriptEvent{{ID: "done", Kind: EventCommandComplete, Summary: "ok"}}}
+	close(events)
+	updated, _ = m.Update(cmd())
+	m = updated.(model)
+	if len(m.activeRuns) != 0 {
+		t.Fatalf("active runs = %#v, want empty", m.activeRuns)
+	}
+	if countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete) != 1 {
+		t.Fatalf("command complete count = %d, want 1", countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete))
+	}
+}
+
+func TestTimelineCoalescesThinkingChunks(t *testing.T) {
+	lines := TimelineLines([]TranscriptEvent{
+		{Kind: EventAskSubmitted, Summary: "work"},
+		{Kind: EventThinking, Summary: "first token"},
+		{Kind: EventThinking, Summary: "second token"},
+		{Kind: EventAskDelta, Summary: "done"},
+	})
+	got := strings.Join(lines, "\n")
+	if strings.Count(got, "thinking:") != 1 {
+		t.Fatalf("lines = %#v, want one thinking row", lines)
+	}
+	if !strings.Contains(got, "first token") || !strings.Contains(got, "second token") {
+		t.Fatalf("lines = %#v, want coalesced thinking content", lines)
+	}
+}
+
+func TestRenderTimelineLineUsesMarkdownForAgentOutput(t *testing.T) {
+	rendered := renderTimelineLine("agent: - **done**", 80)
+	if !strings.Contains(rendered, "done") {
+		t.Fatalf("rendered = %q, want markdown content", rendered)
+	}
+	if strings.Contains(rendered, "**done**") {
+		t.Fatalf("rendered = %q, want markdown rendered not raw markers", rendered)
+	}
+}
+
+func TestRenderTimelineLineUsesMarkdownForThinking(t *testing.T) {
+	rendered := renderTimelineLine("thinking: - **checking**", 80)
+	if !strings.Contains(rendered, "checking") {
+		t.Fatalf("rendered = %q, want thinking markdown content", rendered)
+	}
+	if strings.Contains(rendered, "**checking**") {
+		t.Fatalf("rendered = %q, want markdown rendered not raw markers", rendered)
+	}
+}
+
 type asyncAskTestClient struct {
 	events      []TranscriptEvent
 	err         error
@@ -143,6 +228,24 @@ func (c *asyncAskTestClient) ChangeCWD(ctx context.Context, sessionID string, pa
 
 func (c *asyncAskTestClient) ResourceSearch(ctx context.Context, sessionID string, query ResourceSearchQuery) ([]ResourceSearchResult, error) {
 	return nil, nil
+}
+
+type streamingAskTestClient struct {
+	asyncAskTestClient
+	stream ShellRunStream
+}
+
+func (c *streamingAskTestClient) SubmitAskStream(ctx context.Context, sessionID string, req AskRequest) (ShellRunStream, error) {
+	c.lastRequest = req
+	return c.stream, nil
+}
+
+func (c *streamingAskTestClient) SubmitCommandStream(context.Context, string, CommandRequest) (ShellRunStream, error) {
+	return ShellRunStream{}, errors.New("unexpected command stream")
+}
+
+func (c *streamingAskTestClient) SubmitSlashStream(context.Context, string, SlashRequest) (ShellRunStream, error) {
+	return ShellRunStream{}, errors.New("unexpected slash stream")
 }
 
 func countTranscriptKind(events []TranscriptEvent, kind TranscriptKind) int {

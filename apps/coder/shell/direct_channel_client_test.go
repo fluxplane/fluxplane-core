@@ -3,12 +3,17 @@ package codershell
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coreusage "github.com/fluxplane/agentruntime/core/usage"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 func TestDirectChannelClientCreatesSessionAndConnectionDescription(t *testing.T) {
@@ -112,16 +117,91 @@ func TestTranscriptEventsForResultUsesRenderedOutboundText(t *testing.T) {
 	}
 }
 
+func TestTranscriptEventsForRunEventMapsLiveRuntimeSignals(t *testing.T) {
+	streamEvents := transcriptEventsForRunEvent("session-1", clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: llmagent.EventModelStreamedName,
+			Payload: llmagent.ModelStreamed{Event: llmagent.StreamEvent{
+				Kind: llmagent.StreamContentDelta,
+				Text: "hello",
+			}},
+		},
+	})
+	if len(streamEvents) != 1 || streamEvents[0].Kind != EventAskDelta || streamEvents[0].Summary != "hello" {
+		t.Fatalf("stream events = %#v, want ask delta", streamEvents)
+	}
+
+	processEvents := transcriptEventsForRunEvent("session-1", clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    system.EventProcessOutput,
+			Payload: system.ProcessEvent{ProcessID: "proc-1", Kind: "output", Stream: "stdout", Data: "line\n"},
+		},
+	})
+	if len(processEvents) != 1 || processEvents[0].Kind != EventProcessOutput || processEvents[0].Summary != "stdout: line" {
+		t.Fatalf("process events = %#v, want process output", processEvents)
+	}
+
+	usageEvents := transcriptEventsForRunEvent("session-1", clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name: coreusage.EventRecordedName,
+			Payload: coreusage.Recorded{
+				Subject: coreusage.Subject{Kind: coreusage.SubjectLLM, Provider: "codex", Name: "gpt-5.5"},
+				Measurements: []coreusage.Measurement{
+					{Metric: coreusage.MetricLLMInputTokens, Quantity: 1200, Unit: coreusage.UnitToken, Direction: coreusage.DirectionInput},
+					{Metric: coreusage.MetricLLMOutputTokens, Quantity: 34, Unit: coreusage.UnitToken, Direction: coreusage.DirectionOutput},
+					{Metric: coreusage.MetricCost, Quantity: 0.0012, Unit: coreusage.UnitCurrency, Dimensions: map[string]string{"currency": "USD"}},
+				},
+			},
+		},
+	})
+	if len(usageEvents) != 1 || usageEvents[0].Kind != EventUsageRecorded || usageEvents[0].Data["input_tokens"] != "1200" || usageEvents[0].Data["output_tokens"] != "34" {
+		t.Fatalf("usage events = %#v, want usage totals", usageEvents)
+	}
+	if !strings.Contains(usageEvents[0].Summary, "in 1.2k") || !strings.Contains(usageEvents[0].Summary, "$0.0012") {
+		t.Fatalf("usage summary = %q, want compact token and cost summary", usageEvents[0].Summary)
+	}
+}
+
+func TestTranscriptEventsForRunEventMapsOperationLifecycle(t *testing.T) {
+	started := transcriptEventsForRunEvent("session-1", clientapi.Event{
+		Kind: clientapi.EventOperationRequested,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-1",
+			Operation: operation.Ref{Name: "shell_exec"},
+			Input:     map[string]any{"command": "go"},
+		},
+	})
+	if len(started) != 1 || started[0].Kind != EventOperationStarted || started[0].Data["call_id"] != "call-1" {
+		t.Fatalf("started = %#v, want operation started", started)
+	}
+
+	completed := transcriptEventsForRunEvent("session-1", clientapi.Event{
+		Kind: clientapi.EventOperationCompleted,
+		Operation: &clientapi.OperationEvent{
+			CallID:    "call-1",
+			Operation: operation.Ref{Name: "shell_exec"},
+			Result:    ptr(operation.OK("done")),
+		},
+	})
+	if len(completed) != 1 || completed[0].Kind != EventOperationComplete || completed[0].Data["call_id"] != "call-1" {
+		t.Fatalf("completed = %#v, want operation completed", completed)
+	}
+}
+
 func TestParseSlashInvocation(t *testing.T) {
-	inv, err := parseSlashInvocation("/echo 'hello world'")
+	inv, err := parseSlashInvocation("/env explain --fresh")
 	if err != nil {
 		t.Fatalf("parseSlashInvocation() error = %v", err)
 	}
-	if inv.Path.String() != "/echo" {
+	if inv.Path.String() != "/env/explain" {
 		t.Fatalf("path = %q", inv.Path.String())
 	}
-	if len(inv.Args) != 1 || inv.Args[0] != "hello world" {
-		t.Fatalf("args = %#v", inv.Args)
+	input, ok := inv.Input.(map[string]any)
+	if !ok || input["fresh"] != true {
+		t.Fatalf("input = %#v, want fresh flag", inv.Input)
 	}
 }
 
@@ -177,4 +257,8 @@ func TestShellObjectRecordsConnection(t *testing.T) {
 	if first.Data["connection"] != "fake" {
 		t.Fatalf("connection data = %q", first.Data["connection"])
 	}
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }

@@ -148,10 +148,21 @@ func sanitizeInputText(text string) string {
 	}
 	var out strings.Builder
 	for i := 0; i < len(text); {
+		if next, ok := consumeLeakedMouseSequence(text, i); ok {
+			i = next
+			continue
+		}
 		if text[i] == 0x1b {
 			i++
 			if i < len(text) && text[i] == '[' {
 				i++
+				if i < len(text) && text[i] == 'M' {
+					i++
+					if i+3 <= len(text) {
+						i += 3
+					}
+					continue
+				}
 				for i < len(text) {
 					b := text[i]
 					i++
@@ -177,6 +188,42 @@ func sanitizeInputText(text string) string {
 		out.WriteRune(r)
 	}
 	return out.String()
+}
+
+func consumeLeakedMouseSequence(text string, start int) (int, bool) {
+	if start < 0 || start >= len(text) || text[start] != '[' {
+		return start, false
+	}
+	if start+2 < len(text) && text[start+1] == 'M' {
+		end := start + 5
+		if end <= len(text) {
+			return end, true
+		}
+		return len(text), true
+	}
+	if start+2 >= len(text) || text[start+1] != '<' {
+		return start, false
+	}
+	i := start + 2
+	fields := 0
+	digits := 0
+	for i < len(text) {
+		b := text[i]
+		switch {
+		case b >= '0' && b <= '9':
+			digits++
+			i++
+		case b == ';' && digits > 0:
+			fields++
+			digits = 0
+			i++
+		case (b == 'M' || b == 'm') && digits > 0 && fields == 2:
+			return i + 1, true
+		default:
+			return start, false
+		}
+	}
+	return start, false
 }
 
 // BackspaceInput removes one rune from the active tab input buffer.

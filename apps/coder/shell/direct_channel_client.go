@@ -2,6 +2,7 @@ package codershell
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -13,22 +14,28 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coreusage "github.com/fluxplane/agentruntime/core/usage"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 // DirectChannelClient adapts the agentruntime direct channel API to ShellClient.
 type DirectChannelClient struct {
-	client  agentruntime.ChannelClient
-	session agentruntime.SessionRef
-	prefix  string
-	mu      sync.Mutex
-	handles map[string]agentruntime.Session
+	client   agentruntime.ChannelClient
+	session  agentruntime.SessionRef
+	prefix   string
+	commands []command.Spec
+	mu       sync.Mutex
+	handles  map[string]agentruntime.Session
 }
 
 // DirectChannelClientOptions configures a direct channel shell client.
 type DirectChannelClientOptions struct {
-	Client  agentruntime.ChannelClient
-	Session agentruntime.SessionRef
-	Prefix  string
+	Client   agentruntime.ChannelClient
+	Session  agentruntime.SessionRef
+	Prefix   string
+	Commands []command.Spec
 }
 
 // NewDirectChannelClient creates a ShellClient over an agentruntime direct channel client.
@@ -36,7 +43,7 @@ func NewDirectChannelClient(opts DirectChannelClientOptions) *DirectChannelClien
 	if opts.Prefix == "" {
 		opts.Prefix = "direct"
 	}
-	return &DirectChannelClient{client: opts.Client, session: opts.Session, prefix: opts.Prefix, handles: map[string]agentruntime.Session{}}
+	return &DirectChannelClient{client: opts.Client, session: opts.Session, prefix: opts.Prefix, commands: append([]command.Spec(nil), opts.Commands...), handles: map[string]agentruntime.Session{}}
 }
 
 func (c *DirectChannelClient) ConnectionDescription() string { return "direct-channel" }
@@ -101,6 +108,23 @@ func (c *DirectChannelClient) SubmitCommand(ctx context.Context, sessionID strin
 	return append(events, transcriptEventsForResult(sessionID, result, EventCommandOutput, EventCommandComplete)...), nil
 }
 
+func (c *DirectChannelClient) SubmitCommandStream(ctx context.Context, sessionID string, req CommandRequest) (ShellRunStream, error) {
+	line := strings.TrimSpace(req.Line)
+	invocation, err := shellOperationInvocation(line, req.CWD)
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	handle, err := c.sessionHandle(sessionID)
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	return c.streamRun(ctx, sessionID, run, EventCommandOutput, EventCommandComplete), nil
+}
+
 func (c *DirectChannelClient) SubmitAsk(ctx context.Context, sessionID string, req AskRequest) ([]TranscriptEvent, error) {
 	text := strings.TrimSpace(req.Text)
 	start := TranscriptEvent{ID: newEventID("ask"), SessionID: sessionID, Time: time.Now(), Kind: EventAskSubmitted, Summary: text, Data: map[string]string{"cwd": req.CWD, "context_items": fmt.Sprintf("%d", len(req.Context))}}
@@ -118,6 +142,19 @@ func (c *DirectChannelClient) SubmitAsk(ctx context.Context, sessionID string, r
 		return events, err
 	}
 	return append(events, transcriptEventsForResult(sessionID, result, EventAskOutput, EventCommandComplete)...), nil
+}
+
+func (c *DirectChannelClient) SubmitAskStream(ctx context.Context, sessionID string, req AskRequest) (ShellRunStream, error) {
+	text := strings.TrimSpace(req.Text)
+	handle, err := c.sessionHandle(sessionID)
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithText(text))
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	return c.streamRun(ctx, sessionID, run, EventAskOutput, EventCommandComplete), nil
 }
 
 func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string, req SlashRequest) ([]TranscriptEvent, error) {
@@ -141,6 +178,321 @@ func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string,
 		return events, err
 	}
 	return append(events, transcriptEventsForResult(sessionID, result, EventCommandOutput, EventCommandComplete)...), nil
+}
+
+func (c *DirectChannelClient) SubmitSlashStream(ctx context.Context, sessionID string, req SlashRequest) (ShellRunStream, error) {
+	line := strings.TrimSpace(req.Line)
+	invocation, err := parseSlashInvocation(line)
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	handle, err := c.sessionHandle(sessionID)
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
+	if err != nil {
+		return ShellRunStream{}, err
+	}
+	return c.streamRun(ctx, sessionID, run, EventCommandOutput, EventCommandComplete), nil
+}
+
+func (c *DirectChannelClient) streamRun(ctx context.Context, sessionID string, run agentruntime.Run, outputKind TranscriptKind, completeKind TranscriptKind) ShellRunStream {
+	events := make(chan TranscriptEvent, 128)
+	done := make(chan ShellRunDone, 1)
+	go func() {
+		defer close(done)
+		defer close(events)
+		sawLiveOutput := false
+		for {
+			select {
+			case <-ctx.Done():
+				done <- ShellRunDone{Err: ctx.Err()}
+				return
+			case event, ok := <-run.Events():
+				if !ok {
+					result, err := run.Wait(ctx)
+					finalEvents := transcriptEventsForResult(sessionID, result, outputKind, completeKind)
+					if sawLiveOutput {
+						finalEvents = dropOutputEvents(finalEvents, outputKind)
+					}
+					done <- ShellRunDone{Events: finalEvents, Err: err}
+					return
+				}
+				for _, transcript := range transcriptEventsForRunEvent(sessionID, event) {
+					if transcript.Kind == EventAskDelta || transcript.Kind == EventProcessOutput {
+						sawLiveOutput = true
+					}
+					events <- transcript
+				}
+			}
+		}
+	}()
+	return ShellRunStream{Events: events, Done: done}
+}
+
+func dropOutputEvents(events []TranscriptEvent, kind TranscriptKind) []TranscriptEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := events[:0]
+	for _, event := range events {
+		if event.Kind == kind {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
+}
+
+func transcriptEventsForRunEvent(sessionID string, event clientapi.Event) []TranscriptEvent {
+	now := time.Now()
+	switch event.Kind {
+	case clientapi.EventOperationRequested:
+		if event.Operation == nil {
+			return nil
+		}
+		return []TranscriptEvent{{
+			ID:        newEventID("op-start"),
+			SessionID: sessionID,
+			Time:      now,
+			Kind:      EventOperationStarted,
+			Summary:   operationSummary(event.Operation.Operation, event.Operation.Input),
+			Data:      map[string]string{"operation": event.Operation.Operation.String(), "call_id": string(event.Operation.CallID)},
+		}}
+	case clientapi.EventOperationCompleted:
+		if event.Operation == nil || event.Operation.Result == nil {
+			return nil
+		}
+		summary := operationCompletedSummary(event.Operation.Operation, *event.Operation.Result)
+		kind := EventOperationComplete
+		if event.Operation.Result.IsError() {
+			kind = EventError
+		}
+		return []TranscriptEvent{{
+			ID:        newEventID("op-done"),
+			SessionID: sessionID,
+			Time:      now,
+			Kind:      kind,
+			Summary:   summary,
+			Data:      map[string]string{"operation": event.Operation.Operation.String(), "call_id": string(event.Operation.CallID)},
+		}}
+	case clientapi.EventRuntimeEmitted:
+		if event.Runtime == nil {
+			return nil
+		}
+		return transcriptEventsForRuntimeEvent(sessionID, now, *event.Runtime)
+	default:
+		return nil
+	}
+}
+
+func transcriptEventsForRuntimeEvent(sessionID string, now time.Time, runtimeEvent clientapi.RuntimeEvent) []TranscriptEvent {
+	switch runtimeEvent.Name {
+	case coreusage.EventRecordedName:
+		recorded, ok := decodeRuntimePayload[coreusage.Recorded](runtimeEvent.Payload)
+		if !ok || recorded.Empty() {
+			return nil
+		}
+		return []TranscriptEvent{usageTranscriptEvent(sessionID, now, recorded)}
+	case llmagent.EventModelRequestedName:
+		return []TranscriptEvent{{ID: newEventID("model-start"), SessionID: sessionID, Time: now, Kind: EventThinking, Summary: "agent started"}}
+	case llmagent.EventModelStreamedName:
+		streamed, ok := decodeRuntimePayload[llmagent.ModelStreamed](runtimeEvent.Payload)
+		if !ok {
+			return nil
+		}
+		switch streamed.Event.Kind {
+		case llmagent.StreamContentDelta:
+			if streamed.Event.Text == "" {
+				return nil
+			}
+			return []TranscriptEvent{{ID: newEventID("agent-delta"), SessionID: sessionID, Time: now, Kind: EventAskDelta, Summary: streamed.Event.Text}}
+		case llmagent.StreamThinkingDelta:
+			if streamed.Event.Text == "" {
+				return nil
+			}
+			return []TranscriptEvent{{ID: newEventID("thinking"), SessionID: sessionID, Time: now, Kind: EventThinking, Summary: streamed.Event.Text}}
+		case llmagent.StreamToolCallDelta:
+			if streamed.Event.Tool == "" || !streamed.Event.Final {
+				return nil
+			}
+			return []TranscriptEvent{{ID: newEventID("tool-call"), SessionID: sessionID, Time: now, Kind: EventOperationStarted, Summary: "tool call " + string(streamed.Event.Tool)}}
+		default:
+			return nil
+		}
+	case system.EventProcessStarted, system.EventProcessOutput, system.EventProcessExited:
+		processEvent, ok := decodeRuntimePayload[system.ProcessEvent](runtimeEvent.Payload)
+		if !ok {
+			return nil
+		}
+		return transcriptEventsForProcessEvent(sessionID, now, processEvent)
+	default:
+		return nil
+	}
+}
+
+func usageTranscriptEvent(sessionID string, now time.Time, recorded coreusage.Recorded) TranscriptEvent {
+	data := map[string]string{
+		"subject_kind": string(recorded.Subject.Kind),
+		"provider":     recorded.Subject.Provider,
+		"name":         recorded.Subject.Name,
+	}
+	for _, measurement := range recorded.Measurements {
+		value := fmt.Sprintf("%.0f", measurement.Quantity)
+		switch measurement.Metric {
+		case coreusage.MetricLLMInputTokens:
+			if measurement.Dimensions["cache_creation"] == "true" {
+				data["cache_write_tokens"] = addDecimalStrings(data["cache_write_tokens"], value)
+				continue
+			}
+			data["input_tokens"] = addDecimalStrings(data["input_tokens"], value)
+		case coreusage.MetricLLMCachedTokens:
+			data["cached_tokens"] = addDecimalStrings(data["cached_tokens"], value)
+		case coreusage.MetricLLMOutputTokens:
+			data["output_tokens"] = addDecimalStrings(data["output_tokens"], value)
+		case coreusage.MetricLLMReasoningTokens:
+			data["reasoning_tokens"] = addDecimalStrings(data["reasoning_tokens"], value)
+		case coreusage.MetricLLMTotalTokens:
+			data["total_tokens"] = addDecimalStrings(data["total_tokens"], value)
+		case coreusage.MetricCost:
+			data["cost"] = addDecimalStrings(data["cost"], fmt.Sprintf("%.6f", measurement.Quantity))
+			if currency := strings.TrimSpace(measurement.Dimensions["currency"]); currency != "" {
+				data["currency"] = currency
+			}
+		}
+	}
+	return TranscriptEvent{
+		ID:        newEventID("usage"),
+		SessionID: sessionID,
+		Time:      now,
+		Kind:      EventUsageRecorded,
+		Summary:   usageSummaryFromData(data),
+		Data:      data,
+	}
+}
+
+func addDecimalStrings(left, right string) string {
+	if strings.TrimSpace(left) == "" {
+		return right
+	}
+	var l, r float64
+	_, _ = fmt.Sscanf(left, "%f", &l)
+	_, _ = fmt.Sscanf(right, "%f", &r)
+	return fmt.Sprintf("%.6f", l+r)
+}
+
+func transcriptEventsForProcessEvent(sessionID string, now time.Time, event system.ProcessEvent) []TranscriptEvent {
+	switch event.Kind {
+	case "started":
+		return []TranscriptEvent{{ID: newEventID("proc-start"), SessionID: sessionID, Time: now, Kind: EventProcessStarted, Summary: event.ProcessID}}
+	case "output":
+		prefix := event.Stream
+		if prefix == "" {
+			prefix = "stdout"
+		}
+		var out []TranscriptEvent
+		for _, line := range strings.SplitAfter(event.Data, "\n") {
+			if line == "" {
+				continue
+			}
+			out = append(out, TranscriptEvent{
+				ID:        newEventID("proc-out"),
+				SessionID: sessionID,
+				Time:      now,
+				Kind:      EventProcessOutput,
+				Summary:   prefix + ": " + strings.TrimRight(line, "\n"),
+				Data:      map[string]string{"process_id": event.ProcessID, "stream": prefix},
+			})
+		}
+		return out
+	case "exited":
+		code := strings.TrimSpace(event.Data)
+		if code == "" {
+			code = "unknown"
+		}
+		return []TranscriptEvent{{ID: newEventID("proc-exit"), SessionID: sessionID, Time: now, Kind: EventProcessExited, Summary: event.ProcessID + " code=" + code}}
+	default:
+		return nil
+	}
+}
+
+func decodeRuntimePayload[T any](payload any) (T, bool) {
+	var zero T
+	switch typed := payload.(type) {
+	case T:
+		return typed, true
+	case *T:
+		if typed == nil {
+			return zero, false
+		}
+		return *typed, true
+	case json.RawMessage:
+		var out T
+		if err := json.Unmarshal(typed, &out); err != nil {
+			return zero, false
+		}
+		return out, true
+	case []byte:
+		var out T
+		if err := json.Unmarshal(typed, &out); err != nil {
+			return zero, false
+		}
+		return out, true
+	case map[string]any:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return zero, false
+		}
+		var out T
+		if err := json.Unmarshal(data, &out); err != nil {
+			return zero, false
+		}
+		return out, true
+	default:
+		return zero, false
+	}
+}
+
+func operationSummary(ref operation.Ref, input any) string {
+	summary := ref.String()
+	if text := compactValue(input, 120); text != "" {
+		summary += " " + text
+	}
+	return summary
+}
+
+func operationCompletedSummary(ref operation.Ref, result operation.Result) string {
+	if result.IsError() && result.Error != nil {
+		return ref.String() + " " + result.Error.Message
+	}
+	status := string(result.Status)
+	if status == "" {
+		status = string(operation.StatusOK)
+	}
+	if text := compactValue(result.Output, 120); text != "" {
+		return ref.String() + " " + text
+	}
+	return ref.String() + " status=" + status
+}
+
+func compactValue(value any, limit int) string {
+	if value == nil {
+		return ""
+	}
+	text := strings.TrimSpace(outputText(value))
+	if text == "" {
+		return ""
+	}
+	text = strings.Join(strings.Fields(text), " ")
+	if len([]rune(text)) <= limit {
+		return text
+	}
+	runes := []rune(text)
+	if limit <= 1 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-1]) + "…"
 }
 
 func (c *DirectChannelClient) sessionHandle(sessionID string) (agentruntime.Session, error) {
@@ -214,18 +566,14 @@ func outputText(value any) string {
 }
 
 func parseSlashInvocation(line string) (command.Invocation, error) {
-	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/"))
-	if line == "" {
-		return command.Invocation{}, fmt.Errorf("slash command is empty")
-	}
-	fields, err := splitShellFields(line)
+	invocation, ok, err := command.ParseSlash(line)
 	if err != nil {
 		return command.Invocation{}, err
 	}
-	if len(fields) == 0 {
+	if !ok {
 		return command.Invocation{}, fmt.Errorf("slash command is empty")
 	}
-	return command.Invocation{Path: command.Path{fields[0]}, Args: fields[1:], Input: fields[1:]}, nil
+	return invocation, nil
 }
 
 func splitShellFields(line string) ([]string, error) {
@@ -285,7 +633,7 @@ func (c *DirectChannelClient) ChangeCWD(ctx context.Context, sessionID string, p
 func (c *DirectChannelClient) ResourceSearch(ctx context.Context, sessionID string, query ResourceSearchQuery) ([]ResourceSearchResult, error) {
 	_ = ctx
 	_ = sessionID
-	return staticResourceSearch(query), nil
+	return staticResourceSearch(query, c.commands), nil
 }
 
 func newRemoteDirectChannelClient(endpoint string) (ShellClient, error) {

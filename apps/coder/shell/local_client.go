@@ -123,7 +123,7 @@ func (c *LocalClient) ResourceSearch(ctx context.Context, sessionID string, quer
 	if _, err := c.session(sessionID); err != nil {
 		return nil, err
 	}
-	return staticResourceSearch(query), nil
+	return staticResourceSearch(query, nil), nil
 }
 
 func (c *LocalClient) session(sessionID string) (localSession, error) {

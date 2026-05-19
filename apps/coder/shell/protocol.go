@@ -53,13 +53,14 @@ type CWDChangePayload struct {
 
 // ResourceSearchPayload is the wire shape for resource search.
 type ResourceSearchPayload struct {
-	Text       string         `json:"text,omitempty"`
-	Kinds      []ResourceKind `json:"kinds,omitempty"`
-	Limit      int            `json:"limit,omitempty"`
-	Workspace  string         `json:"workspace,omitempty"`
-	CWD        string         `json:"cwd,omitempty"`
-	PrefixMode string         `json:"prefix_mode,omitempty"`
-	Mention    bool           `json:"mention,omitempty"`
+	Text        string         `json:"text,omitempty"`
+	Kinds       []ResourceKind `json:"kinds,omitempty"`
+	Limit       int            `json:"limit,omitempty"`
+	Workspace   string         `json:"workspace,omitempty"`
+	CWD         string         `json:"cwd,omitempty"`
+	PrefixMode  string         `json:"prefix_mode,omitempty"`
+	Mention     bool           `json:"mention,omitempty"`
+	CommandPath string         `json:"command_path,omitempty"`
 }
 
 // EventsResponse is a simple synchronous event response shape.

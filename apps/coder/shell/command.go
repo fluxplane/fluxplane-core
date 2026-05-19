@@ -7,6 +7,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/apps/launch"
+	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/spf13/cobra"
 )
 
@@ -32,9 +33,17 @@ type ClientFactoryRequest struct {
 	Dev            bool
 }
 
+// ClientFactoryResult carries the local direct channel client and static
+// completion metadata resolved during launch.
+type ClientFactoryResult struct {
+	Client   agentruntime.ChannelClient
+	Cleanup  func()
+	Commands []command.Spec
+}
+
 // ClientFactoryFunc resolves the local direct channel client used when
 // --connect is not set.
-type ClientFactoryFunc func(context.Context, ClientFactoryRequest) (agentruntime.ChannelClient, func(), error)
+type ClientFactoryFunc func(context.Context, ClientFactoryRequest) (ClientFactoryResult, error)
 
 // NewCommand returns the standalone coder shell command. It is reusable by the
 // cmd/codershell binary and by the main coder CLI as an injected subcommand.
@@ -64,6 +73,8 @@ func NewCommandWithOptions(commandOpts CommandOptions) *cobra.Command {
 			if err := modelFlags.Validate(); err != nil {
 				return err
 			}
+			opts.Provider = modelFlags.Provider
+			opts.Model = modelFlags.Model
 			if strings.TrimSpace(opts.Connect) != "direct" {
 				if flag := changedLocalOnlyShellFlag(cmd.Flags().Changed); flag != "" {
 					return fmt.Errorf("coder shell: --%s is only supported with --connect=direct", flag)
@@ -71,7 +82,7 @@ func NewCommandWithOptions(commandOpts CommandOptions) *cobra.Command {
 			}
 			var cleanup func()
 			if commandOpts.ClientFactory != nil && strings.TrimSpace(opts.Connect) == "direct" {
-				client, closeClient, err := commandOpts.ClientFactory(cmd.Context(), ClientFactoryRequest{
+				result, err := commandOpts.ClientFactory(cmd.Context(), ClientFactoryRequest{
 					Path:           path,
 					WorkspaceRoots: append([]string(nil), workspaceRoots...),
 					EnvFiles:       append([]string(nil), environmentFlags.EnvFiles...),
@@ -89,8 +100,9 @@ func NewCommandWithOptions(commandOpts CommandOptions) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				opts.DirectClient = client
-				cleanup = closeClient
+				opts.DirectClient = result.Client
+				opts.CommandSpecs = append([]command.Spec(nil), result.Commands...)
+				cleanup = result.Cleanup
 			}
 			if cleanup != nil {
 				defer cleanup()

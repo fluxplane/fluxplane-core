@@ -1,6 +1,9 @@
 package command
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 type typedCommandInput struct {
 	Goal []string `command:"arg"`
@@ -24,6 +27,14 @@ func TestBindUsesArgsAndFlags(t *testing.T) {
 	}
 	if got.Max != 40 || !got.Dry || len(got.Goal) != 2 || got.Goal[0] != "foo bar" || got.Goal[1] != "baz" {
 		t.Fatalf("bound input = %#v, want args and flags", got)
+	}
+}
+
+func TestFlagNamesFor(t *testing.T) {
+	got := FlagNamesFor[typedCommandInput]()
+	want := []string{"max", "dry-run"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FlagNamesFor = %#v, want %#v", got, want)
 	}
 }
 

@@ -37,6 +37,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
@@ -1050,6 +1051,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 			skillplugin.New(),
 			imageplugin.New(sys),
 			dockerplugin.New(sys),
+			gitlabplugin.New(sys),
 			kubernetesplugin.New(sys),
 		},
 	})
@@ -1132,6 +1134,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 			skillplugin.New(),
 			imageplugin.New(sys),
 			dockerplugin.New(sys),
+			gitlabplugin.New(sys),
 			kubernetesplugin.New(sys),
 		},
 	})
@@ -1192,7 +1195,7 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), kubernetesplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1262,7 +1265,7 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), kubernetesplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)

@@ -2,10 +2,15 @@ package codershell
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 )
 
 // ShellClient is the session-scoped boundary used by the shell controller. Real
@@ -19,6 +24,26 @@ type ShellClient interface {
 	SubmitSlash(ctx context.Context, sessionID string, req SlashRequest) ([]TranscriptEvent, error)
 	ChangeCWD(ctx context.Context, sessionID string, path string) (CWDResult, error)
 	ResourceSearch(ctx context.Context, sessionID string, query ResourceSearchQuery) ([]ResourceSearchResult, error)
+}
+
+// StreamingShellClient optionally submits work as incremental transcript events.
+// Implementations should close Events and Done exactly once.
+type StreamingShellClient interface {
+	SubmitCommandStream(ctx context.Context, sessionID string, req CommandRequest) (ShellRunStream, error)
+	SubmitAskStream(ctx context.Context, sessionID string, req AskRequest) (ShellRunStream, error)
+	SubmitSlashStream(ctx context.Context, sessionID string, req SlashRequest) (ShellRunStream, error)
+}
+
+// ShellRunStream is one live shell submission.
+type ShellRunStream struct {
+	Events <-chan TranscriptEvent
+	Done   <-chan ShellRunDone
+}
+
+// ShellRunDone reports terminal stream state.
+type ShellRunDone struct {
+	Events []TranscriptEvent
+	Err    error
 }
 
 // ConnectionDescriber optionally describes where a shell client is connected.
@@ -80,13 +105,14 @@ const (
 
 // ResourceSearchQuery asks the client for completion/mention resources.
 type ResourceSearchQuery struct {
-	Text       string
-	Kinds      []ResourceKind
-	Limit      int
-	Workspace  string
-	CWD        string
-	PrefixMode string
-	Mention    bool
+	Text        string
+	Kinds       []ResourceKind
+	Limit       int
+	Workspace   string
+	CWD         string
+	PrefixMode  string
+	Mention     bool
+	CommandPath string
 }
 
 // ResourceSearchResult is one completion/mention result.
@@ -217,10 +243,16 @@ func (c *FakeClient) ResourceSearch(ctx context.Context, sessionID string, query
 	if err := c.requireSession(sessionID); err != nil {
 		return nil, err
 	}
-	return staticResourceSearch(query), nil
+	return staticResourceSearch(query, session.AvailableCommandSpecs(nil, nil)), nil
 }
 
-func staticResourceSearch(query ResourceSearchQuery) []ResourceSearchResult {
+func staticResourceSearch(query ResourceSearchQuery, commands []command.Spec) []ResourceSearchResult {
+	if queryWantsKind(query, ResourceCommand) {
+		if query.PrefixMode == "slash-option" {
+			return commandOptionSearch(query, commands)
+		}
+		return commandSpecSearch(query, commands)
+	}
 	all := []ResourceSearchResult{
 		{Kind: ResourceAgent, ID: "coder", Label: "coder", InsertText: "@coder", Icon: "🤖"},
 		{Kind: ResourceSkill, ID: "code-review", Label: "code-review", InsertText: "@code-review"},
@@ -244,6 +276,205 @@ func staticResourceSearch(query ResourceSearchQuery) []ResourceSearchResult {
 		}
 	}
 	return out
+}
+
+func queryWantsKind(query ResourceSearchQuery, kind ResourceKind) bool {
+	if len(query.Kinds) == 0 {
+		return false
+	}
+	for _, value := range query.Kinds {
+		if value == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func commandSpecSearch(query ResourceSearchQuery, commands []command.Spec) []ResourceSearchResult {
+	limit := query.Limit
+	if limit <= 0 {
+		limit = len(commands)
+	}
+	needle := normalizeCommandSearchText(query.Text)
+	out := []ResourceSearchResult{}
+	for _, spec := range sortedCommandSpecs(commands) {
+		canonical := spec.Path.String()
+		label := commandInputPath(spec.Path)
+		if label == "" || !commandPathMatches(label, needle) {
+			continue
+		}
+		out = append(out, ResourceSearchResult{
+			Kind:        ResourceCommand,
+			ID:          canonical,
+			Label:       label,
+			Detail:      spec.Description,
+			InsertText:  label,
+			Description: spec.Description,
+			Metadata:    map[string]string{"completion_kind": "command"},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func commandOptionSearch(query ResourceSearchQuery, commands []command.Spec) []ResourceSearchResult {
+	spec, ok := findCommandSpec(commands, query.CommandPath)
+	if !ok {
+		return nil
+	}
+	flags := commandSpecFlags(spec)
+	if len(flags) == 0 {
+		return nil
+	}
+	limit := query.Limit
+	if limit <= 0 {
+		limit = len(flags)
+	}
+	needle := strings.TrimPrefix(strings.TrimSpace(query.Text), "--")
+	out := []ResourceSearchResult{}
+	for _, flag := range flags {
+		if needle != "" && !strings.HasPrefix(strings.ToLower(flag.name), strings.ToLower(needle)) {
+			continue
+		}
+		label := "--" + flag.name
+		out = append(out, ResourceSearchResult{
+			Kind:        ResourceCommand,
+			ID:          query.CommandPath + " " + label,
+			Label:       label,
+			Detail:      flag.description,
+			InsertText:  label,
+			Description: flag.description,
+			Metadata:    map[string]string{"completion_kind": "option", "command": query.CommandPath},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+type commandFlag struct {
+	name        string
+	description string
+}
+
+func commandSpecFlags(spec command.Spec) []commandFlag {
+	seen := map[string]commandFlag{}
+	for _, flag := range strings.Split(spec.Annotations[command.CompletionFlagsAnnotation], ",") {
+		flag = strings.TrimSpace(flag)
+		if flag != "" {
+			seen[flag] = commandFlag{name: flag}
+		}
+	}
+	schemaFlags := schemaCommandFlags(spec)
+	if len(seen) > 0 {
+		for _, flag := range schemaFlags {
+			if existing, ok := seen[flag.name]; ok && existing.description == "" {
+				existing.description = flag.description
+				seen[flag.name] = existing
+			}
+		}
+		return sortedCommandFlags(seen)
+	}
+	for _, flag := range schemaFlags {
+		if existing, ok := seen[flag.name]; ok {
+			if existing.description == "" {
+				existing.description = flag.description
+				seen[flag.name] = existing
+			}
+			continue
+		}
+		seen[flag.name] = flag
+	}
+	return sortedCommandFlags(seen)
+}
+
+func sortedCommandFlags(seen map[string]commandFlag) []commandFlag {
+	out := make([]commandFlag, 0, len(seen))
+	for _, flag := range seen {
+		out = append(out, flag)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].name < out[j].name
+	})
+	return out
+}
+
+func schemaCommandFlags(spec command.Spec) []commandFlag {
+	if len(spec.Input.Schema.Data) == 0 {
+		return nil
+	}
+	var root map[string]any
+	if err := json.Unmarshal(spec.Input.Schema.Data, &root); err != nil {
+		return nil
+	}
+	properties, ok := root["properties"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make([]commandFlag, 0, len(properties))
+	for name, raw := range properties {
+		description := ""
+		if prop, ok := raw.(map[string]any); ok {
+			if value, ok := prop["description"].(string); ok {
+				description = value
+			}
+		}
+		out = append(out, commandFlag{name: name, description: description})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].name < out[j].name
+	})
+	return out
+}
+
+func findCommandSpec(commands []command.Spec, path string) (command.Spec, bool) {
+	path = normalizeSlashPath(path)
+	for _, spec := range commands {
+		if normalizeSlashPath(commandInputPath(spec.Path)) == path || normalizeSlashPath(spec.Path.String()) == path {
+			return spec, true
+		}
+	}
+	return command.Spec{}, false
+}
+
+func sortedCommandSpecs(commands []command.Spec) []command.Spec {
+	out := append([]command.Spec(nil), commands...)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Path.String() < out[j].Path.String()
+	})
+	return out
+}
+
+func commandPathMatches(path string, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	path = normalizeSlashPath(path)
+	return strings.HasPrefix(path, needle)
+}
+
+func normalizeCommandSearchText(text string) string {
+	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/"))
+	text = strings.ReplaceAll(text, "/", " ")
+	text = strings.Join(strings.Fields(text), " ")
+	return strings.ToLower(text)
+}
+
+func normalizeSlashPath(path string) string {
+	path = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(path), "/"))
+	path = strings.ReplaceAll(path, "/", " ")
+	path = strings.Join(strings.Fields(path), " ")
+	return strings.ToLower(path)
+}
+
+func commandInputPath(path command.Path) string {
+	if len(path) == 0 {
+		return ""
+	}
+	return "/" + strings.Join(path, " ")
 }
 
 func (c *FakeClient) requireSession(sessionID string) error {

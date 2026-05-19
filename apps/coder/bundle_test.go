@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
@@ -42,15 +43,21 @@ func TestBundleComposes(t *testing.T) {
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, dockerplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", dockerplugin.Name)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlabplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", gitlabplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
 	}
 	if !pluginListContains(localPlugins(sys), dockerplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", dockerplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), gitlabplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", gitlabplugin.Name)
+	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), kubernetesplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -61,8 +68,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 96 {
-		t.Fatalf("operation specs len = %d, want 96", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 97 {
+		t.Fatalf("operation specs len = %d, want 97", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -81,11 +88,17 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasDatasource(composition.AgentSpecs[0], kubernetesplugin.Name) {
 		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, kubernetesplugin.Name)
 	}
+	if !agentHasDatasource(composition.AgentSpecs[0], gitlabplugin.Name) {
+		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, gitlabplugin.Name)
+	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, "web_search", "web_search") {
 		t.Fatalf("datasource specs = %#v, want web_search", composition.DatasourceSpecs)
 	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.Name) {
 		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, kubernetesplugin.Name)
+	}
+	if !hasDatasourceSpec(composition.DatasourceSpecs, gitlabplugin.Name, gitlabplugin.Name) {
+		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, gitlabplugin.Name)
 	}
 	if !agentHasSkill(composition.AgentSpecs[0], "coder") {
 		t.Fatalf("coder agent skills = %#v, want coder", composition.AgentSpecs[0].Skills)

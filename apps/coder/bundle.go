@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
+	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
@@ -38,6 +39,7 @@ const (
 	ImagePlugin      = "image"
 	KubernetesPlugin = "kubernetes"
 	DockerPlugin     = "docker"
+	GitLabPlugin     = "gitlab"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 	ReflectCommand   = "reflect"
@@ -74,6 +76,7 @@ func Bundle() resource.ContributionBundle {
 		WithOperations(operations...).
 		WithDatasource("web_search").
 		WithDatasource(kubernetesplugin.Name).
+		WithDatasource(gitlabplugin.Name).
 		Build()
 	agentSpec.Skills = append(agentSpec.Skills, skill.Ref{Name: "coder"})
 
@@ -91,6 +94,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
 		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
 		WithPlugin(resource.PluginRef{Name: DockerPlugin}).
+		WithPlugin(resource.PluginRef{Name: GitLabPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
@@ -122,6 +126,28 @@ func Bundle() resource.ContributionBundle {
 			kubernetesplugin.ServiceEntity,
 			kubernetesplugin.DeploymentEntity,
 			kubernetesplugin.ContainerEntity,
+		},
+	})
+	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
+		Name:        gitlabplugin.Name,
+		Description: "Default live GitLab datasource.",
+		Kind:        gitlabplugin.Name,
+		Entities: []coredatasource.EntityType{
+			gitlabplugin.ProjectEntity,
+			gitlabplugin.MergeRequestEntity,
+			gitlabplugin.MergeRequestDiffEntity,
+			gitlabplugin.MergeRequestNoteEntity,
+			gitlabplugin.PipelineEntity,
+			gitlabplugin.BranchEntity,
+			gitlabplugin.TagEntity,
+			gitlabplugin.CommitEntity,
+			gitlabplugin.RepositoryTreeEntity,
+			gitlabplugin.RepositoryFileEntity,
+			gitlabplugin.JobEntity,
+			gitlabplugin.JobTraceEntity,
+			gitlabplugin.UserEntity,
+			gitlabplugin.GroupEntity,
+			gitlabplugin.MembershipEntity,
 		},
 	})
 	bundle.Reactions = append(bundle.Reactions, coderLanguageActivationReactions()...)
