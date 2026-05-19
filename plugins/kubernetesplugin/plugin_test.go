@@ -108,4 +108,61 @@ func TestKubernetesAccessorListsServices(t *testing.T) {
 	}
 }
 
+func TestKubernetesRecordsRedactEnvVarValuesFromRawPodsAndContainers(t *testing.T) {
+	accessor := kubernetesAccessor{spec: coredatasource.Spec{Name: coredatasource.Name(Name)}}
+	pod := corev1.Pod{
+		ObjectMeta: objectMeta("api", "default"),
+		Spec: corev1.PodSpec{
+			InitContainers: []corev1.Container{{
+				Name: "init",
+				Env:  []corev1.EnvVar{{Name: "INIT_SECRET", Value: "hidden-init"}},
+			}},
+			Containers: []corev1.Container{{
+				Name:  "app",
+				Image: "example/app:latest",
+				Env: []corev1.EnvVar{
+					{Name: "API_TOKEN", Value: "super-secret"},
+					{Name: "PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{Key: "password"}}},
+				},
+			}},
+			EphemeralContainers: []corev1.EphemeralContainer{{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name: "debug",
+					Env:  []corev1.EnvVar{{Name: "DEBUG_SECRET", Value: "hidden-debug"}},
+				},
+			}},
+		},
+	}
+
+	record := accessor.podRecord(pod)
+	rawPod, ok := record.Raw.(corev1.Pod)
+	if !ok {
+		t.Fatalf("pod raw type = %T, want corev1.Pod", record.Raw)
+	}
+	assertEnvRedacted(t, rawPod.Spec.InitContainers[0].Env[0], "INIT_SECRET")
+	assertEnvRedacted(t, rawPod.Spec.Containers[0].Env[0], "API_TOKEN")
+	assertEnvRedacted(t, rawPod.Spec.Containers[0].Env[1], "PASSWORD")
+	assertEnvRedacted(t, rawPod.Spec.EphemeralContainers[0].Env[0], "DEBUG_SECRET")
+
+	containerRecords := accessor.containerRecords(pod)
+	if len(containerRecords) != 1 {
+		t.Fatalf("container records = %d, want 1", len(containerRecords))
+	}
+	rawContainer, ok := containerRecords[0].Raw.(corev1.Container)
+	if !ok {
+		t.Fatalf("container raw type = %T, want corev1.Container", containerRecords[0].Raw)
+	}
+	assertEnvRedacted(t, rawContainer.Env[0], "API_TOKEN")
+}
+
+func assertEnvRedacted(t *testing.T, env corev1.EnvVar, name string) {
+	t.Helper()
+	if env.Name != name {
+		t.Fatalf("env name = %q, want %q", env.Name, name)
+	}
+	if env.Value != "" || env.ValueFrom != nil {
+		t.Fatalf("env %q was not redacted: %#v", name, env)
+	}
+}
+
 var _ = metav1.NamespaceDefault

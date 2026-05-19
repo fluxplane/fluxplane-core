@@ -27,14 +27,15 @@ func (a *kubernetesAccessor) namespaceRecord(namespace corev1.Namespace) coredat
 }
 
 func (a *kubernetesAccessor) podRecord(pod corev1.Pod) coredatasource.Record {
-	containers := make([]string, 0, len(pod.Spec.Containers))
-	images := make([]string, 0, len(pod.Spec.Containers))
-	for _, container := range pod.Spec.Containers {
+	sanitizedPod := sanitizePodEnv(pod)
+	containers := make([]string, 0, len(sanitizedPod.Spec.Containers))
+	images := make([]string, 0, len(sanitizedPod.Spec.Containers))
+	for _, container := range sanitizedPod.Spec.Containers {
 		containers = append(containers, container.Name)
 		images = append(images, container.Image)
 	}
-	ready, total := podReady(pod)
-	id := namespacedID(pod.Namespace, pod.Name)
+	ready, total := podReady(sanitizedPod)
+	id := namespacedID(sanitizedPod.Namespace, sanitizedPod.Name)
 	return coredatasource.Record{
 		ID:         id,
 		Datasource: a.spec.Name,
@@ -42,27 +43,27 @@ func (a *kubernetesAccessor) podRecord(pod corev1.Pod) coredatasource.Record {
 		Title:      id,
 		Content: strings.TrimSpace(strings.Join([]string{
 			id,
-			string(pod.Status.Phase),
-			pod.Spec.NodeName,
-			pod.Spec.ServiceAccountName,
+			string(sanitizedPod.Status.Phase),
+			sanitizedPod.Spec.NodeName,
+			sanitizedPod.Spec.ServiceAccountName,
 			strings.Join(containers, " "),
 			strings.Join(images, " "),
-			labelsString(pod.Labels),
+			labelsString(sanitizedPod.Labels),
 		}, " ")),
 		Metadata: cleanMetadata(map[string]string{
-			"namespace":       pod.Namespace,
-			"name":            pod.Name,
-			"phase":           string(pod.Status.Phase),
-			"node":            pod.Spec.NodeName,
-			"service_account": pod.Spec.ServiceAccountName,
-			"pod_ip":          pod.Status.PodIP,
-			"host_ip":         pod.Status.HostIP,
+			"namespace":       sanitizedPod.Namespace,
+			"name":            sanitizedPod.Name,
+			"phase":           string(sanitizedPod.Status.Phase),
+			"node":            sanitizedPod.Spec.NodeName,
+			"service_account": sanitizedPod.Spec.ServiceAccountName,
+			"pod_ip":          sanitizedPod.Status.PodIP,
+			"host_ip":         sanitizedPod.Status.HostIP,
 			"ready":           fmt.Sprintf("%d/%d", ready, total),
 			"containers":      strings.Join(containers, ","),
 			"images":          strings.Join(images, ","),
-			"labels":          labelsString(pod.Labels),
+			"labels":          labelsString(sanitizedPod.Labels),
 		}),
-		Raw: pod,
+		Raw: sanitizedPod,
 	}
 }
 
@@ -98,14 +99,15 @@ func (a *kubernetesAccessor) serviceRecord(service corev1.Service) coredatasourc
 }
 
 func (a *kubernetesAccessor) containerRecords(pod corev1.Pod) []coredatasource.Record {
+	sanitizedPod := sanitizePodEnv(pod)
 	statuses := map[string]corev1.ContainerStatus{}
-	for _, status := range pod.Status.ContainerStatuses {
+	for _, status := range sanitizedPod.Status.ContainerStatuses {
 		statuses[status.Name] = status
 	}
-	out := make([]coredatasource.Record, 0, len(pod.Spec.Containers))
-	for _, container := range pod.Spec.Containers {
+	out := make([]coredatasource.Record, 0, len(sanitizedPod.Spec.Containers))
+	for _, container := range sanitizedPod.Spec.Containers {
 		status := statuses[container.Name]
-		id := namespacedID(pod.Namespace, pod.Name) + "/" + container.Name
+		id := namespacedID(sanitizedPod.Namespace, sanitizedPod.Name) + "/" + container.Name
 		state := containerState(status.State)
 		out = append(out, coredatasource.Record{
 			ID:         id,
@@ -116,11 +118,11 @@ func (a *kubernetesAccessor) containerRecords(pod corev1.Pod) []coredatasource.R
 				id,
 				container.Image,
 				state,
-				labelsString(pod.Labels),
+				labelsString(sanitizedPod.Labels),
 			}, " ")),
 			Metadata: cleanMetadata(map[string]string{
-				"namespace":     pod.Namespace,
-				"pod":           pod.Name,
+				"namespace":     sanitizedPod.Namespace,
+				"pod":           sanitizedPod.Name,
 				"name":          container.Name,
 				"image":         container.Image,
 				"ready":         fmt.Sprintf("%t", status.Ready),
@@ -129,6 +131,48 @@ func (a *kubernetesAccessor) containerRecords(pod corev1.Pod) []coredatasource.R
 			}),
 			Raw: container,
 		})
+	}
+	return out
+}
+
+func sanitizePodEnv(pod corev1.Pod) corev1.Pod {
+	pod.Spec.InitContainers = sanitizeContainersEnv(pod.Spec.InitContainers)
+	pod.Spec.Containers = sanitizeContainersEnv(pod.Spec.Containers)
+	pod.Spec.EphemeralContainers = sanitizeEphemeralContainersEnv(pod.Spec.EphemeralContainers)
+	return pod
+}
+
+func sanitizeContainersEnv(containers []corev1.Container) []corev1.Container {
+	if len(containers) == 0 {
+		return containers
+	}
+	out := make([]corev1.Container, len(containers))
+	copy(out, containers)
+	for i := range out {
+		out[i].Env = sanitizeEnvVars(out[i].Env)
+	}
+	return out
+}
+
+func sanitizeEphemeralContainersEnv(containers []corev1.EphemeralContainer) []corev1.EphemeralContainer {
+	if len(containers) == 0 {
+		return containers
+	}
+	out := make([]corev1.EphemeralContainer, len(containers))
+	copy(out, containers)
+	for i := range out {
+		out[i].Env = sanitizeEnvVars(out[i].Env)
+	}
+	return out
+}
+
+func sanitizeEnvVars(env []corev1.EnvVar) []corev1.EnvVar {
+	if len(env) == 0 {
+		return env
+	}
+	out := make([]corev1.EnvVar, len(env))
+	for i, value := range env {
+		out[i] = corev1.EnvVar{Name: value.Name}
 	}
 	return out
 }
