@@ -164,6 +164,28 @@ func exerciseStore(t *testing.T, ctx context.Context, store coredata.Store) {
 		t.Fatalf("slack records = %#v, want channel C123", slackResult.Records)
 	}
 
+	longPrefix := strings.Repeat("x", 210)
+	longA := userA
+	longA.Ref = coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "long-a"}
+	longA.Scope = coredata.Scope{}
+	longA.Fields = map[string][]string{"external_url": {longPrefix + "a"}}
+	longB := longA
+	longB.Ref.ID = "long-b"
+	longB.Fields = map[string][]string{"external_url": {longPrefix + "b"}}
+	if err := store.UpsertRecords(ctx, longA, longB); err != nil {
+		t.Fatalf("UpsertRecords long filters: %v", err)
+	}
+	longResult, err := store.QueryRecords(ctx, coredata.Query{
+		Sources: []coredata.SourceName{"gitlab"},
+		Filters: map[string]string{"external_url": longPrefix + "b"},
+	})
+	if err != nil {
+		t.Fatalf("QueryRecords long filter: %v", err)
+	}
+	if len(longResult.Records) != 1 || longResult.Records[0].Ref.ID != "long-b" {
+		t.Fatalf("long filter records = %#v, want exact long-b match", longResult.Records)
+	}
+
 	relation := coredata.Relation{
 		Source:  channel.Ref,
 		Name:    "members",

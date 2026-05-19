@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 )
 
@@ -14,10 +15,12 @@ const (
 	CatalogSourceEntity   coredatasource.EntityType = "datasource.source"
 	CatalogEntityEntity   coredatasource.EntityType = "datasource.entity"
 	CatalogRelationEntity coredatasource.EntityType = "datasource.relation"
+	CatalogViewEntity     coredatasource.EntityType = "datasource.view"
 )
 
 type catalogAccessor struct {
-	registry *coredatasource.Registry
+	registry    *coredatasource.Registry
+	dataSources []coredata.SourceSpec
 }
 
 var _ coredatasource.Accessor = catalogAccessor{}
@@ -31,7 +34,7 @@ func (a catalogAccessor) Spec() coredatasource.Spec {
 		Name:        coredatasource.Name(Name),
 		Description: "Synthetic datasource catalog for the current agent.",
 		Kind:        "synthetic",
-		Entities:    []coredatasource.EntityType{CatalogSourceEntity, CatalogEntityEntity, CatalogRelationEntity},
+		Entities:    []coredatasource.EntityType{CatalogSourceEntity, CatalogEntityEntity, CatalogRelationEntity, CatalogViewEntity},
 	}
 }
 
@@ -51,6 +54,7 @@ func (a catalogAccessor) Entities() []coredatasource.EntitySpec {
 				{Name: "kind", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
 				{Name: "connector", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
 				{Name: "entity_count", Type: coredatasource.FieldNumber, Filterable: true},
+				{Name: "view_count", Type: coredatasource.FieldNumber, Filterable: true},
 			},
 		},
 		{
@@ -75,6 +79,20 @@ func (a catalogAccessor) Entities() []coredatasource.EntitySpec {
 				{Name: "relation", Type: coredatasource.FieldString, Identifier: true, Searchable: true, Filterable: true},
 				{Name: "target_entity", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
 				{Name: "exact", Type: coredatasource.FieldBoolean, Filterable: true},
+			},
+		},
+		{
+			Type:         CatalogViewEntity,
+			Description:  "Datasource materialized view schemas visible to the current agent.",
+			Capabilities: capabilities,
+			Fields: []coredatasource.FieldSpec{
+				{Name: "datasource", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
+				{Name: "view", Type: coredatasource.FieldString, Identifier: true, Searchable: true, Filterable: true},
+				{Name: "entity", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
+				{Name: "source", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
+				{Name: "includes", Type: coredatasource.FieldArray, Searchable: true},
+				{Name: "fields", Type: coredatasource.FieldArray, Searchable: true},
+				{Name: "query_hints", Type: coredatasource.FieldArray, Searchable: true, Filterable: true},
 			},
 		},
 	}
@@ -142,7 +160,7 @@ func (a catalogAccessor) records(ctx context.Context, entity coredatasource.Enti
 		return nil, nil
 	}
 	switch entity {
-	case CatalogSourceEntity, CatalogEntityEntity, CatalogRelationEntity:
+	case CatalogSourceEntity, CatalogEntityEntity, CatalogRelationEntity, CatalogViewEntity:
 	default:
 		return nil, fmt.Errorf("datasource catalog entity %q is not supported", entity)
 	}
@@ -158,7 +176,7 @@ func (a catalogAccessor) records(ctx context.Context, entity coredatasource.Enti
 		}
 		switch entity {
 		case CatalogSourceEntity:
-			records = append(records, sourceCatalogRecord(accessor))
+			records = append(records, a.sourceCatalogRecord(accessor))
 		case CatalogEntityEntity:
 			for _, entitySpec := range accessor.Entities() {
 				records = append(records, entityCatalogRecord(accessor, entitySpec))
@@ -168,6 +186,10 @@ func (a catalogAccessor) records(ctx context.Context, entity coredatasource.Enti
 				for _, relation := range entitySpec.Relations {
 					records = append(records, relationCatalogRecord(accessor, entitySpec, relation))
 				}
+			}
+		case CatalogViewEntity:
+			for _, view := range a.viewsForAccessor(accessor) {
+				records = append(records, viewCatalogRecord(accessor, view))
 			}
 		}
 	}
@@ -180,7 +202,22 @@ func (a catalogAccessor) records(ctx context.Context, entity coredatasource.Enti
 	return records, nil
 }
 
-func sourceCatalogRecord(accessor coredatasource.Accessor) coredatasource.Record {
+func (a catalogAccessor) viewsForAccessor(accessor coredatasource.Accessor) []coredata.ViewSpec {
+	if accessor == nil {
+		return nil
+	}
+	spec := accessor.Spec()
+	var views []coredata.ViewSpec
+	for _, source := range a.dataSources {
+		if source.Name != coredata.SourceName(spec.Name) && source.Kind != spec.Kind {
+			continue
+		}
+		views = append(views, source.Views...)
+	}
+	return views
+}
+
+func (a catalogAccessor) sourceCatalogRecord(accessor coredatasource.Accessor) coredatasource.Record {
 	spec := accessor.Spec()
 	entityTypes := make([]string, 0, len(accessor.Entities()))
 	for _, entity := range accessor.Entities() {
@@ -192,6 +229,7 @@ func sourceCatalogRecord(accessor coredatasource.Accessor) coredatasource.Record
 		"kind":         spec.Kind,
 		"connector":    spec.Connector,
 		"entity_count": strconv.Itoa(len(entityTypes)),
+		"view_count":   strconv.Itoa(len(a.viewsForAccessor(accessor))),
 		"entities":     strings.Join(entityTypes, ","),
 	}
 	return coredatasource.Record{
@@ -254,6 +292,43 @@ func relationCatalogRecord(accessor coredatasource.Accessor, entity coredatasour
 		Content:    strings.TrimSpace(strings.Join([]string{relation.Description, title, string(relation.TargetEntity)}, " ")),
 		Metadata:   cleanCatalogMetadata(metadata),
 		Raw:        relation,
+	}
+}
+
+func viewCatalogRecord(accessor coredatasource.Accessor, view coredata.ViewSpec) coredatasource.Record {
+	spec := accessor.Spec()
+	fields := make([]string, 0, len(view.Fields))
+	for _, field := range view.Fields {
+		fields = append(fields, field.Name)
+	}
+	includes := make([]string, 0, len(view.Includes))
+	for _, include := range view.Includes {
+		includes = append(includes, string(include.Relation)+"->"+string(include.Target))
+	}
+	hints := make([]string, 0, len(view.QueryHints))
+	for _, hint := range view.QueryHints {
+		hints = append(hints, string(hint))
+	}
+	sort.Strings(fields)
+	sort.Strings(includes)
+	sort.Strings(hints)
+	metadata := map[string]string{
+		"datasource":  string(spec.Name),
+		"view":        string(view.Name),
+		"entity":      string(view.Entity),
+		"source":      string(view.Source),
+		"includes":    strings.Join(includes, ","),
+		"fields":      strings.Join(fields, ","),
+		"query_hints": strings.Join(hints, ","),
+	}
+	return coredatasource.Record{
+		ID:         string(spec.Name) + "/" + string(view.Name),
+		Datasource: coredatasource.Name(Name),
+		Entity:     CatalogViewEntity,
+		Title:      string(view.Name),
+		Content:    strings.TrimSpace(strings.Join([]string{view.Description, string(view.Entity), string(view.Source), strings.Join(includes, " "), strings.Join(fields, " "), strings.Join(hints, " ")}, " ")),
+		Metadata:   cleanCatalogMetadata(metadata),
+		Raw:        view,
 	}
 }
 

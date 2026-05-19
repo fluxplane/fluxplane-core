@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added coder-first distribution build targets: `coder build --target
   docker-base`, `coder app build --target docker-image`, and `coder app
   deploy --target docker-compose --dry-run`.
+- Added app runtime event store configuration and backend-aware Docker Compose
+  generation for MySQL data stores and NATS JetStream event stores.
 - Added `coder app run`, `coder app serve`, `coder app build`, and
   `coder app config show` as area/action app lifecycle commands backed by the
   existing local app launch, serve, and Docker build paths.
@@ -138,6 +140,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `coder app build` now defaults to app-local artifact generation, writing a
+  launcher, `Dockerfile`, `docker-compose.yaml`, and building the app image
+  unless a narrower `--target` is selected.
+- `coder app deploy --target docker-compose` now performs the full local Docker
+  Compose deploy path: base image build, app artifact generation, app image
+  build, and `docker compose up`.
 - Generated app Docker images now use the `coder` binary and inherit from a
   reusable coder base image instead of building or invoking the legacy
   `agentsdk` binary.

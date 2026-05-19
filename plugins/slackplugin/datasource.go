@@ -267,6 +267,23 @@ func (a slackAccessor) BatchGet(ctx context.Context, req coredatasource.BatchGet
 	return out, nil
 }
 
+func (a slackAccessor) Corpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	switch req.Entity {
+	case UserEntity, ChannelEntity:
+		result, err := a.List(ctx, coredatasource.ListRequest{Entity: req.Entity, Cursor: req.Cursor, Limit: req.Limit})
+		if err != nil {
+			return coredatasource.CorpusPage{}, err
+		}
+		return coredatasource.CorpusPage{
+			Documents:  runtimedatasource.RecordsToCorpusDocuments(result.Records),
+			NextCursor: result.NextCursor,
+			Complete:   result.Complete,
+		}, nil
+	default:
+		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q entity %q is not materializable", a.spec.Name, req.Entity)
+	}
+}
+
 func (a slackAccessor) Relation(ctx context.Context, req coredatasource.RelationRequest) (coredatasource.RelationResult, error) {
 	if !runtimedatasource.HasEntity(a.entities, req.Entity) {
 		return coredatasource.RelationResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, req.Entity)
@@ -364,6 +381,9 @@ func (a slackAccessor) userRecord(user slack.User) coredatasource.Record {
 		Content:    strings.Join(cleaned([]string{user.Name, user.Profile.Title}), " "),
 		URL:        user.Profile.ImageOriginal,
 		Metadata: map[string]string{
+			"id":           user.ID,
+			"name":         user.Name,
+			"real_name":    user.RealName,
 			"team_id":      user.TeamID,
 			"is_bot":       boolString(user.IsBot),
 			"deleted":      boolString(user.Deleted),
@@ -391,6 +411,8 @@ func (a slackAccessor) channelRecord(channel slack.Channel) coredatasource.Recor
 		Title:      firstNonEmpty(channel.Name, channel.NameNormalized, channel.ID),
 		Content:    strings.Join(cleaned([]string{channel.Topic.Value, channel.Purpose.Value}), " "),
 		Metadata: map[string]string{
+			"id":          channel.ID,
+			"name":        channel.Name,
 			"channel_id":  channel.ID,
 			"topic":       channel.Topic.Value,
 			"purpose":     channel.Purpose.Value,
@@ -502,6 +524,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityIndex,
 	}
 
 	channelEntity := runtimedatasource.EntityOf[Channel](ChannelEntity, "Slack public, private, direct, or multi-party conversation.")
@@ -510,6 +533,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
+		coredatasource.EntityCapabilityIndex,
 	}
 	channelEntity.Detectors = []coredatasource.DetectorSpec{
 		{

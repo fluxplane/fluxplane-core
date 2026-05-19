@@ -32,6 +32,17 @@ daemon:
       listener: control
       session: main
 runtime:
+  data:
+    store:
+      kind: mysql
+      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+  events:
+    store:
+      kind: nats
+      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+      stream: AGENTRUNTIME_EVENTS
+      subject: agentruntime.events.log
+      create_stream: true
   workspace:
     env_files:
       - .env
@@ -85,6 +96,12 @@ name: assistant
 	}
 	if loaded.Launch.Workspace.ScratchRoot != "tmp" || len(loaded.Launch.Workspace.Roots) != 1 || loaded.Launch.Workspace.Roots[0].Name != "tmp" {
 		t.Fatalf("workspace = %#v, want tmp scratch root", loaded.Launch.Workspace)
+	}
+	if loaded.Launch.Data.Store.Kind != "mysql" || loaded.Launch.Data.Store.DSNEnv != "AGENTRUNTIME_DATASTORE_MYSQL_DSN" {
+		t.Fatalf("data store = %#v, want mysql dsn env", loaded.Launch.Data.Store)
+	}
+	if loaded.Launch.Events.Store.Kind != "nats" || loaded.Launch.Events.Store.DSNEnv != "AGENTRUNTIME_EVENTSTORE_NATS_DSN" || loaded.Launch.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || loaded.Launch.Events.Store.Subject != "agentruntime.events.log" || !loaded.Launch.Events.Store.CreateStream {
+		t.Fatalf("event store = %#v, want nats dsn env", loaded.Launch.Events.Store)
 	}
 	if len(loaded.Launch.Workspace.EnvFiles) != 1 || loaded.Launch.Workspace.EnvFiles[0] != ".env" {
 		t.Fatalf("root env files = %#v, want .env", loaded.Launch.Workspace.EnvFiles)

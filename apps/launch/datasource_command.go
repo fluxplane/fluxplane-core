@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
@@ -138,6 +139,8 @@ func runDatasourceIndexBuild(ctx context.Context, opts datasourceIndexOptions, a
 	result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 		Registry:    env.Registry,
 		Index:       env.Index,
+		DataStore:   env.Data,
+		DataSources: env.Sources,
 		Datasource:  coredatasource.Name(strings.TrimSpace(opts.datasource)),
 		Entity:      coredatasource.EntityType(strings.TrimSpace(opts.entity)),
 		Full:        opts.full,
@@ -255,39 +258,90 @@ func runDatasourceIndexClear(ctx context.Context, opts datasourceIndexOptions, a
 	if err != nil {
 		return err
 	}
-	deleted := map[string]bool{}
-	for _, doc := range status.Documents {
-		if err := env.Index.Delete(ctx, doc.Ref); err != nil {
-			return err
-		}
-		deleted[doc.Key] = true
+	deletedCount := 0
+	dataResult, err := env.Data.QueryRecords(ctx, coredata.Query{
+		Sources:  selectedDataSources(coredatasource.Name(strings.TrimSpace(opts.datasource))),
+		Entities: selectedDataEntities(coredatasource.EntityType(strings.TrimSpace(opts.entity))),
+		Limit:    100000,
+	})
+	if err != nil {
+		return err
 	}
-	for _, record := range status.Records {
-		if deleted[record.Key] {
+	for _, record := range dataResult.Records {
+		if record.Ref.Source == "_runtime" {
 			continue
 		}
-		if err := env.Index.Delete(ctx, record.Ref); err != nil {
+		if err := env.Data.DeleteRecords(ctx, coredata.Scope{}, record.Ref); err != nil {
 			return err
 		}
-		deleted[record.Key] = true
+		deletedCount++
 	}
-	for _, job := range status.Queue {
-		if deleted[job.Key] {
-			continue
-		}
-		if err := env.Index.Delete(ctx, job.Ref); err != nil {
-			return err
-		}
-		deleted[job.Key] = true
+	semanticCount, err := clearSemanticIndexStatus(ctx, env.Index, status)
+	if err != nil {
+		return err
 	}
+	deletedCount += semanticCount
 	if err := env.Index.DeleteIndexRuns(ctx, semantic.StatusRequest{
 		Datasource: coredatasource.Name(strings.TrimSpace(opts.datasource)),
 		Entity:     coredatasource.EntityType(strings.TrimSpace(opts.entity)),
 	}); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(out, "deleted=%d\n", len(deleted))
+	if err := datasourceindex.DeleteDataIndexRuns(ctx, env.Data, coredatasource.Name(strings.TrimSpace(opts.datasource)), coredatasource.EntityType(strings.TrimSpace(opts.entity))); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "deleted=%d\n", deletedCount)
 	return nil
+}
+
+func clearSemanticIndexStatus(ctx context.Context, index *semantic.Index, status semantic.StatusResult) (int, error) {
+	if index == nil {
+		return 0, nil
+	}
+	deleted := map[string]bool{}
+	count := 0
+	for _, doc := range status.Documents {
+		if err := index.Delete(ctx, doc.Ref); err != nil {
+			return count, err
+		}
+		deleted[doc.Key] = true
+		count++
+	}
+	for _, record := range status.Records {
+		if deleted[record.Key] {
+			continue
+		}
+		if err := index.Delete(ctx, record.Ref); err != nil {
+			return count, err
+		}
+		deleted[record.Key] = true
+		count++
+	}
+	for _, job := range status.Queue {
+		if deleted[job.Key] {
+			continue
+		}
+		if err := index.Delete(ctx, job.Ref); err != nil {
+			return count, err
+		}
+		deleted[job.Key] = true
+		count++
+	}
+	return count, nil
+}
+
+func selectedDataSources(value coredatasource.Name) []coredata.SourceName {
+	if value == "" {
+		return nil
+	}
+	return []coredata.SourceName{coredata.SourceName(value)}
+}
+
+func selectedDataEntities(value coredatasource.EntityType) []coredata.EntityType {
+	if value == "" {
+		return nil
+	}
+	return []coredata.EntityType{coredata.EntityType(value)}
 }
 
 func datasourceIndexRuntime(ctx context.Context, opts datasourceIndexOptions, appDir string) (DatasourceIndexRuntime, error) {

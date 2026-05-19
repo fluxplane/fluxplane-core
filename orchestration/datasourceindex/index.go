@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
 
@@ -16,6 +18,8 @@ import (
 type Request struct {
 	Registry    *coredatasource.Registry
 	Index       *semantic.Index
+	DataStore   coredata.Store
+	DataSources []coredata.SourceSpec
 	Datasource  coredatasource.Name
 	Entity      coredatasource.EntityType
 	Full        bool
@@ -89,8 +93,8 @@ func Build(ctx context.Context, req Request) (Result, error) {
 		return Result{}, fmt.Errorf("datasource index: registry is nil")
 	}
 	phase := normalizedPhase(req.Phase)
-	if req.Index == nil && !req.DryRun {
-		return Result{}, fmt.Errorf("datasource index: semantic index is nil")
+	if req.Index == nil && req.DataStore == nil && !req.DryRun {
+		return Result{}, fmt.Errorf("datasource index: store is nil")
 	}
 	jobs := collectJobs(req, phase)
 	concurrency := req.Concurrency
@@ -203,6 +207,27 @@ func Build(ctx context.Context, req Request) (Result, error) {
 			report(req.Progress, ProgressEvent{Kind: ProgressTombstoneDeleted, Datasource: job.Ref.Datasource, Entity: job.Ref.Entity, RecordID: job.Ref.ID, Deleted: out.Deleted, Phase: phase})
 		}
 	}
+	if req.Full && !req.DryRun && req.DataStore != nil {
+		result, materializedSeen, err := materializeDataViews(ctx, req)
+		addResult(&out, result)
+		if err != nil {
+			return out, err
+		}
+		for key := range materializedSeen {
+			seen[key] = true
+		}
+		result, err = deleteMissingDataRecords(ctx, req, seen)
+		addResult(&out, result)
+		if err != nil {
+			return out, err
+		}
+	} else if !req.DryRun && req.DataStore != nil {
+		result, _, err := materializeDataViews(ctx, req)
+		addResult(&out, result)
+		if err != nil {
+			return out, err
+		}
+	}
 	report(req.Progress, ProgressEvent{Kind: ProgressComplete, Documents: out.Documents, Indexed: out.Indexed, Queued: out.Queued, Skipped: out.Skipped, Deleted: out.Deleted, Failed: out.Failed, Phase: phase})
 	return out, nil
 }
@@ -259,8 +284,9 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 	if err != nil {
 		return Result{}, nil, err
 	}
-	if !req.DryRun && !req.Full && !req.Force && freshness > 0 && req.Index != nil {
-		if run, ok, err := req.Index.IndexRun(ctx, semantic.IndexRunKey{Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase}); err != nil {
+	startedAt := now().UTC()
+	if !req.DryRun && !req.Full && !req.Force && freshness > 0 {
+		if run, ok, err := dataIndexRun(ctx, req.DataStore, job.spec.Name, job.entity.Type, phase); err != nil {
 			return Result{}, nil, err
 		} else if ok && run.Status == semantic.IndexRunStatusComplete && !run.CompletedAt.IsZero() {
 			freshUntil := run.CompletedAt.Add(freshness)
@@ -268,9 +294,29 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 				report(req.Progress, ProgressEvent{Kind: ProgressEntityFresh, Datasource: job.spec.Name, Entity: job.entity.Type, FreshUntil: freshUntil, Phase: phase})
 				return Result{Skipped: 1}, nil, nil
 			}
+		} else if req.Index != nil {
+			run, ok, err := req.Index.IndexRun(ctx, semantic.IndexRunKey{Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase})
+			if err != nil {
+				return Result{}, nil, err
+			}
+			if ok && run.Status == semantic.IndexRunStatusComplete && !run.CompletedAt.IsZero() {
+				freshUntil := run.CompletedAt.Add(freshness)
+				if now().Before(freshUntil) {
+					report(req.Progress, ProgressEvent{Kind: ProgressEntityFresh, Datasource: job.spec.Name, Entity: job.entity.Type, FreshUntil: freshUntil, Phase: phase})
+					return Result{Skipped: 1}, nil, nil
+				}
+			}
 		}
 	}
-	startedAt := now().UTC()
+	if !req.DryRun && req.DataStore != nil {
+		_ = putDataIndexRun(ctx, req.DataStore, semantic.IndexRunState{
+			Datasource: job.spec.Name,
+			Entity:     job.entity.Type,
+			Phase:      phase,
+			Status:     semantic.IndexRunStatusRunning,
+			StartedAt:  startedAt,
+		})
+	}
 	if !req.DryRun && req.Index != nil {
 		_ = req.Index.PutIndexRun(ctx, semantic.IndexRunState{
 			Datasource: job.spec.Name,
@@ -315,6 +361,7 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 				continue
 			}
 			seen[key] = true
+			seen[dataRecordKey(runtimedata.RefFromDatasourceRef(doc.Ref))] = true
 			entityResult.Documents++
 			if req.DryRun {
 				entityResult.Skipped++
@@ -322,18 +369,38 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 				continue
 			}
 			if job.buildFields {
-				result, err := req.Index.UpdateRecord(ctx, doc, job.entity)
-				if err != nil {
-					entityResult.Failed++
-					report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
-					continue
+				indexed := false
+				if req.DataStore != nil {
+					record := runtimedata.RecordFromCorpusDocument(doc, job.entity)
+					if err := req.DataStore.UpsertRecords(ctx, record); err != nil {
+						entityResult.Failed++
+						report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
+						continue
+					}
+					if relations := runtimedata.RelationsFromCorpusDocument(doc); len(relations) > 0 {
+						if err := req.DataStore.UpsertRelations(ctx, relations...); err != nil {
+							entityResult.Failed++
+							report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
+							continue
+						}
+					}
+					indexed = true
 				}
-				if strings.TrimSpace(result.Status) == "indexed" {
+				if req.Index != nil {
+					result, err := req.Index.UpdateRecord(ctx, doc, job.entity)
+					if err != nil {
+						entityResult.Failed++
+						report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
+						continue
+					}
+					indexed = indexed || strings.TrimSpace(result.Status) == "indexed"
+				}
+				if indexed {
 					entityResult.Indexed++
 					report(req.Progress, ProgressEvent{Kind: ProgressDocumentIndexed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Indexed: entityResult.Indexed, Phase: PhaseFields})
 				}
 			}
-			if job.enqueueSemantic {
+			if job.enqueueSemantic && req.Index != nil {
 				result, err := req.Index.Enqueue(ctx, doc)
 				if err != nil {
 					entityResult.Failed++
@@ -354,10 +421,19 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 			if req.DryRun {
 				continue
 			}
-			if err := req.Index.Delete(ctx, ref); err != nil {
-				entityResult.Failed++
-				report(req.Progress, ProgressEvent{Kind: ProgressTombstoneFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: ref.ID, Failed: entityResult.Failed, Message: err.Error(), Phase: phase})
-				continue
+			if req.DataStore != nil {
+				if err := req.DataStore.DeleteRecords(ctx, coredata.Scope{}, runtimedata.RefFromDatasourceRef(ref)); err != nil {
+					entityResult.Failed++
+					report(req.Progress, ProgressEvent{Kind: ProgressTombstoneFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: ref.ID, Failed: entityResult.Failed, Message: err.Error(), Phase: phase})
+					continue
+				}
+			}
+			if req.Index != nil {
+				if err := req.Index.Delete(ctx, ref); err != nil {
+					entityResult.Failed++
+					report(req.Progress, ProgressEvent{Kind: ProgressTombstoneFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: ref.ID, Failed: entityResult.Failed, Message: err.Error(), Phase: phase})
+					continue
+				}
 			}
 			entityResult.Deleted++
 			report(req.Progress, ProgressEvent{Kind: ProgressTombstoneDeleted, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: ref.ID, Deleted: entityResult.Deleted, Phase: phase})
@@ -373,7 +449,7 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 }
 
 func finishRun(ctx context.Context, req Request, job indexJob, phase string, startedAt time.Time, result Result, err error) {
-	if req.DryRun || req.Index == nil {
+	if req.DryRun || (req.Index == nil && req.DataStore == nil) {
 		return
 	}
 	state := semantic.IndexRunState{
@@ -399,7 +475,10 @@ func finishRun(ctx context.Context, req Request, job indexJob, phase string, sta
 			state.LastError = err.Error()
 		}
 	}
-	_ = req.Index.PutIndexRun(context.WithoutCancel(ctx), state)
+	_ = putDataIndexRun(context.WithoutCancel(ctx), req.DataStore, state)
+	if req.Index != nil {
+		_ = req.Index.PutIndexRun(context.WithoutCancel(ctx), state)
+	}
 }
 
 func addResult(out *Result, result Result) {
@@ -409,6 +488,336 @@ func addResult(out *Result, result Result) {
 	out.Deleted += result.Deleted
 	out.Failed += result.Failed
 	out.Documents += result.Documents
+}
+
+func materializeDataViews(ctx context.Context, req Request) (Result, map[string]bool, error) {
+	if req.DataStore == nil || len(req.DataSources) == 0 {
+		return Result{}, nil, nil
+	}
+	phase := normalizedPhase(req.Phase)
+	if phase != PhaseAll && phase != PhaseFields {
+		return Result{}, nil, nil
+	}
+	var out Result
+	seen := map[string]bool{}
+	for _, accessor := range req.Registry.All() {
+		spec := accessor.Spec()
+		if req.Datasource != "" && spec.Name != req.Datasource {
+			continue
+		}
+		for _, source := range matchingDataSources(req.DataSources, spec) {
+			for _, view := range source.Views {
+				if view.Source == "" {
+					continue
+				}
+				count, viewSeen, err := materializeDataView(ctx, req.DataStore, accessor, spec, view)
+				out.Indexed += count
+				if err != nil {
+					out.Failed++
+					return out, seen, err
+				}
+				for key := range viewSeen {
+					seen[key] = true
+				}
+			}
+		}
+	}
+	return out, seen, nil
+}
+
+func matchingDataSources(sources []coredata.SourceSpec, spec coredatasource.Spec) []coredata.SourceSpec {
+	var out []coredata.SourceSpec
+	for _, source := range sources {
+		if source.Name == coredata.SourceName(spec.Name) || (source.Kind != "" && source.Kind == spec.Kind) {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+func materializeDataView(ctx context.Context, store coredata.Store, accessor coredatasource.Accessor, spec coredatasource.Spec, view coredata.ViewSpec) (int, map[string]bool, error) {
+	cursor := ""
+	var indexed int
+	seen := map[string]bool{}
+	for {
+		result, err := store.QueryRecords(ctx, coredata.Query{
+			Sources:  []coredata.SourceName{coredata.SourceName(spec.Name)},
+			Entities: []coredata.EntityType{view.Source},
+			Views:    []coredata.ViewName{coredata.ViewName(view.Source)},
+			Limit:    1000,
+			Cursor:   cursor,
+		})
+		if err != nil {
+			return indexed, seen, err
+		}
+		for _, record := range result.Records {
+			materialized, err := materializeRecord(ctx, store, accessor, record, view)
+			if err != nil {
+				return indexed, seen, err
+			}
+			if err := store.UpsertRecords(ctx, materialized); err != nil {
+				return indexed, seen, err
+			}
+			seen[dataRecordKey(materialized.Ref)] = true
+			indexed++
+		}
+		if result.NextCursor == "" {
+			break
+		}
+		cursor = result.NextCursor
+	}
+	return indexed, seen, nil
+}
+
+func materializeRecord(ctx context.Context, store coredata.Store, accessor coredatasource.Accessor, source coredata.Record, view coredata.ViewSpec) (coredata.Record, error) {
+	entity := view.Entity
+	if entity == "" {
+		entity = source.Ref.Entity
+	}
+	record := cloneDataRecord(source)
+	record.Ref = coredata.Ref{
+		Source: source.Ref.Source,
+		Entity: entity,
+		View:   view.Name,
+		ID:     source.Ref.ID,
+	}
+	if record.Fields == nil {
+		record.Fields = map[string][]string{}
+	}
+	if record.Relations == nil {
+		record.Relations = map[string][]coredata.Summary{}
+	}
+	record.Metadata = cloneStringMap(record.Metadata)
+	if record.Metadata == nil {
+		record.Metadata = map[string]string{}
+	}
+	record.Metadata["view"] = string(view.Name)
+	record.Metadata["source_entity"] = string(view.Source)
+	for _, include := range view.Includes {
+		summaries, err := relationSummariesForView(ctx, store, accessor, source, include)
+		if err != nil {
+			return coredata.Record{}, err
+		}
+		if len(summaries) == 0 {
+			continue
+		}
+		relationName := string(include.Relation)
+		record.Relations[relationName] = mergeSummaries(record.Relations[relationName], summaries)
+		for _, summary := range summaries {
+			addViewSummaryFields(record.Fields, relationName, summary)
+		}
+	}
+	return record, nil
+}
+
+func relationSummariesForView(ctx context.Context, store coredata.Store, accessor coredatasource.Accessor, source coredata.Record, include coredata.RelationIncludeSpec) ([]coredata.Summary, error) {
+	var summaries []coredata.Summary
+	cursor := ""
+	for {
+		result, err := store.QueryRelations(ctx, coredata.RelationQuery{
+			Sources:  []coredata.SourceName{source.Ref.Source},
+			Relation: include.Relation,
+			Source:   source.Ref,
+			Limit:    1000,
+			Cursor:   cursor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, relation := range result.Relations {
+			summary := relation.Summary
+			if summary.Ref.Source == "" {
+				summary.Ref = relation.Target
+			}
+			summary.Fields = selectedSummaryFields(summary, include.Fields)
+			summaries = append(summaries, summary)
+		}
+		if result.NextCursor == "" {
+			break
+		}
+		cursor = result.NextCursor
+	}
+	if len(summaries) > 0 {
+		return summaries, nil
+	}
+	relationer, ok := accessor.(coredatasource.Relationer)
+	if !ok {
+		return nil, nil
+	}
+	cursor = ""
+	for {
+		page, err := relationer.Relation(ctx, coredatasource.RelationRequest{
+			Entity:   coredatasource.EntityType(source.Ref.Entity),
+			ID:       string(source.Ref.ID),
+			Relation: string(include.Relation),
+			Limit:    1000,
+			Cursor:   cursor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		var relations []coredata.Relation
+		for _, record := range page.Records {
+			summary := summaryFromDatasourceRecord(source.Ref.Source, coredatasource.EntityType(include.Target), record, include.Fields)
+			summaries = append(summaries, summary)
+			relations = append(relations, coredata.Relation{
+				Source:  source.Ref,
+				Name:    include.Relation,
+				Target:  summary.Ref,
+				Summary: summary,
+			})
+		}
+		if len(relations) > 0 {
+			if err := store.UpsertRelations(ctx, relations...); err != nil {
+				return nil, err
+			}
+		}
+		if page.NextCursor == "" || page.Complete {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	return summaries, nil
+}
+
+func summaryFromDatasourceRecord(source coredata.SourceName, target coredatasource.EntityType, record coredatasource.Record, fields []string) coredata.Summary {
+	ref := coredata.Ref{
+		Source: coredata.SourceName(record.Datasource),
+		Entity: coredata.EntityType(record.Entity),
+		View:   coredata.ViewName(record.Entity),
+		ID:     coredata.RecordID(record.ID),
+	}
+	if ref.Source == "" {
+		ref.Source = source
+	}
+	if ref.Entity == "" {
+		ref.Entity = coredata.EntityType(target)
+		ref.View = coredata.ViewName(target)
+	}
+	values := map[string]string{
+		"id":      record.ID,
+		"title":   record.Title,
+		"url":     record.URL,
+		"content": record.Content,
+	}
+	for key, value := range record.Metadata {
+		values[key] = value
+	}
+	out := coredata.Summary{Ref: ref, Title: record.Title, Fields: map[string]string{}}
+	if len(fields) == 0 {
+		out.Fields = values
+		return out
+	}
+	for _, field := range fields {
+		if value := strings.TrimSpace(values[field]); value != "" {
+			out.Fields[field] = value
+		}
+	}
+	return out
+}
+
+func selectedSummaryFields(summary coredata.Summary, fields []string) map[string]string {
+	if len(fields) == 0 {
+		return cloneStringMap(summary.Fields)
+	}
+	out := map[string]string{}
+	for _, field := range fields {
+		if value := strings.TrimSpace(summary.Fields[field]); value != "" {
+			out[field] = value
+		}
+	}
+	return out
+}
+
+func addViewSummaryFields(fields map[string][]string, relation string, summary coredata.Summary) {
+	for key, value := range summary.Fields {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		fields[relation+"."+key] = appendUniqueString(fields[relation+"."+key], value)
+	}
+	if summary.Title != "" {
+		fields[relation+".title"] = appendUniqueString(fields[relation+".title"], summary.Title)
+	}
+	if summary.Ref.ID != "" {
+		fields[relation+".id"] = appendUniqueString(fields[relation+".id"], string(summary.Ref.ID))
+	}
+}
+
+func mergeSummaries(existing []coredata.Summary, candidates []coredata.Summary) []coredata.Summary {
+	seen := map[string]bool{}
+	for _, summary := range existing {
+		seen[summaryKey(summary)] = true
+	}
+	for _, summary := range candidates {
+		key := summaryKey(summary)
+		if key == "" || seen[key] {
+			continue
+		}
+		existing = append(existing, summary)
+		seen[key] = true
+	}
+	return existing
+}
+
+func summaryKey(summary coredata.Summary) string {
+	return strings.Join([]string{string(summary.Ref.Source), string(summary.Ref.Entity), string(summary.Ref.View), string(summary.Ref.ID)}, "\x00")
+}
+
+func cloneDataRecord(record coredata.Record) coredata.Record {
+	record.Fields = cloneStringSliceMap(record.Fields)
+	record.Relations = cloneSummaryMap(record.Relations)
+	record.BlobRefs = append([]coredata.BlobRef(nil), record.BlobRefs...)
+	record.Metadata = cloneStringMap(record.Metadata)
+	return record
+}
+
+func cloneStringSliceMap(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for key, values := range in {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
+
+func cloneSummaryMap(in map[string][]coredata.Summary) map[string][]coredata.Summary {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]coredata.Summary, len(in))
+	for key, values := range in {
+		copied := make([]coredata.Summary, 0, len(values))
+		for _, value := range values {
+			value.Fields = cloneStringMap(value.Fields)
+			copied = append(copied, value)
+		}
+		out[key] = copied
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func appendUniqueString(values []string, candidate string) []string {
+	for _, value := range values {
+		if value == candidate {
+			return values
+		}
+	}
+	return append(values, candidate)
 }
 
 func jobFreshness(req Request, spec coredatasource.Spec) (time.Duration, error) {
@@ -427,6 +836,165 @@ func report(reporter ProgressReporter, event ProgressEvent) {
 	if reporter != nil {
 		reporter(event)
 	}
+}
+
+const dataIndexRunSource coredata.SourceName = "_runtime"
+const dataIndexRunEntity coredata.EntityType = "datasource.index_run"
+const dataIndexRunView coredata.ViewName = "datasource.index_run"
+
+func dataIndexRun(ctx context.Context, store coredata.Store, datasource coredatasource.Name, entity coredatasource.EntityType, phase string) (semantic.IndexRunState, bool, error) {
+	if store == nil {
+		return semantic.IndexRunState{}, false, nil
+	}
+	record, ok, err := store.GetRecord(ctx, coredata.Scope{}, dataIndexRunRef(datasource, entity, phase))
+	if err != nil || !ok {
+		return semantic.IndexRunState{}, ok, err
+	}
+	run := semantic.IndexRunState{
+		Key:        string(record.Ref.ID),
+		Datasource: coredatasource.Name(record.Metadata["datasource"]),
+		Entity:     coredatasource.EntityType(record.Metadata["entity"]),
+		Phase:      record.Metadata["phase"],
+		Status:     record.Metadata["status"],
+		LastError:  record.Metadata["last_error"],
+	}
+	run.StartedAt = parseRunTime(record.Metadata["started_at"])
+	run.CompletedAt = parseRunTime(record.Metadata["completed_at"])
+	run.Documents = parseRunInt(record.Metadata["documents"])
+	run.Indexed = parseRunInt(record.Metadata["indexed"])
+	run.Queued = parseRunInt(record.Metadata["queued"])
+	run.Skipped = parseRunInt(record.Metadata["skipped"])
+	run.Deleted = parseRunInt(record.Metadata["deleted"])
+	run.Failed = parseRunInt(record.Metadata["failed"])
+	return run, true, nil
+}
+
+func putDataIndexRun(ctx context.Context, store coredata.Store, run semantic.IndexRunState) error {
+	if store == nil {
+		return nil
+	}
+	ref := dataIndexRunRef(run.Datasource, run.Entity, run.Phase)
+	metadata := map[string]string{
+		"datasource": string(run.Datasource),
+		"entity":     string(run.Entity),
+		"phase":      normalizedPhase(run.Phase),
+		"status":     run.Status,
+		"started_at": run.StartedAt.Format(time.RFC3339Nano),
+		"documents":  fmt.Sprint(run.Documents),
+		"indexed":    fmt.Sprint(run.Indexed),
+		"queued":     fmt.Sprint(run.Queued),
+		"skipped":    fmt.Sprint(run.Skipped),
+		"deleted":    fmt.Sprint(run.Deleted),
+		"failed":     fmt.Sprint(run.Failed),
+		"last_error": run.LastError,
+	}
+	if !run.CompletedAt.IsZero() {
+		metadata["completed_at"] = run.CompletedAt.Format(time.RFC3339Nano)
+	}
+	return store.UpsertRecords(ctx, coredata.Record{
+		Ref:      ref,
+		Title:    string(run.Datasource) + "/" + string(run.Entity) + " " + normalizedPhase(run.Phase),
+		Metadata: metadata,
+		Fields: map[string][]string{
+			"datasource": {string(run.Datasource)},
+			"entity":     {string(run.Entity)},
+			"phase":      {normalizedPhase(run.Phase)},
+			"status":     {run.Status},
+		},
+		UpdatedAt: metadata["completed_at"],
+	})
+}
+
+// DeleteDataIndexRuns removes datastore-backed freshness checkpoints.
+func DeleteDataIndexRuns(ctx context.Context, store coredata.Store, datasource coredatasource.Name, entity coredatasource.EntityType) error {
+	if store == nil {
+		return nil
+	}
+	result, err := store.QueryRecords(ctx, coredata.Query{
+		Sources:  []coredata.SourceName{dataIndexRunSource},
+		Entities: []coredata.EntityType{dataIndexRunEntity},
+		Filters: map[string]string{
+			"datasource": string(datasource),
+			"entity":     string(entity),
+		},
+		Limit: 1000,
+	})
+	if err != nil {
+		return err
+	}
+	for _, record := range result.Records {
+		if err := store.DeleteRecords(ctx, coredata.Scope{}, record.Ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteMissingDataRecords(ctx context.Context, req Request, seen map[string]bool) (Result, error) {
+	result, err := req.DataStore.QueryRecords(ctx, coredata.Query{
+		Sources:  dataSources(req.Datasource),
+		Entities: dataEntities(req.Entity),
+		Limit:    100000,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	var out Result
+	for _, record := range result.Records {
+		if record.Ref.Source == dataIndexRunSource {
+			continue
+		}
+		key := dataRecordKey(record.Ref)
+		if seen[key] {
+			continue
+		}
+		if err := req.DataStore.DeleteRecords(ctx, coredata.Scope{}, record.Ref); err != nil {
+			out.Failed++
+			report(req.Progress, ProgressEvent{Kind: ProgressTombstoneFailed, Datasource: coredatasource.Name(record.Ref.Source), Entity: coredatasource.EntityType(record.Ref.Entity), RecordID: string(record.Ref.ID), Failed: out.Failed, Message: err.Error(), Phase: normalizedPhase(req.Phase)})
+			continue
+		}
+		out.Deleted++
+		report(req.Progress, ProgressEvent{Kind: ProgressTombstoneDeleted, Datasource: coredatasource.Name(record.Ref.Source), Entity: coredatasource.EntityType(record.Ref.Entity), RecordID: string(record.Ref.ID), Deleted: out.Deleted, Phase: normalizedPhase(req.Phase)})
+	}
+	return out, nil
+}
+
+func dataRecordKey(ref coredata.Ref) string {
+	return strings.Join([]string{string(ref.Source), string(ref.Entity), string(ref.View), string(ref.ID)}, "\x00")
+}
+
+func dataIndexRunRef(datasource coredatasource.Name, entity coredatasource.EntityType, phase string) coredata.Ref {
+	return coredata.Ref{
+		Source: dataIndexRunSource,
+		Entity: dataIndexRunEntity,
+		View:   dataIndexRunView,
+		ID:     coredata.RecordID(string(datasource) + "|" + string(entity) + "|" + normalizedPhase(phase)),
+	}
+}
+
+func dataSources(value coredatasource.Name) []coredata.SourceName {
+	if value == "" {
+		return nil
+	}
+	return []coredata.SourceName{coredata.SourceName(value)}
+}
+
+func dataEntities(value coredatasource.EntityType) []coredata.EntityType {
+	if value == "" {
+		return nil
+	}
+	return []coredata.EntityType{coredata.EntityType(value)}
+}
+
+func parseRunTime(value string) time.Time {
+	parsed, _ := time.Parse(time.RFC3339Nano, value)
+	return parsed
+}
+
+func parseRunInt(value string) int {
+	var out int
+	_, _ = fmt.Sscan(value, &out)
+	return out
 }
 
 func supportsSemantic(entity coredatasource.EntitySpec) bool {

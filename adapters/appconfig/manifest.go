@@ -569,7 +569,34 @@ func (d identityDoc) Spec() coreapp.IdentitySpec {
 
 // RuntimeConfig contains local runtime wiring consumed by launch adapters.
 type RuntimeConfig struct {
-	Workspace WorkspaceConfig `json:"workspace,omitempty" yaml:"workspace,omitempty"`
+	Workspace WorkspaceConfig  `json:"workspace,omitempty" yaml:"workspace,omitempty"`
+	Data      RuntimeDataDoc   `json:"data,omitempty" yaml:"data,omitempty"`
+	Events    RuntimeEventsDoc `json:"events,omitempty" yaml:"events,omitempty"`
+}
+
+// RuntimeDataDoc contains runtime-owned durable data store settings.
+type RuntimeDataDoc struct {
+	Store RuntimeDataStoreDoc `json:"store,omitempty" yaml:"store,omitempty"`
+}
+
+type RuntimeDataStoreDoc struct {
+	Kind   string `json:"kind,omitempty" yaml:"kind,omitempty"`
+	DSN    string `json:"dsn,omitempty" yaml:"dsn,omitempty"`
+	DSNEnv string `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
+}
+
+// RuntimeEventsDoc contains runtime-owned durable event store settings.
+type RuntimeEventsDoc struct {
+	Store RuntimeEventStoreDoc `json:"store,omitempty" yaml:"store,omitempty"`
+}
+
+type RuntimeEventStoreDoc struct {
+	Kind         string `json:"kind,omitempty" yaml:"kind,omitempty"`
+	DSN          string `json:"dsn,omitempty" yaml:"dsn,omitempty"`
+	DSNEnv       string `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
+	Stream       string `json:"stream,omitempty" yaml:"stream,omitempty"`
+	Subject      string `json:"subject,omitempty" yaml:"subject,omitempty"`
+	CreateStream bool   `json:"create_stream,omitempty" yaml:"create_stream,omitempty"`
 }
 
 // WorkspaceConfig contains additional local filesystem workspace roots.

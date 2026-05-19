@@ -36,6 +36,35 @@ type LaunchConfig struct {
 	Listeners  []Listener
 	Channels   []Channel
 	Workspace  WorkspaceConfig
+	Data       DataConfig
+	Events     EventsConfig
+}
+
+// DataConfig carries runtime-owned durable data store settings.
+type DataConfig struct {
+	Store DataStoreConfig
+}
+
+// DataStoreConfig declares where materialized runtime data is stored.
+type DataStoreConfig struct {
+	Kind   string
+	DSN    string
+	DSNEnv string
+}
+
+// EventsConfig carries runtime-owned durable event store settings.
+type EventsConfig struct {
+	Store EventStoreConfig
+}
+
+// EventStoreConfig declares where append-only runtime events are stored.
+type EventStoreConfig struct {
+	Kind         string
+	DSN          string
+	DSNEnv       string
+	Stream       string
+	Subject      string
+	CreateStream bool
 }
 
 // WorkspaceConfig carries filesystem roots used by local launch adapters.

@@ -1226,6 +1226,18 @@ func (a gitlabAccessor) groupRecord(group Group) coredatasource.Record {
 }
 
 func (a gitlabAccessor) membershipRecord(membership Membership) coredatasource.Record {
+	metadata := map[string]string{
+		"id":           membership.ID,
+		"user_id":      strconv.FormatInt(membership.UserID, 10),
+		"source_id":    strconv.FormatInt(membership.SourceID, 10),
+		"source_name":  membership.SourceName,
+		"source_type":  membership.SourceType,
+		"source_path":  membership.SourcePath,
+		"source_url":   membership.SourceURL,
+		"access_level": membership.AccessLevel,
+		"role":         membership.Role,
+	}
+	addMembershipRelationMetadata(metadata, membership)
 	return coredatasource.Record{
 		ID:         membership.ID,
 		Datasource: a.spec.Name,
@@ -1233,18 +1245,58 @@ func (a gitlabAccessor) membershipRecord(membership Membership) coredatasource.R
 		Title:      membershipTitle(membership),
 		Content:    strings.Join(cleaned([]string{membership.SourceName, membership.SourcePath, membership.Role}), " "),
 		URL:        membership.SourceURL,
-		Metadata: map[string]string{
-			"id":           membership.ID,
-			"user_id":      strconv.FormatInt(membership.UserID, 10),
-			"source_id":    strconv.FormatInt(membership.SourceID, 10),
-			"source_name":  membership.SourceName,
-			"source_type":  membership.SourceType,
-			"source_path":  membership.SourcePath,
-			"source_url":   membership.SourceURL,
+		Metadata:   metadata,
+		Raw:        membership,
+	}
+}
+
+func addMembershipRelationMetadata(metadata map[string]string, membership Membership) {
+	userID := strconv.FormatInt(membership.UserID, 10)
+	sourceID := strconv.FormatInt(membership.SourceID, 10)
+	sourceRef := sourceID
+	if strings.TrimSpace(membership.SourcePath) != "" {
+		sourceRef = strings.TrimSpace(membership.SourcePath)
+	}
+	sourceType := normalizedMembershipSourceType(membership.SourceType)
+	switch sourceType {
+	case "Namespace":
+		addRelationMetadata(metadata, "user_group", UserEntity, userID, "groups", GroupEntity, sourceRef, membership.SourceName, map[string]string{
+			"id":           sourceID,
+			"path":         membership.SourcePath,
+			"full_path":    membership.SourcePath,
+			"name":         membership.SourceName,
 			"access_level": membership.AccessLevel,
 			"role":         membership.Role,
-		},
-		Raw: membership,
+		})
+		addRelationMetadata(metadata, "group_user", GroupEntity, sourceRef, "users", UserEntity, userID, userID, map[string]string{
+			"id":           userID,
+			"access_level": membership.AccessLevel,
+			"role":         membership.Role,
+		})
+	case "Project":
+		addRelationMetadata(metadata, "user_project", UserEntity, userID, "projects", ProjectEntity, sourceRef, membership.SourceName, map[string]string{
+			"id":           sourceID,
+			"path":         membership.SourcePath,
+			"full_path":    membership.SourcePath,
+			"name":         membership.SourceName,
+			"access_level": membership.AccessLevel,
+			"role":         membership.Role,
+		})
+	}
+}
+
+func addRelationMetadata(metadata map[string]string, id string, sourceEntity coredatasource.EntityType, sourceID, name string, targetEntity coredatasource.EntityType, targetID, targetTitle string, fields map[string]string) {
+	prefix := "relation." + id + "."
+	metadata[prefix+"source_entity"] = string(sourceEntity)
+	metadata[prefix+"source_id"] = sourceID
+	metadata[prefix+"name"] = name
+	metadata[prefix+"target_entity"] = string(targetEntity)
+	metadata[prefix+"target_id"] = targetID
+	metadata[prefix+"target_title"] = targetTitle
+	for key, value := range fields {
+		if strings.TrimSpace(value) != "" {
+			metadata[prefix+"target_field."+key] = strings.TrimSpace(value)
+		}
 	}
 }
 

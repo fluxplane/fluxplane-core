@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
+	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
 
@@ -603,6 +605,44 @@ func TestSyntheticDatasourceSearchesEntitySchemas(t *testing.T) {
 	}
 }
 
+func TestSyntheticDatasourceListsMaterializedViews(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "gitlab-main", Entities: []coredatasource.EntityType{"gitlab.user"}, Kind: "gitlab"},
+			entity: coredatasource.EntitySpec{Type: "gitlab.user", Description: "GitLab user."},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	source := coredata.SourceSpec{
+		Name: "gitlab",
+		Kind: "gitlab",
+		Views: []coredata.ViewSpec{{
+			Name:        "gitlab.user_with_groups",
+			Entity:      "gitlab.user",
+			Source:      "gitlab.user",
+			Description: "Users with group summaries.",
+			Includes:    []coredata.RelationIncludeSpec{{Relation: "groups", Target: "gitlab.group", Fields: []string{"id", "full_path"}}},
+			QueryHints:  []coredata.QueryHint{coredata.QuerySearch, coredata.QueryRelation},
+		}},
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"datasource", "gitlab-main"},
+	}), nil)
+	result := NewWithDataStore(registry, nil, source).list(ctx, listInput{Datasource: "datasource", Entity: string(CatalogViewEntity)})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(listOutput)
+	if len(out.Result.Records) != 1 || out.Result.Records[0].ID != "gitlab-main/gitlab.user_with_groups" {
+		t.Fatalf("records = %#v, want gitlab user_with_groups view", out.Result.Records)
+	}
+	if out.Result.Records[0].Metadata["includes"] != "groups->gitlab.group" || out.Result.Records[0].Metadata["query_hints"] != "relation,search" {
+		t.Fatalf("metadata = %#v, want view includes/query hints", out.Result.Records[0].Metadata)
+	}
+}
+
 func TestCatalogProviderListsEntityCapabilities(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{
@@ -806,6 +846,124 @@ func TestGetReturnsRecordForAllowedDatasource(t *testing.T) {
 	result := New(registry).get(ctx, getInput{Datasource: "docs", Entity: "file.document", ID: "one"})
 	if result.Status != operation.StatusOK {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestSearchUsesDataStoreBeforeAccessor(t *testing.T) {
+	accessor := &countingAccessor{
+		memoryAccessor: memoryAccessor{
+			spec:   coredatasource.Spec{Name: "docs", Entities: []coredatasource.EntityType{"file.document"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "file.document", Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch}},
+			records: []coredatasource.Record{{
+				ID:         "live",
+				Datasource: "docs",
+				Entity:     "file.document",
+				Title:      "live",
+			}},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(), coredata.Record{
+		Ref:     coredata.Ref{Source: "docs", Entity: "file.document", View: "file.document", ID: "stored"},
+		Title:   "stored",
+		Content: "mysql mirrored document",
+		Fields:  map[string][]string{"id": {"stored"}},
+	}); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"docs"}}), nil)
+	result := NewWithDataStore(registry, store).search(ctx, searchInput{Query: "mysql", Entities: []string{"file.document"}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(searchOutput)
+	if len(out.Results) != 1 || len(out.Results[0].Records) != 1 || out.Results[0].Records[0].ID != "stored" {
+		t.Fatalf("results = %#v, want stored record", out.Results)
+	}
+	if accessor.searches != 0 {
+		t.Fatalf("accessor searches = %d, want data-store fast path", accessor.searches)
+	}
+}
+
+func TestSearchUsesMaterializedViewWithoutDuplicateBaseRecord(t *testing.T) {
+	accessor := memoryAccessor{
+		spec:   coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.user"}, Kind: "memory"},
+		entity: coredatasource.EntitySpec{Type: "gitlab.user", Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(),
+		coredata.Record{
+			Ref:    coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "42"},
+			Title:  "Ada",
+			Fields: map[string][]string{"username": {"ada"}},
+		},
+		coredata.Record{
+			Ref:    coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user_with_groups", ID: "42"},
+			Title:  "Ada",
+			Fields: map[string][]string{"username": {"ada"}, "groups.full_path": {"engineering/platform"}},
+			Relations: map[string][]coredata.Summary{
+				"groups": {{Ref: coredata.Ref{Source: "gitlab", Entity: "gitlab.group", View: "gitlab.group", ID: "engineering/platform"}, Title: "Platform", Fields: map[string]string{"full_path": "engineering/platform"}}},
+			},
+		},
+	); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	result := NewWithDataStore(registry, store).search(ctx, searchInput{Query: "ada", Entities: []string{"gitlab.user"}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(searchOutput)
+	if len(out.Results) != 1 || len(out.Results[0].Records) != 1 || out.Results[0].Records[0].ID != "42" {
+		t.Fatalf("results = %#v, want one deduped user", out.Results)
+	}
+	if out.Results[0].Records[0].Metadata["groups.full_path"] != "engineering/platform" {
+		t.Fatalf("record metadata = %#v, want materialized group field", out.Results[0].Records[0].Metadata)
+	}
+}
+
+func TestRelationUsesDataStoreBeforeAccessor(t *testing.T) {
+	accessor := memoryAccessor{
+		spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.user"}, Kind: "memory"},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.user",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityRelation},
+			Relations:    []coredatasource.RelationSpec{{Name: "groups", TargetEntity: "gitlab.group", Exact: true}},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRelations(context.Background(), coredata.Relation{
+		Source: coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "42"},
+		Name:   "groups",
+		Target: coredata.Ref{Source: "gitlab", Entity: "gitlab.group", View: "gitlab.group", ID: "engineering/platform"},
+		Summary: coredata.Summary{
+			Ref:    coredata.Ref{Source: "gitlab", Entity: "gitlab.group", View: "gitlab.group", ID: "engineering/platform"},
+			Title:  "Platform",
+			Fields: map[string]string{"path": "engineering/platform"},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertRelations: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	result := NewWithDataStore(registry, store).relation(ctx, relationInput{Datasource: "gitlab", Entity: "gitlab.user", ID: "42", Relation: "groups"})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(relationOutput)
+	if len(out.Result.Records) != 1 || out.Result.Records[0].ID != "engineering/platform" {
+		t.Fatalf("relation result = %#v, want data-store group", out.Result)
 	}
 }
 

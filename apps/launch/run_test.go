@@ -522,7 +522,7 @@ func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("semantic.New: %v", err)
 	}
-	done := startDatasourceIndexWarmup(ctx, registry, index, coreapp.DatasourceIndexSpec{})
+	done := startDatasourceIndexWarmup(ctx, registry, index, nil, nil, coreapp.DatasourceIndexSpec{})
 	warmup := <-done
 	if warmup.Err != nil {
 		t.Fatalf("warmup error: %v", warmup.Err)
@@ -543,6 +543,54 @@ func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
 	}
 	if processed.Embedded != 1 {
 		t.Fatalf("processed = %#v, want one embedded document", processed)
+	}
+}
+
+func TestClearSemanticIndexStatusDeletesFieldRecordsAndQueue(t *testing.T) {
+	ctx := context.Background()
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	entity := coredatasource.EntitySpec{
+		Type:         "file.document",
+		Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex, coredatasource.EntityCapabilitySemanticSearch},
+	}
+	fieldDoc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "field-only.md"},
+		Title: "Field only",
+	}
+	queueDoc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "queued-only.md"},
+		Title: "Queued only",
+		Body:  "queued document",
+	}
+	if _, err := index.UpdateRecord(ctx, fieldDoc, entity); err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+	if _, err := index.Enqueue(ctx, queueDoc); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	status, err := index.Status(ctx, semantic.StatusRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("Status before clear: %v", err)
+	}
+	if len(status.Records) != 1 || len(status.Queue) != 1 || len(status.Documents) != 0 {
+		t.Fatalf("status before clear = %#v, want field record and queue only", status)
+	}
+	deleted, err := clearSemanticIndexStatus(ctx, index, status)
+	if err != nil {
+		t.Fatalf("clearSemanticIndexStatus: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("deleted = %d, want 2", deleted)
+	}
+	status, err = index.Status(ctx, semantic.StatusRequest{Datasource: "docs", Entity: "file.document"})
+	if err != nil {
+		t.Fatalf("Status after clear: %v", err)
+	}
+	if len(status.Records) != 0 || len(status.Queue) != 0 || len(status.Documents) != 0 {
+		t.Fatalf("status after clear = %#v, want empty", status)
 	}
 }
 

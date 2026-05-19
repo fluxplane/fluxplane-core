@@ -332,6 +332,31 @@ func launchConfig(file appconfig.File) distribution.LaunchConfig {
 		Listeners:  listeners(file.Daemon.Listeners),
 		Channels:   channels(file.Daemon.Channels),
 		Workspace:  workspace(file.Runtime.Workspace),
+		Data:       dataConfig(file.Runtime.Data),
+		Events:     eventsConfig(file.Runtime.Events),
+	}
+}
+
+func dataConfig(doc appconfig.RuntimeDataDoc) distribution.DataConfig {
+	return distribution.DataConfig{
+		Store: distribution.DataStoreConfig{
+			Kind:   strings.TrimSpace(doc.Store.Kind),
+			DSN:    strings.TrimSpace(doc.Store.DSN),
+			DSNEnv: strings.TrimSpace(doc.Store.DSNEnv),
+		},
+	}
+}
+
+func eventsConfig(doc appconfig.RuntimeEventsDoc) distribution.EventsConfig {
+	return distribution.EventsConfig{
+		Store: distribution.EventStoreConfig{
+			Kind:         strings.TrimSpace(doc.Store.Kind),
+			DSN:          strings.TrimSpace(doc.Store.DSN),
+			DSNEnv:       strings.TrimSpace(doc.Store.DSNEnv),
+			Stream:       strings.TrimSpace(doc.Store.Stream),
+			Subject:      strings.TrimSpace(doc.Store.Subject),
+			CreateStream: doc.Store.CreateStream,
+		},
 	}
 }
 

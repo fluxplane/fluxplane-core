@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
@@ -11,6 +12,7 @@ import (
 // RegistryOptions configures datasource registry construction.
 type RegistryOptions struct {
 	SemanticIndex *semantic.Index
+	DataSources   []coredata.SourceSpec
 }
 
 // BuildRegistry materializes configured datasource specs through providers.

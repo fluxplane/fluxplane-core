@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 )
 
@@ -223,6 +225,309 @@ func TestBuildFieldsPhaseIndexesRecordsWithoutSemanticDocuments(t *testing.T) {
 	}
 }
 
+func TestBuildFieldsPhaseWritesDataStore(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.project"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.project",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+			Fields: []coredatasource.FieldSpec{
+				{Name: "name", Searchable: true, Filterable: true},
+			},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "12"},
+			Title:    "runtime",
+			Body:     "Runtime repository",
+			Metadata: map[string]string{"name": "runtime"},
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	result, err := Build(ctx, Request{Registry: registry, DataStore: store, Phase: PhaseFields})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if result.Indexed != 1 || result.Documents != 1 {
+		t.Fatalf("result = %#v, want one data record", result)
+	}
+	record, ok, err := store.GetRecord(ctx, coredata.Scope{}, coredata.Ref{Source: "gitlab", Entity: "gitlab.project", View: "gitlab.project", ID: "12"})
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	if !ok || record.Title != "runtime" || record.Fields["name"][0] != "runtime" {
+		t.Fatalf("record = %#v ok=%v, want materialized project", record, ok)
+	}
+}
+
+func TestBuildFieldsPhaseWritesDataStoreRelations(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.user_membership"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.user_membership",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user_membership", ID: "42:namespace:7"},
+			Title: "Ada in Platform",
+			Metadata: map[string]string{
+				"relation.user_group.source_entity":     "gitlab.user",
+				"relation.user_group.source_id":         "42",
+				"relation.user_group.name":              "groups",
+				"relation.user_group.target_entity":     "gitlab.group",
+				"relation.user_group.target_id":         "engineering/platform",
+				"relation.user_group.target_title":      "Platform",
+				"relation.user_group.target_field.path": "engineering/platform",
+			},
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if _, err := Build(ctx, Request{Registry: registry, DataStore: store, Phase: PhaseFields}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	result, err := store.QueryRelations(ctx, coredata.RelationQuery{
+		Sources:  []coredata.SourceName{"gitlab"},
+		Relation: "groups",
+		Source:   coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "42"},
+	})
+	if err != nil {
+		t.Fatalf("QueryRelations: %v", err)
+	}
+	if len(result.Relations) != 1 || result.Relations[0].Target.ID != "engineering/platform" || result.Relations[0].Summary.Fields["path"] != "engineering/platform" {
+		t.Fatalf("relations = %#v, want user group edge", result.Relations)
+	}
+}
+
+func TestBuildMaterializesDeclaredViewWithRelationSummaries(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeMultiCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.user", "gitlab.user_membership"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entities: []coredatasource.EntitySpec{{
+			Type:         "gitlab.user",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		}, {
+			Type:         "gitlab.user_membership",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		}},
+		docs: map[coredatasource.EntityType][]coredatasource.CorpusDocument{
+			"gitlab.user": {{
+				Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user", ID: "42"},
+				Title:    "Ada",
+				Body:     "GitLab user Ada",
+				Metadata: map[string]string{"username": "ada"},
+			}},
+			"gitlab.user_membership": {{
+				Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user_membership", ID: "42:namespace:7"},
+				Title: "Ada in Platform",
+				Metadata: map[string]string{
+					"relation.user_group.source_entity":          "gitlab.user",
+					"relation.user_group.source_id":              "42",
+					"relation.user_group.name":                   "groups",
+					"relation.user_group.target_entity":          "gitlab.group",
+					"relation.user_group.target_id":              "engineering/platform",
+					"relation.user_group.target_title":           "Platform",
+					"relation.user_group.target_field.id":        "7",
+					"relation.user_group.target_field.full_path": "engineering/platform",
+					"relation.user_group.target_field.name":      "Platform",
+				},
+			}},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	_, err = Build(ctx, Request{
+		Registry:  registry,
+		DataStore: store,
+		Phase:     PhaseFields,
+		DataSources: []coredata.SourceSpec{{
+			Name: "gitlab",
+			Kind: "fake",
+			Views: []coredata.ViewSpec{{
+				Name:   "gitlab.user_with_groups",
+				Entity: "gitlab.user",
+				Source: "gitlab.user",
+				Includes: []coredata.RelationIncludeSpec{{
+					Relation: "groups",
+					Target:   "gitlab.group",
+					Fields:   []string{"id", "full_path", "name"},
+				}},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	record, ok, err := store.GetRecord(ctx, coredata.Scope{}, coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user_with_groups", ID: "42"})
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	if !ok {
+		t.Fatal("materialized view record missing")
+	}
+	if len(record.Relations["groups"]) != 1 || record.Relations["groups"][0].Fields["full_path"] != "engineering/platform" {
+		t.Fatalf("relations = %#v, want embedded group summary", record.Relations)
+	}
+	if got := record.Fields["groups.full_path"]; len(got) != 1 || got[0] != "engineering/platform" {
+		t.Fatalf("groups.full_path = %#v, want engineering/platform", got)
+	}
+}
+
+func TestBuildMaterializesDeclaredViewWithLiveRelationFallback(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeRelationCorpusAccessor{
+		fakeCorpusAccessor: fakeCorpusAccessor{
+			spec: coredatasource.Spec{
+				Name:     "slack",
+				Kind:     "fake",
+				Entities: []coredatasource.EntityType{"slack.channel"},
+				Index:    coredatasource.IndexSpec{Enabled: true},
+			},
+			entity: coredatasource.EntitySpec{
+				Type:         "slack.channel",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+			},
+			docs: []coredatasource.CorpusDocument{{
+				Ref:      coredatasource.RecordRef{Datasource: "slack", Entity: "slack.channel", ID: "C1"},
+				Title:    "engineering",
+				Metadata: map[string]string{"name": "engineering"},
+			}},
+		},
+		relation: coredatasource.RelationResult{
+			Datasource:   "slack",
+			Entity:       "slack.channel",
+			ID:           "C1",
+			Relation:     "members",
+			TargetEntity: "slack.user",
+			Records: []coredatasource.Record{{
+				ID:         "U1",
+				Datasource: "slack",
+				Entity:     "slack.user",
+				Title:      "Ada",
+				Metadata:   map[string]string{"id": "U1", "name": "ada", "email": "ada@example.test"},
+			}},
+			Complete: true,
+			Exact:    true,
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	_, err = Build(ctx, Request{
+		Registry:  registry,
+		DataStore: store,
+		Phase:     PhaseFields,
+		DataSources: []coredata.SourceSpec{{
+			Name: "slack",
+			Kind: "fake",
+			Views: []coredata.ViewSpec{{
+				Name:   "slack.channel_with_members",
+				Entity: "slack.channel",
+				Source: "slack.channel",
+				Includes: []coredata.RelationIncludeSpec{{
+					Relation: "members",
+					Target:   "slack.user",
+					Fields:   []string{"id", "name", "email"},
+				}},
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	record, ok, err := store.GetRecord(ctx, coredata.Scope{}, coredata.Ref{Source: "slack", Entity: "slack.channel", View: "slack.channel_with_members", ID: "C1"})
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	if !ok || len(record.Relations["members"]) != 1 || record.Fields["members.email"][0] != "ada@example.test" {
+		t.Fatalf("record = %#v ok=%v, want materialized member summary", record, ok)
+	}
+	edges, err := store.QueryRelations(ctx, coredata.RelationQuery{Sources: []coredata.SourceName{"slack"}, Relation: "members"})
+	if err != nil {
+		t.Fatalf("QueryRelations: %v", err)
+	}
+	if len(edges.Relations) != 1 || edges.Relations[0].Target.ID != "U1" {
+		t.Fatalf("relations = %#v, want stored live relation edge", edges.Relations)
+	}
+}
+
+func TestFullBuildDeletesRemovedMaterializedViewRows(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.user"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.user",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user", ID: "42"},
+			Title:    "Ada",
+			Metadata: map[string]string{"username": "ada"},
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(ctx,
+		coredata.Record{
+			Ref:    coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "42"},
+			Title:  "Ada",
+			Fields: map[string][]string{"username": {"ada"}},
+		},
+		coredata.Record{
+			Ref:    coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.old_user_with_groups", ID: "42"},
+			Title:  "Ada stale",
+			Fields: map[string][]string{"username": {"ada"}},
+		},
+	); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	if _, err := Build(ctx, Request{Registry: registry, DataStore: store, Phase: PhaseFields, Full: true}); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if _, ok, err := store.GetRecord(ctx, coredata.Scope{}, coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.user", ID: "42"}); err != nil || !ok {
+		t.Fatalf("base record ok=%v err=%v, want present", ok, err)
+	}
+	if record, ok, err := store.GetRecord(ctx, coredata.Scope{}, coredata.Ref{Source: "gitlab", Entity: "gitlab.user", View: "gitlab.old_user_with_groups", ID: "42"}); err != nil || ok {
+		t.Fatalf("stale view record = %#v ok=%v err=%v, want deleted", record, ok, err)
+	}
+}
+
 func TestBuildSkipsFreshDatasourceEntity(t *testing.T) {
 	ctx := context.Background()
 	accessor := &countingCorpusAccessor{
@@ -318,6 +623,32 @@ func (a fakeCorpusAccessor) Entities() []coredatasource.EntitySpec {
 }
 func (a fakeCorpusAccessor) Corpus(context.Context, coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
 	return coredatasource.CorpusPage{Documents: a.docs, Complete: true}, nil
+}
+
+type fakeMultiCorpusAccessor struct {
+	spec     coredatasource.Spec
+	entities []coredatasource.EntitySpec
+	docs     map[coredatasource.EntityType][]coredatasource.CorpusDocument
+}
+
+func (a fakeMultiCorpusAccessor) Spec() coredatasource.Spec { return a.spec }
+func (a fakeMultiCorpusAccessor) Entities() []coredatasource.EntitySpec {
+	return append([]coredatasource.EntitySpec(nil), a.entities...)
+}
+func (a fakeMultiCorpusAccessor) Corpus(_ context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	return coredatasource.CorpusPage{Documents: a.docs[req.Entity], Complete: true}, nil
+}
+
+type fakeRelationCorpusAccessor struct {
+	fakeCorpusAccessor
+	relation coredatasource.RelationResult
+}
+
+func (a fakeRelationCorpusAccessor) Relation(_ context.Context, req coredatasource.RelationRequest) (coredatasource.RelationResult, error) {
+	if req.Entity != a.relation.Entity || req.ID != a.relation.ID || req.Relation != a.relation.Relation {
+		return coredatasource.RelationResult{}, coredatasource.ErrNotFound
+	}
+	return a.relation, nil
 }
 
 type countingCorpusAccessor struct {

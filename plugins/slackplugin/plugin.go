@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -74,7 +75,10 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
-	return resource.ContributionBundle{Operations: []operation.Spec{p.channelSendSpec()}}, nil
+	return resource.ContributionBundle{
+		Operations:  []operation.Spec{p.channelSendSpec()},
+		DataSources: []coredata.SourceSpec{DataSourceSpec()},
+	}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {

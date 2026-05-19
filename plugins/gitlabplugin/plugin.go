@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -127,7 +128,10 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
-	return resource.ContributionBundle{Operations: []operation.Spec{p.mrOperationSpec()}}, nil
+	return resource.ContributionBundle{
+		Operations:  []operation.Spec{p.mrOperationSpec()},
+		DataSources: []coredata.SourceSpec{DataSourceSpec()},
+	}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {

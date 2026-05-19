@@ -2,7 +2,11 @@
 
 ## Status
 
-Draft.
+Partially implemented. The current slice wires datasource mirror records into
+`core/data.Store`, keeps semantic indexing as a sidecar, moves durable store
+configuration under `runtime.data.store`, and exposes the datasource catalog as
+a synthetic datasource. The larger rename from "index" to "mirror" is still
+pending.
 
 ## Summary
 
@@ -257,6 +261,9 @@ Suggested entities:
 - `datasource.entity`: one entity exposed by one datasource, including entity
   type, description, capabilities, field names, detector names, and relation
   names.
+- `datasource.view`: one declared materialized view, including view name,
+  source entity, model-facing entity, relation includes, fields, and query
+  hints.
 - `datasource.relation`: optional detailed relation records when relation
   discovery needs to be searchable independently.
 
@@ -355,11 +362,34 @@ The first implementation step is intentionally small and low-churn:
 - `adapters/datastore/sqlstore` persists the provider-neutral `core/data.Store`
   on `database/sql`, including scoped records, denormalized relation summaries,
   normalized relation edges, blobs, SQLite coverage, and a gated MySQL
-  testcontainers contract test.
+  testcontainers contract test. It stores JSON payloads as the canonical record
+  body and maintains a normalized `data_store_record_field` table so exact field
+  filters use backend indexes before the store rechecks full JSON values.
 - `plugins/datasourceplugin` exposes the synthetic `datasource` datasource
   through the generic datasource tools. It lists and searches
-  `datasource.source`, `datasource.entity`, and `datasource.relation` records
-  derived from the current registry and filtered by the current access policy.
+  `datasource.source`, `datasource.entity`, `datasource.view`, and
+  `datasource.relation` records derived from the current registry and filtered
+  by the current access policy.
+- Plugin-contributed `core/data.SourceSpec` declarations now flow through
+  resource contributions. The datasource plugin receives those declarations and
+  exposes declared materialized views through the synthetic catalog datasource.
+- Runtime-owned durable store selection is configured under manifest
+  `runtime.data.store`, not top-level app config. This keeps `core/app.Spec`
+  inert and keeps storage selection in launch/runtime metadata.
+- `apps/launch` opens a `core/data.Store` from runtime launch config and passes
+  it to the datasource plugin and datasource index warmup. Supported kinds are
+  in-memory and MySQL via `adapters/datastore/sqlstore`.
+- `orchestration/datasourceindex` now performs a data-store materialization pass
+  after source records and relation edges are written. Declared views are stored
+  as `core/data.Record` rows with `Ref.View` set to the view name. Relation
+  includes are embedded as compact summaries and indexed into fields such as
+  `groups.full_path` or `members.email`.
+- The materialization pass first uses stored relation edges. If a declared view
+  includes a relation that has not been mirrored as edges and the accessor
+  implements `Relationer`, it performs a bounded live relation lookup during the
+  build and stores both the relation edge and the materialized view summary. This
+  supports Slack `channel_with_members` while GitLab membership views use stored
+  membership edges.
 - `plugins/gitlabplugin` declares default data views, including
   `gitlab.user_with_groups` for queries like "find all GitLab users in group
   ABC".
@@ -382,6 +412,20 @@ Plugin packages should declare default views because they know which source
 relations are meaningful and what minimal related fields are useful to agents.
 Product/app configuration can still override or disable views for storage,
 privacy, or freshness reasons.
+
+In the current implementation slice, GitLab and Slack contribute their default
+`core/data.SourceSpec` declarations from the plugin contribution bundle:
+
+- GitLab declares one-to-one project/user/group/membership views plus
+  `gitlab.user_with_groups`.
+- Slack declares one-to-one user/channel/message views plus
+  `slack.channel_with_members`.
+
+The declarations use typed structs and `runtime/data.ViewOf` so JSON,
+`datasource`, `jsonschema`, and `corpus` tags remain the single source for field
+metadata. The runtime can search those declarations through
+`datasource_list(datasource="datasource", entity="datasource.view")` or
+`datasource_search(..., entities=["datasource.view"])`.
 
 Options:
 

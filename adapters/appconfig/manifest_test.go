@@ -210,6 +210,18 @@ func TestDecodeManifestLoadsSemanticSearchConfig(t *testing.T) {
 	data := []byte(`
 kind: app
 name: engineer
+runtime:
+  data:
+    store:
+      kind: mysql
+      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+  events:
+    store:
+      kind: nats
+      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+      stream: AGENTRUNTIME_EVENTS
+      subject: agentruntime.events.log
+      create_stream: true
 semantic_search:
   enabled: true
   embeddings:
@@ -250,11 +262,18 @@ datasource:
               updated_at_field: updated_at
 `)
 
-	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
+	file, err := DecodeFile("agentsdk.app.yaml", data)
 	if err != nil {
-		t.Fatalf("DecodeManifest: %v", err)
+		t.Fatalf("DecodeFile: %v", err)
 	}
+	bundle := file.Bundle
 	app := bundle.Apps[0]
+	if file.Runtime.Data.Store.Kind != "mysql" || file.Runtime.Data.Store.DSNEnv != "AGENTRUNTIME_DATASTORE_MYSQL_DSN" {
+		t.Fatalf("runtime data store = %#v, want mysql dsn env", file.Runtime.Data.Store)
+	}
+	if file.Runtime.Events.Store.Kind != "nats" || file.Runtime.Events.Store.DSNEnv != "AGENTRUNTIME_EVENTSTORE_NATS_DSN" || file.Runtime.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || file.Runtime.Events.Store.Subject != "agentruntime.events.log" || !file.Runtime.Events.Store.CreateStream {
+		t.Fatalf("runtime event store = %#v, want nats dsn env", file.Runtime.Events.Store)
+	}
 	if !app.SemanticSearch.Enabled || app.SemanticSearch.Embeddings.Model != "text-embedding-3-large" {
 		t.Fatalf("semantic search = %#v, want enabled embedding model", app.SemanticSearch)
 	}

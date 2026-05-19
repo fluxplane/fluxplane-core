@@ -7,6 +7,7 @@ import (
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/language"
@@ -97,6 +98,7 @@ type ContributionBundle struct {
 	Operations       []operation.Spec           `json:"operations,omitempty"`
 	Commands         []command.Spec             `json:"commands,omitempty"`
 	Datasources      []coredatasource.Spec      `json:"datasources,omitempty"`
+	DataSources      []coredata.SourceSpec      `json:"data_sources,omitempty"`
 	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty"`
 	LLMModelAliases  []corellm.ModelAliasSpec   `json:"llm_model_aliases,omitempty"`
 	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
@@ -121,6 +123,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Operations = append(b.Operations, other.Operations...)
 	b.Commands = append(b.Commands, other.Commands...)
 	b.Datasources = append(b.Datasources, other.Datasources...)
+	b.DataSources = append(b.DataSources, other.DataSources...)
 	b.LLMProviders = append(b.LLMProviders, other.LLMProviders...)
 	b.LLMModelAliases = append(b.LLMModelAliases, other.LLMModelAliases...)
 	b.Sessions = append(b.Sessions, other.Sessions...)

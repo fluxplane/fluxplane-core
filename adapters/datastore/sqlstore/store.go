@@ -78,6 +78,21 @@ func (s *Store) UpsertRecords(ctx context.Context, records ...coredata.Record) e
 		); err != nil {
 			return fmt.Errorf("data sqlstore: upsert record: %w", err)
 		}
+		hash := recordHash(record.Scope, record.Ref)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM data_store_record_field WHERE record_hash = ?`, hash); err != nil {
+			return fmt.Errorf("data sqlstore: delete record fields: %w", err)
+		}
+		for field, values := range record.Fields {
+			for _, value := range values {
+				value = strings.TrimSpace(value)
+				if strings.TrimSpace(field) == "" || value == "" {
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, `INSERT INTO data_store_record_field (record_hash, field_name, value_norm, value_text) VALUES (?, ?, ?, ?)`, hash, strings.TrimSpace(field), normalizedIndexValue(value), value); err != nil {
+					return fmt.Errorf("data sqlstore: insert record field: %w", err)
+				}
+			}
+		}
 	}
 	return tx.Commit()
 }
@@ -108,6 +123,9 @@ func (s *Store) DeleteRecords(ctx context.Context, scope coredata.Scope, refs ..
 			return err
 		}
 		for _, hash := range hashes {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM data_store_record_field WHERE record_hash = ?`, hash); err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM data_store_record WHERE record_hash = ?`, hash); err != nil {
 				return err
 			}
@@ -365,6 +383,13 @@ func queryWhere(req coredata.Query) string {
 	if len(req.IDs) > 0 {
 		where = append(where, " record_id IN ("+placeholders(len(req.IDs))+")")
 	}
+	for _, name := range sortedFilterNames(req.Filters) {
+		value := strings.TrimSpace(req.Filters[name])
+		if value == "" {
+			continue
+		}
+		where = append(where, " record_hash IN (SELECT record_hash FROM data_store_record_field WHERE field_name = ? AND value_norm = ?)")
+	}
 	if len(where) == 0 {
 		return ""
 	}
@@ -384,6 +409,13 @@ func queryWhereArgs(req coredata.Query) []any {
 	}
 	for _, value := range req.IDs {
 		args = append(args, string(value))
+	}
+	for _, name := range sortedFilterNames(req.Filters) {
+		value := strings.TrimSpace(req.Filters[name])
+		if value == "" {
+			continue
+		}
+		args = append(args, name, normalizedIndexValue(value))
 	}
 	return args
 }
@@ -635,6 +667,12 @@ metadata_json ` + textType + ` NOT NULL,
 fingerprint VARCHAR(191),
 updated_at VARCHAR(64)
 )`
+	recordField := `CREATE TABLE IF NOT EXISTS data_store_record_field (
+record_hash CHAR(64) NOT NULL,
+field_name VARCHAR(191) NOT NULL,
+value_norm VARCHAR(191) NOT NULL,
+value_text ` + textType + ` NOT NULL
+)`
 	relation := `CREATE TABLE IF NOT EXISTS data_store_relation (
 relation_hash CHAR(64) PRIMARY KEY,
 scope_hash CHAR(64) NOT NULL,
@@ -666,6 +704,9 @@ content ` + blobType + ` NOT NULL
 		return []string{
 			record,
 			`CREATE INDEX data_store_record_lookup ON data_store_record (source(128), entity(128), view_name(128), record_id(128))`,
+			recordField,
+			`CREATE INDEX data_store_record_field_lookup ON data_store_record_field (field_name(128), value_norm(128), record_hash)`,
+			`CREATE INDEX data_store_record_field_record ON data_store_record_field (record_hash)`,
 			relation,
 			`CREATE INDEX data_store_relation_source ON data_store_relation (source(96), source_entity(96), source_view(96), source_id(96), relation_name(96))`,
 			blob,
@@ -676,6 +717,9 @@ content ` + blobType + ` NOT NULL
 	return []string{
 		record,
 		`CREATE INDEX IF NOT EXISTS data_store_record_lookup ON data_store_record (source, entity, view_name, record_id)`,
+		recordField,
+		`CREATE INDEX IF NOT EXISTS data_store_record_field_lookup ON data_store_record_field (field_name, value_norm, record_hash)`,
+		`CREATE INDEX IF NOT EXISTS data_store_record_field_record ON data_store_record_field (record_hash)`,
 		relation,
 		`CREATE INDEX IF NOT EXISTS data_store_relation_source ON data_store_relation (source, source_entity, source_view, source_id, relation_name)`,
 		blob,
@@ -753,6 +797,25 @@ func parseCursor(cursor string) (int, error) {
 
 func normalize(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizedIndexValue(value string) string {
+	value = normalize(value)
+	if len(value) <= 191 {
+		return value
+	}
+	return value[:191]
+}
+
+func sortedFilterNames(filters map[string]string) []string {
+	names := make([]string, 0, len(filters))
+	for name := range filters {
+		if strings.TrimSpace(name) != "" {
+			names = append(names, strings.TrimSpace(name))
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func isDuplicateIndexError(err error) bool {

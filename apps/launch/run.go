@@ -20,6 +20,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/terminalui"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -208,6 +209,15 @@ func mergeLaunchConfig(base, override distribution.LaunchConfig) distribution.La
 	if strings.TrimSpace(override.Workspace.ScratchRoot) != "" {
 		base.Workspace.ScratchRoot = override.Workspace.ScratchRoot
 	}
+	if strings.TrimSpace(override.Data.Store.Kind) != "" {
+		base.Data.Store.Kind = override.Data.Store.Kind
+	}
+	if strings.TrimSpace(override.Data.Store.DSN) != "" {
+		base.Data.Store.DSN = override.Data.Store.DSN
+	}
+	if strings.TrimSpace(override.Data.Store.DSNEnv) != "" {
+		base.Data.Store.DSNEnv = override.Data.Store.DSNEnv
+	}
 	return base
 }
 
@@ -257,6 +267,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	var semanticIndex interface{ Close() error }
+	var closeDataStore func() error
 	var closeThreadStore func()
 	var stopTaskScheduler context.CancelFunc
 	closeRuntime := func() {
@@ -265,6 +276,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		if semanticIndex != nil {
 			_ = semanticIndex.Close()
+		}
+		if closeDataStore != nil {
+			_ = closeDataStore()
 		}
 		if closeThreadStore != nil {
 			closeThreadStore()
@@ -285,7 +299,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	threadStore, eventStore, closeStore, err := openLocalThreadStore(eventRegistry)
+	threadStore, eventStore, closeStore, err := openLocalThreadStore(eventRegistry, opts.Launch.Events)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
@@ -326,20 +340,34 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	if opts.Dev || hasAnyDatasource(bundles) {
+		dataStore, closeStore, err := openDataStore(ctx, opts.Launch.Data)
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+		closeDataStore = closeStore
 		index, err := newSemanticIndex(root, bundles, "", "", "")
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
 		semanticIndex = index
-		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index})
+		dataSources := datasourceDataSources(bundles)
+		pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins)
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
-		plugins = append(plugins, datasourceplugin.NewWithSemantic(registry, index))
+		dataSources = append(dataSources, pluginDataSources...)
+		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+		if err != nil {
+			closeRuntime()
+			return Runtime{}, err
+		}
+		plugins = append(plugins, datasourceplugin.NewWithDataStore(registry, dataStore, dataSources...))
 		ensurePluginRef(bundles, datasourceplugin.Name)
-		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, datasourceIndexFromBundles(bundles))
+		ensureDatasourceCatalogAccess(bundles)
+		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, dataStore, dataSources, datasourceIndexFromBundles(bundles))
 		startDatasourceIndexEmbedWorker(ctx, warmupDone, index)
 	}
 	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
@@ -755,6 +783,18 @@ func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.Contr
 	return datasourceplugin.BuildRegistryWithOptions(ctx, specs, providers, opts)
 }
 
+func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]coredata.SourceSpec, error) {
+	host, err := pluginhost.New(plugins...)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := host.Resolve(ctx, pluginRefs(bundles)...)
+	if err != nil {
+		return nil, err
+	}
+	return datasourceDataSources(resolved.Bundles), nil
+}
+
 func ensureSkillDatasource(bundles []resource.ContributionBundle) {
 	if !bundleHasPlugin(bundles, skillplugin.Name) || hasDatasource(bundles, skillplugin.DatasourceName) || len(bundles) == 0 {
 		return
@@ -767,6 +807,14 @@ func ensurePluginRef(bundles []resource.ContributionBundle, name string) {
 		return
 	}
 	bundles[0].Plugins = append(bundles[0].Plugins, resource.PluginRef{Name: name})
+}
+
+func ensureDatasourceCatalogAccess(bundles []resource.ContributionBundle) {
+	for bundleIndex := range bundles {
+		for agentIndex := range bundles[bundleIndex].Agents {
+			appendDatasourceRef(&bundles[bundleIndex].Agents[agentIndex].Datasources, coredatasource.Name(datasourceplugin.Name))
+		}
+	}
 }
 
 func bundleHasPlugin(bundles []resource.ContributionBundle, name string) bool {
@@ -801,6 +849,14 @@ func datasourceSpecs(bundles []resource.ContributionBundle) []coredatasource.Spe
 	return out
 }
 
+func datasourceDataSources(bundles []resource.ContributionBundle) []coredata.SourceSpec {
+	var out []coredata.SourceSpec
+	for _, bundle := range bundles {
+		out = append(out, bundle.DataSources...)
+	}
+	return out
+}
+
 func appendDatasourceSpecs(specs []coredatasource.Spec, candidates ...coredatasource.Spec) []coredatasource.Spec {
 	seen := map[coredatasource.Name]bool{}
 	for _, spec := range specs {
@@ -821,15 +877,15 @@ type datasourceIndexWarmupResult struct {
 	Err    error
 }
 
-func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, cfg coreapp.DatasourceIndexSpec) <-chan datasourceIndexWarmupResult {
+func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, dataStore coredata.Store, dataSources []coredata.SourceSpec, cfg coreapp.DatasourceIndexSpec) <-chan datasourceIndexWarmupResult {
 	done := make(chan datasourceIndexWarmupResult, 1)
 	if registry == nil {
 		slog.Info("datasource index warmup skipped", "reason", "registry_missing")
 		close(done)
 		return done
 	}
-	if index == nil {
-		slog.Info("datasource index warmup skipped", "reason", "index_missing")
+	if index == nil && dataStore == nil {
+		slog.Info("datasource index warmup skipped", "reason", "store_missing")
 		close(done)
 		return done
 	}
@@ -850,6 +906,8 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 			Registry:    registry,
 			Index:       index,
+			DataStore:   dataStore,
+			DataSources: dataSources,
 			IndexedOnly: true,
 			Concurrency: concurrency,
 			Freshness:   freshness,
@@ -964,6 +1022,7 @@ func cloneBundles(bundles []resource.ContributionBundle) []resource.Contribution
 		out[i].Operations = append(out[i].Operations[:0:0], bundle.Operations...)
 		out[i].Commands = append(out[i].Commands[:0:0], bundle.Commands...)
 		out[i].Datasources = append(out[i].Datasources[:0:0], bundle.Datasources...)
+		out[i].DataSources = append(out[i].DataSources[:0:0], bundle.DataSources...)
 		out[i].Sessions = append(out[i].Sessions[:0:0], bundle.Sessions...)
 		out[i].Skills = append(out[i].Skills[:0:0], bundle.Skills...)
 		out[i].ContextProviders = append(out[i].ContextProviders[:0:0], bundle.ContextProviders...)

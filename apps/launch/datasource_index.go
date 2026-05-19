@@ -9,6 +9,7 @@ import (
 
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -48,6 +49,8 @@ type DatasourceIndexOptions struct {
 type DatasourceIndexRuntime struct {
 	Registry *coredatasource.Registry
 	Index    *semantic.Index
+	Data     coredata.Store
+	Sources  []coredata.SourceSpec
 	Config   coreapp.DatasourceIndexSpec
 	Close    func() error
 }
@@ -71,8 +74,15 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return DatasourceIndexRuntime{}, err
 	}
 	var index *semantic.Index
+	var dataStore coredata.Store
+	var closeDataStore func() error
 	var closeThreadStore func()
 	closeFn := func() error {
+		if closeDataStore != nil {
+			if err := closeDataStore(); err != nil {
+				return err
+			}
+		}
 		if closeThreadStore != nil {
 			closeThreadStore()
 		}
@@ -109,12 +119,24 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
 	}
-	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index})
+	dataStore, closeDataStore, err = openDataStore(ctx, opts.Launch.Data)
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
 	}
-	return DatasourceIndexRuntime{Registry: registry, Index: index, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
+	dataSources := datasourceDataSources(bundles)
+	pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins)
+	if err != nil {
+		_ = closeFn()
+		return DatasourceIndexRuntime{}, err
+	}
+	dataSources = append(dataSources, pluginDataSources...)
+	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+	if err != nil {
+		_ = closeFn()
+		return DatasourceIndexRuntime{}, err
+	}
+	return DatasourceIndexRuntime{Registry: registry, Index: index, Data: dataStore, Sources: dataSources, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
 func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
