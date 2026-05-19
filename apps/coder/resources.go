@@ -28,3 +28,12 @@ func loadStartupResources(ctx context.Context) startupResources {
 		Diagnostics: loaded.Diagnostics,
 	}
 }
+
+func cloneContributionBundles(bundles []resource.ContributionBundle) []resource.ContributionBundle {
+	if len(bundles) == 0 {
+		return nil
+	}
+	out := make([]resource.ContributionBundle, len(bundles))
+	copy(out, bundles)
+	return out
+}

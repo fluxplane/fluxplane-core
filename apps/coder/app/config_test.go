@@ -28,6 +28,30 @@ workspace:
       path: ../api
       env_files: [api.env]
 imports: {}
+observations:
+  observers:
+    - name: kubernetes.context
+      phase: turn
+      observable_kinds: [kubernetes.context]
+      disabled: true
+  signal_derivers:
+    - name: kubernetes.signals
+      observation_kinds: [kubernetes.context]
+      signals:
+        - kind: integration.available
+          target: kubernetes
+reactions:
+  - name: kubernetes-available
+    when:
+      signal: integration.available
+      target: kubernetes
+    actions:
+      - kind: activate_skill
+        skill:
+          name: kubernetes
+      - kind: enable_context_provider
+        context_provider:
+          name: kubernetes.context
 `)
 	nested := filepath.Join(root, "src", "pkg")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
@@ -50,6 +74,28 @@ imports: {}
 	wantEnv := filepath.Join(root, ".env")
 	if len(cfg.Workspace.EnvFiles) != 1 || cfg.Workspace.EnvFiles[0] != wantEnv {
 		t.Fatalf("env files = %#v, want %s", cfg.Workspace.EnvFiles, wantEnv)
+	}
+	if len(cfg.Observations.Observers) != 1 || cfg.Observations.Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observers = %#v, want kubernetes.context", cfg.Observations.Observers)
+	}
+	if !cfg.Observations.Observers[0].Disabled {
+		t.Fatalf("observer disabled = false, want true")
+	}
+	if len(cfg.Observations.SignalDerivers) != 1 || cfg.Observations.SignalDerivers[0].Name != "kubernetes.signals" {
+		t.Fatalf("signal derivers = %#v, want kubernetes.signals", cfg.Observations.SignalDerivers)
+	}
+	if len(cfg.Reactions) != 1 || cfg.Reactions[0].Name != "kubernetes-available" {
+		t.Fatalf("reactions = %#v, want kubernetes-available", cfg.Reactions)
+	}
+	if got := cfg.Reactions[0].Actions[1].ContextProvider.Name; got != "kubernetes.context" {
+		t.Fatalf("context provider reaction target = %q, want kubernetes.context", got)
+	}
+	bundles := coderConfigBundles(cfg)
+	if len(bundles) != 1 {
+		t.Fatalf("config bundles len = %d, want 1", len(bundles))
+	}
+	if len(bundles[0].Observers) != 1 || len(bundles[0].SignalDerivers) != 1 || len(bundles[0].Reactions) != 1 {
+		t.Fatalf("config bundle = %#v, want observations and reactions", bundles[0])
 	}
 }
 

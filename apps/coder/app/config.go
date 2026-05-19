@@ -13,6 +13,15 @@ import (
 
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/apps/launch"
+	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/operation"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
+	"github.com/fluxplane/agentruntime/core/resource"
+	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -40,10 +49,12 @@ type App struct {
 
 // ResolvedConfig is the effective local coder configuration.
 type ResolvedConfig struct {
-	Path      string                       `json:"path,omitempty" yaml:"path,omitempty"`
-	Explicit  bool                         `json:"explicit" yaml:"explicit"`
-	Workspace distribution.WorkspaceConfig `json:"workspace,omitempty" yaml:"workspace,omitempty"`
-	Imports   ImportConfig                 `json:"imports,omitempty" yaml:"imports,omitempty"`
+	Path         string                       `json:"path,omitempty" yaml:"path,omitempty"`
+	Explicit     bool                         `json:"explicit" yaml:"explicit"`
+	Workspace    distribution.WorkspaceConfig `json:"workspace,omitempty" yaml:"workspace,omitempty"`
+	Imports      ImportConfig                 `json:"imports,omitempty" yaml:"imports,omitempty"`
+	Observations ObservationConfig            `json:"observations,omitempty" yaml:"observations,omitempty"`
+	Reactions    []corereaction.Rule          `json:"reactions,omitempty" yaml:"reactions,omitempty"`
 }
 
 // ImportConfig reserves explicit coder resource imports for a later slice.
@@ -56,9 +67,17 @@ type ImportConfig struct {
 }
 
 type fileConfig struct {
-	Version   int           `yaml:"version"`
-	Workspace workspaceFile `yaml:"workspace"`
-	Imports   ImportConfig  `yaml:"imports"`
+	Version      int             `yaml:"version"`
+	Workspace    workspaceFile   `yaml:"workspace"`
+	Imports      ImportConfig    `yaml:"imports"`
+	Observations observationFile `yaml:"observations"`
+	Reactions    []reactionFile  `yaml:"reactions"`
+}
+
+// ObservationConfig carries inert observer configuration from .coder.yaml.
+type ObservationConfig struct {
+	Observers      []coreenvironment.ObserverSpec      `json:"observers,omitempty" yaml:"observers,omitempty"`
+	SignalDerivers []coreenvironment.SignalDeriverSpec `json:"signal_derivers,omitempty" yaml:"signal_derivers,omitempty"`
 }
 
 type workspaceFile struct {
@@ -72,6 +91,111 @@ type workspaceRootFile struct {
 	Access   string   `yaml:"access"`
 	Create   bool     `yaml:"create"`
 	EnvFiles []string `yaml:"env_files"`
+}
+
+type observationFile struct {
+	Observers      []observerFile      `yaml:"observers"`
+	SignalDerivers []signalDeriverFile `yaml:"signal_derivers"`
+}
+
+type observerFile struct {
+	Name            string                           `yaml:"name"`
+	Description     string                           `yaml:"description"`
+	Environment     environmentRefFile               `yaml:"environment"`
+	Phase           coreenvironment.ObservationPhase `yaml:"phase"`
+	ObservableKinds []string                         `yaml:"observable_kinds"`
+	Dynamic         bool                             `yaml:"dynamic"`
+	Disabled        bool                             `yaml:"disabled"`
+	Annotations     map[string]string                `yaml:"annotations"`
+}
+
+type environmentRefFile struct {
+	Name coreenvironment.Name `yaml:"name"`
+}
+
+type signalDeriverFile struct {
+	Name             string               `yaml:"name"`
+	Description      string               `yaml:"description"`
+	ObservationKinds []string             `yaml:"observation_kinds"`
+	Signals          []signalTemplateFile `yaml:"signals"`
+	Annotations      map[string]string    `yaml:"annotations"`
+}
+
+type signalTemplateFile struct {
+	Kind   string `yaml:"kind"`
+	Target string `yaml:"target"`
+	Scope  string `yaml:"scope"`
+	Source string `yaml:"source"`
+}
+
+type reactionFile struct {
+	Name        string               `yaml:"name"`
+	Mode        corereaction.Mode    `yaml:"mode"`
+	When        matcherFile          `yaml:"when"`
+	Actions     []reactionActionFile `yaml:"actions"`
+	Description string               `yaml:"description"`
+	Annotations map[string]string    `yaml:"annotations"`
+}
+
+type matcherFile struct {
+	Signal string            `yaml:"signal"`
+	Target string            `yaml:"target"`
+	Scope  string            `yaml:"scope"`
+	Source string            `yaml:"source"`
+	Meta   map[string]string `yaml:"meta"`
+}
+
+type reactionActionFile struct {
+	Kind                corereaction.ActionKind `yaml:"kind"`
+	Skill               skillRefFile            `yaml:"skill"`
+	Reference           referenceActionFile     `yaml:"reference"`
+	OperationSet        string                  `yaml:"operation_set"`
+	Datasource          datasourceRefFile       `yaml:"datasource"`
+	ContextProvider     contextProviderRefFile  `yaml:"context_provider"`
+	Workflow            workflowActionFile      `yaml:"workflow"`
+	Operation           operationActionFile     `yaml:"operation"`
+	Command             commandInvocationFile   `yaml:"command"`
+	RequireApproval     bool                    `yaml:"require_approval"`
+	IdempotencyFragment string                  `yaml:"idempotency_fragment"`
+	Metadata            map[string]string       `yaml:"metadata"`
+}
+
+type skillRefFile struct {
+	Name coreskill.Name `yaml:"name"`
+}
+
+type datasourceRefFile struct {
+	Name coredatasource.Name `yaml:"name"`
+}
+
+type contextProviderRefFile struct {
+	Name corecontext.ProviderName `yaml:"name"`
+}
+
+type referenceActionFile struct {
+	Skill skillRefFile `yaml:"skill"`
+	Path  string       `yaml:"path"`
+}
+
+type workflowActionFile struct {
+	Name  coreworkflow.Name `yaml:"name"`
+	Input operation.Value   `yaml:"input"`
+}
+
+type operationActionFile struct {
+	Operation operationRefFile `yaml:"operation"`
+	Input     operation.Value  `yaml:"input"`
+}
+
+type operationRefFile struct {
+	Name    operation.Name    `yaml:"name"`
+	Version operation.Version `yaml:"version"`
+}
+
+type commandInvocationFile struct {
+	Path  command.Path    `yaml:"path"`
+	Args  []string        `yaml:"args"`
+	Input operation.Value `yaml:"input"`
 }
 
 // New resolves local coder configuration and returns the product wrapper.
@@ -103,6 +227,7 @@ func (a *App) Command() *cobra.Command {
 	}
 	cmd := coder.NewCommandWithOptions(coder.CommandOptions{
 		Workspace:     cloneWorkspaceConfig(a.config.Workspace),
+		Bundles:       coderConfigBundles(a.config),
 		AppRunCommand: a.newAppRunCommand(),
 	})
 	cmd.PersistentFlags().String("config", a.config.Path, "coder config file path")
@@ -197,6 +322,8 @@ func ResolveConfig(cfg Config) (ResolvedConfig, error) {
 		}
 		resolved.Workspace = file.Workspace
 		resolved.Imports = file.Imports
+		resolved.Observations = file.Observations
+		resolved.Reactions = file.Reactions
 	}
 	resolved.Workspace = mergeWorkspace(resolved.Workspace, cfg.Workspace)
 	return resolved, nil
@@ -269,14 +396,180 @@ func decodeConfigFile(path string) (ResolvedConfig, error) {
 		}
 		roots = append(roots, root)
 	}
+	observations, err := observationConfigFromFile(doc.Observations)
+	if err != nil {
+		return ResolvedConfig{}, fmt.Errorf("coder config %s: %w", path, err)
+	}
+	reactions := make([]corereaction.Rule, 0, len(doc.Reactions))
+	for i, raw := range doc.Reactions {
+		rule := raw.Rule()
+		if err := rule.Validate(); err != nil {
+			return ResolvedConfig{}, fmt.Errorf("coder config %s: validate reactions[%d]: %w", path, i, err)
+		}
+		reactions = append(reactions, rule)
+	}
 	return ResolvedConfig{
 		Path: path,
 		Workspace: distribution.WorkspaceConfig{
 			Roots:    roots,
 			EnvFiles: resolveConfigPaths(configDir, doc.Workspace.EnvFiles),
 		},
-		Imports: doc.Imports,
+		Imports:      doc.Imports,
+		Observations: observations,
+		Reactions:    reactions,
 	}, nil
+}
+
+func observationConfigFromFile(raw observationFile) (ObservationConfig, error) {
+	out := ObservationConfig{
+		Observers:      make([]coreenvironment.ObserverSpec, 0, len(raw.Observers)),
+		SignalDerivers: make([]coreenvironment.SignalDeriverSpec, 0, len(raw.SignalDerivers)),
+	}
+	for i, observer := range raw.Observers {
+		spec := observer.Spec()
+		if strings.TrimSpace(spec.Name) == "" {
+			return ObservationConfig{}, fmt.Errorf("observations.observers[%d].name is empty", i)
+		}
+		out.Observers = append(out.Observers, spec)
+	}
+	for i, deriver := range raw.SignalDerivers {
+		spec := deriver.Spec()
+		if strings.TrimSpace(spec.Name) == "" {
+			return ObservationConfig{}, fmt.Errorf("observations.signal_derivers[%d].name is empty", i)
+		}
+		out.SignalDerivers = append(out.SignalDerivers, spec)
+	}
+	return out, nil
+}
+
+func (f observerFile) Spec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:            strings.TrimSpace(f.Name),
+		Description:     strings.TrimSpace(f.Description),
+		Environment:     f.Environment.Ref(),
+		Phase:           f.Phase,
+		ObservableKinds: trimStrings(f.ObservableKinds),
+		Dynamic:         f.Dynamic,
+		Disabled:        f.Disabled,
+		Annotations:     cloneStringMap(f.Annotations),
+	}
+}
+
+func (f environmentRefFile) Ref() coreenvironment.Ref {
+	return coreenvironment.Ref{Name: f.Name}
+}
+
+func (f signalDeriverFile) Spec() coreenvironment.SignalDeriverSpec {
+	signals := make([]coreenvironment.SignalTemplate, 0, len(f.Signals))
+	for _, signal := range f.Signals {
+		signals = append(signals, signal.Template())
+	}
+	return coreenvironment.SignalDeriverSpec{
+		Name:             strings.TrimSpace(f.Name),
+		Description:      strings.TrimSpace(f.Description),
+		ObservationKinds: trimStrings(f.ObservationKinds),
+		Signals:          signals,
+		Annotations:      cloneStringMap(f.Annotations),
+	}
+}
+
+func (f signalTemplateFile) Template() coreenvironment.SignalTemplate {
+	return coreenvironment.SignalTemplate{
+		Kind:   strings.TrimSpace(f.Kind),
+		Target: strings.TrimSpace(f.Target),
+		Scope:  strings.TrimSpace(f.Scope),
+		Source: strings.TrimSpace(f.Source),
+	}
+}
+
+func (f reactionFile) Rule() corereaction.Rule {
+	actions := make([]corereaction.Action, 0, len(f.Actions))
+	for _, action := range f.Actions {
+		actions = append(actions, action.Action())
+	}
+	return corereaction.Rule{
+		Name:        strings.TrimSpace(f.Name),
+		Mode:        f.Mode,
+		When:        f.When.Matcher(),
+		Actions:     actions,
+		Description: strings.TrimSpace(f.Description),
+		Annotations: cloneStringMap(f.Annotations),
+	}
+}
+
+func (f matcherFile) Matcher() corereaction.Matcher {
+	return corereaction.Matcher{
+		Signal: strings.TrimSpace(f.Signal),
+		Target: strings.TrimSpace(f.Target),
+		Scope:  strings.TrimSpace(f.Scope),
+		Source: strings.TrimSpace(f.Source),
+		Meta:   cloneStringMap(f.Meta),
+	}
+}
+
+func (f reactionActionFile) Action() corereaction.Action {
+	return corereaction.Action{
+		Kind:                f.Kind,
+		Skill:               f.Skill.Ref(),
+		Reference:           f.Reference.Action(),
+		OperationSet:        strings.TrimSpace(f.OperationSet),
+		Datasource:          f.Datasource.Ref(),
+		ContextProvider:     f.ContextProvider.Ref(),
+		Workflow:            f.Workflow.Action(),
+		Operation:           f.Operation.Action(),
+		Command:             f.Command.Invocation(),
+		RequireApproval:     f.RequireApproval,
+		IdempotencyFragment: strings.TrimSpace(f.IdempotencyFragment),
+		Metadata:            cloneStringMap(f.Metadata),
+	}
+}
+
+func (f skillRefFile) Ref() coreskill.Ref {
+	return coreskill.Ref{Name: f.Name}
+}
+
+func (f datasourceRefFile) Ref() coredatasource.Ref {
+	return coredatasource.Ref{Name: f.Name}
+}
+
+func (f contextProviderRefFile) Ref() corecontext.ProviderRef {
+	return corecontext.ProviderRef{Name: f.Name}
+}
+
+func (f referenceActionFile) Action() corereaction.ReferenceAction {
+	return corereaction.ReferenceAction{
+		Skill: f.Skill.Ref(),
+		Path:  strings.TrimSpace(f.Path),
+	}
+}
+
+func (f workflowActionFile) Action() corereaction.WorkflowAction {
+	return corereaction.WorkflowAction{
+		Name:  f.Name,
+		Input: f.Input,
+	}
+}
+
+func (f operationActionFile) Action() corereaction.OperationAction {
+	return corereaction.OperationAction{
+		Operation: f.Operation.Ref(),
+		Input:     f.Input,
+	}
+}
+
+func (f operationRefFile) Ref() operation.Ref {
+	return operation.Ref{
+		Name:    f.Name,
+		Version: f.Version,
+	}
+}
+
+func (f commandInvocationFile) Invocation() command.Invocation {
+	return command.Invocation{
+		Path:  append(command.Path(nil), f.Path...),
+		Args:  append([]string(nil), f.Args...),
+		Input: f.Input,
+	}
 }
 
 func workspaceRootFromFile(configDir string, raw workspaceRootFile) (distribution.WorkspaceRoot, error) {
@@ -323,6 +616,17 @@ func cloneWorkspaceConfig(cfg distribution.WorkspaceConfig) distribution.Workspa
 		Roots:       cloneWorkspaceRoots(cfg.Roots),
 		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
 		EnvFiles:    append([]string(nil), cfg.EnvFiles...),
+	}
+	return out
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
 	}
 	return out
 }
@@ -378,6 +682,23 @@ func renderConfig(out io.Writer, cfg ResolvedConfig, output string) error {
 	default:
 		return fmt.Errorf("coder config show: unsupported output %q", output)
 	}
+}
+
+func coderConfigBundles(cfg ResolvedConfig) []resource.ContributionBundle {
+	if len(cfg.Observations.Observers) == 0 && len(cfg.Observations.SignalDerivers) == 0 && len(cfg.Reactions) == 0 {
+		return nil
+	}
+	path := strings.TrimSpace(cfg.Path)
+	return []resource.ContributionBundle{{
+		Source: resource.SourceRef{
+			ID:       "coder:config",
+			Scope:    resource.ScopeProject,
+			Location: path,
+		},
+		Observers:      append([]coreenvironment.ObserverSpec(nil), cfg.Observations.Observers...),
+		SignalDerivers: append([]coreenvironment.SignalDeriverSpec(nil), cfg.Observations.SignalDerivers...),
+		Reactions:      append([]corereaction.Rule(nil), cfg.Reactions...),
+	}}
 }
 
 func trimStrings(values []string) []string {

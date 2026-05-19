@@ -554,8 +554,6 @@ type AccessPolicy struct {
 }
 
 type accessPolicyKey struct{}
-type detectionInputKey struct{}
-type detectedRefsKey struct{}
 
 // ContextWithAccessPolicy stores datasource access policy on ctx.
 func ContextWithAccessPolicy(ctx context.Context, policy AccessPolicy) context.Context {
@@ -572,41 +570,6 @@ func AccessPolicyFromContext(ctx context.Context) (AccessPolicy, bool) {
 	}
 	policy, ok := ctx.Value(accessPolicyKey{}).(AccessPolicy)
 	return policy, ok
-}
-
-// ContextWithDetectionInput stores turn-local detector input on ctx.
-func ContextWithDetectionInput(ctx context.Context, input DetectionInput) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, detectionInputKey{}, input)
-}
-
-// DetectionInputFromContext returns turn-local detector input from ctx.
-func DetectionInputFromContext(ctx context.Context) (DetectionInput, bool) {
-	if ctx == nil {
-		return DetectionInput{}, false
-	}
-	input, ok := ctx.Value(detectionInputKey{}).(DetectionInput)
-	return input, ok
-}
-
-// ContextWithDetectedRefs stores turn-local detected references on ctx.
-func ContextWithDetectedRefs(ctx context.Context, refs []RecordRef) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	copied := append([]RecordRef(nil), refs...)
-	return context.WithValue(ctx, detectedRefsKey{}, copied)
-}
-
-// DetectedRefsFromContext returns turn-local detected references from ctx.
-func DetectedRefsFromContext(ctx context.Context) ([]RecordRef, bool) {
-	if ctx == nil {
-		return nil, false
-	}
-	refs, ok := ctx.Value(detectedRefsKey{}).([]RecordRef)
-	return append([]RecordRef(nil), refs...), ok
 }
 
 func isZeroEntity(spec EntitySpec) bool {

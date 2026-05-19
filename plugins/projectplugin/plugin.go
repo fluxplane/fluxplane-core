@@ -8,13 +8,14 @@ import (
 	"time"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/usage"
 	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeproject "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -29,7 +30,16 @@ const (
 	TaskRunOp       = "project_task_run"
 	DocsOp          = "project_docs"
 	SummaryProvider = "project.summary"
+	ObserverName    = "project.inventory"
+	SignalDeriver   = "project.signals"
 	defaultMaxFiles = 500
+)
+
+const (
+	ObservationProjectInventory = "project.inventory"
+	SignalLanguageDetected      = "language.detected"
+	SignalProjectToolchainHint  = "project.toolchain.hinted"
+	SignalProjectManifest       = "project.manifest.detected"
 )
 
 const (
@@ -49,6 +59,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return NewWithWorkspaceManager(sys, runtimeworkspace.NewManager(), "")
@@ -70,14 +82,29 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	specs := specs()
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
+		Observers:        []coreenvironment.ObserverSpec{projectObserverSpec()},
+		SignalDerivers:   []coreenvironment.SignalDeriverSpec{projectSignalDeriverSpec()},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Workspace project inventory and outline operations.",
 			Operations:  refs(specs),
 		}},
 		Operations: specs,
-		EventTypes: []coreevent.Event{coreproject.SignalsObserved{}},
 	}, nil
+}
+
+// EnvironmentObservers returns executable project inventory observers.
+func (p Plugin) EnvironmentObservers(ctx context.Context, _ pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	manager := p.projectManager(ctx)
+	if manager == nil {
+		return nil, nil
+	}
+	return []runtimeenvironment.Observer{projectObserver{manager: manager}}, nil
+}
+
+// SignalDerivers returns executable project inventory signal derivation.
+func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{projectSignalDeriver{}}, nil
 }
 
 func (p Plugin) ContextProviders(ctx context.Context, _ pluginhost.Context) ([]corecontext.Provider, error) {
@@ -177,6 +204,142 @@ func refs(specs []operation.Spec) []operation.Ref {
 		out = append(out, spec.Ref)
 	}
 	return out
+}
+
+type projectObserver struct {
+	manager *runtimeproject.Manager
+}
+
+func (projectObserver) Spec() coreenvironment.ObserverSpec {
+	return projectObserverSpec()
+}
+
+func (o projectObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	if o.manager == nil {
+		return nil, nil
+	}
+	inventory, _, err := o.manager.Inventory(ctx, coreproject.InventoryQuery{})
+	if err != nil {
+		return nil, err
+	}
+	if len(inventory.Projects) == 0 && len(inventory.Signals) == 0 {
+		return nil, nil
+	}
+	scope := string(inventory.WorkspaceID)
+	if scope == "" {
+		scope = "workspace"
+	}
+	return []coreenvironment.Observation{{
+		ID:      "project:inventory:" + scope,
+		Kind:    ObservationProjectInventory,
+		Scope:   scope,
+		Content: compactInventory(inventory),
+		Environment: coreenvironment.Ref{
+			Name: "workspace",
+		},
+		At: time.Now().UTC(),
+	}}, nil
+}
+
+func projectObserverSpec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:        ObserverName,
+		Description: "Observes bounded Workspace project inventory and project capability hints.",
+		Environment: coreenvironment.Ref{
+			Name: "workspace",
+		},
+		Phase:           coreenvironment.PhaseSessionOpen,
+		ObservableKinds: []string{ObservationProjectInventory},
+		Dynamic:         true,
+	}
+}
+
+type projectSignalDeriver struct{}
+
+func (projectSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return projectSignalDeriverSpec()
+}
+
+func (projectSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	var out []coreenvironment.Signal
+	for _, observation := range req.Observations {
+		if observation.Kind != ObservationProjectInventory {
+			continue
+		}
+		for _, signal := range projectSignalsFromContent(observation.Content) {
+			confidence := signal.Confidence
+			if confidence == 0 {
+				confidence = 1
+			}
+			if signal.Language != "" {
+				out = append(out, coreenvironment.Signal{
+					Kind:           SignalLanguageDetected,
+					Target:         string(signal.Language),
+					Scope:          observation.Scope,
+					Environment:    observation.Environment,
+					Confidence:     confidence,
+					ObservationIDs: observationIDs(observation.ID),
+				})
+			}
+			if signal.Toolchain != "" {
+				out = append(out, coreenvironment.Signal{
+					Kind:           SignalProjectToolchainHint,
+					Target:         signal.Toolchain,
+					Scope:          observation.Scope,
+					Environment:    observation.Environment,
+					Confidence:     confidence,
+					ObservationIDs: observationIDs(observation.ID),
+				})
+			}
+			if signal.Path != "" {
+				out = append(out, coreenvironment.Signal{
+					Kind:           SignalProjectManifest,
+					Target:         signal.Path,
+					Scope:          observation.Scope,
+					Environment:    observation.Environment,
+					Confidence:     confidence,
+					ObservationIDs: observationIDs(observation.ID),
+				})
+			}
+		}
+	}
+	return out, nil
+}
+
+func projectSignalDeriverSpec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{
+		Name:             SignalDeriver,
+		Description:      "Derives language, toolchain, and manifest signals from project inventory observations.",
+		ObservationKinds: []string{ObservationProjectInventory},
+	}
+}
+
+func projectSignalsFromContent(content any) []coreproject.Signal {
+	switch typed := content.(type) {
+	case inventorySummary:
+		return append([]coreproject.Signal(nil), typed.Signals...)
+	case *inventorySummary:
+		if typed == nil {
+			return nil
+		}
+		return append([]coreproject.Signal(nil), typed.Signals...)
+	case coreproject.Inventory:
+		return append([]coreproject.Signal(nil), typed.Signals...)
+	case *coreproject.Inventory:
+		if typed == nil {
+			return nil
+		}
+		return append([]coreproject.Signal(nil), typed.Signals...)
+	default:
+		return nil
+	}
+}
+
+func observationIDs(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{id}
 }
 
 func summaryContextSpec() corecontext.ProviderSpec {
@@ -301,15 +464,6 @@ func (p Plugin) inventory(manager *runtimeproject.Manager) operationruntime.Type
 		inventory, rebuilt, err := manager.Inventory(ctx, req)
 		if err != nil {
 			return operation.Failed("project_inventory_failed", err.Error(), nil)
-		}
-		if rebuilt || req.Refresh {
-			ctx.Events().Emit(coreproject.SignalsObserved{
-				WorkspaceID:   inventory.WorkspaceID,
-				WorkspaceRoot: p.system.Workspace().Root(),
-				Scope:         ".",
-				Signals:       inventory.Signals,
-				Truncated:     inventory.Truncated,
-			})
 		}
 		lines := []string{fmt.Sprintf("Projects: %d", len(inventory.Projects))}
 		for _, project := range inventory.Projects {

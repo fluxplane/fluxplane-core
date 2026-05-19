@@ -8,6 +8,7 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
 	coretask "github.com/fluxplane/agentruntime/core/task"
@@ -74,6 +75,10 @@ func defaultEventTypes() []event.Event {
 		operationruntime.ApprovalRequested{},
 		operationruntime.ApprovalGranted{},
 		operationruntime.ApprovalDenied{},
+		corereaction.ActionPlanned{},
+		corereaction.ActionApplied{},
+		corereaction.ActionSkipped{},
+		corereaction.Diagnostic{},
 		coreconversation.ItemsAppended{},
 		coreconversation.ContinuationStored{},
 		coreconversation.CompactionStored{},

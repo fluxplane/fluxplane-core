@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -24,6 +25,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -93,6 +95,91 @@ sawOutbound:
 	}
 	if len(snapshot.Events) < 4 {
 		t.Fatalf("thread event count = %d, want at least command lifecycle events", len(snapshot.Events))
+	}
+}
+
+func TestCommandOutboundUsesRenderedTextWithoutStructuredData(t *testing.T) {
+	result := session.CommandResult{
+		Status: session.CommandStatusOK,
+		Output: operation.Rendered{
+			Text: "Environment\n\nObservers\n  - runtime.baseline",
+			Data: map[string]any{"observers": []string{"runtime.baseline"}},
+		},
+	}
+	outbound := commandOutbound(channel.Inbound{ID: "cmd-env"}, result)
+	if outbound == nil || outbound.Message == nil {
+		t.Fatalf("outbound = %#v, want message", outbound)
+	}
+	if outbound.Message.Content != "Environment\n\nObservers\n  - runtime.baseline" {
+		t.Fatalf("content = %#v, want rendered text only", outbound.Message.Content)
+	}
+}
+
+func TestNewRunsStartupEnvironmentOnceAndPassesObservationsToSessions(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	agentRuntime := &harnessPromptAgent{response: "ok"}
+	observerCalls := 0
+	startupDeriverCalls := 0
+	observer := harnessEnvironmentObserver{
+		spec: coreenvironment.ObserverSpec{Name: "startup.observer", Phase: coreenvironment.PhaseStartup},
+		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+			observerCalls++
+			if req.Phase != coreenvironment.PhaseStartup {
+				t.Fatalf("phase = %q, want startup", req.Phase)
+			}
+			return []coreenvironment.Observation{{Kind: "startup.fact", Content: "ready"}}, nil
+		},
+	}
+	deriver := harnessSignalDeriver{
+		spec: coreenvironment.SignalDeriverSpec{Name: "startup.signals"},
+		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+			if len(req.Observations) == 1 && req.Observations[0].Kind == "startup.fact" {
+				startupDeriverCalls++
+			}
+			return []coreenvironment.Signal{{Kind: "startup.ready", Target: "runtime"}}, nil
+		},
+	}
+	service := New(Config{
+		Agent:                agentRuntime,
+		ThreadStore:          threadStore,
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+	})
+	if observerCalls != 1 || startupDeriverCalls != 1 {
+		t.Fatalf("startup calls observer=%d deriver=%d, want once each", observerCalls, startupDeriverCalls)
+	}
+	info, err := service.OpenSession(ctx, OpenSessionRequest{})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	first, err := service.HandleSessionInbound(ctx, info, channel.Inbound{ID: "run-startup-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound first: %v", err)
+	}
+	if first.Input.Status != session.InputStatusOK {
+		t.Fatalf("first input = %#v", first.Input)
+	}
+	second, err := service.HandleSessionInbound(ctx, info, channel.Inbound{ID: "run-startup-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "second"}})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound second: %v", err)
+	}
+	if second.Input.Status != session.InputStatusOK {
+		t.Fatalf("second input = %#v", second.Input)
+	}
+	if observerCalls != 1 || startupDeriverCalls != 1 {
+		t.Fatalf("startup calls after turns observer=%d deriver=%d, want still once", observerCalls, startupDeriverCalls)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want 2", len(agentRuntime.inputs))
+	}
+	for i, input := range agentRuntime.inputs {
+		if len(input.Observations) < 2 || input.Observations[1].Kind != "startup.fact" {
+			t.Fatalf("input %d observations = %#v, want startup fact after channel observation", i, input.Observations)
+		}
 	}
 }
 
@@ -1245,4 +1332,36 @@ func (p harnessContextProvider) Spec() corecontext.ProviderSpec { return p.spec 
 
 func (p harnessContextProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {
 	return append([]corecontext.Block(nil), p.blocks...), nil
+}
+
+type harnessEnvironmentObserver struct {
+	spec    coreenvironment.ObserverSpec
+	observe func(context.Context, runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error)
+}
+
+func (o harnessEnvironmentObserver) Spec() coreenvironment.ObserverSpec {
+	return o.spec
+}
+
+func (o harnessEnvironmentObserver) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	if o.observe == nil {
+		return nil, nil
+	}
+	return o.observe(ctx, req)
+}
+
+type harnessSignalDeriver struct {
+	spec   coreenvironment.SignalDeriverSpec
+	derive func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error)
+}
+
+func (d harnessSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return d.spec
+}
+
+func (d harnessSignalDeriver) Derive(ctx context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	if d.derive == nil {
+		return nil, nil
+	}
+	return d.derive(ctx, req)
 }

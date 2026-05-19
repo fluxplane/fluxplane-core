@@ -7,6 +7,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/apps/launch"
+	"github.com/fluxplane/agentruntime/core/resource"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 )
@@ -26,6 +27,7 @@ type Config struct {
 	Debug          bool
 	Yolo           bool
 	Dev            bool
+	Bundles        []resource.ContributionBundle
 }
 
 // Coder is the reusable coder product assembly. Presentation layers such as
@@ -61,8 +63,10 @@ type ChannelClientOptions struct {
 
 // NewCoder creates a reusable coder product instance.
 func NewCoder(ctx context.Context, cfg Config) (*Coder, error) {
+	startup := loadStartupResources(ctx)
+	startup.Bundles = append(startup.Bundles, cloneContributionBundles(cfg.Bundles)...)
 	return &Coder{
-		startup: loadStartupResources(ctx),
+		startup: startup,
 		config:  cloneCoderConfig(cfg),
 	}, nil
 }
@@ -96,6 +100,7 @@ func (c *Coder) CommandOptions() CommandOptions {
 		WorkspaceRoots: append([]string(nil), c.config.WorkspaceRoots...),
 		EnvFiles:       append([]string(nil), c.config.EnvFiles...),
 		Workspace:      cloneCoderServeWorkspace(c.config.Workspace),
+		Bundles:        cloneContributionBundles(c.config.Bundles),
 	}
 }
 
@@ -170,6 +175,7 @@ func cloneCoderConfig(cfg Config) Config {
 	cfg.WorkspaceRoots = append([]string(nil), cfg.WorkspaceRoots...)
 	cfg.EnvFiles = append([]string(nil), cfg.EnvFiles...)
 	cfg.Workspace = cloneCoderServeWorkspace(cfg.Workspace)
+	cfg.Bundles = cloneContributionBundles(cfg.Bundles)
 	return cfg
 }
 

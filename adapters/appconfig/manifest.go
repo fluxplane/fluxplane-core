@@ -21,10 +21,12 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
@@ -158,6 +160,14 @@ func DecodeFile(path string, data []byte) (File, error) {
 				}
 				bundle.Operations = append(bundle.Operations, spec)
 			}
+			bundle.Observers = append(bundle.Observers, manifest.Observations.Observers...)
+			bundle.SignalDerivers = append(bundle.SignalDerivers, manifest.Observations.SignalDerivers...)
+			for i, rule := range manifest.Reactions {
+				if err := rule.Validate(); err != nil {
+					return File{}, fmt.Errorf("appconfig: validate reactions[%d]: %w", i, err)
+				}
+				bundle.Reactions = append(bundle.Reactions, rule)
+			}
 			models, err := manifest.Models.Contributions()
 			if err != nil {
 				return File{}, err
@@ -219,6 +229,24 @@ func DecodeFile(path string, data []byte) (File, error) {
 				return File{}, err
 			}
 			bundle.Datasources = append(bundle.Datasources, spec)
+		case "observer":
+			spec, err := decodeObserverDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Observers = append(bundle.Observers, spec)
+		case "signal_deriver":
+			spec, err := decodeSignalDeriverDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.SignalDerivers = append(bundle.SignalDerivers, spec)
+		case "reaction":
+			spec, err := decodeReactionDoc(doc)
+			if err != nil {
+				return File{}, err
+			}
+			bundle.Reactions = append(bundle.Reactions, spec)
 		case "llm_provider":
 			spec, err := decodeLLMProviderDoc(doc)
 			if err != nil {
@@ -441,10 +469,17 @@ type Manifest struct {
 	Commands       []commandDoc               `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Workflows      []workflowDoc              `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	Operations     []operationDoc             `json:"operations,omitempty" yaml:"operations,omitempty"`
+	Observations   observationsDoc            `json:"observations,omitempty" yaml:"observations,omitempty"`
+	Reactions      []corereaction.Rule        `json:"reactions,omitempty" yaml:"reactions,omitempty"`
 	LLMProviders   []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Runtime        RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig               `json:"daemon,omitempty" yaml:"daemon,omitempty"`
 	Connectors     map[string]ConnectorDoc    `json:"connectors,omitempty" yaml:"connectors,omitempty"`
+}
+
+type observationsDoc struct {
+	Observers      []coreenvironment.ObserverSpec      `json:"observers,omitempty" yaml:"observers,omitempty"`
+	SignalDerivers []coreenvironment.SignalDeriverSpec `json:"signal_derivers,omitempty" yaml:"signal_derivers,omitempty"`
 }
 
 type identityDoc struct {
@@ -1631,6 +1666,116 @@ func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document: %w", err)
 	}
 	return spec, nil
+}
+
+func decodeObserverDoc(node yaml.Node) (coreenvironment.ObserverSpec, error) {
+	if err := validateYAMLNode[observerDoc](node); err != nil {
+		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: validate observer document schema: %w", err)
+	}
+	var raw observerDoc
+	if err := node.Decode(&raw); err != nil {
+		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: decode observer document: %w", err)
+	}
+	spec := raw.Spec()
+	if strings.TrimSpace(spec.Name) == "" {
+		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: observer document name is empty")
+	}
+	return spec, nil
+}
+
+func decodeSignalDeriverDoc(node yaml.Node) (coreenvironment.SignalDeriverSpec, error) {
+	if err := validateYAMLNode[signalDeriverDoc](node); err != nil {
+		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: validate signal_deriver document schema: %w", err)
+	}
+	var raw signalDeriverDoc
+	if err := node.Decode(&raw); err != nil {
+		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: decode signal_deriver document: %w", err)
+	}
+	spec := raw.Spec()
+	if strings.TrimSpace(spec.Name) == "" {
+		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: signal_deriver document name is empty")
+	}
+	return spec, nil
+}
+
+func decodeReactionDoc(node yaml.Node) (corereaction.Rule, error) {
+	if err := validateYAMLNode[reactionDoc](node); err != nil {
+		return corereaction.Rule{}, fmt.Errorf("appconfig: validate reaction document schema: %w", err)
+	}
+	var raw reactionDoc
+	if err := node.Decode(&raw); err != nil {
+		return corereaction.Rule{}, fmt.Errorf("appconfig: decode reaction document: %w", err)
+	}
+	spec := raw.Spec()
+	if err := spec.Validate(); err != nil {
+		return corereaction.Rule{}, fmt.Errorf("appconfig: validate reaction document: %w", err)
+	}
+	return spec, nil
+}
+
+type observerDoc struct {
+	Kind            string                           `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name            string                           `json:"name" yaml:"name"`
+	Description     string                           `json:"description,omitempty" yaml:"description,omitempty"`
+	Environment     coreenvironment.Ref              `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Phase           coreenvironment.ObservationPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
+	ObservableKinds []string                         `json:"observable_kinds,omitempty" yaml:"observable_kinds,omitempty"`
+	Dynamic         bool                             `json:"dynamic,omitempty" yaml:"dynamic,omitempty"`
+	Disabled        bool                             `json:"disabled,omitempty" yaml:"disabled,omitempty"`
+	Annotations     map[string]string                `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d observerDoc) Spec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:            strings.TrimSpace(d.Name),
+		Description:     strings.TrimSpace(d.Description),
+		Environment:     d.Environment,
+		Phase:           d.Phase,
+		ObservableKinds: append([]string(nil), d.ObservableKinds...),
+		Dynamic:         d.Dynamic,
+		Disabled:        d.Disabled,
+		Annotations:     cloneStringMap(d.Annotations),
+	}
+}
+
+type signalDeriverDoc struct {
+	Kind             string                           `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name             string                           `json:"name" yaml:"name"`
+	Description      string                           `json:"description,omitempty" yaml:"description,omitempty"`
+	ObservationKinds []string                         `json:"observation_kinds,omitempty" yaml:"observation_kinds,omitempty"`
+	Signals          []coreenvironment.SignalTemplate `json:"signals,omitempty" yaml:"signals,omitempty"`
+	Annotations      map[string]string                `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d signalDeriverDoc) Spec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{
+		Name:             strings.TrimSpace(d.Name),
+		Description:      strings.TrimSpace(d.Description),
+		ObservationKinds: append([]string(nil), d.ObservationKinds...),
+		Signals:          append([]coreenvironment.SignalTemplate(nil), d.Signals...),
+		Annotations:      cloneStringMap(d.Annotations),
+	}
+}
+
+type reactionDoc struct {
+	Kind        string                `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string                `json:"name" yaml:"name"`
+	Mode        corereaction.Mode     `json:"mode,omitempty" yaml:"mode,omitempty"`
+	When        corereaction.Matcher  `json:"when" yaml:"when"`
+	Actions     []corereaction.Action `json:"actions,omitempty" yaml:"actions,omitempty"`
+	Description string                `json:"description,omitempty" yaml:"description,omitempty"`
+	Annotations map[string]string     `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+func (d reactionDoc) Spec() corereaction.Rule {
+	return corereaction.Rule{
+		Name:        strings.TrimSpace(d.Name),
+		Mode:        d.Mode,
+		When:        d.When,
+		Actions:     append([]corereaction.Action(nil), d.Actions...),
+		Description: strings.TrimSpace(d.Description),
+		Annotations: cloneStringMap(d.Annotations),
+	}
 }
 
 type llmProviderDoc struct {

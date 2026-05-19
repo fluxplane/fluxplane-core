@@ -1,9 +1,7 @@
 package coder
 
 import (
-	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
@@ -15,19 +13,9 @@ import (
 type FeatureName string
 
 const (
-	FeatureProjectSignals      FeatureName = "project_signals"
-	FeatureLanguageSupport     FeatureName = "language_support"
-	FeatureAvailableToolchains FeatureName = "available_toolchains"
-	FeatureFullLocalCoding     FeatureName = "full_local_coding"
+	FeatureProjectSignals  FeatureName = "project_signals"
+	FeatureFullLocalCoding FeatureName = "full_local_coding"
 )
-
-// ActivationInput supplies observed project/toolchain state to feature
-// expansion. Empty state is allowed for deterministic static bundles.
-type ActivationInput struct {
-	ProjectSignals    []coreproject.Signal
-	ToolchainStatuses []language.ToolchainStatus
-	LanguageSupports  []runtimelanguage.Support
-}
 
 // FeatureSpec describes operations implied by a coder feature.
 type FeatureSpec struct {
@@ -38,32 +26,17 @@ type FeatureSpec struct {
 
 // OperationExpansionConfig describes feature-derived and explicit operations.
 type OperationExpansionConfig struct {
-	Features   []FeatureSpec
-	Activation ActivationInput
-	Add        []string
-	Remove     []string
-}
-
-func fullCapabilityActivation() ActivationInput {
-	return ActivationInput{
-		ProjectSignals: []coreproject.Signal{
-			{Kind: "manifest", Path: "go.mod", Language: "go", Toolchain: "go", Confidence: 1},
-			{Kind: "documentation", Path: "README.md", Language: "markdown", Confidence: 1},
-		},
-		ToolchainStatuses: []language.ToolchainStatus{{ID: "go", Available: true}},
-		LanguageSupports:  builtinLanguageSupports(),
-	}
+	Features []FeatureSpec
+	Add      []string
+	Remove   []string
 }
 
 func fullCapabilityOperationNames() []string {
 	return expandOperations(OperationExpansionConfig{
 		Features: []FeatureSpec{
 			ProjectSignalsFeature(),
-			LanguageSupportFeature(),
-			AvailableToolchainsFeature(),
 			FullLocalCodingFeature(),
 		},
-		Activation: fullCapabilityActivation(),
 	})
 }
 
@@ -105,21 +78,15 @@ func ProjectSignalsFeature() FeatureSpec {
 	}
 }
 
-// LanguageSupportFeature includes parser/workspace language operations relevant
-// to observed project signals.
-func LanguageSupportFeature() FeatureSpec {
-	return FeatureSpec{Name: FeatureLanguageSupport}
-}
-
-// AvailableToolchainsFeature includes operation sets for available toolchains.
-func AvailableToolchainsFeature() FeatureSpec {
-	return FeatureSpec{Name: FeatureAvailableToolchains}
-}
-
 // FullLocalCodingFeature preserves the current broad coder product surface.
 func FullLocalCodingFeature() FeatureSpec {
 	return FeatureSpec{
 		Name: FeatureFullLocalCoding,
+		OperationSets: []string{
+			golangplugin.ParserSet,
+			golangplugin.ToolchainSet,
+			markdownplugin.Name,
+		},
 		Operations: []string{
 			"dir_create", "dir_list", "dir_tree",
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
@@ -152,23 +119,13 @@ func expandOperations(cfg OperationExpansionConfig) []string {
 		seen[name] = true
 		ordered = append(ordered, name)
 	}
-	sets := operationSetsByName(runtimelanguage.OperationSets(cfg.Activation.LanguageSupports))
+	sets := operationSetsByName(runtimelanguage.OperationSets(builtinLanguageSupports()))
 	for _, feature := range cfg.Features {
 		for _, name := range feature.Operations {
 			add(name)
 		}
 		for _, setName := range feature.OperationSets {
 			addOperationSet(add, sets[setName])
-		}
-		switch feature.Name {
-		case FeatureLanguageSupport:
-			for _, set := range runtimelanguage.SignalActivatedOperationSets(cfg.Activation.LanguageSupports, cfg.Activation.ProjectSignals) {
-				addOperationSet(add, set)
-			}
-		case FeatureAvailableToolchains:
-			for _, set := range runtimelanguage.ToolchainActivatedOperationSets(cfg.Activation.LanguageSupports, cfg.Activation.ProjectSignals, cfg.Activation.ToolchainStatuses) {
-				addOperationSet(add, set)
-			}
 		}
 	}
 	for _, name := range cfg.Add {

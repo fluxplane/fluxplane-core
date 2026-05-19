@@ -7,9 +7,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	"github.com/fluxplane/agentruntime/core/skill"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 )
 
 func TestHostResolvesPluginContributions(t *testing.T) {
@@ -230,6 +234,66 @@ func TestHostResolvesContextProviders(t *testing.T) {
 	}
 }
 
+func TestHostResolvesEnvironmentObservers(t *testing.T) {
+	host, err := New(fakeObserverPlugin{name: "kubernetes"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "kubernetes"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.Observers) != 1 {
+		t.Fatalf("observers len = %d, want 1", len(resolution.Observers))
+	}
+	if resolution.Observers[0].Observer.Spec().Name != "kubernetes.context" {
+		t.Fatalf("observer spec = %#v", resolution.Observers[0].Observer.Spec())
+	}
+	if resolution.Observers[0].Source.ID != "plugin:kubernetes" {
+		t.Fatalf("source ID = %q, want plugin:kubernetes", resolution.Observers[0].Source.ID)
+	}
+}
+
+func TestHostResolvesSignalDerivers(t *testing.T) {
+	host, err := New(fakeSignalDeriverPlugin{name: "kubernetes"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "kubernetes"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.SignalDerivers) != 1 {
+		t.Fatalf("signal derivers len = %d, want 1", len(resolution.SignalDerivers))
+	}
+	if resolution.SignalDerivers[0].Deriver.Spec().Name != "kubernetes.signals" {
+		t.Fatalf("deriver spec = %#v", resolution.SignalDerivers[0].Deriver.Spec())
+	}
+	if resolution.SignalDerivers[0].Source.ID != "plugin:kubernetes" {
+		t.Fatalf("source ID = %q, want plugin:kubernetes", resolution.SignalDerivers[0].Source.ID)
+	}
+}
+
+func TestHostResolvesReactions(t *testing.T) {
+	host, err := New(fakeReactionPlugin{name: "skills"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resolution, err := host.Resolve(context.Background(), resource.PluginRef{Name: "skills"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(resolution.Reactions) != 1 {
+		t.Fatalf("reactions len = %d, want 1", len(resolution.Reactions))
+	}
+	if resolution.Reactions[0].Rule.Name != "go-skill" {
+		t.Fatalf("reaction = %#v", resolution.Reactions[0].Rule)
+	}
+	if resolution.Reactions[0].Source.ID != "plugin:skills" {
+		t.Fatalf("source ID = %q, want plugin:skills", resolution.Reactions[0].Source.ID)
+	}
+}
+
 type fakeOperationPlugin struct {
 	name string
 }
@@ -371,6 +435,81 @@ func (fakeContextProvider) Spec() corecontext.ProviderSpec {
 
 func (fakeContextProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {
 	return []corecontext.Block{{Provider: "docs.catalog", Kind: corecontext.BlockText, Content: "docs"}}, nil
+}
+
+type fakeObserverPlugin struct {
+	name string
+}
+
+func (p fakeObserverPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeObserverPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p fakeObserverPlugin) EnvironmentObservers(context.Context, Context) ([]runtimeenvironment.Observer, error) {
+	return []runtimeenvironment.Observer{fakeObserver{}}, nil
+}
+
+type fakeObserver struct{}
+
+func (fakeObserver) Spec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{Name: "kubernetes.context", Phase: coreenvironment.PhaseTurn}
+}
+
+func (fakeObserver) Observe(context.Context, runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	return []coreenvironment.Observation{{Kind: "kubernetes.context"}}, nil
+}
+
+type fakeSignalDeriverPlugin struct {
+	name string
+}
+
+func (p fakeSignalDeriverPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeSignalDeriverPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p fakeSignalDeriverPlugin) SignalDerivers(context.Context, Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{fakeSignalDeriver{}}, nil
+}
+
+type fakeSignalDeriver struct{}
+
+func (fakeSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{Name: "kubernetes.signals", ObservationKinds: []string{"kubernetes.context"}}
+}
+
+func (fakeSignalDeriver) Derive(context.Context, runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	return []coreenvironment.Signal{{Kind: "integration.available", Target: "kubernetes"}}, nil
+}
+
+type fakeReactionPlugin struct {
+	name string
+}
+
+func (p fakeReactionPlugin) Manifest() Manifest {
+	return Manifest{Name: p.name}
+}
+
+func (p fakeReactionPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (p fakeReactionPlugin) Reactions(context.Context, Context) ([]corereaction.Rule, error) {
+	return []corereaction.Rule{{
+		Name: "go-skill",
+		When: corereaction.Matcher{Signal: "language.detected", Target: "go"},
+		Actions: []corereaction.Action{{
+			Kind:  corereaction.ActionActivateSkill,
+			Skill: skill.Ref{Name: "go"},
+		}},
+	}}, nil
 }
 
 type fakeAuthMethodPlugin struct {

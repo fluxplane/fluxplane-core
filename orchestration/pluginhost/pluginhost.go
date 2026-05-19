@@ -9,10 +9,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 )
 
 // Manifest describes one plugin implementation.
@@ -51,6 +53,24 @@ type OperationContributor interface {
 // context providers in addition to pure context provider specs.
 type ContextProviderContributor interface {
 	ContextProviders(context.Context, Context) ([]corecontext.Provider, error)
+}
+
+// ObserverContributor is implemented by plugins that provide executable
+// environment observers in addition to inert observer specs.
+type ObserverContributor interface {
+	EnvironmentObservers(context.Context, Context) ([]runtimeenvironment.Observer, error)
+}
+
+// SignalDeriverContributor is implemented by plugins that derive normalized
+// environment signals from observations.
+type SignalDeriverContributor interface {
+	SignalDerivers(context.Context, Context) ([]runtimeenvironment.SignalDeriver, error)
+}
+
+// ReactionContributor is implemented by plugins that contribute instance-aware
+// default reaction rules.
+type ReactionContributor interface {
+	Reactions(context.Context, Context) ([]corereaction.Rule, error)
 }
 
 // ChannelContributor is implemented by plugins that can provide long-running
@@ -118,6 +138,26 @@ type ContextProviderContribution struct {
 	Provider corecontext.Provider
 }
 
+// EnvironmentObserverContribution is one executable observer contributed by a
+// plugin instance.
+type EnvironmentObserverContribution struct {
+	Source   resource.SourceRef
+	Observer runtimeenvironment.Observer
+}
+
+// SignalDeriverContribution is one executable signal deriver contributed by a
+// plugin instance.
+type SignalDeriverContribution struct {
+	Source  resource.SourceRef
+	Deriver runtimeenvironment.SignalDeriver
+}
+
+// ReactionContribution is one reaction rule contributed by a plugin instance.
+type ReactionContribution struct {
+	Source resource.SourceRef
+	Rule   corereaction.Rule
+}
+
 // AuthMethodContribution is one plugin auth method declaration.
 type AuthMethodContribution struct {
 	Source resource.SourceRef
@@ -136,6 +176,9 @@ type Resolution struct {
 	Bundles             []resource.ContributionBundle
 	Operations          []OperationContribution
 	ContextProviders    []ContextProviderContribution
+	Observers           []EnvironmentObserverContribution
+	SignalDerivers      []SignalDeriverContribution
+	Reactions           []ReactionContribution
 	Channels            []ChannelContribution
 	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
@@ -254,6 +297,48 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.ContextProviders = append(out.ContextProviders, ContextProviderContribution{
 					Source:   source,
 					Provider: provider,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(ObserverContributor); ok {
+			observers, err := contributor.EnvironmentObservers(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q environment observers: %w", pluginLabel(ref), err)
+			}
+			for _, observer := range observers {
+				if observer == nil {
+					continue
+				}
+				out.Observers = append(out.Observers, EnvironmentObserverContribution{
+					Source:   source,
+					Observer: observer,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(SignalDeriverContributor); ok {
+			derivers, err := contributor.SignalDerivers(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q signal derivers: %w", pluginLabel(ref), err)
+			}
+			for _, deriver := range derivers {
+				if deriver == nil {
+					continue
+				}
+				out.SignalDerivers = append(out.SignalDerivers, SignalDeriverContribution{
+					Source:  source,
+					Deriver: deriver,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(ReactionContributor); ok {
+			rules, err := contributor.Reactions(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q reactions: %w", pluginLabel(ref), err)
+			}
+			for _, rule := range rules {
+				out.Reactions = append(out.Reactions, ReactionContribution{
+					Source: source,
+					Rule:   rule,
 				})
 			}
 		}

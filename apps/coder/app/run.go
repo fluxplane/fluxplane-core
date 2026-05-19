@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
@@ -53,7 +54,7 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	return launch.RunPathWithLoader(ctx, opts.Loader, path, launch.RunPathOptions{
+	return launch.RunPathWithLoader(ctx, a.loaderWithCoderConfig(opts.Loader), path, launch.RunPathOptions{
 		Session:             opts.Session,
 		Conversation:        opts.Conversation,
 		Provider:            opts.Provider,
@@ -77,6 +78,25 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 		Out:                 opts.Out,
 		Err:                 opts.Err,
 	})
+}
+
+func (a *App) loaderWithCoderConfig(loader launch.Loader) launch.Loader {
+	bundles := coderConfigBundles(a.config)
+	if len(bundles) == 0 {
+		return loader
+	}
+	return func(ctx context.Context, path string) (distribution.Loaded, error) {
+		load := loader
+		if load == nil {
+			load = distlocal.Load
+		}
+		loaded, err := load(ctx, path)
+		if err != nil {
+			return distribution.Loaded{}, err
+		}
+		loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, bundles...)
+		return loaded, nil
+	}
 }
 
 func (a *App) newAppRunCommand() *cobra.Command {

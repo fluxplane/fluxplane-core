@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 )
 
@@ -245,16 +244,3 @@ type ToolchainStatus struct {
 	Versions    map[string]string       `json:"versions,omitempty"`
 	Diagnostics []Diagnostic            `json:"diagnostics,omitempty"`
 }
-
-// ToolchainStatusObserved records a runtime toolchain availability probe.
-type ToolchainStatusObserved struct {
-	WorkspaceRoot string          `json:"workspace_root,omitempty"`
-	Status        ToolchainStatus `json:"status"`
-	Diagnostics   []Diagnostic    `json:"diagnostics,omitempty"`
-}
-
-// EventToolchainStatusObserved is emitted after toolchain availability probing.
-const EventToolchainStatusObserved event.Name = "language.toolchain_status_observed"
-
-// EventName returns the typed event name.
-func (ToolchainStatusObserved) EventName() event.Name { return EventToolchainStatusObserved }

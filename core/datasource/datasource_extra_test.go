@@ -1,9 +1,6 @@
 package datasource
 
-import (
-	"context"
-	"testing"
-)
+import "testing"
 
 // --- Spec.Validate edge cases ---
 
@@ -235,84 +232,6 @@ func TestRegistryAccessorInvalidSpec(t *testing.T) {
 	_, err := NewRegistry([]Accessor{accessor}, nil)
 	if err == nil {
 		t.Fatal("NewRegistry: want error for accessor with invalid spec")
-	}
-}
-
-// --- Context helpers ---
-
-func TestDetectionInputContextRoundTrip(t *testing.T) {
-	input := DetectionInput{
-		Sources: []DetectionSource{{ID: "s1", Kind: "text", Text: "hello"}},
-		MaxRefs: 5,
-	}
-	ctx := ContextWithDetectionInput(context.Background(), input)
-	got, ok := DetectionInputFromContext(ctx)
-	if !ok {
-		t.Fatal("DetectionInputFromContext: want ok=true")
-	}
-	if got.MaxRefs != 5 || len(got.Sources) != 1 || got.Sources[0].ID != "s1" {
-		t.Fatalf("DetectionInputFromContext = %+v, want %+v", got, input)
-	}
-}
-
-func TestDetectionInputContextNil(t *testing.T) {
-	_, ok := DetectionInputFromContext(nil) //nolint:staticcheck // nil context handling is the behavior under test.
-	if ok {
-		t.Fatal("DetectionInputFromContext(nil): want ok=false")
-	}
-}
-
-func TestDetectionInputContextMissing(t *testing.T) {
-	_, ok := DetectionInputFromContext(context.Background())
-	if ok {
-		t.Fatal("DetectionInputFromContext: want ok=false when not set")
-	}
-}
-
-func TestContextWithDetectionInputNilCtx(t *testing.T) {
-	// nil ctx should not panic — it becomes Background internally.
-	ctx := ContextWithDetectionInput(nil, DetectionInput{MaxRefs: 1}) //nolint:staticcheck // nil context handling is the behavior under test.
-	got, ok := DetectionInputFromContext(ctx)
-	if !ok || got.MaxRefs != 1 {
-		t.Fatalf("ContextWithDetectionInput(nil,...): got=%+v ok=%v", got, ok)
-	}
-}
-
-func TestDetectedRefsContextRoundTrip(t *testing.T) {
-	refs := []RecordRef{
-		{Datasource: "docs", Entity: "file.document", ID: "123"},
-	}
-	ctx := ContextWithDetectedRefs(context.Background(), refs)
-	got, ok := DetectedRefsFromContext(ctx)
-	if !ok || len(got) != 1 || got[0].ID != "123" {
-		t.Fatalf("DetectedRefsFromContext = %v ok=%v", got, ok)
-	}
-	// Mutating original should not affect stored copy.
-	refs[0].ID = "mutated"
-	if got[0].ID != "123" {
-		t.Fatal("DetectedRefsFromContext: stored refs should be independent of original")
-	}
-}
-
-func TestDetectedRefsContextNil(t *testing.T) {
-	_, ok := DetectedRefsFromContext(nil) //nolint:staticcheck // nil context handling is the behavior under test.
-	if ok {
-		t.Fatal("DetectedRefsFromContext(nil): want ok=false")
-	}
-}
-
-func TestDetectedRefsContextMissing(t *testing.T) {
-	_, ok := DetectedRefsFromContext(context.Background())
-	if ok {
-		t.Fatal("DetectedRefsFromContext: want ok=false when not set")
-	}
-}
-
-func TestContextWithDetectedRefsNilCtx(t *testing.T) {
-	ctx := ContextWithDetectedRefs(nil, []RecordRef{{ID: "x"}}) //nolint:staticcheck // nil context handling is the behavior under test.
-	got, ok := DetectedRefsFromContext(ctx)
-	if !ok || len(got) != 1 {
-		t.Fatalf("ContextWithDetectedRefs(nil,...): got=%v ok=%v", got, ok)
 	}
 }
 

@@ -2,20 +2,25 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/appresources"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -50,6 +55,9 @@ type Composition struct {
 	resourcecatalog.Catalogs
 	ContextProviderImpls []corecontext.Provider
 	DatasourceProviders  []coredatasource.Provider
+	EnvironmentObservers []runtimeenvironment.Observer
+	SignalDerivers       []runtimeenvironment.SignalDeriver
+	ReactionRules        []corereaction.Rule
 	resourcecatalog.Specs
 	appresources.Resources
 	OperationExecutor operationruntime.Executor
@@ -70,7 +78,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginExternalIdentities, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore)
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginSignalDerivers, pluginReactions, pluginExternalIdentities, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -83,6 +91,20 @@ func Compose(cfg Config) (Composition, error) {
 	for _, bundle := range bundles {
 		diagnostics = append(diagnostics, bundle.Diagnostics...)
 	}
+	bundleReactions, reactionDiagnostic, err := collectBundleReactions(bundles)
+	if err != nil {
+		diagnostics = append(diagnostics, reactionDiagnostic)
+		return Composition{Diagnostics: diagnostics}, err
+	}
+	reactions := append(bundleReactions, pluginReactions...)
+	baselineObservers := []runtimeenvironment.Observer{runtimeenvironment.BaselineObserver()}
+	environmentObservers := append([]runtimeenvironment.Observer(nil), baselineObservers...)
+	environmentObservers = append(environmentObservers, pluginObservers...)
+	environmentObservers = applyObserverOverrides(environmentObservers, observerOverrideSpecs(cfg.Bundles))
+	configuredSignalDerivers := runtimeenvironment.TemplateSignalDerivers(templateSignalDeriverSpecs(bundles, pluginSignalDerivers))
+	signalDerivers := append(configuredSignalDerivers, pluginSignalDerivers...)
+	environmentDiagnostics := validateEnvironmentContributions(bundles, environmentObservers, signalDerivers)
+	diagnostics = append(diagnostics, environmentDiagnostics...)
 	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendEventTypesFromBundles(cfg.EventTypes, bundles)})
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
@@ -116,6 +138,12 @@ func Compose(cfg Config) (Composition, error) {
 		diagnostics = append(diagnostics, resourceDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
+	if deriver := newSkillTriggerSignalDeriver(specs.SkillSpecs); deriver != nil {
+		signalDerivers = append(signalDerivers, deriver)
+	}
+	reactions = append(reactions, skillTriggerReactionBindings(specs.SkillSpecs)...)
+	reactionDiagnostics := validateReactionTargets(reactions, specs, appResources)
+	diagnostics = append(diagnostics, reactionDiagnostics...)
 	security := mergeSecurity(cfg.Security, bundles)
 	identityResolver := cfg.IdentityResolver
 	if identitySpec := mergeIdentity(bundles); len(identitySpec.Users) > 0 || len(identitySpec.Groups) > 0 || len(identitySpec.Rules) > 0 {
@@ -143,6 +171,9 @@ func Compose(cfg Config) (Composition, error) {
 		Catalogs:             catalogs,
 		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
 		DatasourceProviders:  pluginDatasourceProviders,
+		EnvironmentObservers: environmentObservers,
+		SignalDerivers:       signalDerivers,
+		ReactionRules:        reactionRules(reactions),
 		Specs:                specs,
 		Resources:            appResources,
 		OperationExecutor:    cfg.OperationExecutor,
@@ -168,6 +199,280 @@ func mergeIdentity(bundles []resource.ContributionBundle) coreapp.IdentitySpec {
 	return out
 }
 
+func templateSignalDeriverSpecs(bundles []resource.ContributionBundle, executable []runtimeenvironment.SignalDeriver) []coreenvironment.SignalDeriverSpec {
+	executableNames := signalDeriverNames(executable)
+	var out []coreenvironment.SignalDeriverSpec
+	for _, bundle := range bundles {
+		for _, spec := range bundle.SignalDerivers {
+			if len(spec.Signals) == 0 {
+				continue
+			}
+			if executableNames[strings.TrimSpace(spec.Name)] {
+				continue
+			}
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+type observerSpecOverride struct {
+	observer runtimeenvironment.Observer
+	spec     coreenvironment.ObserverSpec
+}
+
+func (o observerSpecOverride) Spec() coreenvironment.ObserverSpec {
+	return o.spec
+}
+
+func (o observerSpecOverride) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	return o.observer.Observe(ctx, req)
+}
+
+func observerOverrideSpecs(bundles []resource.ContributionBundle) map[string]coreenvironment.ObserverSpec {
+	out := map[string]coreenvironment.ObserverSpec{}
+	for _, bundle := range bundles {
+		for _, spec := range bundle.Observers {
+			name := strings.TrimSpace(spec.Name)
+			if name == "" {
+				continue
+			}
+			spec.Name = name
+			out[name] = spec
+		}
+	}
+	return out
+}
+
+func applyObserverOverrides(observers []runtimeenvironment.Observer, overrides map[string]coreenvironment.ObserverSpec) []runtimeenvironment.Observer {
+	if len(overrides) == 0 {
+		return observers
+	}
+	out := make([]runtimeenvironment.Observer, 0, len(observers))
+	for _, observer := range observers {
+		if observer == nil {
+			out = append(out, observer)
+			continue
+		}
+		base := observer.Spec()
+		override, ok := overrides[strings.TrimSpace(base.Name)]
+		if !ok {
+			out = append(out, observer)
+			continue
+		}
+		if override.Disabled {
+			continue
+		}
+		out = append(out, observerSpecOverride{
+			observer: observer,
+			spec:     mergeObserverSpec(base, override),
+		})
+	}
+	return out
+}
+
+func mergeObserverSpec(base, override coreenvironment.ObserverSpec) coreenvironment.ObserverSpec {
+	out := base
+	if name := strings.TrimSpace(override.Name); name != "" {
+		out.Name = name
+	}
+	if override.Description != "" {
+		out.Description = override.Description
+	}
+	if override.Environment.Name != "" {
+		out.Environment = override.Environment
+	}
+	if override.Phase != "" {
+		out.Phase = override.Phase
+	}
+	if override.ObservableKinds != nil {
+		out.ObservableKinds = append([]string(nil), override.ObservableKinds...)
+	}
+	if override.Dynamic {
+		out.Dynamic = true
+	}
+	if len(override.Annotations) > 0 {
+		out.Annotations = mergeStringMap(out.Annotations, override.Annotations)
+	}
+	return out
+}
+
+func mergeStringMap(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range override {
+		out[key] = value
+	}
+	return out
+}
+
+func validateEnvironmentContributions(bundles []resource.ContributionBundle, observers []runtimeenvironment.Observer, derivers []runtimeenvironment.SignalDeriver) []resource.Diagnostic {
+	observerNames := map[string]bool{}
+	for _, observer := range observers {
+		if observer == nil {
+			continue
+		}
+		if name := strings.TrimSpace(observer.Spec().Name); name != "" {
+			observerNames[name] = true
+		}
+	}
+	deriverNames := signalDeriverNames(derivers)
+	var diagnostics []resource.Diagnostic
+	for _, bundle := range bundles {
+		for _, spec := range bundle.Observers {
+			name := strings.TrimSpace(spec.Name)
+			if name == "" || spec.Disabled || observerNames[name] {
+				continue
+			}
+			diagnostics = append(diagnostics, warningDiagnostic(bundle.Source, fmt.Sprintf("observer %q is configured but no enabled runtime or plugin provides an executable observer", name)))
+		}
+		for _, spec := range bundle.SignalDerivers {
+			name := strings.TrimSpace(spec.Name)
+			if name == "" || deriverNames[name] {
+				continue
+			}
+			diagnostics = append(diagnostics, warningDiagnostic(bundle.Source, fmt.Sprintf("signal deriver %q is configured but no enabled runtime or plugin provides an executable signal deriver", name)))
+		}
+	}
+	return diagnostics
+}
+
+func signalDeriverNames(derivers []runtimeenvironment.SignalDeriver) map[string]bool {
+	names := map[string]bool{}
+	for _, deriver := range derivers {
+		if deriver == nil {
+			continue
+		}
+		if name := strings.TrimSpace(deriver.Spec().Name); name != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+type reactionRuleBinding struct {
+	Source resource.SourceRef
+	Rule   corereaction.Rule
+}
+
+func collectBundleReactions(bundles []resource.ContributionBundle) ([]reactionRuleBinding, resource.Diagnostic, error) {
+	var out []reactionRuleBinding
+	for _, bundle := range bundles {
+		for _, rule := range bundle.Reactions {
+			if err := rule.Validate(); err != nil {
+				return nil, diagnostic(bundle.Source, err), err
+			}
+			out = append(out, reactionRuleBinding{Source: bundle.Source, Rule: rule})
+		}
+	}
+	return out, resource.Diagnostic{}, nil
+}
+
+func validateReactionTargets(bindings []reactionRuleBinding, specs resourcecatalog.Specs, resources appresources.Resources) []resource.Diagnostic {
+	skills := map[string]bool{}
+	references := map[string]map[string]bool{}
+	for _, spec := range specs.SkillSpecs {
+		name := strings.TrimSpace(string(spec.Name))
+		if name == "" {
+			continue
+		}
+		skills[name] = true
+		if references[name] == nil {
+			references[name] = map[string]bool{}
+		}
+		for _, ref := range spec.References {
+			if path := strings.TrimSpace(ref.Path); path != "" {
+				references[name][path] = true
+			}
+		}
+	}
+	operationSets := map[string]bool{}
+	for _, spec := range specs.OperationSets {
+		operationSets[strings.TrimSpace(spec.Name)] = true
+	}
+	datasources := map[string]bool{}
+	for _, spec := range specs.DatasourceSpecs {
+		datasources[strings.TrimSpace(string(spec.Name))] = true
+	}
+	contextProviders := map[string]bool{}
+	for _, spec := range specs.ContextSpecs {
+		contextProviders[strings.TrimSpace(string(spec.Name))] = true
+	}
+	workflows := map[string]bool{}
+	for _, spec := range specs.WorkflowSpecs {
+		workflows[strings.TrimSpace(string(spec.Name))] = true
+	}
+
+	var diagnostics []resource.Diagnostic
+	for _, binding := range bindings {
+		for _, action := range binding.Rule.Actions {
+			switch action.Kind {
+			case corereaction.ActionActivateSkill:
+				name := strings.TrimSpace(string(action.Skill.Name))
+				if !skills[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q activates unknown skill %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionActivateReference:
+				name := strings.TrimSpace(string(action.Reference.Skill.Name))
+				path := strings.TrimSpace(action.Reference.Path)
+				if !skills[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q activates reference for unknown skill %q", binding.Rule.Name, name)))
+					continue
+				}
+				if len(references[name]) > 0 && !references[name][path] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q activates unknown reference %q for skill %q", binding.Rule.Name, path, name)))
+				}
+			case corereaction.ActionEnableOperationSet:
+				name := strings.TrimSpace(action.OperationSet)
+				if !operationSets[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q enables unknown operation set %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionEnableDatasource:
+				name := strings.TrimSpace(string(action.Datasource.Name))
+				if !datasources[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q enables unknown datasource %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionEnableContext:
+				name := strings.TrimSpace(string(action.ContextProvider.Name))
+				if !contextProviders[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q enables unknown context provider %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionRunWorkflow:
+				name := strings.TrimSpace(string(action.Workflow.Name))
+				if !workflows[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q runs unknown workflow %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionRunOperation:
+				if _, ok := resources.Operations.Resolve(action.Operation.Operation); !ok {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q runs unknown operation %q", binding.Rule.Name, action.Operation.Operation.Name)))
+				}
+			case corereaction.ActionRunCommand:
+				if _, ok := resources.Commands.Resolve(action.Command.Path); !ok {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q runs unknown command %q", binding.Rule.Name, action.Command.Path.String())))
+				}
+			}
+		}
+	}
+	return diagnostics
+}
+
+func reactionTargetDiagnostic(binding reactionRuleBinding, message string) resource.Diagnostic {
+	return warningDiagnostic(binding.Source, message)
+}
+
+func reactionRules(bindings []reactionRuleBinding) []corereaction.Rule {
+	out := make([]corereaction.Rule, 0, len(bindings))
+	for _, binding := range bindings {
+		out = append(out, binding.Rule)
+	}
+	return out
+}
+
 func mergeSecurity(base policy.AuthorizationPolicy, bundles []resource.ContributionBundle) policy.AuthorizationPolicy {
 	out := policy.AuthorizationPolicy{Grants: append([]policy.Grant(nil), base.Grants...)}
 	for _, bundle := range bundles {
@@ -186,17 +491,20 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []identity.ExternalResolver, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeenvironment.Observer, []runtimeenvironment.SignalDeriver, []reactionRuleBinding, []identity.ExternalResolver, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
 	var datasourceProviders []coredatasource.Provider
+	var observers []runtimeenvironment.Observer
+	var signalDerivers []runtimeenvironment.SignalDeriver
+	var reactions []reactionRuleBinding
 	var externalIdentities []identity.ExternalResolver
 	var diagnostics []resource.Diagnostic
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, err
+		return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, err
 	}
 	host.SetEventStore(eventStore)
 	for _, bundle := range bundles {
@@ -206,7 +514,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, err
+			return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
@@ -216,11 +524,20 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		for _, provider := range contributed.DatasourceProviders {
 			datasourceProviders = append(datasourceProviders, provider.Provider)
 		}
+		for _, observer := range contributed.Observers {
+			observers = append(observers, observer.Observer)
+		}
+		for _, deriver := range contributed.SignalDerivers {
+			signalDerivers = append(signalDerivers, deriver.Deriver)
+		}
+		for _, reaction := range contributed.Reactions {
+			reactions = append(reactions, reactionRuleBinding{Source: reaction.Source, Rule: reaction.Rule})
+		}
 		for _, resolver := range contributed.ExternalIdentities {
 			externalIdentities = append(externalIdentities, resolver.Resolver)
 		}
 	}
-	return out, operations, contextProviders, datasourceProviders, externalIdentities, diagnostics, nil
+	return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, nil
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {
@@ -228,5 +545,13 @@ func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {
 		Severity: resource.SeverityError,
 		Source:   source,
 		Message:  err.Error(),
+	}
+}
+
+func warningDiagnostic(source resource.SourceRef, message string) resource.Diagnostic {
+	return resource.Diagnostic{
+		Severity: resource.SeverityWarning,
+		Source:   source,
+		Message:  message,
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	coreevent "github.com/fluxplane/agentruntime/core/event"
 	corelanguage "github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -45,23 +44,6 @@ func ResolveToolchainStatus(ctx context.Context, sys system.System, spec corelan
 	}
 	if len(status.Versions) == 0 {
 		status.Versions = nil
-	}
-	return status
-}
-
-// ObserveToolchainStatus probes and emits a typed status event.
-func ObserveToolchainStatus(ctx context.Context, sys system.System, spec corelanguage.ToolchainSpec, sink coreevent.Sink) corelanguage.ToolchainStatus {
-	status := ResolveToolchainStatus(ctx, sys, spec)
-	root := ""
-	if sys != nil && sys.Workspace() != nil {
-		root = sys.Workspace().Root()
-	}
-	if sink != nil {
-		sink.Emit(corelanguage.ToolchainStatusObserved{
-			WorkspaceRoot: root,
-			Status:        status,
-			Diagnostics:   status.Diagnostics,
-		})
 	}
 	return status
 }

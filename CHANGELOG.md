@@ -11,6 +11,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an embedded coder skill with a reference guide for writing and
   reviewing `agentsdk.app.yaml` app manifests.
 
+- Added an observations and reactions design note for unifying project signals,
+  toolchain probes, skill triggers, environment facts, and configurable signal
+  reactions.
+
+- Added core environment signal and reaction rule/action specs as the first
+  implementation slice for the observations and reactions model.
+
+- Added a pure runtime reaction planner for matching environment signals,
+  on-change/every-turn rule evaluation, and idempotent action planning.
+
+- Added observer, signal-deriver, and reaction contribution surfaces for
+  resource bundles and selected plugins.
+
+- Added runtime environment observer and signal-deriver contracts with pure
+  helpers for phase-filtered observation and signal derivation.
+
+- Added active observations to context provider build requests so providers can
+  consume observations directly during context materialization.
+
+- Carried selected plugin observers, signal derivers, and reaction rules through
+  app composition for later session scheduling and reaction application.
+
+- Passed composed observers, signal derivers, and reaction rules through the
+  in-process facade and harness into session runtime configuration.
+
+- Ran composed turn-phase environment observers and signal derivers during
+  session input execution so plugin observations can feed context providers and
+  agent step input.
+
+- Applied planned `activate_skill` and `activate_reference` reactions during
+  session input execution through the existing skill activation state and
+  replayable skill events.
+
+- Added replayable reaction action-applied events and persisted reaction
+  idempotency replay so applied signal reactions are not repeated across inbound
+  turns.
+
+- Added Kubernetes plugin environment observations and signal derivation for
+  non-secret selected-context and namespace availability facts.
+
+- Added replayable reaction planned, skipped, and diagnostic events for
+  inspecting why signal reactions did or did not run.
+
+- Added app manifest decoding for observation and reaction resources, including
+  top-level `observations`/`reactions` and multi-document observer,
+  signal-deriver, and reaction documents.
+
+- Added `.coder.yaml` parsing for top-level observation and reaction
+  declarations so local coder config can carry environment observer,
+  signal-deriver, and reaction specs.
+
+- Wired bundle-authored reaction rules and `.coder.yaml` reaction declarations
+  into session composition for local coder launches.
+
+- Added template-backed signal derivation for app/user-authored
+  `SignalDeriverSpec` declarations so declarative observation-to-signal mapping
+  can run without plugin-specific code.
+
+- Added a baseline runtime environment observer for cheap non-secret local
+  facts such as time, locale, and username.
+
+- Refined the observations and reactions design with explicit plugin authoring,
+  conditional activation migration, and existing app manifest impact rules.
+
+- Added composition diagnostics for unavailable environment observers and
+  signal derivers, and made plugin-authored signal-deriver templates executable
+  when no custom deriver is selected.
+
+- Added reaction-driven context-provider activation so
+  `enable_context_provider` actions can expose selected context providers during
+  the same turn before context materialization.
+
+- Added `tool_followup` observation scheduling after operation results so
+  follow-up observations can derive signals and activate context before the next
+  model step.
+
+- Routed `run_operation` reaction actions through the existing session operation
+  execution path, including operation events, safety/approval checks, and result
+  observations before the agent step.
+
+- Routed `run_command` reaction actions through the existing session command
+  dispatcher so command policy and command target execution are reused for
+  effectful reactions.
+
+- Routed `run_workflow` reaction actions through the existing workflow executor
+  and exposed workflow results as observations before the agent step.
+
+- Added a built-in `env explain` session command that reports configured
+  observers, signal derivers, reaction rules, replayed active state, and applied
+  reaction count.
+
+- Added `session_open` observation scheduling before the first model turn for a
+  stored thread, including signal derivation and reaction application.
+
+- Added `startup` observation scheduling at harness construction, with
+  precomputed startup observations and signals passed into session turns.
+
+- Added `lazy` observation scheduling immediately before context materialization
+  when context providers are present.
+
+- Added app/user observer override support for selected executable observers,
+  including phase narrowing and `observable_kinds` filtering.
+
+- Added `disabled: true` observer config semantics so app/user config can remove
+  selected executable observers without enabling missing plugins.
+
+- Added project inventory observations and signal derivation, plus initial Coder
+  language-detected reactions for Go parser and Markdown operation-set
+  activation.
+
+- Removed the old Coder `ActivationInput` and runtime language
+  `SignalMatcher` activation helpers now that language activation is represented
+  through environment signals and reactions.
+
+- Replaced session-local skill trigger activation with generated skill trigger
+  signal derivation and reaction rules.
+
+- Added Go toolchain status observations and signal derivation, plus a Coder
+  `toolchain.available` reaction for the Go toolchain operation set.
+
+- Removed datasource detection context side channels; detected datasource
+  context now derives from provider request observations.
+
+- Added an AWS environment observer plugin that derives non-secret integration
+  configured/available signals from profile, region, and credential presence.
+
+- Removed the old project signal and language toolchain observation event types
+  after moving those facts into environment observations and signals.
+
+- Fixed reaction `every_turn` planning so replayed idempotency keys do not
+  suppress stable matching signals on later turns.
+
+- Fixed effectful reaction actions so `require_approval: true` skips
+  `run_operation`, `run_command`, and `run_workflow` before execution.
+
+- Improved `/env explain` output so terminal clients show a readable environment
+  summary instead of a raw Go struct dump.
+
+- Added composition diagnostics for reaction actions that reference resources
+  outside the selected app/plugin/resource graph.
+
+- Added replayable active session state for `enable_operation_set` and
+  `enable_datasource` reactions, including datasource access-policy integration.
+
+- Projected reaction-activated operation sets into per-turn model-visible tools.
+
 - Added `coder app deploy --target kubernetes` for plain kubectl manifest
   deployments, including local k3d image import, external registry mode,
   generated Kubernetes resources for app runtime MySQL/NATS backends, and

@@ -13,13 +13,14 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeproject "github.com/fluxplane/agentruntime/runtime/project"
@@ -30,6 +31,8 @@ const (
 	Name               = "golang"
 	ParserSet          = "golang.parser"
 	ToolchainSet       = "golang.toolchain"
+	ToolchainObserver  = "golang.toolchain.status"
+	ToolchainSignals   = "golang.toolchain.signals"
 	ProjectOp          = golang.ProjectOp
 	InfoOp             = golang.InfoOp
 	EnvOp              = golang.EnvOp
@@ -58,6 +61,11 @@ const (
 	defaultSourceBytes = 512 * 1024
 )
 
+const (
+	ObservationToolchainStatus = "toolchain.status"
+	SignalToolchainAvailable   = "toolchain.available"
+)
+
 // Plugin contributes Go language support operations.
 type Plugin struct {
 	system  system.System
@@ -67,6 +75,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
 
 // New returns a Go language plugin.
 func New(sys system.System) Plugin {
@@ -94,12 +104,6 @@ func LanguageSupport() runtimelanguage.Support {
 			Description:  "Go parser and toolchain support.",
 			Capabilities: goCapabilities(),
 		},
-		Signals: []runtimelanguage.SignalMatcher{
-			{Language: language.LanguageGo},
-			{Toolchain: "go"},
-			{Path: "go.mod"},
-			{Path: "go.work"},
-		},
 		OperationSets: []operation.Set{
 			{
 				Name:        ParserSet,
@@ -124,12 +128,30 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	support := LanguageSupport().SupportSpec()
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
+		Observers:        []coreenvironment.ObserverSpec{toolchainObserverSpec()},
+		SignalDerivers:   []coreenvironment.SignalDeriverSpec{toolchainSignalDeriverSpec()},
 		OperationSets: append(append([]operation.Set{}, support.OperationSets...),
 			support.ToolchainOperationSets...),
 		Toolchains: support.Toolchains,
 		Operations: specs,
-		EventTypes: []coreevent.Event{language.ToolchainStatusObserved{}},
 	}, nil
+}
+
+// EnvironmentObservers returns executable Go environment observers.
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	if p.system == nil {
+		return nil, nil
+	}
+	support := LanguageSupport().SupportSpec()
+	if len(support.Toolchains) == 0 {
+		return nil, nil
+	}
+	return []runtimeenvironment.Observer{goToolchainObserver{system: p.system, spec: support.Toolchains[0]}}, nil
+}
+
+// SignalDerivers returns executable Go signal derivation.
+func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{goToolchainSignalDeriver{}}, nil
 }
 
 // ContextProviders returns executable Go context providers.
@@ -341,6 +363,95 @@ func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {
 		Operations:        ops,
 		ActivationSignals: []string{"go.mod", "go.work"},
 	}
+}
+
+type goToolchainObserver struct {
+	system system.System
+	spec   language.ToolchainSpec
+}
+
+func (goToolchainObserver) Spec() coreenvironment.ObserverSpec {
+	return toolchainObserverSpec()
+}
+
+func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	if o.system == nil {
+		return nil, nil
+	}
+	status := runtimelanguage.ResolveToolchainStatus(ctx, o.system, o.spec)
+	scope := "local"
+	if workspace := o.system.Workspace(); workspace != nil && strings.TrimSpace(workspace.Root()) != "" {
+		scope = "workspace:" + workspace.Root()
+	}
+	return []coreenvironment.Observation{{
+		ID:      "toolchain:" + status.ID,
+		Kind:    ObservationToolchainStatus,
+		Scope:   scope,
+		Content: status,
+		Environment: coreenvironment.Ref{
+			Name: "local",
+		},
+	}}, nil
+}
+
+func toolchainObserverSpec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:        ToolchainObserver,
+		Description: "Observes local Go toolchain availability without exposing environment secrets.",
+		Environment: coreenvironment.Ref{
+			Name: "local",
+		},
+		Phase:           coreenvironment.PhaseSessionOpen,
+		ObservableKinds: []string{ObservationToolchainStatus},
+		Dynamic:         true,
+	}
+}
+
+type goToolchainSignalDeriver struct{}
+
+func (goToolchainSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return toolchainSignalDeriverSpec()
+}
+
+func (goToolchainSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	var out []coreenvironment.Signal
+	for _, observation := range req.Observations {
+		if observation.Kind != ObservationToolchainStatus {
+			continue
+		}
+		status, ok := observation.Content.(language.ToolchainStatus)
+		if !ok || !status.Available || strings.TrimSpace(status.ID) == "" {
+			continue
+		}
+		signal := coreenvironment.Signal{
+			Kind:           SignalToolchainAvailable,
+			Target:         status.ID,
+			Scope:          observation.Scope,
+			Environment:    observation.Environment,
+			Confidence:     1,
+			ObservationIDs: observationIDs(observation.ID),
+		}
+		if strings.TrimSpace(status.Version) != "" {
+			signal.Metadata = map[string]string{"version": strings.TrimSpace(status.Version)}
+		}
+		out = append(out, signal)
+	}
+	return out, nil
+}
+
+func toolchainSignalDeriverSpec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{
+		Name:             ToolchainSignals,
+		Description:      "Derives Go toolchain availability signals from toolchain status observations.",
+		ObservationKinds: []string{ObservationToolchainStatus},
+	}
+}
+
+func observationIDs(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{id}
 }
 
 func summaryContextSpec() corecontext.ProviderSpec {

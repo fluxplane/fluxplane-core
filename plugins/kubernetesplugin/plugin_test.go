@@ -10,7 +10,10 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 )
 
 func TestNormalizeConfigSplitsSortsAndDeduplicatesNamespaces(t *testing.T) {
@@ -85,6 +88,53 @@ func TestKubernetesAccessorRejectsDatasourceNamespaceExpansion(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot expand") {
 		t.Fatalf("Open error = %v, want cannot expand", err)
+	}
+}
+
+func TestKubernetesPluginContributesObserverAndDeriver(t *testing.T) {
+	ctx := context.Background()
+	plugin := NewWithClient(nil, fake.NewSimpleClientset())
+	ref := resource.PluginRef{Name: Name, Instance: "dev"}
+	instantiated, err := plugin.Instantiate(ctx, pluginhostContext(ref, Config{Context: "k3d-ai", Namespaces: []string{"ai-bots"}}))
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	resolved := instantiated.(Plugin)
+	bundle, err := resolved.Contributions(ctx, pluginhostContext(ref, nil))
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != kubernetesObserverName {
+		t.Fatalf("observers = %#v, want kubernetes observer spec", bundle.Observers)
+	}
+	if len(bundle.SignalDerivers) != 1 || bundle.SignalDerivers[0].Name != kubernetesDeriverName {
+		t.Fatalf("signal derivers = %#v, want kubernetes deriver spec", bundle.SignalDerivers)
+	}
+	observers, err := resolved.EnvironmentObservers(ctx, pluginhostContext(ref, nil))
+	if err != nil {
+		t.Fatalf("EnvironmentObservers: %v", err)
+	}
+	observations, diagnostics := runtimeenvironment.RunObservers(ctx, observers, runtimeenvironment.ObservationRequest{Phase: bundle.Observers[0].Phase})
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", diagnostics)
+	}
+	if len(observations) != 1 || observations[0].Kind != kubernetesObservationKind {
+		t.Fatalf("observations = %#v, want kubernetes context", observations)
+	}
+	content := observations[0].Content.(map[string]any)
+	if content["context"] != "k3d-ai" || content["namespace"] != "ai-bots" || content["available"] != true {
+		t.Fatalf("content = %#v, want configured k3d-ai ai-bots availability", content)
+	}
+	derivers, err := resolved.SignalDerivers(ctx, pluginhostContext(ref, nil))
+	if err != nil {
+		t.Fatalf("SignalDerivers: %v", err)
+	}
+	signals, diagnostics := runtimeenvironment.DeriveSignals(ctx, derivers, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	if len(diagnostics) != 0 {
+		t.Fatalf("signal diagnostics = %#v, want none", diagnostics)
+	}
+	if !hasSignal(signals, "integration.configured", Name) || !hasSignal(signals, "integration.available", Name) {
+		t.Fatalf("signals = %#v, want configured and available kubernetes signals", signals)
 	}
 }
 
@@ -163,6 +213,19 @@ func assertEnvRedacted(t *testing.T, env corev1.EnvVar, name string) {
 	if env.Value != "" || env.ValueFrom != nil {
 		t.Fatalf("env %q was not redacted: %#v", name, env)
 	}
+}
+
+func pluginhostContext(ref resource.PluginRef, cfg any) pluginhost.Context {
+	return pluginhost.Context{Ref: ref, Config: cfg}
+}
+
+func hasSignal(signals []coreenvironment.Signal, kind, target string) bool {
+	for _, signal := range signals {
+		if signal.Kind == kind && signal.Target == target {
+			return true
+		}
+	}
+	return false
 }
 
 var _ = metav1.NamespaceDefault

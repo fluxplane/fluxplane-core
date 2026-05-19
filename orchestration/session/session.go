@@ -3,6 +3,8 @@ package session
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,10 +20,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -33,32 +37,41 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/sessionworkflow"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimereaction "github.com/fluxplane/agentruntime/runtime/reaction"
 )
 
 // Session is the first orchestration boundary for the observe-decide-apply
 // loop. It is intentionally small; lifecycle and persistence will be added only
 // after the core loop is stable.
 type Session struct {
-	Agent             agent.Agent
-	Profile           sessionenv.SessionSpec
-	Commands          *command.Registry
-	Operations        *operation.Registry
-	Resolver          *sessioncontrol.Resolver
-	CommandCatalog    CommandCatalog
-	OperationCatalog  OperationCatalog
-	ToolSetCatalog    ToolSetCatalog
-	WorkflowCatalog   sessionworkflow.WorkflowCatalog
-	OperationExecutor sessionenv.OperationExecutor
-	Events            sessionenv.EventSink
-	ThreadStore       corethread.Store
-	Thread            corethread.Ref
-	SessionAgents     *sessionagent.Runner
-	Delegation        sessionenv.DelegationPolicy
-	StopEvaluator     StopEvaluator
-	RunID             string
-	TurnTools         []tool.Spec
-	Security          policy.AuthorizationPolicy
-	SecurityTrace     bool
+	Agent                agent.Agent
+	Profile              sessionenv.SessionSpec
+	Commands             *command.Registry
+	Operations           *operation.Registry
+	Resolver             *sessioncontrol.Resolver
+	CommandCatalog       CommandCatalog
+	OperationCatalog     OperationCatalog
+	ToolSetCatalog       ToolSetCatalog
+	OperationSets        []operation.Set
+	ContextProviders     []corecontext.Provider
+	WorkflowCatalog      sessionworkflow.WorkflowCatalog
+	OperationExecutor    sessionenv.OperationExecutor
+	Events               sessionenv.EventSink
+	ThreadStore          corethread.Store
+	Thread               corethread.Ref
+	SessionAgents        *sessionagent.Runner
+	Delegation           sessionenv.DelegationPolicy
+	StopEvaluator        StopEvaluator
+	RunID                string
+	TurnTools            []tool.Spec
+	StartupObservations  []environment.Observation
+	StartupSignals       []environment.Signal
+	EnvironmentObservers []runtimeenvironment.Observer
+	SignalDerivers       []runtimeenvironment.SignalDeriver
+	ReactionRules        []corereaction.Rule
+	Security             policy.AuthorizationPolicy
+	SecurityTrace        bool
 }
 
 type StopEvaluator = sessioncontrol.StopEvaluator
@@ -86,15 +99,19 @@ const (
 )
 
 var contextCommandSpec = sessioncontrol.ContextCommandSpec
+var envExplainCommandSpec = sessioncontrol.EnvExplainCommandSpec
 var compactCommandSpec = sessioncontrol.CompactCommandSpec
 var goalCommandSpec = sessioncontrol.GoalCommandSpec
 var whoamiCommandSpec = sessioncontrol.WhoamiCommandSpec
 
-var builtInSessionCommands = map[string]sessionCommandBinding{
-	contextCommandSpec.Path.String(): {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
-	compactCommandSpec.Path.String(): {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
-	goalCommandSpec.Path.String():    {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
-	whoamiCommandSpec.Path.String():  {Spec: whoamiCommandSpec, Handler: Session.executeWhoamiCommand},
+func builtInSessionCommands() map[string]sessionCommandBinding {
+	return map[string]sessionCommandBinding{
+		contextCommandSpec.Path.String():    {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
+		envExplainCommandSpec.Path.String(): {Spec: envExplainCommandSpec, Handler: Session.executeEnvExplainCommand},
+		compactCommandSpec.Path.String():    {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
+		goalCommandSpec.Path.String():       {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
+		whoamiCommandSpec.Path.String():     {Spec: whoamiCommandSpec, Handler: Session.executeWhoamiCommand},
+	}
 }
 
 var errContextProviderNotFound = errors.New("context provider not found")
@@ -369,6 +386,10 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	if err := s.replaySkillEvents(ctx); err != nil {
 		return inputFailed("skill_replay_failed", err.Error(), nil)
 	}
+	replayedReactions, err := s.replayReactionEvents(ctx)
+	if err != nil {
+		return inputFailed("reaction_replay_failed", err.Error(), nil)
+	}
 
 	baseCtx := ensureContext(ctx)
 	var conversationErr error
@@ -384,10 +405,19 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	}}
 	goal := strings.TrimSpace(opts.Goal)
 	var (
-		state   agent.StateRef
-		effects []environment.EffectResult
-		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
+		state     agent.StateRef
+		effects   []environment.EffectResult
+		signals   = append([]environment.Signal(nil), s.StartupSignals...)
+		reactions = replayedReactions
+		pending   = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
 	)
+	observations = append(observations, s.StartupObservations...)
+	if s.shouldRunSessionOpenPhase(ctx) {
+		observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseSessionOpen, observations, signals)
+		var reactionEffects []environment.EffectResult
+		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, inbound, signals, reactions, observations, events)
+		effects = append(effects, reactionEffects...)
+	}
 	for continuation := 0; ; continuation++ {
 		inner := s.runInnerTurn(ctx, innerTurnInput{
 			Inbound:             inbound,
@@ -401,6 +431,8 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			Pending:             pending,
 			Goal:                goal,
 			Observations:        observations,
+			Signals:             signals,
+			Reactions:           reactions,
 			State:               state,
 			Effects:             effects,
 			MaxSteps:            s.maxSteps(),
@@ -413,6 +445,8 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		state = inner.State
 		effects = inner.Effects
+		signals = inner.Signals
+		reactions = inner.Reactions
 		decision := s.evaluateContinuation(ctx, inbound, opts, continuation, inner.AgentResult, effects)
 		if decision.Result.Status != "" {
 			return s.finalizeInputResult(ctx, inbound, decision.Result)
@@ -455,6 +489,8 @@ type innerTurnInput struct {
 	Pending             []coreconversation.Item
 	Goal                string
 	Observations        []environment.Observation
+	Signals             []environment.Signal
+	Reactions           reactionState
 	State               agent.StateRef
 	Effects             []environment.EffectResult
 	MaxSteps            int
@@ -468,18 +504,31 @@ type innerTurnResult struct {
 	AgentResult agent.StepResult
 	State       agent.StateRef
 	Effects     []environment.EffectResult
+	Signals     []environment.Signal
+	Reactions   reactionState
+}
+
+type reactionState struct {
+	PreviousSignals map[string]string
+	AppliedKeys     map[string]bool
+	Active          sessionenv.ActiveState
 }
 
 func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnResult {
 	pending := append([]coreconversation.Item(nil), in.Pending...)
 	observations := append([]environment.Observation(nil), in.Observations...)
+	signals := append([]environment.Signal(nil), in.Signals...)
+	observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseTurn, observations, signals)
+	reactions, observations, reactionEffects := s.applyTurnReactions(ctx, in.Inbound, signals, in.Reactions, observations, in.Events)
 	state := in.State
 	effects := append([]environment.EffectResult(nil), in.Effects...)
+	effects = append(effects, reactionEffects...)
 	maxSteps := in.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 1
 	}
 	var lastAgentResult agent.StepResult
+	lazyPrepared := false
 	for step := 0; ; step++ {
 		// Check budget BEFORE calling the model — not after.
 		if step >= maxSteps {
@@ -489,21 +538,30 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 					AgentResult: lastAgentResult,
 					State:       state,
 					Effects:     effects,
+					Signals:     signals,
+					Reactions:   reactions,
 				}
 			}
 			// Clean break: outer loop will call evaluateContinuation.
-			return innerTurnResult{AgentResult: lastAgentResult, State: state, Effects: effects}
+			return innerTurnResult{AgentResult: lastAgentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
-		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations)
+		if !lazyPrepared && s.shouldRunLazyEnvironment(reactions.Active) {
+			observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseLazy, observations, signals)
+			var reactionEffects []environment.EffectResult
+			reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, signals, reactions, observations, in.Events)
+			effects = append(effects, reactionEffects...)
+			lazyPrepared = true
+		}
+		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations, reactions.Active)
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		transcript, err := s.transcriptForPending(ctx, projectedPending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
-		modelCtx = s.withBaseContext(modelCtx, "", in.Events)
+		modelCtx = s.withBaseContext(modelCtx, "", in.Events, reactions.Active)
 		agentCtx := agentContext{Context: modelCtx, events: in.Events}
 		stepInput := agent.StepInput{
 			Goal:         in.Goal,
@@ -512,9 +570,10 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			State:        state,
 		}
 		var agentResult agent.StepResult
-		if s.TurnTools != nil {
+		turnTools := s.turnTools(reactions.Active)
+		if turnTools != nil {
 			if toolAgent, ok := s.Agent.(turnToolAgent); ok {
-				agentResult = toolAgent.StepWithTools(agentCtx, stepInput, s.TurnTools)
+				agentResult = toolAgent.StepWithTools(agentCtx, stepInput, turnTools)
 			} else {
 				agentResult = s.Agent.Step(agentCtx, stepInput)
 			}
@@ -522,45 +581,484 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			agentResult = s.Agent.Step(agentCtx, stepInput)
 		}
 		if in.ConversationErr != nil && *in.ConversationErr != nil {
-			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		if err := s.appendThreadEvents(ctx, sessionenv.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		if agentResult.Status != agent.StatusOK {
 			if err := s.persistFailedTurnTranscript(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript, agentErrorMessage(agentResult)); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 			}
-			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		if err := s.commitContextRender(ctx, contextResult, in.LocalContextRecords); err != nil {
-			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		if !stateRefIsZero(agentResult.State.Ref) {
 			state = agentResult.State.Ref
 		}
 		lastAgentResult = agentResult
 		if agentResult.Decision.Kind != agent.DecisionOperation {
-			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		if len(agentResult.Decision.Operations) == 0 {
-			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations)
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		effects = append(effects, batch...)
 		// Persist tool results before the budget check at the top of the next
 		// iteration fires so they are durably recorded if the loop exits there.
 		if step+1 >= maxSteps {
 			if err := s.persistPendingTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects}
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 			}
 		}
 		observations = append(observations, observationsForEffects(batch)...)
+		observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseToolFollowup, observations, signals)
+		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, signals, reactions, observations, in.Events)
+		effects = append(effects, reactionEffects...)
 		pending = toolResults
 	}
+}
+
+func (s Session) prepareEnvironmentPhase(ctx context.Context, phase environment.ObservationPhase, observations []environment.Observation, signals []environment.Signal) ([]environment.Observation, []environment.Signal) {
+	if len(s.EnvironmentObservers) > 0 {
+		extra, diagnostics := runtimeenvironment.RunObservers(ctx, s.EnvironmentObservers, runtimeenvironment.ObservationRequest{
+			Phase:        phase,
+			Observations: append([]environment.Observation(nil), observations...),
+		})
+		observations = append(observations, extra...)
+		observations = append(observations, environmentDiagnostics("observer", diagnostics)...)
+	}
+	if len(s.SignalDerivers) > 0 {
+		extra, diagnostics := runtimeenvironment.DeriveSignals(ctx, s.SignalDerivers, runtimeenvironment.SignalDeriveRequest{
+			Observations: append([]environment.Observation(nil), observations...),
+		})
+		signals = append(signals, extra...)
+		observations = append(observations, environmentDiagnostics("signal_deriver", diagnostics)...)
+	}
+	return observations, signals
+}
+
+func (s Session) shouldRunLazyEnvironment(active sessionenv.ActiveState) bool {
+	if !s.hasObserverPhase(environment.PhaseLazy) {
+		return false
+	}
+	return len(s.contextProviders(active)) > 0
+}
+
+func (s Session) hasObserverPhase(phase environment.ObservationPhase) bool {
+	for _, observer := range s.EnvironmentObservers {
+		if observer == nil {
+			continue
+		}
+		spec := observer.Spec()
+		if spec.Phase == phase || spec.Phase == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound, signals []environment.Signal, state reactionState, observations []environment.Observation, sink sessionenv.EventSink) (reactionState, []environment.Observation, []environment.EffectResult) {
+	if len(s.ReactionRules) == 0 || len(signals) == 0 {
+		return state, observations, nil
+	}
+	plan := runtimereaction.Plan(runtimereaction.Request{
+		Rules:       s.ReactionRules,
+		Signals:     signals,
+		Previous:    state.PreviousSignals,
+		AppliedKeys: state.AppliedKeys,
+	})
+	state.PreviousSignals = plan.Current
+	emitReactionPlanDiagnostics(sink, plan.Diagnostics)
+	emitSkippedReactionActions(sink, plan.Skipped)
+	observations = append(observations, reactionPlanDiagnostics(plan.Diagnostics)...)
+	if len(plan.Planned) == 0 {
+		return state, observations, nil
+	}
+	actions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
+	operationActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
+	commandActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
+	workflowActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
+	approvalDiagnostics := make([]sessionenv.ReactionDiagnostic, 0)
+	for _, planned := range plan.Planned {
+		emitReactionEvent(sink, corereaction.ActionPlanned{
+			Rule:           planned.Rule,
+			Action:         planned.Action.Kind,
+			IdempotencyKey: planned.IdempotencyKey,
+		})
+		action := sessionenv.ReactionAction{
+			Rule:           planned.Rule,
+			Action:         planned.Action,
+			IdempotencyKey: planned.IdempotencyKey,
+		}
+		if effectfulReactionAction(planned.Action.Kind) && planned.Action.RequireApproval {
+			emitReactionEvent(sink, corereaction.ActionSkipped{
+				Rule:           planned.Rule,
+				Action:         planned.Action.Kind,
+				IdempotencyKey: planned.IdempotencyKey,
+				Reason:         "approval_required",
+			})
+			approvalDiagnostics = append(approvalDiagnostics, sessionenv.ReactionDiagnostic{
+				Rule:    planned.Rule,
+				Action:  planned.Action.Kind,
+				Message: "reaction action requires approval",
+			})
+			continue
+		}
+		if planned.Action.Kind == corereaction.ActionRunOperation {
+			operationActions = append(operationActions, action)
+			continue
+		}
+		if planned.Action.Kind == corereaction.ActionRunCommand {
+			commandActions = append(commandActions, action)
+			continue
+		}
+		if planned.Action.Kind == corereaction.ActionRunWorkflow {
+			workflowActions = append(workflowActions, action)
+			continue
+		}
+		actions = append(actions, action)
+	}
+	emitReactionApplyDiagnostics(sink, approvalDiagnostics)
+	observations = append(observations, reactionApplyDiagnostics(approvalDiagnostics)...)
+	cfg := s.envConfig(sink)
+	cfg.Active = &state.Active
+	result := sessionenv.ApplyReactionActions(actions, cfg)
+	if len(result.AppliedKeys) > 0 && state.AppliedKeys == nil {
+		state.AppliedKeys = map[string]bool{}
+	}
+	for _, key := range result.AppliedKeys {
+		state.AppliedKeys[key] = true
+	}
+	emitReactionApplyDiagnostics(sink, result.Diagnostics)
+	observations = append(observations, reactionApplyDiagnostics(result.Diagnostics)...)
+	reactionEffects, operationDiagnostics, appliedOperationKeys := s.applyReactionOperations(ctx, inbound.ID, operationActions, state.Active, sink)
+	commandEffects, commandDiagnostics, appliedCommandKeys := s.applyReactionCommands(ctx, inbound, commandActions, state.Active, sink)
+	workflowObservations, workflowDiagnostics, appliedWorkflowKeys := s.applyReactionWorkflows(ctx, inbound.ID, workflowActions, sink)
+	reactionEffects = append(reactionEffects, commandEffects...)
+	operationDiagnostics = append(operationDiagnostics, commandDiagnostics...)
+	operationDiagnostics = append(operationDiagnostics, workflowDiagnostics...)
+	appliedOperationKeys = append(appliedOperationKeys, appliedCommandKeys...)
+	appliedOperationKeys = append(appliedOperationKeys, appliedWorkflowKeys...)
+	if len(appliedOperationKeys) > 0 && state.AppliedKeys == nil {
+		state.AppliedKeys = map[string]bool{}
+	}
+	for _, key := range appliedOperationKeys {
+		state.AppliedKeys[key] = true
+	}
+	emitReactionApplyDiagnostics(sink, operationDiagnostics)
+	observations = append(observations, reactionApplyDiagnostics(operationDiagnostics)...)
+	observations = append(observations, observationsForEffects(reactionEffects)...)
+	observations = append(observations, workflowObservations...)
+	return state, observations, reactionEffects
+}
+
+func effectfulReactionAction(kind corereaction.ActionKind) bool {
+	return kind == corereaction.ActionRunOperation ||
+		kind == corereaction.ActionRunCommand ||
+		kind == corereaction.ActionRunWorkflow
+}
+
+func (s Session) applyReactionOperations(ctx context.Context, runID string, actions []sessionenv.ReactionAction, active sessionenv.ActiveState, sink sessionenv.EventSink) ([]environment.EffectResult, []sessionenv.ReactionDiagnostic, []string) {
+	if len(actions) == 0 {
+		return nil, nil, nil
+	}
+	var effects []environment.EffectResult
+	var diagnostics []sessionenv.ReactionDiagnostic
+	var appliedKeys []string
+	for i, planned := range actions {
+		ref := planned.Action.Operation.Operation
+		input := planned.Action.Operation.Input
+		callID := reactionOperationCallID(runID, planned.IdempotencyKey, i+1)
+		requested := sessionenv.OperationRequested{
+			RunID:     runID,
+			CallID:    callID,
+			Operation: ref,
+			Input:     input,
+		}
+		if err := s.appendThreadEvents(ctx, requested); err != nil {
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: err.Error()})
+			continue
+		}
+		s.emitLive(requested)
+		base := s.withBaseContext(ensureContext(ctx), callID, sink, active)
+		opCtx := operation.NewContext(base, sink)
+		effect := s.applyOperation(opCtx, ref, input, callID)
+		if effect.Observation.Metadata == nil {
+			effect.Observation.Metadata = map[string]any{}
+		}
+		effect.Observation.Metadata["operation"] = ref.String()
+		effect.Observation.Metadata["call_id"] = string(callID)
+		effect.Observation.Metadata["reaction_rule"] = planned.Rule
+		effect.Observation.Metadata["reaction_action"] = string(planned.Action.Kind)
+		effect, replacementErr := replaceOversizedToolResult(opCtx, effect, ref, callID)
+		if replacementErr != nil {
+			effect = operationEffect(operation.Failed("reaction_result_replacement_failed", replacementErr.Error(), map[string]any{
+				"operation": ref.String(),
+				"call_id":   string(callID),
+			}))
+			effect.Observation.Metadata = map[string]any{
+				"operation":       ref.String(),
+				"call_id":         string(callID),
+				"reaction_rule":   planned.Rule,
+				"reaction_action": string(planned.Action.Kind),
+			}
+		}
+		completed := sessionenv.OperationCompleted{
+			RunID:     runID,
+			CallID:    callID,
+			Operation: ref,
+			Result:    effect.Result,
+		}
+		if err := s.appendThreadEvents(ctx, completed); err != nil {
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: err.Error()})
+			continue
+		}
+		s.emitLive(completed)
+		effects = append(effects, effect)
+		if planned.IdempotencyKey != "" {
+			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
+			emitReactionEvent(sink, corereaction.ActionApplied{
+				Rule:           planned.Rule,
+				Action:         planned.Action.Kind,
+				IdempotencyKey: planned.IdempotencyKey,
+				Target:         ref.String(),
+			})
+		}
+	}
+	return effects, diagnostics, appliedKeys
+}
+
+func (s Session) applyReactionCommands(ctx context.Context, inbound channel.Inbound, actions []sessionenv.ReactionAction, active sessionenv.ActiveState, sink sessionenv.EventSink) ([]environment.EffectResult, []sessionenv.ReactionDiagnostic, []string) {
+	if len(actions) == 0 {
+		return nil, nil, nil
+	}
+	var effects []environment.EffectResult
+	var diagnostics []sessionenv.ReactionDiagnostic
+	var appliedKeys []string
+	base := s.withBaseContext(ensureContext(ctx), "", sink, active)
+	for i, planned := range actions {
+		commandInbound := inbound
+		commandInbound.ID = reactionCommandRunID(inbound.ID, planned.IdempotencyKey, i+1)
+		commandInbound.Kind = channel.InboundCommand
+		commandInbound.Command = cloneCommandInvocation(planned.Action.Command)
+		commandInbound.Message = nil
+		result := s.ExecuteInboundCommand(base, commandInbound)
+		switch result.Status {
+		case CommandStatusRejected, CommandStatusApprovalRequired:
+			message := "reaction command was not executed"
+			if result.Policy.Reason != "" {
+				message = result.Policy.Reason
+			}
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: message})
+			continue
+		}
+		if result.Error != nil && result.Status != CommandStatusFailed {
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: result.Error.Message})
+			continue
+		}
+		if result.Effect != nil {
+			effect := *result.Effect
+			if effect.Observation.Metadata == nil {
+				effect.Observation.Metadata = map[string]any{}
+			}
+			effect.Observation.Metadata["reaction_rule"] = planned.Rule
+			effect.Observation.Metadata["reaction_action"] = string(planned.Action.Kind)
+			effects = append(effects, effect)
+		}
+		if planned.IdempotencyKey != "" {
+			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
+			emitReactionEvent(sink, corereaction.ActionApplied{
+				Rule:           planned.Rule,
+				Action:         planned.Action.Kind,
+				IdempotencyKey: planned.IdempotencyKey,
+				Target:         planned.Action.Command.Path.String(),
+			})
+		}
+	}
+	return effects, diagnostics, appliedKeys
+}
+
+func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actions []sessionenv.ReactionAction, sink sessionenv.EventSink) ([]environment.Observation, []sessionenv.ReactionDiagnostic, []string) {
+	if len(actions) == 0 {
+		return nil, nil, nil
+	}
+	var observations []environment.Observation
+	var diagnostics []sessionenv.ReactionDiagnostic
+	var appliedKeys []string
+	for i, planned := range actions {
+		workflowName := planned.Action.Workflow.Name
+		workflowRunID := reactionWorkflowRunID(runID, planned.IdempotencyKey, i+1)
+		spec := command.Spec{
+			Path: command.Path{"reaction", "workflow", string(workflowName)},
+			Target: invocation.Target{
+				Kind:     invocation.TargetWorkflow,
+				Workflow: workflowName,
+				Input:    planned.Action.Workflow.Input,
+			},
+		}
+		result := sessionworkflow.Execute(ctx, sessionworkflow.Config{
+			WorkflowCatalog:   s.WorkflowCatalog,
+			Resolver:          s.Resolver,
+			OperationExecutor: s.OperationExecutor,
+			SessionAgents:     s.SessionAgents,
+			Delegation:        s.Delegation,
+			Thread:            s.Thread,
+			Events:            sink,
+			AppendEvents:      s.appendThreadEvents,
+			EmitLive:          s.emitLive,
+			ResolveOperation: func(ref string, scope sessioncontrol.ResourceID) (operation.Operation, error) {
+				binding, err := s.OperationCatalog.Resolve(ref, scope)
+				if err != nil {
+					return nil, err
+				}
+				return binding.Operation, nil
+			},
+		}, workflowRunID, planned.Action.Workflow.Input, sessioncontrol.ResourceID{}, spec)
+		if result.Error != nil && result.Status == sessionworkflow.StatusFailed {
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: result.Error.Message})
+			continue
+		}
+		observations = append(observations, environment.Observation{
+			Source:  "workflow",
+			Kind:    "workflow.result",
+			Content: result,
+			At:      time.Now().UTC(),
+			Metadata: map[string]any{
+				"workflow":        string(workflowName),
+				"run_id":          workflowRunID,
+				"reaction_rule":   planned.Rule,
+				"reaction_action": string(planned.Action.Kind),
+			},
+		})
+		if planned.IdempotencyKey != "" {
+			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
+			emitReactionEvent(sink, corereaction.ActionApplied{
+				Rule:           planned.Rule,
+				Action:         planned.Action.Kind,
+				IdempotencyKey: planned.IdempotencyKey,
+				Target:         string(workflowName),
+			})
+		}
+	}
+	return observations, diagnostics, appliedKeys
+}
+
+func environmentDiagnostics(kind string, diagnostics []runtimeenvironment.Diagnostic) []environment.Observation {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := make([]environment.Observation, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			continue
+		}
+		out = append(out, environment.Observation{
+			Source:  "runtime/environment",
+			Kind:    "environment.diagnostic",
+			Content: diagnostic.Message,
+			Metadata: map[string]any{
+				"kind": kind,
+				"name": diagnostic.Name,
+			},
+		})
+	}
+	return out
+}
+
+func reactionPlanDiagnostics(diagnostics []runtimereaction.Diagnostic) []environment.Observation {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := make([]environment.Observation, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			continue
+		}
+		out = append(out, environment.Observation{
+			Source:  "runtime/reaction",
+			Kind:    "reaction.diagnostic",
+			Content: diagnostic.Message,
+			Metadata: map[string]any{
+				"rule": diagnostic.Rule,
+			},
+		})
+	}
+	return out
+}
+
+func reactionApplyDiagnostics(diagnostics []sessionenv.ReactionDiagnostic) []environment.Observation {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	out := make([]environment.Observation, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			continue
+		}
+		out = append(out, environment.Observation{
+			Source:  "orchestration/sessionenv",
+			Kind:    "reaction.diagnostic",
+			Content: diagnostic.Message,
+			Metadata: map[string]any{
+				"rule":   diagnostic.Rule,
+				"action": string(diagnostic.Action),
+			},
+		})
+	}
+	return out
+}
+
+func emitSkippedReactionActions(sink sessionenv.EventSink, skipped []runtimereaction.SkippedAction) {
+	for _, action := range skipped {
+		emitReactionEvent(sink, corereaction.ActionSkipped{
+			Rule:           action.Rule,
+			Action:         action.Action.Kind,
+			IdempotencyKey: action.IdempotencyKey,
+			Reason:         action.Reason,
+		})
+	}
+}
+
+func emitReactionPlanDiagnostics(sink sessionenv.EventSink, diagnostics []runtimereaction.Diagnostic) {
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			continue
+		}
+		emitReactionEvent(sink, corereaction.Diagnostic{
+			Rule:    diagnostic.Rule,
+			Message: diagnostic.Message,
+		})
+	}
+}
+
+func emitReactionApplyDiagnostics(sink sessionenv.EventSink, diagnostics []sessionenv.ReactionDiagnostic) {
+	for _, diagnostic := range diagnostics {
+		if strings.TrimSpace(diagnostic.Message) == "" {
+			continue
+		}
+		emitReactionEvent(sink, corereaction.Diagnostic{
+			Rule:    diagnostic.Rule,
+			Action:  diagnostic.Action,
+			Message: diagnostic.Message,
+		})
+	}
+}
+
+func emitReactionEvent(sink sessionenv.EventSink, payload sessionenv.Event) {
+	if payload == nil {
+		return
+	}
+	if sink == nil {
+		sink = sessionenv.DiscardEvents()
+	}
+	sink.Emit(payload)
 }
 
 func (s Session) finalizeInputResult(ctx context.Context, inbound channel.Inbound, result InputResult) InputResult {
@@ -633,6 +1131,24 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 	return out
 }
 
+func (s Session) shouldRunSessionOpenPhase(ctx context.Context) bool {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return true
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		return true
+	}
+	inboundEvents := 0
+	for _, record := range snapshot.Events {
+		switch record.Event.Name {
+		case coresession.EventInputReceived, coresession.EventCommandReceived:
+			inboundEvents++
+		}
+	}
+	return inboundEvents <= 1
+}
+
 func continuationPolicyForInput(opts inputExecutionOptions, spec agent.Spec) agent.ContinuationPolicy {
 	goal := strings.TrimSpace(opts.Goal)
 	if goal == "" {
@@ -686,6 +1202,156 @@ type contextPreviewData struct {
 	System    string   `json:"system,omitempty"`
 	Developer string   `json:"developer,omitempty"`
 	User      string   `json:"user,omitempty"`
+}
+
+type envExplainData struct {
+	Observers        []environment.ObserverSpec      `json:"observers,omitempty"`
+	SignalDerivers   []environment.SignalDeriverSpec `json:"signal_derivers,omitempty"`
+	ReactionRules    []string                        `json:"reaction_rules,omitempty"`
+	Active           envExplainActive                `json:"active,omitempty"`
+	AppliedReactions int                             `json:"applied_reactions,omitempty"`
+}
+
+type envExplainActive struct {
+	OperationSets    []string `json:"operation_sets,omitempty"`
+	Datasources      []string `json:"datasources,omitempty"`
+	ContextProviders []string `json:"context_providers,omitempty"`
+}
+
+func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	state, err := s.replayReactionEvents(ctx)
+	if err != nil {
+		return commandFailed("reaction_replay_failed", err.Error(), nil)
+	}
+	data := envExplainData{
+		Observers:        environmentObserverSpecs(s.EnvironmentObservers),
+		SignalDerivers:   signalDeriverSpecs(s.SignalDerivers),
+		ReactionRules:    reactionRuleNames(s.ReactionRules),
+		Active:           explainActiveState(state.Active),
+		AppliedReactions: len(state.AppliedKeys),
+	}
+	return CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: operation.Rendered{
+		Text: renderEnvExplain(data),
+		Data: data,
+	}}
+}
+
+func renderEnvExplain(data envExplainData) string {
+	var b strings.Builder
+	b.WriteString("Environment\n")
+	writeEnvExplainObservers(&b, data.Observers)
+	writeEnvExplainDerivers(&b, data.SignalDerivers)
+	writeEnvExplainRules(&b, data.ReactionRules)
+	writeEnvExplainActive(&b, data.Active, data.AppliedReactions)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeEnvExplainObservers(b *strings.Builder, observers []environment.ObserverSpec) {
+	b.WriteString("\nObservers\n")
+	if len(observers) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, observer := range observers {
+		parts := []string{}
+		if observer.Phase != "" {
+			parts = append(parts, "phase="+string(observer.Phase))
+		}
+		if observer.Environment.Name != "" {
+			parts = append(parts, "env="+string(observer.Environment.Name))
+		}
+		if observer.Dynamic {
+			parts = append(parts, "dynamic")
+		}
+		if observer.Disabled {
+			parts = append(parts, "disabled")
+		}
+		if len(observer.ObservableKinds) > 0 {
+			parts = append(parts, "kinds="+strings.Join(observer.ObservableKinds, ","))
+		}
+		writeEnvExplainLine(b, observer.Name, parts)
+	}
+}
+
+func writeEnvExplainDerivers(b *strings.Builder, derivers []environment.SignalDeriverSpec) {
+	b.WriteString("\nSignal Derivers\n")
+	if len(derivers) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, deriver := range derivers {
+		parts := []string{}
+		if len(deriver.ObservationKinds) > 0 {
+			parts = append(parts, "from="+strings.Join(deriver.ObservationKinds, ","))
+		}
+		if len(deriver.Signals) > 0 {
+			parts = append(parts, "signals="+strings.Join(signalTemplateNames(deriver.Signals), ","))
+		} else {
+			parts = append(parts, "signals=custom")
+		}
+		writeEnvExplainLine(b, deriver.Name, parts)
+	}
+}
+
+func writeEnvExplainRules(b *strings.Builder, rules []string) {
+	b.WriteString("\nReaction Rules\n")
+	if len(rules) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, rule := range rules {
+		b.WriteString("  - ")
+		b.WriteString(rule)
+		b.WriteByte('\n')
+	}
+}
+
+func writeEnvExplainActive(b *strings.Builder, active envExplainActive, applied int) {
+	b.WriteString("\nActive\n")
+	b.WriteString("  operation sets: ")
+	b.WriteString(envExplainList(active.OperationSets))
+	b.WriteByte('\n')
+	b.WriteString("  datasources: ")
+	b.WriteString(envExplainList(active.Datasources))
+	b.WriteByte('\n')
+	b.WriteString("  context providers: ")
+	b.WriteString(envExplainList(active.ContextProviders))
+	b.WriteByte('\n')
+	b.WriteString("  applied reactions: ")
+	b.WriteString(strconv.Itoa(applied))
+	b.WriteByte('\n')
+}
+
+func writeEnvExplainLine(b *strings.Builder, name string, parts []string) {
+	b.WriteString("  - ")
+	b.WriteString(name)
+	if len(parts) > 0 {
+		b.WriteString(" (")
+		b.WriteString(strings.Join(parts, "; "))
+		b.WriteByte(')')
+	}
+	b.WriteByte('\n')
+}
+
+func signalTemplateNames(templates []environment.SignalTemplate) []string {
+	out := make([]string, 0, len(templates))
+	for _, signal := range templates {
+		name := strings.TrimSpace(signal.Kind)
+		if signal.Target != "" {
+			name += ":" + strings.TrimSpace(signal.Target)
+		}
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func envExplainList(values []string) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	return strings.Join(values, ", ")
 }
 
 func (s Session) previewContext(ctx context.Context, input contextPreviewInput, inbound channel.Inbound) (contextPreviewData, error) {
@@ -769,11 +1435,88 @@ func sortedProviderNames(providers []corecontext.Provider) []string {
 	return names
 }
 
-func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation) (corecontext.BuildResult, []coreconversation.Item, error) {
-	if err := s.activateTriggeredSkills(pending, observations, in.Events); err != nil {
-		return corecontext.BuildResult{}, nil, err
+func environmentObserverSpecs(observers []runtimeenvironment.Observer) []environment.ObserverSpec {
+	if len(observers) == 0 {
+		return nil
 	}
-	providers := s.contextProviders()
+	out := make([]environment.ObserverSpec, 0, len(observers))
+	for _, observer := range observers {
+		if observer == nil {
+			continue
+		}
+		out = append(out, observer.Spec())
+	}
+	return out
+}
+
+func signalDeriverSpecs(derivers []runtimeenvironment.SignalDeriver) []environment.SignalDeriverSpec {
+	if len(derivers) == 0 {
+		return nil
+	}
+	out := make([]environment.SignalDeriverSpec, 0, len(derivers))
+	for _, deriver := range derivers {
+		if deriver == nil {
+			continue
+		}
+		out = append(out, deriver.Spec())
+	}
+	return out
+}
+
+func reactionRuleNames(rules []corereaction.Rule) []string {
+	if len(rules) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		if name := strings.TrimSpace(rule.Name); name != "" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func explainActiveState(active sessionenv.ActiveState) envExplainActive {
+	out := envExplainActive{
+		OperationSets:    sortedBoolMapKeys(active.OperationSets),
+		Datasources:      sortedNameBoolMapKeys(active.Datasources),
+		ContextProviders: sortedNameBoolMapKeys(active.ContextProviders),
+	}
+	return out
+}
+
+func sortedBoolMapKeys(values map[string]bool) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for key, active := range values {
+		if active && strings.TrimSpace(key) != "" {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedNameBoolMapKeys[K ~string](values map[K]bool) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for key, active := range values {
+		value := strings.TrimSpace(string(key))
+		if active && value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, []coreconversation.Item, error) {
+	providers := s.contextProviders(active)
 	if len(providers) == 0 {
 		return corecontext.BuildResult{}, append([]coreconversation.Item(nil), pending...), nil
 	}
@@ -781,14 +1524,15 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 	if err != nil {
 		return corecontext.BuildResult{}, nil, err
 	}
-	renderCtx := s.contextProviderContext(in.BaseContext, observations)
+	renderCtx := s.contextProviderContext(in.BaseContext, observations, active)
 	result, err := sessionenv.BuildContext(providers, records, renderCtx, corecontext.BuildRequest{
-		ThreadID: string(s.Thread.ID),
-		BranchID: string(s.Thread.BranchID),
-		TurnID:   in.ConversationTurnID,
-		Reason:   contextRenderReason(pending, observations),
-		Scope:    contextRequestScope(in.Inbound),
-		Previous: records,
+		ThreadID:     string(s.Thread.ID),
+		BranchID:     string(s.Thread.BranchID),
+		TurnID:       in.ConversationTurnID,
+		Reason:       contextRenderReason(pending, observations),
+		Scope:        contextRequestScope(in.Inbound),
+		Observations: append([]environment.Observation(nil), observations...),
+		Previous:     records,
 	})
 	if err != nil {
 		return corecontext.BuildResult{}, nil, err
@@ -925,40 +1669,42 @@ func actorGroupIDs(actor user.Actor) []string {
 	return out
 }
 
-func (s Session) activateTriggeredSkills(pending []coreconversation.Item, observations []environment.Observation, sink sessionenv.EventSink) error {
-	return sessionenv.ActivateSkillTriggers(skillTriggerText(pending, observations), s.envConfig(sink))
-}
-
-func skillTriggerText(pending []coreconversation.Item, observations []environment.Observation) string {
-	var parts []string
-	for _, item := range pending {
-		if item.Kind == coreconversation.ItemInput {
-			if text := valueText(item.Content); text != "" {
-				parts = append(parts, text)
-			}
-		}
-	}
-	for _, observation := range observations {
-		switch observation.Kind {
-		case "channel.message", "session.continuation":
-			if text := valueText(observation.Content); text != "" {
-				parts = append(parts, text)
-			}
-		}
-	}
-	return strings.Join(parts, "\n")
-}
-
-func (s Session) contextProviders() []corecontext.Provider {
+func (s Session) contextProviders(active ...sessionenv.ActiveState) []corecontext.Provider {
 	carrier, ok := s.Agent.(contextProviderAgent)
-	if !ok || carrier == nil {
-		return nil
+	var providers []corecontext.Provider
+	if ok && carrier != nil {
+		providers = carrier.ContextProviders()
 	}
-	return carrier.ContextProviders()
+	if len(active) == 0 || len(active[0].ContextProviders) == 0 {
+		return providers
+	}
+	seen := map[corecontext.ProviderName]bool{}
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		seen[provider.Spec().Name] = true
+	}
+	for _, provider := range s.ContextProviders {
+		if provider == nil {
+			continue
+		}
+		name := provider.Spec().Name
+		if !active[0].ContextProviders[name] || seen[name] {
+			continue
+		}
+		providers = append(providers, provider)
+		seen[name] = true
+	}
+	return providers
 }
 
-func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation) context.Context {
-	return sessionenv.ContextProviderContext(ctx, s.envConfig(s.eventSink()), observations)
+func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation, active ...sessionenv.ActiveState) context.Context {
+	cfg := s.envConfig(s.eventSink())
+	if len(active) > 0 {
+		cfg.Active = &active[0]
+	}
+	return sessionenv.ContextProviderContext(ctx, cfg, observations)
 }
 
 func contextRenderReason(pending []coreconversation.Item, observations []environment.Observation) corecontext.RenderReason {
@@ -1585,12 +2331,105 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 }
 
 func (s Session) applyProjectedOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
-	if s.TurnTools != nil && !operationProjected(s.TurnTools, ref) {
+	tools := s.TurnTools
+	if active, ok := sessionenv.ActiveStateFromContext(ctx); ok {
+		tools = s.turnTools(active)
+	}
+	if tools != nil && !operationProjected(tools, ref) {
 		return operationEffect(operation.Failed("operation_not_projected", "operation was not projected for this turn authority", map[string]any{
 			"operation": ref.String(),
 		}))
 	}
 	return s.applyOperation(ctx, ref, input, callID)
+}
+
+func (s Session) turnTools(active sessionenv.ActiveState) []tool.Spec {
+	out := append([]tool.Spec(nil), s.TurnTools...)
+	for _, projected := range s.activeOperationSetTools(active) {
+		if !toolProjected(out, projected) {
+			out = append(out, projected)
+		}
+	}
+	if out == nil && s.TurnTools != nil {
+		return []tool.Spec{}
+	}
+	return out
+}
+
+func (s Session) activeOperationSetTools(active sessionenv.ActiveState) []tool.Spec {
+	if len(active.OperationSets) == 0 || len(s.OperationSets) == 0 {
+		return nil
+	}
+	sets := map[string]operation.Set{}
+	for _, set := range s.OperationSets {
+		if strings.TrimSpace(set.Name) != "" {
+			sets[set.Name] = set
+		}
+	}
+	var out []tool.Spec
+	for name, enabled := range active.OperationSets {
+		if !enabled {
+			continue
+		}
+		set, ok := sets[name]
+		if !ok {
+			continue
+		}
+		for _, ref := range set.Operations {
+			projected, ok := s.operationTool(ref)
+			if ok && !toolProjected(out, projected) {
+				out = append(out, projected)
+			}
+		}
+	}
+	return out
+}
+
+func (s Session) operationTool(ref operation.Ref) (tool.Spec, bool) {
+	op, ok := s.resolveOperation(ref)
+	if !ok || op == nil {
+		return tool.Spec{}, false
+	}
+	spec := op.Spec()
+	return tool.Spec{
+		Name:        tool.Name(spec.Ref.Name),
+		Description: spec.Description,
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: spec.Ref,
+		},
+		Input:     spec.Input,
+		Output:    spec.Output,
+		Semantics: spec.Semantics,
+		Annotations: map[string]string{
+			"projection": "reaction_operation_set",
+		},
+	}, true
+}
+
+func (s Session) resolveOperation(ref operation.Ref) (operation.Operation, bool) {
+	if len(s.OperationCatalog) > 0 {
+		binding, err := s.OperationCatalog.Resolve(ref.String(), sessioncontrol.ResourceID{})
+		if err == nil {
+			return binding.Operation, true
+		}
+	}
+	if s.Operations != nil {
+		return s.Operations.Resolve(ref)
+	}
+	return nil, false
+}
+
+func toolProjected(tools []tool.Spec, candidate tool.Spec) bool {
+	for _, existing := range tools {
+		if existing.Name != "" && existing.Name == candidate.Name {
+			return true
+		}
+		if existing.Target.Kind == invocation.TargetOperation && candidate.Target.Kind == invocation.TargetOperation && operationRefEqual(existing.Target.Operation, candidate.Target.Operation) {
+			return true
+		}
+	}
+	return false
 }
 
 func operationProjected(tools []tool.Spec, ref operation.Ref) bool {
@@ -2953,7 +3792,7 @@ func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error
 }
 
 func resolveCommand(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
-	if sessionCommand, ok := builtInSessionCommands[path.String()]; ok {
+	if sessionCommand, ok := builtInSessionCommands()[path.String()]; ok {
 		return resolvedCommand{
 			Binding: CommandBinding{
 				Spec: sessionCommand.Spec,
@@ -3018,16 +3857,113 @@ func (s Session) applyBoundOperation(ctx operation.Context, binding CommandBindi
 }
 
 func (s Session) executeOperation(ctx operation.Context, op operation.Operation, input operation.Value, callID operation.CallID) environment.EffectResult {
-	ctx = sessionenv.OperationContext(ctx, s.envConfig(ctx.Events()), callID)
+	cfg := s.envConfig(ctx.Events())
+	if active, ok := sessionenv.ActiveStateFromContext(ctx); ok {
+		cfg.Active = &active
+	}
+	ctx = sessionenv.OperationContext(ctx, cfg, callID)
 	return operationEffect(s.OperationExecutor.Execute(ctx, op, input))
 }
 
-func (s Session) withBaseContext(ctx context.Context, callID operation.CallID, events sessionenv.EventSink) context.Context {
-	return sessionenv.WithBaseContext(ctx, s.envConfig(events), callID)
+func (s Session) withBaseContext(ctx context.Context, callID operation.CallID, events sessionenv.EventSink, active ...sessionenv.ActiveState) context.Context {
+	cfg := s.envConfig(events)
+	if len(active) > 0 {
+		cfg.Active = &active[0]
+	}
+	return sessionenv.WithBaseContext(ctx, cfg, callID)
 }
 
 func (s Session) replaySkillEvents(ctx context.Context) error {
 	return sessionenv.ReplaySkillEvents(ctx, s.envConfig(s.eventSink()))
+}
+
+func (s Session) replayReactionEvents(ctx context.Context) (reactionState, error) {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return reactionState{}, nil
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return reactionState{}, nil
+		}
+		return reactionState{}, err
+	}
+	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
+	if err != nil {
+		return reactionState{}, err
+	}
+	state := reactionState{AppliedKeys: map[string]bool{}}
+	for _, record := range records {
+		runtimeEvent, ok := record.Event.Payload.(coresession.RuntimeEmitted)
+		if !ok {
+			if ptr, ok := record.Event.Payload.(*coresession.RuntimeEmitted); ok && ptr != nil {
+				runtimeEvent = *ptr
+			} else {
+				continue
+			}
+		}
+		if runtimeEvent.Name != corereaction.EventActionApplied {
+			continue
+		}
+		if key := reactionAppliedKey(runtimeEvent.Payload); key != "" {
+			state.AppliedKeys[key] = true
+		}
+		applyReplayedReactionActivation(runtimeEvent.Payload, &state.Active)
+	}
+	if len(state.AppliedKeys) == 0 {
+		state.AppliedKeys = nil
+	}
+	return state, nil
+}
+
+func reactionAppliedKey(payload any) string {
+	switch typed := payload.(type) {
+	case corereaction.ActionApplied:
+		return strings.TrimSpace(typed.IdempotencyKey)
+	case *corereaction.ActionApplied:
+		if typed == nil {
+			return ""
+		}
+		return strings.TrimSpace(typed.IdempotencyKey)
+	case map[string]any:
+		key, _ := typed["idempotency_key"].(string)
+		return strings.TrimSpace(key)
+	default:
+		return ""
+	}
+}
+
+func applyReplayedReactionActivation(payload any, active *sessionenv.ActiveState) {
+	action, target := reactionAppliedActionTarget(payload)
+	if active == nil || strings.TrimSpace(target) == "" {
+		return
+	}
+	switch action {
+	case corereaction.ActionEnableOperationSet:
+		active.EnableOperationSet(target)
+	case corereaction.ActionEnableDatasource:
+		active.EnableDatasource(coredatasource.Name(target))
+	case corereaction.ActionEnableContext:
+		active.EnableContextProvider(corecontext.ProviderName(target))
+	}
+}
+
+func reactionAppliedActionTarget(payload any) (corereaction.ActionKind, string) {
+	switch typed := payload.(type) {
+	case corereaction.ActionApplied:
+		return typed.Action, strings.TrimSpace(typed.Target)
+	case *corereaction.ActionApplied:
+		if typed == nil {
+			return "", ""
+		}
+		return typed.Action, strings.TrimSpace(typed.Target)
+	case map[string]any:
+		action, _ := typed["action"].(string)
+		target, _ := typed["target"].(string)
+		return corereaction.ActionKind(action), strings.TrimSpace(target)
+	default:
+		return "", ""
+	}
 }
 
 func (s Session) envConfig(events sessionenv.EventSink) sessionenv.Config {
@@ -3050,6 +3986,67 @@ func operationCallID(runID string, ordinal int) operation.CallID {
 		return operation.CallID(fmt.Sprintf("operation:%d", ordinal))
 	}
 	return operation.CallID(fmt.Sprintf("%s:operation:%d", runID, ordinal))
+}
+
+func reactionOperationCallID(runID, idempotencyKey string, ordinal int) operation.CallID {
+	if ordinal < 1 {
+		ordinal = 1
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		if runID == "" {
+			return operation.CallID(fmt.Sprintf("reaction_operation:%d", ordinal))
+		}
+		return operation.CallID(fmt.Sprintf("%s:reaction_operation:%d", runID, ordinal))
+	}
+	sum := sha256.Sum256([]byte(idempotencyKey))
+	short := hex.EncodeToString(sum[:8])
+	if runID == "" {
+		return operation.CallID("reaction_operation:" + short)
+	}
+	return operation.CallID(runID + ":reaction_operation:" + short)
+}
+
+func reactionCommandRunID(runID, idempotencyKey string, ordinal int) string {
+	if ordinal < 1 {
+		ordinal = 1
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		if runID == "" {
+			return fmt.Sprintf("reaction_command:%d", ordinal)
+		}
+		return fmt.Sprintf("%s:reaction_command:%d", runID, ordinal)
+	}
+	sum := sha256.Sum256([]byte(idempotencyKey))
+	short := hex.EncodeToString(sum[:8])
+	if runID == "" {
+		return "reaction_command:" + short
+	}
+	return runID + ":reaction_command:" + short
+}
+
+func reactionWorkflowRunID(runID, idempotencyKey string, ordinal int) string {
+	if ordinal < 1 {
+		ordinal = 1
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		if runID == "" {
+			return fmt.Sprintf("reaction_workflow:%d", ordinal)
+		}
+		return fmt.Sprintf("%s:reaction_workflow:%d", runID, ordinal)
+	}
+	sum := sha256.Sum256([]byte(idempotencyKey))
+	short := hex.EncodeToString(sum[:8])
+	if runID == "" {
+		return "reaction_workflow:" + short
+	}
+	return runID + ":reaction_workflow:" + short
+}
+
+func cloneCommandInvocation(in command.Invocation) *command.Invocation {
+	out := in
+	out.Path = append(command.Path(nil), in.Path...)
+	out.Args = append([]string(nil), in.Args...)
+	return &out
 }
 
 func operationEffect(result operation.Result) environment.EffectResult {

@@ -62,11 +62,6 @@ func LanguageSupport() runtimelanguage.Support {
 				language.CapabilityDiagnostics,
 			},
 		},
-		Signals: []runtimelanguage.SignalMatcher{
-			{Language: language.LanguageMarkdown},
-			{Path: "README.md"},
-			{Path: "AGENTS.md"},
-		},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Markdown outline, link listing, and local diagnostics.",

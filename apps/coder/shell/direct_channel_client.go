@@ -161,7 +161,7 @@ func transcriptEventsForResult(sessionID string, result agentruntime.Result, out
 	events := []TranscriptEvent{}
 	hasOutbound := false
 	if result.Outbound != nil && result.Outbound.Message != nil {
-		events = append(events, TranscriptEvent{ID: newEventID("out"), SessionID: sessionID, Time: now, Kind: outputKind, Summary: fmt.Sprint(result.Outbound.Message.Content)})
+		events = append(events, TranscriptEvent{ID: newEventID("out"), SessionID: sessionID, Time: now, Kind: outputKind, Summary: outputText(result.Outbound.Message.Content)})
 		hasOutbound = true
 	}
 	if result.Operation != nil {
@@ -203,10 +203,14 @@ func operationResultText(result operation.Result) string {
 	if result.Output == nil {
 		return ""
 	}
-	if rendered, ok := result.Output.(operation.ModelRenderable); ok {
+	return outputText(result.Output)
+}
+
+func outputText(value any) string {
+	if rendered, ok := value.(operation.ModelRenderable); ok {
 		return rendered.ModelText()
 	}
-	return fmt.Sprint(result.Output)
+	return fmt.Sprint(value)
 }
 
 func parseSlashInvocation(line string) (command.Invocation, error) {

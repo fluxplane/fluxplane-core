@@ -2,10 +2,8 @@ package llmagent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
@@ -167,13 +165,12 @@ func (a *Agent) step(ctx agent.Context, input agent.StepInput, toolOverride []to
 	if ctx != nil {
 		base = ctx
 	}
-	base = coredatasource.ContextWithDetectionInput(base, detectionInput(input))
 	if err := base.Err(); err != nil {
 		return failed("context_canceled", err.Error(), nil)
 	}
 
 	if !contextMaterializedFromContext(base) {
-		dynamicContext, err := a.buildContext(base)
+		dynamicContext, err := a.buildContext(base, input)
 		if err != nil {
 			return failed("context_provider_failed", err.Error(), nil)
 		}
@@ -267,81 +264,24 @@ func (a *Agent) request(ctx agent.Context, input agent.StepInput, toolOverride [
 	}
 }
 
-func (a *Agent) buildContext(ctx context.Context) ([]corecontext.Block, error) {
+func (a *Agent) buildContext(ctx context.Context, input agent.StepInput) ([]corecontext.Block, error) {
 	if len(a.contextProviders) == 0 {
 		return nil, nil
 	}
 	ctx = a.withDatasourceAccess(ctx)
+	req := corecontext.Request{Observations: append([]environment.Observation(nil), input.Observations...)}
 	var out []corecontext.Block
 	for _, provider := range a.contextProviders {
 		if provider == nil {
 			continue
 		}
-		blocks, err := provider.Build(ctx, corecontext.Request{})
+		blocks, err := provider.Build(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("context provider %q: %w", provider.Spec().Name, err)
 		}
 		out = append(out, blocks...)
 	}
 	return out, nil
-}
-
-func detectionInput(input agent.StepInput) coredatasource.DetectionInput {
-	var sources []coredatasource.DetectionSource
-	for i, observation := range input.Observations {
-		if observation.Kind != "channel.message" {
-			continue
-		}
-		text := detectionText(observation.Content)
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		sources = append(sources, coredatasource.DetectionSource{
-			ID:       fmt.Sprintf("observation-%d", i),
-			Kind:     observation.Kind,
-			Text:     text,
-			Metadata: stringMetadata(observation.Metadata),
-		})
-	}
-	return coredatasource.DetectionInput{Sources: sources}
-}
-
-func detectionText(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case map[string]any:
-		if text, ok := typed["text"].(string); ok {
-			return text
-		}
-	case map[string]string:
-		if text := typed["text"]; text != "" {
-			return text
-		}
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Sprint(value)
-	}
-	return string(data)
-}
-
-func stringMetadata(values map[string]any) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for key, value := range values {
-		if text := strings.TrimSpace(fmt.Sprint(value)); text != "" && text != "<nil>" {
-			out[key] = text
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func (a *Agent) withDatasourceAccess(ctx context.Context) context.Context {

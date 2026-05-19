@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 )
 
 // Materializer renders providers into change-only context diffs.
@@ -73,6 +74,7 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 			TurnID:       req.TurnID,
 			Reason:       req.Reason,
 			Scope:        cloneStringMap(req.Scope),
+			Observations: append([]coreenvironment.Observation(nil), req.Observations...),
 			BudgetTokens: req.BudgetTokens,
 		}
 		if hasPrevious {

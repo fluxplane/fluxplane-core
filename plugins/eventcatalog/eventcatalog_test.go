@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/language"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/humanplugin"
@@ -28,39 +26,25 @@ func TestAllHasUniqueEventNames(t *testing.T) {
 	}
 }
 
-func TestLanguageActivationEventsDecodeFromRegisteredCatalog(t *testing.T) {
+func TestHumanEventsDecodeFromRegisteredCatalog(t *testing.T) {
 	registry := coreevent.NewRegistry()
 	for _, sample := range All() {
 		if err := registry.Register(sample); err != nil {
 			t.Fatalf("Register %s: %v", sample.EventName(), err)
 		}
 	}
-	signalRaw, err := json.Marshal(coreproject.SignalsObserved{
-		WorkspaceRoot: ".",
-		Signals:       []coreproject.Signal{{Kind: "manifest", Path: "go.mod", Language: "go", Toolchain: "go"}},
+	raw, err := json.Marshal(humanplugin.ClarificationRequested{
+		Prompt: "pick one",
 	})
 	if err != nil {
-		t.Fatalf("Marshal signals: %v", err)
+		t.Fatalf("Marshal clarification: %v", err)
 	}
-	decoded, err := registry.Decode(coreproject.EventSignalsObserved, signalRaw)
+	decoded, err := registry.Decode(humanplugin.EventClarificationRequested, raw)
 	if err != nil {
-		t.Fatalf("Decode signals: %v", err)
+		t.Fatalf("Decode clarification: %v", err)
 	}
-	if got := decoded.(coreproject.SignalsObserved).Signals[0].Toolchain; got != "go" {
-		t.Fatalf("decoded signal toolchain = %q, want go", got)
-	}
-	statusRaw, err := json.Marshal(language.ToolchainStatusObserved{
-		Status: language.ToolchainStatus{ID: "go", Available: true},
-	})
-	if err != nil {
-		t.Fatalf("Marshal status: %v", err)
-	}
-	decoded, err = registry.Decode(language.EventToolchainStatusObserved, statusRaw)
-	if err != nil {
-		t.Fatalf("Decode status: %v", err)
-	}
-	if got := decoded.(language.ToolchainStatusObserved).Status.ID; got != "go" {
-		t.Fatalf("decoded status id = %q, want go", got)
+	if got := decoded.(humanplugin.ClarificationRequested).Prompt; got != "pick one" {
+		t.Fatalf("decoded prompt = %q, want pick one", got)
 	}
 }
 

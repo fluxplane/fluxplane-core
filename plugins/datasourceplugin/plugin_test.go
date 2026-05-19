@@ -9,6 +9,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
 	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
@@ -735,11 +736,10 @@ func TestDetectedProviderListsOnlyAllowedLocalReferences(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"jira"}})
-	ctx = coredatasource.ContextWithDetectionInput(ctx, coredatasource.DetectionInput{Sources: []coredatasource.DetectionSource{{
-		Kind: "channel.message",
-		Text: "Please check DEV-381 and README.md",
+	blocks, err := (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreenvironment.Observation{{
+		Kind:    "channel.message",
+		Content: "Please check DEV-381 and README.md",
 	}}})
-	blocks, err := (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -771,8 +771,10 @@ func TestDetectedProviderDoesNotCallDatasourceIO(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"jira"}})
-	ctx = coredatasource.ContextWithDetectionInput(ctx, coredatasource.DetectionInput{Sources: []coredatasource.DetectionSource{{Text: "DEV-381"}}})
-	_, err = (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{})
+	_, err = (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreenvironment.Observation{{
+		Kind:    "channel.message",
+		Content: "DEV-381",
+	}}})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

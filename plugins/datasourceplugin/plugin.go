@@ -13,6 +13,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -1579,12 +1580,12 @@ func (p detectedProvider) Spec() corecontext.ProviderSpec {
 	return detectedContextSpec()
 }
 
-func (p detectedProvider) Build(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+func (p detectedProvider) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
 	if p.registry == nil {
 		return nil, nil
 	}
-	input, ok := coredatasource.DetectionInputFromContext(ctx)
-	if !ok || len(input.Sources) == 0 {
+	input := detectionInputFromObservations(req.Observations)
+	if len(input.Sources) == 0 {
 		return nil, nil
 	}
 	accessors := allowedAccessors(ctx, p.registry)
@@ -1609,6 +1610,54 @@ func (p detectedProvider) Build(ctx context.Context, _ corecontext.Request) ([]c
 			"references": string(data),
 		},
 	}}, nil
+}
+
+func detectionInputFromObservations(observations []coreenvironment.Observation) coredatasource.DetectionInput {
+	var sources []coredatasource.DetectionSource
+	for i, observation := range observations {
+		text := detectionText(observation.Content)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		sources = append(sources, coredatasource.DetectionSource{
+			ID:       fmt.Sprintf("observation-%d", i),
+			Kind:     observation.Kind,
+			Text:     text,
+			Metadata: observationStringMetadata(observation.Metadata),
+		})
+	}
+	return coredatasource.DetectionInput{Sources: sources, MaxRefs: maxDetectedRefs}
+}
+
+func detectionText(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(data)
+	}
+}
+
+func observationStringMetadata(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range values {
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text != "" && text != "<nil>" {
+			out[key] = text
+		}
+	}
+	return out
 }
 
 func renderDetectedRefs(ctx context.Context, registry *coredatasource.Registry, refs []coredatasource.RecordRef) string {

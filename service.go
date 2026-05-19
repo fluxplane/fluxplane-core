@@ -9,9 +9,11 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -25,6 +27,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
@@ -96,32 +99,37 @@ func NewSubmission() Submission {
 // only runtimes do not need to provide one. OperationExecutor is safe to leave
 // as its zero value.
 type Config struct {
-	Agent             agent.Agent
-	AgentProvider     AgentProvider
-	Commands          *command.Registry
-	Operations        *operation.Registry
-	Resolver          *resource.Resolver
-	CommandCatalog    session.CommandCatalog
-	OperationCatalog  session.OperationCatalog
-	WorkflowCatalog   resourcecatalog.WorkflowCatalog
-	ToolSetCatalog    session.ToolSetCatalog
-	SessionCatalog    session.SessionCatalog
-	OperationExecutor operationruntime.Executor
-	Events            coreevent.Sink
-	EventStore        coreevent.Store
-	ThreadStore       corethread.Store
-	StopEvaluator     session.StopEvaluator
-	Channel           channel.Ref
-	Caller            policy.Caller
-	Trust             policy.Trust
-	LLMModel          LLMModel
-	LLMModelResolver  LLMModelResolver
-	LLMStreamPolicy   LLMStreamPolicy
-	ToolProjection    ToolProjectionConfig
-	IdentityResolver  IdentityResolver
-	ExternalIdentity  ExternalIdentityResolver
-	Security          policy.AuthorizationPolicy
-	SecurityTrace     bool
+	Agent                agent.Agent
+	AgentProvider        AgentProvider
+	Commands             *command.Registry
+	Operations           *operation.Registry
+	Resolver             *resource.Resolver
+	CommandCatalog       session.CommandCatalog
+	OperationCatalog     session.OperationCatalog
+	OperationSets        []operation.Set
+	ContextProviders     []corecontext.Provider
+	WorkflowCatalog      resourcecatalog.WorkflowCatalog
+	ToolSetCatalog       session.ToolSetCatalog
+	SessionCatalog       session.SessionCatalog
+	OperationExecutor    operationruntime.Executor
+	EnvironmentObservers []runtimeenvironment.Observer
+	SignalDerivers       []runtimeenvironment.SignalDeriver
+	ReactionRules        []corereaction.Rule
+	Events               coreevent.Sink
+	EventStore           coreevent.Store
+	ThreadStore          corethread.Store
+	StopEvaluator        session.StopEvaluator
+	Channel              channel.Ref
+	Caller               policy.Caller
+	Trust                policy.Trust
+	LLMModel             LLMModel
+	LLMModelResolver     LLMModelResolver
+	LLMStreamPolicy      LLMStreamPolicy
+	ToolProjection       ToolProjectionConfig
+	IdentityResolver     IdentityResolver
+	ExternalIdentity     ExternalIdentityResolver
+	Security             policy.AuthorizationPolicy
+	SecurityTrace        bool
 }
 
 // Service is the public library facade over the default in-process runtime.
@@ -174,25 +182,30 @@ func New(cfg Config) (*Service, error) {
 	}
 
 	service := harness.New(harness.Config{
-		Agent:             cfg.Agent,
-		AgentProvider:     cfg.AgentProvider,
-		Commands:          commands,
-		Operations:        operations,
-		Resolver:          cfg.Resolver,
-		CommandCatalog:    cfg.CommandCatalog,
-		OperationCatalog:  cfg.OperationCatalog,
-		WorkflowCatalog:   cfg.WorkflowCatalog,
-		ToolSetCatalog:    cfg.ToolSetCatalog,
-		SessionCatalog:    cfg.SessionCatalog,
-		OperationExecutor: executor,
-		Events:            cfg.Events,
-		ThreadStore:       threadStore,
-		StopEvaluator:     stopEvaluator,
-		IdentityResolver:  cfg.IdentityResolver,
-		ExternalIdentity:  cfg.ExternalIdentity,
-		ToolProjection:    cfg.ToolProjection,
-		Security:          cfg.Security,
-		SecurityTrace:     cfg.SecurityTrace,
+		Agent:                cfg.Agent,
+		AgentProvider:        cfg.AgentProvider,
+		Commands:             commands,
+		Operations:           operations,
+		Resolver:             cfg.Resolver,
+		CommandCatalog:       cfg.CommandCatalog,
+		OperationCatalog:     cfg.OperationCatalog,
+		OperationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		ContextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
+		WorkflowCatalog:      cfg.WorkflowCatalog,
+		ToolSetCatalog:       cfg.ToolSetCatalog,
+		SessionCatalog:       cfg.SessionCatalog,
+		OperationExecutor:    executor,
+		EnvironmentObservers: cfg.EnvironmentObservers,
+		SignalDerivers:       cfg.SignalDerivers,
+		ReactionRules:        cfg.ReactionRules,
+		Events:               cfg.Events,
+		ThreadStore:          threadStore,
+		StopEvaluator:        stopEvaluator,
+		IdentityResolver:     cfg.IdentityResolver,
+		ExternalIdentity:     cfg.ExternalIdentity,
+		ToolProjection:       cfg.ToolProjection,
+		Security:             cfg.Security,
+		SecurityTrace:        cfg.SecurityTrace,
 	})
 	client, err := directchannel.New(directchannel.Config{
 		Service: service,
@@ -328,6 +341,12 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if cfg.OperationCatalog == nil {
 		cfg.OperationCatalog = composition.OperationCatalog
 	}
+	if len(cfg.OperationSets) == 0 {
+		cfg.OperationSets = composition.OperationSets
+	}
+	if len(cfg.ContextProviders) == 0 {
+		cfg.ContextProviders = composition.ContextProviderImpls
+	}
 	if cfg.WorkflowCatalog == nil {
 		cfg.WorkflowCatalog = composition.WorkflowCatalog
 	}
@@ -345,6 +364,15 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.OperationExecutor.Validator == nil && len(cfg.OperationExecutor.Middleware) == 0 && cfg.OperationExecutor.EventSink == nil && cfg.OperationExecutor.Safety == nil {
 		cfg.OperationExecutor = composition.OperationExecutor
+	}
+	if len(cfg.EnvironmentObservers) == 0 {
+		cfg.EnvironmentObservers = composition.EnvironmentObservers
+	}
+	if len(cfg.SignalDerivers) == 0 {
+		cfg.SignalDerivers = composition.SignalDerivers
+	}
+	if len(cfg.ReactionRules) == 0 {
+		cfg.ReactionRules = composition.ReactionRules
 	}
 	if cfg.EventStore == nil {
 		cfg.EventStore = composition.EventStore

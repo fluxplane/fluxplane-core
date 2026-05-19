@@ -14,16 +14,18 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/user"
 	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
@@ -31,8 +33,11 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	runtimereaction "github.com/fluxplane/agentruntime/runtime/reaction"
+	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
 
@@ -1290,12 +1295,13 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 		t.Fatalf("register operation: %v", err)
 	}
 	var detected []int
+	var requestObservations []int
 	contextProvider := &scriptedContextProvider{
 		spec: corecontext.ProviderSpec{Name: "detect"},
-		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
-			input, _ := coredatasource.DetectionInputFromContext(ctx)
-			detected = append(detected, len(input.Sources))
-			return []corecontext.Block{{ID: "detect/current", Content: fmt.Sprintf("sources:%d", len(input.Sources))}}, nil
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			detected = append(detected, len(req.Observations))
+			requestObservations = append(requestObservations, len(req.Observations))
+			return []corecontext.Block{{ID: "detect/current", Content: fmt.Sprintf("sources:%d", len(req.Observations))}}, nil
 		},
 	}
 	calls := 0
@@ -1325,6 +1331,969 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 	}
 	if detected[1] <= detected[0] {
 		t.Fatalf("detected sources = %v, want tool followup to include updated observations", detected)
+	}
+	if len(requestObservations) != 2 || requestObservations[1] <= requestObservations[0] {
+		t.Fatalf("request observations = %v, want tool followup request to include updated observations", requestObservations)
+	}
+}
+
+func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T) {
+	ctx := context.Background()
+	observer := &scriptedEnvironmentObserver{
+		spec: environment.ObserverSpec{Name: "test.observer", Phase: environment.PhaseTurn},
+		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+			if req.Phase != environment.PhaseTurn {
+				t.Fatalf("phase = %q, want turn", req.Phase)
+			}
+			return []environment.Observation{{
+				Kind:    "test.observation",
+				Content: "observed",
+			}}, nil
+		},
+	}
+	var deriverObservations []environment.Observation
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
+		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			deriverObservations = append([]environment.Observation(nil), req.Observations...)
+			return []environment.Signal{{Kind: "test.signal", Target: "ok"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	result := (Session{
+		Agent:                agentRuntime,
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-env-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(agentRuntime.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	}
+	agentObservations := agentRuntime.inputs[0].Observations
+	if len(agentObservations) != 2 {
+		t.Fatalf("agent observations = %#v, want channel and observer observations", agentObservations)
+	}
+	if agentObservations[1].Kind != "test.observation" || agentObservations[1].Source != "test.observer" {
+		t.Fatalf("observer observation = %#v, want defaulted source", agentObservations[1])
+	}
+	if len(deriverObservations) != 2 || deriverObservations[1].Kind != "test.observation" {
+		t.Fatalf("deriver observations = %#v, want observer observation included", deriverObservations)
+	}
+}
+
+func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-session-open"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var phases []environment.ObservationPhase
+	observer := &scriptedEnvironmentObserver{
+		spec: environment.ObserverSpec{Name: "session.open", Phase: environment.PhaseSessionOpen},
+		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+			phases = append(phases, req.Phase)
+			return []environment.Observation{{Kind: "session.opened"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}, {
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	session := Session{
+		Agent:                agentRuntime,
+		ThreadStore:          threadStore,
+		Thread:               thread,
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+	}
+	first := session.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-session-open-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}})
+	if first.Status != InputStatusOK {
+		t.Fatalf("first status = %q: %#v", first.Status, first)
+	}
+	second := session.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-session-open-2", Kind: channel.InboundMessage, Message: &channel.Message{Content: "second"}})
+	if second.Status != InputStatusOK {
+		t.Fatalf("second status = %q: %#v", second.Status, second)
+	}
+	if len(phases) != 1 || phases[0] != environment.PhaseSessionOpen {
+		t.Fatalf("phases = %#v, want one session_open run", phases)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want 2", len(agentRuntime.inputs))
+	}
+	if len(agentRuntime.inputs[0].Observations) != 2 || agentRuntime.inputs[0].Observations[1].Kind != "session.opened" {
+		t.Fatalf("first observations = %#v, want session open observation", agentRuntime.inputs[0].Observations)
+	}
+	if len(agentRuntime.inputs[1].Observations) != 1 {
+		t.Fatalf("second observations = %#v, want no session open observation", agentRuntime.inputs[1].Observations)
+	}
+}
+
+func TestExecuteInboundInputRunsLazyEnvironmentBeforeContextMaterialization(t *testing.T) {
+	ctx := context.Background()
+	observerCalls := 0
+	observer := &scriptedEnvironmentObserver{
+		spec: environment.ObserverSpec{Name: "lazy.observer", Phase: environment.PhaseLazy},
+		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+			observerCalls++
+			if req.Phase != environment.PhaseLazy {
+				t.Fatalf("phase = %q, want lazy", req.Phase)
+			}
+			return []environment.Observation{{Kind: "lazy.fact", Content: "ready"}}, nil
+		},
+	}
+	var providerObservationKinds []string
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "lazy.context"},
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			for _, observation := range req.Observations {
+				providerObservationKinds = append(providerObservationKinds, observation.Kind)
+			}
+			return []corecontext.Block{{ID: "lazy/current", Content: "lazy context"}}, nil
+		},
+	}
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}}, llmagent.StaticModel{Response: llmagent.MessageResponse("ok")}, llmagent.WithContextProviders(contextProvider))
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{
+		Agent:                runtimeAgent,
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-lazy-env", Kind: channel.InboundMessage, Message: &channel.Message{Content: "hello"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if observerCalls != 1 {
+		t.Fatalf("observer calls = %d, want one lazy run", observerCalls)
+	}
+	if !containsString(providerObservationKinds, "lazy.fact") {
+		t.Fatalf("provider observations = %#v, want lazy fact", providerObservationKinds)
+	}
+}
+
+func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var observerPhases []environment.ObservationPhase
+	observer := &scriptedEnvironmentObserver{
+		spec: environment.ObserverSpec{Name: "followup.observer", Phase: environment.PhaseToolFollowup},
+		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+			observerPhases = append(observerPhases, req.Phase)
+			return []environment.Observation{{
+				Kind:    "tool.followup",
+				Content: "lookup finished",
+			}}, nil
+		},
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "followup.deriver"},
+		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			for _, observation := range req.Observations {
+				if observation.Kind == "tool.followup" {
+					return []environment.Signal{{Kind: "tool.followup.ready", Target: "lookup"}}, nil
+				}
+			}
+			return nil, nil
+		},
+	}
+	contextProvider := &scriptedContextProvider{
+		spec:   corecontext.ProviderSpec{Name: "followup.context"},
+		blocks: []corecontext.Block{{ID: "followup/current", Content: "tool followup ready"}},
+	}
+	var transcripts []coreconversation.Transcript
+	calls := 0
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript != nil {
+			transcripts = append(transcripts, *req.Transcript)
+		}
+		calls++
+		if calls == 1 {
+			return llmagent.Response{
+				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+				Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+			}, nil
+		}
+		return llmagent.Response{
+			Message:    &agent.Message{Content: "done"},
+			Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Turns: agent.TurnPolicy{MaxSteps: 2}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	result := (Session{
+		Agent:                runtimeAgent,
+		Operations:           ops,
+		OperationExecutor:    operationruntime.NewExecutor(),
+		ContextProviders:     []corecontext.Provider{contextProvider},
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "followup-context",
+			When: corereaction.Matcher{Signal: "tool.followup.ready", Target: "lookup"},
+			Actions: []corereaction.Action{{
+				Kind:            corereaction.ActionEnableContext,
+				ContextProvider: corecontext.ProviderRef{Name: "followup.context"},
+			}},
+		}},
+	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-tool-followup-phase", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(observerPhases) != 1 || observerPhases[0] != environment.PhaseToolFollowup {
+		t.Fatalf("observer phases = %#v, want one tool_followup run", observerPhases)
+	}
+	if len(transcripts) != 2 {
+		t.Fatalf("transcripts len = %d, want 2", len(transcripts))
+	}
+	foundContext := false
+	for _, item := range transcripts[1].NewItems {
+		if strings.Contains(valueText(item.Content), "tool followup ready") {
+			foundContext = true
+		}
+	}
+	if !foundContext {
+		t.Fatalf("second new items = %#v, want reaction-activated followup context", transcripts[1].NewItems)
+	}
+}
+
+func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	var operationInput operation.Value
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		operationInput = input
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "integration.available", Target: "lookup"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	var emitted []event.Event
+	result := (Session{
+		Agent:             agentRuntime,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "lookup-available",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "lookup"},
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunOperation,
+				Operation: corereaction.OperationAction{
+					Operation: opRef,
+					Input:     "A100",
+				},
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-operation-reaction", Kind: channel.InboundMessage, Message: &channel.Message{Content: "hello"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if operationInput != "A100" {
+		t.Fatalf("operation input = %#v, want A100", operationInput)
+	}
+	if len(result.Effects) != 1 || result.Effects[0].Result.Status != operation.StatusOK {
+		t.Fatalf("effects = %#v, want successful reaction operation effect", result.Effects)
+	}
+	if len(agentRuntime.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	}
+	seenOperationObservation := false
+	for _, observation := range agentRuntime.inputs[0].Observations {
+		if observation.Kind == "operation.result" && observation.Metadata["reaction_rule"] == "lookup-available" {
+			seenOperationObservation = true
+		}
+	}
+	if !seenOperationObservation {
+		t.Fatalf("agent observations = %#v, want reaction operation result observation", agentRuntime.inputs[0].Observations)
+	}
+	if len(requestedCallIDs(emitted)) != 1 || len(completedCallIDs(emitted)) != 1 {
+		t.Fatalf("emitted events = %#v, want operation requested/completed", emitted)
+	}
+}
+
+func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	operationRan := false
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		operationRan = true
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "integration.available", Target: "lookup"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	var emitted []event.Event
+	result := (Session{
+		Agent:             agentRuntime,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "lookup-available",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "lookup"},
+			Actions: []corereaction.Action{{
+				Kind:            corereaction.ActionRunOperation,
+				RequireApproval: true,
+				Operation: corereaction.OperationAction{
+					Operation: opRef,
+					Input:     "A100",
+				},
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-operation-reaction-approval", Kind: channel.InboundMessage, Message: &channel.Message{Content: "hello"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if operationRan {
+		t.Fatal("operation ran, want approval-required reaction to skip before execution")
+	}
+	if len(result.Effects) != 0 {
+		t.Fatalf("effects = %#v, want none", result.Effects)
+	}
+	if len(requestedCallIDs(emitted)) != 0 || len(completedCallIDs(emitted)) != 0 {
+		t.Fatalf("emitted events = %#v, want no operation requested/completed events", eventNames(emitted))
+	}
+	if !hasEvent(emitted, corereaction.EventActionPlanned) || !hasEvent(emitted, corereaction.EventActionSkipped) {
+		t.Fatalf("emitted events = %#v, want reaction planned and skipped", eventNames(emitted))
+	}
+}
+
+func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	var operationInput operation.Value
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		operationInput = input
+		return operation.OK(map[string]any{"echo": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"echo"},
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: opRef,
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "command.ready", Target: "echo"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	result := (Session{
+		Agent:             agentRuntime,
+		Commands:          commands,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "echo-command",
+			When: corereaction.Matcher{Signal: "command.ready", Target: "echo"},
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunCommand,
+				Command: command.Invocation{
+					Path:  command.Path{"echo"},
+					Input: "from reaction",
+				},
+			}},
+		}},
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:     "run-command-reaction",
+		Kind:   channel.InboundMessage,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Message: &channel.Message{
+			Content: "hello",
+		},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if operationInput != "from reaction" {
+		t.Fatalf("operation input = %#v, want command reaction input", operationInput)
+	}
+	if len(result.Effects) != 1 || result.Effects[0].Result.Status != operation.StatusOK {
+		t.Fatalf("effects = %#v, want command operation effect", result.Effects)
+	}
+}
+
+func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "echo"}
+	op := operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"echo": input})
+	})
+	workflowID := resource.ResourceID{Kind: "workflow", Origin: "project", Name: "feature"}
+	operationID := resource.ResourceID{Kind: "operation", Origin: "project", Name: "echo"}
+	index := resource.NewResourceIndex()
+	index.Add(workflowID)
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "workflow.ready", Target: "feature"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	var emitted []event.Event
+	result := (Session{
+		Agent:    agentRuntime,
+		Resolver: resource.NewResolver(resource.ResolverConfig{Index: index}),
+		WorkflowCatalog: resourcecatalog.WorkflowCatalog{
+			workflowID.Address(): {
+				ID: workflowID,
+				Spec: coreworkflow.Spec{
+					Name: "feature",
+					Steps: []coreworkflow.Step{{
+						ID:        "run",
+						Operation: opRef,
+					}},
+				},
+			},
+		},
+		OperationCatalog: OperationCatalog{
+			operationID.Address(): {ID: operationID, Operation: op},
+		},
+		OperationExecutor: operationruntime.NewExecutor(),
+		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "feature-workflow",
+			When: corereaction.Matcher{Signal: "workflow.ready", Target: "feature"},
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunWorkflow,
+				Workflow: corereaction.WorkflowAction{
+					Name:  "feature",
+					Input: "from reaction",
+				},
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-workflow-reaction", Kind: channel.InboundMessage, Message: &channel.Message{Content: "hello"}})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if !hasEvent(emitted, coreworkflow.EventCompletedName) {
+		t.Fatalf("emitted events = %#v, want workflow completion", eventNames(emitted))
+	}
+	seenWorkflowObservation := false
+	for _, observation := range agentRuntime.inputs[0].Observations {
+		if observation.Kind == "workflow.result" && observation.Metadata["reaction_rule"] == "feature-workflow" {
+			seenWorkflowObservation = true
+		}
+	}
+	if !seenWorkflowObservation {
+		t.Fatalf("agent observations = %#v, want workflow result observation", agentRuntime.inputs[0].Observations)
+	}
+}
+
+func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
+	ctx := context.Background()
+	repo, err := runtimeskill.NewRepository([]coreskill.Spec{{
+		Name: "kubernetes",
+		References: []coreskill.ReferenceSpec{{
+			Path: "references/kubectl.md",
+			Body: "kubectl rules",
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("new skill repo: %v", err)
+	}
+	state, err := runtimeskill.NewActivationState(repo, nil)
+	if err != nil {
+		t.Fatalf("new activation state: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "integration.available", Target: "kubernetes"}}, nil
+		},
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{Name: "coder"},
+		results: []agent.StepResult{{
+			Status:   agent.StatusOK,
+			Decision: agent.Decision{Kind: agent.DecisionWait},
+		}},
+	}
+	var emitted []event.Name
+	result := (Session{
+		Agent:          runtimeskill.WrapAgent(agentRuntime, state),
+		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "kubernetes-reference",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionActivateReference,
+				Reference: corereaction.ReferenceAction{
+					Skill: coreskill.Ref{Name: "kubernetes"},
+					Path:  "references/kubectl.md",
+				},
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload.EventName())
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-reaction-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if !state.IsActive("kubernetes") {
+		t.Fatal("kubernetes skill is inactive, want reaction to activate it")
+	}
+	if refs := state.ActiveReferences("kubernetes"); len(refs) != 1 || refs[0].Path != "references/kubectl.md" {
+		t.Fatalf("active references = %#v, want kubectl reference", refs)
+	}
+	if len(agentRuntime.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	}
+	if len(emitted) != 4 ||
+		emitted[0] != corereaction.EventActionPlanned ||
+		emitted[1] != coreskill.EventSkillActivated ||
+		emitted[2] != coreskill.EventSkillReferenceActivated ||
+		emitted[3] != corereaction.EventActionApplied {
+		t.Fatalf("emitted = %#v, want planned, skill, reference, and applied events", emitted)
+	}
+}
+
+func TestExecuteInboundInputSkipsPersistedReactionAction(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-reaction-replay"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	repo, err := runtimeskill.NewRepository([]coreskill.Spec{{Name: "kubernetes"}})
+	if err != nil {
+		t.Fatalf("new skill repo: %v", err)
+	}
+	state, err := runtimeskill.NewActivationState(repo, nil)
+	if err != nil {
+		t.Fatalf("new activation state: %v", err)
+	}
+	signal := environment.Signal{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}
+	action := corereaction.Action{Kind: corereaction.ActionActivateSkill, Skill: coreskill.Ref{Name: "kubernetes"}}
+	rule := corereaction.Rule{
+		Name:    "kubernetes-skill",
+		When:    corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+		Actions: []corereaction.Action{action},
+	}
+	key := runtimereaction.IdempotencyKey(rule, signal, 0, action)
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: corereaction.EventActionApplied,
+			Payload: corereaction.ActionApplied{
+				Rule:           rule.Name,
+				Action:         action.Kind,
+				IdempotencyKey: key,
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append reaction event: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{signal}, nil
+		},
+	}
+	var emitted []event.Name
+	result := (Session{
+		Agent:          runtimeskill.WrapAgent(&sequenceAgent{spec: agent.Spec{Name: "coder"}}, state),
+		ThreadStore:    threadStore,
+		Thread:         thread,
+		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules:  []corereaction.Rule{rule},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload.EventName())
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-reaction-replay",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if state.IsActive("kubernetes") {
+		t.Fatal("kubernetes skill is active, want persisted reaction idempotency to skip action")
+	}
+	if len(emitted) != 1 || emitted[0] != corereaction.EventActionSkipped {
+		t.Fatalf("emitted = %#v, want reaction skipped event only", emitted)
+	}
+}
+
+func TestReplayReactionEventsRestoresActiveState(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-reaction-active"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: corereaction.EventActionApplied,
+			Payload: corereaction.ActionApplied{
+				Rule:           "kubernetes-available",
+				Action:         corereaction.ActionEnableDatasource,
+				Target:         "kubernetes",
+				IdempotencyKey: "datasource-key",
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append reaction event: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: corereaction.EventActionApplied,
+			Payload: corereaction.ActionApplied{
+				Rule:           "kubernetes-tools",
+				Action:         corereaction.ActionEnableOperationSet,
+				Target:         "kubernetes-tools",
+				IdempotencyKey: "operation-set-key",
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append reaction event: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: corereaction.EventActionApplied,
+			Payload: corereaction.ActionApplied{
+				Rule:           "kubernetes-context",
+				Action:         corereaction.ActionEnableContext,
+				Target:         "kubernetes.context",
+				IdempotencyKey: "context-key",
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append reaction event: %v", err)
+	}
+	state, err := (Session{ThreadStore: threadStore, Thread: thread}).replayReactionEvents(ctx)
+	if err != nil {
+		t.Fatalf("replayReactionEvents: %v", err)
+	}
+	if !state.AppliedKeys["datasource-key"] || !state.AppliedKeys["operation-set-key"] || !state.AppliedKeys["context-key"] {
+		t.Fatalf("applied keys = %#v, want both replayed keys", state.AppliedKeys)
+	}
+	if !state.Active.Datasources["kubernetes"] {
+		t.Fatalf("active datasources = %#v, want kubernetes", state.Active.Datasources)
+	}
+	if !state.Active.OperationSets["kubernetes-tools"] {
+		t.Fatalf("active operation sets = %#v, want kubernetes-tools", state.Active.OperationSets)
+	}
+	if !state.Active.ContextProviders["kubernetes.context"] {
+		t.Fatalf("active context providers = %#v, want kubernetes.context", state.Active.ContextProviders)
+	}
+}
+
+func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-env-explain"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: corereaction.EventActionApplied,
+			Payload: corereaction.ActionApplied{
+				Rule:           "kubernetes-context",
+				Action:         corereaction.ActionEnableContext,
+				Target:         "kubernetes.context",
+				IdempotencyKey: "context-key",
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append reaction event: %v", err)
+	}
+	observer := &scriptedEnvironmentObserver{spec: environment.ObserverSpec{Name: "kubernetes.context", Phase: environment.PhaseTurn}}
+	deriver := &scriptedSignalDeriver{spec: environment.SignalDeriverSpec{Name: "kubernetes.signals"}}
+	result := (Session{
+		ThreadStore:          threadStore,
+		Thread:               thread,
+		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "kubernetes-context",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			Actions: []corereaction.Action{{
+				Kind:            corereaction.ActionEnableContext,
+				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
+			}},
+		}},
+	}).ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:      "cmd-env-explain",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"env", "explain"}},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want rendered env explain output", result.Output)
+	}
+	if !strings.Contains(rendered.Text, "Observers") || !strings.Contains(rendered.Text, "- kubernetes.context") || !strings.Contains(rendered.Text, "applied reactions: 1") {
+		t.Fatalf("rendered text = %q, want readable env explain summary", rendered.Text)
+	}
+	data, ok := rendered.Data.(envExplainData)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want envExplainData", rendered.Data)
+	}
+	if len(data.Observers) != 1 || data.Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observers = %#v, want kubernetes.context", data.Observers)
+	}
+	if len(data.SignalDerivers) != 1 || data.SignalDerivers[0].Name != "kubernetes.signals" {
+		t.Fatalf("signal derivers = %#v, want kubernetes.signals", data.SignalDerivers)
+	}
+	if len(data.ReactionRules) != 1 || data.ReactionRules[0] != "kubernetes-context" {
+		t.Fatalf("reaction rules = %#v, want kubernetes-context", data.ReactionRules)
+	}
+	if data.AppliedReactions != 1 || len(data.Active.ContextProviders) != 1 || data.Active.ContextProviders[0] != "kubernetes.context" {
+		t.Fatalf("active = %#v applied=%d, want active context provider", data.Active, data.AppliedReactions)
+	}
+}
+
+func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	echo := operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "echo"},
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	if err := ops.Register(echo); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "integration.available", Target: "test", Source: "test.deriver"}}, nil
+		},
+	}
+	agentRuntime := &toolCaptureAgent{
+		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
+	}
+	result := (Session{
+		Agent:      agentRuntime,
+		Operations: ops,
+		OperationSets: []operation.Set{{
+			Name:       "echo-tools",
+			Operations: []operation.Ref{{Name: "echo"}},
+		}},
+		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "echo-tools",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "test"},
+			Actions: []corereaction.Action{{
+				Kind:         corereaction.ActionEnableOperationSet,
+				OperationSet: "echo-tools",
+			}},
+		}},
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-active-opset",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(agentRuntime.tools) != 1 {
+		t.Fatalf("tools = %#v, want one active operation-set tool", agentRuntime.tools)
+	}
+	if agentRuntime.tools[0].Name != "echo" || agentRuntime.tools[0].Target.Operation.Name != "echo" {
+		t.Fatalf("tools = %#v, want echo operation tool", agentRuntime.tools)
+	}
+}
+
+func TestExecuteInboundInputMaterializesActiveContextProvider(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-active-context"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	providerID := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	var transcripts []coreconversation.Transcript
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		if req.Transcript == nil {
+			t.Fatalf("transcript is nil")
+		}
+		transcripts = append(transcripts, *req.Transcript)
+		items := append([]coreconversation.Item(nil), req.Transcript.NewItems...)
+		items = append(items, coreconversation.Item{Provider: providerID, Kind: coreconversation.ItemOutput, Role: "assistant", Content: "ok"})
+		return llmagent.Response{
+			Message: &agent.Message{Content: "ok"},
+			Transcript: coreconversation.Transcript{
+				Provider: providerID,
+				Items:    items,
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{
+		Name:      "coder",
+		Driver:    agent.DriverSpec{Kind: llmagent.DriverKind},
+		Inference: agent.InferenceSpec{Model: "gpt-test"},
+	}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	contextProvider := &scriptedContextProvider{
+		spec: corecontext.ProviderSpec{Name: "kubernetes.context"},
+		blocks: []corecontext.Block{{
+			ID:      "kubernetes/current",
+			Content: "namespace ai-bots",
+		}},
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			return []environment.Signal{{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}}, nil
+		},
+	}
+	result := (Session{
+		Agent:            runtimeAgent,
+		ThreadStore:      threadStore,
+		Thread:           corethread.Ref{ID: "thread-active-context"},
+		ContextProviders: []corecontext.Provider{contextProvider},
+		SignalDerivers:   []runtimeenvironment.SignalDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "kubernetes-context",
+			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			Actions: []corereaction.Action{{
+				Kind:            corereaction.ActionEnableContext,
+				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
+			}},
+		}},
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-active-context",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if len(transcripts) != 1 {
+		t.Fatalf("transcripts len = %d, want 1", len(transcripts))
+	}
+	if !strings.Contains(valueText(transcripts[0].NewItems[1].Content), "namespace ai-bots") {
+		t.Fatalf("new items = %#v, want active context provider content", transcripts[0].NewItems)
 	}
 }
 
@@ -3171,6 +4140,24 @@ func (a *sequenceAgent) Step(_ agent.Context, input agent.StepInput) agent.StepR
 	return agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}}
 }
 
+type toolCaptureAgent struct {
+	result agent.StepResult
+	tools  []tool.Spec
+}
+
+func (a *toolCaptureAgent) Spec() agent.Spec {
+	return agent.Spec{Name: "tool-capture"}
+}
+
+func (a *toolCaptureAgent) Step(agent.Context, agent.StepInput) agent.StepResult {
+	return a.result
+}
+
+func (a *toolCaptureAgent) StepWithTools(_ agent.Context, _ agent.StepInput, tools []tool.Spec) agent.StepResult {
+	a.tools = append([]tool.Spec(nil), tools...)
+	return a.result
+}
+
 type sequenceStopEvaluator struct {
 	evaluations []StopEvaluation
 	inputs      []StopEvaluationInput
@@ -3182,6 +4169,38 @@ func (e *sequenceStopEvaluator) EvaluateStopCondition(_ context.Context, input S
 		return e.evaluations[len(e.inputs)-1], nil
 	}
 	return StopEvaluation{Action: "stop"}, nil
+}
+
+type scriptedEnvironmentObserver struct {
+	spec    environment.ObserverSpec
+	observe func(context.Context, runtimeenvironment.ObservationRequest) ([]environment.Observation, error)
+}
+
+func (o *scriptedEnvironmentObserver) Spec() environment.ObserverSpec {
+	return o.spec
+}
+
+func (o *scriptedEnvironmentObserver) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+	if o.observe == nil {
+		return nil, nil
+	}
+	return o.observe(ctx, req)
+}
+
+type scriptedSignalDeriver struct {
+	spec   environment.SignalDeriverSpec
+	derive func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error)
+}
+
+func (d *scriptedSignalDeriver) Spec() environment.SignalDeriverSpec {
+	return d.spec
+}
+
+func (d *scriptedSignalDeriver) Derive(ctx context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+	if d.derive == nil {
+		return nil, nil
+	}
+	return d.derive(ctx, req)
 }
 
 type scriptedContextProvider struct {
@@ -3555,4 +4574,13 @@ func eventNames(events []event.Event) []event.Name {
 		}
 	}
 	return out
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

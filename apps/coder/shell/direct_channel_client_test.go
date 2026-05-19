@@ -7,6 +7,7 @@ import (
 
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/operation"
 )
 
@@ -93,6 +94,21 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 	}
 	if events[2].Kind != EventCommandComplete || events[2].Summary != "ok" {
 		t.Fatalf("events[2] = %#v", events[2])
+	}
+}
+
+func TestTranscriptEventsForResultUsesRenderedOutboundText(t *testing.T) {
+	events := transcriptEventsForResult("session-1", agentruntime.Result{
+		Outbound: &channel.Outbound{Message: &channel.Message{Content: operation.Rendered{
+			Text: "Environment\n\nObservers\n  - runtime.baseline",
+			Data: map[string]any{"observers": []string{"runtime.baseline"}},
+		}}},
+	}, EventCommandOutput, EventCommandComplete)
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one outbound event", events)
+	}
+	if events[0].Summary != "Environment\n\nObservers\n  - runtime.baseline" {
+		t.Fatalf("summary = %q, want rendered text only", events[0].Summary)
 	}
 }
 

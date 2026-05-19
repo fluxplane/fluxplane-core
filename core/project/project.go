@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/workspace"
 )
@@ -177,22 +176,6 @@ type Signal struct {
 	Confidence  float64             `json:"confidence,omitempty"`
 	Metadata    map[string]string   `json:"metadata,omitempty"`
 }
-
-// SignalsObserved records a project signal inventory refresh.
-type SignalsObserved struct {
-	WorkspaceID   workspace.ID `json:"workspace_id,omitempty"`
-	WorkspaceRoot string       `json:"workspace_root,omitempty"`
-	Scope         string       `json:"scope,omitempty"`
-	ProjectID     ID           `json:"project_id,omitempty"`
-	Signals       []Signal     `json:"signals,omitempty"`
-	Truncated     bool         `json:"truncated,omitempty"`
-}
-
-// EventSignalsObserved is emitted when project inventory discovers signals.
-const EventSignalsObserved event.Name = "project.signals_observed"
-
-// EventName returns the typed event name.
-func (SignalsObserved) EventName() event.Name { return EventSignalsObserved }
 
 // InventoryQuery bounds project inventory discovery.
 type InventoryQuery struct {

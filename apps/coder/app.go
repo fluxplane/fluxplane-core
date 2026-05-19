@@ -13,8 +13,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/awsplugin"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
@@ -44,6 +46,7 @@ type CommandOptions struct {
 	WorkspaceRoots []string
 	EnvFiles       []string
 	Workspace      distribution.WorkspaceConfig
+	Bundles        []resource.ContributionBundle
 	AppRunCommand  *cobra.Command
 }
 
@@ -51,6 +54,7 @@ type CommandOptions struct {
 // configured launch defaults.
 func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	startup := loadStartupResources(context.Background())
+	startup.Bundles = append(startup.Bundles, cloneContributionBundles(opts.Bundles)...)
 	cmd := distcli.NewCommandWithOptions(distributionFromStartup(startup), distcli.CommandOptions{
 		WorkspaceRoots: opts.WorkspaceRoots,
 		EnvFiles:       opts.EnvFiles,
@@ -172,6 +176,7 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		taskplugin.New(),
 		skillplugin.New(),
 		imageplugin.New(hostSystem),
+		awsplugin.New(hostSystem),
 		kubernetesplugin.New(hostSystem),
 	}
 }

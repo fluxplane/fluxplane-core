@@ -10,7 +10,6 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -149,12 +148,12 @@ func TestAgentStepWithToolsOverridesConfiguredTools(t *testing.T) {
 	}
 }
 
-func TestAgentStepPassesChannelMessageToContextProvidersForDetection(t *testing.T) {
-	var gotInput coredatasource.DetectionInput
+func TestAgentStepPassesObservationsToContextProviders(t *testing.T) {
+	var gotObservations []environment.Observation
 	provider := contextProviderFunc{
 		spec: corecontext.ProviderSpec{Name: "detect"},
-		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
-			gotInput, _ = coredatasource.DetectionInputFromContext(ctx)
+		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+			gotObservations = append([]environment.Observation(nil), req.Observations...)
 			return []corecontext.Block{{ID: "detect", Provider: "detect", Kind: corecontext.BlockText, Content: "detected"}}, nil
 		},
 	}
@@ -175,8 +174,12 @@ func TestAgentStepPassesChannelMessageToContextProvidersForDetection(t *testing.
 	if result.Status != agent.StatusOK {
 		t.Fatalf("status = %q, want ok", result.Status)
 	}
-	if len(gotInput.Sources) != 1 || gotInput.Sources[0].Text != "see DEV-381" {
-		t.Fatalf("detection input = %#v, want channel text", gotInput)
+	if len(gotObservations) != 1 {
+		t.Fatalf("observations = %#v, want one channel text observation", gotObservations)
+	}
+	content, ok := gotObservations[0].Content.(map[string]any)
+	if !ok || content["text"] != "see DEV-381" {
+		t.Fatalf("observations = %#v, want channel text observation", gotObservations)
 	}
 	if !hasContextBlock(got.Context, "detect", "detected") {
 		t.Fatalf("context = %#v, want provider block", got.Context)

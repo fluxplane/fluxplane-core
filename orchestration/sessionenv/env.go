@@ -3,10 +3,7 @@ package sessionenv
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
@@ -78,6 +75,29 @@ type Config struct {
 	RunID             string
 	OperationExecutor OperationExecutor
 	Events            event.Sink
+	Active            *ActiveState
+}
+
+type activeStateContextKey struct{}
+
+// ContextWithActiveState attaches a snapshot of reaction-activated session
+// capabilities to ctx.
+func ContextWithActiveState(ctx context.Context, active ActiveState) context.Context {
+	ctx = ensureContext(ctx)
+	return context.WithValue(ctx, activeStateContextKey{}, active.Clone())
+}
+
+// ActiveStateFromContext returns reaction-activated session capabilities from
+// ctx.
+func ActiveStateFromContext(ctx context.Context) (ActiveState, bool) {
+	if ctx == nil {
+		return ActiveState{}, false
+	}
+	active, ok := ctx.Value(activeStateContextKey{}).(ActiveState)
+	if !ok {
+		return ActiveState{}, false
+	}
+	return active.Clone(), true
 }
 
 // BuildContext materializes provider context blocks.
@@ -130,7 +150,13 @@ func IsAppendConflict(err error) bool {
 // operation context.
 func OperationContext(ctx operation.Context, cfg Config, callID operation.CallID) operation.Context {
 	ctx = withSkillAccess(ctx, cfg.Agent)
-	ctx = withDatasourceAccess(ctx, cfg.Agent)
+	active := cfg.Active
+	if active == nil {
+		if fromContext, ok := ActiveStateFromContext(ctx); ok {
+			active = &fromContext
+		}
+	}
+	ctx = withDatasourceAccess(ctx, cfg.Agent, active)
 	ctx = operation.WithCallID(ctx, callID)
 	return operation.NewContext(context.WithValue(ctx, scopeContextKey{}, Scope{Thread: cfg.Thread, ThreadStore: cfg.ThreadStore, RunID: cfg.RunID}), ctx.Events())
 }
@@ -153,15 +179,17 @@ func ScopeFromContext(ctx context.Context) (Scope, bool) {
 func ContextProviderContext(ctx context.Context, cfg Config, observations []environment.Observation) context.Context {
 	ctx = ensureContext(ctx)
 	ctx = WithBaseContext(ctx, cfg, "")
-	ctx = coredatasource.ContextWithDetectionInput(ctx, detectionInputFromObservations(observations))
-	if cfg.Agent == nil {
+	if cfg.Agent == nil && cfg.Active == nil {
 		return ctx
 	}
-	return datasourceAccessContext(ctx, cfg.Agent)
+	return datasourceAccessContext(ctx, cfg.Agent, cfg.Active)
 }
 
 // WithBaseContext returns the base session context for non-operation callers.
 func WithBaseContext(ctx context.Context, cfg Config, callID operation.CallID) context.Context {
+	if cfg.Active != nil {
+		ctx = ContextWithActiveState(ctx, cfg.Active.Clone())
+	}
 	return ctx
 }
 
@@ -202,24 +230,6 @@ func ReplaySkillEvents(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// ActivateSkillTriggers activates skill and reference triggers for the current
-// session agent before context rendering.
-func ActivateSkillTriggers(text string, cfg Config) error {
-	if cfg.Agent == nil {
-		return nil
-	}
-	state, ok := runtimeskill.StateFromAgent(cfg.Agent)
-	if !ok {
-		return nil
-	}
-	events := cfg.Events
-	if events == nil {
-		events = event.Discard()
-	}
-	_, err := state.ActivateTriggers(text, events)
-	return err
-}
-
 func withSkillAccess(ctx operation.Context, agent agent.Agent) operation.Context {
 	if ctx == nil || agent == nil {
 		return ctx
@@ -232,19 +242,31 @@ func withSkillAccess(ctx operation.Context, agent agent.Agent) operation.Context
 	return operation.NewContext(base, ctx.Events())
 }
 
-func withDatasourceAccess(ctx operation.Context, agent agent.Agent) operation.Context {
-	if ctx == nil || agent == nil {
+func withDatasourceAccess(ctx operation.Context, agent agent.Agent, active *ActiveState) operation.Context {
+	if ctx == nil || (agent == nil && active == nil) {
 		return ctx
 	}
-	base := datasourceAccessContext(ctx, agent)
+	base := datasourceAccessContext(ctx, agent, active)
 	return operation.NewContext(base, ctx.Events())
 }
 
-func datasourceAccessContext(ctx context.Context, agent agent.Agent) context.Context {
-	spec := agent.Spec()
-	names := make([]coredatasource.Name, 0, len(spec.Datasources))
-	for _, ref := range spec.Datasources {
-		if ref.Name != "" && datasourceAuthorized(ctx, ref.Name) {
+func datasourceAccessContext(ctx context.Context, agent agent.Agent, active *ActiveState) context.Context {
+	var refs []coredatasource.Ref
+	if agent != nil {
+		refs = append(refs, agent.Spec().Datasources...)
+	}
+	if active != nil {
+		for name, enabled := range active.Datasources {
+			if enabled {
+				refs = append(refs, coredatasource.Ref{Name: name})
+			}
+		}
+	}
+	seen := map[coredatasource.Name]bool{}
+	names := make([]coredatasource.Name, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" && !seen[ref.Name] && datasourceAuthorized(ctx, ref.Name) {
+			seen[ref.Name] = true
 			names = append(names, ref.Name)
 		}
 	}
@@ -268,54 +290,6 @@ func datasourceAuthorized(ctx context.Context, name coredatasource.Name) bool {
 		}
 	}
 	return false
-}
-
-func detectionInputFromObservations(observations []environment.Observation) coredatasource.DetectionInput {
-	var sources []coredatasource.DetectionSource
-	for i, observation := range observations {
-		text := contextValueText(observation.Content)
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		sources = append(sources, coredatasource.DetectionSource{
-			ID:       fmt.Sprintf("observation-%d", i),
-			Kind:     observation.Kind,
-			Text:     text,
-			Metadata: observationStringMetadata(observation.Metadata),
-		})
-	}
-	return coredatasource.DetectionInput{Sources: sources}
-}
-
-func observationStringMetadata(values map[string]any) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	for key, value := range values {
-		text := strings.TrimSpace(fmt.Sprint(value))
-		if text != "" && text != "<nil>" {
-			out[key] = text
-		}
-	}
-	return out
-}
-
-func contextValueText(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case []byte:
-		return string(typed)
-	default:
-		data, err := json.Marshal(typed)
-		if err != nil {
-			return fmt.Sprint(typed)
-		}
-		return string(data)
-	}
 }
 
 // ApproverFromExecutor returns the approval gate carried by an operation

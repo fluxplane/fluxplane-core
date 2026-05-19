@@ -1,6 +1,10 @@
 package environment
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -49,6 +53,48 @@ type Observable struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
+// ObservationPhase describes when an observer may run.
+type ObservationPhase string
+
+const (
+	PhaseStartup      ObservationPhase = "startup"
+	PhaseSessionOpen  ObservationPhase = "session_open"
+	PhaseTurn         ObservationPhase = "turn"
+	PhaseToolFollowup ObservationPhase = "tool_followup"
+	PhaseLazy         ObservationPhase = "lazy"
+)
+
+// ObserverSpec describes an inert observation source contributed by runtime or
+// plugins. Executable observer implementations live outside core.
+type ObserverSpec struct {
+	Name            string            `json:"name" yaml:"name"`
+	Description     string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Environment     Ref               `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Phase           ObservationPhase  `json:"phase,omitempty" yaml:"phase,omitempty"`
+	ObservableKinds []string          `json:"observable_kinds,omitempty" yaml:"observable_kinds,omitempty"`
+	Dynamic         bool              `json:"dynamic,omitempty" yaml:"dynamic,omitempty"`
+	Disabled        bool              `json:"disabled,omitempty" yaml:"disabled,omitempty"`
+	Annotations     map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// SignalDeriverSpec describes an inert derivation from observation kinds to
+// signal kinds. Executable derivation logic lives outside core.
+type SignalDeriverSpec struct {
+	Name             string            `json:"name"`
+	Description      string            `json:"description,omitempty"`
+	ObservationKinds []string          `json:"observation_kinds,omitempty"`
+	Signals          []SignalTemplate  `json:"signals,omitempty"`
+	Annotations      map[string]string `json:"annotations,omitempty"`
+}
+
+// SignalTemplate describes a signal shape produced by a deriver.
+type SignalTemplate struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target,omitempty"`
+	Scope  string `json:"scope,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
 // Effect declares one operation that is meaningful at this environment
 // boundary. Operation runtime still owns actual execution.
 type Effect struct {
@@ -74,9 +120,86 @@ type Observation struct {
 	Environment Ref            `json:"environment,omitempty"`
 	Source      string         `json:"source,omitempty"`
 	Kind        string         `json:"kind,omitempty"`
+	Scope       string         `json:"scope,omitempty"`
 	Content     any            `json:"content,omitempty"`
 	Metadata    map[string]any `json:"metadata,omitempty"`
 	At          time.Time      `json:"at,omitempty"`
+}
+
+// Signal is a normalized activation hint derived from one or more
+// observations. Signals are intentionally smaller than observations so
+// activation and reaction matching can stay stable.
+type Signal struct {
+	Kind           string            `json:"kind"`
+	Target         string            `json:"target,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	Environment    Ref               `json:"environment,omitempty"`
+	Confidence     float64           `json:"confidence,omitempty"`
+	ObservationIDs []string          `json:"observation_ids,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+// ActivationKey returns the stable identity used for de-duplication and
+// appeared/changed/disappeared comparisons.
+func (s Signal) ActivationKey() string {
+	parts := []string{
+		strings.TrimSpace(s.Kind),
+		strings.TrimSpace(s.Target),
+		strings.TrimSpace(s.Scope),
+		strings.TrimSpace(s.Source),
+	}
+	return strings.Join(parts, "\x1f")
+}
+
+// IsZero reports whether the signal has no matching identity.
+func (s Signal) IsZero() bool {
+	return strings.TrimSpace(s.Kind) == "" &&
+		strings.TrimSpace(s.Target) == "" &&
+		strings.TrimSpace(s.Scope) == "" &&
+		strings.TrimSpace(s.Source) == ""
+}
+
+// Fingerprint returns a stable hash of the signal fields that should cause an
+// on-change reaction to fire. It intentionally excludes observation time.
+func (s Signal) Fingerprint() string {
+	payload := struct {
+		Kind           string            `json:"kind,omitempty"`
+		Target         string            `json:"target,omitempty"`
+		Scope          string            `json:"scope,omitempty"`
+		Source         string            `json:"source,omitempty"`
+		Environment    Ref               `json:"environment,omitempty"`
+		Confidence     float64           `json:"confidence,omitempty"`
+		ObservationIDs []string          `json:"observation_ids,omitempty"`
+		Metadata       map[string]string `json:"metadata,omitempty"`
+	}{
+		Kind:           strings.TrimSpace(s.Kind),
+		Target:         strings.TrimSpace(s.Target),
+		Scope:          strings.TrimSpace(s.Scope),
+		Source:         strings.TrimSpace(s.Source),
+		Environment:    s.Environment,
+		Confidence:     s.Confidence,
+		ObservationIDs: append([]string(nil), s.ObservationIDs...),
+		Metadata:       cloneSignalMetadata(s.Metadata),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		sum := sha256.Sum256([]byte(s.ActivationKey()))
+		return hex.EncodeToString(sum[:])
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func cloneSignalMetadata(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // EffectRequest asks orchestration/runtime to apply one operation within an

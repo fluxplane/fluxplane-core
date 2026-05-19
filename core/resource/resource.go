@@ -9,11 +9,13 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/language"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/agentruntime/core/reaction"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/tool"
@@ -90,24 +92,27 @@ func (r PluginRef) Key() string {
 type ContributionBundle struct {
 	Source SourceRef `json:"source,omitempty"`
 
-	Apps             []coreapp.Spec             `json:"apps,omitempty"`
-	Agents           []agent.Spec               `json:"agents,omitempty"`
-	OperationSets    []operation.Set            `json:"operation_sets,omitempty"`
-	Toolchains       []language.ToolchainSpec   `json:"toolchains,omitempty"`
-	ToolSets         []tool.Set                 `json:"tool_sets,omitempty"`
-	Operations       []operation.Spec           `json:"operations,omitempty"`
-	Commands         []command.Spec             `json:"commands,omitempty"`
-	Datasources      []coredatasource.Spec      `json:"datasources,omitempty"`
-	DataSources      []coredata.SourceSpec      `json:"data_sources,omitempty"`
-	LLMProviders     []corellm.ProviderSpec     `json:"llm_providers,omitempty"`
-	LLMModelAliases  []corellm.ModelAliasSpec   `json:"llm_model_aliases,omitempty"`
-	Sessions         []coresession.Spec         `json:"sessions,omitempty"`
-	Skills           []skill.Spec               `json:"skills,omitempty"`
-	ContextProviders []corecontext.ProviderSpec `json:"context_providers,omitempty"`
-	Workflows        []workflow.Spec            `json:"workflows,omitempty"`
-	EventTypes       []event.Event              `json:"-"`
-	Plugins          []PluginRef                `json:"plugins,omitempty"`
-	Diagnostics      []Diagnostic               `json:"diagnostics,omitempty"`
+	Apps             []coreapp.Spec                  `json:"apps,omitempty"`
+	Agents           []agent.Spec                    `json:"agents,omitempty"`
+	OperationSets    []operation.Set                 `json:"operation_sets,omitempty"`
+	Toolchains       []language.ToolchainSpec        `json:"toolchains,omitempty"`
+	ToolSets         []tool.Set                      `json:"tool_sets,omitempty"`
+	Operations       []operation.Spec                `json:"operations,omitempty"`
+	Commands         []command.Spec                  `json:"commands,omitempty"`
+	Datasources      []coredatasource.Spec           `json:"datasources,omitempty"`
+	DataSources      []coredata.SourceSpec           `json:"data_sources,omitempty"`
+	LLMProviders     []corellm.ProviderSpec          `json:"llm_providers,omitempty"`
+	LLMModelAliases  []corellm.ModelAliasSpec        `json:"llm_model_aliases,omitempty"`
+	Sessions         []coresession.Spec              `json:"sessions,omitempty"`
+	Skills           []skill.Spec                    `json:"skills,omitempty"`
+	ContextProviders []corecontext.ProviderSpec      `json:"context_providers,omitempty"`
+	Workflows        []workflow.Spec                 `json:"workflows,omitempty"`
+	Observers        []environment.ObserverSpec      `json:"observers,omitempty"`
+	SignalDerivers   []environment.SignalDeriverSpec `json:"signal_derivers,omitempty"`
+	Reactions        []reaction.Rule                 `json:"reactions,omitempty"`
+	EventTypes       []event.Event                   `json:"-"`
+	Plugins          []PluginRef                     `json:"plugins,omitempty"`
+	Diagnostics      []Diagnostic                    `json:"diagnostics,omitempty"`
 }
 
 // Append appends another bundle into b while preserving b.Source.
@@ -130,6 +135,9 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)
 	b.Workflows = append(b.Workflows, other.Workflows...)
+	b.Observers = append(b.Observers, other.Observers...)
+	b.SignalDerivers = append(b.SignalDerivers, other.SignalDerivers...)
+	b.Reactions = append(b.Reactions, other.Reactions...)
 	b.EventTypes = append(b.EventTypes, other.EventTypes...)
 	b.Plugins = append(b.Plugins, other.Plugins...)
 	b.Diagnostics = append(b.Diagnostics, other.Diagnostics...)

@@ -8,6 +8,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/browserplugin"
@@ -20,6 +21,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/shellplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -36,6 +38,9 @@ var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
 func New(sys system.System) Plugin {
@@ -118,6 +123,54 @@ func (p Plugin) DatasourceProviders(ctx context.Context, pluginCtx pluginhost.Co
 			return nil, fmt.Errorf("codingplugin: %s datasource providers: %w", plugin.Manifest().Name, err)
 		}
 		out = append(out, providers...)
+	}
+	return out, nil
+}
+
+func (p Plugin) EnvironmentObservers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	var out []runtimeenvironment.Observer
+	for _, plugin := range p.plugins {
+		contributor, ok := plugin.(pluginhost.ObserverContributor)
+		if !ok {
+			continue
+		}
+		observers, err := contributor.EnvironmentObservers(ctx, pluginCtx)
+		if err != nil {
+			return nil, fmt.Errorf("codingplugin: %s environment observers: %w", plugin.Manifest().Name, err)
+		}
+		out = append(out, observers...)
+	}
+	return out, nil
+}
+
+func (p Plugin) SignalDerivers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	var out []runtimeenvironment.SignalDeriver
+	for _, plugin := range p.plugins {
+		contributor, ok := plugin.(pluginhost.SignalDeriverContributor)
+		if !ok {
+			continue
+		}
+		derivers, err := contributor.SignalDerivers(ctx, pluginCtx)
+		if err != nil {
+			return nil, fmt.Errorf("codingplugin: %s signal derivers: %w", plugin.Manifest().Name, err)
+		}
+		out = append(out, derivers...)
+	}
+	return out, nil
+}
+
+func (p Plugin) Reactions(ctx context.Context, pluginCtx pluginhost.Context) ([]corereaction.Rule, error) {
+	var out []corereaction.Rule
+	for _, plugin := range p.plugins {
+		contributor, ok := plugin.(pluginhost.ReactionContributor)
+		if !ok {
+			continue
+		}
+		rules, err := contributor.Reactions(ctx, pluginCtx)
+		if err != nil {
+			return nil, fmt.Errorf("codingplugin: %s reactions: %w", plugin.Manifest().Name, err)
+		}
+		out = append(out, rules...)
 	}
 	return out, nil
 }

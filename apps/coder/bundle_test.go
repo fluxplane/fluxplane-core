@@ -7,10 +7,9 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
@@ -18,9 +17,12 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
+	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
+	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -133,34 +135,21 @@ func TestBundleComposes(t *testing.T) {
 	}
 }
 
-func TestExpandOperationsUsesActivationSignals(t *testing.T) {
+func TestExpandOperationsUsesExplicitFeaturesAndOperationSets(t *testing.T) {
 	ops := expandOperations(OperationExpansionConfig{
-		Features: []FeatureSpec{LanguageSupportFeature(), AvailableToolchainsFeature()},
-		Activation: ActivationInput{
-			ProjectSignals: []coreproject.Signal{{Language: "go", Toolchain: "go"}, {Language: "markdown"}},
-			ToolchainStatuses: []language.ToolchainStatus{{
-				ID:        "go",
-				Available: false,
-			}},
-			LanguageSupports: builtinLanguageSupports(),
-		},
+		Features: []FeatureSpec{ProjectSignalsFeature(), {OperationSets: []string{golangplugin.ParserSet, markdownplugin.Name}}},
 	})
-	if !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
-		t.Fatalf("ops = %#v, want parser and markdown operations from signals", ops)
+	if !containsName(ops, projectplugin.InventoryOp) || !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
+		t.Fatalf("ops = %#v, want project, Go parser, and markdown operations", ops)
 	}
 	if containsName(ops, "go_test") {
-		t.Fatalf("ops = %#v, want unavailable go toolchain operations omitted", ops)
+		t.Fatalf("ops = %#v, want toolchain operations omitted until explicitly selected", ops)
 	}
 
 	ops = expandOperations(OperationExpansionConfig{
-		Features: []FeatureSpec{LanguageSupportFeature(), AvailableToolchainsFeature()},
-		Activation: ActivationInput{
-			ProjectSignals:    []coreproject.Signal{{Language: "go", Toolchain: "go"}},
-			ToolchainStatuses: []language.ToolchainStatus{{ID: "go", Available: true}},
-			LanguageSupports:  builtinLanguageSupports(),
-		},
-		Add:    []string{"custom_op"},
-		Remove: []string{"go_fmt"},
+		Features: []FeatureSpec{{OperationSets: []string{golangplugin.ToolchainSet}}},
+		Add:      []string{"custom_op"},
+		Remove:   []string{"go_fmt"},
 	})
 	if !containsName(ops, "go_test") || !containsName(ops, "custom_op") {
 		t.Fatalf("ops = %#v, want available toolchain and explicit add", ops)
@@ -169,6 +158,34 @@ func TestExpandOperationsUsesActivationSignals(t *testing.T) {
 		t.Fatalf("ops = %#v, want explicit removal to win", ops)
 	}
 }
+
+func TestBundleContributesLanguageActivationReactions(t *testing.T) {
+	bundle := Bundle()
+	if !hasReaction(bundle.Reactions, "coder.language.go.parser", "golang.parser") {
+		t.Fatalf("reactions = %#v, want Go parser operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.language.markdown", "markdown") {
+		t.Fatalf("reactions = %#v, want markdown operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.toolchain.go.available", "golang.toolchain") {
+		t.Fatalf("reactions = %#v, want Go toolchain operation-set reaction", bundle.Reactions)
+	}
+}
+
+func hasReaction(rules []corereaction.Rule, name, operationSet string) bool {
+	for _, rule := range rules {
+		if rule.Name != name {
+			continue
+		}
+		for _, action := range rule.Actions {
+			if action.OperationSet == operationSet {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func agentHasOperation(spec agent.Spec, name string) bool {
 	for _, ref := range spec.Operations {
 		if ref.Name == operation.Name(name) {

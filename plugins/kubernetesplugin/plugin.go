@@ -18,9 +18,11 @@ import (
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -129,6 +131,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys}
@@ -154,11 +158,23 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p.ref = ctx.Ref
-	return resource.ContributionBundle{DataSources: []coredata.SourceSpec{DataSourceSpec(p.ref)}}, nil
+	return resource.ContributionBundle{
+		DataSources:    []coredata.SourceSpec{DataSourceSpec(p.ref)},
+		Observers:      []coreenvironment.ObserverSpec{kubernetesObserverSpec(p.ref)},
+		SignalDerivers: []coreenvironment.SignalDeriverSpec{kubernetesSignalDeriverSpec()},
+	}, nil
 }
 
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {
 	return []coredatasource.Provider{kubernetesDatasourceProvider{plugin: p}}, nil
+}
+
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	return []runtimeenvironment.Observer{kubernetesObserver{plugin: p}}, nil
+}
+
+func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{kubernetesSignalDeriver{}}, nil
 }
 
 func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {

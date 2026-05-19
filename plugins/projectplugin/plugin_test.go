@@ -7,10 +7,12 @@ import (
 	"time"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
@@ -80,6 +82,49 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	})
 }
 
+func TestProjectObserverAndSignalDeriver(t *testing.T) {
+	sys := systemtest.NewMemory()
+	writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
+	writeProjectFile(t, sys.Workspace(), "README.md", "# App\n")
+	plugin := New(sys)
+
+	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("EnvironmentObservers: %v", err)
+	}
+	if len(observers) != 1 || observers[0].Spec().Name != ObserverName {
+		t.Fatalf("observers = %#v, want project inventory observer", observers)
+	}
+	observations, err := observers[0].Observe(context.Background(), runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseSessionOpen})
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if len(observations) != 1 || observations[0].Kind != ObservationProjectInventory {
+		t.Fatalf("observations = %#v, want project inventory observation", observations)
+	}
+
+	derivers, err := plugin.SignalDerivers(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("SignalDerivers: %v", err)
+	}
+	signals, err := derivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if !hasEnvironmentSignal(signals, SignalLanguageDetected, "go") {
+		t.Fatalf("signals = %#v, want Go language signal", signals)
+	}
+	if !hasEnvironmentSignal(signals, SignalLanguageDetected, "markdown") {
+		t.Fatalf("signals = %#v, want markdown language signal", signals)
+	}
+	if !hasEnvironmentSignal(signals, SignalProjectToolchainHint, "go") {
+		t.Fatalf("signals = %#v, want Go toolchain hint", signals)
+	}
+	if !hasEnvironmentSignal(signals, SignalProjectManifest, "go.mod") {
+		t.Fatalf("signals = %#v, want go.mod manifest signal", signals)
+	}
+}
+
 func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	sys := systemtest.NewMemory()
 	plugin := New(sys)
@@ -116,6 +161,15 @@ func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	if summary.WorkspaceID != "workspace:configured:test" {
 		t.Fatalf("workspace id = %q, want declared workspace", summary.WorkspaceID)
 	}
+}
+
+func hasEnvironmentSignal(signals []coreenvironment.Signal, kind, target string) bool {
+	for _, signal := range signals {
+		if signal.Kind == kind && signal.Target == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectTaskRunDryRunAndExecution(t *testing.T) {

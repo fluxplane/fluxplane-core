@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/policy"
 )
@@ -89,13 +90,14 @@ func (s ProviderSpec) Validate() error {
 
 // Request describes one context-building request.
 type Request struct {
-	ThreadID     string                `json:"thread_id,omitempty"`
-	BranchID     string                `json:"branch_id,omitempty"`
-	TurnID       string                `json:"turn_id,omitempty"`
-	Reason       RenderReason          `json:"reason,omitempty"`
-	Scope        map[string]string     `json:"scope,omitempty"`
-	BudgetTokens int                   `json:"budget_tokens,omitempty"`
-	Previous     *ProviderRenderRecord `json:"previous,omitempty"`
+	ThreadID     string                    `json:"thread_id,omitempty"`
+	BranchID     string                    `json:"branch_id,omitempty"`
+	TurnID       string                    `json:"turn_id,omitempty"`
+	Reason       RenderReason              `json:"reason,omitempty"`
+	Scope        map[string]string         `json:"scope,omitempty"`
+	Observations []environment.Observation `json:"observations,omitempty"`
+	BudgetTokens int                       `json:"budget_tokens,omitempty"`
+	Previous     *ProviderRenderRecord     `json:"previous,omitempty"`
 }
 
 // Block is one structured context contribution.
@@ -168,6 +170,7 @@ type BuildRequest struct {
 	TurnID       string                                `json:"turn_id,omitempty"`
 	Reason       RenderReason                          `json:"reason,omitempty"`
 	Scope        map[string]string                     `json:"scope,omitempty"`
+	Observations []environment.Observation             `json:"observations,omitempty"`
 	BudgetTokens int                                   `json:"budget_tokens,omitempty"`
 	Previous     map[ProviderName]ProviderRenderRecord `json:"previous,omitempty"`
 }

@@ -7,10 +7,13 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	corelanguage "github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
@@ -756,6 +759,43 @@ func TestGoLanguageSupportIncludesDependencyToolchainOperations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("toolchain operation set %q not found", ToolchainSet)
+	}
+}
+
+func TestGoToolchainObserverAndSignalDeriver(t *testing.T) {
+	plugin := New(systemtest.NewMemory())
+	observers, err := plugin.EnvironmentObservers(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("EnvironmentObservers: %v", err)
+	}
+	if len(observers) != 1 || observers[0].Spec().Name != ToolchainObserver {
+		t.Fatalf("observers = %#v, want Go toolchain observer", observers)
+	}
+	observations, err := observers[0].Observe(context.Background(), runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseSessionOpen})
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if len(observations) != 1 || observations[0].Kind != ObservationToolchainStatus {
+		t.Fatalf("observations = %#v, want toolchain status observation", observations)
+	}
+
+	derivers, err := plugin.SignalDerivers(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("SignalDerivers: %v", err)
+	}
+	signals, err := derivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{Observations: []coreenvironment.Observation{{
+		ID:      "toolchain:go",
+		Kind:    ObservationToolchainStatus,
+		Content: corelanguage.ToolchainStatus{ID: "go", Available: true, Version: "go version go1.26 linux/amd64"},
+	}}})
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if len(signals) != 1 || signals[0].Kind != SignalToolchainAvailable || signals[0].Target != "go" {
+		t.Fatalf("signals = %#v, want Go toolchain availability", signals)
+	}
+	if signals[0].Metadata["version"] == "" {
+		t.Fatalf("signal metadata = %#v, want version", signals[0].Metadata)
 	}
 }
 

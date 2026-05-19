@@ -12,9 +12,12 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
+	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -26,31 +29,37 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // Config contains the reusable runtime pieces a harness composes.
 type Config struct {
-	Agent             agent.Agent
-	AgentProvider     AgentProvider
-	Commands          *command.Registry
-	Operations        *operation.Registry
-	Resolver          *resource.Resolver
-	CommandCatalog    session.CommandCatalog
-	OperationCatalog  session.OperationCatalog
-	WorkflowCatalog   session.WorkflowCatalog
-	SessionCatalog    session.SessionCatalog
-	OperationExecutor operationruntime.Executor
-	Events            coreevent.Sink
-	ThreadStore       corethread.Store
-	SessionAgents     *sessionagent.Runner
-	StopEvaluator     session.StopEvaluator
-	IdentityResolver  identity.Resolver
-	ExternalIdentity  identity.ExternalResolver
-	ToolSetCatalog    session.ToolSetCatalog
-	ToolProjection    toolprojection.Config
-	Security          policy.AuthorizationPolicy
-	SecurityTrace     bool
+	Agent                agent.Agent
+	AgentProvider        AgentProvider
+	Commands             *command.Registry
+	Operations           *operation.Registry
+	Resolver             *resource.Resolver
+	CommandCatalog       session.CommandCatalog
+	OperationCatalog     session.OperationCatalog
+	OperationSets        []operation.Set
+	ContextProviders     []corecontext.Provider
+	WorkflowCatalog      session.WorkflowCatalog
+	SessionCatalog       session.SessionCatalog
+	OperationExecutor    operationruntime.Executor
+	Events               coreevent.Sink
+	ThreadStore          corethread.Store
+	SessionAgents        *sessionagent.Runner
+	EnvironmentObservers []runtimeenvironment.Observer
+	SignalDerivers       []runtimeenvironment.SignalDeriver
+	ReactionRules        []corereaction.Rule
+	StopEvaluator        session.StopEvaluator
+	IdentityResolver     identity.Resolver
+	ExternalIdentity     identity.ExternalResolver
+	ToolSetCatalog       session.ToolSetCatalog
+	ToolProjection       toolprojection.Config
+	Security             policy.AuthorizationPolicy
+	SecurityTrace        bool
 }
 
 // AgentProvider resolves configured session profiles to runnable agents.
@@ -60,26 +69,33 @@ type AgentProvider interface {
 
 // Service is the channel-facing use-case facade over sessions.
 type Service struct {
-	agent             agent.Agent
-	agentProvider     AgentProvider
-	commands          *command.Registry
-	operations        *operation.Registry
-	resolver          *resource.Resolver
-	commandCatalog    session.CommandCatalog
-	operationCatalog  session.OperationCatalog
-	workflowCatalog   session.WorkflowCatalog
-	sessionCatalog    session.SessionCatalog
-	operationExecutor operationruntime.Executor
-	events            coreevent.Sink
-	threadStore       corethread.Store
-	sessionAgents     *sessionagent.Runner
-	stopEvaluator     session.StopEvaluator
-	identityResolver  identity.Resolver
-	externalIdentity  identity.ExternalResolver
-	toolSetCatalog    session.ToolSetCatalog
-	toolProjection    toolprojection.Config
-	security          policy.AuthorizationPolicy
-	securityTrace     bool
+	agent                agent.Agent
+	agentProvider        AgentProvider
+	commands             *command.Registry
+	operations           *operation.Registry
+	resolver             *resource.Resolver
+	commandCatalog       session.CommandCatalog
+	operationCatalog     session.OperationCatalog
+	operationSets        []operation.Set
+	contextProviders     []corecontext.Provider
+	workflowCatalog      session.WorkflowCatalog
+	sessionCatalog       session.SessionCatalog
+	operationExecutor    operationruntime.Executor
+	events               coreevent.Sink
+	threadStore          corethread.Store
+	sessionAgents        *sessionagent.Runner
+	startupObservations  []coreenvironment.Observation
+	startupSignals       []coreenvironment.Signal
+	environmentObservers []runtimeenvironment.Observer
+	signalDerivers       []runtimeenvironment.SignalDeriver
+	reactionRules        []corereaction.Rule
+	stopEvaluator        session.StopEvaluator
+	identityResolver     identity.Resolver
+	externalIdentity     identity.ExternalResolver
+	toolSetCatalog       session.ToolSetCatalog
+	toolProjection       toolprojection.Config
+	security             policy.AuthorizationPolicy
+	securityTrace        bool
 
 	bindMu      sync.Mutex
 	mu          sync.Mutex
@@ -92,31 +108,49 @@ type Service struct {
 
 // New returns a harness service.
 func New(cfg Config) *Service {
+	startupObservations, startupSignals := startupEnvironment(cfg.EnvironmentObservers, cfg.SignalDerivers)
 	return &Service{
-		agent:             cfg.Agent,
-		agentProvider:     cfg.AgentProvider,
-		commands:          cfg.Commands,
-		operations:        cfg.Operations,
-		resolver:          cfg.Resolver,
-		commandCatalog:    cfg.CommandCatalog,
-		operationCatalog:  cfg.OperationCatalog,
-		workflowCatalog:   cfg.WorkflowCatalog,
-		sessionCatalog:    cfg.SessionCatalog,
-		operationExecutor: cfg.OperationExecutor,
-		events:            cfg.Events,
-		threadStore:       cfg.ThreadStore,
-		sessionAgents:     cfg.SessionAgents,
-		stopEvaluator:     cfg.StopEvaluator,
-		identityResolver:  cfg.IdentityResolver,
-		externalIdentity:  cfg.ExternalIdentity,
-		toolSetCatalog:    cfg.ToolSetCatalog,
-		toolProjection:    cfg.ToolProjection,
-		security:          cfg.Security,
-		securityTrace:     cfg.SecurityTrace,
-		bindings:          map[bindingKey]corethread.Ref{},
-		profiles:          map[corethread.ID]coresession.Spec{},
-		subscribers:       map[corethread.ID]map[int]*subscriber{},
+		agent:                cfg.Agent,
+		agentProvider:        cfg.AgentProvider,
+		commands:             cfg.Commands,
+		operations:           cfg.Operations,
+		resolver:             cfg.Resolver,
+		commandCatalog:       cfg.CommandCatalog,
+		operationCatalog:     cfg.OperationCatalog,
+		operationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		contextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
+		workflowCatalog:      cfg.WorkflowCatalog,
+		sessionCatalog:       cfg.SessionCatalog,
+		operationExecutor:    cfg.OperationExecutor,
+		events:               cfg.Events,
+		threadStore:          cfg.ThreadStore,
+		sessionAgents:        cfg.SessionAgents,
+		startupObservations:  startupObservations,
+		startupSignals:       startupSignals,
+		environmentObservers: append([]runtimeenvironment.Observer(nil), cfg.EnvironmentObservers...),
+		signalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), cfg.SignalDerivers...),
+		reactionRules:        append([]corereaction.Rule(nil), cfg.ReactionRules...),
+		stopEvaluator:        cfg.StopEvaluator,
+		identityResolver:     cfg.IdentityResolver,
+		externalIdentity:     cfg.ExternalIdentity,
+		toolSetCatalog:       cfg.ToolSetCatalog,
+		toolProjection:       cfg.ToolProjection,
+		security:             cfg.Security,
+		securityTrace:        cfg.SecurityTrace,
+		bindings:             map[bindingKey]corethread.Ref{},
+		profiles:             map[corethread.ID]coresession.Spec{},
+		subscribers:          map[corethread.ID]map[int]*subscriber{},
 	}
+}
+
+func startupEnvironment(observers []runtimeenvironment.Observer, derivers []runtimeenvironment.SignalDeriver) ([]coreenvironment.Observation, []coreenvironment.Signal) {
+	observations, _ := runtimeenvironment.RunObservers(context.Background(), observers, runtimeenvironment.ObservationRequest{
+		Phase: coreenvironment.PhaseStartup,
+	})
+	signals, _ := runtimeenvironment.DeriveSignals(context.Background(), derivers, runtimeenvironment.SignalDeriveRequest{
+		Observations: append([]coreenvironment.Observation(nil), observations...),
+	})
+	return observations, signals
 }
 
 // SetSessionAgentRunner installs the command helper session runner used by
@@ -382,26 +416,33 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 	profile, _, _ := s.profileForInfo(info)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
-		Agent:             agentRuntime,
-		Profile:           profile,
-		Commands:          s.commands,
-		Operations:        s.operations,
-		Resolver:          s.resolver,
-		CommandCatalog:    s.commandCatalog,
-		OperationCatalog:  s.operationCatalog,
-		ToolSetCatalog:    s.toolSetCatalog,
-		WorkflowCatalog:   s.workflowCatalog,
-		OperationExecutor: s.executorForInfo(info),
-		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
-		ThreadStore:       s.threadStore,
-		Thread:            info.Thread,
-		SessionAgents:     s.currentSessionAgents(),
-		Delegation:        s.delegationForInfo(info),
-		StopEvaluator:     s.stopEvaluator,
-		RunID:             string(runID),
-		TurnTools:         turnTools,
-		Security:          s.security,
-		SecurityTrace:     s.securityTrace,
+		Agent:                agentRuntime,
+		Profile:              profile,
+		Commands:             s.commands,
+		Operations:           s.operations,
+		Resolver:             s.resolver,
+		CommandCatalog:       s.commandCatalog,
+		OperationCatalog:     s.operationCatalog,
+		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
+		ToolSetCatalog:       s.toolSetCatalog,
+		WorkflowCatalog:      s.workflowCatalog,
+		OperationExecutor:    s.executorForInfo(info),
+		Events:               s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
+		ThreadStore:          s.threadStore,
+		Thread:               info.Thread,
+		SessionAgents:        s.currentSessionAgents(),
+		Delegation:           s.delegationForInfo(info),
+		StopEvaluator:        s.stopEvaluator,
+		RunID:                string(runID),
+		TurnTools:            turnTools,
+		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
+		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
+		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
+		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
+		Security:             s.security,
+		SecurityTrace:        s.securityTrace,
 	}
 	result := exec.ExecuteInboundInput(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -474,24 +515,31 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	}
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
-		Agent:             agentRuntime,
-		Profile:           profile,
-		Commands:          s.commands,
-		Operations:        s.operations,
-		Resolver:          s.resolver,
-		CommandCatalog:    s.commandCatalog,
-		OperationCatalog:  s.operationCatalog,
-		WorkflowCatalog:   s.workflowCatalog,
-		OperationExecutor: s.executorForInfo(info),
-		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
-		ThreadStore:       s.threadStore,
-		Thread:            info.Thread,
-		SessionAgents:     s.currentSessionAgents(),
-		Delegation:        s.delegationForInfo(info),
-		StopEvaluator:     s.stopEvaluator,
-		RunID:             string(runID),
-		Security:          s.security,
-		SecurityTrace:     s.securityTrace,
+		Agent:                agentRuntime,
+		Profile:              profile,
+		Commands:             s.commands,
+		Operations:           s.operations,
+		Resolver:             s.resolver,
+		CommandCatalog:       s.commandCatalog,
+		OperationCatalog:     s.operationCatalog,
+		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
+		WorkflowCatalog:      s.workflowCatalog,
+		OperationExecutor:    s.executorForInfo(info),
+		Events:               s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
+		ThreadStore:          s.threadStore,
+		Thread:               info.Thread,
+		SessionAgents:        s.currentSessionAgents(),
+		Delegation:           s.delegationForInfo(info),
+		StopEvaluator:        s.stopEvaluator,
+		RunID:                string(runID),
+		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
+		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
+		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
+		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
+		Security:             s.security,
+		SecurityTrace:        s.securityTrace,
 	}
 	result := exec.ExecuteInboundCommand(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -531,24 +579,31 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 	profile, _, _ := s.profileForInfo(info)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
-		Agent:             s.agent,
-		Profile:           profile,
-		Commands:          s.commands,
-		Operations:        s.operations,
-		Resolver:          s.resolver,
-		CommandCatalog:    s.commandCatalog,
-		OperationCatalog:  s.operationCatalog,
-		WorkflowCatalog:   s.workflowCatalog,
-		OperationExecutor: s.executorForInfo(info),
-		Events:            s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
-		ThreadStore:       s.threadStore,
-		Thread:            info.Thread,
-		SessionAgents:     s.currentSessionAgents(),
-		Delegation:        s.delegationForInfo(info),
-		StopEvaluator:     s.stopEvaluator,
-		RunID:             string(runID),
-		Security:          s.security,
-		SecurityTrace:     s.securityTrace,
+		Agent:                s.agent,
+		Profile:              profile,
+		Commands:             s.commands,
+		Operations:           s.operations,
+		Resolver:             s.resolver,
+		CommandCatalog:       s.commandCatalog,
+		OperationCatalog:     s.operationCatalog,
+		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
+		WorkflowCatalog:      s.workflowCatalog,
+		OperationExecutor:    s.executorForInfo(info),
+		Events:               s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
+		ThreadStore:          s.threadStore,
+		Thread:               info.Thread,
+		SessionAgents:        s.currentSessionAgents(),
+		Delegation:           s.delegationForInfo(info),
+		StopEvaluator:        s.stopEvaluator,
+		RunID:                string(runID),
+		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
+		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
+		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
+		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
+		Security:             s.security,
+		SecurityTrace:        s.securityTrace,
 	}
 	result := exec.ExecuteInboundOperation(ctx, inbound)
 	if err := runtimeFailures.Err(); err != nil {
@@ -616,15 +671,22 @@ func commandOutbound(inbound channel.Inbound, result session.CommandResult) *cha
 		if result.Effect.Result.IsError() && result.Effect.Result.Error != nil {
 			content = result.Effect.Result.Error.Message
 		}
-		out.Message = &channel.Message{Content: content}
+		out.Message = &channel.Message{Content: outboundContent(content)}
 	case result.Output != nil:
-		out.Message = &channel.Message{Content: result.Output}
+		out.Message = &channel.Message{Content: outboundContent(result.Output)}
 	case result.Error != nil:
 		out.Message = &channel.Message{Content: result.Error.Message}
 	default:
 		out.Message = &channel.Message{Content: string(result.Status)}
 	}
 	return &out
+}
+
+func outboundContent(value any) any {
+	if rendered, ok := value.(operation.ModelRenderable); ok {
+		return rendered.ModelText()
+	}
+	return value
 }
 
 func operationOutbound(inbound channel.Inbound, result session.OperationResult) *channel.Outbound {
@@ -1075,6 +1137,7 @@ func runtimeEventPersistenceContext(ctx context.Context) context.Context {
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	value := string(name)
 	return strings.HasPrefix(value, "plan.") ||
+		strings.HasPrefix(value, "reaction.") ||
 		strings.HasPrefix(value, "task.") ||
 		strings.HasPrefix(value, "workflow.") ||
 		strings.HasPrefix(value, "session_agent.") ||

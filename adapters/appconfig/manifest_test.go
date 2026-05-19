@@ -580,6 +580,30 @@ operations:
       determinism: deterministic
       effects: [none]
       risk: low
+observations:
+  observers:
+    - name: kubernetes.context
+      phase: turn
+      observable_kinds: [kubernetes.context]
+      disabled: true
+  signal_derivers:
+    - name: kubernetes.signals
+      observation_kinds: [kubernetes.context]
+      signals:
+        - kind: integration.available
+          target: kubernetes
+reactions:
+  - name: kubernetes-available
+    when:
+      signal: integration.available
+      target: kubernetes
+    actions:
+      - kind: activate_skill
+        skill:
+          name: kubernetes
+      - kind: enable_context_provider
+        context_provider:
+          name: kubernetes.context
 `))
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
@@ -618,6 +642,21 @@ operations:
 	if file.Bundle.Operations[0].Ref.Name != "echo" || file.Bundle.Operations[0].Semantics.Risk != operation.RiskLow {
 		t.Fatalf("operation = %#v", file.Bundle.Operations[0])
 	}
+	if len(file.Bundle.Observers) != 1 || file.Bundle.Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observers = %#v, want kubernetes.context", file.Bundle.Observers)
+	}
+	if !file.Bundle.Observers[0].Disabled {
+		t.Fatalf("observer disabled = false, want true")
+	}
+	if len(file.Bundle.SignalDerivers) != 1 || file.Bundle.SignalDerivers[0].Name != "kubernetes.signals" {
+		t.Fatalf("signal derivers = %#v, want kubernetes.signals", file.Bundle.SignalDerivers)
+	}
+	if len(file.Bundle.Reactions) != 1 || file.Bundle.Reactions[0].Name != "kubernetes-available" {
+		t.Fatalf("reactions = %#v, want kubernetes-available", file.Bundle.Reactions)
+	}
+	if got := file.Bundle.Reactions[0].Actions[1].ContextProvider.Name; got != "kubernetes.context" {
+		t.Fatalf("context provider reaction target = %q, want kubernetes.context", got)
+	}
 }
 
 func TestDecodeFileLoadsResourceDocuments(t *testing.T) {
@@ -639,6 +678,28 @@ name: feature
 steps:
   - id: run
     operation: echo
+---
+kind: observer
+name: kubernetes.context
+phase: turn
+observable_kinds: [kubernetes.context]
+---
+kind: signal_deriver
+name: kubernetes.signals
+observation_kinds: [kubernetes.context]
+signals:
+  - kind: integration.available
+    target: kubernetes
+---
+kind: reaction
+name: kubernetes-available
+when:
+  signal: integration.available
+  target: kubernetes
+actions:
+  - kind: activate_skill
+    skill:
+      name: kubernetes
 `))
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
@@ -651,6 +712,15 @@ steps:
 	}
 	if len(file.Bundle.Workflows) != 1 || file.Bundle.Workflows[0].Name != "feature" {
 		t.Fatalf("workflows = %#v", file.Bundle.Workflows)
+	}
+	if len(file.Bundle.Observers) != 1 || file.Bundle.Observers[0].Name != "kubernetes.context" {
+		t.Fatalf("observers = %#v", file.Bundle.Observers)
+	}
+	if len(file.Bundle.SignalDerivers) != 1 || file.Bundle.SignalDerivers[0].Name != "kubernetes.signals" {
+		t.Fatalf("signal derivers = %#v", file.Bundle.SignalDerivers)
+	}
+	if len(file.Bundle.Reactions) != 1 || file.Bundle.Reactions[0].Name != "kubernetes-available" {
+		t.Fatalf("reactions = %#v", file.Bundle.Reactions)
 	}
 }
 

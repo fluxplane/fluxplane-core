@@ -13,10 +13,14 @@ import (
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
+	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
+	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
+	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/sdk"
 )
@@ -116,6 +120,7 @@ func Bundle() resource.ContributionBundle {
 			kubernetesplugin.ContainerEntity,
 		},
 	})
+	bundle.Reactions = append(bundle.Reactions, coderLanguageActivationReactions()...)
 	if len(bundle.Apps) > 0 {
 		bundle.Apps[0].Sources = append(bundle.Apps[0].Sources, coreapp.SourceSpec{
 			Location:  ".agents",
@@ -128,6 +133,40 @@ func Bundle() resource.ContributionBundle {
 	bundle.Append(embedded)
 	bundle.Commands = append(bundle.Commands, shellExecCommandSpec())
 	return bundle
+}
+
+func coderLanguageActivationReactions() []corereaction.Rule {
+	return []corereaction.Rule{{
+		Name: "coder.language.go.parser",
+		When: corereaction.Matcher{
+			Signal: projectplugin.SignalLanguageDetected,
+			Target: "go",
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: golangplugin.ParserSet,
+		}},
+	}, {
+		Name: "coder.language.markdown",
+		When: corereaction.Matcher{
+			Signal: projectplugin.SignalLanguageDetected,
+			Target: "markdown",
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: markdownplugin.Name,
+		}},
+	}, {
+		Name: "coder.toolchain.go.available",
+		When: corereaction.Matcher{
+			Signal: golangplugin.SignalToolchainAvailable,
+			Target: "go",
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: golangplugin.ToolchainSet,
+		}},
+	}}
 }
 
 func shellExecCommandSpec() command.Spec {

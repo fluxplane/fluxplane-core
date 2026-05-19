@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 )
 
 func TestMaterializerEmitsOnlyChangedBlocks(t *testing.T) {
@@ -74,6 +75,46 @@ func TestMaterializerFingerprintSkipsBuild(t *testing.T) {
 	}
 }
 
+func TestMaterializerPassesObservationsToProviders(t *testing.T) {
+	provider := &testProvider{
+		spec:   corecontext.ProviderSpec{Name: "env"},
+		blocks: []corecontext.Block{{ID: "env/1", Content: "context"}},
+	}
+	m := NewMaterializer([]corecontext.Provider{provider}, nil)
+	_, err := m.Build(context.Background(), corecontext.BuildRequest{
+		Observations: []coreenvironment.Observation{{
+			Kind:    "kubernetes.context",
+			Content: "k3d-ai",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(provider.lastReq.Observations) != 1 || provider.lastReq.Observations[0].Kind != "kubernetes.context" {
+		t.Fatalf("provider observations = %#v, want kubernetes observation", provider.lastReq.Observations)
+	}
+}
+
+func TestMaterializerPassesObservationsToFingerprinter(t *testing.T) {
+	provider := &testProvider{
+		spec:        corecontext.ProviderSpec{Name: "env"},
+		fingerprint: "different",
+		blocks:      []corecontext.Block{{ID: "env/1", Content: "context"}},
+	}
+	m := NewMaterializer([]corecontext.Provider{provider}, map[corecontext.ProviderName]corecontext.ProviderRenderRecord{
+		"env": {Provider: "env", Fingerprint: "previous"},
+	})
+	_, err := m.Build(context.Background(), corecontext.BuildRequest{
+		Observations: []coreenvironment.Observation{{Kind: "channel.message", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(provider.lastFingerprintReq.Observations) != 1 || provider.lastFingerprintReq.Observations[0].Kind != "channel.message" {
+		t.Fatalf("fingerprint observations = %#v, want channel message", provider.lastFingerprintReq.Observations)
+	}
+}
+
 func TestRenderDiffSeparatesPlacement(t *testing.T) {
 	result := corecontext.BuildResult{
 		Providers: []corecontext.ProviderDiff{{
@@ -99,22 +140,26 @@ func TestRenderDiffSeparatesPlacement(t *testing.T) {
 }
 
 type testProvider struct {
-	spec         corecontext.ProviderSpec
-	blocks       []corecontext.Block
-	fingerprint  string
-	builds       int
-	fingerprints int
+	spec               corecontext.ProviderSpec
+	blocks             []corecontext.Block
+	fingerprint        string
+	builds             int
+	fingerprints       int
+	lastReq            corecontext.Request
+	lastFingerprintReq corecontext.Request
 }
 
 func (p *testProvider) Spec() corecontext.ProviderSpec { return p.spec }
 
-func (p *testProvider) Build(context.Context, corecontext.Request) ([]corecontext.Block, error) {
+func (p *testProvider) Build(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
 	p.builds++
+	p.lastReq = req
 	return append([]corecontext.Block(nil), p.blocks...), nil
 }
 
-func (p *testProvider) StateFingerprint(context.Context, corecontext.Request) (string, bool, error) {
+func (p *testProvider) StateFingerprint(_ context.Context, req corecontext.Request) (string, bool, error) {
 	p.fingerprints++
+	p.lastFingerprintReq = req
 	if p.fingerprint == "" {
 		return "", false, nil
 	}

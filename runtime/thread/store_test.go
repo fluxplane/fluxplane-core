@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/core/event"
-	corelanguage "github.com/fluxplane/agentruntime/core/language"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	runtimeprojection "github.com/fluxplane/agentruntime/runtime/projection"
@@ -33,7 +31,7 @@ func (conflictStore) Load(context.Context, event.StreamID, event.LoadOptions) ([
 	return nil, nil
 }
 
-func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
+func TestStoreReplaysBranchEvents(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewStore(eventstore.NewMemoryStore())
 	if err != nil {
@@ -45,16 +43,12 @@ func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
 	_, err = store.Append(ctx, corethread.Ref{ID: "thread-activation", BranchID: corethread.MainBranch},
 		corethread.AppendRecord{
 			NodeID: "signals",
-			Event: event.Record{Payload: coreproject.SignalsObserved{
-				Signals: []coreproject.Signal{{Kind: "manifest", Path: "go.mod", Language: "go", Toolchain: "go"}},
-			}},
+			Event:  event.Record{Payload: messageAdded{Text: "first"}},
 		},
 		corethread.AppendRecord{
 			NodeID:       "status",
 			ParentNodeID: "signals",
-			Event: event.Record{Payload: corelanguage.ToolchainStatusObserved{
-				Status: corelanguage.ToolchainStatus{ID: "go", Available: true},
-			}},
+			Event:        event.Record{Payload: messageAdded{Text: "second"}},
 		},
 	)
 	if err != nil {
@@ -68,11 +62,11 @@ func TestStoreReplaysLanguageActivationEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventsForBranch returned error: %v", err)
 	}
-	if _, ok := visible[1].Event.Payload.(coreproject.SignalsObserved); !ok {
-		t.Fatalf("event[1] payload = %T, want project.SignalsObserved", visible[1].Event.Payload)
+	if payload, ok := visible[1].Event.Payload.(messageAdded); !ok || payload.Text != "first" {
+		t.Fatalf("event[1] payload = %#v, want first message", visible[1].Event.Payload)
 	}
-	if payload, ok := visible[2].Event.Payload.(corelanguage.ToolchainStatusObserved); !ok || !payload.Status.Available {
-		t.Fatalf("event[2] payload = %#v, want available toolchain status", visible[2].Event.Payload)
+	if payload, ok := visible[2].Event.Payload.(messageAdded); !ok || payload.Text != "second" {
+		t.Fatalf("event[2] payload = %#v, want second message", visible[2].Event.Payload)
 	}
 }
 
