@@ -24,7 +24,7 @@ daemon:
   listeners:
     - name: control
       type: http
-      addr: agentsdk-local.sock
+      addr: coder-local.sock
       auth: {mode: local_socket}
   channels:
     - name: local

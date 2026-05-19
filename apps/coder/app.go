@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultConversation = "agentsdk-coder"
+const defaultConversation = "coder"
 
 const (
 	defaultRemoteSession      = "slack-main"

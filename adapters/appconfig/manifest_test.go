@@ -461,7 +461,7 @@ daemon:
   listeners:
     - name: control
       type: http
-      addr: agentsdk-slack-bot.sock
+      addr: coder-slack-bot.sock
   channels:
     - name: slack-main
       type: slack
@@ -528,7 +528,7 @@ system: |
 	if len(file.Bundle.Datasources[0].Entities) != 1 || file.Bundle.Datasources[0].Entities[0] != "slack.user" {
 		t.Fatalf("datasource entities = %#v", file.Bundle.Datasources[0].Entities)
 	}
-	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "agentsdk-slack-bot.sock" {
+	if len(file.Daemon.Listeners) != 1 || file.Daemon.Listeners[0].Addr != "coder-slack-bot.sock" {
 		t.Fatalf("listeners = %#v", file.Daemon.Listeners)
 	}
 	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {

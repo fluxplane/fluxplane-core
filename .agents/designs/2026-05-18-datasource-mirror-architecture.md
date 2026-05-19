@@ -997,10 +997,10 @@ semantic_search:
 CLI:
 
 ```bash
-agentsdk datasource mirror build .
-agentsdk datasource mirror embed .
-agentsdk datasource mirror status .
-agentsdk datasource mirror clear .
+coder datasource mirror build .
+coder datasource mirror embed .
+coder datasource mirror status .
+coder datasource mirror clear .
 ```
 
 If the unified coder surface lands first, the same commands should move to:

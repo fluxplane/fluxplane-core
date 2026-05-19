@@ -5,6 +5,9 @@ repository should move into `github.com/fluxplane/agentruntime`.
 
 The rewrite is not a compatibility-preserving refactor. Prefer deleting stale
 paths and splitting mixed packages over carrying adapters for old package names.
+Current product CLI work lands in `cmd/coder` and `apps/coder`; the legacy
+`agentsdk` binary/package has been removed. The `agentsdk.app.yaml` manifest
+filename remains until a separate manifest rename is planned.
 
 ## Target Layers
 
@@ -336,12 +339,12 @@ Current security model:
   `github.com/codewandler/cmdrisk`, evaluates shell commands via command
   parsing, evaluates structured network operations via intent assessment, and
   emits `cmdrisk.assessed` events for debug/audit streams.
-- Shell execution in `cmd/agentsdk coder` runs an executable directly, never
+- Shell execution in coder runs an executable directly, never
   through a shell interpreter. It rejects shell syntax, rejects a small set of
   explicitly dangerous executables as defense in depth, binds workdir to the
   workspace root, uses a minimal environment, separates stdout/stderr, caps
   output, and reports timeout/truncation explicitly.
-- HTTP fetch in `cmd/agentsdk coder` is GET-only, bounded by timeout and body
+- HTTP fetch in coder is GET-only, bounded by timeout and body
   size, blocks loopback/private/link-local/multicast/metadata targets, resolves
   DNS inside a custom dialer to reduce DNS rebinding risk, and revalidates
   redirects.
@@ -513,7 +516,7 @@ ported.
 | `channel` | `core/channel` + `orchestration/harness` | Core keeps normalized envelopes/specs; harness owns routing/session binding. |
 | `channel/httpapi` | `adapters/httpchannel` | Server-side implementation of the direct HTTP/SSE channel. Keep separate from daemon control API. |
 | `channels/slackchan` | `adapters/slack` | Protocol adapter. |
-| `cmd/agentsdk` | `apps/cli` | Final product CLI. |
+| `cmd/agentsdk` | `cmd/coder` + `apps/coder` | Legacy product CLI replaced by coder. |
 | `cmd/agentclient` | `apps/agentclient` + `adapters/httpchannel/client` | Product CLI over the direct channel client. It should not call session directly. |
 | `cmd/agent-sim` | `apps/agentsim` or test tool | Probably app/tooling. |
 | `command` | `core/command` + parser adapter | Descriptors/results/core tree in core; slash parsing may be adapter if terminal-specific. |
@@ -1019,11 +1022,10 @@ Parity should be reached in small slices:
    stop-condition-driven follow-up turns after a terminal response.
 
 9. **Phase 7: Product CLI and Coder App**
-   Add a thin `cmd/agentsdk` Cobra entrypoint over first-party app
-   declarations. The embedded `apps/coder` package stays pure declaration:
-   app, agent, session, operation specs, and command specs only. Runtime
-   operation implementations such as bounded shell execution and HTTP GET are
-   supplied by the command host or later plugins/adapters.
+   Use `cmd/coder` as the product CLI over the first-party coder app. The
+   embedded `apps/coder` package keeps product assembly and app lifecycle
+   behavior; reusable runtime operation implementations stay in plugins and
+   adapters.
 
 10. **Phase 8: Usage and Model Catalogs**
    Add normalized runtime usage events and provider model catalog specs. Usage

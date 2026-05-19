@@ -141,7 +141,7 @@ AgentRuntime applications.
 ## Start here
 
 - **Use the coding agent**: [coder guide](docs/coder.md)
-- **Explore the CLI**: [agentsdk CLI](docs/agentsdk.md)
+- **Explore the CLI**: [coder guide](docs/coder.md)
 - **Configure providers and apps**: [Configuration](docs/configuration.md)
 - **Understand the runtime**: [Architecture](docs/architecture.md)
 - **Review the safety model**: [Security](docs/security.md)

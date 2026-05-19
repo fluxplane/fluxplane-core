@@ -691,7 +691,7 @@ func resolveTags(spec coredistribution.Spec, override []string) []string {
 	}
 	name := strings.TrimSpace(spec.Name)
 	if name == "" {
-		name = "agentsdk-app"
+		name = "agentruntime-app"
 	}
 	return []string{name + ":latest"}
 }

@@ -17,7 +17,7 @@ import (
 
 const (
 	DefaultBaseURL = "https://openrouter.ai/api/v1"
-	defaultTitle   = "agentsdk"
+	defaultTitle   = "coder"
 )
 
 // Config configures an OpenRouter Responses model.

@@ -3,18 +3,18 @@
 Native rewrite Slack daemon example.
 
 ```bash
-agentsdk connect slack --instance slack-bot --auth bot_token --field bot_token=xoxb-... --field app_token=xapp-...
-agentsdk connect gitlab --instance gitlab
-agentsdk connect jira --instance jira
-agentsdk connect confluence --instance confluence
-agentsdk serve examples/slack-bot
+coder connect slack --instance slack-bot --auth bot_token --field bot_token=xoxb-... --field app_token=xapp-...
+coder connect gitlab --instance gitlab
+coder connect jira --instance jira
+coder connect confluence --instance confluence
+coder app serve examples/slack-bot
 ```
 
 In another terminal, connect to the local direct channel declared by the app:
 
 ```bash
-agentsdk remote --app examples/slack-bot
-agentsdk remote --app examples/slack-bot --input "hello from local"
+coder remote --app examples/slack-bot
+coder remote --app examples/slack-bot --input "hello from local"
 ```
 
 The native `slack/slack-bot` plugin instance supplies the bot token and Socket

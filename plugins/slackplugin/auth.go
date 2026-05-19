@@ -191,7 +191,7 @@ func resolveStoredOrEnv(ctx context.Context, sys system.System, store runtimesec
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken)
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken)
 	if session.BotToken == "" {
-		return Session{}, fmt.Errorf("slackplugin: bot token is not configured; run agentsdk connect slack --auth %s or configure %s", BotTokenMethod, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))
+		return Session{}, fmt.Errorf("slackplugin: bot token is not configured; run coder connect slack --auth %s or configure %s", BotTokenMethod, firstNonEmpty(cfg.Auth.BotTokenEnv, defaultBotTokenEnv))
 	}
 	return session, nil
 }
@@ -214,7 +214,7 @@ func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.Fi
 	session.AppToken = firstNonEmpty(session.AppToken, envSession.AppToken)
 	session.UserToken = firstNonEmpty(session.UserToken, envSession.UserToken)
 	if session.BotToken == "" {
-		return Session{}, fmt.Errorf("slackplugin: oauth2 token is not configured; run agentsdk connect slack --auth %s", OAuth2Method)
+		return Session{}, fmt.Errorf("slackplugin: oauth2 token is not configured; run coder connect slack --auth %s", OAuth2Method)
 	}
 	return session, nil
 }

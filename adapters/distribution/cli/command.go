@@ -203,7 +203,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 	uiState := terminalui.UIState{}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
-	_, _ = fmt.Fprintf(errOut, "agentsdk %s repl. Type /exit or /quit to stop.\n", name)
+	_, _ = fmt.Fprintf(errOut, "coder %s repl. Type /exit or /quit to stop.\n", name)
 	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
 		_, _ = fmt.Fprintf(stdout, "%s> ", name)

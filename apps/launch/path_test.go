@@ -100,7 +100,7 @@ func TestRunPathSuggestsInitWhenUninitialized(t *testing.T) {
 		Out:   io.Discard,
 		Err:   io.Discard,
 	})
-	if err == nil || !strings.Contains(err.Error(), "agentsdk init sample") {
+	if err == nil || !strings.Contains(err.Error(), "coder app init sample") {
 		t.Fatalf("RunPathWithLoader error = %v, want init guidance", err)
 	}
 }

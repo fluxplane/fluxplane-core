@@ -285,11 +285,8 @@ trees or distribution bundles.
 Current app concepts include:
 
 ```text
-apps/agentsdk
-  product assembly for the agentsdk CLI
-
 apps/coder
-  coder distribution bundle and command surface
+  coder product assembly, distribution bundle, and command surface
 
 apps/launch
   local run/serve assembly for distributions
@@ -313,9 +310,6 @@ process-level exit behavior and call an assembled app command.
 Example:
 
 ```text
-cmd/agentsdk
-  -> apps/agentsdk.NewCommand()
-
 cmd/coder
   -> apps/coder distribution command
 ```
@@ -337,8 +331,8 @@ or hide side effects behind authoring helpers.
 ### Local CLI Run
 
 ```text
-cmd/agentsdk
-  -> apps/agentsdk
+cmd/coder
+  -> apps/coder
      -> apps/launch.NewRunCommand
         -> apps/launch.RunPath
            -> adapters/distribution/local.Load
@@ -357,8 +351,8 @@ the generic distribution CLI adapter.
 ### Remote CLI Run
 
 ```text
-cmd/agentsdk
-  -> apps/agentsdk
+cmd/coder
+  -> apps/coder
      -> adapters/distribution/remote.NewCommand
         -> adapters/distribution/remote.Run
            -> adapters/distribution/remote.ResolveTarget
@@ -375,8 +369,8 @@ the same logical session handle contract as local clients.
 ### Daemon Serve
 
 ```text
-cmd/agentsdk
-  -> apps/agentsdk
+cmd/coder
+  -> apps/coder
      -> apps/launch.NewServeCommand
         -> apps/launch.Serve
            -> adapters/appconfig
@@ -393,16 +387,16 @@ surface is kept separate from daemon/control HTTP.
 ### Connector Auth
 
 ```text
-cmd/agentsdk
-  -> apps/agentsdk
+cmd/coder
+  -> apps/coder
      -> adapters/connectors/cli.NewCommand
-        -> plugin registry supplied by apps/agentsdk
+        -> plugin registry supplied by apps/coder
         -> codewandler/connectors runtime
         -> credential stores
 ```
 
 Connector auth is an adapter-level CLI. It does not know which first-party
-plugins a product wants; `apps/agentsdk` supplies that registry.
+plugins a product wants; `apps/coder` supplies that registry.
 
 ### Plugin Contribution Resolution
 

@@ -44,7 +44,7 @@ func Bundle() resource.ContributionBundle {
 	delegationOperations := defaultDelegationOperationNames()
 	agentSpec := sdk.BuildAgent(AgentName).
 		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
-		WithSystem("You are agentsdk coder. Help with coding tasks using concise, concrete steps. " +
+		WithSystem("You are coder. Help with coding tasks using concise, concrete steps. " +
 			"Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec. " +
 			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web_search datasource queries, and web_request only for fetching known URLs. " +
 			"Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation. " +

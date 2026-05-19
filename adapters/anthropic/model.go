@@ -1,4 +1,4 @@
-// Package anthropic adapts Anthropic's Messages API to agentsdk.
+// Package anthropic adapts Anthropic's Messages API to AgentRuntime.
 package anthropic
 
 import (

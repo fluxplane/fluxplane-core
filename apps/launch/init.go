@@ -42,7 +42,7 @@ func NewInitCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite an existing agentsdk app manifest")
+	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite an existing app manifest")
 	return cmd
 }
 
@@ -110,7 +110,7 @@ func renderMinimalManifest(name string) ([]byte, error) {
 		Socket string
 	}{
 		Name:   name,
-		Socket: "agentsdk-" + slug(name) + ".sock",
+		Socket: "coder-" + slug(name) + ".sock",
 	}
 	tpl, err := template.New("minimal-app.yaml").Funcs(template.FuncMap{
 		"quote": strconv.Quote,

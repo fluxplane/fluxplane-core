@@ -155,7 +155,7 @@ Memory rules:
   runtime wiring from launch config to `runtime/system`.
 - `apps/coder`: reuse the generic flags and add serve-specific forwarding.
 - `plugins/workspaceplugin`: auto-context provider that renders basic workspace
-  root information for coder, `agentsdk run`, daemon apps, and examples.
+  root information for coder, `coder app run`, daemon apps, and examples.
 - `runtime/system`: existing named root enforcement and path resolution plus root
   metadata introspection.
 - `runtime/project`: scan all selected runtime roots and preserve root prefixes.

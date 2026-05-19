@@ -46,7 +46,7 @@ func ListenerHandler(listener appconfig.ListenerDoc, next http.Handler) (http.Ha
 func BearerAuthHandler(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="agentsdk"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="coder"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

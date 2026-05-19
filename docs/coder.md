@@ -40,9 +40,12 @@ Top-level behavior and commands:
 - `app init [path]` creates a minimal local app manifest.
 - `app run [path]` runs a local agentruntime app manifest.
 - `app serve [path]` serves a local app daemon.
-- `app build --target docker-image [path]` builds a local app distribution.
-- `app deploy --target docker-compose [path] --dry-run` renders local compose
-  deployment resources.
+- `app build [path]` generates app artifacts such as `bin/<name>`,
+  `Dockerfile`, `docker-compose.yaml`, and the Docker image. Use `--target` to
+  build a subset.
+- `app deploy --target docker-compose [path]` builds the coder base image,
+  generates app Docker/Compose artifacts, builds the app image, and runs
+  `docker compose up`.
 - `app config show [path]` shows resolved local app configuration.
 - `app config edit [path]` opens the resolved local app manifest.
 
@@ -155,6 +158,20 @@ coder app config edit .
 coder app init ./my-app
 ```
 
+Build and deploy an app with local Docker Compose:
+
+```bash
+coder build --target docker-base --tag fluxplane/coder-base:local
+coder app build . --target dockerfile,docker-compose,docker-image --image my-app:local
+coder app deploy . --target docker-compose --image my-app:local
+```
+
+`coder app deploy --target docker-compose` builds the coder base image, generates
+the app `Dockerfile` and `docker-compose.yaml`, builds the app image, and runs
+`docker compose up`. Runtime `data.Store` and `event.Store` backends declared in
+appconfig can cause generated Compose services such as MySQL and NATS JetStream
+to be included.
+
 Run app-scoped resources without importing them into the coder session:
 
 ```bash
@@ -192,6 +209,30 @@ coder --thinking off
 `--thinking` accepts `auto`, `on`, or `off`. `--effort` accepts `low`,
 `medium`, `high`, or `max`; unsupported provider/model combinations fail with a
 clear error.
+
+Apps should define provider-specific models centrally in appconfig and let
+agents refer to provider-agnostic aliases:
+
+```yaml
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model, gpt5]
+      params:
+        effort: medium
+
+distribution:
+  deploy:
+    model: smart_model
+```
+
+`coder app build` and `coder app deploy` resolve generated app container
+provider/model/effort from explicit flags, then `distribution.deploy.model`,
+then `models.default`. If the resolved deployment provider is OpenRouter, the
+generated Compose app service passes `OPENROUTER_API_KEY` through as process
+environment.
 
 Provider credentials are read from the provider-specific environment or local
 auth files:

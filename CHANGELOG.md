@@ -29,12 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing local app launch, serve, and Docker build paths.
 - Added `coder datasource index ...` using the shared datasource index command
   path so datasource management is available through coder.
-- Added `coder remote` and `coder evaluator` so the remaining agentsdk
+- Added `coder remote` and `coder evaluator` so the remaining app-management
   terminal surfaces are available from the coder root command.
 - Added `coder config edit` for `.coder.yaml` and `coder app config edit` for
   opening the resolved app manifest in the user's editor.
 - Added `cmd/build/main.go` and switched repository install/build tasks to use
-  the shared build entrypoint for `apps/agentsdk` and `apps/coder`.
+  the shared build entrypoint for `apps/coder`.
 - Added explicit `coder op run`, `coder workflow run`, and `coder agent run`
   area/action commands for running app-scoped resources without importing them
   into the coder session.
@@ -358,6 +358,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the legacy `apps/agentsdk` product package and `docs/agentsdk.md`;
+  `coder` is now the only product CLI surface.
 - Removed the legacy `cmd/agentsdk` and `cmd/codershell` launchers; repository
   build and install tasks now produce only the `coder` binary.
 - Removed the old `plugins/planexec` runtime assembly path.

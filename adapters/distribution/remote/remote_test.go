@@ -10,7 +10,7 @@ import (
 
 const (
 	testDefaultSession = "slack-main"
-	testDefaultSocket  = "agentsdk-local.sock"
+	testDefaultSocket  = "coder-local.sock"
 )
 
 func TestResolveTargetRequiresExactlyOneTarget(t *testing.T) {
@@ -54,7 +54,7 @@ daemon:
   listeners:
     - name: control
       type: http
-      addr: agentsdk-local.sock
+      addr: coder-local.sock
       auth:
         mode: local_socket
   channels:
@@ -81,7 +81,7 @@ name: echo
 	if target.BaseURL != "http://unix" {
 		t.Fatalf("baseURL = %q, want http://unix", target.BaseURL)
 	}
-	if target.Socket != filepath.Join(runtimeDir, "agentsdk-local.sock") {
+	if target.Socket != filepath.Join(runtimeDir, "coder-local.sock") {
 		t.Fatalf("socket = %q", target.Socket)
 	}
 	if target.Session != "custom-session" {

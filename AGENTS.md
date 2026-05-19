@@ -27,6 +27,9 @@ Do not put migration decision logs in this file.
   explicitly says to skip it.
 - This is a pre-1.0 rewrite. No backward compatibility, no compat shims, no
   deprecated wrappers. Replace stale shapes; do not preserve them.
+- `coder` is the product CLI and main entrypoint. Do not add or preserve
+  `agentsdk` binary compatibility. `agentsdk.app.yaml` remains the app manifest
+  filename until a separate manifest rename is explicitly planned.
 
 ## Verification
 

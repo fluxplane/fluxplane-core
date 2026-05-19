@@ -46,7 +46,7 @@ func TestValidateServeLaunchSuggestsInitForUninitializedPath(t *testing.T) {
 			Spec: coredistribution.Spec{Name: "sample"},
 		},
 	}, "sample")
-	if err == nil || !strings.Contains(err.Error(), "agentsdk init sample") {
+	if err == nil || !strings.Contains(err.Error(), "coder app init sample") {
 		t.Fatalf("validateServeLaunch error = %v, want init guidance", err)
 	}
 }

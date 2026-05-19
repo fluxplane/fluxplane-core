@@ -47,7 +47,7 @@ A deterministic hash embedder remains available for tests and fast smoke
 checks:
 
 ```bash
-agentsdk datasource index build examples/slack-bot \
+coder datasource index build examples/slack-bot \
   --datasource local-docs \
   --entity file.document \
   --provider hash
@@ -68,7 +68,7 @@ it is written under the app root:
 The CLI can override this path:
 
 ```bash
-agentsdk datasource index build examples/slack-bot \
+coder datasource index build examples/slack-bot \
   --store /tmp/agentruntime-semantic-smoke.json
 ```
 
@@ -97,7 +97,7 @@ large production corpora.
 Build or update an index:
 
 ```bash
-agentsdk datasource index build <app-dir> \
+coder datasource index build <app-dir> \
   --datasource local-docs \
   --entity file.document \
   --full
@@ -109,7 +109,7 @@ semantic corpus work. It does not run embeddings inline.
 Embed queued semantic corpus:
 
 ```bash
-agentsdk datasource index embed <app-dir> \
+coder datasource index embed <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```
@@ -117,8 +117,8 @@ agentsdk datasource index embed <app-dir> \
 Run only one indexing phase:
 
 ```bash
-agentsdk datasource index build <app-dir> --phase fields
-agentsdk datasource index build <app-dir> --phase semantic
+coder datasource index build <app-dir> --phase fields
+coder datasource index build <app-dir> --phase semantic
 ```
 
 The `semantic` build phase queues semantic corpus only; use `embed` to run the
@@ -127,7 +127,7 @@ embedding worker.
 Show index status:
 
 ```bash
-agentsdk datasource index status <app-dir> \
+coder datasource index status <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```
@@ -135,7 +135,7 @@ agentsdk datasource index status <app-dir> \
 Clear indexed records:
 
 ```bash
-agentsdk datasource index clear <app-dir> \
+coder datasource index clear <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```

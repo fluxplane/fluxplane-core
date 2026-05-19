@@ -35,14 +35,14 @@ The target model is:
 - `agentsdk.app.yaml` remains the app manifest/package file for agentruntime
   apps built with coder.
 
-`agentsdk` should become transitional. It can continue to exist while command
-parity is proven, but new product behavior should land in coder first.
+The `agentsdk` binary has been removed. Product behavior should land in coder,
+with shared launch/build/runtime helpers kept outside CLI-only packages.
 
 ## Goals
 
 - Make coder the single main CLI and programmatic interface for coding,
   app-building, app-running, serving, packaging, installation, and deployment.
-- Remove product-level duplication between `apps/agentsdk` and `apps/coder`.
+- Remove product-level duplication by making `apps/coder` the product assembly.
 - Keep reusable libraries reusable: app loading, serving, distribution build,
   model resolution, auth, datasource indexing, and local runtime assembly remain
   outside CLI-only packages.
@@ -62,9 +62,8 @@ parity is proven, but new product behavior should land in coder first.
   workspace contains `agentsdk.app.yaml`.
 - Do not collapse app manifests and coder configuration into one file.
 - Do not move low-level distribution or local runtime assembly into `cmd/coder`.
-- Do not preserve old `agentsdk` command shapes as permanent compatibility
-  wrappers. This is a pre-1.0 rewrite; keep temporary delegation small and
-  removable.
+- Do not preserve old `agentsdk` command shapes as compatibility wrappers. This
+  is a pre-1.0 rewrite; remove stale surfaces when coder owns the capability.
 
 ## Current State
 
@@ -72,9 +71,8 @@ parity is proven, but new product behavior should land in coder first.
 built from a distribution command and adds coder-specific `discover` and
 `serve`.
 
-`cmd/agentsdk` calls `apps/agentsdk.NewCommand()`, which currently owns product
-commands for `init`, `build`, `run`, `serve`, `models`, `remote`, `connect`,
-`datasource`, and `discover`, and also exposes `coder` as a subcommand.
+The old agentsdk entrypoint is gone. Any remaining duplicate product package
+code is stale and should be deleted rather than kept as a wrapper.
 
 Shared pieces already exist:
 
@@ -232,9 +230,9 @@ coder app config edit [path]
 
 First-milestone app actions:
 
-- `coder app run [path]` replaces `agentsdk run [path]`.
-- `coder app serve [path]` replaces `agentsdk serve [path]`.
-- `coder app build [path]` replaces `agentsdk build [path]`.
+- `coder app run [path]` is the local app run path.
+- `coder app serve [path]` is the app daemon path.
+- `coder app build [path]` is the app build path.
 - `coder app config show [path]` should expose the loaded app manifest and
   distribution/runtime summary.
 
@@ -329,7 +327,7 @@ and release automation. Taskfile build commands should eventually call:
 go run ./cmd/build/main.go apps/coder
 ```
 
-instead of directly cross-compiling `./cmd/agentsdk` and `./cmd/coder`.
+instead of direct ad hoc `go build` invocations.
 
 ## Programmatic API
 
@@ -516,7 +514,8 @@ Resource imports:
 - [x] Add `coder workflow run`, `coder agent run`, and `coder op run`.
 - [x] Delegate current local app run behavior through the new `coderapp.Run`.
 - [x] Add `/run` as a REPL command targeting the nearest app facet by default.
-- [x] Keep any temporary `agentsdk run` path as a thin transitional caller.
+- [x] Remove temporary `agentsdk` binary compatibility; `coder app run` is the
+  app run path.
 
 ### Phase 5: Distribution Backlog
 
@@ -525,14 +524,11 @@ Resource imports:
 - [x] Add `cmd/build/main.go` and switch repo build automation to it.
 - [x] Keep `coder shell` in its own design and implementation track.
 
-### Phase 6: Shrink Agentsdk
+### Phase 6: Remove Agentsdk
 
-- [ ] Once command parity is covered, make `agentsdk` a transitional wrapper or
-  remove it from normal build outputs.
+- [x] Remove the `agentsdk` binary from normal build outputs.
 - [x] Update docs from `agentsdk ...` workflows to `coder ...` workflows.
-- [ ] Remove remaining duplicated command implementations from `apps/agentsdk`
-  after the transitional wrapper decision. Shared init and datasource paths have
-  moved; build remains as a thin duplicated command for now.
+- [x] Remove remaining duplicated command implementations from the old product package.
 
 ## Testing
 

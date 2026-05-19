@@ -1,11 +1,11 @@
 kind: app
-name: "agentsdk"
-description: Local agentsdk app with searchable repository documentation.
+name: "agentruntime"
+description: Local agentruntime app with searchable repository documentation.
 default_agent:
   name: default
 distribution:
-  name: agentsdk
-  title: AgentSDK
+  name: agentruntime
+  title: Agent Runtime
   build:
     assets:
       - agentsdk.app.yaml
@@ -54,7 +54,7 @@ daemon:
   listeners:
     - name: local
       type: http
-      addr: "agentsdk-rewrite.sock"
+      addr: "coder-rewrite.sock"
       auth:
         mode: local_socket
   channels:
@@ -79,7 +79,7 @@ context:
 datasources:
   - local-docs
 system: |
-  You are a helpful assistant for this local agentsdk app. Use
+  You are a helpful assistant for this local agentruntime app. Use
   datasource_search when answering questions about repository documentation or
   markdown files in this checkout, especially under `docs/`. Answer by
   summarizing relevant details and cite file paths. Do not reproduce full

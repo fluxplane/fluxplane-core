@@ -89,7 +89,7 @@ func codexMiddleware(auth *auth) option.Middleware {
 			return nil, err
 		}
 		req.Header.Set("User-Agent", "codex-cli/0.124.0")
-		req.Header.Set("x-codex-installation-id", "agentsdk")
+		req.Header.Set("x-codex-installation-id", "agentruntime")
 		resp, err := next(req)
 		if err != nil {
 			return nil, err

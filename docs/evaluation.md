@@ -23,13 +23,13 @@ session: coder
 You can manually verify the channel with the generic remote client:
 
 ```bash
-agentsdk remote --socket /tmp/coder.sock --session=coder --usage
+coder remote --socket /tmp/coder.sock --session=coder --usage
 ```
 
 Then run the evaluator against the same socket using structured target flags:
 
 ```bash
-evaluator target \
+coder evaluator target \
   --model=codex \
   --yolo \
   --socket /tmp/coder.sock \

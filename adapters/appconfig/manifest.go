@@ -1134,12 +1134,12 @@ func datasourceKind(d DatasourceDoc) string {
 	return kind
 }
 
-// ConnectorDoc declares one connector instance required by agentsdk serve.
+// ConnectorDoc declares one connector instance required by app serving.
 type ConnectorDoc struct {
 	Kind string `json:"kind" yaml:"kind"`
 }
 
-// DaemonConfig contains process wiring consumed by agentsdk serve.
+// DaemonConfig contains process wiring consumed by app serving.
 type DaemonConfig struct {
 	Listeners []ListenerDoc `json:"listeners,omitempty" yaml:"listeners,omitempty"`
 	Channels  []ChannelDoc  `json:"channels,omitempty" yaml:"channels,omitempty"`

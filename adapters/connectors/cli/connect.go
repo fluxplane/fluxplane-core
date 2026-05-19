@@ -37,7 +37,7 @@ type Options struct {
 	Out            io.Writer
 }
 
-// NewCommand builds the native agentsdk connector command.
+// NewCommand builds the native connector auth command.
 func NewCommand(registry PluginRegistry) *cobra.Command {
 	var opts Options
 	cmd := &cobra.Command{
@@ -81,7 +81,7 @@ func RunStatus(ctx context.Context, opts Options, _ PluginRegistry) error {
 	out := writerOr(opts.Out, os.Stdout)
 	if len(instances) == 0 {
 		_, _ = fmt.Fprintln(out, "No connection instances.")
-		_, _ = fmt.Fprintln(out, "Run agentsdk connect <provider> to connect one.")
+		_, _ = fmt.Fprintln(out, "Run coder connect <provider> to connect one.")
 		return nil
 	}
 	credStore := credential.NewFileStore(filepath.Join(basePath, "credentials"))

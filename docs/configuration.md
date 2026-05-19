@@ -33,7 +33,7 @@ daemon:
   listeners:
     - name: local
       type: http
-      addr: agentsdk-demo.sock
+      addr: coder-demo.sock
       auth:
         mode: local_socket
   channels:
@@ -57,7 +57,7 @@ system: |
 Create this minimal shape with:
 
 ```bash
-agentsdk init .
+coder app init .
 ```
 
 ### App Document
@@ -72,15 +72,16 @@ Common fields are:
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
   directly in the app document.
-- `daemon` for listeners and channels used by `agentsdk serve` and
-  `agentsdk remote`.
+- `daemon` for listeners and channels used by `coder app serve` and
+  `coder remote`.
 - `runtime` for local runtime wiring; see [Runtime](#runtime).
 - `distribution` for runnable/deployable package metadata and Docker build
   inputs.
 - `semantic_search` for app-wide datasource indexing defaults.
 - `identity` for canonical app users, provider identities, groups, and
   group/user trust used by identity resolution and authorization.
-- `llm_providers` for app-local model provider and model catalog entries.
+- `models` for app-local provider-agnostic model aliases, defaults, and model
+  parameters.
 
 Identity entries map channel-specific users to stable `core/user` IDs, and can
 also act as an overlay on users resolved by a channel provider. Slack channels
@@ -174,7 +175,7 @@ description: Declaration-only operation metadata.
 
 The top-level `runtime` section configures local runtime boundaries. These
 settings are launch-time wiring, not agent resources, and are consumed by
-`agentsdk run`, `agentsdk serve`, and distribution CLIs such as `coder`.
+`coder app run`, `coder app serve`, and generated deployments.
 
 Filesystem operations are secure by default: without extra configuration, they
 can only access the app workspace root. Additional workspace roots are opt-in
@@ -293,7 +294,7 @@ turns:
 - `new`: use clean evaluator context plus the same compact summary.
 
 Local CLI sessions can also enable continuation for one submission without
-changing agent configuration. `coder --goal "..."`, `agentsdk run . --goal
+changing agent configuration. `coder --goal "..."`, `coder app run . --goal
 "..."`, and `/goal --max 20 "..."` submit the built-in `/goal` command, which
 runs the goal text as the task and installs a prompt stop condition for that run
 only. The command stops when the evaluator decides the goal is complete,
@@ -313,7 +314,7 @@ description: Documentation support session.
 agent: support
 ```
 
-`agentsdk run . --session support` opens the named profile.
+`coder app run . --session support` opens the named profile.
 
 ### Plugins And Connectors
 
@@ -352,12 +353,12 @@ plugins:
 ```
 
 Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `agentsdk connect`. Native Slack uses stored bot-token
-credentials from `agentsdk connect slack --instance slack-main --auth bot_token`;
+credentials with `coder connect`. Native Slack uses stored bot-token
+credentials from `coder connect slack --instance slack-main --auth bot_token`;
 Slack daemon channels also require an app token for Socket Mode. Native Jira
 and Confluence use Atlassian OAuth2 stored credentials from
-`agentsdk connect jira --instance jira` and
-`agentsdk connect confluence --instance confluence`; service-account
+`coder connect jira --instance jira` and
+`coder connect confluence --instance confluence`; service-account
 deployments can set `auth.method: token` and `auth.token_env` for a bearer
 token environment variable. Native GitLab instances declare a
 `personal_access_token` env auth method and OAuth2 metadata. When GitLab
@@ -406,11 +407,11 @@ always rebuilds.
 
 The datasource index can hold structured field records, semantic vector
 documents, or both, depending on the entity capabilities declared by the
-provider. Build the index with `agentsdk datasource index build`; use
+provider. Build the index with `coder datasource index build`; use
 `--phase fields` or `--phase semantic` to run only one indexing phase.
 `--force` and `--full` bypass freshness checks. Semantic documents are queued
-by build and embedded later with `agentsdk datasource index embed` or the
-background embed worker started by `agentsdk serve`. `agentsdk serve` starts
+by build and embedded later with `coder datasource index embed` or the
+background embed worker started by `coder app serve`. `coder app serve` starts
 background warmup for indexed datasources with the configured concurrency and
 logs start, fresh-skip, page, complete, and failure progress per entity.
 
@@ -478,14 +479,14 @@ datasource:
 
 ### Daemon Channels
 
-The `daemon` block wires listeners to channels for `agentsdk serve`.
+The `daemon` block wires listeners to channels for `coder app serve`.
 
 ```yaml
 daemon:
   listeners:
     - name: control
       type: http
-      addr: agentsdk-local.sock
+      addr: coder-local.sock
       auth:
         mode: local_socket
   channels:
@@ -585,7 +586,7 @@ distribution:
 Inspect the merged catalog with:
 
 ```bash
-agentsdk models .
+coder models .
 ```
 
 ## Agentdir
@@ -742,11 +743,11 @@ turn.
 
 ## Choosing A Format
 
-- Use appconfig for anything runnable with `agentsdk run`, `agentsdk serve`, or
-  `agentsdk build`.
+- Use appconfig for anything runnable with `coder app run`, `coder app serve`, or
+  `coder app build`.
 - Use appconfig for daemon channels, connectors, datasources, and distribution
   metadata.
 - Use agentdir for portable authoring resources: markdown agents, prompt
   commands, workflows, and skills.
 - Keep secrets out of both formats. Store connector credentials through
-  `agentsdk connect` or provider-specific environment/auth files.
+  `coder connect` or provider-specific environment/auth files.

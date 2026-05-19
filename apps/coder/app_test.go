@@ -321,7 +321,7 @@ func TestRemoteCommandUsesCoderDefaults(t *testing.T) {
 	}
 }
 
-func TestAppCommandHasAgentsdkParityActions(t *testing.T) {
+func TestAppCommandHasAppLifecycleActions(t *testing.T) {
 	cmd := newAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)

@@ -1110,14 +1110,14 @@ Apps assemble concrete products:
 Evaluation:
 
 ```bash
-agentsdk eval run .agents/evals/coder.yaml
-agentsdk eval compare .agents/runs/baseline/report.json .agents/runs/candidate/report.json
+coder evaluator run .agents/evals/coder.yaml
+coder evaluator compare .agents/runs/baseline/report.json .agents/runs/candidate/report.json
 ```
 
 Evolution planning:
 
 ```bash
-agentsdk evolve propose \
+coder evolve propose \
   --subject coder \
   --review .agents/reviews/2026-05-15-tool-improvements.md
 ```
@@ -1125,7 +1125,7 @@ agentsdk evolve propose \
 Variant execution:
 
 ```bash
-agentsdk evolve run \
+coder evolve run \
   --plan .agents/evolution/plans/coder-tooling.yaml \
   --variant add-file-delete
 ```
@@ -1133,7 +1133,7 @@ agentsdk evolve run \
 Promotion:
 
 ```bash
-agentsdk evolve promote \
+coder evolve promote \
   --run .agents/runs/2026-05-15T120000Z \
   --mode pull-request
 ```
@@ -1141,7 +1141,7 @@ agentsdk evolve promote \
 Scenario synthesis:
 
 ```bash
-agentsdk evolve synthesize \
+coder evolve synthesize \
   --from .agents/reviews/2026-05-15-tool-improvements.md \
   --subject coder
 ```
@@ -1191,7 +1191,7 @@ SQL, object storage, GitHub artifacts, or AgentRuntime cloud storage.
 Add first-class scenario suite input and report output.
 
 ```bash
-agentsdk eval run .agents/evals/coder.yaml
+coder evaluator run .agents/evals/coder.yaml
 ```
 
 Output:
@@ -1216,7 +1216,7 @@ Extend the evaluator app to emit strict JSON/YAML reports with:
 Generate an improvement plan from a review file.
 
 ```bash
-agentsdk evolve propose \
+coder evolve propose \
   --subject coder \
   --review .agents/reviews/2026-05-15-tool-improvements.md
 ```
@@ -1226,7 +1226,7 @@ agentsdk evolve propose \
 Run one candidate variant in an isolated branch or worktree.
 
 ```bash
-agentsdk evolve run \
+coder evolve run \
   --plan .agents/evolution/plans/coder-tooling.yaml \
   --variant add-file-delete
 ```

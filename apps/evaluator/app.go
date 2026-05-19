@@ -24,7 +24,7 @@ const (
 	SessionName         = "evaluator"
 	DefaultModel        = "codex"
 	DefaultNamespace    = "apps/evaluator"
-	defaultConversation = "agentsdk-evaluator"
+	defaultConversation = "coder-evaluator"
 )
 
 // NewCommand returns the CLI command for the evaluator distribution.
@@ -80,7 +80,7 @@ func Bundle() resource.ContributionBundle {
 	agentSpec := agent.Spec{
 		Name:        AgentName,
 		Description: "Autonomous app evaluator for AgentRuntime channel applications.",
-		System: "You are agentsdk evaluator. Evaluate target AgentRuntime apps by interacting through the public channel protocol. " +
+		System: "You are the AgentRuntime evaluator. Evaluate target AgentRuntime apps by interacting through the public channel protocol. " +
 			"When the user gives a socket or URL plus an app description, you MUST use the target_submit tool to probe the target. " +
 			"Unix sockets are supported: pass base_url=http://unix and unix_socket exactly as provided. Do not claim that the socket is inaccessible before attempting target_submit. " +
 			"If the user does not provide a specific probe prompt, choose a small concrete prompt appropriate for the target app, call target_submit, then report the returned thread_id, run_id, event count, outbound_text, and error field. " +
