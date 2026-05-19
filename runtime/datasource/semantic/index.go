@@ -15,6 +15,7 @@ import (
 	"time"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/runtime/datasource/mirror"
 )
 
 const (
@@ -44,15 +45,6 @@ type MetadataStore interface {
 	Documents(context.Context, StatusRequest) ([]DocumentState, error)
 }
 
-// FieldStore persists structured datasource records and searches indexed fields.
-type FieldStore interface {
-	UpsertRecord(context.Context, FieldRecord) error
-	DeleteRecord(context.Context, coredatasource.RecordRef) error
-	Record(context.Context, coredatasource.RecordRef) (FieldRecord, bool, error)
-	SearchRecords(context.Context, FieldSearchRequest) ([]FieldHit, error)
-	RecordStatus(context.Context, StatusRequest) ([]FieldRecordState, error)
-}
-
 // QueueStore persists semantic corpus work that should be embedded off-track.
 type QueueStore interface {
 	PutQueueJob(context.Context, QueueJob) error
@@ -61,26 +53,19 @@ type QueueStore interface {
 	QueueStatus(context.Context, StatusRequest) ([]QueueState, error)
 }
 
-// IndexRunStore persists per datasource/entity index warmup state.
-type IndexRunStore interface {
-	PutIndexRun(context.Context, IndexRunState) error
-	IndexRun(context.Context, IndexRunKey) (IndexRunState, bool, error)
-	IndexRuns(context.Context, StatusRequest) ([]IndexRunState, error)
-}
-
 // Store is the complete persistence dependency required by Index.
 type Store interface {
 	VectorStore
 	MetadataStore
-	FieldStore
+	mirror.Store
 	QueueStore
-	IndexRunStore
 }
 
 // Index coordinates chunking, embedding, vector writes, and metadata state.
 type Index struct {
 	embedder Embedder
 	store    Store
+	mirror   *mirror.Service
 	config   Config
 }
 
@@ -102,7 +87,11 @@ func New(embedder Embedder, store Store, cfg Config) (*Index, error) {
 	if strings.TrimSpace(cfg.Model) == "" {
 		cfg.Model = embedder.Model()
 	}
-	return &Index{embedder: embedder, store: store, config: cfg}, nil
+	mirrorService, err := mirror.New(store)
+	if err != nil {
+		return nil, err
+	}
+	return &Index{embedder: embedder, store: store, mirror: mirrorService, config: cfg}, nil
 }
 
 // Close releases resources held by the underlying embedder, when supported.
@@ -191,15 +180,11 @@ func (i *Index) UpdateRecord(ctx context.Context, doc coredatasource.CorpusDocum
 	if i == nil {
 		return UpdateResult{}, fmt.Errorf("semantic: index is nil")
 	}
-	key := DocumentKey(doc.Ref)
-	if key == "" {
-		return UpdateResult{}, fmt.Errorf("semantic: document ref is incomplete")
-	}
-	record := fieldRecordFromDocument(key, doc, entity)
-	if err := i.store.UpsertRecord(ctx, record); err != nil {
+	result, err := i.mirror.UpdateRecord(ctx, doc, entity)
+	if err != nil {
 		return UpdateResult{}, err
 	}
-	return UpdateResult{Key: key, Status: "indexed"}, nil
+	return UpdateResult{Key: result.Key, Status: result.Status}, nil
 }
 
 // Enqueue stores one corpus document for asynchronous semantic embedding.
@@ -306,8 +291,8 @@ func (i *Index) Delete(ctx context.Context, ref coredatasource.RecordRef) error 
 }
 
 var (
-	ErrFieldIndexNotConfigured = errors.New("datasource field index is not configured")
-	ErrFieldIndexNotBuilt      = errors.New("datasource field index is not built")
+	ErrFieldIndexNotConfigured = mirror.ErrNotConfigured
+	ErrFieldIndexNotBuilt      = mirror.ErrNotBuilt
 )
 
 // FieldLookupRequest describes a structured field-index lookup.
@@ -383,19 +368,7 @@ func RequireFieldIndexBuilt(ctx context.Context, index *Index, datasource coreda
 	if index == nil {
 		return fmt.Errorf("%w for %s/%s", ErrFieldIndexNotConfigured, datasource, entity)
 	}
-	status, err := index.Status(ctx, StatusRequest{Datasource: datasource, Entity: entity})
-	if err != nil {
-		return err
-	}
-	if len(status.Records) > 0 {
-		return nil
-	}
-	for _, run := range status.Runs {
-		if run.Status == IndexRunStatusComplete && (run.Phase == "all" || run.Phase == "fields") {
-			return nil
-		}
-	}
-	return fmt.Errorf("%w for %s/%s", ErrFieldIndexNotBuilt, datasource, entity)
+	return mirror.RequireBuilt(ctx, index.mirror, datasource, entity)
 }
 
 func fieldCursorOffset(cursor string) (int, error) {
@@ -458,6 +431,14 @@ func (i *Index) Search(ctx context.Context, req SearchRequest) (SearchResult, er
 	}
 	out := make([]Hit, 0, len(grouped))
 	for _, hit := range grouped {
+		record, err := i.mirror.Record(ctx, hit.Ref)
+		if err == nil {
+			hit.Title = firstNonEmpty(record.Title, hit.Title)
+			hit.URL = firstNonEmpty(record.URL, hit.URL)
+			hit.Metadata = cloneStringMap(record.Metadata)
+		} else if err != nil && !errors.Is(err, coredatasource.ErrNotFound) {
+			return SearchResult{}, err
+		}
 		out = append(out, hit)
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Score > out[b].Score })
@@ -472,11 +453,11 @@ func (i *Index) SearchFields(ctx context.Context, req FieldSearchRequest) (Field
 	if i == nil {
 		return FieldSearchResult{}, fmt.Errorf("semantic: index is nil")
 	}
-	hits, err := i.store.SearchRecords(ctx, req)
+	result, err := i.mirror.SearchRecords(ctx, req)
 	if err != nil {
 		return FieldSearchResult{}, err
 	}
-	return FieldSearchResult{Hits: hits}, nil
+	return result, nil
 }
 
 // FieldRecord returns one exact structured field-index record.
@@ -484,14 +465,7 @@ func (i *Index) FieldRecord(ctx context.Context, ref coredatasource.RecordRef) (
 	if i == nil {
 		return coredatasource.Record{}, fmt.Errorf("semantic: index is nil")
 	}
-	record, ok, err := i.store.Record(ctx, ref)
-	if err != nil {
-		return coredatasource.Record{}, err
-	}
-	if !ok {
-		return coredatasource.Record{}, coredatasource.ErrNotFound
-	}
-	return fieldRecordToRecord(record), nil
+	return i.mirror.Record(ctx, ref)
 }
 
 // Status returns index metadata rows matching a filter.
@@ -500,7 +474,7 @@ func (i *Index) Status(ctx context.Context, req StatusRequest) (StatusResult, er
 	if err != nil {
 		return StatusResult{}, err
 	}
-	records, err := i.store.RecordStatus(ctx, req)
+	mirrorStatus, err := i.mirror.Status(ctx, mirror.StatusRequest{Datasource: req.Datasource, Entity: req.Entity})
 	if err != nil {
 		return StatusResult{}, err
 	}
@@ -508,11 +482,7 @@ func (i *Index) Status(ctx context.Context, req StatusRequest) (StatusResult, er
 	if err != nil {
 		return StatusResult{}, err
 	}
-	runs, err := i.store.IndexRuns(ctx, req)
-	if err != nil {
-		return StatusResult{}, err
-	}
-	return StatusResult{Documents: docs, Records: records, Queue: queue, Runs: runs}, nil
+	return StatusResult{Documents: docs, Records: mirrorStatus.Records, Queue: queue, Runs: mirrorStatus.Runs}, nil
 }
 
 // PutIndexRun stores per datasource/entity indexing metadata.
@@ -520,7 +490,7 @@ func (i *Index) PutIndexRun(ctx context.Context, run IndexRunState) error {
 	if i == nil {
 		return fmt.Errorf("semantic: index is nil")
 	}
-	return i.store.PutIndexRun(ctx, run)
+	return i.mirror.PutRun(ctx, run)
 }
 
 // IndexRun returns the latest stored run state for one datasource/entity phase.
@@ -528,7 +498,15 @@ func (i *Index) IndexRun(ctx context.Context, key IndexRunKey) (IndexRunState, b
 	if i == nil {
 		return IndexRunState{}, false, fmt.Errorf("semantic: index is nil")
 	}
-	return i.store.IndexRun(ctx, key)
+	return i.mirror.Run(ctx, key)
+}
+
+// DeleteIndexRuns removes stored run checkpoints matching req.
+func (i *Index) DeleteIndexRuns(ctx context.Context, req StatusRequest) error {
+	if i == nil {
+		return fmt.Errorf("semantic: index is nil")
+	}
+	return i.mirror.DeleteRuns(ctx, mirror.StatusRequest{Datasource: req.Datasource, Entity: req.Entity})
 }
 
 func (i *Index) planChunks(doc coredatasource.CorpusDocument) []Chunk {
@@ -632,76 +610,31 @@ type StatusResult struct {
 }
 
 const (
-	IndexRunStatusRunning  = "running"
-	IndexRunStatusComplete = "complete"
-	IndexRunStatusFailed   = "failed"
+	IndexRunStatusRunning  = mirror.RunStatusRunning
+	IndexRunStatusComplete = mirror.RunStatusComplete
+	IndexRunStatusFailed   = mirror.RunStatusFailed
 )
 
 // IndexRunKey identifies one datasource/entity index run checkpoint.
-type IndexRunKey struct {
-	Datasource coredatasource.Name       `json:"datasource"`
-	Entity     coredatasource.EntityType `json:"entity"`
-	Phase      string                    `json:"phase,omitempty"`
-}
+type IndexRunKey = mirror.RunKey
 
 // IndexRunState is the persisted status for one datasource/entity indexing run.
-type IndexRunState struct {
-	Key         string                    `json:"key"`
-	Datasource  coredatasource.Name       `json:"datasource"`
-	Entity      coredatasource.EntityType `json:"entity"`
-	Phase       string                    `json:"phase,omitempty"`
-	Status      string                    `json:"status,omitempty"`
-	StartedAt   time.Time                 `json:"started_at,omitempty"`
-	CompletedAt time.Time                 `json:"completed_at,omitempty"`
-	Documents   int                       `json:"documents,omitempty"`
-	Indexed     int                       `json:"indexed,omitempty"`
-	Queued      int                       `json:"queued,omitempty"`
-	Skipped     int                       `json:"skipped,omitempty"`
-	Deleted     int                       `json:"deleted,omitempty"`
-	Failed      int                       `json:"failed,omitempty"`
-	LastError   string                    `json:"last_error,omitempty"`
-}
+type IndexRunState = mirror.RunState
 
 // FieldSearchRequest describes a structured field search query.
-type FieldSearchRequest struct {
-	Query       string
-	Datasources []coredatasource.Name
-	Entities    []coredatasource.EntityType
-	Filters     map[string]string
-	Limit       int
-	Offset      int
-}
+type FieldSearchRequest = mirror.SearchRequest
 
 // FieldSearchResult contains structured field hits.
-type FieldSearchResult struct {
-	Hits []FieldHit
-}
+type FieldSearchResult = mirror.SearchResult
 
 // FieldHit is one structured field search result.
-type FieldHit struct {
-	Record coredatasource.Record
-	Score  float64
-	Reason string
-}
+type FieldHit = mirror.Hit
 
 // FieldRecord is one indexed structured datasource record.
-type FieldRecord struct {
-	Key         string                   `json:"key"`
-	Ref         coredatasource.RecordRef `json:"ref"`
-	Title       string                   `json:"title,omitempty"`
-	Content     string                   `json:"content,omitempty"`
-	URL         string                   `json:"url,omitempty"`
-	Fields      map[string][]string      `json:"fields,omitempty"`
-	Search      []string                 `json:"search,omitempty"`
-	Identifiers []string                 `json:"identifiers,omitempty"`
-	Filters     map[string][]string      `json:"filters,omitempty"`
-}
+type FieldRecord = mirror.Record
 
 // FieldRecordState is the status row for one indexed field record.
-type FieldRecordState struct {
-	Key string                   `json:"key"`
-	Ref coredatasource.RecordRef `json:"ref"`
-}
+type FieldRecordState = mirror.RecordState
 
 const (
 	QueueStatusQueued  = "queued"
@@ -850,68 +783,6 @@ func DocumentKey(ref coredatasource.RecordRef) string {
 		return ""
 	}
 	return string(ref.Datasource) + "\x00" + string(ref.Entity) + "\x00" + strings.TrimSpace(ref.ID)
-}
-
-func fieldRecordFromDocument(key string, doc coredatasource.CorpusDocument, entity coredatasource.EntitySpec) FieldRecord {
-	record := FieldRecord{
-		Key:     key,
-		Ref:     doc.Ref,
-		Title:   doc.Title,
-		Content: doc.Body,
-		URL:     doc.URL,
-		Fields:  map[string][]string{},
-		Filters: map[string][]string{},
-	}
-	addFieldValue := func(name string, values ...string) {
-		for _, value := range values {
-			value = strings.TrimSpace(value)
-			if value == "" {
-				continue
-			}
-			record.Fields[name] = appendUnique(record.Fields[name], value)
-		}
-	}
-	addFieldValue("id", doc.Ref.ID)
-	addFieldValue("title", doc.Title)
-	addFieldValue("body", doc.Body)
-	addFieldValue("url", doc.URL)
-	for key, value := range doc.Metadata {
-		addFieldValue(key, value)
-	}
-	for _, field := range entity.Fields {
-		values := append([]string(nil), record.Fields[field.Name]...)
-		if len(values) == 0 {
-			continue
-		}
-		if field.Identifier {
-			record.Identifiers = appendUnique(record.Identifiers, values...)
-		}
-		if field.Searchable || field.Identifier {
-			record.Search = appendUnique(record.Search, values...)
-		}
-		if field.Filterable {
-			record.Filters[field.Name] = appendUnique(record.Filters[field.Name], values...)
-		}
-	}
-	record.Identifiers = appendUnique(record.Identifiers, doc.Ref.ID)
-	record.Search = appendUnique(record.Search, doc.Ref.ID, doc.Title, doc.Body)
-	return record
-}
-
-func appendUnique(values []string, candidates ...string) []string {
-	seen := map[string]bool{}
-	for _, value := range values {
-		seen[value] = true
-	}
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || seen[candidate] {
-			continue
-		}
-		values = append(values, candidate)
-		seen[candidate] = true
-	}
-	return values
 }
 
 // PolicyHash returns a stable hash for chunking policy.

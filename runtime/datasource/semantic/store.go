@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/runtime/datasource/mirror"
 )
 
 const hashEmbeddingDimensions = 128
@@ -103,7 +104,7 @@ func (s *JSONStore) DeleteChunks(ctx context.Context, req DeleteRequest) error {
 	return s.saveLocked(ctx, state)
 }
 
-func (s *JSONStore) UpsertRecord(ctx context.Context, record FieldRecord) error {
+func (s *JSONStore) UpsertRecord(ctx context.Context, record mirror.Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
@@ -111,7 +112,7 @@ func (s *JSONStore) UpsertRecord(ctx context.Context, record FieldRecord) error 
 		return err
 	}
 	if state.Records == nil {
-		state.Records = map[string]FieldRecord{}
+		state.Records = map[string]mirror.Record{}
 	}
 	state.Records[record.Key] = record
 	return s.saveLocked(ctx, state)
@@ -132,16 +133,16 @@ func (s *JSONStore) DeleteRecord(ctx context.Context, ref coredatasource.RecordR
 	return s.saveLocked(ctx, state)
 }
 
-func (s *JSONStore) Record(ctx context.Context, ref coredatasource.RecordRef) (FieldRecord, bool, error) {
-	key := DocumentKey(ref)
+func (s *JSONStore) Record(ctx context.Context, ref coredatasource.RecordRef) (mirror.Record, bool, error) {
+	key := mirror.DocumentKey(ref)
 	if key == "" {
-		return FieldRecord{}, false, nil
+		return mirror.Record{}, false, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
 	if err != nil {
-		return FieldRecord{}, false, err
+		return mirror.Record{}, false, err
 	}
 	record, ok := state.Records[key]
 	return record, ok, nil
@@ -253,7 +254,7 @@ func (s *JSONStore) QueueStatus(ctx context.Context, req StatusRequest) ([]Queue
 	return queue, nil
 }
 
-func (s *JSONStore) PutIndexRun(ctx context.Context, run IndexRunState) error {
+func (s *JSONStore) PutRun(ctx context.Context, run mirror.RunState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
@@ -261,9 +262,9 @@ func (s *JSONStore) PutIndexRun(ctx context.Context, run IndexRunState) error {
 		return err
 	}
 	if state.IndexRuns == nil {
-		state.IndexRuns = map[string]IndexRunState{}
+		state.IndexRuns = map[string]mirror.RunState{}
 	}
-	run.Key = indexRunKey(IndexRunKey{Datasource: run.Datasource, Entity: run.Entity, Phase: run.Phase})
+	run.Key = mirror.RunStorageKey(mirror.RunKey{Datasource: run.Datasource, Entity: run.Entity, Phase: run.Phase})
 	if run.Key == "" {
 		return nil
 	}
@@ -271,25 +272,25 @@ func (s *JSONStore) PutIndexRun(ctx context.Context, run IndexRunState) error {
 	return s.saveLocked(ctx, state)
 }
 
-func (s *JSONStore) IndexRun(ctx context.Context, key IndexRunKey) (IndexRunState, bool, error) {
+func (s *JSONStore) Run(ctx context.Context, key mirror.RunKey) (mirror.RunState, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
 	if err != nil {
-		return IndexRunState{}, false, err
+		return mirror.RunState{}, false, err
 	}
-	run, ok := state.IndexRuns[indexRunKey(key)]
+	run, ok := state.IndexRuns[mirror.RunStorageKey(key)]
 	return run, ok, nil
 }
 
-func (s *JSONStore) IndexRuns(ctx context.Context, req StatusRequest) ([]IndexRunState, error) {
+func (s *JSONStore) Runs(ctx context.Context, req mirror.StatusRequest) ([]mirror.RunState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var runs []IndexRunState
+	var runs []mirror.RunState
 	for _, run := range state.IndexRuns {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -306,64 +307,64 @@ func (s *JSONStore) IndexRuns(ctx context.Context, req StatusRequest) ([]IndexRu
 	return runs, nil
 }
 
-func (s *JSONStore) SearchRecords(ctx context.Context, req FieldSearchRequest) ([]FieldHit, error) {
+func (s *JSONStore) DeleteRuns(ctx context.Context, req mirror.StatusRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 10
-	}
-	query := normalizeText(req.Query)
-	queryTokens := tokenize(req.Query)
-	var hits []FieldHit
-	for _, record := range state.Records {
+	for key, run := range state.IndexRuns {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
-		if !containsDatasource(req.Datasources, record.Ref.Datasource) || !containsEntity(req.Entities, record.Ref.Entity) {
+		if req.Datasource != "" && run.Datasource != req.Datasource {
 			continue
 		}
-		if !matchesFilters(record, req.Filters) {
+		if req.Entity != "" && run.Entity != req.Entity {
 			continue
 		}
-		score, reason := fieldScore(record, query, queryTokens)
-		if score <= 0 {
-			continue
-		}
-		hits = append(hits, FieldHit{Record: fieldRecordToRecord(record), Score: score, Reason: reason})
+		delete(state.IndexRuns, key)
 	}
-	sort.Slice(hits, func(i, j int) bool {
-		if hits[i].Score == hits[j].Score {
-			return hits[i].Record.ID < hits[j].Record.ID
-		}
-		return hits[i].Score > hits[j].Score
-	})
-	offset := req.Offset
-	if offset < 0 {
-		offset = 0
-	}
-	if offset >= len(hits) {
-		return nil, nil
-	}
-	hits = hits[offset:]
-	if len(hits) > limit {
-		hits = hits[:limit]
-	}
-	return hits, nil
+	return s.saveLocked(ctx, state)
 }
 
-func (s *JSONStore) RecordStatus(ctx context.Context, req StatusRequest) ([]FieldRecordState, error) {
+// PutIndexRun stores per datasource/entity indexing metadata. Deprecated:
+// semantic callers should use the mirror Store PutRun method.
+func (s *JSONStore) PutIndexRun(ctx context.Context, run IndexRunState) error {
+	return s.PutRun(ctx, run)
+}
+
+// IndexRun returns per datasource/entity indexing metadata. Deprecated:
+// semantic callers should use the mirror Store Run method.
+func (s *JSONStore) IndexRun(ctx context.Context, key IndexRunKey) (IndexRunState, bool, error) {
+	return s.Run(ctx, key)
+}
+
+// IndexRuns returns per datasource/entity indexing metadata. Deprecated:
+// semantic callers should use the mirror Store Runs method.
+func (s *JSONStore) IndexRuns(ctx context.Context, req StatusRequest) ([]IndexRunState, error) {
+	return s.Runs(ctx, mirror.StatusRequest{Datasource: req.Datasource, Entity: req.Entity})
+}
+
+func (s *JSONStore) SearchRecords(ctx context.Context, req mirror.SearchRequest) ([]mirror.Hit, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var records []FieldRecordState
+	return mirror.SearchRecords(ctx, state.Records, req)
+}
+
+func (s *JSONStore) RecordStatus(ctx context.Context, req mirror.StatusRequest) ([]mirror.RecordState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, err := s.loadLocked(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var records []mirror.RecordState
 	for _, record := range state.Records {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -374,7 +375,7 @@ func (s *JSONStore) RecordStatus(ctx context.Context, req StatusRequest) ([]Fiel
 		if req.Entity != "" && record.Ref.Entity != req.Entity {
 			continue
 		}
-		records = append(records, FieldRecordState{Key: record.Key, Ref: record.Ref})
+		records = append(records, mirror.RecordState{Key: record.Key, Ref: record.Ref})
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].Key < records[j].Key })
 	return records, nil
@@ -478,19 +479,19 @@ func (s *JSONStore) loadLocked(ctx context.Context) (jsonState, error) {
 			s.memory.Documents = map[string]DocumentState{}
 		}
 		if s.memory.Records == nil {
-			s.memory.Records = map[string]FieldRecord{}
+			s.memory.Records = map[string]mirror.Record{}
 		}
 		if s.memory.Queue == nil {
 			s.memory.Queue = map[string]QueueJob{}
 		}
 		if s.memory.IndexRuns == nil {
-			s.memory.IndexRuns = map[string]IndexRunState{}
+			s.memory.IndexRuns = map[string]mirror.RunState{}
 		}
 		return s.memory, nil
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return jsonState{Documents: map[string]DocumentState{}, Records: map[string]FieldRecord{}, Queue: map[string]QueueJob{}, IndexRuns: map[string]IndexRunState{}}, nil
+		return jsonState{Documents: map[string]DocumentState{}, Records: map[string]mirror.Record{}, Queue: map[string]QueueJob{}, IndexRuns: map[string]mirror.RunState{}}, nil
 	}
 	if err != nil {
 		return jsonState{}, err
@@ -505,13 +506,13 @@ func (s *JSONStore) loadLocked(ctx context.Context) (jsonState, error) {
 		state.Documents = map[string]DocumentState{}
 	}
 	if state.Records == nil {
-		state.Records = map[string]FieldRecord{}
+		state.Records = map[string]mirror.Record{}
 	}
 	if state.Queue == nil {
 		state.Queue = map[string]QueueJob{}
 	}
 	if state.IndexRuns == nil {
-		state.IndexRuns = map[string]IndexRunState{}
+		state.IndexRuns = map[string]mirror.RunState{}
 	}
 	return state, nil
 }
@@ -526,13 +527,13 @@ func (s *JSONStore) saveLocked(ctx context.Context, state jsonState) error {
 			state.Documents = map[string]DocumentState{}
 		}
 		if state.Records == nil {
-			state.Records = map[string]FieldRecord{}
+			state.Records = map[string]mirror.Record{}
 		}
 		if state.Queue == nil {
 			state.Queue = map[string]QueueJob{}
 		}
 		if state.IndexRuns == nil {
-			state.IndexRuns = map[string]IndexRunState{}
+			state.IndexRuns = map[string]mirror.RunState{}
 		}
 		s.memory = state
 		return nil
@@ -571,127 +572,11 @@ func (s *JSONStore) saveLocked(ctx context.Context, state jsonState) error {
 }
 
 type jsonState struct {
-	Documents map[string]DocumentState `json:"documents,omitempty"`
-	Records   map[string]FieldRecord   `json:"records,omitempty"`
-	Queue     map[string]QueueJob      `json:"semantic_queue,omitempty"`
-	IndexRuns map[string]IndexRunState `json:"index_runs,omitempty"`
-	Chunks    []EmbeddedChunk          `json:"chunks,omitempty"`
-}
-
-func indexRunKey(key IndexRunKey) string {
-	if key.Datasource == "" || key.Entity == "" {
-		return ""
-	}
-	phase := strings.TrimSpace(key.Phase)
-	if phase == "" {
-		phase = "all"
-	}
-	return string(key.Datasource) + "\x00" + string(key.Entity) + "\x00" + phase
-}
-
-func matchesFilters(record FieldRecord, filters map[string]string) bool {
-	for name, want := range filters {
-		want = normalizeText(want)
-		if want == "" {
-			continue
-		}
-		var matched bool
-		for _, value := range record.Filters[name] {
-			if normalizeText(value) == want {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return false
-		}
-	}
-	return true
-}
-
-func fieldScore(record FieldRecord, query string, queryTokens []string) (float64, string) {
-	if query == "" {
-		return 1, "all"
-	}
-	for _, value := range record.Identifiers {
-		norm := normalizeText(value)
-		if norm == query {
-			return 100, "identifier"
-		}
-		if strings.HasPrefix(norm, query) || strings.HasPrefix(query, norm) {
-			return 90, "identifier_prefix"
-		}
-	}
-	var best float64
-	reason := ""
-	for _, value := range record.Search {
-		norm := normalizeText(value)
-		switch {
-		case norm == query:
-			if best < 80 {
-				best, reason = 80, "field"
-			}
-		case strings.HasPrefix(norm, query):
-			if best < 65 {
-				best, reason = 65, "field_prefix"
-			}
-		case strings.Contains(norm, query):
-			if best < 50 {
-				best, reason = 50, "field_contains"
-			}
-		}
-	}
-	if len(queryTokens) > 0 {
-		haystack := normalizeText(strings.Join(record.Search, " "))
-		var matched int
-		for _, token := range queryTokens {
-			if strings.Contains(haystack, token) {
-				matched++
-			}
-		}
-		if matched > 0 {
-			score := float64(20 + matched*10)
-			if score > best {
-				best, reason = score, "field_tokens"
-			}
-		}
-	}
-	return best, reason
-}
-
-func fieldRecordToRecord(record FieldRecord) coredatasource.Record {
-	metadata := map[string]string{}
-	for name, values := range record.Fields {
-		if len(values) > 0 {
-			metadata[name] = strings.Join(values, ",")
-		}
-	}
-	return coredatasource.Record{
-		ID:         record.Ref.ID,
-		Datasource: record.Ref.Datasource,
-		Entity:     record.Ref.Entity,
-		Title:      record.Title,
-		Content:    record.Content,
-		URL:        record.URL,
-		Metadata:   metadata,
-	}
-}
-
-func normalizeText(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
-}
-
-func tokenize(value string) []string {
-	fields := strings.FieldsFunc(normalizeText(value), func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	})
-	var out []string
-	for _, field := range fields {
-		if field != "" {
-			out = append(out, field)
-		}
-	}
-	return out
+	Documents map[string]DocumentState   `json:"documents,omitempty"`
+	Records   map[string]mirror.Record   `json:"records,omitempty"`
+	Queue     map[string]QueueJob        `json:"semantic_queue,omitempty"`
+	IndexRuns map[string]mirror.RunState `json:"index_runs,omitempty"`
+	Chunks    []EmbeddedChunk            `json:"chunks,omitempty"`
 }
 
 func normalize(vector []float32) {

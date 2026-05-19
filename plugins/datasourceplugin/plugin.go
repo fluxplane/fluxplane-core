@@ -267,7 +267,7 @@ func (p Plugin) list(ctx operation.Context, input listInput) operation.Result {
 	if err := allowed(ctx, name); err != nil {
 		return operation.Failed("datasource_list_denied", err.Error(), nil)
 	}
-	accessor, ok := p.registry.Get(name)
+	accessor, ok := p.accessor(ctx, name)
 	if !ok {
 		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
 	}
@@ -365,7 +365,7 @@ func (p Plugin) get(ctx operation.Context, input getInput) operation.Result {
 	if err := allowed(ctx, name); err != nil {
 		return operation.Failed("datasource_get_denied", err.Error(), nil)
 	}
-	accessor, ok := p.registry.Get(name)
+	accessor, ok := p.accessor(ctx, name)
 	if !ok {
 		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
 	}
@@ -452,7 +452,7 @@ func (p Plugin) batchGet(ctx operation.Context, input batchGetInput) operation.R
 	if err := allowed(ctx, name); err != nil {
 		return operation.Failed("datasource_batch_get_denied", err.Error(), nil)
 	}
-	accessor, ok := p.registry.Get(name)
+	accessor, ok := p.accessor(ctx, name)
 	if !ok {
 		return operation.Failed("datasource_not_found", fmt.Sprintf("datasource %q not found", name), nil)
 	}
@@ -571,6 +571,14 @@ func (p Plugin) selectedSearchTargets(ctx context.Context, entityNames []string)
 			}
 		}
 	}
+	if allowedNames[coredatasource.Name(Name)] {
+		catalog := catalogAccessor(p)
+		for _, entity := range catalog.Entities() {
+			if entitySupports(catalog, entity, coredatasource.EntityCapabilitySearch) {
+				candidates = append(candidates, searchTarget{Accessor: catalog, Entity: entity})
+			}
+		}
+	}
 	if len(matchers) == 0 && countEntityTypes(candidates) > 1 {
 		return nil, fmt.Errorf("entities filter is required because more than one searchable entity is available; valid filters: %s", strings.Join(validEntityFilters(candidates), ", "))
 	}
@@ -588,6 +596,13 @@ func (p Plugin) selectedSearchTargets(ctx context.Context, entityNames []string)
 		return nil, fmt.Errorf("no allowed searchable datasource entities match the request")
 	}
 	return out, nil
+}
+
+func (p Plugin) accessor(_ context.Context, name coredatasource.Name) (coredatasource.Accessor, bool) {
+	if name == coredatasource.Name(Name) {
+		return catalogAccessor(p), true
+	}
+	return p.registry.Get(name)
 }
 
 func accessorHasEntity(accessor coredatasource.Accessor, typ coredatasource.EntityType) bool {

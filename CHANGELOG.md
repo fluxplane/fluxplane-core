@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a datasource mirror architecture design that separates live datasource
+  access, local mirrored entity storage, secondary indexes, semantic retrieval,
+  and future MySQL-backed mirror storage.
+- Added initial `core/data` and `runtime/data` primitives for scoped records,
+  relations, blobs, materialized views, store queries, and GitLab/Slack data
+  view declarations.
+- Added reflected `runtime/data` helpers for deriving data source entities and
+  materialized view fields from struct tags, including nested view field paths.
+- Added `runtime/datasource/mirror` as the structured datasource mirror
+  boundary while preserving existing datasource index APIs.
+- Added SQL-backed datasource mirror and `core/data` store adapters with SQLite
+  tests and gated MySQL testcontainers coverage for scoped GitLab/Slack
+  materialized query shapes.
+- Added a synthetic `datasource` datasource in the generic datasource plugin so
+  agents can list/search visible datasource sources, entities, and relations
+  through the same tool surface used for provider data.
 - Added native Slack bot-token auth, connector-free Slack channel credential
   loading, and native Slack datasource reads for users, channels, message
   search, thread messages, and channel/thread relations.
@@ -147,6 +163,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--model` overrides again.
 - Coder language operation activation now consumes Go and Markdown support
   descriptors instead of hardcoding language-specific operation set selection.
+
+### Fixed
+
+- Fixed datasource index clearing so it also invalidates matching mirror/index
+  run checkpoints instead of leaving stale completed runs behind.
+- Fixed SQL-backed datasource mirror filtering to re-check full filter values
+  after indexed prefiltering, avoiding false matches for long truncated filter
+  values.
+- Fixed MySQL initialization for SQL-backed datasource mirror and `core/data`
+  stores so reopening an existing database tolerates already-created indexes.
 
 ## [0.13.0] - 2026-05-17
 

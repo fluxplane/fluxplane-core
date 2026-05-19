@@ -545,6 +545,64 @@ func TestCatalogProviderListsOnlyAllowedDatasources(t *testing.T) {
 	}
 }
 
+func TestSyntheticDatasourceListsVisibleSources(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "docs", Entities: []coredatasource.EntityType{"file.document"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "file.document", Description: "Local document."},
+		},
+		memoryAccessor{
+			spec:   coredatasource.Spec{Name: "jira", Entities: []coredatasource.EntityType{"jira.issue"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{Type: "jira.issue", Description: "Jira issue."},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"datasource", "jira"},
+	}), nil)
+	result := New(registry).list(ctx, listInput{Datasource: "datasource", Entity: string(CatalogSourceEntity)})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(listOutput)
+	if len(out.Result.Records) != 1 || out.Result.Records[0].ID != "jira" {
+		t.Fatalf("records = %#v, want only jira catalog source", out.Result.Records)
+	}
+}
+
+func TestSyntheticDatasourceSearchesEntitySchemas(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.channel"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:        "slack.channel",
+				Description: "Slack channel.",
+				Relations: []coredatasource.RelationSpec{{
+					Name:         "members",
+					TargetEntity: "slack.user",
+					Exact:        true,
+				}},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"datasource", "slack"},
+	}), nil)
+	result := New(registry).search(ctx, searchInput{Query: "members", Entities: []string{string(CatalogEntityEntity)}})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("result = %#v", result)
+	}
+	out := result.Output.(operation.Rendered).Data.(searchOutput)
+	if len(out.Results) != 1 || len(out.Results[0].Records) != 1 || out.Results[0].Records[0].ID != "slack/slack.channel" {
+		t.Fatalf("results = %#v, want slack.channel catalog entity", out.Results)
+	}
+}
+
 func TestCatalogProviderListsEntityCapabilities(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{

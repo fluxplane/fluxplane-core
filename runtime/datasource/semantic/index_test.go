@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"testing"
+	"time"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 )
@@ -43,6 +44,49 @@ func TestIndexUpdateSkipsUnchangedDocumentAndSearches(t *testing.T) {
 	}
 	if len(results.Hits) != 1 || results.Hits[0].Ref.ID != "runbook.md" {
 		t.Fatalf("hits = %#v, want runbook", results.Hits)
+	}
+}
+
+func TestIndexSearchHydratesMirrorRecordMetadata(t *testing.T) {
+	ctx := context.Background()
+	index, err := New(HashEmbedder{ModelName: "test-embedding"}, NewJSONStore(""), Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	doc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "runbook.md"},
+		Title: "Chunk title",
+		Body:  "Reset the login cache after deploy.",
+	}
+	entity := coredatasource.EntitySpec{
+		Type: "file.document",
+		Fields: []coredatasource.FieldSpec{
+			{Name: "path", Searchable: true, Filterable: true},
+		},
+	}
+	mirrorDoc := doc
+	mirrorDoc.Title = "Hydrated runbook"
+	mirrorDoc.URL = "https://docs.example/runbook"
+	mirrorDoc.Metadata = map[string]string{"path": "runbook.md"}
+	if _, err := index.UpdateRecord(ctx, mirrorDoc, entity); err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+	if _, err := index.Update(ctx, doc); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	results, err := index.Search(ctx, SearchRequest{Query: "login deploy", Datasources: []coredatasource.Name{"docs"}, Limit: 5})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results.Hits) != 1 {
+		t.Fatalf("hits = %#v, want one hit", results.Hits)
+	}
+	hit := results.Hits[0]
+	if hit.Title != "Hydrated runbook" || hit.URL != "https://docs.example/runbook" || hit.Metadata["path"] != "runbook.md" {
+		t.Fatalf("hit = %#v, want mirror-hydrated title, URL, and metadata", hit)
+	}
+	if hit.Snippet == "" {
+		t.Fatalf("hit = %#v, want semantic chunk snippet preserved", hit)
 	}
 }
 
@@ -91,6 +135,33 @@ func TestIndexEnqueueDefersEmbeddingUntilQueueProcessing(t *testing.T) {
 	}
 	if len(status.Queue) != 0 || len(status.Documents) != 1 {
 		t.Fatalf("status = %#v, want one document and no queued jobs", status)
+	}
+}
+
+func TestIndexDeleteIndexRunsInvalidatesBuildReadiness(t *testing.T) {
+	ctx := context.Background()
+	index, err := New(HashEmbedder{ModelName: "test-embedding"}, NewJSONStore(""), Config{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	run := IndexRunState{
+		Datasource:  "gitlab",
+		Entity:      "gitlab.user",
+		Phase:       "fields",
+		Status:      IndexRunStatusComplete,
+		CompletedAt: time.Now().UTC(),
+	}
+	if err := index.PutIndexRun(ctx, run); err != nil {
+		t.Fatalf("PutIndexRun: %v", err)
+	}
+	if _, ok, err := index.IndexRun(ctx, IndexRunKey{Datasource: "gitlab", Entity: "gitlab.user", Phase: "fields"}); err != nil || !ok {
+		t.Fatalf("IndexRun before delete ok=%v err=%v, want present", ok, err)
+	}
+	if err := index.DeleteIndexRuns(ctx, StatusRequest{Datasource: "gitlab", Entity: "gitlab.user"}); err != nil {
+		t.Fatalf("DeleteIndexRuns: %v", err)
+	}
+	if _, ok, err := index.IndexRun(ctx, IndexRunKey{Datasource: "gitlab", Entity: "gitlab.user", Phase: "fields"}); err != nil || ok {
+		t.Fatalf("IndexRun after delete ok=%v err=%v, want missing", ok, err)
 	}
 }
 
