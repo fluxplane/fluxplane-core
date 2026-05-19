@@ -7,13 +7,14 @@ import (
 )
 
 type serveCommandOptions struct {
-	debug    bool
-	yolo     bool
-	dev      bool
-	authPath string
-	provider string
-	model    string
-	envFiles []string
+	debug      bool
+	yolo       bool
+	dev        bool
+	authPath   string
+	provider   string
+	model      string
+	envFiles   []string
+	healthAddr string
 }
 
 type ServeRunner func(context.Context, Options) error
@@ -37,14 +38,15 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 				path = args[0]
 			}
 			return runner(cmd.Context(), Options{
-				AppDir:   path,
-				Debug:    opts.debug,
-				Yolo:     opts.yolo,
-				Dev:      opts.dev,
-				AuthPath: opts.authPath,
-				Provider: opts.provider,
-				Model:    opts.model,
-				EnvFiles: opts.envFiles,
+				AppDir:     path,
+				Debug:      opts.debug,
+				Yolo:       opts.yolo,
+				Dev:        opts.dev,
+				AuthPath:   opts.authPath,
+				Provider:   opts.provider,
+				Model:      opts.model,
+				EnvFiles:   opts.envFiles,
+				HealthAddr: opts.healthAddr,
 			})
 		},
 	}
@@ -55,5 +57,6 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
+	cmd.Flags().StringVar(&opts.healthAddr, "health-addr", "", "internal HTTP address for unauthenticated health checks")
 	return cmd
 }

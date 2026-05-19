@@ -42,6 +42,7 @@ type Options struct {
 	Provider      string
 	Model         string
 	EnvFiles      []string
+	HealthAddr    string
 	ModelResolver agentfactory.ModelResolver
 }
 
@@ -53,6 +54,7 @@ type ServeDistributionOptions struct {
 	AuthPath            string
 	Provider            string
 	Model               string
+	HealthAddr          string
 	Debug               bool
 	Yolo                bool
 	Dev                 bool
@@ -80,6 +82,7 @@ func Serve(ctx context.Context, opts Options) error {
 		AuthPath:            opts.AuthPath,
 		Provider:            opts.Provider,
 		Model:               opts.Model,
+		HealthAddr:          opts.HealthAddr,
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
@@ -123,6 +126,9 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		return err
 	}
 	if err := startServeListeners(ctx, opts.Launch.Listeners, opts.Launch.Channels, runtime.Service, host, runtime.Caller, runtime.Trust); err != nil {
+		return err
+	}
+	if err := startHealthListener(ctx, opts.HealthAddr, host); err != nil {
 		return err
 	}
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
@@ -320,5 +326,38 @@ func startServeListeners(ctx context.Context, listeners []orchestrationdistribut
 		}()
 		_, _ = fmt.Fprintf(os.Stderr, "listener %s on %s\n", listenerDoc.Name, display)
 	}
+	return nil
+}
+
+func startHealthListener(ctx context.Context, addr string, host *daemon.Host) error {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	controlServer, err := httpcontrol.NewServer(httpcontrol.ServerConfig{Host: host})
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/control/", http.StripPrefix("/control", controlServer))
+	ln, display, cleanup, err := distserve.Listen(addr)
+	if err != nil {
+		return err
+	}
+	server := &http.Server{Handler: mux}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+		cleanup()
+	}()
+	go func() {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			_, _ = fmt.Fprintf(os.Stderr, "health listener failed: %v\n", err)
+			cleanup()
+		}
+	}()
+	_, _ = fmt.Fprintf(os.Stderr, "health listener on %s\n", display)
 	return nil
 }

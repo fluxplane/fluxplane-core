@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
+	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -305,7 +308,7 @@ func TestAppCommandHasAgentsdkParityActions(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"init", "run", "serve", "build", "deploy", "config"} {
+	for _, want := range []string{"init", "run", "serve", "build", "deploy", "config", "healthcheck"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -411,12 +414,33 @@ func TestAppServeForwardsModelSelection(t *testing.T) {
 	})
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"serve", "--provider", "codex", "--model", "gpt-5.5", "examples/slack-bot"})
+	cmd.SetArgs([]string{"serve", "--provider", "codex", "--model", "gpt-5.5", "--health-addr", "127.0.0.1:18080", "examples/slack-bot"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if got.AppDir != "examples/slack-bot" || got.Provider != "codex" || got.Model != "gpt-5.5" {
+	if got.AppDir != "examples/slack-bot" || got.Provider != "codex" || got.Model != "gpt-5.5" || got.HealthAddr != "127.0.0.1:18080" {
 		t.Fatalf("serve options = %#v, want app dir/provider/model", got)
+	}
+}
+
+func TestAppHealthcheckCommandUsesStatusEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/control/status" {
+			t.Fatalf("path = %q, want /control/status", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"status":"ok"}`)
+	}))
+	defer server.Close()
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"healthcheck", "--url", server.URL + "/control/status"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "ok" {
+		t.Fatalf("output = %q, want ok", out.String())
 	}
 }
 
@@ -504,22 +528,10 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"build [path]", "--target", "docker-image", "--docker", "--tag", "--platform", "--push", "--dry-run", "--base-image", "--connectors-path"} {
+	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
-	}
-}
-
-func TestAppBuildRequiresTarget(t *testing.T) {
-	cmd := newAppCommand()
-	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"build", "."})
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "specify --target docker-image") {
-		t.Fatalf("Execute error = %v, want target error", err)
 	}
 }
 
@@ -527,9 +539,9 @@ func TestAppBuildRejectsUnsupportedTarget(t *testing.T) {
 	cmd := newAppCommand()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"build", "--target", "dockerfile", "."})
+	cmd.SetArgs([]string{"build", "--target", "nope", "."})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), `unsupported target "dockerfile"`) {
+	if err == nil || !strings.Contains(err.Error(), `unsupported app target "nope"`) {
 		t.Fatalf("Execute error = %v, want unsupported target error", err)
 	}
 }
@@ -544,10 +556,42 @@ func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"deploy [path]", "--target", "docker-compose", "--image", "--dry-run"} {
+	for _, want := range []string{"deploy [path]", "--target", "docker-compose", "--image", "--base-image", "--connectors-path", "--dry-run", "--force", "--detach"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
+	}
+}
+
+func TestAppDeployDefaultsToDockerCompose(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "agentsdk.app.yaml", `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	var calls []string
+	runner := distdeploy.CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	})
+	cmd := newAppDeployCommandWithRunner(runner)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--dry-run", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("dry-run calls = %#v, want none", calls)
 	}
 }
 

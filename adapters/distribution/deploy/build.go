@@ -19,12 +19,17 @@ import (
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/pathpattern"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
 )
 
 const (
 	defaultConnectorsPath = "/connectors"
 	defaultBaseImage      = "fluxplane/coder-base:local"
 	defaultAppImage       = "agentruntime-app:latest"
+	defaultMySQLDSNEnv    = "AGENTRUNTIME_DATASTORE_MYSQL_DSN"
+	defaultNATSDSNEnv     = "AGENTRUNTIME_EVENTSTORE_NATS_DSN"
+	defaultHealthAddr     = "127.0.0.1:18080"
+	defaultHealthURL      = "http://127.0.0.1:18080/control/status"
 )
 
 // CommandRunner runs an external command.
@@ -65,9 +70,43 @@ type DockerBuildResult struct {
 	DryRun     bool
 }
 
+// AppBuildOptions configures app-local build artifact generation.
+type AppBuildOptions struct {
+	AppDir         string
+	OutDir         string
+	Targets        []string
+	Tags           []string
+	Image          string
+	Platforms      []string
+	Push           bool
+	DryRun         bool
+	Force          bool
+	BaseImage      string
+	ConnectorsPath string
+	Out            io.Writer
+	Err            io.Writer
+	Runner         CommandRunner
+}
+
+// AppBuildResult describes generated app-local artifacts.
+type AppBuildResult struct {
+	AppDir     string
+	OutDir     string
+	Name       string
+	Targets    []string
+	Tags       []string
+	Artifacts  []string
+	Command    []string
+	DryRun     bool
+	Dockerfile string
+	Compose    string
+	Binary     string
+}
+
 // BaseImageOptions configures the reusable coder runtime image build.
 type BaseImageOptions struct {
 	RepoRoot  string
+	CoderPath string
 	Tags      []string
 	Platforms []string
 	Push      bool
@@ -101,6 +140,194 @@ type ComposeResult struct {
 	Image   string
 	Content string
 	DryRun  bool
+}
+
+// ComposeDeployOptions configures local Docker Compose deployment.
+type ComposeDeployOptions struct {
+	AppDir         string
+	Image          string
+	BaseImage      string
+	ConnectorsPath string
+	DryRun         bool
+	Force          bool
+	Detach         bool
+	Out            io.Writer
+	Err            io.Writer
+	Runner         CommandRunner
+}
+
+// ComposeDeployResult describes the local Docker Compose deployment steps.
+type ComposeDeployResult struct {
+	BaseImage BaseImageResult
+	AppBuild  AppBuildResult
+	Command   []string
+	DryRun    bool
+}
+
+// BuildApp builds app-local artifacts such as bin launchers, Dockerfiles,
+// Docker Compose resources, and Docker images.
+func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error) {
+	appDir := strings.TrimSpace(opts.AppDir)
+	if appDir == "" {
+		appDir = "."
+	}
+	targets, err := appBuildTargets(opts.Targets)
+	if err != nil {
+		return AppBuildResult{}, err
+	}
+	loaded, err := distlocal.Load(ctx, appDir)
+	if err != nil {
+		return AppBuildResult{}, err
+	}
+	outDir := strings.TrimSpace(opts.OutDir)
+	if outDir == "" {
+		outDir = loaded.Root
+	}
+	outDir, err = filepath.Abs(outDir)
+	if err != nil {
+		return AppBuildResult{}, err
+	}
+	connectorsPath := strings.TrimSpace(opts.ConnectorsPath)
+	if connectorsPath == "" {
+		connectorsPath = defaultConnectorsPath
+	}
+	baseImage := strings.TrimSpace(opts.BaseImage)
+	if baseImage == "" {
+		baseImage = defaultBaseImage
+	}
+	tags := resolveAppBuildTags(loaded.Distribution.Spec, opts)
+	name := distributionName(loaded.Distribution.Spec)
+	binaryPath := filepath.Join(outDir, "bin", composeServiceName(name))
+	dockerfilePath := filepath.Join(outDir, "Dockerfile")
+	composePath := filepath.Join(outDir, "docker-compose.yaml")
+	composeImage := firstTag(tags)
+	if composeImage == "" {
+		composeImage = defaultAppImage
+	}
+	result := AppBuildResult{
+		AppDir:     loaded.Root,
+		OutDir:     outDir,
+		Name:       name,
+		Targets:    targets,
+		Tags:       tags,
+		DryRun:     opts.DryRun,
+		Dockerfile: dockerfilePath,
+		Compose:    composePath,
+		Binary:     binaryPath,
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	errOut := opts.Err
+	if errOut == nil {
+		errOut = io.Discard
+	}
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	for _, target := range targets {
+		switch target {
+		case "binary":
+			result.Artifacts = append(result.Artifacts, binaryPath)
+			if err := maybeWriteFile(binaryPath, appLauncherScript(loaded.Root), 0o755, opts.DryRun, opts.Force, out); err != nil {
+				return AppBuildResult{}, err
+			}
+		case "dockerfile":
+			result.Artifacts = append(result.Artifacts, dockerfilePath)
+			if err := maybeWriteFile(dockerfilePath, workspaceDockerfile(baseImage, connectorsPath), 0o600, opts.DryRun, opts.Force, out); err != nil {
+				return AppBuildResult{}, err
+			}
+		case "docker-compose":
+			result.Artifacts = append(result.Artifacts, composePath)
+			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, connectorsPath, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
+				return AppBuildResult{}, err
+			}
+		case "docker-image":
+			command, err := dockerCommand(tags, cleanStrings(opts.Platforms), opts.Push)
+			if err != nil {
+				return AppBuildResult{}, err
+			}
+			command = append(command, "-f", dockerfilePath, loaded.Root)
+			result.Command = command
+			printAppBuildCommand(out, command, opts.DryRun)
+			if !opts.DryRun {
+				if err := ensureDockerfileForImage(dockerfilePath, baseImage, connectorsPath, opts.Force); err != nil {
+					return AppBuildResult{}, err
+				}
+				if err := runner.Run(ctx, "", command[0], command[1:], out, errOut); err != nil {
+					return AppBuildResult{}, err
+				}
+			}
+		default:
+			return AppBuildResult{}, fmt.Errorf("distribution build: unsupported app target %q", target)
+		}
+	}
+	return result, nil
+}
+
+// DeployDockerCompose builds local app artifacts and starts them with Docker Compose.
+func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (ComposeDeployResult, error) {
+	baseImage := strings.TrimSpace(opts.BaseImage)
+	if baseImage == "" {
+		baseImage = defaultBaseImage
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	errOut := opts.Err
+	if errOut == nil {
+		errOut = io.Discard
+	}
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
+		Tags:   []string{baseImage},
+		DryRun: opts.DryRun,
+		Out:    out,
+		Err:    errOut,
+		Runner: runner,
+	})
+	if err != nil {
+		return ComposeDeployResult{}, err
+	}
+	app, err := BuildApp(ctx, AppBuildOptions{
+		AppDir:         opts.AppDir,
+		Targets:        []string{"dockerfile", "docker-compose", "docker-image"},
+		Image:          opts.Image,
+		DryRun:         opts.DryRun,
+		Force:          opts.Force,
+		BaseImage:      baseImage,
+		ConnectorsPath: opts.ConnectorsPath,
+		Out:            out,
+		Err:            errOut,
+		Runner:         runner,
+	})
+	if err != nil {
+		return ComposeDeployResult{}, err
+	}
+	command := []string{"docker", "compose", "-f", app.Compose, "up"}
+	if opts.Detach {
+		command = append(command, "-d")
+	}
+	result := ComposeDeployResult{
+		BaseImage: base,
+		AppBuild:  app,
+		Command:   command,
+		DryRun:    opts.DryRun,
+	}
+	if opts.DryRun {
+		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
+		return result, nil
+	}
+	if err := runner.Run(ctx, app.AppDir, command[0], command[1:], out, errOut); err != nil {
+		return ComposeDeployResult{}, err
+	}
+	return result, nil
 }
 
 // BuildDocker builds a Docker image for a local app distribution.
@@ -192,14 +419,6 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 
 // BuildCoderBaseDocker builds the reusable Docker base image containing coder.
 func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImageResult, error) {
-	repoRoot := strings.TrimSpace(opts.RepoRoot)
-	if repoRoot == "" {
-		repoRoot = "."
-	}
-	repoRoot, err := findRepoRoot(repoRoot)
-	if err != nil {
-		return BaseImageResult{}, err
-	}
 	tags := cleanStrings(opts.Tags)
 	if len(tags) == 0 {
 		tags = []string{defaultBaseImage}
@@ -231,7 +450,7 @@ func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImage
 			_ = os.RemoveAll(tempDir)
 		}
 	}()
-	if err := prepareBaseImageContext(ctx, tempDir, repoRoot); err != nil {
+	if err := prepareBaseImageContext(ctx, tempDir, opts); err != nil {
 		return BaseImageResult{}, err
 	}
 	command = append(command, tempDir)
@@ -273,7 +492,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	if image == "" {
 		image = defaultAppImage
 	}
-	content := dockerComposeContent(loaded.Distribution.Spec.Name, image)
+	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultConnectorsPath, loaded.Launch)
 	result := ComposeResult{
 		AppDir:  loaded.Root,
 		Image:   image,
@@ -312,7 +531,15 @@ func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPat
 	return assets, nil
 }
 
-func prepareBaseImageContext(ctx context.Context, contextDir, repoRoot string) error {
+func prepareBaseImageContext(ctx context.Context, contextDir string, opts BaseImageOptions) error {
+	repoRoot := strings.TrimSpace(opts.RepoRoot)
+	if repoRoot == "" {
+		return prepareBinaryBaseImageContext(contextDir, opts.CoderPath)
+	}
+	repoRoot, err := findRepoRoot(repoRoot)
+	if err != nil {
+		return err
+	}
 	if err := copyDir(ctx, repoRoot, filepath.Join(contextDir, "src", "agentruntime"), sourceSkip); err != nil {
 		return fmt.Errorf("distribution build: copy source: %w", err)
 	}
@@ -320,7 +547,25 @@ func prepareBaseImageContext(ctx context.Context, contextDir, repoRoot string) e
 	if err != nil {
 		return err
 	}
-	return writeBaseDockerfile(filepath.Join(contextDir, "Dockerfile"), replaceCopies)
+	return writeSourceBaseDockerfile(filepath.Join(contextDir, "Dockerfile"), replaceCopies)
+}
+
+func prepareBinaryBaseImageContext(contextDir, coderPath string) error {
+	coderPath = strings.TrimSpace(coderPath)
+	if coderPath == "" {
+		executable, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("distribution build: resolve coder executable: %w", err)
+		}
+		coderPath = executable
+	}
+	if resolved, err := filepath.EvalSymlinks(coderPath); err == nil {
+		coderPath = resolved
+	}
+	if err := copyFile(coderPath, filepath.Join(contextDir, "coder")); err != nil {
+		return fmt.Errorf("distribution build: copy coder executable: %w", err)
+	}
+	return writeBinaryBaseDockerfile(filepath.Join(contextDir, "Dockerfile"))
 }
 
 func resolveTags(spec coredistribution.Spec, override []string) []string {
@@ -348,6 +593,50 @@ func resolveTags(spec coredistribution.Spec, override []string) []string {
 		name = "agentsdk-app"
 	}
 	return []string{name + ":latest"}
+}
+
+func resolveAppBuildTags(spec coredistribution.Spec, opts AppBuildOptions) []string {
+	var override []string
+	if image := strings.TrimSpace(opts.Image); image != "" {
+		override = append(override, image)
+	}
+	override = append(override, opts.Tags...)
+	return resolveTags(spec, override)
+}
+
+func distributionName(spec coredistribution.Spec) string {
+	if name := strings.TrimSpace(spec.Name); name != "" {
+		return name
+	}
+	return "app"
+}
+
+func appBuildTargets(values []string) ([]string, error) {
+	raw := cleanStrings(values)
+	if len(raw) == 0 {
+		raw = []string{"all"}
+	}
+	expanded := make([]string, 0, len(raw))
+	for _, target := range raw {
+		switch target {
+		case "all":
+			expanded = append(expanded, "binary", "dockerfile", "docker-compose", "docker-image")
+		case "binary", "dockerfile", "docker-image", "docker-compose":
+			expanded = append(expanded, target)
+		default:
+			return nil, fmt.Errorf("distribution build: unsupported app target %q", target)
+		}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(expanded))
+	for _, target := range expanded {
+		if _, ok := seen[target]; ok {
+			continue
+		}
+		seen[target] = struct{}{}
+		out = append(out, target)
+	}
+	return out, nil
 }
 
 func dockerCommand(tags, platforms []string, push bool) ([]string, error) {
@@ -566,14 +855,59 @@ func writeAppDockerfile(filename, baseImage, connectorsPath string) error {
 	b.WriteString("COPY app /app\n")
 	b.WriteString("WORKDIR /app\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
-	cmd, _ := json.Marshal([]string{"app", "serve", "/app", "--connectors-path", connectorsPath})
+	cmd, _ := json.Marshal(appServeCommand(connectorsPath))
 	b.WriteString("CMD ")
 	b.Write(cmd)
+	b.WriteByte('\n')
+	b.WriteString("HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ")
+	health, _ := json.Marshal(appHealthcheckCommand())
+	b.Write(health)
 	b.WriteByte('\n')
 	return os.WriteFile(filename, []byte(b.String()), 0o600)
 }
 
-func writeBaseDockerfile(filename string, replaces []replaceCopy) error {
+func workspaceDockerfile(baseImage, connectorsPath string) string {
+	var b strings.Builder
+	b.WriteString("FROM ")
+	b.WriteString(baseImage)
+	b.WriteByte('\n')
+	b.WriteString("COPY . /app\n")
+	b.WriteString("WORKDIR /app\n")
+	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
+	cmd, _ := json.Marshal(appServeCommand(connectorsPath))
+	b.WriteString("CMD ")
+	b.Write(cmd)
+	b.WriteByte('\n')
+	b.WriteString("HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ")
+	health, _ := json.Marshal(appHealthcheckCommand())
+	b.Write(health)
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func appServeCommand(connectorsPath string) []string {
+	connectorsPath = strings.TrimSpace(connectorsPath)
+	if connectorsPath == "" {
+		connectorsPath = defaultConnectorsPath
+	}
+	return []string{"app", "serve", "/app", "--connectors-path", connectorsPath, "--health-addr", defaultHealthAddr}
+}
+
+func appHealthcheckCommand() []string {
+	return []string{"/usr/local/bin/coder", "app", "healthcheck", "--url", defaultHealthURL}
+}
+
+func appLauncherScript(appRoot string) string {
+	var b strings.Builder
+	b.WriteString("#!/usr/bin/env sh\n")
+	b.WriteString("set -eu\n")
+	b.WriteString("exec coder app run ")
+	b.WriteString(shellQuote(appRoot))
+	b.WriteString(" \"$@\"\n")
+	return b.String()
+}
+
+func writeSourceBaseDockerfile(filename string, replaces []replaceCopy) error {
 	var b strings.Builder
 	b.WriteString("FROM golang:1.26-bookworm AS builder\n")
 	b.WriteString("WORKDIR /src/agentruntime\n")
@@ -591,6 +925,15 @@ func writeBaseDockerfile(filename string, replaces []replaceCopy) error {
 	b.WriteString("COPY --from=builder /out/coder /usr/local/bin/coder\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
 	b.WriteByte('\n')
+	return os.WriteFile(filename, []byte(b.String()), 0o600)
+}
+
+func writeBinaryBaseDockerfile(filename string) error {
+	var b strings.Builder
+	b.WriteString("FROM debian:bookworm-slim AS runtime\n")
+	b.WriteString("RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*\n")
+	b.WriteString("COPY coder /usr/local/bin/coder\n")
+	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
 	return os.WriteFile(filename, []byte(b.String()), 0o600)
 }
 
@@ -692,6 +1035,41 @@ func cleanStrings(input []string) []string {
 	return out
 }
 
+func maybeWriteFile(filename, content string, perm fs.FileMode, dryRun, force bool, out io.Writer) error {
+	if dryRun {
+		_, _ = fmt.Fprintf(out, "write=%s\n", filename)
+		return nil
+	}
+	if _, err := os.Stat(filename); err == nil && !force {
+		return fmt.Errorf("distribution build: %s already exists; pass --force to overwrite", filename)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filename, []byte(content), perm)
+}
+
+func ensureDockerfileForImage(filename, baseImage, connectorsPath string, force bool) error {
+	if _, err := os.Stat(filename); err == nil {
+		return nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return maybeWriteFile(filename, workspaceDockerfile(baseImage, connectorsPath), 0o600, false, force, io.Discard)
+}
+
+func printAppBuildCommand(out io.Writer, command []string, dryRun bool) {
+	if dryRun {
+		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 func printDryRun(out io.Writer, result DockerBuildResult) {
 	_, _ = fmt.Fprintf(out, "context=%s\n", result.ContextDir)
 	_, _ = fmt.Fprintf(out, "dockerfile=%s\n", result.Dockerfile)
@@ -721,12 +1099,13 @@ func firstTag(tags []string) string {
 	return tags[0]
 }
 
-func dockerComposeContent(name, image string) string {
+func dockerComposeContent(name, image, connectorsPath string, launch distribution.LaunchConfig) string {
 	service := strings.TrimSpace(name)
 	if service == "" {
 		service = "app"
 	}
 	service = composeServiceName(service)
+	deps := composeDependencies(launch)
 	var b strings.Builder
 	b.WriteString("services:\n")
 	b.WriteString("  ")
@@ -735,9 +1114,131 @@ func dockerComposeContent(name, image string) string {
 	b.WriteString("    image: ")
 	b.WriteString(image)
 	b.WriteByte('\n')
-	b.WriteString("    command: [\"app\", \"serve\", \"/app\"]\n")
+	command, _ := json.Marshal(appServeCommand(connectorsPath))
+	b.WriteString("    command: ")
+	b.Write(command)
+	b.WriteByte('\n')
+	writeComposeEnv(&b, launch)
+	if len(deps) > 0 {
+		b.WriteString("    depends_on:\n")
+		for _, dep := range deps {
+			b.WriteString("      ")
+			b.WriteString(dep)
+			b.WriteString(":\n")
+			b.WriteString("        condition: service_healthy\n")
+		}
+	}
 	b.WriteString("    restart: unless-stopped\n")
+	if composeUsesMySQL(launch) {
+		writeMySQLService(&b)
+	}
+	if composeUsesNATS(launch) {
+		writeNATSService(&b)
+	}
+	writeComposeVolumes(&b, launch)
 	return b.String()
+}
+
+func writeComposeEnv(b *strings.Builder, launch distribution.LaunchConfig) {
+	values := composeEnv(launch)
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	b.WriteString("    environment:\n")
+	for _, key := range keys {
+		b.WriteString("      ")
+		b.WriteString(key)
+		b.WriteString(": ")
+		b.WriteString(values[key])
+		b.WriteByte('\n')
+	}
+}
+
+func composeEnv(launch distribution.LaunchConfig) map[string]string {
+	env := map[string]string{}
+	if composeUsesMySQL(launch) {
+		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
+		if name == "" {
+			name = defaultMySQLDSNEnv
+		}
+		env[name] = "agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true"
+	}
+	if composeUsesNATS(launch) {
+		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
+		if name == "" {
+			name = defaultNATSDSNEnv
+		}
+		env[name] = "nats://nats:4222"
+	}
+	return env
+}
+
+func composeDependencies(launch distribution.LaunchConfig) []string {
+	var deps []string
+	if composeUsesMySQL(launch) {
+		deps = append(deps, "mysql")
+	}
+	if composeUsesNATS(launch) {
+		deps = append(deps, "nats")
+	}
+	return deps
+}
+
+func writeMySQLService(b *strings.Builder) {
+	b.WriteString("  mysql:\n")
+	b.WriteString("    image: mysql:8.4\n")
+	b.WriteString("    environment:\n")
+	b.WriteString("      MYSQL_DATABASE: agentruntime\n")
+	b.WriteString("      MYSQL_USER: agentruntime\n")
+	b.WriteString("      MYSQL_PASSWORD: agentruntime\n")
+	b.WriteString("      MYSQL_ROOT_PASSWORD: agentruntime-root\n")
+	b.WriteString("    volumes:\n")
+	b.WriteString("      - mysql-data:/var/lib/mysql\n")
+	b.WriteString("    healthcheck:\n")
+	b.WriteString("      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"localhost\"]\n")
+	b.WriteString("      interval: 5s\n")
+	b.WriteString("      timeout: 5s\n")
+	b.WriteString("      retries: 20\n")
+}
+
+func writeNATSService(b *strings.Builder) {
+	b.WriteString("  nats:\n")
+	b.WriteString("    image: nats:2.11-alpine\n")
+	b.WriteString("    command: [\"-js\", \"-sd\", \"/data\", \"-m\", \"8222\"]\n")
+	b.WriteString("    volumes:\n")
+	b.WriteString("      - nats-data:/data\n")
+	b.WriteString("    healthcheck:\n")
+	b.WriteString("      test: [\"CMD-SHELL\", \"wget -q -O - http://127.0.0.1:8222/healthz | grep -q ok\"]\n")
+	b.WriteString("      interval: 5s\n")
+	b.WriteString("      timeout: 5s\n")
+	b.WriteString("      retries: 20\n")
+}
+
+func writeComposeVolumes(b *strings.Builder, launch distribution.LaunchConfig) {
+	if !composeUsesMySQL(launch) && !composeUsesNATS(launch) {
+		return
+	}
+	b.WriteString("volumes:\n")
+	if composeUsesMySQL(launch) {
+		b.WriteString("  mysql-data:\n")
+	}
+	if composeUsesNATS(launch) {
+		b.WriteString("  nats-data:\n")
+	}
+}
+
+func composeUsesMySQL(launch distribution.LaunchConfig) bool {
+	return strings.EqualFold(strings.TrimSpace(launch.Data.Store.Kind), "mysql")
+}
+
+func composeUsesNATS(launch distribution.LaunchConfig) bool {
+	kind := strings.ToLower(strings.TrimSpace(launch.Events.Store.Kind))
+	return kind == "nats" || kind == "jetstream" || kind == "nats-jetstream"
 }
 
 func composeServiceName(value string) string {

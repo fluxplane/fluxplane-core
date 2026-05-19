@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added generated Docker healthchecks for app images and condition-based Docker
+  Compose startup ordering for MySQL and NATS JetStream deployments.
 - Added coder-first distribution build targets: `coder build --target
   docker-base`, `coder app build --target docker-image`, and `coder app
   deploy --target docker-compose --dry-run`.
