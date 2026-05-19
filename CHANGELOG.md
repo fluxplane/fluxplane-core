@@ -189,6 +189,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches.
 
 ### Fixed
+- Batched datasource field-index and data-store writes during corpus indexing
+  and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.
+
 - Fixed shell discovery through authorized system wrappers so `shell` and
   `shell_info` operations no longer panic when resolving available shells.
 

@@ -26,6 +26,7 @@ const (
 // Store persists structured mirror records and mirror run state.
 type Store interface {
 	UpsertRecord(context.Context, Record) error
+	UpsertRecords(context.Context, ...Record) error
 	DeleteRecord(context.Context, coredatasource.RecordRef) error
 	Record(context.Context, coredatasource.RecordRef) (Record, bool, error)
 	SearchRecords(context.Context, SearchRequest) ([]Hit, error)
@@ -62,6 +63,30 @@ func (s *Service) UpdateRecord(ctx context.Context, doc coredatasource.CorpusDoc
 		return UpdateResult{}, err
 	}
 	return UpdateResult{Key: key, Status: "indexed"}, nil
+}
+
+// UpdateRecords stores structured fields for a corpus document batch.
+func (s *Service) UpdateRecords(ctx context.Context, docs []coredatasource.CorpusDocument, entity coredatasource.EntitySpec) ([]UpdateResult, error) {
+	if s == nil {
+		return nil, fmt.Errorf("datasource mirror: service is nil")
+	}
+	records := make([]Record, 0, len(docs))
+	results := make([]UpdateResult, 0, len(docs))
+	for _, doc := range docs {
+		key := DocumentKey(doc.Ref)
+		if key == "" {
+			return nil, fmt.Errorf("datasource mirror: document ref is incomplete")
+		}
+		records = append(records, RecordFromDocument(key, doc, entity))
+		results = append(results, UpdateResult{Key: key, Status: "indexed"})
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	if err := s.store.UpsertRecords(ctx, records...); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 // DeleteRecord removes one structured mirror record.

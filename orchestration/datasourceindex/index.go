@@ -353,6 +353,7 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 			Documents:  len(page.Documents),
 			Tombstones: len(page.Tombstones),
 		})
+		pageDocs := make([]coredatasource.CorpusDocument, 0, len(page.Documents))
 		for _, doc := range page.Documents {
 			key := semantic.DocumentKey(doc.Ref)
 			if key == "" {
@@ -368,37 +369,26 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 				report(req.Progress, ProgressEvent{Kind: ProgressDocumentSkipped, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Skipped: entityResult.Skipped, Phase: phase})
 				continue
 			}
-			if job.buildFields {
-				indexed := false
-				if req.DataStore != nil {
-					record := runtimedata.RecordFromCorpusDocument(doc, job.entity)
-					if err := req.DataStore.UpsertRecords(ctx, record); err != nil {
-						entityResult.Failed++
-						report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
-						continue
-					}
-					if relations := runtimedata.RelationsFromCorpusDocument(doc); len(relations) > 0 {
-						if err := req.DataStore.UpsertRelations(ctx, relations...); err != nil {
-							entityResult.Failed++
-							report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
-							continue
-						}
-					}
-					indexed = true
+			pageDocs = append(pageDocs, doc)
+		}
+		fieldFailed := map[string]bool{}
+		if job.buildFields && len(pageDocs) > 0 {
+			indexed, failed := buildPageFields(ctx, req, job, pageDocs, &entityResult)
+			for key := range failed {
+				fieldFailed[key] = true
+			}
+			for _, doc := range pageDocs {
+				key := semantic.DocumentKey(doc.Ref)
+				if fieldFailed[key] || !indexed[key] {
+					continue
 				}
-				if req.Index != nil {
-					result, err := req.Index.UpdateRecord(ctx, doc, job.entity)
-					if err != nil {
-						entityResult.Failed++
-						report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Failed: entityResult.Failed, Message: err.Error(), Phase: PhaseFields})
-						continue
-					}
-					indexed = indexed || strings.TrimSpace(result.Status) == "indexed"
-				}
-				if indexed {
-					entityResult.Indexed++
-					report(req.Progress, ProgressEvent{Kind: ProgressDocumentIndexed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Indexed: entityResult.Indexed, Phase: PhaseFields})
-				}
+				entityResult.Indexed++
+				report(req.Progress, ProgressEvent{Kind: ProgressDocumentIndexed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: entityResult.Documents, Indexed: entityResult.Indexed, Phase: PhaseFields})
+			}
+		}
+		for _, doc := range pageDocs {
+			if fieldFailed[semantic.DocumentKey(doc.Ref)] {
+				continue
 			}
 			if job.enqueueSemantic && req.Index != nil {
 				result, err := req.Index.Enqueue(ctx, doc)
@@ -446,6 +436,78 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 	report(req.Progress, ProgressEvent{Kind: ProgressEntityComplete, Datasource: job.spec.Name, Entity: job.entity.Type, Documents: entityResult.Documents, Indexed: entityResult.Indexed, Queued: entityResult.Queued, Skipped: entityResult.Skipped, Deleted: entityResult.Deleted, Failed: entityResult.Failed, Phase: phase})
 	finishRun(ctx, req, job, phase, startedAt, entityResult, nil)
 	return entityResult, seen, nil
+}
+
+func buildPageFields(ctx context.Context, req Request, job indexJob, docs []coredatasource.CorpusDocument, result *Result) (map[string]bool, map[string]bool) {
+	indexed := map[string]bool{}
+	failed := map[string]bool{}
+	if req.DataStore != nil {
+		records := make([]coredata.Record, 0, len(docs))
+		relationDocs := map[string]bool{}
+		var relations []coredata.Relation
+		for _, doc := range docs {
+			records = append(records, runtimedata.RecordFromCorpusDocument(doc, job.entity))
+			docRelations := runtimedata.RelationsFromCorpusDocument(doc)
+			if len(docRelations) > 0 {
+				relationDocs[semantic.DocumentKey(doc.Ref)] = true
+				relations = append(relations, docRelations...)
+			}
+		}
+		if err := req.DataStore.UpsertRecords(ctx, records...); err != nil {
+			reportPageFieldFailures(req, job, docs, result, failed, err)
+			return indexed, failed
+		}
+		for _, doc := range docs {
+			indexed[semantic.DocumentKey(doc.Ref)] = true
+		}
+		if len(relations) > 0 {
+			if err := req.DataStore.UpsertRelations(ctx, relations...); err != nil {
+				for _, doc := range docs {
+					key := semantic.DocumentKey(doc.Ref)
+					if !relationDocs[key] {
+						continue
+					}
+					markPageFieldFailure(req, job, doc, result, failed, err)
+					delete(indexed, key)
+				}
+			}
+		}
+	}
+	if req.Index != nil {
+		mirrorDocs := make([]coredatasource.CorpusDocument, 0, len(docs))
+		for _, doc := range docs {
+			if !failed[semantic.DocumentKey(doc.Ref)] {
+				mirrorDocs = append(mirrorDocs, doc)
+			}
+		}
+		fieldResults, err := req.Index.UpdateRecords(ctx, mirrorDocs, job.entity)
+		if err != nil {
+			reportPageFieldFailures(req, job, mirrorDocs, result, failed, err)
+			return indexed, failed
+		}
+		for _, fieldResult := range fieldResults {
+			if strings.TrimSpace(fieldResult.Status) == "indexed" {
+				indexed[fieldResult.Key] = true
+			}
+		}
+	}
+	return indexed, failed
+}
+
+func reportPageFieldFailures(req Request, job indexJob, docs []coredatasource.CorpusDocument, result *Result, failed map[string]bool, err error) {
+	for _, doc := range docs {
+		markPageFieldFailure(req, job, doc, result, failed, err)
+	}
+}
+
+func markPageFieldFailure(req Request, job indexJob, doc coredatasource.CorpusDocument, result *Result, failed map[string]bool, err error) {
+	key := semantic.DocumentKey(doc.Ref)
+	if failed[key] {
+		return
+	}
+	failed[key] = true
+	result.Failed++
+	report(req.Progress, ProgressEvent{Kind: ProgressDocumentFailed, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: doc.Ref.ID, Documents: result.Documents, Failed: result.Failed, Message: err.Error(), Phase: PhaseFields})
 }
 
 func finishRun(ctx context.Context, req Request, job indexJob, phase string, startedAt time.Time, result Result, err error) {
@@ -550,16 +612,20 @@ func materializeDataView(ctx context.Context, store coredata.Store, accessor cor
 		if err != nil {
 			return indexed, seen, err
 		}
+		materializedRecords := make([]coredata.Record, 0, len(result.Records))
 		for _, record := range result.Records {
 			materialized, err := materializeRecord(ctx, store, accessor, record, view)
 			if err != nil {
 				return indexed, seen, err
 			}
-			if err := store.UpsertRecords(ctx, materialized); err != nil {
-				return indexed, seen, err
-			}
+			materializedRecords = append(materializedRecords, materialized)
 			seen[dataRecordKey(materialized.Ref)] = true
 			indexed++
+		}
+		if len(materializedRecords) > 0 {
+			if err := store.UpsertRecords(ctx, materializedRecords...); err != nil {
+				return indexed, seen, err
+			}
 		}
 		if result.NextCursor == "" {
 			break

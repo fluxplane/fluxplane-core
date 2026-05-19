@@ -269,6 +269,50 @@ func TestBuildFieldsPhaseWritesDataStore(t *testing.T) {
 	}
 }
 
+func TestBuildFieldsPhaseBatchesDataStoreWritesByCorpusPage(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.project"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.project",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+			Fields:       []coredatasource.FieldSpec{{Name: "name", Searchable: true, Filterable: true}},
+		},
+		docs: []coredatasource.CorpusDocument{
+			{
+				Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "12"},
+				Title:    "runtime",
+				Metadata: map[string]string{"name": "runtime"},
+			},
+			{
+				Ref:      coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.project", ID: "13"},
+				Title:    "coder",
+				Metadata: map[string]string{"name": "coder"},
+			},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := &countingDataStore{Store: runtimedata.NewMemoryStore()}
+	result, err := Build(ctx, Request{Registry: registry, DataStore: store, Phase: PhaseFields})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if result.Indexed != 2 || result.Documents != 2 {
+		t.Fatalf("result = %#v, want two indexed records", result)
+	}
+	if store.maxRecordBatch != 2 {
+		t.Fatalf("record calls=%d max batch=%d, want page-sized corpus batch", store.recordCalls, store.maxRecordBatch)
+	}
+}
+
 func TestBuildFieldsPhaseWritesDataStoreRelations(t *testing.T) {
 	ctx := context.Background()
 	accessor := fakeCorpusAccessor{
@@ -665,6 +709,20 @@ func (a *countingCorpusAccessor) Entities() []coredatasource.EntitySpec {
 func (a *countingCorpusAccessor) Corpus(context.Context, coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
 	a.calls++
 	return coredatasource.CorpusPage{Documents: a.docs, Complete: true}, nil
+}
+
+type countingDataStore struct {
+	coredata.Store
+	recordCalls    int
+	maxRecordBatch int
+}
+
+func (s *countingDataStore) UpsertRecords(ctx context.Context, records ...coredata.Record) error {
+	s.recordCalls++
+	if len(records) > s.maxRecordBatch {
+		s.maxRecordBatch = len(records)
+	}
+	return s.Store.UpsertRecords(ctx, records...)
 }
 
 type blockingCorpusAccessor struct {

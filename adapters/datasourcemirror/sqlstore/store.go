@@ -57,22 +57,39 @@ func (s *Store) init(ctx context.Context) error {
 }
 
 func (s *Store) UpsertRecord(ctx context.Context, record mirror.Record) error {
+	return s.UpsertRecords(ctx, record)
+}
+
+func (s *Store) UpsertRecords(ctx context.Context, records ...mirror.Record) error {
 	if s == nil {
 		return fmt.Errorf("datasource mirror sqlstore: store is nil")
 	}
-	if strings.TrimSpace(record.Key) == "" {
-		record.Key = mirror.DocumentKey(record.Ref)
-	}
-	if record.Key == "" {
-		return fmt.Errorf("datasource mirror sqlstore: record key is empty")
+	if len(records) == 0 {
+		return nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer rollback(tx)
+	for _, record := range records {
+		if err := s.upsertRecordTx(ctx, tx, record); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) upsertRecordTx(ctx context.Context, tx *sql.Tx, record mirror.Record) error {
+	if strings.TrimSpace(record.Key) == "" {
+		record.Key = mirror.DocumentKey(record.Ref)
+	}
+	if record.Key == "" {
+		return fmt.Errorf("datasource mirror sqlstore: record key is empty")
+	}
+	hash := keyHash(record.Key)
 	if _, err := tx.ExecContext(ctx, s.upsertRecordSQL(),
-		keyHash(record.Key),
+		hash,
 		record.Key,
 		string(record.Ref.Datasource),
 		string(record.Ref.Entity),
@@ -87,7 +104,7 @@ func (s *Store) UpsertRecord(ctx context.Context, record mirror.Record) error {
 	); err != nil {
 		return fmt.Errorf("datasource mirror sqlstore: upsert record: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM datasource_mirror_filter WHERE record_hash = ?`, keyHash(record.Key)); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM datasource_mirror_filter WHERE record_hash = ?`, hash); err != nil {
 		return fmt.Errorf("datasource mirror sqlstore: clear filters: %w", err)
 	}
 	for name, values := range record.Filters {
@@ -97,7 +114,7 @@ func (s *Store) UpsertRecord(ctx context.Context, record mirror.Record) error {
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, s.insertFilterSQL(),
-				keyHash(record.Key),
+				hash,
 				string(record.Ref.Datasource),
 				string(record.Ref.Entity),
 				name,
@@ -108,7 +125,7 @@ func (s *Store) UpsertRecord(ctx context.Context, record mirror.Record) error {
 			}
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) DeleteRecord(ctx context.Context, ref coredatasource.RecordRef) error {
@@ -155,7 +172,10 @@ func (s *Store) Record(ctx context.Context, ref coredatasource.RecordRef) (mirro
 }
 
 func (s *Store) SearchRecords(ctx context.Context, req mirror.SearchRequest) ([]mirror.Hit, error) {
-	query, args := s.searchSQL(req)
+	if strings.TrimSpace(req.Query) == "" && len(req.Filters) == 0 {
+		return s.searchRecordsPaged(ctx, req)
+	}
+	query, args := s.searchSQL(req, false)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -173,6 +193,24 @@ func (s *Store) SearchRecords(ctx context.Context, req mirror.SearchRequest) ([]
 		return nil, err
 	}
 	return mirror.SearchRecords(ctx, records, req)
+}
+
+func (s *Store) searchRecordsPaged(ctx context.Context, req mirror.SearchRequest) ([]mirror.Hit, error) {
+	query, args := s.searchSQL(req, true)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var hits []mirror.Hit
+	for rows.Next() {
+		record, err := scanRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		hits = append(hits, mirror.Hit{Record: mirror.RecordToDatasourceRecord(record), Score: 1, Reason: "all"})
+	}
+	return hits, rows.Err()
 }
 
 func (s *Store) RecordStatus(ctx context.Context, req mirror.StatusRequest) ([]mirror.RecordState, error) {
@@ -271,7 +309,7 @@ func (s *Store) DeleteRuns(ctx context.Context, req mirror.StatusRequest) error 
 	return err
 }
 
-func (s *Store) searchSQL(req mirror.SearchRequest) (string, []any) {
+func (s *Store) searchSQL(req mirror.SearchRequest, paginate bool) (string, []any) {
 	var joins []string
 	var joinArgs []any
 	var where []string
@@ -296,7 +334,7 @@ func (s *Store) searchSQL(req mirror.SearchRequest) (string, []any) {
 		}
 		alias := fmt.Sprintf("f%d", filterIndex)
 		filterIndex++
-		joins = append(joins, fmt.Sprintf(` JOIN datasource_mirror_filter %s ON %s.record_hash = r.record_hash AND %s.field_name = ? AND %s.value_norm = ?`, alias, alias, alias, alias))
+		joins = append(joins, fmt.Sprintf(` JOIN datasource_mirror_filter %s ON %s.record_hash = r.record_hash AND %s.datasource = r.datasource AND %s.entity = r.entity AND %s.field_name = ? AND %s.value_norm = ?`, alias, alias, alias, alias, alias, alias))
 		joinArgs = append(joinArgs, name, truncate(want, 191))
 	}
 	query := selectRecordSQL + strings.Join(joins, "")
@@ -304,6 +342,18 @@ func (s *Store) searchSQL(req mirror.SearchRequest) (string, []any) {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	query += " ORDER BY r.record_key"
+	if paginate {
+		limit := req.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+		offset := req.Offset
+		if offset < 0 {
+			offset = 0
+		}
+		query += " LIMIT ? OFFSET ?"
+		whereArgs = append(whereArgs, limit, offset)
+	}
 	return query, append(joinArgs, whereArgs...)
 }
 
@@ -448,6 +498,7 @@ last_error ` + textType + `
 		return []string{
 			recordTable,
 			`CREATE INDEX datasource_mirror_record_entity ON datasource_mirror_record (datasource, entity, record_id)`,
+			`CREATE INDEX datasource_mirror_record_scan ON datasource_mirror_record (datasource, entity, record_key(191))`,
 			filterTable,
 			`CREATE INDEX datasource_mirror_filter_lookup ON datasource_mirror_filter (datasource, entity, field_name, value_norm)`,
 			runTable,
@@ -457,6 +508,7 @@ last_error ` + textType + `
 	return []string{
 		recordTable,
 		`CREATE INDEX IF NOT EXISTS datasource_mirror_record_entity ON datasource_mirror_record (datasource, entity, record_id)`,
+		`CREATE INDEX IF NOT EXISTS datasource_mirror_record_scan ON datasource_mirror_record (datasource, entity, record_key)`,
 		filterTable,
 		`CREATE INDEX IF NOT EXISTS datasource_mirror_filter_lookup ON datasource_mirror_filter (datasource, entity, field_name, value_norm)`,
 		runTable,

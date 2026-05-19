@@ -187,6 +187,22 @@ func (i *Index) UpdateRecord(ctx context.Context, doc coredatasource.CorpusDocum
 	return UpdateResult{Key: result.Key, Status: result.Status}, nil
 }
 
+// UpdateRecords indexes structured fields for a corpus document batch.
+func (i *Index) UpdateRecords(ctx context.Context, docs []coredatasource.CorpusDocument, entity coredatasource.EntitySpec) ([]UpdateResult, error) {
+	if i == nil {
+		return nil, fmt.Errorf("semantic: index is nil")
+	}
+	results, err := i.mirror.UpdateRecords(ctx, docs, entity)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UpdateResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, UpdateResult{Key: result.Key, Status: result.Status})
+	}
+	return out, nil
+}
+
 // Enqueue stores one corpus document for asynchronous semantic embedding.
 func (i *Index) Enqueue(ctx context.Context, doc coredatasource.CorpusDocument) (UpdateResult, error) {
 	if i == nil {

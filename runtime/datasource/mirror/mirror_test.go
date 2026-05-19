@@ -36,6 +36,20 @@ func TestServiceUpdatesAndSearchesStructuredRecords(t *testing.T) {
 	if _, err := service.UpdateRecord(ctx, doc, entity); err != nil {
 		t.Fatalf("UpdateRecord: %v", err)
 	}
+	batchResults, err := service.UpdateRecords(ctx, []coredatasource.CorpusDocument{{
+		Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user", ID: "43"},
+		Title: "Grace Hopper",
+		Metadata: map[string]string{
+			"username":   "grace",
+			"group_path": "abc",
+		},
+	}}, entity)
+	if err != nil {
+		t.Fatalf("UpdateRecords: %v", err)
+	}
+	if len(batchResults) != 1 || batchResults[0].Key == "" || batchResults[0].Status != "indexed" {
+		t.Fatalf("batchResults = %#v, want indexed result", batchResults)
+	}
 	if err := service.PutRun(ctx, RunState{Datasource: "gitlab", Entity: "gitlab.user", Phase: "fields", Status: RunStatusComplete, CompletedAt: time.Now()}); err != nil {
 		t.Fatalf("PutRun: %v", err)
 	}
@@ -84,6 +98,13 @@ func newMemoryStore() *memoryStore {
 
 func (s *memoryStore) UpsertRecord(_ context.Context, record Record) error {
 	s.records[record.Key] = record
+	return nil
+}
+
+func (s *memoryStore) UpsertRecords(_ context.Context, records ...Record) error {
+	for _, record := range records {
+		s.records[record.Key] = record
+	}
 	return nil
 }
 

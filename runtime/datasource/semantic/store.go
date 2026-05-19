@@ -105,6 +105,10 @@ func (s *JSONStore) DeleteChunks(ctx context.Context, req DeleteRequest) error {
 }
 
 func (s *JSONStore) UpsertRecord(ctx context.Context, record mirror.Record) error {
+	return s.UpsertRecords(ctx, record)
+}
+
+func (s *JSONStore) UpsertRecords(ctx context.Context, records ...mirror.Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state, err := s.loadLocked(ctx)
@@ -114,7 +118,9 @@ func (s *JSONStore) UpsertRecord(ctx context.Context, record mirror.Record) erro
 	if state.Records == nil {
 		state.Records = map[string]mirror.Record{}
 	}
-	state.Records[record.Key] = record
+	for _, record := range records {
+		state.Records[record.Key] = record
+	}
 	return s.saveLocked(ctx, state)
 }
 

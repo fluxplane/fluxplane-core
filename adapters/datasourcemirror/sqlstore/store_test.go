@@ -30,6 +30,8 @@ func TestSQLiteStoreImplementsMirrorStore(t *testing.T) {
 	if _, err := OpenDB(ctx, db, DialectSQLite); err != nil {
 		t.Fatalf("OpenDB second time: %v", err)
 	}
+	assertSQLiteIndex(t, db, "datasource_mirror_record", "datasource_mirror_record_scan")
+	assertSQLiteIndex(t, db, "datasource_mirror_filter", "datasource_mirror_filter_lookup")
 	exerciseStore(t, ctx, store)
 }
 
@@ -170,4 +172,29 @@ func exerciseStore(t *testing.T, ctx context.Context, store *Store) {
 	if err != coredatasource.ErrNotFound {
 		t.Fatalf("Record after delete error = %v, want ErrNotFound", err)
 	}
+}
+
+func assertSQLiteIndex(t *testing.T, db *sql.DB, table, name string) {
+	t.Helper()
+	rows, err := db.Query("PRAGMA index_list(" + table + ")")
+	if err != nil {
+		t.Fatalf("index_list %s: %v", table, err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var seq int
+		var gotName string
+		var unique, partial int
+		var origin string
+		if err := rows.Scan(&seq, &gotName, &unique, &origin, &partial); err != nil {
+			t.Fatalf("scan index_list %s: %v", table, err)
+		}
+		if gotName == name {
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("index_list %s rows: %v", table, err)
+	}
+	t.Fatalf("missing sqlite index %s on %s", name, table)
 }
