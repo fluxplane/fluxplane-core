@@ -6,7 +6,9 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
+	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
 	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
+	"github.com/fluxplane/agentruntime/apps/evaluator"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
@@ -25,15 +27,56 @@ import (
 
 const defaultConversation = "agentsdk-coder"
 
+const (
+	defaultRemoteSession      = "slack-main"
+	defaultRemoteConversation = "coder-remote"
+	defaultRemoteSocket       = "coder-local.sock"
+)
+
 // NewCommand returns the CLI command for the coder distribution.
 func NewCommand() *cobra.Command {
+	return NewCommandWithOptions(CommandOptions{})
+}
+
+// CommandOptions configures coder command defaults.
+type CommandOptions struct {
+	WorkspaceRoots []string
+	EnvFiles       []string
+	Workspace      distribution.WorkspaceConfig
+	AppRunCommand  *cobra.Command
+}
+
+// NewCommandWithOptions returns the CLI command for the coder distribution with
+// configured launch defaults.
+func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	startup := loadStartupResources(context.Background())
-	cmd := distcli.NewCommand(distributionFromStartup(startup))
+	cmd := distcli.NewCommandWithOptions(distributionFromStartup(startup), distcli.CommandOptions{
+		WorkspaceRoots: opts.WorkspaceRoots,
+		EnvFiles:       opts.EnvFiles,
+		Workspace:      opts.Workspace,
+		PromptHandler:  newRunPromptHandler(nil),
+	})
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
 		NativeRegistry: launch.AuthPluginRegistry,
 	}))
+	cmd.AddCommand(newAppCommandWithOptions(appCommandOptions{runCommand: opts.AppRunCommand}))
+	cmd.AddCommand(launch.NewDatasourceCommand())
 	cmd.AddCommand(newDiscoverCommand(startup))
-	cmd.AddCommand(newServeCommand(startup))
+	cmd.AddCommand(evaluator.NewCommand())
+	cmd.AddCommand(newAgentCommand())
+	cmd.AddCommand(newOpCommand())
+	cmd.AddCommand(distremote.NewCommand(distremote.CommandOptions{
+		DefaultSession:      defaultRemoteSession,
+		DefaultConversation: defaultRemoteConversation,
+		DefaultSocket:       defaultRemoteSocket,
+		Events:              launch.MustTerminalEventRegistry(),
+	}))
+	cmd.AddCommand(newServeCommandWithOptions(startup, serveCommandOptions{
+		workspaceRoots: opts.WorkspaceRoots,
+		envFiles:       opts.EnvFiles,
+	}))
+	cmd.AddCommand(newShellCommand())
+	cmd.AddCommand(newWorkflowCommand())
 	return cmd
 }
 
