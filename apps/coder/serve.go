@@ -16,10 +16,8 @@ import (
 
 type serveOptions struct {
 	socket         string
-	debug          bool
-	dev            bool
-	yolo           bool
-	model          string
+	model          launch.ModelFlags
+	runtime        launch.LocalRuntimeFlags
 	workspaceRoots []string
 	envFiles       []string
 	workspace      distribution.WorkspaceConfig
@@ -45,7 +43,7 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 		Short: "Serve coder over a local Unix socket",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			modelSelection := run.ResolveModelSelection("openai", opts.model)
+			modelSelection := run.ResolveModelSelection("openai", opts.model.Model)
 			roots, err := distribution.ParseWorkspaceRoots(opts.workspaceRoots)
 			if err != nil {
 				return err
@@ -73,12 +71,12 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 					Model:           modelSelection.Model,
 					DefaultProvider: "codex",
 					DefaultModel:    DefaultModel,
-					Debug:           opts.debug,
+					Debug:           opts.runtime.Debug,
 				},
 				AllowPrivateNetwork: true,
-				Debug:               opts.debug,
-				Yolo:                opts.yolo,
-				Dev:                 opts.dev,
+				Debug:               opts.runtime.Debug,
+				Yolo:                opts.runtime.Yolo,
+				Dev:                 opts.runtime.Dev,
 			}); err != nil {
 				return err
 			}
@@ -86,10 +84,11 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 		},
 	}
 	cmd.Flags().StringVar(&opts.socket, "socket", opts.socket, "Unix socket path, socket name, or auto")
-	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print serve diagnostics")
-	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served coder sessions")
-	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
-	cmd.Flags().StringVar(&opts.model, "model", DefaultModel, "model name or provider/model")
+	launch.BindLocalRuntimeFlags(cmd.Flags(), &opts.runtime, launch.LocalRuntimeFlagHelp{
+		Debug: "print serve diagnostics",
+		Yolo:  "auto-approve local operation risk gates for served coder sessions",
+	})
+	launch.BindModelFlags(cmd.Flags(), &opts.model, launch.ModelFlags{Model: DefaultModel})
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
 	return cmd

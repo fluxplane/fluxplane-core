@@ -1,0 +1,101 @@
+package launch
+
+import (
+	"strings"
+
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
+	"github.com/spf13/pflag"
+)
+
+// ModelFlags captures model selection and reasoning CLI flags shared by app
+// launch commands.
+type ModelFlags struct {
+	Provider    string
+	Model       string
+	Thinking    string
+	ThinkingSet bool
+	Effort      string
+	EffortSet   bool
+}
+
+// BindModelFlags binds provider, model, thinking, and effort flags to opts.
+func BindModelFlags(flags *pflag.FlagSet, opts *ModelFlags, defaults ModelFlags) {
+	if opts == nil {
+		return
+	}
+	*opts = defaults
+	flags.StringVar(&opts.Provider, "provider", opts.Provider, "model provider")
+	flags.StringVar(&opts.Model, "model", opts.Model, "model name or provider/model")
+	flags.StringVar(&opts.Thinking, "thinking", opts.Thinking, "reasoning mode: auto|on|off")
+	flags.StringVar(&opts.Effort, "effort", opts.Effort, "reasoning effort: low|medium|high|max")
+}
+
+// CaptureChanged records which reasoning flags were explicitly set.
+func (o *ModelFlags) CaptureChanged(flags *pflag.FlagSet) {
+	if o == nil {
+		return
+	}
+	o.ThinkingSet = flags.Changed("thinking")
+	o.EffortSet = flags.Changed("effort")
+}
+
+// Validate validates model-related flag combinations.
+func (o ModelFlags) Validate() error {
+	return distrun.ValidateReasoningFlags(o.Thinking, o.ThinkingSet, o.Effort, o.EffortSet)
+}
+
+// LocalRuntimeFlags captures local runtime behavior flags shared by commands
+// that open or serve local sessions.
+type LocalRuntimeFlags struct {
+	Debug bool
+	Yolo  bool
+	Dev   bool
+}
+
+// LocalRuntimeFlagHelp customizes local runtime flag descriptions for a command.
+type LocalRuntimeFlagHelp struct {
+	Debug string
+	Yolo  string
+	Dev   string
+}
+
+// BindLocalRuntimeFlags binds debug, yolo, and dev flags to opts.
+func BindLocalRuntimeFlags(flags *pflag.FlagSet, opts *LocalRuntimeFlags, help LocalRuntimeFlagHelp) {
+	if opts == nil {
+		return
+	}
+	debugHelp := firstNonEmptyFlagHelp(help.Debug, "print run events as highlighted JSON markdown")
+	yoloHelp := firstNonEmptyFlagHelp(help.Yolo, "auto-approve local operation risk gates")
+	devHelp := firstNonEmptyFlagHelp(help.Dev, "enable local developer diagnostics and session history datasource")
+	flags.BoolVar(&opts.Debug, "debug", false, debugHelp)
+	flags.BoolVar(&opts.Yolo, "yolo", false, yoloHelp)
+	flags.BoolVar(&opts.Dev, "dev", false, devHelp)
+}
+
+// LaunchEnvironmentFlags captures local launch environment flags shared by app
+// run and serve commands.
+type LaunchEnvironmentFlags struct {
+	AuthPath string
+	EnvFiles []string
+}
+
+// BindLaunchEnvironmentFlags binds connector credential and env-file flags.
+func BindLaunchEnvironmentFlags(flags *pflag.FlagSet, opts *LaunchEnvironmentFlags) {
+	if opts == nil {
+		return
+	}
+	if strings.TrimSpace(opts.AuthPath) == "" {
+		opts.AuthPath = "~/.connectors"
+	}
+	flags.StringVar(&opts.AuthPath, "connectors-path", opts.AuthPath, "connector credential store path")
+	flags.StringArrayVar(&opts.EnvFiles, "env-file", opts.EnvFiles, "root workspace env file or glob to load; may be repeated")
+}
+
+func firstNonEmptyFlagHelp(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}

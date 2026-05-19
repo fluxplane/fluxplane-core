@@ -3,21 +3,14 @@ package launch
 import (
 	"context"
 
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/spf13/cobra"
 )
 
 type serveCommandOptions struct {
-	debug      bool
-	yolo       bool
-	dev        bool
-	authPath   string
-	provider   string
-	model      string
-	thinking   string
-	effort     string
-	envFiles   []string
-	healthAddr string
+	model       ModelFlags
+	runtime     LocalRuntimeFlags
+	environment LaunchEnvironmentFlags
+	healthAddr  string
 }
 
 type ServeRunner func(context.Context, Options) error
@@ -40,35 +33,33 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 			if len(args) > 0 {
 				path = args[0]
 			}
-			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
+			opts.model.CaptureChanged(cmd.Flags())
+			if err := opts.model.Validate(); err != nil {
 				return err
 			}
 			return runner(cmd.Context(), Options{
 				AppDir:      path,
-				Debug:       opts.debug,
-				Yolo:        opts.yolo,
-				Dev:         opts.dev,
-				AuthPath:    opts.authPath,
-				Provider:    opts.provider,
-				Model:       opts.model,
-				Thinking:    opts.thinking,
-				ThinkingSet: cmd.Flags().Changed("thinking"),
-				Effort:      opts.effort,
-				EffortSet:   cmd.Flags().Changed("effort"),
-				EnvFiles:    opts.envFiles,
+				Debug:       opts.runtime.Debug,
+				Yolo:        opts.runtime.Yolo,
+				Dev:         opts.runtime.Dev,
+				AuthPath:    opts.environment.AuthPath,
+				Provider:    opts.model.Provider,
+				Model:       opts.model.Model,
+				Thinking:    opts.model.Thinking,
+				ThinkingSet: opts.model.ThinkingSet,
+				Effort:      opts.model.Effort,
+				EffortSet:   opts.model.EffortSet,
+				EnvFiles:    opts.environment.EnvFiles,
 				HealthAddr:  opts.healthAddr,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider")
-	cmd.Flags().StringVar(&opts.model, "model", "", "model name or provider/model")
-	cmd.Flags().StringVar(&opts.thinking, "thinking", "", "reasoning mode: auto|on|off")
-	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort: low|medium|high|max")
-	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print daemon startup details")
-	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served sessions")
-	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
-	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
-	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
+	BindModelFlags(cmd.Flags(), &opts.model, ModelFlags{})
+	BindLocalRuntimeFlags(cmd.Flags(), &opts.runtime, LocalRuntimeFlagHelp{
+		Debug: "print daemon startup details",
+		Yolo:  "auto-approve local operation risk gates for served sessions",
+	})
+	BindLaunchEnvironmentFlags(cmd.Flags(), &opts.environment)
 	cmd.Flags().StringVar(&opts.healthAddr, "health-addr", "", "internal HTTP address for unauthenticated health checks")
 	return cmd
 }

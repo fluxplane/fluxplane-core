@@ -134,6 +134,7 @@ Flags:
       --conversation id
       --debug
       --yolo
+      --dev
 `, kind)
 	return nil
 }
@@ -152,6 +153,7 @@ Flags:
       --conversation id
       --debug
       --yolo
+      --dev
 `)
 	return nil
 }

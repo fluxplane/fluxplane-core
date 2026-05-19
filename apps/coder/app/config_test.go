@@ -178,6 +178,22 @@ func TestConfigEditCreatesDefaultConfigAndOpensEditor(t *testing.T) {
 	}
 }
 
+func TestConfigCommandRejectsRootRunFlags(t *testing.T) {
+	app, err := New(context.Background(), Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	cmd := app.Command()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"config", "show", "--model", "test-model"})
+
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --model") {
+		t.Fatalf("Execute error = %v, want unknown model flag", err)
+	}
+}
+
 func TestConfigEditAllowsMissingExplicitConfig(t *testing.T) {
 	root := t.TempDir()
 	explicit := filepath.Join(root, "configs", "coder.yaml")

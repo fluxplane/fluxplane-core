@@ -126,6 +126,29 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 }
 
+func TestRootRunFlagsDoNotLeakToSubcommands(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "build", args: []string{"build", "--yolo"}},
+		{name: "shell", args: []string{"shell", "--provider", "codex"}},
+		{name: "discover", args: []string{"discover", "--input", "hello"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := NewCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(tc.args)
+
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+				t.Fatalf("Execute error = %v, want unknown flag", err)
+			}
+		})
+	}
+}
+
 func TestBuildCommandHelpIncludesDockerBaseTarget(t *testing.T) {
 	cmd := newBuildCommand()
 	out := bytes.Buffer{}

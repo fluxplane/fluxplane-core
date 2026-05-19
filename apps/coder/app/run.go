@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
@@ -81,13 +80,17 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 }
 
 func (a *App) newAppRunCommand() *cobra.Command {
-	opts := RunOptions{Thinking: "auto", MaxContinuations: 20}
+	opts := RunOptions{MaxContinuations: 20}
+	modelFlags := launch.ModelFlags{Thinking: "auto"}
+	runtimeFlags := launch.LocalRuntimeFlags{}
+	environmentFlags := launch.LaunchEnvironmentFlags{}
 	cmd := &cobra.Command{
 		Use:   "run [path]",
 		Short: "Run a local app distribution",
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := distrun.ValidateReasoningFlags(opts.Thinking, cmd.Flags().Changed("thinking"), opts.Effort, cmd.Flags().Changed("effort")); err != nil {
+			modelFlags.CaptureChanged(cmd.Flags())
+			if err := modelFlags.Validate(); err != nil {
 				return err
 			}
 			if len(args) > 0 {
@@ -95,8 +98,17 @@ func (a *App) newAppRunCommand() *cobra.Command {
 			} else {
 				opts.Path = "."
 			}
-			opts.ThinkingSet = cmd.Flags().Changed("thinking")
-			opts.EffortSet = cmd.Flags().Changed("effort")
+			opts.Provider = modelFlags.Provider
+			opts.Model = modelFlags.Model
+			opts.Thinking = modelFlags.Thinking
+			opts.ThinkingSet = modelFlags.ThinkingSet
+			opts.Effort = modelFlags.Effort
+			opts.EffortSet = modelFlags.EffortSet
+			opts.Debug = runtimeFlags.Debug
+			opts.Yolo = runtimeFlags.Yolo
+			opts.Dev = runtimeFlags.Dev
+			opts.AuthPath = environmentFlags.AuthPath
+			opts.EnvFiles = environmentFlags.EnvFiles
 			opts.GoalSet = cmd.Flags().Changed("goal")
 			opts.MaxContinuationsSet = cmd.Flags().Changed("max-continuations")
 			opts.In = cmd.InOrStdin()
@@ -107,20 +119,17 @@ func (a *App) newAppRunCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.Session, "session", "", "configured session name to open")
 	cmd.Flags().StringVar(&opts.Conversation, "conversation", "", "conversation id")
-	cmd.Flags().StringVar(&opts.Provider, "provider", "", "model provider")
-	cmd.Flags().StringVar(&opts.Model, "model", "", "model name or provider/model")
-	cmd.Flags().StringVar(&opts.Thinking, "thinking", opts.Thinking, "thinking mode: auto|on|off")
-	cmd.Flags().StringVar(&opts.Effort, "effort", "", "reasoning effort: low|medium|high|max")
+	launch.BindModelFlags(cmd.Flags(), &modelFlags, modelFlags)
 	cmd.Flags().StringVar(&opts.Input, "input", "", "send one input and exit instead of opening a REPL")
 	cmd.Flags().StringVar(&opts.Goal, "goal", "", "run a goal-driven task and exit")
 	cmd.Flags().IntVar(&opts.MaxContinuations, "max-continuations", opts.MaxContinuations, "maximum goal continuations")
-	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "print run events as highlighted JSON markdown")
+	launch.BindLocalRuntimeFlags(cmd.Flags(), &runtimeFlags, launch.LocalRuntimeFlagHelp{
+		Debug: "print run events as highlighted JSON markdown",
+		Yolo:  "auto-approve local operation risk gates for this run",
+	})
 	cmd.Flags().BoolVar(&opts.Usage, "usage", false, "print usage events after each response")
-	cmd.Flags().BoolVar(&opts.Yolo, "yolo", false, "auto-approve local operation risk gates for this run")
-	cmd.Flags().BoolVar(&opts.Dev, "dev", false, "enable local developer diagnostics and session history datasource")
-	cmd.Flags().StringVar(&opts.AuthPath, "connectors-path", "~/.connectors", "connector credential store path")
+	launch.BindLaunchEnvironmentFlags(cmd.Flags(), &environmentFlags)
 	cmd.Flags().StringArrayVar(&opts.WorkspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
-	cmd.Flags().StringArrayVar(&opts.EnvFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	return cmd
 }
 

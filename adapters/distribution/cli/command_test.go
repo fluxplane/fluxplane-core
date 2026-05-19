@@ -59,6 +59,18 @@ func TestDescribeCommandRejectsUnsupportedOutput(t *testing.T) {
 	}
 }
 
+func TestRunFlagsAreLocalToRootCommand(t *testing.T) {
+	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "sample"}})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"describe", "--model", "test-model"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --model") {
+		t.Fatalf("Execute error = %v, want unknown model flag", err)
+	}
+}
+
 func TestDescribeAgentCommandRejectsUnsupportedOutput(t *testing.T) {
 	cmd := NewCommand(distribution.Distribution{
 		Spec: coredistribution.Spec{Name: "sample"},
