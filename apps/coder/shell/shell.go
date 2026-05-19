@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	agentruntime "github.com/fluxplane/agentruntime"
@@ -312,11 +313,13 @@ func detectGoVersion(ctx context.Context, sys system.System) string {
 }
 
 type model struct {
-	status  shellStatus
-	width   int
-	height  int
-	shell   *ShellObject
-	mention MentionState
+	status         shellStatus
+	width          int
+	height         int
+	shell          *ShellObject
+	mention        MentionState
+	timeline       viewport.Model
+	timelinePinned bool
 }
 
 func newModel(status shellStatus, client ShellClient, connection string) model {
@@ -350,7 +353,11 @@ func newModel(status shellStatus, client ShellClient, connection string) model {
 			TranscriptEvent{ID: newEventID("quit"), SessionID: active.ID, Time: time.Now(), Summary: "press ctrl+c, esc, or q on an empty prompt to quit"},
 		)
 	}
-	return model{status: status, shell: state}
+	timeline := viewport.New(1, 1)
+	timeline.MouseWheelEnabled = true
+	m := model{status: status, shell: state, timeline: timeline, timelinePinned: true}
+	m.syncTimelineViewport(true)
+	return m
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -360,10 +367,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.syncTimelineViewport(false)
 		return m, nil
 	case tea.KeyMsg:
 		tab := m.shell.ActiveTab()
 		switch msg.Type {
+		case tea.KeyPgUp:
+			m.syncTimelineViewport(false)
+			m.timeline.PageUp()
+			m.timelinePinned = false
+			return m, nil
+		case tea.KeyPgDown:
+			m.syncTimelineViewport(false)
+			m.timeline.PageDown()
+			m.timelinePinned = m.timeline.AtBottom()
+			return m, nil
+		case tea.KeyHome:
+			m.syncTimelineViewport(false)
+			m.timeline.GotoTop()
+			m.timelinePinned = false
+			return m, nil
+		case tea.KeyEnd:
+			m.syncTimelineViewport(false)
+			m.timeline.GotoBottom()
+			m.timelinePinned = true
+			return m, nil
+		case tea.KeyCtrlU:
+			m.syncTimelineViewport(false)
+			m.timeline.HalfPageUp()
+			m.timelinePinned = false
+			return m, nil
+		case tea.KeyCtrlD:
+			m.syncTimelineViewport(false)
+			m.timeline.HalfPageDown()
+			m.timelinePinned = m.timeline.AtBottom()
+			return m, nil
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyCtrlT:
@@ -373,6 +411,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			_, _ = m.shell.NewTab(context.Background(), cwd)
 			m.mention = MentionState{}
+			m.syncTimelineViewport(true)
 			return m, nil
 		case tea.KeyRunes:
 			value := msg.String()
@@ -381,6 +420,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(value) == 1 && value[0] >= '1' && value[0] <= '9' && msg.Alt {
 				m.shell.SelectTab(int(value[0] - '1'))
+				m.syncTimelineViewport(true)
 				return m, nil
 			}
 			m.shell.AppendInput(value)
@@ -397,6 +437,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			m.mention = MentionState{}
 			_ = m.shell.SubmitActiveInput(context.Background())
+			m.syncTimelineViewport(true)
 			return m, nil
 		case tea.KeyUp:
 			if m.mention.Open && m.mention.Index > 0 {
@@ -434,12 +475,96 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					})
 				}
 				m.mention = MentionState{}
+				m.syncTimelineViewport(true)
 			}
 			return m, nil
 		}
 	}
 	return m, nil
 }
+
+type shellLayout struct {
+	contentWidth        int
+	timelineOuterHeight int
+	timelineInnerWidth  int
+	timelineInnerHeight int
+}
+
+func (m model) layout() shellLayout {
+	width := m.width
+	if width <= 0 {
+		width = 96
+	}
+	contentWidth := width - 4
+	if contentWidth < 40 {
+		contentWidth = width
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
+	header := m.renderHeader(contentWidth)
+	status := m.renderStatus(contentWidth)
+	prompt := m.renderPrompt(contentWidth)
+	fixedHeight := lipgloss.Height(header) + lipgloss.Height(status) + lipgloss.Height(prompt)
+	if m.mention.Open {
+		fixedHeight += lipgloss.Height(m.renderMentionPicker(contentWidth))
+	}
+
+	available := height - 2 - fixedHeight
+	if available < 3 {
+		available = 3
+	}
+	innerHeight := available - 2
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+	innerWidth := contentWidth - 4
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+	return shellLayout{
+		contentWidth:        contentWidth,
+		timelineOuterHeight: available,
+		timelineInnerWidth:  innerWidth,
+		timelineInnerHeight: innerHeight,
+	}
+}
+
+func (m *model) syncTimelineViewport(follow bool) {
+	if m == nil {
+		return
+	}
+	layout := m.layout()
+	pinned := follow || m.timelinePinned || m.timeline.AtBottom() || m.timeline.TotalLineCount() == 0
+	m.timeline.Width = layout.timelineInnerWidth
+	m.timeline.Height = layout.timelineInnerHeight
+	m.timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
+	if pinned {
+		m.timeline.GotoBottom()
+	}
+	m.timelinePinned = m.timeline.AtBottom()
+}
+
+func (m model) timelineContent(width int) string {
+	tab := m.shell.ActiveTab()
+	lines := []string{"Ready."}
+	if tab != nil {
+		lines = TimelineLines(tab.Transcript)
+	}
+	if len(lines) == 0 {
+		lines = []string{"Ready."}
+	}
+	rendered := make([]string, 0, len(lines))
+	wrap := lipgloss.NewStyle().Width(width)
+	for _, line := range lines {
+		wrapped := wrap.Render(renderTimelineLine(line))
+		rendered = append(rendered, strings.Split(wrapped, "\n")...)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, rendered...)
+}
+
 func (m *model) refreshMention() {
 	tab := m.shell.ActiveTab()
 	if tab == nil {
@@ -496,33 +621,17 @@ var (
 )
 
 func (m model) View() string {
-	width := m.width
-	if width <= 0 {
-		width = 96
-	}
-	contentWidth := width - 4
-	if contentWidth < 40 {
-		contentWidth = width
-	}
-	height := m.height
-	if height <= 0 {
-		height = 24
-	}
-
-	bodyLines := height - 13
-	if bodyLines < 4 {
-		bodyLines = 4
-	}
+	layout := m.layout()
 
 	parts := []string{
-		m.renderHeader(contentWidth),
-		m.renderStatus(contentWidth),
-		m.renderTimeline(contentWidth, bodyLines),
+		m.renderHeader(layout.contentWidth),
+		m.renderStatus(layout.contentWidth),
+		m.renderTimeline(layout),
 	}
 	if m.mention.Open {
-		parts = append(parts, m.renderMentionPicker(contentWidth))
+		parts = append(parts, m.renderMentionPicker(layout.contentWidth))
 	}
-	parts = append(parts, m.renderPrompt(contentWidth))
+	parts = append(parts, m.renderPrompt(layout.contentWidth))
 	return pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
@@ -625,22 +734,15 @@ func (m model) renderMentionPicker(width int) string {
 	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
-func (m model) renderTimeline(width, maxLines int) string {
-	tab := m.shell.ActiveTab()
-	lines := []string{"Ready."}
-	if tab != nil {
-		lines = TimelineLines(tab.Transcript)
+func (m model) renderTimeline(layout shellLayout) string {
+	timeline := m.timeline
+	timeline.Width = layout.timelineInnerWidth
+	timeline.Height = layout.timelineInnerHeight
+	timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
+	if m.timelinePinned || timeline.TotalLineCount() <= timeline.Height {
+		timeline.GotoBottom()
 	}
-	lines = visibleLines(lines, maxLines)
-	if len(lines) == 0 {
-		lines = []string{"Ready."}
-	}
-	styled := make([]string, 0, len(lines))
-	for _, line := range lines {
-		styled = append(styled, renderTimelineLine(line))
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, styled...)
-	return panelStyle.Width(width).Height(maxLines + 2).Render(content)
+	return panelStyle.Width(layout.contentWidth).Height(layout.timelineOuterHeight - 2).Render(timeline.View())
 }
 
 func renderTimelineLine(line string) string {
