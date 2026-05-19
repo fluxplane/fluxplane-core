@@ -140,3 +140,39 @@ func TestServeCommandForwardsModelSelection(t *testing.T) {
 		t.Fatalf("model = %q, want gpt-5.5", got.Model)
 	}
 }
+
+func TestServeCommandForwardsReasoningFlags(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--thinking", "on", "--effort", "medium"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.Thinking != "on" || !got.ThinkingSet {
+		t.Fatalf("thinking = %q set=%v, want on set", got.Thinking, got.ThinkingSet)
+	}
+	if got.Effort != "medium" || !got.EffortSet {
+		t.Fatalf("effort = %q set=%v, want medium set", got.Effort, got.EffortSet)
+	}
+}
+
+func TestServeCommandRejectsInvalidReasoningFlags(t *testing.T) {
+	cmd := NewServeCommandWithRunner(func(_ context.Context, _ Options) error {
+		t.Fatalf("runner should not be called")
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--thinking", "medium"})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `invalid --thinking "medium"`) {
+		t.Fatalf("Execute error = %v, want invalid thinking", err)
+	}
+}

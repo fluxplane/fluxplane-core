@@ -158,17 +158,24 @@ func DecodeFile(path string, data []byte) (File, error) {
 				}
 				bundle.Operations = append(bundle.Operations, spec)
 			}
-			for i, provider := range manifest.LLMProviders {
+			models, err := manifest.Models.Contributions()
+			if err != nil {
+				return File{}, err
+			}
+			if err := validateModelReference(strings.TrimSpace(manifest.Models.Default), models, "models.default"); err != nil {
+				return File{}, err
+			}
+			if err := validateModelReference(strings.TrimSpace(manifest.Distribution.Deploy.Model), models, "distribution.deploy.model"); err != nil {
+				return File{}, err
+			}
+			modelProviders := mergeLLMProviders(manifest.LLMProviders, models.Providers)
+			for i, provider := range modelProviders {
 				if err := provider.Validate(); err != nil {
 					return File{}, fmt.Errorf("appconfig: validate llm_providers[%d]: %w", i, err)
 				}
 			}
-			bundle.LLMProviders = append(bundle.LLMProviders, manifest.LLMProviders...)
-			aliases, err := manifest.Models.AliasSpecs()
-			if err != nil {
-				return File{}, err
-			}
-			bundle.LLMModelAliases = append(bundle.LLMModelAliases, aliases...)
+			bundle.LLMProviders = append(bundle.LLMProviders, modelProviders...)
+			bundle.LLMModelAliases = append(bundle.LLMModelAliases, models.Aliases...)
 			distribution = manifest.Distribution.Spec()
 			runtime = manifest.Runtime
 			daemon = manifest.Daemon
@@ -615,24 +622,213 @@ type WorkspaceRootDoc struct {
 }
 
 type modelConfigDoc struct {
-	Alias map[string]string `json:"alias,omitempty" yaml:"alias,omitempty"`
+	Default   string              `json:"default,omitempty" yaml:"default,omitempty"`
+	Available []modelAvailableDoc `json:"available,omitempty" yaml:"available,omitempty"`
 }
 
-func (d modelConfigDoc) AliasSpecs() ([]corellm.ModelAliasSpec, error) {
-	keys := make([]string, 0, len(d.Alias))
-	for key := range d.Alias {
+type modelAvailableDoc struct {
+	Provider string         `json:"provider" yaml:"provider"`
+	Model    string         `json:"model" yaml:"model"`
+	Aliases  []string       `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	Params   modelParamsDoc `json:"params,omitempty" yaml:"params,omitempty"`
+}
+
+type modelParamsDoc struct {
+	Thinking string `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort   string `json:"effort,omitempty" yaml:"effort,omitempty"`
+}
+
+type modelContributions struct {
+	Providers []corellm.ProviderSpec
+	Aliases   []corellm.ModelAliasSpec
+}
+
+func (d modelConfigDoc) Contributions() (modelContributions, error) {
+	providers := map[corellm.ProviderName]corellm.ProviderSpec{}
+	aliasTargets := map[string]string{}
+	for i, raw := range d.Available {
+		providerName := corellm.ProviderName(strings.TrimSpace(raw.Provider))
+		modelName := corellm.ModelName(strings.TrimSpace(raw.Model))
+		if providerName == "" {
+			return modelContributions{}, fmt.Errorf("appconfig: models.available[%d].provider is empty", i)
+		}
+		if modelName == "" {
+			return modelContributions{}, fmt.Errorf("appconfig: models.available[%d].model is empty", i)
+		}
+		provider := providers[providerName]
+		provider.Name = providerName
+		model := corellm.ModelSpec{
+			Ref: corellm.ModelRef{
+				Provider: providerName,
+				Name:     modelName,
+			},
+			Aliases: cleanedModelNames(raw.Aliases),
+			Params: corellm.ModelParams{
+				Thinking:        strings.TrimSpace(raw.Params.Thinking),
+				ReasoningEffort: strings.TrimSpace(raw.Params.Effort),
+			},
+		}
+		provider.Models = append(provider.Models, model)
+		providers[providerName] = provider
+		target := corellm.ModelRef{Provider: providerName, Name: modelName}.String()
+		for _, alias := range cleaned(raw.Aliases) {
+			if previous, ok := aliasTargets[alias]; ok && previous != target {
+				return modelContributions{}, fmt.Errorf("appconfig: models.available[%d].aliases contains duplicate alias %q for %s and %s", i, alias, previous, target)
+			}
+			aliasTargets[alias] = target
+		}
+	}
+	keys := make([]corellm.ProviderName, 0, len(providers))
+	for key := range providers {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
-	out := make([]corellm.ModelAliasSpec, 0, len(keys))
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	out := modelContributions{Providers: make([]corellm.ProviderSpec, 0, len(keys))}
 	for _, key := range keys {
-		spec, err := corellm.NewModelAliasSpec(key, d.Alias[key])
-		if err != nil {
-			return nil, fmt.Errorf("appconfig: models.alias[%q]: %w", key, err)
+		provider := providers[key]
+		if err := provider.Validate(); err != nil {
+			return modelContributions{}, fmt.Errorf("appconfig: models.available provider %q: %w", key, err)
 		}
-		out = append(out, spec)
+		out.Providers = append(out.Providers, provider)
+	}
+	aliasKeys := make([]string, 0, len(aliasTargets))
+	for alias := range aliasTargets {
+		aliasKeys = append(aliasKeys, alias)
+	}
+	sort.Strings(aliasKeys)
+	for _, alias := range aliasKeys {
+		spec, err := corellm.NewModelAliasSpec(alias, aliasTargets[alias])
+		if err != nil {
+			return modelContributions{}, fmt.Errorf("appconfig: models.available alias %q: %w", alias, err)
+		}
+		out.Aliases = append(out.Aliases, spec)
 	}
 	return out, nil
+}
+
+func validateModelReference(value string, models modelContributions, field string) error {
+	if value == "" || len(models.Providers) == 0 {
+		return nil
+	}
+	known := map[string]bool{}
+	for _, alias := range models.Aliases {
+		known[strings.TrimSpace(alias.Name)] = true
+	}
+	for _, provider := range models.Providers {
+		for _, model := range provider.Models {
+			known[model.Ref.String()] = true
+		}
+	}
+	if known[value] {
+		return nil
+	}
+	return fmt.Errorf("appconfig: %s %q is not declared in models.available", field, value)
+}
+
+func cleanedModelNames(values []string) []corellm.ModelName {
+	clean := cleaned(values)
+	out := make([]corellm.ModelName, 0, len(clean))
+	for _, value := range clean {
+		out = append(out, corellm.ModelName(value))
+	}
+	return out
+}
+
+func mergeLLMProviders(groups ...[]corellm.ProviderSpec) []corellm.ProviderSpec {
+	byName := map[corellm.ProviderName]corellm.ProviderSpec{}
+	for _, group := range groups {
+		for _, provider := range group {
+			name := provider.Name
+			existing := byName[name]
+			if existing.Name == "" {
+				byName[name] = provider
+				continue
+			}
+			existing.Models = append(existing.Models, provider.Models...)
+			if provider.DisplayName != "" {
+				existing.DisplayName = provider.DisplayName
+			}
+			if provider.Description != "" {
+				existing.Description = provider.Description
+			}
+			if len(provider.Annotations) > 0 {
+				existing.Annotations = cloneStringMap(provider.Annotations)
+			}
+			byName[name] = existing
+		}
+	}
+	keys := make([]corellm.ProviderName, 0, len(byName))
+	for key := range byName {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	out := make([]corellm.ProviderSpec, 0, len(keys))
+	for _, key := range keys {
+		provider := byName[key]
+		provider.Models = mergeLLMModels(provider.Models)
+		out = append(out, provider)
+	}
+	return out
+}
+
+func mergeLLMModels(models []corellm.ModelSpec) []corellm.ModelSpec {
+	byName := map[corellm.ModelName]corellm.ModelSpec{}
+	var order []corellm.ModelName
+	for _, model := range models {
+		name := model.Ref.Name
+		if _, ok := byName[name]; !ok {
+			order = append(order, name)
+			byName[name] = model
+			continue
+		}
+		byName[name] = mergeLLMModel(byName[name], model)
+	}
+	out := make([]corellm.ModelSpec, 0, len(order))
+	for _, name := range order {
+		out = append(out, byName[name])
+	}
+	return out
+}
+
+func mergeLLMModel(base, overlay corellm.ModelSpec) corellm.ModelSpec {
+	if overlay.Ref.Provider != "" {
+		base.Ref.Provider = overlay.Ref.Provider
+	}
+	if overlay.Ref.Name != "" {
+		base.Ref.Name = overlay.Ref.Name
+	}
+	if overlay.DisplayName != "" {
+		base.DisplayName = overlay.DisplayName
+	}
+	if overlay.Description != "" {
+		base.Description = overlay.Description
+	}
+	base.Aliases = mergeModelNames(base.Aliases, overlay.Aliases)
+	if overlay.Params.Thinking != "" {
+		base.Params.Thinking = overlay.Params.Thinking
+	}
+	if overlay.Params.ReasoningEffort != "" {
+		base.Params.ReasoningEffort = overlay.Params.ReasoningEffort
+	}
+	if len(overlay.Annotations) > 0 {
+		base.Annotations = cloneStringMap(overlay.Annotations)
+	}
+	return base
+}
+
+func mergeModelNames(groups ...[]corellm.ModelName) []corellm.ModelName {
+	seen := map[corellm.ModelName]bool{}
+	var out []corellm.ModelName
+	for _, group := range groups {
+		for _, value := range group {
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 type distributionDoc struct {
@@ -646,6 +842,7 @@ type distributionDoc struct {
 	DefaultModel        modelDefaultDoc          `json:"default_model,omitempty" yaml:"default_model,omitempty"`
 	Surfaces            surfacesDoc              `json:"surfaces,omitempty" yaml:"surfaces,omitempty"`
 	Build               buildDoc                 `json:"build,omitempty" yaml:"build,omitempty"`
+	Deploy              deployDoc                `json:"deploy,omitempty" yaml:"deploy,omitempty"`
 	Commands            []distributionCommandDoc `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Metadata            map[string]string        `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
@@ -676,6 +873,9 @@ func (d distributionDoc) Spec() coredistribution.Spec {
 		},
 		Build: coredistribution.BuildSpec{
 			Assets: cleaned(d.Build.Assets),
+		},
+		Deploy: coredistribution.DeploySpec{
+			Model: strings.TrimSpace(d.Deploy.Model),
 		},
 		Metadata: cloneStringMap(d.Metadata),
 	}
@@ -716,6 +916,10 @@ type surfacesDoc struct {
 type buildDoc struct {
 	Assets []string        `json:"assets,omitempty" yaml:"assets,omitempty"`
 	Docker *dockerBuildDoc `json:"docker,omitempty" yaml:"docker,omitempty"`
+}
+
+type deployDoc struct {
+	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 }
 
 type dockerBuildDoc struct {
@@ -1503,12 +1707,17 @@ func documentKind(node yaml.Node) string {
 
 // Spec converts the manifest file shape to the pure app model.
 func (m Manifest) Spec() coreapp.Spec {
+	model := m.ModelPolicy.Spec()
+	if defaultModel := strings.TrimSpace(m.Models.Default); defaultModel != "" {
+		model.Model = defaultModel
+		model.Provider = ""
+	}
 	spec := coreapp.Spec{
 		Name:           m.Name,
 		Description:    m.Description,
 		DefaultAgent:   agent.Ref(m.DefaultAgent),
 		Discovery:      m.Discovery.Spec(),
-		Model:          m.ModelPolicy.Spec(),
+		Model:          model,
 		Datasource:     m.Datasource.Spec(),
 		SemanticSearch: m.SemanticSearch.Spec(),
 		Security:       m.Security,

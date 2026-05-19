@@ -17,8 +17,11 @@ import (
 	"strings"
 
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/pathpattern"
+	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 )
 
@@ -30,6 +33,16 @@ const (
 	defaultNATSDSNEnv     = "AGENTRUNTIME_EVENTSTORE_NATS_DSN"
 	defaultHealthAddr     = "127.0.0.1:18080"
 	defaultHealthURL      = "http://127.0.0.1:18080/control/status"
+	openRouterAPIKeyEnv   = "OPENROUTER_API_KEY"
+)
+
+const (
+	// DefaultAppProvider is the model provider used by generated app containers.
+	DefaultAppProvider = "openrouter"
+	// DefaultAppModel is the model used by generated app containers.
+	DefaultAppModel = "openai/gpt-5.5"
+	// DefaultAppEffort is the reasoning effort used by generated app containers.
+	DefaultAppEffort = "medium"
 )
 
 // CommandRunner runs an external command.
@@ -44,6 +57,64 @@ func (f CommandRunnerFunc) Run(ctx context.Context, dir, name string, args []str
 	return f(ctx, dir, name, args, stdout, stderr)
 }
 
+type appRuntimeOptions struct {
+	Provider string
+	Model    string
+	Effort   string
+}
+
+func (opts appRuntimeOptions) withDefaults() appRuntimeOptions {
+	opts.Provider = firstNonEmpty(strings.TrimSpace(opts.Provider), DefaultAppProvider)
+	opts.Model = firstNonEmpty(strings.TrimSpace(opts.Model), DefaultAppModel)
+	opts.Effort = firstNonEmpty(strings.TrimSpace(opts.Effort), DefaultAppEffort)
+	return opts
+}
+
+func resolveAppRuntime(loaded distribution.Loaded, opts appRuntimeOptions) appRuntimeOptions {
+	providerOverride := strings.TrimSpace(opts.Provider)
+	model := firstNonEmpty(strings.TrimSpace(opts.Model), strings.TrimSpace(loaded.Distribution.Spec.Deploy.Model), strings.TrimSpace(loaded.Distribution.Spec.DefaultModel.Model))
+	if model == "" {
+		model = DefaultAppModel
+		if providerOverride == "" {
+			providerOverride = DefaultAppProvider
+		}
+	}
+	provider := firstNonEmpty(providerOverride, strings.TrimSpace(loaded.Distribution.Spec.DefaultModel.Provider), "openai")
+	effort := strings.TrimSpace(opts.Effort)
+	registry, err := distrun.DefaultModelRegistryWithAliases(llmProviderSpecs(loaded.Distribution.Bundles), llmModelAliases(loaded.Distribution.Bundles))
+	if err == nil {
+		selection := registry.ResolveModelSelection(provider, model)
+		provider = selection.Provider
+		model = selection.Model
+		if effort == "" {
+			if _, modelSpec, ok := registry.ModelSpec(provider, model); ok {
+				effort = strings.TrimSpace(modelSpec.Params.ReasoningEffort)
+			}
+		}
+	}
+	return appRuntimeOptions{
+		Provider: provider,
+		Model:    model,
+		Effort:   firstNonEmpty(effort, DefaultAppEffort),
+	}.withDefaults()
+}
+
+func llmProviderSpecs(bundles []resource.ContributionBundle) []corellm.ProviderSpec {
+	var out []corellm.ProviderSpec
+	for _, bundle := range bundles {
+		out = append(out, bundle.LLMProviders...)
+	}
+	return out
+}
+
+func llmModelAliases(bundles []resource.ContributionBundle) []corellm.ModelAliasSpec {
+	var out []corellm.ModelAliasSpec
+	for _, bundle := range bundles {
+		out = append(out, bundle.LLMModelAliases...)
+	}
+	return out
+}
+
 // DockerBuildOptions configures a generated Docker image build.
 type DockerBuildOptions struct {
 	AppDir         string
@@ -53,6 +124,9 @@ type DockerBuildOptions struct {
 	DryRun         bool
 	BaseImage      string
 	ConnectorsPath string
+	Provider       string
+	Model          string
+	Effort         string
 	Out            io.Writer
 	Err            io.Writer
 	Runner         CommandRunner
@@ -83,6 +157,9 @@ type AppBuildOptions struct {
 	Force          bool
 	BaseImage      string
 	ConnectorsPath string
+	Provider       string
+	Model          string
+	Effort         string
 	Out            io.Writer
 	Err            io.Writer
 	Runner         CommandRunner
@@ -128,10 +205,13 @@ type BaseImageResult struct {
 
 // ComposeOptions configures Docker Compose artifact generation.
 type ComposeOptions struct {
-	AppDir string
-	Image  string
-	DryRun bool
-	Out    io.Writer
+	AppDir   string
+	Image    string
+	Provider string
+	Model    string
+	Effort   string
+	DryRun   bool
+	Out      io.Writer
 }
 
 // ComposeResult describes the generated Docker Compose artifact.
@@ -148,6 +228,9 @@ type ComposeDeployOptions struct {
 	Image          string
 	BaseImage      string
 	ConnectorsPath string
+	Provider       string
+	Model          string
+	Effort         string
 	DryRun         bool
 	Force          bool
 	Detach         bool
@@ -191,6 +274,11 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	if connectorsPath == "" {
 		connectorsPath = defaultConnectorsPath
 	}
+	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		Effort:   opts.Effort,
+	})
 	baseImage := strings.TrimSpace(opts.BaseImage)
 	if baseImage == "" {
 		baseImage = defaultBaseImage
@@ -236,12 +324,12 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			}
 		case "dockerfile":
 			result.Artifacts = append(result.Artifacts, dockerfilePath)
-			if err := maybeWriteFile(dockerfilePath, workspaceDockerfile(baseImage, connectorsPath), 0o600, opts.DryRun, opts.Force, out); err != nil {
+			if err := maybeWriteFile(dockerfilePath, workspaceDockerfile(baseImage, connectorsPath, appRuntime), 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "docker-compose":
 			result.Artifacts = append(result.Artifacts, composePath)
-			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, connectorsPath, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
+			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, connectorsPath, appRuntime, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "docker-image":
@@ -253,7 +341,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			result.Command = command
 			printAppBuildCommand(out, command, opts.DryRun)
 			if !opts.DryRun {
-				if err := ensureDockerfileForImage(dockerfilePath, baseImage, connectorsPath, opts.Force); err != nil {
+				if err := ensureDockerfileForImage(dockerfilePath, baseImage, connectorsPath, appRuntime, opts.Force); err != nil {
 					return AppBuildResult{}, err
 				}
 				if err := runner.Run(ctx, "", command[0], command[1:], out, errOut); err != nil {
@@ -303,6 +391,9 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		Force:          opts.Force,
 		BaseImage:      baseImage,
 		ConnectorsPath: opts.ConnectorsPath,
+		Provider:       opts.Provider,
+		Model:          opts.Model,
+		Effort:         opts.Effort,
 		Out:            out,
 		Err:            errOut,
 		Runner:         runner,
@@ -361,6 +452,11 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 	if err != nil {
 		return DockerBuildResult{}, err
 	}
+	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		Effort:   opts.Effort,
+	})
 	spec := loaded.Distribution.Spec
 	if spec.Build.Docker == nil {
 		return DockerBuildResult{}, fmt.Errorf("distribution build: %q has no distribution.build.docker config", spec.Name)
@@ -389,7 +485,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		}
 	}()
 
-	assets, err := prepareAppContext(ctx, tempDir, loaded.Root, spec.Build.Assets, baseImage, connectorsPath)
+	assets, err := prepareAppContext(ctx, tempDir, loaded.Root, spec.Build.Assets, baseImage, connectorsPath, appRuntime)
 	if err != nil {
 		return DockerBuildResult{}, err
 	}
@@ -492,7 +588,12 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	if image == "" {
 		image = defaultAppImage
 	}
-	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultConnectorsPath, loaded.Launch)
+	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		Effort:   opts.Effort,
+	})
+	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultConnectorsPath, appRuntime, loaded.Launch)
 	result := ComposeResult{
 		AppDir:  loaded.Root,
 		Image:   image,
@@ -520,12 +621,12 @@ func (execRunner) Run(ctx context.Context, dir, name string, args []string, stdo
 	return cmd.Run()
 }
 
-func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPatterns []string, baseImage, connectorsPath string) ([]string, error) {
+func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPatterns []string, baseImage, connectorsPath string, appRuntime appRuntimeOptions) ([]string, error) {
 	assets, err := copyAssets(ctx, appRoot, filepath.Join(contextDir, "app"), assetPatterns)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeAppDockerfile(filepath.Join(contextDir, "Dockerfile"), baseImage, connectorsPath); err != nil {
+	if err := writeAppDockerfile(filepath.Join(contextDir, "Dockerfile"), baseImage, connectorsPath, appRuntime); err != nil {
 		return nil, err
 	}
 	return assets, nil
@@ -847,7 +948,7 @@ func localReplacePaths(goMod string) ([]string, error) {
 	return paths, nil
 }
 
-func writeAppDockerfile(filename, baseImage, connectorsPath string) error {
+func writeAppDockerfile(filename, baseImage, connectorsPath string, appRuntime appRuntimeOptions) error {
 	var b strings.Builder
 	b.WriteString("FROM ")
 	b.WriteString(baseImage)
@@ -855,7 +956,7 @@ func writeAppDockerfile(filename, baseImage, connectorsPath string) error {
 	b.WriteString("COPY app /app\n")
 	b.WriteString("WORKDIR /app\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
-	cmd, _ := json.Marshal(appServeCommand(connectorsPath))
+	cmd, _ := json.Marshal(appServeCommand(connectorsPath, appRuntime))
 	b.WriteString("CMD ")
 	b.Write(cmd)
 	b.WriteByte('\n')
@@ -866,7 +967,7 @@ func writeAppDockerfile(filename, baseImage, connectorsPath string) error {
 	return os.WriteFile(filename, []byte(b.String()), 0o600)
 }
 
-func workspaceDockerfile(baseImage, connectorsPath string) string {
+func workspaceDockerfile(baseImage, connectorsPath string, appRuntime appRuntimeOptions) string {
 	var b strings.Builder
 	b.WriteString("FROM ")
 	b.WriteString(baseImage)
@@ -874,7 +975,7 @@ func workspaceDockerfile(baseImage, connectorsPath string) string {
 	b.WriteString("COPY . /app\n")
 	b.WriteString("WORKDIR /app\n")
 	b.WriteString("ENTRYPOINT [\"/usr/local/bin/coder\"]\n")
-	cmd, _ := json.Marshal(appServeCommand(connectorsPath))
+	cmd, _ := json.Marshal(appServeCommand(connectorsPath, appRuntime))
 	b.WriteString("CMD ")
 	b.Write(cmd)
 	b.WriteByte('\n')
@@ -885,12 +986,20 @@ func workspaceDockerfile(baseImage, connectorsPath string) string {
 	return b.String()
 }
 
-func appServeCommand(connectorsPath string) []string {
+func appServeCommand(connectorsPath string, appRuntime appRuntimeOptions) []string {
 	connectorsPath = strings.TrimSpace(connectorsPath)
 	if connectorsPath == "" {
 		connectorsPath = defaultConnectorsPath
 	}
-	return []string{"app", "serve", "/app", "--connectors-path", connectorsPath, "--health-addr", defaultHealthAddr}
+	appRuntime = appRuntime.withDefaults()
+	return []string{
+		"app", "serve", "/app",
+		"--connectors-path", connectorsPath,
+		"--health-addr", defaultHealthAddr,
+		"--provider", appRuntime.Provider,
+		"--model", appRuntime.Model,
+		"--effort", appRuntime.Effort,
+	}
 }
 
 func appHealthcheckCommand() []string {
@@ -1051,13 +1160,13 @@ func maybeWriteFile(filename, content string, perm fs.FileMode, dryRun, force bo
 	return os.WriteFile(filename, []byte(content), perm)
 }
 
-func ensureDockerfileForImage(filename, baseImage, connectorsPath string, force bool) error {
+func ensureDockerfileForImage(filename, baseImage, connectorsPath string, appRuntime appRuntimeOptions, force bool) error {
 	if _, err := os.Stat(filename); err == nil {
 		return nil
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return maybeWriteFile(filename, workspaceDockerfile(baseImage, connectorsPath), 0o600, false, force, io.Discard)
+	return maybeWriteFile(filename, workspaceDockerfile(baseImage, connectorsPath, appRuntime), 0o600, false, force, io.Discard)
 }
 
 func printAppBuildCommand(out io.Writer, command []string, dryRun bool) {
@@ -1099,11 +1208,21 @@ func firstTag(tags []string) string {
 	return tags[0]
 }
 
-func dockerComposeContent(name, image, connectorsPath string, launch distribution.LaunchConfig) string {
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func dockerComposeContent(name, image, connectorsPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) string {
 	service := strings.TrimSpace(name)
 	if service == "" {
 		service = "app"
 	}
+	appRuntime = appRuntime.withDefaults()
 	service = composeServiceName(service)
 	deps := composeDependencies(launch)
 	var b strings.Builder
@@ -1114,11 +1233,11 @@ func dockerComposeContent(name, image, connectorsPath string, launch distributio
 	b.WriteString("    image: ")
 	b.WriteString(image)
 	b.WriteByte('\n')
-	command, _ := json.Marshal(appServeCommand(connectorsPath))
+	command, _ := json.Marshal(appServeCommand(connectorsPath, appRuntime))
 	b.WriteString("    command: ")
 	b.Write(command)
 	b.WriteByte('\n')
-	writeComposeEnv(&b, launch)
+	writeComposeEnv(&b, appRuntime, launch)
 	if len(deps) > 0 {
 		b.WriteString("    depends_on:\n")
 		for _, dep := range deps {
@@ -1139,8 +1258,8 @@ func dockerComposeContent(name, image, connectorsPath string, launch distributio
 	return b.String()
 }
 
-func writeComposeEnv(b *strings.Builder, launch distribution.LaunchConfig) {
-	values := composeEnv(launch)
+func writeComposeEnv(b *strings.Builder, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) {
+	values := composeEnv(appRuntime, launch)
 	if len(values) == 0 {
 		return
 	}
@@ -1159,8 +1278,12 @@ func writeComposeEnv(b *strings.Builder, launch distribution.LaunchConfig) {
 	}
 }
 
-func composeEnv(launch distribution.LaunchConfig) map[string]string {
+func composeEnv(appRuntime appRuntimeOptions, launch distribution.LaunchConfig) map[string]string {
 	env := map[string]string{}
+	appRuntime = appRuntime.withDefaults()
+	if strings.EqualFold(appRuntime.Provider, DefaultAppProvider) {
+		env[openRouterAPIKeyEnv] = "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}"
+	}
 	if composeUsesMySQL(launch) {
 		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
 		if name == "" {

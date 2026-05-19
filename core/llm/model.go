@@ -71,7 +71,15 @@ type ModelSpec struct {
 	Capabilities     CapabilitySet     `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Pricing          []PricingSpec     `json:"pricing,omitempty" yaml:"pricing,omitempty"`
 	Aliases          []ModelName       `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	Params           ModelParams       `json:"params,omitempty" yaml:"params,omitempty"`
 	Annotations      map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// ModelParams declares provider-neutral default model-call parameters for a
+// concrete model catalog entry.
+type ModelParams struct {
+	Thinking        string `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty" yaml:"reasoning_effort,omitempty"`
 }
 
 // Validate checks that the model has a stable provider-local identity.

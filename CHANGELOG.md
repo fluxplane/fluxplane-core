@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added OpenRouter defaults for generated Docker Compose app deployments,
+  including `OPENROUTER_API_KEY` process-env injection and medium reasoning
+  effort in generated app serve commands.
+- Added `models.default` and `models.available` appconfig model registry
+  support so agents and deployment config can refer to provider-agnostic model
+  aliases with centrally declared provider/model params.
 - Added generated Docker healthchecks for app images and condition-based Docker
   Compose startup ordering for MySQL and NATS JetStream deployments.
 - Added coder-first distribution build targets: `coder build --target

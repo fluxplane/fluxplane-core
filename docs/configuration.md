@@ -519,10 +519,31 @@ Distribution metadata describes a runnable package and optional Docker build
 inputs.
 
 ```yaml
+runtime:
+  data:
+    store:
+      kind: mysql
+      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+  events:
+    store:
+      kind: nats
+      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+      stream: AGENTRUNTIME_EVENTS
+      subject: agentruntime.events.log
+      create_stream: true
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model, gpt5]
+      params:
+        effort: medium
 distribution:
   name: support-bot
   title: Support Bot
-  default_session: support
+  deploy:
+    model: smart_model
   build:
     assets:
       - agentsdk.app.yaml
@@ -536,23 +557,29 @@ Build with:
 
 ```bash
 coder build --target docker-base --tag fluxplane/coder-base:local
-coder app build --target docker-image . --tag support-bot:local
-coder app deploy --target docker-compose . --image support-bot:local --dry-run
+coder app build . --image support-bot:local
+coder app deploy . --target docker-compose --image support-bot:local
 ```
 
 ### Model Providers
 
-Use `llm_providers` when an app needs local provider or model catalog entries
-in addition to built-in providers.
+Use `models` to define provider-agnostic model names for agents and deployment
+defaults. Agents should refer to aliases from this registry instead of
+embedding provider-specific model settings.
 
 ```yaml
-llm_providers:
-  - name: localai
-    display_name: Local AI
-    models:
-      - ref:
-          name: local-model
-        context_tokens: 1234
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model, gpt5]
+      params:
+        effort: medium
+
+distribution:
+  deploy:
+    model: smart_model
 ```
 
 Inspect the merged catalog with:

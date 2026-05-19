@@ -165,6 +165,9 @@ func mergeDistributionSpec(base, override coredistribution.Spec) coredistributio
 	if len(override.Build.Assets) > 0 || override.Build.Docker != nil {
 		base.Build = override.Build
 	}
+	if override.Deploy.Model != "" {
+		base.Deploy.Model = override.Deploy.Model
+	}
 	if len(override.Commands) > 0 {
 		base.Commands = append([]coredistribution.Command(nil), override.Commands...)
 	}

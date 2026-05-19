@@ -99,6 +99,35 @@ func TestResolveModelSelectionAppAliasesOverrideBuiltIns(t *testing.T) {
 	}
 }
 
+func TestContributedModelParamsMergeWithBuiltInProvider(t *testing.T) {
+	registry, err := DefaultModelRegistryWithAliases([]corellm.ProviderSpec{{
+		Name: "openrouter",
+		Models: []corellm.ModelSpec{{
+			Ref: corellm.ModelRef{Provider: "openrouter", Name: "openai/gpt-5.5"},
+			Params: corellm.ModelParams{
+				ReasoningEffort: "medium",
+			},
+		}},
+	}}, []corellm.ModelAliasSpec{{
+		Name:   "smart_model",
+		Target: corellm.ModelRef{Provider: "openrouter", Name: "openai/gpt-5.5"},
+	}})
+	if err != nil {
+		t.Fatalf("DefaultModelRegistryWithAliases: %v", err)
+	}
+	got := registry.ResolveModelSelection("openai", "smart_model")
+	if got.Provider != "openrouter" || got.Model != "openai/gpt-5.5" {
+		t.Fatalf("selection = %#v, want openrouter/openai/gpt-5.5", got)
+	}
+	_, modelSpec, ok := registry.ModelSpec(got.Provider, got.Model)
+	if !ok {
+		t.Fatalf("ModelSpec(%s, %s) not found", got.Provider, got.Model)
+	}
+	if modelSpec.Params.ReasoningEffort != "medium" {
+		t.Fatalf("params = %#v, want medium effort", modelSpec.Params)
+	}
+}
+
 func TestNewModelRejectsUnknownOpenRouterModel(t *testing.T) {
 	_, err := NewModel(ModelSelection{Provider: "openrouter", Model: "gpt-5.5"}, false)
 	if err == nil || !strings.Contains(err.Error(), "exact OpenRouter model id") {
@@ -184,6 +213,20 @@ func TestResolveReasoningMapsEnabledConfigToOn(t *testing.T) {
 	}
 	if got.Thinking != "on" || got.Effort != "high" {
 		t.Fatalf("reasoning = %#v, want on/high", got)
+	}
+}
+
+func TestResolveReasoningPrefersModelParamsOverAgentInference(t *testing.T) {
+	model := reasoningModel("gpt-test", "low,medium,high,max")
+	model.Params.ReasoningEffort = "medium"
+	got, err := ResolveReasoning("openai", model, agent.InferenceSpec{
+		ReasoningEffort: "high",
+	}, ReasoningOverrides{})
+	if err != nil {
+		t.Fatalf("ResolveReasoning: %v", err)
+	}
+	if got.Effort != "medium" {
+		t.Fatalf("reasoning = %#v, want model param effort", got)
 	}
 }
 

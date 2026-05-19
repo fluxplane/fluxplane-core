@@ -82,7 +82,11 @@ func NewModelRegistryWithAliases(providers []ModelProvider, specs []corellm.Prov
 		if err := spec.Validate(); err != nil {
 			return ModelRegistry{}, err
 		}
-		byName[spec.Name] = spec
+		if existing, ok := byName[spec.Name]; ok {
+			byName[spec.Name] = mergeProviderSpec(existing, spec)
+		} else {
+			byName[spec.Name] = spec
+		}
 	}
 	merged := make([]corellm.ProviderSpec, 0, len(byName))
 	for _, spec := range byName {
@@ -98,6 +102,85 @@ func NewModelRegistryWithAliases(providers []ModelProvider, specs []corellm.Prov
 		return ModelRegistry{}, err
 	}
 	return ModelRegistry{catalog: catalog, factories: factories, hints: hints, aliases: aliasMap}, nil
+}
+
+func mergeProviderSpec(base, overlay corellm.ProviderSpec) corellm.ProviderSpec {
+	if overlay.DisplayName != "" {
+		base.DisplayName = overlay.DisplayName
+	}
+	if overlay.Description != "" {
+		base.Description = overlay.Description
+	}
+	if len(overlay.Annotations) > 0 {
+		base.Annotations = cloneStringMap(overlay.Annotations)
+	}
+	byName := map[corellm.ModelName]corellm.ModelSpec{}
+	var order []corellm.ModelName
+	for _, model := range base.Models {
+		name := model.Ref.Name
+		byName[name] = model
+		order = append(order, name)
+	}
+	for _, model := range overlay.Models {
+		name := model.Ref.Name
+		if existing, ok := byName[name]; ok {
+			byName[name] = mergeModelSpec(existing, model)
+			continue
+		}
+		byName[name] = model
+		order = append(order, name)
+	}
+	base.Models = make([]corellm.ModelSpec, 0, len(order))
+	for _, name := range order {
+		base.Models = append(base.Models, byName[name])
+	}
+	return base
+}
+
+func mergeModelSpec(base, overlay corellm.ModelSpec) corellm.ModelSpec {
+	if overlay.DisplayName != "" {
+		base.DisplayName = overlay.DisplayName
+	}
+	if overlay.Description != "" {
+		base.Description = overlay.Description
+	}
+	base.Aliases = mergeModelAliases(base.Aliases, overlay.Aliases)
+	if overlay.Params.Thinking != "" {
+		base.Params.Thinking = overlay.Params.Thinking
+	}
+	if overlay.Params.ReasoningEffort != "" {
+		base.Params.ReasoningEffort = overlay.Params.ReasoningEffort
+	}
+	if len(overlay.Annotations) > 0 {
+		base.Annotations = cloneStringMap(overlay.Annotations)
+	}
+	return base
+}
+
+func mergeModelAliases(groups ...[]corellm.ModelName) []corellm.ModelName {
+	seen := map[corellm.ModelName]bool{}
+	var out []corellm.ModelName
+	for _, group := range groups {
+		for _, alias := range group {
+			if alias == "" || seen[alias] {
+				continue
+			}
+			seen[alias] = true
+			out = append(out, alias)
+		}
+	}
+	return out
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 // DefaultModelRegistry returns the built-in providers projected from modeldb,

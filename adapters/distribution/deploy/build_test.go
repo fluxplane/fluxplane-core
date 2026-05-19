@@ -91,7 +91,7 @@ name: assistant
 	for _, want := range []string{
 		"FROM fluxplane/coder-base:local",
 		`ENTRYPOINT ["/usr/local/bin/coder"]`,
-		`CMD ["app","serve","/app","--connectors-path","/secrets/connectors","--health-addr","127.0.0.1:18080"]`,
+		`CMD ["app","serve","/app","--connectors-path","/secrets/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
 		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/coder","app","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(text, want) {
@@ -180,7 +180,7 @@ name: assistant
 	for _, want := range []string{
 		"FROM fluxplane/coder-base:local",
 		"COPY . /app",
-		`CMD ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080"]`,
+		`CMD ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
 		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/coder","app","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(string(dockerfile), want) {
@@ -479,13 +479,102 @@ name: assistant
 		"services:",
 		"  sample-app:",
 		"    image: sample:latest",
-		`    command: ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080"]`,
+		`    command: ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+		"    environment:",
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
 		}
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestGenerateDockerComposeUsesModelRegistryDeployOverride(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model]
+      params:
+        effort: medium
+    - provider: codex
+      model: gpt-5.5
+      aliases: [deploy_model]
+      params:
+        effort: high
+distribution:
+  deploy:
+    model: deploy_model
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
+		AppDir: app,
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateDockerCompose: %v", err)
+	}
+	for _, want := range []string{
+		`    command: ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","codex","--model","gpt-5.5","--effort","high"]`,
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("compose missing %q:\n%s", want, result.Content)
+		}
+	}
+	if strings.Contains(result.Content, "OPENROUTER_API_KEY") {
+		t.Fatalf("compose = %s, want no OpenRouter env for codex deploy override", result.Content)
+	}
+}
+
+func TestGenerateDockerComposeFallsBackToModelsDefault(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model]
+      params:
+        effort: high
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
+		AppDir: app,
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateDockerCompose: %v", err)
+	}
+	for _, want := range []string{
+		`    command: ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","high"]`,
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("compose missing %q:\n%s", want, result.Content)
 		}
 	}
 }
@@ -529,6 +618,7 @@ name: assistant
 		"    image: support-bot:test",
 		"      AGENTRUNTIME_DATASTORE_MYSQL_DSN: agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true",
 		"      AGENTRUNTIME_EVENTSTORE_NATS_DSN: nats://nats:4222",
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 		"      mysql:",
 		"        condition: service_healthy",
 		"      nats:",

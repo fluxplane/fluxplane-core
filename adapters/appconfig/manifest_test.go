@@ -9,6 +9,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/invocation"
+	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -177,32 +178,96 @@ plugins: [git]
 	}
 }
 
-func TestDecodeManifestLoadsModelAliases(t *testing.T) {
+func TestDecodeManifestLoadsModelRegistry(t *testing.T) {
 	data := []byte(`
 kind: app
 name: engineer
 models:
-  alias:
-    codex: codex/gpt-5.5
-    claude/sonnet: anthropic/claude-sonnet-4-6
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model, gpt5]
+      params:
+        effort: medium
+    - provider: codex
+      model: gpt-5.5
+      aliases: [codex]
 `)
 
-	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
+	file, err := DecodeFile("agentsdk.app.yaml", data)
 	if err != nil {
-		t.Fatalf("DecodeManifest: %v", err)
+		t.Fatalf("DecodeFile: %v", err)
 	}
-	if len(bundle.LLMModelAliases) != 2 {
-		t.Fatalf("aliases len = %d, want 2", len(bundle.LLMModelAliases))
+	bundle := file.Bundle
+	if len(bundle.Apps) != 1 || bundle.Apps[0].Model.Model != "smart_model" || bundle.Apps[0].Model.Provider != "" {
+		t.Fatalf("app model = %#v, want provider-agnostic smart_model", bundle.Apps)
+	}
+	if len(bundle.LLMProviders) != 2 {
+		t.Fatalf("providers len = %d, want 2", len(bundle.LLMProviders))
+	}
+	var openrouterModel corellm.ModelSpec
+	for _, provider := range bundle.LLMProviders {
+		if provider.Name == "openrouter" && len(provider.Models) == 1 {
+			openrouterModel = provider.Models[0]
+		}
+	}
+	if openrouterModel.Ref.Name != "openai/gpt-5.5" || openrouterModel.Params.ReasoningEffort != "medium" {
+		t.Fatalf("openrouter model = %#v, want model params", openrouterModel)
+	}
+	if len(bundle.LLMModelAliases) != 3 {
+		t.Fatalf("aliases len = %d, want smart_model, gpt5, and codex", len(bundle.LLMModelAliases))
 	}
 	got := map[string]string{}
 	for _, alias := range bundle.LLMModelAliases {
 		got[alias.Name] = alias.Target.String()
 	}
+	if got["smart_model"] != "openrouter/openai/gpt-5.5" || got["gpt5"] != "openrouter/openai/gpt-5.5" {
+		t.Fatalf("aliases = %#v, want openrouter targets", got)
+	}
 	if got["codex"] != "codex/gpt-5.5" {
 		t.Fatalf("codex alias = %q, want codex/gpt-5.5", got["codex"])
 	}
-	if got["claude/sonnet"] != "anthropic/claude-sonnet-4-6" {
-		t.Fatalf("claude/sonnet alias = %q, want anthropic/claude-sonnet-4-6", got["claude/sonnet"])
+}
+
+func TestDecodeManifestRejectsDuplicateModelAliasTargets(t *testing.T) {
+	data := []byte(`
+kind: app
+name: engineer
+models:
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model]
+    - provider: codex
+      model: gpt-5.5
+      aliases: [smart_model]
+`)
+
+	_, err := DecodeManifest("agentsdk.app.yaml", data)
+	if err == nil || !strings.Contains(err.Error(), `duplicate alias "smart_model"`) {
+		t.Fatalf("DecodeManifest error = %v, want duplicate alias", err)
+	}
+}
+
+func TestDecodeManifestRejectsUnknownDeployModelReference(t *testing.T) {
+	data := []byte(`
+kind: app
+name: engineer
+models:
+  default: smart_model
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model]
+distribution:
+  deploy:
+    model: typo_model
+`)
+
+	_, err := DecodeManifest("agentsdk.app.yaml", data)
+	if err == nil || !strings.Contains(err.Error(), `distribution.deploy.model "typo_model"`) {
+		t.Fatalf("DecodeManifest error = %v, want unknown deploy model", err)
 	}
 }
 
@@ -325,6 +390,8 @@ distribution:
       - .agents/**
       - docs/**/*.md
     docker: {}
+  deploy:
+    model: smart_model
   metadata:
     tier: local
   commands:
@@ -354,6 +421,9 @@ distribution:
 	}
 	if spec.Build.Docker == nil {
 		t.Fatalf("docker build config is nil, want configured empty docker target")
+	}
+	if spec.Deploy.Model != "smart_model" {
+		t.Fatalf("deploy = %#v, want smart_model", spec.Deploy)
 	}
 	if spec.Metadata["tier"] != "local" {
 		t.Fatalf("metadata = %#v", spec.Metadata)

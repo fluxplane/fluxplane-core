@@ -20,6 +20,7 @@ type Spec struct {
 	DefaultModel        ModelDefault            `json:"default_model,omitempty"`
 	Surfaces            Surfaces                `json:"surfaces,omitempty"`
 	Build               BuildSpec               `json:"build,omitempty"`
+	Deploy              DeploySpec              `json:"deploy,omitempty"`
 	Commands            []Command               `json:"commands,omitempty"`
 	Metadata            map[string]string       `json:"metadata,omitempty"`
 }
@@ -48,6 +49,11 @@ type Surfaces struct {
 type BuildSpec struct {
 	Assets []string         `json:"assets,omitempty"`
 	Docker *DockerBuildSpec `json:"docker,omitempty"`
+}
+
+// DeploySpec describes deployment-specific runtime overrides.
+type DeploySpec struct {
+	Model string `json:"model,omitempty"`
 }
 
 // DockerBuildSpec describes a future Docker image build target.

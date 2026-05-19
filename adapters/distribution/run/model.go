@@ -138,7 +138,7 @@ func ValidateReasoningFlags(thinking string, thinkingSet bool, effort string, ef
 // ResolveReasoning merges agent config with CLI overrides and validates the
 // requested effort against modeldb-derived provider annotations.
 func ResolveReasoning(provider string, modelSpec corellm.ModelSpec, inference agent.InferenceSpec, overrides ReasoningOverrides) (ReasoningConfig, error) {
-	mode, err := normalizeThinkingMode(inference.Thinking, true)
+	mode, err := normalizeThinkingMode(firstNonEmptyString(modelSpec.Params.Thinking, inference.Thinking), true)
 	if err != nil {
 		return ReasoningConfig{}, err
 	}
@@ -151,7 +151,7 @@ func ResolveReasoning(provider string, modelSpec corellm.ModelSpec, inference ag
 			return ReasoningConfig{}, err
 		}
 	}
-	effort := normalizeLower(inference.ReasoningEffort)
+	effort := normalizeLower(firstNonEmptyString(modelSpec.Params.ReasoningEffort, inference.ReasoningEffort))
 	if overrides.EffortSet {
 		effort = normalizeLower(overrides.Effort)
 	}

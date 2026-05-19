@@ -9,6 +9,7 @@ import (
 	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
 	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
+	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
@@ -64,6 +65,9 @@ type appBuildOptions struct {
 	force          bool
 	baseImage      string
 	connectorsPath string
+	provider       string
+	model          string
+	effort         string
 	runner         distdeploy.CommandRunner
 }
 
@@ -89,6 +93,9 @@ func newAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing generated artifacts")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
+	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
+	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
 	return cmd
 }
 
@@ -96,6 +103,9 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 	targets := append([]string(nil), opts.targets...)
 	if opts.docker && len(targets) == 0 {
 		targets = []string{"docker-image"}
+	}
+	if err := distrun.ValidateReasoningFlags("", false, opts.effort, strings.TrimSpace(opts.effort) != ""); err != nil {
+		return err
 	}
 	_, err := distdeploy.BuildApp(ctx, distdeploy.AppBuildOptions{
 		AppDir:         appDir,
@@ -109,6 +119,9 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 		Force:          opts.force,
 		BaseImage:      opts.baseImage,
 		ConnectorsPath: opts.connectorsPath,
+		Provider:       opts.provider,
+		Model:          opts.model,
+		Effort:         opts.effort,
 		Out:            out,
 		Err:            errOut,
 		Runner:         opts.runner,
@@ -124,6 +137,9 @@ type appDeployOptions struct {
 	dryRun         bool
 	force          bool
 	detach         bool
+	provider       string
+	model          string
+	effort         string
 	runner         distdeploy.CommandRunner
 }
 
@@ -150,6 +166,9 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker commands without running them")
 	cmd.Flags().BoolVar(&opts.force, "force", opts.force, "overwrite generated app artifacts before deploying")
 	cmd.Flags().BoolVarP(&opts.detach, "detach", "d", false, "run docker compose up in detached mode")
+	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
+	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
+	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
 	return cmd
 }
 
@@ -161,11 +180,17 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	if target != "docker-compose" {
 		return fmt.Errorf("app deploy: unsupported target %q", target)
 	}
+	if err := distrun.ValidateReasoningFlags("", false, opts.effort, strings.TrimSpace(opts.effort) != ""); err != nil {
+		return err
+	}
 	_, err := distdeploy.DeployDockerCompose(ctx, distdeploy.ComposeDeployOptions{
 		AppDir:         appDir,
 		Image:          opts.image,
 		BaseImage:      opts.baseImage,
 		ConnectorsPath: opts.connectorsPath,
+		Provider:       opts.provider,
+		Model:          opts.model,
+		Effort:         opts.effort,
 		DryRun:         opts.dryRun,
 		Force:          opts.force,
 		Detach:         opts.detach,

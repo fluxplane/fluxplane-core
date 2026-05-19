@@ -41,6 +41,10 @@ type Options struct {
 	AuthPath      string
 	Provider      string
 	Model         string
+	Thinking      string
+	ThinkingSet   bool
+	Effort        string
+	EffortSet     bool
 	EnvFiles      []string
 	HealthAddr    string
 	ModelResolver agentfactory.ModelResolver
@@ -54,6 +58,10 @@ type ServeDistributionOptions struct {
 	AuthPath            string
 	Provider            string
 	Model               string
+	Thinking            string
+	ThinkingSet         bool
+	Effort              string
+	EffortSet           bool
 	HealthAddr          string
 	Debug               bool
 	Yolo                bool
@@ -82,6 +90,10 @@ func Serve(ctx context.Context, opts Options) error {
 		AuthPath:            opts.AuthPath,
 		Provider:            opts.Provider,
 		Model:               opts.Model,
+		Thinking:            opts.Thinking,
+		ThinkingSet:         opts.ThinkingSet,
+		Effort:              opts.Effort,
+		EffortSet:           opts.EffortSet,
 		HealthAddr:          opts.HealthAddr,
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
@@ -101,6 +113,10 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		AuthPath:            opts.AuthPath,
 		Provider:            opts.Provider,
 		Model:               opts.Model,
+		Thinking:            opts.Thinking,
+		ThinkingSet:         opts.ThinkingSet,
+		Effort:              opts.Effort,
+		EffortSet:           opts.EffortSet,
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
