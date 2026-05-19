@@ -291,7 +291,7 @@ func (p Plugin) list(ctx operation.Context, input listInput) operation.Result {
 		return operation.Failed("datasource_list_unsupported", fmt.Sprintf("datasource %q entity %q does not support list", name, entity), nil)
 	}
 	if p.dataStore != nil {
-		result, ok, err := p.listDataStore(ctx, name, entity, input.Limit, strings.TrimSpace(input.Cursor), input.Filters)
+		result, ok, err := p.listDataStore(ctx, name, entity, input.Limit, strings.TrimSpace(input.Cursor), datasourceDefaultFilters(entity, input.Filters))
 		if err != nil {
 			return operation.Failed("datasource_list_failed", err.Error(), nil)
 		}
@@ -352,7 +352,7 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 			defer func() { <-sem }()
 			spec := job.target.Accessor.Spec()
 			if p.dataStore != nil && mode != "provider" && mode != "live" {
-				result, ok, err := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, filters)
+				result, ok, err := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, datasourceDefaultFilters(job.target.Entity.Type, filters))
 				if err != nil {
 					results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
 					return
@@ -569,6 +569,37 @@ func (p Plugin) searchDataStore(ctx context.Context, datasource coredatasource.N
 	}
 	records := runtimedata.RecordsToDatasourceRecords(preferMaterializedRecords(result.Records))
 	return coredatasource.SearchResult{Datasource: datasource, Entity: entity, Records: records, Total: len(records)}, true, nil
+}
+
+func datasourceDefaultFilters(entity coredatasource.EntityType, filters map[string]string) map[string]string {
+	out := cloneStringMap(filters)
+	switch entity {
+	case "gitlab.project":
+		if !hasExplicitFilter(out, "archived") {
+			out["archived"] = "false"
+		}
+	case "gitlab.user_membership":
+		if !hasExplicitFilter(out, "source_archived") {
+			out["source_archived"] = "false"
+		}
+	}
+	return out
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func hasExplicitFilter(filters map[string]string, key string) bool {
+	value, ok := filters[key]
+	return ok && strings.TrimSpace(value) != ""
 }
 
 func (p Plugin) listDataStore(ctx context.Context, datasource coredatasource.Name, entity coredatasource.EntityType, limit int, cursor string, filters map[string]string) (coredatasource.ListResult, bool, error) {

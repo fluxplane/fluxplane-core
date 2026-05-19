@@ -231,8 +231,10 @@ func datasourceIndexProgressWriter(out io.Writer) datasourceindex.ProgressReport
 			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s start\n", event.Datasource, event.Entity, event.Phase)
 		case datasourceindex.ProgressEntityFresh:
 			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s fresh until=%s\n", event.Datasource, event.Entity, event.Phase, event.FreshUntil.Format("2006-01-02T15:04:05Z"))
+		case datasourceindex.ProgressEntityRunningStale:
+			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s running-stale reason=%s\n", event.Datasource, event.Entity, event.Phase, event.Message)
 		case datasourceindex.ProgressPageFetched:
-			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s page documents=%d tombstones=%d\n", event.Datasource, event.Entity, event.Phase, event.Documents, event.Tombstones)
+			_, _ = fmt.Fprintln(out, datasourceIndexPageText(event))
 		case datasourceindex.ProgressDocumentFailed, datasourceindex.ProgressTombstoneFailed:
 			_, _ = fmt.Fprintf(out, "index %s/%s phase=%s failed id=%s error=%s\n", event.Datasource, event.Entity, event.Phase, event.RecordID, event.Message)
 		case datasourceindex.ProgressDocumentQueued:

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -47,24 +48,26 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 		return nil, fmt.Errorf("gitlab datasource instance %q does not match plugin instance %q", instance, p.ref.InstanceName())
 	}
 	return gitlabAccessor{
-		spec:          spec,
-		system:        p.system,
-		ref:           p.ref,
-		config:        p.config,
-		clientFactory: p.clientFactory,
-		index:         p.index,
-		entities:      entities,
+		spec:              spec,
+		system:            p.system,
+		ref:               p.ref,
+		config:            p.config,
+		clientFactory:     p.clientFactory,
+		index:             p.index,
+		entities:          entities,
+		membershipSources: &gitLabMembershipSourceCache{},
 	}, nil
 }
 
 type gitlabAccessor struct {
-	spec          coredatasource.Spec
-	system        system.System
-	ref           resource.PluginRef
-	config        Config
-	clientFactory gitlabClientFactory
-	index         *semantic.Index
-	entities      []coredatasource.EntitySpec
+	spec              coredatasource.Spec
+	system            system.System
+	ref               resource.PluginRef
+	config            Config
+	clientFactory     gitlabClientFactory
+	index             *semantic.Index
+	entities          []coredatasource.EntitySpec
+	membershipSources *gitLabMembershipSourceCache
 }
 
 func (a gitlabAccessor) Spec() coredatasource.Spec { return a.spec }
@@ -99,11 +102,17 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 	}
 	switch entity {
 	case ProjectEntity:
-		projects, err := searchProjects(ctx, client, req.Query, req.Limit, 1)
+		projects, err := searchProjects(ctx, client, req.Query, gitlabDefaultFilters(entity, req.Filters), req.Limit, 1)
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(projects, a.projectRecord), -1), nil
+	case MembershipEntity:
+		memberships, err := a.searchMemberships(ctx, client, req.Query, gitlabDefaultFilters(entity, req.Filters), req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(memberships, a.membershipRecord), -1), nil
 	case MergeRequestEntity:
 		mrs, err := searchMergeRequests(ctx, client, req.Query, req.Filters, req.Limit, 1)
 		if err != nil {
@@ -169,7 +178,7 @@ func (a gitlabAccessor) indexSearch(ctx context.Context, entity coredatasource.E
 		Datasource: a.spec.Name,
 		Entity:     entity,
 		Query:      req.Query,
-		Filters:    req.Filters,
+		Filters:    gitlabDefaultFilters(entity, req.Filters),
 		Limit:      req.Limit,
 	})
 	if err != nil {
@@ -199,9 +208,10 @@ type indexedMembershipPage struct {
 	nextCursor  string
 }
 
-func (a gitlabAccessor) indexedUserMemberships(ctx context.Context, userID int64, sourceType string, limit int, cursor string) (indexedMembershipPage, error) {
+func (a gitlabAccessor) indexedUserMemberships(ctx context.Context, userID int64, sourceType string, limit int, cursor string, filters map[string]string) (indexedMembershipPage, error) {
 	limit = normalizedLimit(limit)
-	filters := map[string]string{"user_id": strconv.FormatInt(userID, 10)}
+	filters = cloneFilters(filters)
+	filters["user_id"] = strconv.FormatInt(userID, 10)
 	if strings.TrimSpace(sourceType) != "" {
 		filters["source_type"] = normalizedMembershipSourceType(sourceType)
 	}
@@ -244,7 +254,7 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 	page := cursorPage(req.Cursor)
 	switch entity {
 	case ProjectEntity:
-		projects, err := searchProjects(ctx, client, "", limit, page)
+		projects, err := searchProjects(ctx, client, "", gitlabDefaultFilters(entity, req.Filters), limit, page)
 		if err != nil {
 			return coredatasource.ListResult{}, err
 		}
@@ -296,17 +306,20 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 		if err != nil {
 			return coredatasource.ListResult{}, err
 		}
+		filters := gitlabDefaultFilters(entity, req.Filters)
 		if a.spec.Index.Enabled {
-			memberships, err := a.indexedUserMemberships(ctx, userID, "", limit, req.Cursor)
+			memberships, err := a.indexedUserMemberships(ctx, userID, "", limit, req.Cursor, filters)
 			if err != nil {
 				return coredatasource.ListResult{}, err
 			}
 			return runtimedatasource.ListResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(memberships.memberships, a.membershipRecord), -1, memberships.nextCursor), nil
 		}
-		memberships, err := listUserMemberships(ctx, client, userID, limit, page)
+		memberships, err := allUserMemberships(ctx, client, userID)
 		if err != nil {
 			return coredatasource.ListResult{}, err
 		}
+		memberships = filterMemberships(memberships, filters)
+		memberships = pageMemberships(memberships, limit, page)
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(memberships, a.membershipRecord), len(memberships), limit, page), nil
 	default:
 		return coredatasource.ListResult{}, fmt.Errorf("datasource %q entity %q does not support list", a.spec.Name, entity)
@@ -620,7 +633,7 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 		switch req.Relation {
 		case "memberships":
 			if a.spec.Index.Enabled {
-				memberships, err := a.indexedUserMemberships(ctx, userID, "", limit, req.Cursor)
+				memberships, err := a.indexedUserMemberships(ctx, userID, "", limit, req.Cursor, nil)
 				if err != nil {
 					return coredatasource.RelationResult{}, err
 				}
@@ -633,7 +646,7 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 			return a.relationResult(req, MembershipEntity, runtimedatasource.RecordsFrom(memberships, a.membershipRecord), len(memberships), limit)
 		case "groups":
 			if a.spec.Index.Enabled {
-				memberships, err := a.indexedUserMemberships(ctx, userID, "Namespace", limit, req.Cursor)
+				memberships, err := a.indexedUserMemberships(ctx, userID, "Namespace", limit, req.Cursor, nil)
 				if err != nil {
 					return coredatasource.RelationResult{}, err
 				}
@@ -648,7 +661,7 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 			return a.relationResult(req, GroupEntity, runtimedatasource.RecordsFrom(groups, a.groupRecord), len(groups), limit)
 		case "projects":
 			if a.spec.Index.Enabled {
-				memberships, err := a.indexedUserMemberships(ctx, userID, "Project", limit, req.Cursor)
+				memberships, err := a.indexedUserMemberships(ctx, userID, "Project", limit, req.Cursor, nil)
 				if err != nil {
 					return coredatasource.RelationResult{}, err
 				}
@@ -877,7 +890,7 @@ func (a gitlabAccessor) Corpus(ctx context.Context, req coredatasource.CorpusReq
 	page := cursorPage(req.Cursor)
 	switch entity {
 	case ProjectEntity:
-		projects, err := searchProjects(ctx, client, "", limit, page)
+		projects, err := searchProjects(ctx, client, "", nil, limit, page)
 		if err != nil {
 			return coredatasource.CorpusPage{}, err
 		}
@@ -895,7 +908,7 @@ func (a gitlabAccessor) Corpus(ctx context.Context, req coredatasource.CorpusReq
 		}
 		return runtimedatasource.CorpusPageFromRecords(runtimedatasource.RecordsFrom(groups, a.groupRecord), len(groups), limit, page), nil
 	case MembershipEntity:
-		memberships, next, err := listMembershipCorpusPage(ctx, client, limit, req.Cursor)
+		memberships, next, err := a.listMembershipCorpusPage(ctx, client, req.Limit, req.Cursor)
 		if err != nil {
 			return coredatasource.CorpusPage{}, err
 		}
@@ -940,6 +953,7 @@ func (a gitlabAccessor) projectRecord(project Project) coredatasource.Record {
 			"path_with_namespace": project.PathWithNamespace,
 			"visibility":          project.Visibility,
 			"default_branch":      project.DefaultBranch,
+			"archived":            strconv.FormatBool(project.Archived),
 		},
 		Raw: project,
 	}
@@ -1227,15 +1241,17 @@ func (a gitlabAccessor) groupRecord(group Group) coredatasource.Record {
 
 func (a gitlabAccessor) membershipRecord(membership Membership) coredatasource.Record {
 	metadata := map[string]string{
-		"id":           membership.ID,
-		"user_id":      strconv.FormatInt(membership.UserID, 10),
-		"source_id":    strconv.FormatInt(membership.SourceID, 10),
-		"source_name":  membership.SourceName,
-		"source_type":  membership.SourceType,
-		"source_path":  membership.SourcePath,
-		"source_url":   membership.SourceURL,
-		"access_level": membership.AccessLevel,
-		"role":         membership.Role,
+		"id":              membership.ID,
+		"user_id":         strconv.FormatInt(membership.UserID, 10),
+		"source_id":       strconv.FormatInt(membership.SourceID, 10),
+		"source_name":     membership.SourceName,
+		"source_type":     membership.SourceType,
+		"source_path":     membership.SourcePath,
+		"source_url":      membership.SourceURL,
+		"access_level":    membership.AccessLevel,
+		"role":            membership.Role,
+		"direct":          strconv.FormatBool(membership.Direct),
+		"source_archived": strconv.FormatBool(membership.SourceArchived),
 	}
 	addMembershipRelationMetadata(metadata, membership)
 	return coredatasource.Record{
@@ -1318,19 +1334,174 @@ func membershipFromRecord(record coredatasource.Record) (Membership, error) {
 		id = membershipID(userID, sourceType, sourceID)
 	}
 	return Membership{
-		ID:          id,
-		UserID:      userID,
-		SourceID:    sourceID,
-		SourceName:  record.Metadata["source_name"],
-		SourceType:  sourceType,
-		SourcePath:  record.Metadata["source_path"],
-		SourceURL:   firstNonEmpty(record.Metadata["source_url"], record.URL),
-		AccessLevel: record.Metadata["access_level"],
-		Role:        record.Metadata["role"],
+		ID:             id,
+		UserID:         userID,
+		SourceID:       sourceID,
+		SourceName:     record.Metadata["source_name"],
+		SourceType:     sourceType,
+		SourcePath:     record.Metadata["source_path"],
+		SourceURL:      firstNonEmpty(record.Metadata["source_url"], record.URL),
+		AccessLevel:    record.Metadata["access_level"],
+		Role:           record.Metadata["role"],
+		Direct:         parseMetadataBool(record.Metadata, "direct"),
+		SourceArchived: parseMetadataBool(record.Metadata, "source_archived"),
 	}, nil
 }
 
-func searchProjects(ctx context.Context, client gitlabClient, query string, perPage, page int) ([]Project, error) {
+func parseMetadataBool(metadata map[string]string, key string) bool {
+	value := strings.TrimSpace(metadata[key])
+	if value == "" {
+		return false
+	}
+	parsed, _ := strconv.ParseBool(value)
+	return parsed
+}
+
+func gitlabDefaultFilters(entity coredatasource.EntityType, filters map[string]string) map[string]string {
+	out := cloneFilters(filters)
+	switch entity {
+	case ProjectEntity:
+		if !hasExplicitFilter(out, "archived") {
+			out["archived"] = "false"
+		}
+	case MembershipEntity:
+		if !hasExplicitFilter(out, "source_archived") {
+			out["source_archived"] = "false"
+		}
+	}
+	return out
+}
+
+func cloneFilters(filters map[string]string) map[string]string {
+	if len(filters) == 0 {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(filters))
+	for key, value := range filters {
+		out[key] = value
+	}
+	return out
+}
+
+func hasExplicitFilter(filters map[string]string, key string) bool {
+	value, ok := filters[key]
+	return ok && strings.TrimSpace(value) != ""
+}
+
+func (a gitlabAccessor) searchMemberships(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]Membership, error) {
+	limit = normalizedLimit(limit)
+	if userIDText := strings.TrimSpace(filters["user_id"]); userIDText != "" {
+		userID, err := strconv.ParseInt(userIDText, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab user_id filter must be numeric")
+		}
+		memberships, err := allUserMemberships(ctx, client, userID)
+		if err != nil {
+			return nil, err
+		}
+		return limitMemberships(filterMembershipSearch(filterMemberships(memberships, filters), query), limit), nil
+	}
+	var out []Membership
+	cursor := ""
+	for len(out) < limit {
+		page, next, err := a.listMembershipCorpusPage(ctx, client, membershipCorpusDefaultSize, cursor)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, filterMembershipSearch(filterMemberships(page, filters), query)...)
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	sortMemberships(out)
+	return limitMemberships(out, limit), nil
+}
+
+func filterMemberships(memberships []Membership, filters map[string]string) []Membership {
+	if len(filters) == 0 {
+		return memberships
+	}
+	out := make([]Membership, 0, len(memberships))
+	for _, membership := range memberships {
+		if membershipMatchesFilters(membership, filters) {
+			out = append(out, membership)
+		}
+	}
+	return out
+}
+
+func membershipMatchesFilters(membership Membership, filters map[string]string) bool {
+	for key, want := range filters {
+		want = strings.TrimSpace(want)
+		if want == "" {
+			continue
+		}
+		got, ok := membershipFilterValue(membership, key)
+		if !ok || !strings.EqualFold(strings.TrimSpace(got), want) {
+			return false
+		}
+	}
+	return true
+}
+
+func membershipFilterValue(membership Membership, key string) (string, bool) {
+	switch key {
+	case "id":
+		return membership.ID, true
+	case "user_id":
+		return strconv.FormatInt(membership.UserID, 10), true
+	case "source_id":
+		return strconv.FormatInt(membership.SourceID, 10), true
+	case "source_name":
+		return membership.SourceName, true
+	case "source_type":
+		return membership.SourceType, true
+	case "source_path":
+		return membership.SourcePath, true
+	case "access_level":
+		return membership.AccessLevel, true
+	case "role":
+		return membership.Role, true
+	case "direct":
+		return strconv.FormatBool(membership.Direct), true
+	case "source_archived":
+		return strconv.FormatBool(membership.SourceArchived), true
+	default:
+		return "", false
+	}
+}
+
+func filterMembershipSearch(memberships []Membership, query string) []Membership {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return memberships
+	}
+	out := make([]Membership, 0, len(memberships))
+	for _, membership := range memberships {
+		text := strings.ToLower(strings.Join([]string{
+			membership.ID,
+			membership.SourceName,
+			membership.SourceType,
+			membership.SourcePath,
+			membership.AccessLevel,
+			membership.Role,
+		}, " "))
+		if strings.Contains(text, query) {
+			out = append(out, membership)
+		}
+	}
+	return out
+}
+
+func limitMemberships(memberships []Membership, limit int) []Membership {
+	if limit <= 0 || len(memberships) <= limit {
+		return memberships
+	}
+	return memberships[:limit]
+}
+
+func searchProjects(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]Project, error) {
 	if client == nil {
 		return nil, fmt.Errorf("gitlabplugin: client is nil")
 	}
@@ -1340,11 +1511,19 @@ func searchProjects(ctx context.Context, client gitlabClient, query string, perP
 	if search != "" {
 		searchParam = &search
 	}
-	projects, err := client.ListProjects(ctx, &gitlab.ListProjectsOptions{
+	opt := &gitlab.ListProjectsOptions{
 		ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
 		Search:      searchParam,
 		Simple:      &simple,
-	})
+	}
+	if value := strings.TrimSpace(filters["archived"]); value != "" {
+		archived, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid archived filter %q", value)
+		}
+		opt.Archived = &archived
+	}
+	projects, err := client.ListProjects(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -1644,7 +1823,7 @@ func getProject(ctx context.Context, client gitlabClient, id string) (Project, e
 		}
 		return Project{}, coredatasource.ErrNotFound
 	}
-	projects, searchErr := searchProjects(ctx, client, id, defaultPageSize, 1)
+	projects, searchErr := searchProjects(ctx, client, id, nil, defaultPageSize, 1)
 	if searchErr != nil {
 		if err != nil {
 			return Project{}, err
@@ -1765,7 +1944,7 @@ func listGroupDescendants(ctx context.Context, client gitlabClient, group any, p
 }
 
 func listGroupUsers(ctx context.Context, client gitlabClient, group any, perPage, page int) ([]User, error) {
-	members, err := client.ListAllGroupMembers(ctx, group, &gitlab.ListGroupMembersOptions{
+	members, err := client.ListGroupMembers(ctx, group, &gitlab.ListGroupMembersOptions{
 		ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
 	})
 	if err != nil {
@@ -1779,7 +1958,14 @@ func listGroupUsers(ctx context.Context, client gitlabClient, group any, perPage
 }
 
 func listUserMemberships(ctx context.Context, client gitlabClient, userID int64, perPage, page int) ([]Membership, error) {
-	limit := normalizedLimit(perPage)
+	memberships, err := allUserMemberships(ctx, client, userID)
+	if err != nil {
+		return nil, err
+	}
+	return pageMemberships(memberships, normalizedLimit(perPage), page), nil
+}
+
+func allUserMemberships(ctx context.Context, client gitlabClient, userID int64) ([]Membership, error) {
 	groups, err := listMembershipGroups(ctx, client)
 	if err != nil {
 		return nil, err
@@ -1794,7 +1980,7 @@ func listUserMemberships(ctx context.Context, client gitlabClient, userID int64,
 		if group.ID == 0 && group.FullPath == "" {
 			continue
 		}
-		members, err := client.ListAllGroupMembers(ctx, projectID(groupIDString(group)), &gitlab.ListGroupMembersOptions{
+		members, err := client.ListGroupMembers(ctx, projectID(groupIDString(group)), &gitlab.ListGroupMembersOptions{
 			ListOptions: gitlab.ListOptions{PerPage: 1, Page: 1},
 			UserIDs:     &userIDs,
 		})
@@ -1811,7 +1997,7 @@ func listUserMemberships(ctx context.Context, client gitlabClient, userID int64,
 		if project.ID == 0 && project.PathWithNamespace == "" {
 			continue
 		}
-		members, err := client.ListAllProjectMembers(ctx, projectID(projectIDString(project)), &gitlab.ListProjectMembersOptions{
+		members, err := client.ListProjectMembers(ctx, projectID(projectIDString(project)), &gitlab.ListProjectMembersOptions{
 			ListOptions: gitlab.ListOptions{PerPage: 1, Page: 1},
 			UserIDs:     &userIDs,
 		})
@@ -1829,7 +2015,7 @@ func listUserMemberships(ctx context.Context, client gitlabClient, userID int64,
 		out = append(out, membership)
 	}
 	sortMemberships(out)
-	return pageMemberships(out, limit, page), nil
+	return out, nil
 }
 
 func listMembershipGroups(ctx context.Context, client gitlabClient) ([]Group, error) {
@@ -1892,10 +2078,90 @@ type membershipCorpusCursor struct {
 const (
 	membershipCorpusKindGroup   = "group"
 	membershipCorpusKindProject = "project"
+	membershipCorpusDefaultSize = 100
+	membershipSourcePageSize    = 100
 )
 
-func listMembershipCorpusPage(ctx context.Context, client gitlabClient, limit int, cursor string) ([]Membership, string, error) {
-	limit = normalizedLimit(limit)
+type gitLabMembershipSourceCache struct {
+	mu            sync.Mutex
+	groupsReady   bool
+	groups        []Group
+	projectsReady bool
+	projects      []Project
+}
+
+func (c *gitLabMembershipSourceCache) groupPage(ctx context.Context, client gitlabClient, page int) ([]Group, bool, error) {
+	if c == nil {
+		return listMembershipGroupsPage(ctx, client, page)
+	}
+	groups, err := c.allGroups(ctx, client)
+	if err != nil {
+		return nil, false, err
+	}
+	pageGroups, hasNext := membershipSourcePage(groups, page)
+	return pageGroups, hasNext, nil
+}
+
+func (c *gitLabMembershipSourceCache) projectPage(ctx context.Context, client gitlabClient, page int) ([]Project, bool, error) {
+	if c == nil {
+		projects, err := listMembershipProjectsPage(ctx, client, page)
+		return projects, len(projects) >= membershipSourcePageSize, err
+	}
+	projects, err := c.allProjects(ctx, client)
+	if err != nil {
+		return nil, false, err
+	}
+	pageProjects, hasNext := membershipSourcePage(projects, page)
+	return pageProjects, hasNext, nil
+}
+
+func (c *gitLabMembershipSourceCache) allGroups(ctx context.Context, client gitlabClient) ([]Group, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.groupsReady {
+		return append([]Group(nil), c.groups...), nil
+	}
+	groups, err := listMembershipGroups(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	c.groups = append([]Group(nil), groups...)
+	c.groupsReady = true
+	return append([]Group(nil), c.groups...), nil
+}
+
+func (c *gitLabMembershipSourceCache) allProjects(ctx context.Context, client gitlabClient) ([]Project, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.projectsReady {
+		return append([]Project(nil), c.projects...), nil
+	}
+	projects, err := listMembershipProjects(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	c.projects = append([]Project(nil), projects...)
+	c.projectsReady = true
+	return append([]Project(nil), c.projects...), nil
+}
+
+func membershipSourcePage[T any](items []T, page int) ([]T, bool) {
+	if page <= 0 {
+		page = 1
+	}
+	start := (page - 1) * membershipSourcePageSize
+	if start >= len(items) {
+		return nil, false
+	}
+	end := start + membershipSourcePageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return append([]T(nil), items[start:end]...), end < len(items)
+}
+
+func (a gitlabAccessor) listMembershipCorpusPage(ctx context.Context, client gitlabClient, limit int, cursor string) ([]Membership, string, error) {
+	limit = normalizedMembershipCorpusLimit(limit)
 	state, err := parseMembershipCorpusCursor(cursor)
 	if err != nil {
 		return nil, "", err
@@ -1907,7 +2173,7 @@ func listMembershipCorpusPage(ctx context.Context, client gitlabClient, limit in
 		}
 		switch state.kind {
 		case membershipCorpusKindGroup:
-			next, err := appendGroupMembershipCorpus(ctx, client, &state, limit-len(out), &out)
+			next, err := a.appendGroupMembershipCorpus(ctx, client, &state, limit-len(out), &out)
 			if err != nil {
 				return nil, "", err
 			}
@@ -1918,7 +2184,7 @@ func listMembershipCorpusPage(ctx context.Context, client gitlabClient, limit in
 				return out, next, nil
 			}
 		case membershipCorpusKindProject:
-			next, err := appendProjectMembershipCorpus(ctx, client, &state, limit-len(out), &out)
+			next, err := a.appendProjectMembershipCorpus(ctx, client, &state, limit-len(out), &out)
 			if err != nil {
 				return nil, "", err
 			}
@@ -1935,9 +2201,16 @@ func listMembershipCorpusPage(ctx context.Context, client gitlabClient, limit in
 	return out, state.String(), nil
 }
 
-func appendGroupMembershipCorpus(ctx context.Context, client gitlabClient, state *membershipCorpusCursor, limit int, out *[]Membership) (string, error) {
+func normalizedMembershipCorpusLimit(limit int) int {
+	if limit <= 0 {
+		return membershipCorpusDefaultSize
+	}
+	return normalizedLimit(limit)
+}
+
+func (a gitlabAccessor) appendGroupMembershipCorpus(ctx context.Context, client gitlabClient, state *membershipCorpusCursor, limit int, out *[]Membership) (string, error) {
 	for {
-		groups, hasNextPage, err := listMembershipGroupsPage(ctx, client, state.sourcePage)
+		groups, hasNextPage, err := a.membershipSources.groupPage(ctx, client, state.sourcePage)
 		if err != nil {
 			return "", err
 		}
@@ -1959,7 +2232,7 @@ func appendGroupMembershipCorpus(ctx context.Context, client gitlabClient, state
 			advanceMembershipCorpusSource(state)
 			continue
 		}
-		members, err := client.ListAllGroupMembers(ctx, projectID(groupIDString(group)), &gitlab.ListGroupMembersOptions{
+		members, err := client.ListGroupMembers(ctx, projectID(groupIDString(group)), &gitlab.ListGroupMembersOptions{
 			ListOptions: gitlab.ListOptions{PerPage: int64(limit), Page: int64(state.memberPage)},
 		})
 		if err != nil {
@@ -1985,14 +2258,14 @@ func appendGroupMembershipCorpus(ctx context.Context, client gitlabClient, state
 	}
 }
 
-func appendProjectMembershipCorpus(ctx context.Context, client gitlabClient, state *membershipCorpusCursor, limit int, out *[]Membership) (string, error) {
+func (a gitlabAccessor) appendProjectMembershipCorpus(ctx context.Context, client gitlabClient, state *membershipCorpusCursor, limit int, out *[]Membership) (string, error) {
 	for {
-		projects, err := listMembershipProjectsPage(ctx, client, state.sourcePage)
+		projects, hasNextPage, err := a.membershipSources.projectPage(ctx, client, state.sourcePage)
 		if err != nil {
 			return "", err
 		}
 		if state.source >= len(projects) {
-			if len(projects) >= 100 {
+			if hasNextPage {
 				state.sourcePage++
 				state.source = 0
 				state.memberPage = 1
@@ -2005,7 +2278,7 @@ func appendProjectMembershipCorpus(ctx context.Context, client gitlabClient, sta
 			advanceMembershipCorpusSource(state)
 			continue
 		}
-		members, err := client.ListAllProjectMembers(ctx, projectID(projectIDString(project)), &gitlab.ListProjectMembersOptions{
+		members, err := client.ListProjectMembers(ctx, projectID(projectIDString(project)), &gitlab.ListProjectMembersOptions{
 			ListOptions: gitlab.ListOptions{PerPage: int64(limit), Page: int64(state.memberPage)},
 		})
 		if err != nil {
@@ -2078,10 +2351,8 @@ func listMembershipGroupsPage(ctx context.Context, client gitlabClient, page int
 
 func listMembershipProjectsPage(ctx context.Context, client gitlabClient, page int) ([]Project, error) {
 	simple := true
-	membership := true
 	projects, err := client.ListProjects(ctx, &gitlab.ListProjectsOptions{
 		ListOptions: gitlab.ListOptions{PerPage: 100, Page: int64(page)},
-		Membership:  &membership,
 		Simple:      &simple,
 	})
 	if err != nil {
@@ -2134,11 +2405,9 @@ func listMembershipProjects(ctx context.Context, client gitlabClient) ([]Project
 	seen := map[string]bool{}
 	var out []Project
 	simple := true
-	membership := true
 	for page := 1; ; page++ {
 		projects, err := client.ListProjects(ctx, &gitlab.ListProjectsOptions{
 			ListOptions: gitlab.ListOptions{PerPage: 100, Page: int64(page)},
-			Membership:  &membership,
 			Simple:      &simple,
 		})
 		if err != nil {
@@ -2203,6 +2472,7 @@ func projectsFromMemberships(memberships []Membership) []Project {
 			Name:              membership.SourceName,
 			PathWithNamespace: membership.SourcePath,
 			WebURL:            membership.SourceURL,
+			Archived:          membership.SourceArchived,
 		})
 	}
 	return out

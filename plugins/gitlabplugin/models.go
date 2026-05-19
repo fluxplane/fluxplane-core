@@ -38,6 +38,7 @@ type Project struct {
 	WebURL            string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
 	DefaultBranch     string `json:"default_branch,omitempty" datasource:"filterable" jsonschema:"description=Default branch name."`
 	Visibility        string `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Project visibility."`
+	Archived          bool   `json:"archived,omitempty" datasource:"filterable" jsonschema:"description=Whether the project is archived."`
 }
 
 type MergeRequest struct {
@@ -221,15 +222,17 @@ type Group struct {
 }
 
 type Membership struct {
-	ID          string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this membership."`
-	UserID      int64  `json:"user_id" datasource:"filterable" jsonschema:"description=GitLab user id."`
-	SourceID    int64  `json:"source_id" datasource:"filterable" jsonschema:"description=GitLab group or project id."`
-	SourceName  string `json:"source_name" datasource:"searchable" jsonschema:"description=Membership source display name."`
-	SourceType  string `json:"source_type" datasource:"filterable" jsonschema:"description=Membership source type, Namespace or Project."`
-	SourcePath  string `json:"source_path,omitempty" datasource:"searchable,filterable" jsonschema:"description=Full group or project path when available."`
-	SourceURL   string `json:"source_url,omitempty" datasource:"url" jsonschema:"description=Membership source web URL when available."`
-	AccessLevel string `json:"access_level,omitempty" datasource:"filterable" jsonschema:"description=GitLab access level name."`
-	Role        string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role name for this membership."`
+	ID             string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this direct membership."`
+	UserID         int64  `json:"user_id" datasource:"filterable" jsonschema:"description=GitLab user id."`
+	SourceID       int64  `json:"source_id" datasource:"filterable" jsonschema:"description=GitLab group or project id."`
+	SourceName     string `json:"source_name" datasource:"searchable" jsonschema:"description=Membership source display name."`
+	SourceType     string `json:"source_type" datasource:"filterable" jsonschema:"description=Membership source type, Namespace or Project."`
+	SourcePath     string `json:"source_path,omitempty" datasource:"searchable,filterable" jsonschema:"description=Full group or project path when available."`
+	SourceURL      string `json:"source_url,omitempty" datasource:"url" jsonschema:"description=Membership source web URL when available."`
+	AccessLevel    string `json:"access_level,omitempty" datasource:"filterable" jsonschema:"description=GitLab access level name."`
+	Role           string `json:"role,omitempty" datasource:"filterable" jsonschema:"description=Role name for this membership."`
+	Direct         bool   `json:"direct" datasource:"filterable" jsonschema:"description=Whether this edge is a direct GitLab membership."`
+	SourceArchived bool   `json:"source_archived,omitempty" datasource:"filterable" jsonschema:"description=Whether the source project is archived."`
 }
 
 func entitySpecs() []coredatasource.EntitySpec {
@@ -464,8 +467,9 @@ func groupEntitySpec() coredatasource.EntitySpec {
 }
 
 func membershipEntitySpec() coredatasource.EntitySpec {
-	entity := runtimedatasource.EntityOf[Membership](MembershipEntity, "GitLab user membership.")
+	entity := runtimedatasource.EntityOf[Membership](MembershipEntity, "Direct GitLab user membership.")
 	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
@@ -490,6 +494,7 @@ func projectFromGitLab(project *gitlab.Project) Project {
 		WebURL:            project.WebURL,
 		DefaultBranch:     project.DefaultBranch,
 		Visibility:        string(project.Visibility),
+		Archived:          project.Archived,
 	}
 }
 
@@ -789,6 +794,7 @@ func membershipFromGroupMember(userID int64, group Group, member *gitlab.GroupMe
 		SourceURL:   group.WebURL,
 		AccessLevel: accessLevelName(access),
 		Role:        accessLevelName(access),
+		Direct:      true,
 	}
 }
 
@@ -798,15 +804,17 @@ func membershipFromProjectMember(userID int64, project Project, member *gitlab.P
 		access = member.AccessLevel
 	}
 	return Membership{
-		ID:          membershipID(userID, "Project", project.ID),
-		UserID:      userID,
-		SourceID:    project.ID,
-		SourceName:  project.Name,
-		SourceType:  "Project",
-		SourcePath:  project.PathWithNamespace,
-		SourceURL:   project.WebURL,
-		AccessLevel: accessLevelName(access),
-		Role:        accessLevelName(access),
+		ID:             membershipID(userID, "Project", project.ID),
+		UserID:         userID,
+		SourceID:       project.ID,
+		SourceName:     project.Name,
+		SourceType:     "Project",
+		SourcePath:     project.PathWithNamespace,
+		SourceURL:      project.WebURL,
+		AccessLevel:    accessLevelName(access),
+		Role:           accessLevelName(access),
+		Direct:         true,
+		SourceArchived: project.Archived,
 	}
 }
 

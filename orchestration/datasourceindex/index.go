@@ -49,22 +49,29 @@ type ProgressReporter func(ProgressEvent)
 
 // ProgressEvent describes one indexing progress observation.
 type ProgressEvent struct {
-	Kind       string
-	Datasource coredatasource.Name
-	Entity     coredatasource.EntityType
-	RecordID   string
-	Cursor     string
-	NextCursor string
-	Documents  int
-	Indexed    int
-	Queued     int
-	Skipped    int
-	Deleted    int
-	Failed     int
-	Tombstones int
-	FreshUntil time.Time
-	Message    string
-	Phase      string
+	Kind          string
+	Datasource    coredatasource.Name
+	Entity        coredatasource.EntityType
+	RecordID      string
+	Cursor        string
+	NextCursor    string
+	Page          int
+	PageDocuments int
+	Documents     int
+	Indexed       int
+	Queued        int
+	Skipped       int
+	Deleted       int
+	Failed        int
+	Tombstones    int
+	FirstID       string
+	LastID        string
+	Complete      bool
+	Elapsed       time.Duration
+	Rate          float64
+	FreshUntil    time.Time
+	Message       string
+	Phase         string
 }
 
 const (
@@ -74,17 +81,18 @@ const (
 	PhaseSemantic = "semantic"
 	PhaseEmbed    = "embed"
 
-	ProgressEntityStart      = "entity_start"
-	ProgressPageFetched      = "page_fetched"
-	ProgressDocumentIndexed  = "document_indexed"
-	ProgressDocumentQueued   = "document_queued"
-	ProgressDocumentSkipped  = "document_skipped"
-	ProgressDocumentFailed   = "document_failed"
-	ProgressEntityFresh      = "entity_fresh"
-	ProgressTombstoneDeleted = "tombstone_deleted"
-	ProgressTombstoneFailed  = "tombstone_failed"
-	ProgressEntityComplete   = "entity_complete"
-	ProgressComplete         = "complete"
+	ProgressEntityStart        = "entity_start"
+	ProgressPageFetched        = "page_fetched"
+	ProgressDocumentIndexed    = "document_indexed"
+	ProgressDocumentQueued     = "document_queued"
+	ProgressDocumentSkipped    = "document_skipped"
+	ProgressDocumentFailed     = "document_failed"
+	ProgressEntityFresh        = "entity_fresh"
+	ProgressEntityRunningStale = "entity_running_stale"
+	ProgressTombstoneDeleted   = "tombstone_deleted"
+	ProgressTombstoneFailed    = "tombstone_failed"
+	ProgressEntityComplete     = "entity_complete"
+	ProgressComplete           = "complete"
 )
 
 // Build incrementally indexes corpus from selected datasources/entities.
@@ -294,6 +302,8 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 				report(req.Progress, ProgressEvent{Kind: ProgressEntityFresh, Datasource: job.spec.Name, Entity: job.entity.Type, FreshUntil: freshUntil, Phase: phase})
 				return Result{Skipped: 1}, nil, nil
 			}
+		} else if ok && run.Status == semantic.IndexRunStatusRunning {
+			report(req.Progress, ProgressEvent{Kind: ProgressEntityRunningStale, Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase, Message: staleRunMessage(run)})
 		} else if req.Index != nil {
 			run, ok, err := req.Index.IndexRun(ctx, semantic.IndexRunKey{Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase})
 			if err != nil {
@@ -305,6 +315,8 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 					report(req.Progress, ProgressEvent{Kind: ProgressEntityFresh, Datasource: job.spec.Name, Entity: job.entity.Type, FreshUntil: freshUntil, Phase: phase})
 					return Result{Skipped: 1}, nil, nil
 				}
+			} else if ok && run.Status == semantic.IndexRunStatusRunning {
+				report(req.Progress, ProgressEvent{Kind: ProgressEntityRunningStale, Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase, Message: staleRunMessage(run)})
 			}
 		}
 	}
@@ -330,11 +342,13 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 	seen := map[string]bool{}
 	report(req.Progress, ProgressEvent{Kind: ProgressEntityStart, Datasource: job.spec.Name, Entity: job.entity.Type, Phase: phase})
 	cursor := ""
+	pageNumber := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			finishRun(ctx, req, job, phase, startedAt, entityResult, err)
 			return entityResult, seen, err
 		}
+		pageNumber++
 		page, err := job.corpus.Corpus(ctx, coredatasource.CorpusRequest{Entity: job.entity.Type, Cursor: cursor, Limit: req.Limit})
 		if err != nil {
 			entityResult.Failed++
@@ -343,16 +357,6 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 			finishRun(ctx, req, job, phase, startedAt, entityResult, wrapped)
 			return entityResult, seen, wrapped
 		}
-		report(req.Progress, ProgressEvent{
-			Kind:       ProgressPageFetched,
-			Datasource: job.spec.Name,
-			Entity:     job.entity.Type,
-			Phase:      phase,
-			Cursor:     cursor,
-			NextCursor: page.NextCursor,
-			Documents:  len(page.Documents),
-			Tombstones: len(page.Tombstones),
-		})
 		pageDocs := make([]coredatasource.CorpusDocument, 0, len(page.Documents))
 		for _, doc := range page.Documents {
 			key := semantic.DocumentKey(doc.Ref)
@@ -428,6 +432,30 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 			entityResult.Deleted++
 			report(req.Progress, ProgressEvent{Kind: ProgressTombstoneDeleted, Datasource: job.spec.Name, Entity: job.entity.Type, RecordID: ref.ID, Deleted: entityResult.Deleted, Phase: phase})
 		}
+		firstID, lastID := pageBoundaryIDs(page)
+		elapsed := now().UTC().Sub(startedAt)
+		report(req.Progress, ProgressEvent{
+			Kind:          ProgressPageFetched,
+			Datasource:    job.spec.Name,
+			Entity:        job.entity.Type,
+			Phase:         phase,
+			Cursor:        cursor,
+			NextCursor:    page.NextCursor,
+			Page:          pageNumber,
+			PageDocuments: len(page.Documents),
+			Documents:     entityResult.Documents,
+			Indexed:       entityResult.Indexed,
+			Queued:        entityResult.Queued,
+			Skipped:       entityResult.Skipped,
+			Deleted:       entityResult.Deleted,
+			Failed:        entityResult.Failed,
+			Tombstones:    len(page.Tombstones),
+			FirstID:       firstID,
+			LastID:        lastID,
+			Complete:      page.NextCursor == "" || page.Complete,
+			Elapsed:       elapsed,
+			Rate:          documentsPerSecond(entityResult.Documents, elapsed),
+		})
 		if page.NextCursor == "" {
 			break
 		}
@@ -436,6 +464,30 @@ func buildJob(ctx context.Context, req Request, job indexJob, phase string) (Res
 	report(req.Progress, ProgressEvent{Kind: ProgressEntityComplete, Datasource: job.spec.Name, Entity: job.entity.Type, Documents: entityResult.Documents, Indexed: entityResult.Indexed, Queued: entityResult.Queued, Skipped: entityResult.Skipped, Deleted: entityResult.Deleted, Failed: entityResult.Failed, Phase: phase})
 	finishRun(ctx, req, job, phase, startedAt, entityResult, nil)
 	return entityResult, seen, nil
+}
+
+func pageBoundaryIDs(page coredatasource.CorpusPage) (string, string) {
+	if len(page.Documents) > 0 {
+		return page.Documents[0].Ref.ID, page.Documents[len(page.Documents)-1].Ref.ID
+	}
+	if len(page.Tombstones) > 0 {
+		return page.Tombstones[0].ID, page.Tombstones[len(page.Tombstones)-1].ID
+	}
+	return "", ""
+}
+
+func documentsPerSecond(documents int, elapsed time.Duration) float64 {
+	if documents <= 0 || elapsed <= 0 {
+		return 0
+	}
+	return float64(documents) / elapsed.Seconds()
+}
+
+func staleRunMessage(run semantic.IndexRunState) string {
+	if run.StartedAt.IsZero() {
+		return "previous running checkpoint has no completion timestamp"
+	}
+	return "previous running checkpoint started at " + run.StartedAt.Format(time.RFC3339Nano) + " and has no completion timestamp"
 }
 
 func buildPageFields(ctx context.Context, req Request, job indexJob, docs []coredatasource.CorpusDocument, result *Result) (map[string]bool, map[string]bool) {

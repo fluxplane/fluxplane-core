@@ -368,6 +368,7 @@ func TestDatasourceProviderIndexedSearchUsesFieldIndex(t *testing.T) {
 			"id":                  "12",
 			"name":                "runtime",
 			"path_with_namespace": "fluxplane/runtime",
+			"archived":            "false",
 		},
 	}, projectEntitySpec())
 	if err != nil {
@@ -796,6 +797,7 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 					ID:                12,
 					Name:              "Runtime",
 					PathWithNamespace: "engineering/runtime",
+					Archived:          true,
 				}},
 				projectMembers: []*gitlab.ProjectMember{{
 					ID:          42,
@@ -824,6 +826,10 @@ func TestDatasourceProviderCorpusIncludesMemberships(t *testing.T) {
 	}
 	if page.Documents[0].Metadata["user_id"] != "42" || page.Documents[0].Metadata["source_type"] == "" {
 		t.Fatalf("document metadata = %#v, want indexed membership fields", page.Documents[0].Metadata)
+	}
+	projectDoc := documentByID(page.Documents, "42:project:12")
+	if projectDoc.Metadata["direct"] != "true" || projectDoc.Metadata["source_archived"] != "true" {
+		t.Fatalf("project membership metadata = %#v, want direct archived project edge", projectDoc.Metadata)
 	}
 	if !hasDocumentID(page.Documents, "42:namespace:8") {
 		t.Fatalf("documents = %#v, want descendant group membership document", page.Documents)
@@ -885,11 +891,209 @@ func TestDatasourceProviderCorpusStreamsMemberships(t *testing.T) {
 	if len(page.Documents) != 1 || page.NextCursor == "" || page.Complete {
 		t.Fatalf("page = %#v, want one streamed membership and next cursor", page)
 	}
-	if !containsCall(calls, "list_groups") || !containsCall(calls, "list_all_group_members") {
+	if !containsCall(calls, "list_groups") || !containsCall(calls, "list_group_members") {
 		t.Fatalf("calls = %#v, want group source and group member page", calls)
 	}
-	if containsCall(calls, "list_projects") || containsCall(calls, "list_all_project_members") {
+	if containsCall(calls, "list_projects") || containsCall(calls, "list_project_members") {
 		t.Fatalf("calls = %#v, want first page before project scan", calls)
+	}
+}
+
+func TestDatasourceProviderListHidesArchivedProjectsByDefault(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{projects: []*gitlab.Project{{
+				ID:                12,
+				Name:              "Runtime",
+				PathWithNamespace: "engineering/runtime",
+			}, {
+				ID:                13,
+				Name:              "Old Runtime",
+				PathWithNamespace: "engineering/old-runtime",
+				Archived:          true,
+			}}}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{ProjectEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	lister := accessor.(coredatasource.Lister)
+	defaults, err := lister.List(context.Background(), coredatasource.ListRequest{Entity: ProjectEntity})
+	if err != nil {
+		t.Fatalf("default List: %v", err)
+	}
+	if len(defaults.Records) != 1 || defaults.Records[0].ID != "12" || defaults.Records[0].Metadata["archived"] != "false" {
+		t.Fatalf("default records = %#v, want only active project", defaults.Records)
+	}
+	archived, err := lister.List(context.Background(), coredatasource.ListRequest{Entity: ProjectEntity, Filters: map[string]string{"archived": "true"}})
+	if err != nil {
+		t.Fatalf("archived List: %v", err)
+	}
+	if len(archived.Records) != 1 || archived.Records[0].ID != "13" || archived.Records[0].Metadata["archived"] != "true" {
+		t.Fatalf("archived records = %#v, want archived project", archived.Records)
+	}
+}
+
+func TestDatasourceProviderListHidesArchivedProjectMembershipsByDefault(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				projects: []*gitlab.Project{{
+					ID:                12,
+					Name:              "Runtime",
+					PathWithNamespace: "engineering/runtime",
+				}, {
+					ID:                13,
+					Name:              "Old Runtime",
+					PathWithNamespace: "engineering/old-runtime",
+					Archived:          true,
+				}},
+				projectMembers: []*gitlab.ProjectMember{{
+					ID:          42,
+					Username:    "timo",
+					Name:        "Timo",
+					AccessLevel: gitlab.MaintainerPermissions,
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{MembershipEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	lister := accessor.(coredatasource.Lister)
+	defaults, err := lister.List(context.Background(), coredatasource.ListRequest{Entity: MembershipEntity, Filters: map[string]string{"user_id": "42"}})
+	if err != nil {
+		t.Fatalf("default List: %v", err)
+	}
+	if len(defaults.Records) != 1 || defaults.Records[0].ID != "42:project:12" || defaults.Records[0].Metadata["source_archived"] != "false" || defaults.Records[0].Metadata["direct"] != "true" {
+		t.Fatalf("default records = %#v, want only active direct project membership", defaults.Records)
+	}
+	archived, err := lister.List(context.Background(), coredatasource.ListRequest{Entity: MembershipEntity, Filters: map[string]string{"user_id": "42", "source_archived": "true"}})
+	if err != nil {
+		t.Fatalf("archived List: %v", err)
+	}
+	if len(archived.Records) != 1 || archived.Records[0].ID != "42:project:13" || archived.Records[0].Metadata["source_archived"] != "true" {
+		t.Fatalf("archived records = %#v, want archived project membership", archived.Records)
+	}
+}
+
+func TestDatasourceProviderCorpusCachesMembershipSources(t *testing.T) {
+	calls := []string{}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				calls: &calls,
+				groups: []*gitlab.Group{{
+					ID:       7,
+					Name:     "Platform",
+					FullPath: "engineering/platform",
+					FullName: "Engineering / Platform",
+				}},
+				descendantGroups: []*gitlab.Group{{
+					ID:       8,
+					Name:     "Core",
+					FullPath: "engineering/platform/core",
+					FullName: "Engineering / Platform / Core",
+				}},
+				groupMembers: []*gitlab.GroupMember{{
+					ID:          42,
+					Username:    "timo",
+					Name:        "Timo",
+					AccessLevel: gitlab.DeveloperPermissions,
+				}, {
+					ID:          43,
+					Username:    "ana",
+					Name:        "Ana",
+					AccessLevel: gitlab.ReporterPermissions,
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{MembershipEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	first, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: MembershipEntity, Limit: 1})
+	if err != nil {
+		t.Fatalf("first Corpus: %v", err)
+	}
+	if first.NextCursor == "" {
+		t.Fatalf("first page = %#v, want next cursor", first)
+	}
+	if _, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: MembershipEntity, Limit: 1, Cursor: first.NextCursor}); err != nil {
+		t.Fatalf("second Corpus: %v", err)
+	}
+	if got := countCall(calls, "list_groups"); got != 1 {
+		t.Fatalf("list_groups calls = %d, calls = %#v, want cached source list", got, calls)
+	}
+	if got := countCall(calls, "list_descendant_groups"); got != 1 {
+		t.Fatalf("list_descendant_groups calls = %d, calls = %#v, want cached source list", got, calls)
+	}
+	if got := countCall(calls, "list_group_members"); got != 2 {
+		t.Fatalf("list_group_members calls = %d, calls = %#v, want live member paging", got, calls)
+	}
+}
+
+func TestDatasourceProviderCorpusUsesLargerDefaultMembershipPages(t *testing.T) {
+	var perPages []int64
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return fakeGitLabClient{
+				groupMemberPerPages: &perPages,
+				groups: []*gitlab.Group{{
+					ID:       7,
+					Name:     "Platform",
+					FullPath: "engineering/platform",
+					FullName: "Engineering / Platform",
+				}},
+				groupMembers: []*gitlab.GroupMember{{
+					ID:          42,
+					Username:    "timo",
+					Name:        "Timo",
+					AccessLevel: gitlab.DeveloperPermissions,
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{MembershipEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := accessor.(coredatasource.CorpusProvider).Corpus(context.Background(), coredatasource.CorpusRequest{Entity: MembershipEntity}); err != nil {
+		t.Fatalf("Corpus: %v", err)
+	}
+	if len(perPages) == 0 || perPages[0] != 100 {
+		t.Fatalf("group member per pages = %#v, want default corpus page size 100", perPages)
 	}
 }
 
@@ -1623,7 +1827,7 @@ func TestDatasourceRelationsResolveMembershipsFromVisibleServiceAccountGroups(t 
 	if len(result.Records) != 3 {
 		t.Fatalf("membership records = %#v, want visible group, descendant group, and project", result.Records)
 	}
-	if !containsCall(calls, "list_groups") || !containsCall(calls, "list_descendant_groups") || !containsCall(calls, "list_all_group_members") || !containsCall(calls, "list_all_project_members") {
+	if !containsCall(calls, "list_groups") || !containsCall(calls, "list_descendant_groups") || !containsCall(calls, "list_group_members") || !containsCall(calls, "list_project_members") {
 		t.Fatalf("calls = %#v, want visible group, descendant, and project member checks", calls)
 	}
 	if len(groupUserIDs) == 0 || groupUserIDs[0] != 42 || len(projectUserIDs) == 0 || projectUserIDs[0] != 42 {
@@ -1895,6 +2099,16 @@ func containsCall(calls []string, want string) bool {
 	return false
 }
 
+func countCall(calls []string, want string) int {
+	count := 0
+	for _, call := range calls {
+		if call == want {
+			count++
+		}
+	}
+	return count
+}
+
 func hasDocumentID(documents []coredatasource.CorpusDocument, want string) bool {
 	for _, document := range documents {
 		if document.Ref.ID == want {
@@ -1902,6 +2116,15 @@ func hasDocumentID(documents []coredatasource.CorpusDocument, want string) bool 
 		}
 	}
 	return false
+}
+
+func documentByID(documents []coredatasource.CorpusDocument, want string) coredatasource.CorpusDocument {
+	for _, document := range documents {
+		if document.Ref.ID == want {
+			return document
+		}
+	}
+	return coredatasource.CorpusDocument{}
 }
 
 func toString(value any) string {
@@ -1931,6 +2154,7 @@ type fakeGitLabClient struct {
 	descendantGroups       []*gitlab.Group
 	groupProjects          []*gitlab.Project
 	groupMembers           []*gitlab.GroupMember
+	groupMemberPerPages    *[]int64
 	groupMemberUserIDs     *[]int64
 	users                  []*gitlab.User
 	usersByPublicEmail     map[string][]*gitlab.User
@@ -1938,6 +2162,7 @@ type fakeGitLabClient struct {
 	projectUsers           []*gitlab.ProjectUser
 	projectGroups          []*gitlab.ProjectGroup
 	projectMembers         []*gitlab.ProjectMember
+	projectMemberPerPages  *[]int64
 	projectMemberUserIDs   *[]int64
 	mrs                    []*gitlab.BasicMergeRequest
 	diffs                  []*gitlab.MergeRequestDiff
@@ -1954,9 +2179,18 @@ type fakeGitLabClient struct {
 	calls                  *[]string
 }
 
-func (c fakeGitLabClient) ListProjects(context.Context, *gitlab.ListProjectsOptions) ([]*gitlab.Project, error) {
+func (c fakeGitLabClient) ListProjects(_ context.Context, opts *gitlab.ListProjectsOptions) ([]*gitlab.Project, error) {
 	c.record("list_projects")
-	return c.projects, nil
+	if opts == nil || opts.Archived == nil {
+		return c.projects, nil
+	}
+	out := make([]*gitlab.Project, 0, len(c.projects))
+	for _, project := range c.projects {
+		if project != nil && project.Archived == *opts.Archived {
+			out = append(out, project)
+		}
+	}
+	return out, nil
 }
 
 func (c fakeGitLabClient) ListGroups(context.Context, *gitlab.ListGroupsOptions) ([]*gitlab.Group, error) {
@@ -2000,8 +2234,11 @@ func (c fakeGitLabClient) ListGroupProjects(context.Context, any, *gitlab.ListGr
 	return c.groupProjects, nil
 }
 
-func (c fakeGitLabClient) ListAllGroupMembers(_ context.Context, _ any, opts *gitlab.ListGroupMembersOptions) ([]*gitlab.GroupMember, error) {
-	c.record("list_all_group_members")
+func (c fakeGitLabClient) ListGroupMembers(_ context.Context, _ any, opts *gitlab.ListGroupMembersOptions) ([]*gitlab.GroupMember, error) {
+	c.record("list_group_members")
+	if c.groupMemberPerPages != nil && opts != nil {
+		*c.groupMemberPerPages = append(*c.groupMemberPerPages, opts.PerPage)
+	}
 	if c.groupMemberUserIDs != nil {
 		*c.groupMemberUserIDs = append(*c.groupMemberUserIDs, optionGroupUserIDs(opts)...)
 	}
@@ -2047,8 +2284,11 @@ func (c fakeGitLabClient) ListProjectGroups(context.Context, any, *gitlab.ListPr
 	return c.projectGroups, nil
 }
 
-func (c fakeGitLabClient) ListAllProjectMembers(_ context.Context, _ any, opts *gitlab.ListProjectMembersOptions) ([]*gitlab.ProjectMember, error) {
-	c.record("list_all_project_members")
+func (c fakeGitLabClient) ListProjectMembers(_ context.Context, _ any, opts *gitlab.ListProjectMembersOptions) ([]*gitlab.ProjectMember, error) {
+	c.record("list_project_members")
+	if c.projectMemberPerPages != nil && opts != nil {
+		*c.projectMemberPerPages = append(*c.projectMemberPerPages, opts.PerPage)
+	}
 	if c.projectMemberUserIDs != nil {
 		*c.projectMemberUserIDs = append(*c.projectMemberUserIDs, optionProjectUserIDs(opts)...)
 	}

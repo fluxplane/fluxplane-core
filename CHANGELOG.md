@@ -188,6 +188,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from returned match limits so low `max_results` values do not hide later
   matches.
 
+### Changed
+
+- Expanded datasource index warmup progress logs with page counters, cumulative
+  totals, cursor details, elapsed time, and stale-running checkpoint warnings.
+
+- Cached GitLab membership source discovery during datasource indexing and
+  increased default membership corpus pages to reduce tiny GitLab API calls.
+
+- Changed `gitlab.user_membership` indexing to mirror direct GitLab group and
+  project membership edges, while indexing archived projects for completeness
+  and hiding archived project records and archived project membership edges
+  from default datasource search/list results.
+
 ### Fixed
 - Batched datasource field-index and data-store writes during corpus indexing
   and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.

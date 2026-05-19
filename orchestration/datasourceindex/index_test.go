@@ -2,6 +2,7 @@ package datasourceindex
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,6 +159,132 @@ func TestBuildReportsProgress(t *testing.T) {
 		if !kinds[want] {
 			t.Fatalf("progress kinds = %#v, missing %s", kinds, want)
 		}
+	}
+	var pageEvent ProgressEvent
+	for _, event := range events {
+		if event.Kind == ProgressPageFetched {
+			pageEvent = event
+			break
+		}
+	}
+	if pageEvent.Page != 1 || pageEvent.PageDocuments != 1 || pageEvent.Documents != 1 || pageEvent.Queued != 1 || !pageEvent.Complete || pageEvent.FirstID != "a.md" || pageEvent.LastID != "a.md" {
+		t.Fatalf("page event = %#v, want cumulative progress details", pageEvent)
+	}
+}
+
+func TestBuildReportsCumulativePageProgress(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakePagingCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "docs",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"file.document"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "file.document",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySemanticSearch},
+		},
+		pages: []coredatasource.CorpusPage{
+			{
+				Documents: []coredatasource.CorpusDocument{{
+					Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "a.md"},
+					Title: "A",
+				}},
+				NextCursor: "next",
+			},
+			{
+				Documents: []coredatasource.CorpusDocument{{
+					Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "b.md"},
+					Title: "B",
+				}},
+				Complete: true,
+			},
+		},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	var pages []ProgressEvent
+	_, err = Build(ctx, Request{
+		Registry: registry,
+		Index:    index,
+		Now:      incrementingNow(time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC), time.Second),
+		Progress: func(event ProgressEvent) {
+			if event.Kind == ProgressPageFetched {
+				pages = append(pages, event)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(pages) != 2 {
+		t.Fatalf("pages = %#v, want two page events", pages)
+	}
+	if pages[0].Page != 1 || pages[0].Documents != 1 || pages[0].Queued != 1 || pages[0].Complete {
+		t.Fatalf("first page = %#v, want incomplete cumulative first page", pages[0])
+	}
+	if pages[1].Page != 2 || pages[1].Documents != 2 || pages[1].Queued != 2 || !pages[1].Complete || pages[1].Rate <= 0 {
+		t.Fatalf("second page = %#v, want complete cumulative second page with rate", pages[1])
+	}
+}
+
+func TestBuildReportsStaleRunningCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	accessor := fakeCorpusAccessor{
+		spec: coredatasource.Spec{
+			Name:     "gitlab",
+			Kind:     "fake",
+			Entities: []coredatasource.EntityType{"gitlab.user_membership"},
+			Index:    coredatasource.IndexSpec{Enabled: true},
+		},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.user_membership",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityIndex},
+		},
+		docs: []coredatasource.CorpusDocument{{
+			Ref:   coredatasource.RecordRef{Datasource: "gitlab", Entity: "gitlab.user_membership", ID: "42:project:12"},
+			Title: "Ada in runtime",
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	startedAt := time.Date(2026, 5, 19, 11, 0, 0, 0, time.UTC)
+	if err := putDataIndexRun(ctx, store, semantic.IndexRunState{
+		Datasource: "gitlab",
+		Entity:     "gitlab.user_membership",
+		Phase:      PhaseFields,
+		Status:     semantic.IndexRunStatusRunning,
+		StartedAt:  startedAt,
+	}); err != nil {
+		t.Fatalf("putDataIndexRun: %v", err)
+	}
+	var sawStale bool
+	_, err = Build(ctx, Request{
+		Registry:  registry,
+		DataStore: store,
+		Phase:     PhaseFields,
+		Freshness: time.Hour,
+		Progress: func(event ProgressEvent) {
+			if event.Kind == ProgressEntityRunningStale {
+				sawStale = strings.Contains(event.Message, startedAt.Format(time.RFC3339Nano))
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !sawStale {
+		t.Fatal("missing stale running checkpoint progress event")
 	}
 }
 
@@ -693,6 +820,31 @@ func (a fakeRelationCorpusAccessor) Relation(_ context.Context, req coredatasour
 		return coredatasource.RelationResult{}, coredatasource.ErrNotFound
 	}
 	return a.relation, nil
+}
+
+type fakePagingCorpusAccessor struct {
+	spec   coredatasource.Spec
+	entity coredatasource.EntitySpec
+	pages  []coredatasource.CorpusPage
+}
+
+func (a fakePagingCorpusAccessor) Spec() coredatasource.Spec { return a.spec }
+func (a fakePagingCorpusAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{a.entity}
+}
+func (a fakePagingCorpusAccessor) Corpus(_ context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	if req.Cursor == "" {
+		return a.pages[0], nil
+	}
+	return a.pages[1], nil
+}
+
+func incrementingNow(start time.Time, step time.Duration) func() time.Time {
+	current := start.Add(-step)
+	return func() time.Time {
+		current = current.Add(step)
+		return current
+	}
 }
 
 type countingCorpusAccessor struct {

@@ -348,6 +348,132 @@ func TestListReturnsAllowedDatasourceRecords(t *testing.T) {
 	}
 }
 
+func TestSearchDataStoreHidesArchivedGitLabProjectsByDefault(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.project"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.project",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(),
+		gitlabDataRecord("gitlab.project", "12", "Runtime", map[string][]string{"archived": {"false"}}),
+		gitlabDataRecord("gitlab.project", "13", "Old Runtime", map[string][]string{"archived": {"true"}}),
+	); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	plugin := NewWithDataStore(registry, store)
+
+	defaults := plugin.search(ctx, searchInput{Query: "Runtime", Entities: []string{"gitlab.project"}})
+	if defaults.Status != operation.StatusOK {
+		t.Fatalf("default search = %#v", defaults)
+	}
+	defaultOut := defaults.Output.(operation.Rendered).Data.(searchOutput)
+	if len(defaultOut.Results) != 1 || len(defaultOut.Results[0].Records) != 1 || defaultOut.Results[0].Records[0].ID != "12" {
+		t.Fatalf("default records = %#v, want active project only", defaultOut.Results)
+	}
+
+	archived := plugin.search(ctx, searchInput{Query: "Runtime", Entities: []string{"gitlab.project"}, Filters: map[string]string{"archived": "true"}})
+	if archived.Status != operation.StatusOK {
+		t.Fatalf("archived search = %#v", archived)
+	}
+	archivedOut := archived.Output.(operation.Rendered).Data.(searchOutput)
+	if len(archivedOut.Results) != 1 || len(archivedOut.Results[0].Records) != 1 || archivedOut.Results[0].Records[0].ID != "13" {
+		t.Fatalf("archived records = %#v, want archived project", archivedOut.Results)
+	}
+}
+
+func TestListDataStoreHidesArchivedGitLabMembershipsByDefault(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.user_membership"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.user_membership",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityList},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(),
+		gitlabDataRecord("gitlab.user_membership", "42:project:12", "Runtime membership", map[string][]string{"user_id": {"42"}, "source_archived": {"false"}}),
+		gitlabDataRecord("gitlab.user_membership", "42:project:13", "Old Runtime membership", map[string][]string{"user_id": {"42"}, "source_archived": {"true"}}),
+	); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	plugin := NewWithDataStore(registry, store)
+
+	defaults := plugin.list(ctx, listInput{Datasource: "gitlab", Entity: "gitlab.user_membership", Filters: map[string]string{"user_id": "42"}})
+	if defaults.Status != operation.StatusOK {
+		t.Fatalf("default list = %#v", defaults)
+	}
+	defaultOut := defaults.Output.(operation.Rendered).Data.(listOutput)
+	if len(defaultOut.Result.Records) != 1 || defaultOut.Result.Records[0].ID != "42:project:12" {
+		t.Fatalf("default records = %#v, want active membership only", defaultOut.Result.Records)
+	}
+
+	archived := plugin.list(ctx, listInput{Datasource: "gitlab", Entity: "gitlab.user_membership", Filters: map[string]string{"user_id": "42", "source_archived": "true"}})
+	if archived.Status != operation.StatusOK {
+		t.Fatalf("archived list = %#v", archived)
+	}
+	archivedOut := archived.Output.(operation.Rendered).Data.(listOutput)
+	if len(archivedOut.Result.Records) != 1 || archivedOut.Result.Records[0].ID != "42:project:13" {
+		t.Fatalf("archived records = %#v, want archived membership", archivedOut.Result.Records)
+	}
+}
+
+func TestSearchDataStoreHidesArchivedGitLabMembershipsByDefault(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.user_membership"}, Kind: "memory"},
+			entity: coredatasource.EntitySpec{
+				Type:         "gitlab.user_membership",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(),
+		gitlabDataRecord("gitlab.user_membership", "42:project:12", "Runtime membership", map[string][]string{"source_archived": {"false"}}),
+		gitlabDataRecord("gitlab.user_membership", "42:project:13", "Old Runtime membership", map[string][]string{"source_archived": {"true"}}),
+	); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"gitlab"}}), nil)
+	plugin := NewWithDataStore(registry, store)
+
+	defaults := plugin.search(ctx, searchInput{Query: "Runtime", Entities: []string{"gitlab.user_membership"}})
+	if defaults.Status != operation.StatusOK {
+		t.Fatalf("default search = %#v", defaults)
+	}
+	defaultOut := defaults.Output.(operation.Rendered).Data.(searchOutput)
+	if len(defaultOut.Results) != 1 || len(defaultOut.Results[0].Records) != 1 || defaultOut.Results[0].Records[0].ID != "42:project:12" {
+		t.Fatalf("default records = %#v, want active membership only", defaultOut.Results)
+	}
+
+	archived := plugin.search(ctx, searchInput{Query: "Runtime", Entities: []string{"gitlab.user_membership"}, Filters: map[string]string{"source_archived": "true"}})
+	if archived.Status != operation.StatusOK {
+		t.Fatalf("archived search = %#v", archived)
+	}
+	archivedOut := archived.Output.(operation.Rendered).Data.(searchOutput)
+	if len(archivedOut.Results) != 1 || len(archivedOut.Results[0].Records) != 1 || archivedOut.Results[0].Records[0].ID != "42:project:13" {
+		t.Fatalf("archived records = %#v, want archived membership", archivedOut.Results)
+	}
+}
+
 func TestListEnforcesAgentDatasourceAccess(t *testing.T) {
 	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
 		memoryAccessor{
@@ -701,6 +827,26 @@ func TestCatalogProviderListsRelations(t *testing.T) {
 	}
 	if !strings.Contains(blocks[0].Metadata["datasources"], `"relations":[{"name":"members","target_entity":"slack.user","exact":true`) {
 		t.Fatalf("metadata = %#v, want relation metadata", blocks[0].Metadata)
+	}
+}
+
+func gitlabDataRecord(entity, id, title string, fields map[string][]string) coredata.Record {
+	metadata := map[string]string{}
+	for key, values := range fields {
+		if len(values) > 0 {
+			metadata[key] = values[0]
+		}
+	}
+	return coredata.Record{
+		Ref: coredata.Ref{
+			Source: "gitlab",
+			Entity: coredata.EntityType(entity),
+			View:   coredata.ViewName(entity),
+			ID:     coredata.RecordID(id),
+		},
+		Title:    title,
+		Fields:   fields,
+		Metadata: metadata,
 	}
 }
 
