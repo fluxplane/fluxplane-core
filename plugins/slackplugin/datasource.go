@@ -2,6 +2,7 @@ package slackplugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,8 @@ const UserEntity coredatasource.EntityType = "slack.user"
 const ChannelEntity coredatasource.EntityType = "slack.channel"
 const MessageEntity coredatasource.EntityType = "slack.message"
 const ThreadMessageEntity coredatasource.EntityType = "slack.thread_message"
+
+var slackConversationTypes = []string{"public_channel", "private_channel", "im", "mpim"}
 
 type User struct {
 	ID          string `json:"id" datasource:"id,filterable" jsonschema:"description=Slack user id."`
@@ -141,7 +144,7 @@ func (a slackAccessor) Search(ctx context.Context, req coredatasource.SearchRequ
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, records, len(records)), nil
 	case ChannelEntity:
-		channels, _, err := listChannelsPage(ctx, api, "", max(limit, 200))
+		channels, err := listChannels(ctx, api, max(limit, 200))
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
@@ -603,12 +606,85 @@ func listUsersPage(ctx context.Context, api slackAPI, cursor string, limit int) 
 }
 
 func listChannelsPage(ctx context.Context, api slackAPI, cursor string, limit int) ([]slack.Channel, string, error) {
-	return api.GetConversationsContext(ctx, &slack.GetConversationsParameters{
-		Cursor:          cursor,
-		Limit:           limit,
-		Types:           []string{"public_channel", "private_channel", "im", "mpim"},
-		ExcludeArchived: true,
-	})
+	typeIndex, slackCursor := decodeConversationCursor(cursor)
+	for i := typeIndex; i < len(slackConversationTypes); i++ {
+		channels, next, err := api.GetConversationsContext(ctx, &slack.GetConversationsParameters{
+			Cursor:          slackCursor,
+			Limit:           limit,
+			Types:           []string{slackConversationTypes[i]},
+			ExcludeArchived: true,
+		})
+		if isSlackMissingScope(err) {
+			slackCursor = ""
+			continue
+		}
+		if err != nil {
+			return nil, "", err
+		}
+		if next != "" {
+			return channels, encodeConversationCursor(i, next), nil
+		}
+		if len(channels) > 0 {
+			return channels, encodeConversationCursor(i+1, ""), nil
+		}
+		slackCursor = ""
+	}
+	return nil, "", nil
+}
+
+func listChannels(ctx context.Context, api slackAPI, limit int) ([]slack.Channel, error) {
+	var out []slack.Channel
+	cursor := ""
+	for {
+		page, next, err := listChannelsPage(ctx, api, cursor, limit)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, page...)
+		if next == "" || len(out) >= limit {
+			break
+		}
+		cursor = next
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func encodeConversationCursor(typeIndex int, cursor string) string {
+	if typeIndex >= len(slackConversationTypes) {
+		return ""
+	}
+	return fmt.Sprintf("%d:%s", typeIndex, cursor)
+}
+
+func decodeConversationCursor(cursor string) (int, string) {
+	cursor = strings.TrimSpace(cursor)
+	if cursor == "" {
+		return 0, ""
+	}
+	rawIndex, rest, ok := strings.Cut(cursor, ":")
+	if !ok {
+		return 0, cursor
+	}
+	for i := range slackConversationTypes {
+		if rawIndex == fmt.Sprint(i) {
+			return i, rest
+		}
+	}
+	return 0, cursor
+}
+
+func isSlackMissingScope(err error) bool {
+	if err == nil {
+		return false
+	}
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) && slackErr.Err == "missing_scope" {
+		return true
+	}
+	return err.Error() == "missing_scope"
 }
 
 func getMessageByTimestamp(ctx context.Context, api slackAPI, channelID, ts string) (slack.Msg, error) {

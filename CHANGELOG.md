@@ -215,6 +215,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed Slack channel datasource warmup so missing DM or MPIM discovery scopes
+  skip only those conversation types instead of aborting app startup indexing.
 - Fixed datasource index clearing so it also invalidates matching mirror/index
   run checkpoints instead of leaving stale completed runs behind.
 - Fixed SQL-backed datasource mirror filtering to re-check full filter values
