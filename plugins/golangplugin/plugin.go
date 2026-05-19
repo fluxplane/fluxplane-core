@@ -41,6 +41,8 @@ const (
 	VetOp              = golang.VetOp
 	BuildOp            = golang.BuildOp
 	InstallOp          = golang.InstallOp
+	GetOp              = golang.GetOp
+	ModTidyOp          = golang.ModTidyOp
 	PackagesOp         = golang.PackagesOp
 	OutlineOp          = golang.OutlineOp
 	SymbolOp           = golang.SymbolOp
@@ -163,6 +165,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[golang.GoVetQuery, operation.Rendered](specByName(VetOp), p.goVet(), operationruntime.WithIntent(goVetIntent)),
 		operationruntime.NewTypedResult[golang.GoBuildQuery, operation.Rendered](specByName(BuildOp), p.goBuild(), operationruntime.WithIntent(goBuildIntent)),
 		operationruntime.NewTypedResult[golang.GoInstallQuery, operation.Rendered](specByName(InstallOp), p.goInstall(), operationruntime.WithIntent(goInstallIntent)),
+		operationruntime.NewTypedResult[golang.GoGetQuery, operation.Rendered](specByName(GetOp), p.goGet(), operationruntime.WithIntent(goGetIntent)),
+		operationruntime.NewTypedResult[golang.GoModTidyQuery, operation.Rendered](specByName(ModTidyOp), p.goModTidy(), operationruntime.WithIntent(goModTidyIntent)),
 		operationruntime.NewTypedResult[golang.PackageQuery, operation.Rendered](specByName(PackagesOp), p.goPackages(manager)),
 		operationruntime.NewTypedResult[golang.OutlineQuery, operation.Rendered](specByName(OutlineOp), p.goOutline()),
 		operationruntime.NewTypedResult[golang.SymbolQuery, operation.Rendered](specByName(SymbolOp), p.goSymbol()),
@@ -189,6 +193,8 @@ func specs() []operation.Spec {
 		specWithSemantics[golang.GoVetQuery](VetOp, "Run go vet for selected package patterns and return diagnostics. Fix and vettool execution are unsupported.", goToolCheckSemantics()),
 		specWithSemantics[golang.GoBuildQuery](BuildOp, "Run go build as a compile check for selected package patterns. Output artifact placement is unsupported.", goToolCheckSemantics()),
 		specWithSemantics[golang.GoInstallQuery](InstallOp, "Run go install for explicit packages. Defaults to dry-run preview and restricts environment overrides.", goToolInstallSemantics()),
+		specWithSemantics[golang.GoGetQuery](GetOp, "Run go get for explicit module or package queries. Defaults to dry-run preview and requires explicit dry_run=false to update go.mod/go.sum.", goToolDependencySemantics()),
+		specWithSemantics[golang.GoModTidyQuery](ModTidyOp, "Run go mod tidy. Defaults to dry-run diff preview and requires explicit dry_run=false to update go.mod/go.sum.", goToolDependencySemantics()),
 		spec[golang.PackageQuery](PackagesOp, "Group Go files into packages by directory and package name. This is parser-based and does not run go/packages or external commands."),
 		spec[golang.OutlineQuery](OutlineOp, "Parse a Go file or package directory into a bounded language outline of declarations, signatures, docs, and positions."),
 		spec[golang.SymbolQuery](SymbolOp, "Search parsed Go declaration symbols by name, kind, path, or package. This is declaration search, not full type-aware reference search."),
@@ -255,6 +261,15 @@ func goToolInstallSemantics() operation.Semantics {
 	}
 }
 
+func goToolDependencySemantics() operation.Semantics {
+	return operation.Semantics{
+		Determinism: operation.DeterminismNonDeterministic,
+		Effects:     operation.EffectSet{operation.EffectProcess, operation.EffectFilesystem, operation.EffectUpdate, operation.EffectWriteExternal, operation.EffectReadExternal},
+		Idempotency: operation.IdempotencyIdempotent,
+		Risk:        operation.RiskHigh,
+	}
+}
+
 func specByName(name string) operation.Spec {
 	for _, spec := range specs() {
 		if string(spec.Ref.Name) == name {
@@ -286,7 +301,7 @@ func parserOperationNames() []string {
 }
 
 func toolchainOperationNames() []string {
-	return []string{InfoOp, EnvOp, VersionOp, DocOp, ListOp, TestOp, FmtOp, VetOp, BuildOp, InstallOp}
+	return []string{InfoOp, EnvOp, VersionOp, DocOp, ListOp, TestOp, FmtOp, VetOp, BuildOp, InstallOp, GetOp, ModTidyOp}
 }
 
 func goCapabilities() []language.Capability {

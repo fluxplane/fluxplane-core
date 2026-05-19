@@ -692,6 +692,36 @@ func main() {}
 		t.Fatalf("real install text = %q, want installed result", realInstall.Text)
 	}
 
+	getDryRun := runGoOp(t, sys, GetOp, map[string]any{"packages": []string{"example.com/dep@v1.2.3"}})
+	getDryRunData := goGetResultFromRendered(t, getDryRun)
+	if !getDryRunData.DryRun || getDryRunData.Changed || !strings.Contains(getDryRunData.Command, "go get example.com/dep@v1.2.3") {
+		t.Fatalf("go get dry-run data = %#v text = %q, want preview command", getDryRunData, getDryRun.Text)
+	}
+	getArgs, getPackages, getDryRunFlag, err := goGetArgs(golang.GoGetQuery{Packages: []string{"example.com/dep@v1.2.3"}, DryRun: &falseValue})
+	if err != nil {
+		t.Fatalf("goGetArgs: %v", err)
+	}
+	if getDryRunFlag || strings.Join(getArgs, " ") != "get example.com/dep@v1.2.3" || getPackages[0] != "example.com/dep@v1.2.3" {
+		t.Fatalf("goGetArgs = %#v packages=%#v dryRun=%v, want real go get args", getArgs, getPackages, getDryRunFlag)
+	}
+	emptyGet := runGoResult(t, sys, GetOp, map[string]any{})
+	if emptyGet.Status != operation.StatusFailed || emptyGet.Error == nil || !strings.Contains(emptyGet.Error.Message, "packages are required") {
+		t.Fatalf("empty get result = %#v, want package validation", emptyGet)
+	}
+
+	modTidyDryRun := runGoOp(t, sys, ModTidyOp, map[string]any{})
+	modTidyDryRunData := goModTidyResultFromRendered(t, modTidyDryRun)
+	if !modTidyDryRunData.DryRun || !strings.Contains(modTidyDryRunData.Command, "go mod tidy -diff") {
+		t.Fatalf("go mod tidy dry-run data = %#v text = %q, want diff preview", modTidyDryRunData, modTidyDryRun.Text)
+	}
+	modTidyArgs, modTidyDryRunFlag, err := goModTidyArgs(golang.GoModTidyQuery{DryRun: &falseValue, Compat: "1.26", Go: "1.26", V: true})
+	if err != nil {
+		t.Fatalf("goModTidyArgs: %v", err)
+	}
+	if modTidyDryRunFlag || strings.Join(modTidyArgs, " ") != "mod tidy -compat=1.26 -go=1.26 -v" {
+		t.Fatalf("goModTidyArgs = %#v dryRun=%v, want real tidy args", modTidyArgs, modTidyDryRunFlag)
+	}
+
 	buildBinary, err := sys.Process().Run(context.Background(), system.ProcessRequest{
 		Command: "go",
 		Args:    []string{"build", "-buildvcs=false", "-o", "toolbin", "./cmd/tool"},
@@ -703,6 +733,29 @@ func main() {}
 	version := runGoOp(t, sys, VersionOp, map[string]any{"files": []string{"toolbin"}, "module_info": true})
 	if records := goVersionResultFromRendered(t, version).Records; len(records) != 1 || records[0].Path != "example.com/checks/cmd/tool" {
 		t.Fatalf("go version records = %#v, want module build info for tool", records)
+	}
+}
+
+func TestGoLanguageSupportIncludesDependencyToolchainOperations(t *testing.T) {
+	support := LanguageSupport().SupportSpec()
+	var found bool
+	for _, set := range support.ToolchainOperationSets {
+		if set.Name != ToolchainSet {
+			continue
+		}
+		found = true
+		refs := map[operation.Name]bool{}
+		for _, ref := range set.Operations {
+			refs[ref.Name] = true
+		}
+		for _, name := range []operation.Name{operation.Name(GetOp), operation.Name(ModTidyOp)} {
+			if !refs[name] {
+				t.Fatalf("toolchain set missing %s in %#v", name, set.Operations)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("toolchain operation set %q not found", ToolchainSet)
 	}
 }
 
@@ -1290,6 +1343,32 @@ func goInstallResultFromRendered(t *testing.T, rendered operation.Rendered) gola
 	result, ok := data["install"].(golang.GoInstallResult)
 	if !ok {
 		t.Fatalf("install data = %#v, want golang.GoInstallResult", data["install"])
+	}
+	return result
+}
+
+func goGetResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoGetResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["get"].(golang.GoGetResult)
+	if !ok {
+		t.Fatalf("get data = %#v, want golang.GoGetResult", data["get"])
+	}
+	return result
+}
+
+func goModTidyResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoModTidyResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	result, ok := data["mod_tidy"].(golang.GoModTidyResult)
+	if !ok {
+		t.Fatalf("mod_tidy data = %#v, want golang.GoModTidyResult", data["mod_tidy"])
 	}
 	return result
 }

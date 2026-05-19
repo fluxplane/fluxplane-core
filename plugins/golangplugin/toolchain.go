@@ -448,6 +448,67 @@ func (p Plugin) goInstall() operationruntime.TypedResultHandler[golang.GoInstall
 	}
 }
 
+func (p Plugin) goGet() operationruntime.TypedResultHandler[golang.GoGetQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoGetQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_get_input", err.Error(), nil)
+		}
+		args, packages, dryRun, err := goGetArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_get_input", err.Error(), nil)
+		}
+		if dryRun {
+			command := strings.TrimSpace("go " + strings.Join(args, " "))
+			result := golang.GoGetResult{Packages: packages, DryRun: true, Changed: false, Command: command}
+			lines := []string{"Go get dry-run", "- command: " + command}
+			for _, pkg := range packages {
+				lines = append(lines, "- "+pkg)
+			}
+			return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"get": result, "packages": result.Packages}})
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		if err != nil {
+			return operation.Failed("go_get_failed", err.Error(), processData(run))
+		}
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		result := golang.GoGetResult{Packages: packages, Output: output, DryRun: false, Changed: true, Command: processCommand(run)}
+		lines := []string{"Go get"}
+		for _, pkg := range packages {
+			lines = append(lines, "- "+pkg)
+		}
+		if output != "" {
+			lines = append(lines, output)
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"get": result, "packages": result.Packages}})
+	}
+}
+
+func (p Plugin) goModTidy() operationruntime.TypedResultHandler[golang.GoModTidyQuery, operation.Rendered] {
+	return func(ctx operation.Context, req golang.GoModTidyQuery) operation.Result {
+		if err := validateGoLanguage(req.Language); err != nil {
+			return operation.Failed("invalid_go_mod_tidy_input", err.Error(), nil)
+		}
+		args, dryRun, err := goModTidyArgs(req)
+		if err != nil {
+			return operation.Failed("invalid_go_mod_tidy_input", err.Error(), nil)
+		}
+		run, err := p.runGoTool(ctx, req.Path, args, req.MaxOutputBytes, defaultToolchainTimeout)
+		output := strings.TrimSpace(strings.Join([]string{run.Stdout, run.Stderr}, "\n"))
+		if err != nil && (!dryRun || run.Command == "") {
+			return operation.Failed("go_mod_tidy_failed", err.Error(), processData(run))
+		}
+		result := golang.GoModTidyResult{Output: output, DryRun: dryRun, WouldChange: dryRun && strings.TrimSpace(run.Stdout) != "", Changed: !dryRun, Command: processCommand(run)}
+		lines := []string{"Go mod tidy"}
+		if dryRun {
+			lines[0] = "Go mod tidy dry-run"
+		}
+		if output != "" {
+			lines = append(lines, output)
+		}
+		return operation.OK(operation.Rendered{Text: strings.Join(lines, "\n"), Data: map[string]any{"mod_tidy": result}})
+	}
+}
+
 func (p Plugin) runGoTool(ctx operation.Context, workdir string, args []string, maxBytesValue int, timeout time.Duration) (system.ProcessResult, error) {
 	return p.runGoToolEnv(ctx, workdir, args, nil, maxBytesValue, timeout)
 }
@@ -555,6 +616,22 @@ func goFmtIntent(_ operation.Context, req golang.GoFmtQuery) (operation.IntentSe
 
 func goInstallIntent(_ operation.Context, req golang.GoInstallQuery) (operation.IntentSet, error) {
 	args, _, _, _, err := goInstallArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goGetIntent(_ operation.Context, req golang.GoGetQuery) (operation.IntentSet, error) {
+	args, _, _, err := goGetArgs(req)
+	if err != nil {
+		return operation.IntentSet{}, err
+	}
+	return goToolIntentSet(req.Path, args)
+}
+
+func goModTidyIntent(_ operation.Context, req golang.GoModTidyQuery) (operation.IntentSet, error) {
+	args, _, err := goModTidyArgs(req)
 	if err != nil {
 		return operation.IntentSet{}, err
 	}
@@ -928,6 +1005,59 @@ func goInstallArgs(req golang.GoInstallQuery) ([]string, []string, bool, []strin
 	}
 	args = append(args, packages...)
 	return args, packages, dryRun, env, nil
+}
+
+func goGetArgs(req golang.GoGetQuery) ([]string, []string, bool, error) {
+	dryRun := boolDefault(req.DryRun, true)
+	args := []string{"get"}
+	if req.Trace {
+		args = append(args, "-x")
+	}
+	if req.Mod != "" {
+		if err := validateGoModMode(req.Mod); err != nil {
+			return nil, nil, false, err
+		}
+		args = append(args, "-mod="+req.Mod)
+	}
+	packages := append([]string(nil), req.Packages...)
+	if len(packages) == 0 {
+		return nil, nil, false, fmt.Errorf("packages are required")
+	}
+	if err := validateGoPatterns(packages); err != nil {
+		return nil, nil, false, err
+	}
+	args = append(args, packages...)
+	return args, packages, dryRun, nil
+}
+
+func goModTidyArgs(req golang.GoModTidyQuery) ([]string, bool, error) {
+	dryRun := boolDefault(req.DryRun, true)
+	args := []string{"mod", "tidy"}
+	if dryRun {
+		args = append(args, "-diff")
+	}
+	if req.Compat != "" {
+		if err := validateGoFlagValue(req.Compat, "compat"); err != nil {
+			return nil, false, err
+		}
+		args = append(args, "-compat="+req.Compat)
+	}
+	if req.Go != "" {
+		if err := validateGoFlagValue(req.Go, "go"); err != nil {
+			return nil, false, err
+		}
+		args = append(args, "-go="+req.Go)
+	}
+	if req.E {
+		args = append(args, "-e")
+	}
+	if req.V {
+		args = append(args, "-v")
+	}
+	if req.X {
+		args = append(args, "-x")
+	}
+	return args, dryRun, nil
 }
 
 func defaultGoPatterns(patterns []string) ([]string, error) {
@@ -1800,6 +1930,12 @@ func emptyDefault(value, fallback string) string {
 	return value
 }
 
+func processCommand(result system.ProcessResult) string {
+	if result.Command == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(append([]string{result.Command}, result.Args...), " "))
+}
 func processData(result system.ProcessResult) map[string]any {
 	return map[string]any{
 		"command":          result.Command,

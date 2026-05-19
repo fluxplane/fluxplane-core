@@ -19,6 +19,8 @@ const (
 	VetOp             = "go_vet"
 	BuildOp           = "go_build"
 	InstallOp         = "go_install"
+	GetOp             = "go_get"
+	ModTidyOp         = "go_mod_tidy"
 	PackagesOp        = "go_packages"
 	OutlineOp         = "go_outline"
 	SymbolOp          = "go_symbol"
@@ -493,6 +495,48 @@ type GoInstallResult struct {
 	Output    string   `json:"output,omitempty"`
 	DryRun    bool     `json:"dry_run,omitempty"`
 	Installed bool     `json:"installed,omitempty"`
+}
+
+// GoGetQuery selects explicit go get module dependency updates.
+type GoGetQuery struct {
+	Language       language.LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string              `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go get."`
+	Packages       []string            `json:"packages" jsonschema:"description=Module paths, package paths, or versioned module queries to pass to go get.,required"`
+	DryRun         *bool               `json:"dry_run,omitempty" jsonschema:"description=Preview command without changing go.mod/go.sum. Defaults to true."`
+	Trace          bool                `json:"trace,omitempty" jsonschema:"description=Print commands as they are executed, equivalent to -x."`
+	Mod            string              `json:"mod,omitempty" jsonschema:"description=Module download mode: readonly, vendor, or mod."`
+	MaxOutputBytes int                 `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoGetResult contains go get output.
+type GoGetResult struct {
+	Packages []string `json:"packages,omitempty"`
+	Output   string   `json:"output,omitempty"`
+	DryRun   bool     `json:"dry_run,omitempty"`
+	Changed  bool     `json:"changed,omitempty"`
+	Command  string   `json:"command,omitempty"`
+}
+
+// GoModTidyQuery selects explicit go mod tidy execution.
+type GoModTidyQuery struct {
+	Language       language.LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path           string              `json:"path,omitempty" jsonschema:"description=Workspace-relative working directory for go mod tidy."`
+	DryRun         *bool               `json:"dry_run,omitempty" jsonschema:"description=Preview module changes with go mod tidy -diff. Defaults to true."`
+	Compat         string              `json:"compat,omitempty" jsonschema:"description=Optional go mod tidy -compat version."`
+	Go             string              `json:"go,omitempty" jsonschema:"description=Optional go mod tidy -go version."`
+	E              bool                `json:"e,omitempty" jsonschema:"description=Attempt to proceed despite errors loading packages."`
+	V              bool                `json:"v,omitempty" jsonschema:"description=Print removed modules to stderr."`
+	X              bool                `json:"x,omitempty" jsonschema:"description=Print commands as they are executed."`
+	MaxOutputBytes int                 `json:"max_output_bytes,omitempty" jsonschema:"description=Maximum stdout/stderr bytes captured."`
+}
+
+// GoModTidyResult contains go mod tidy output.
+type GoModTidyResult struct {
+	Output      string `json:"output,omitempty"`
+	DryRun      bool   `json:"dry_run,omitempty"`
+	WouldChange bool   `json:"would_change,omitempty"`
+	Changed     bool   `json:"changed,omitempty"`
+	Command     string `json:"command,omitempty"`
 }
 
 // ProjectQuery selects language projects.
