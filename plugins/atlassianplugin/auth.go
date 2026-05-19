@@ -353,6 +353,7 @@ func resolveToken(ctx context.Context, sys system.System, pluginName string, ref
 	if session.BaseURL == "" || strings.Contains(session.BaseURL, "//rest/") {
 		return Session{}, fmt.Errorf("atlassianplugin: cloud_id or base_url is required for %s token auth", product.DisplayName)
 	}
+	session = discoverTokenSiteURL(ctx, sys, product, session)
 	return session, nil
 }
 
@@ -497,6 +498,32 @@ func SiteURLEnvAliases(product Product) []string {
 		prefix = "ATLASSIAN"
 	}
 	return []string{prefix + "_SITE_URL", "ATLASSIAN_SITE_URL"}
+}
+
+func discoverTokenSiteURL(ctx context.Context, sys system.System, product Product, session Session) Session {
+	if strings.TrimSpace(session.SiteURL) != "" || strings.TrimSpace(session.CloudID) == "" || strings.TrimSpace(session.Token) == "" {
+		return session
+	}
+	if sys == nil || sys.Network() == nil {
+		return session
+	}
+	sites, err := DiscoverSites(ctx, system.NewHTTPClient(sys.Network()), session.Token)
+	if err != nil {
+		return session
+	}
+	cloudID := strings.TrimSpace(session.CloudID)
+	for _, site := range sites {
+		if strings.TrimSpace(site.ID) != cloudID {
+			continue
+		}
+		session.SiteURL = strings.TrimRight(strings.TrimSpace(site.URL), "/")
+		session.SiteName = strings.TrimSpace(site.Name)
+		if strings.TrimSpace(session.BaseURL) == "" {
+			session.BaseURL = BaseURL(product, cloudID)
+		}
+		return session
+	}
+	return session
 }
 
 func sessionFromStored(product Product, cfg Config, stored runtimesecret.StoredSecret) Session {

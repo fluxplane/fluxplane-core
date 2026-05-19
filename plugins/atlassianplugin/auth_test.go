@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 func TestAuthMethodsDeclareTokenAndOAuth(t *testing.T) {
@@ -66,4 +67,61 @@ func TestBaseURLUsesProductRESTPath(t *testing.T) {
 	if got := BaseURL(confluence, "cloud-1"); got != "https://api.atlassian.com/ex/confluence/cloud-1/wiki/api/v2" {
 		t.Fatalf("confluence base url = %q", got)
 	}
+}
+
+func TestResolveTokenDiscoversSiteURLForCloudID(t *testing.T) {
+	product := Product{Name: "jira", DisplayName: "Jira Cloud", ResourcePath: "jira"}
+	ref := resource.PluginRef{Name: "jira", Instance: "main"}
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`[{"id":"cloud-1","url":"https://company.atlassian.net","name":"Company"}]`),
+	}}
+	session, err := Resolve(context.Background(), fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "token"}},
+	}, runtimesecret.NewFileStore(t.TempDir()), "jira", ref, product, Config{
+		CloudID: "cloud-1",
+		Auth:    AuthConfig{Method: TokenMethod},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if session.SiteURL != "https://company.atlassian.net" || session.SiteName != "Company" {
+		t.Fatalf("session site = %q/%q, want discovered site", session.SiteURL, session.SiteName)
+	}
+	if network.request.URL != accessibleResources {
+		t.Fatalf("discovery URL = %q", network.request.URL)
+	}
+}
+
+type fakeSystem struct {
+	network system.Network
+	env     system.Environment
+}
+
+func (s fakeSystem) Workspace() system.Workspace     { return nil }
+func (s fakeSystem) Network() system.Network         { return s.network }
+func (s fakeSystem) Process() system.ProcessManager  { return nil }
+func (s fakeSystem) Browser() system.BrowserManager  { return nil }
+func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
+func (s fakeSystem) Environment() system.Environment { return s.env }
+
+type recordingNetwork struct {
+	request  system.HTTPRequest
+	response system.HTTPResponse
+}
+
+func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+	n.request = req
+	return n.response, nil
+}
+
+type fakeEnvironment struct {
+	values map[string]string
+}
+
+func (e fakeEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e.values[key]
+	return value, ok, nil
 }
