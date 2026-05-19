@@ -71,6 +71,32 @@ func TestShellViewportScrollAndSubmitReturnsToBottom(t *testing.T) {
 	}
 }
 
+func TestShellViewportMouseWheelScrollsTimeline(t *testing.T) {
+	m := viewportTestModel()
+	appendViewportTestOutput(&m, 80)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 90, Height: 18})
+	bottomOffset := m.timeline.YOffset
+
+	m = updateModel(t, m, tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelUp,
+	})
+	if m.timeline.YOffset >= bottomOffset {
+		t.Fatalf("YOffset after wheel up = %d, want less than %d", m.timeline.YOffset, bottomOffset)
+	}
+	if m.timelinePinned {
+		t.Fatal("timelinePinned = true after wheel up, want false")
+	}
+
+	m = updateModel(t, m, tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	})
+	if m.timeline.YOffset <= 0 {
+		t.Fatalf("YOffset after wheel down = %d, want positive", m.timeline.YOffset)
+	}
+}
+
 func TestShellMentionNavigationDoesNotScrollViewport(t *testing.T) {
 	m := viewportTestModel()
 	appendViewportTestOutput(&m, 80)

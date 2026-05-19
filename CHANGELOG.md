@@ -232,7 +232,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   descriptors instead of hardcoding language-specific operation set selection.
 
 ### Fixed
-
+- Fixed coder shell agent-mode Enter handling so prompts submit immediately,
+  clear the input before the agent response returns, and append async failures
+  back into the transcript.
 - Updated `github.com/codewandler/modeldb` to `v0.15.1` so OpenRouter
   `openai/gpt-5.5` resolves with OpenAI Responses metadata and medium
   reasoning effort support.

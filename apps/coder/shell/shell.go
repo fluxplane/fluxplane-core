@@ -86,7 +86,7 @@ func run(ctx context.Context, opts Options) error {
 	if status.cwd == "" {
 		status.cwd = path
 	}
-	programOpts := []tea.ProgramOption{tea.WithAltScreen()}
+	programOpts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseCellMotion()}
 	if opts.In != nil {
 		programOpts = append(programOpts, tea.WithInput(opts.In))
 	}
@@ -322,6 +322,12 @@ type model struct {
 	timelinePinned bool
 }
 
+type askSubmittedMsg struct {
+	sessionID string
+	events    []TranscriptEvent
+	err       error
+}
+
 func newModel(status shellStatus, client ShellClient, connection string) model {
 	project := status.projectName
 	if project == "" {
@@ -369,6 +375,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncTimelineViewport(false)
 		return m, nil
+	case askSubmittedMsg:
+		m.appendAsyncTranscript(msg.sessionID, msg.events, msg.err)
+		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
+		return m, nil
+	case tea.MouseMsg:
+		m.syncTimelineViewport(false)
+		var cmd tea.Cmd
+		m.timeline, cmd = m.timeline.Update(msg)
+		m.timelinePinned = m.timeline.AtBottom()
+		return m, cmd
 	case tea.KeyMsg:
 		tab := m.shell.ActiveTab()
 		switch msg.Type {
@@ -436,6 +452,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			m.mention = MentionState{}
+			if cmd := m.submitAskAsync(); cmd != nil {
+				m.syncTimelineViewport(true)
+				return m, cmd
+			}
 			_ = m.shell.SubmitActiveInput(context.Background())
 			m.syncTimelineViewport(true)
 			return m, nil
@@ -481,6 +501,88 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *model) submitAskAsync() tea.Cmd {
+	if m == nil || m.shell == nil {
+		return nil
+	}
+	tab := m.shell.ActiveTab()
+	if tab == nil || tab.InputMode != InputModeAsk {
+		return nil
+	}
+	line := strings.TrimSpace(tab.InputBuffer)
+	if line == "" || classifyInput(line, tab.InputMode).Kind != IntentAsk {
+		return nil
+	}
+	if tab.ID == disconnectedSessionID {
+		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
+		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
+		tab.InputBuffer = ""
+		return nil
+	}
+	sessionID := tab.ID
+	cwd := tab.CWD
+	projection := ProjectTranscript(tab.Transcript, m.shell.contextPolicy)
+	start := TranscriptEvent{
+		ID:        newEventID("ask"),
+		SessionID: sessionID,
+		Time:      time.Now(),
+		Kind:      EventAskSubmitted,
+		Summary:   line,
+		Data:      map[string]string{"cwd": cwd, "context_items": fmt.Sprintf("%d", len(projection))},
+	}
+	tab.Transcript = append(tab.Transcript, start)
+	tab.InputBuffer = ""
+	client := m.shell.client
+	return func() tea.Msg {
+		if client == nil {
+			return askSubmittedMsg{sessionID: sessionID, err: fmt.Errorf("shell client is unavailable")}
+		}
+		events, err := client.SubmitAsk(context.Background(), sessionID, AskRequest{Text: line, CWD: cwd, Context: projection})
+		return askSubmittedMsg{sessionID: sessionID, events: dropSubmittedAskEvent(events), err: err}
+	}
+}
+
+func dropSubmittedAskEvent(events []TranscriptEvent) []TranscriptEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]TranscriptEvent, 0, len(events))
+	for _, event := range events {
+		if event.Kind == EventAskSubmitted {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
+}
+
+func (m *model) appendAsyncTranscript(sessionID string, events []TranscriptEvent, err error) {
+	if m == nil || m.shell == nil {
+		return
+	}
+	for i := range m.shell.tabs {
+		if m.shell.tabs[i].ID != sessionID {
+			continue
+		}
+		if err != nil {
+			m.shell.tabs[i].Transcript = append(m.shell.tabs[i].Transcript, errorEvent(sessionID, err))
+			return
+		}
+		m.shell.tabs[i].Transcript = append(m.shell.tabs[i].Transcript, events...)
+		return
+	}
+}
+
+func (m model) activeSessionID() string {
+	if m.shell == nil {
+		return ""
+	}
+	if tab := m.shell.ActiveTab(); tab != nil {
+		return tab.ID
+	}
+	return ""
 }
 
 type shellLayout struct {
@@ -747,6 +849,8 @@ func (m model) renderTimeline(layout shellLayout) string {
 
 func renderTimelineLine(line string) string {
 	switch {
+	case strings.HasPrefix(line, "? "):
+		return accentStyle.Render("? ") + valueStyle.Render(strings.TrimPrefix(line, "? "))
 	case strings.HasPrefix(line, "> "):
 		return promptStyle.Render("> ") + valueStyle.Render(strings.TrimPrefix(line, "> "))
 	case strings.HasPrefix(line, "$ "):
@@ -832,11 +936,4 @@ func truncateStyled(value string, width int) string {
 		return string(runes[:width])
 	}
 	return string(runes[:width-1]) + "…"
-}
-
-func visibleLines(lines []string, max int) []string {
-	if max <= 0 || len(lines) <= max {
-		return lines
-	}
-	return lines[len(lines)-max:]
 }
