@@ -46,16 +46,19 @@ func newAppCommandWithOptions(opts appCommandOptions) *cobra.Command {
 	cmd.AddCommand(runCommand)
 	cmd.AddCommand(launch.NewServeCommandWithRunner(opts.serveRunner))
 	cmd.AddCommand(newAppBuildCommandWithRunner(opts.buildRunner))
+	cmd.AddCommand(newAppDeployCommand())
 	cmd.AddCommand(newAppConfigCommand(opts.configLoader, opts.editorRunner))
 	return cmd
 }
 
 type appBuildOptions struct {
+	target         string
 	docker         bool
 	tags           []string
 	platforms      []string
 	push           bool
 	dryRun         bool
+	baseImage      string
 	connectorsPath string
 	runner         distdeploy.CommandRunner
 }
@@ -72,17 +75,26 @@ func newAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 		},
 	}
 	cmd.Flags().BoolVar(&opts.docker, "docker", false, "build a Docker image")
+	cmd.Flags().StringVar(&opts.target, "target", "", "Build target: docker-image")
 	cmd.Flags().StringArrayVarP(&opts.tags, "tag", "t", nil, "Docker image tag; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.platforms, "platform", nil, "Docker target platform; may be repeated or comma-separated")
 	cmd.Flags().BoolVar(&opts.push, "push", false, "push Docker build output")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker build inputs without running Docker")
+	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
 	return cmd
 }
 
 func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, errOut io.Writer) error {
-	if !opts.docker {
-		return fmt.Errorf("app build: only Docker builds are supported; pass --docker")
+	target := strings.TrimSpace(opts.target)
+	if target == "" && opts.docker {
+		target = "docker-image"
+	}
+	if target == "" {
+		return fmt.Errorf("app build: specify --target docker-image")
+	}
+	if target != "docker-image" {
+		return fmt.Errorf("app build: unsupported target %q", target)
 	}
 	_, err := distdeploy.BuildDocker(ctx, distdeploy.DockerBuildOptions{
 		AppDir:         appDir,
@@ -90,10 +102,50 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 		Platforms:      opts.platforms,
 		Push:           opts.push,
 		DryRun:         opts.dryRun,
+		BaseImage:      opts.baseImage,
 		ConnectorsPath: opts.connectorsPath,
 		Out:            out,
 		Err:            errOut,
 		Runner:         opts.runner,
+	})
+	return err
+}
+
+type appDeployOptions struct {
+	target string
+	image  string
+	dryRun bool
+}
+
+func newAppDeployCommand() *cobra.Command {
+	var opts appDeployOptions
+	cmd := &cobra.Command{
+		Use:   "deploy [path]",
+		Short: "Generate local app deployment resources",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppDeploy(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose")
+	cmd.Flags().StringVar(&opts.image, "image", "", "App image to reference in generated deployment resources")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print generated deployment resources")
+	return cmd
+}
+
+func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out io.Writer) error {
+	target := strings.TrimSpace(opts.target)
+	if target == "" {
+		return fmt.Errorf("app deploy: specify --target docker-compose")
+	}
+	if target != "docker-compose" {
+		return fmt.Errorf("app deploy: unsupported target %q", target)
+	}
+	_, err := distdeploy.GenerateDockerCompose(ctx, distdeploy.ComposeOptions{
+		AppDir: appDir,
+		Image:  opts.image,
+		DryRun: opts.dryRun,
+		Out:    out,
 	})
 	return err
 }

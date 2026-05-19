@@ -27,6 +27,7 @@ Top-level behavior and commands:
 - `--usage` prints usage events after each response.
 - `describe` describes bundled distribution metadata and resources.
 - `describe agent <name-or-ref>` describes a bundled agent.
+- `build --target docker-base` builds the reusable coder runtime base image.
 - `config show` shows the resolved `.coder.yaml` configuration.
 - `config edit` opens the resolved `.coder.yaml`, creating one when needed.
 - `datasource index build|embed|status|clear` manages app datasource indexes.
@@ -39,7 +40,9 @@ Top-level behavior and commands:
 - `app init [path]` creates a minimal local app manifest.
 - `app run [path]` runs a local agentruntime app manifest.
 - `app serve [path]` serves a local app daemon.
-- `app build [path]` builds a local app distribution.
+- `app build --target docker-image [path]` builds a local app distribution.
+- `app deploy --target docker-compose [path] --dry-run` renders local compose
+  deployment resources.
 - `app config show [path]` shows resolved local app configuration.
 - `app config edit [path]` opens the resolved local app manifest.
 

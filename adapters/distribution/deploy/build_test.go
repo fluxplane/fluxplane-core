@@ -89,9 +89,9 @@ name: assistant
 	}
 	text := string(dockerfile)
 	for _, want := range []string{
-		"FROM golang:1.26-bookworm AS builder",
-		"FROM debian:bookworm-slim AS runtime",
-		`CMD ["serve","/app","--connectors-path","/secrets/connectors"]`,
+		"FROM fluxplane/coder-base:local",
+		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		`CMD ["app","serve","/app","--connectors-path","/secrets/connectors"]`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Dockerfile missing %q:\n%s", want, text)
@@ -105,12 +105,43 @@ name: assistant
 	}
 }
 
-func TestBuildDockerCopiesLocalReplaceModules(t *testing.T) {
+func TestBuildDockerUsesOverriddenBaseImage(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+
+	result, err := BuildDocker(context.Background(), DockerBuildOptions{
+		AppDir:    app,
+		BaseImage: "example.com/coder-base:v1",
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatalf("BuildDocker: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(result.ContextDir) }()
+	dockerfile, err := os.ReadFile(result.Dockerfile)
+	if err != nil {
+		t.Fatalf("ReadFile Dockerfile: %v", err)
+	}
+	if !strings.Contains(string(dockerfile), "FROM example.com/coder-base:v1") {
+		t.Fatalf("Dockerfile = %s", dockerfile)
+	}
+}
+
+func TestBuildCoderBaseDockerCopiesLocalReplaceModules(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "projects", "agentsdk", "rewrite")
 	app := filepath.Join(repo, "examples", "sample")
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/agentruntime\n\nreplace github.com/codewandler/axon => ../../axon\n")
-	writeTestFile(t, repo, "cmd/agentsdk/main.go", "package main\nfunc main() {}\n")
+	writeTestFile(t, repo, "cmd/coder/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
 	writeTestFile(t, app, "agentsdk.app.yaml", `
 kind: app
@@ -124,12 +155,12 @@ kind: agent
 name: assistant
 `)
 
-	result, err := BuildDocker(context.Background(), DockerBuildOptions{
-		AppDir: app,
-		DryRun: true,
+	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
+		RepoRoot: repo,
+		DryRun:   true,
 	})
 	if err != nil {
-		t.Fatalf("BuildDocker: %v", err)
+		t.Fatalf("BuildCoderBaseDocker: %v", err)
 	}
 	defer func() { _ = os.RemoveAll(result.ContextDir) }()
 	dockerfile, err := os.ReadFile(result.Dockerfile)
@@ -139,8 +170,50 @@ name: assistant
 	if !strings.Contains(string(dockerfile), "COPY localmods/axon /axon") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
+	if !strings.Contains(string(dockerfile), "go build -trimpath -ldflags=\"-s -w\" -o /out/coder ./cmd/coder") {
+		t.Fatalf("Dockerfile = %s", dockerfile)
+	}
 	if _, err := os.Stat(filepath.Join(result.ContextDir, "localmods", "axon", "go.mod")); err != nil {
 		t.Fatalf("local replace copy: %v", err)
+	}
+}
+
+func TestGenerateDockerComposeDryRun(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: Sample App
+distribution:
+  name: Sample App
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	var out bytes.Buffer
+	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
+		AppDir: app,
+		DryRun: true,
+		Out:    &out,
+	})
+	if err != nil {
+		t.Fatalf("GenerateDockerCompose: %v", err)
+	}
+	for _, want := range []string{
+		"services:",
+		"  sample-app:",
+		"    image: sample:latest",
+		`    command: ["app", "serve", "/app"]`,
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("compose missing %q:\n%s", want, result.Content)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
+		}
 	}
 }
 
@@ -200,7 +273,7 @@ func testRepo(t *testing.T, manifest string) (string, string) {
 	t.Helper()
 	repo := t.TempDir()
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/agentruntime\n")
-	writeTestFile(t, repo, "cmd/agentsdk/main.go", "package main\nfunc main() {}\n")
+	writeTestFile(t, repo, "cmd/coder/main.go", "package main\nfunc main() {}\n")
 	app := filepath.Join(repo, "examples", "sample")
 	writeTestFile(t, app, "agentsdk.app.yaml", manifest)
 	return repo, app

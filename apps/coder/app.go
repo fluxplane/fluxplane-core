@@ -60,6 +60,7 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 		NativeRegistry: launch.AuthPluginRegistry,
 	}))
 	cmd.AddCommand(newAppCommandWithOptions(appCommandOptions{runCommand: opts.AppRunCommand}))
+	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(launch.NewDatasourceCommand())
 	cmd.AddCommand(newDiscoverCommand(startup))
 	cmd.AddCommand(evaluator.NewCommand())

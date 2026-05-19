@@ -535,7 +535,9 @@ distribution:
 Build with:
 
 ```bash
-agentsdk build . --docker --tag support-bot:local
+coder build --target docker-base --tag fluxplane/coder-base:local
+coder app build --target docker-image . --tag support-bot:local
+coder app deploy --target docker-compose . --image support-bot:local --dry-run
 ```
 
 ### Model Providers

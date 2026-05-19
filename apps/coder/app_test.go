@@ -85,6 +85,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "app") {
 		t.Fatalf("help = %q, want app command", help)
 	}
+	if !strings.Contains(help, "build") {
+		t.Fatalf("help = %q, want build command", help)
+	}
 	if !strings.Contains(help, "agent") {
 		t.Fatalf("help = %q, want agent command", help)
 	}
@@ -117,6 +120,33 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	if !hasDescribe {
 		t.Fatalf("coder command missing describe subcommand")
+	}
+}
+
+func TestBuildCommandHelpIncludesDockerBaseTarget(t *testing.T) {
+	cmd := newBuildCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"--target", "docker-base", "--tag", "--platform", "--push", "--dry-run"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestBuildCommandRequiresTarget(t *testing.T) {
+	cmd := newBuildCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "specify --target docker-base") {
+		t.Fatalf("Execute error = %v, want target error", err)
 	}
 }
 
@@ -275,7 +305,7 @@ func TestAppCommandHasAgentsdkParityActions(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"init", "run", "serve", "build", "config"} {
+	for _, want := range []string{"init", "run", "serve", "build", "deploy", "config"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -474,22 +504,50 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"build [path]", "--docker", "--tag", "--platform", "--push", "--dry-run", "--connectors-path"} {
+	for _, want := range []string{"build [path]", "--target", "docker-image", "--docker", "--tag", "--platform", "--push", "--dry-run", "--base-image", "--connectors-path"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
 	}
 }
 
-func TestAppBuildRequiresDockerFlag(t *testing.T) {
+func TestAppBuildRequiresTarget(t *testing.T) {
 	cmd := newAppCommand()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs([]string{"build", "."})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "only Docker builds are supported") {
-		t.Fatalf("Execute error = %v, want docker-only error", err)
+	if err == nil || !strings.Contains(err.Error(), "specify --target docker-image") {
+		t.Fatalf("Execute error = %v, want target error", err)
+	}
+}
+
+func TestAppBuildRejectsUnsupportedTarget(t *testing.T) {
+	cmd := newAppCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"build", "--target", "dockerfile", "."})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `unsupported target "dockerfile"`) {
+		t.Fatalf("Execute error = %v, want unsupported target error", err)
+	}
+}
+
+func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"deploy", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"deploy [path]", "--target", "docker-compose", "--image", "--dry-run"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
 	}
 }
 

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added coder-first distribution build targets: `coder build --target
+  docker-base`, `coder app build --target docker-image`, and `coder app
+  deploy --target docker-compose --dry-run`.
 - Added `coder app run`, `coder app serve`, `coder app build`, and
   `coder app config show` as area/action app lifecycle commands backed by the
   existing local app launch, serve, and Docker build paths.
@@ -135,6 +138,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Generated app Docker images now use the `coder` binary and inherit from a
+  reusable coder base image instead of building or invoking the legacy
+  `agentsdk` binary.
 - GitLab user membership indexing now streams group and project member pages
   into the field index instead of waiting for a full membership scan, and
   datasource index warmup logs when it is scheduled or skipped.
