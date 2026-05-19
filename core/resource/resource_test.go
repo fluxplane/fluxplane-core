@@ -5,7 +5,9 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/reaction"
+	"github.com/fluxplane/agentruntime/core/session"
 )
 
 func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
@@ -27,6 +29,10 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 				Datasource: datasource.Ref{Name: "kubernetes"},
 			}},
 		}},
+		PostEditChecks: []session.PostEditCheckSpec{{
+			Name:      "golang.fmt",
+			Operation: operation.Ref{Name: "go_fmt"},
+		}},
 	})
 	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != "kubernetes.context" {
 		t.Fatalf("observers = %#v", bundle.Observers)
@@ -36,5 +42,8 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 	}
 	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v", bundle.Reactions)
+	}
+	if len(bundle.PostEditChecks) != 1 || bundle.PostEditChecks[0].Name != "golang.fmt" {
+		t.Fatalf("post edit checks = %#v", bundle.PostEditChecks)
 	}
 }

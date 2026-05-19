@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
@@ -134,6 +135,17 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			support.ToolchainOperationSets...),
 		Toolchains: support.Toolchains,
 		Operations: specs,
+		PostEditChecks: []coresession.PostEditCheckSpec{{
+			Name:        "golang.fmt",
+			Description: "Run go fmt after Go source file edits.",
+			MatchPaths:  []string{"*.go", "**/*.go"},
+			Operation:   operation.Ref{Name: FmtOp},
+			Input: map[string]any{
+				"patterns": []any{"${path}"},
+				"dry_run":  false,
+			},
+			Mode: coresession.PostEditCheckModeFix,
+		}},
 	}, nil
 }
 

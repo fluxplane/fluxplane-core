@@ -104,6 +104,7 @@ type ContributionBundle struct {
 	LLMProviders     []corellm.ProviderSpec          `json:"llm_providers,omitempty"`
 	LLMModelAliases  []corellm.ModelAliasSpec        `json:"llm_model_aliases,omitempty"`
 	Sessions         []coresession.Spec              `json:"sessions,omitempty"`
+	PostEditChecks   []coresession.PostEditCheckSpec `json:"post_edit_checks,omitempty"`
 	Skills           []skill.Spec                    `json:"skills,omitempty"`
 	ContextProviders []corecontext.ProviderSpec      `json:"context_providers,omitempty"`
 	Workflows        []workflow.Spec                 `json:"workflows,omitempty"`
@@ -132,6 +133,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	b.LLMProviders = append(b.LLMProviders, other.LLMProviders...)
 	b.LLMModelAliases = append(b.LLMModelAliases, other.LLMModelAliases...)
 	b.Sessions = append(b.Sessions, other.Sessions...)
+	b.PostEditChecks = append(b.PostEditChecks, other.PostEditChecks...)
 	b.Skills = append(b.Skills, other.Skills...)
 	b.ContextProviders = append(b.ContextProviders, other.ContextProviders...)
 	b.Workflows = append(b.Workflows, other.Workflows...)

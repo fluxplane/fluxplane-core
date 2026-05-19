@@ -43,6 +43,7 @@ type Config struct {
 	CommandCatalog       session.CommandCatalog
 	OperationCatalog     session.OperationCatalog
 	OperationSets        []operation.Set
+	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      session.WorkflowCatalog
 	SessionCatalog       session.SessionCatalog
@@ -77,6 +78,7 @@ type Service struct {
 	commandCatalog       session.CommandCatalog
 	operationCatalog     session.OperationCatalog
 	operationSets        []operation.Set
+	postEditChecks       []coresession.PostEditCheckSpec
 	contextProviders     []corecontext.Provider
 	workflowCatalog      session.WorkflowCatalog
 	sessionCatalog       session.SessionCatalog
@@ -118,6 +120,7 @@ func New(cfg Config) *Service {
 		commandCatalog:       cfg.CommandCatalog,
 		operationCatalog:     cfg.OperationCatalog,
 		operationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		postEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
 		contextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		workflowCatalog:      cfg.WorkflowCatalog,
 		sessionCatalog:       cfg.SessionCatalog,
@@ -424,6 +427,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		ToolSetCatalog:       s.toolSetCatalog,
 		WorkflowCatalog:      s.workflowCatalog,
@@ -523,6 +527,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		WorkflowCatalog:      s.workflowCatalog,
 		OperationExecutor:    s.executorForInfo(info),
@@ -587,6 +592,7 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		WorkflowCatalog:      s.workflowCatalog,
 		OperationExecutor:    s.executorForInfo(info),

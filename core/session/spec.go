@@ -35,6 +35,43 @@ type DelegationPolicy struct {
 	Annotations     map[string]string         `json:"annotations,omitempty"`
 }
 
+// PostEditCheckMode describes whether a post-edit check may change files or
+// only report diagnostics.
+type PostEditCheckMode string
+
+const (
+	PostEditCheckModeDiagnostic PostEditCheckMode = "diagnostic"
+	PostEditCheckModeFix        PostEditCheckMode = "fix"
+)
+
+// PostEditCheckSpec declares an operation to run after matching file edits.
+// Plugins contribute these inert descriptors; session runtime owns execution.
+type PostEditCheckSpec struct {
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	MatchPaths  []string          `json:"match_paths,omitempty" yaml:"match_paths,omitempty"`
+	Operation   operation.Ref     `json:"operation" yaml:"operation"`
+	Input       operation.Value   `json:"input,omitempty" yaml:"input,omitempty"`
+	Mode        PostEditCheckMode `json:"mode,omitempty" yaml:"mode,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// Validate checks that the post-edit check can be matched and executed.
+func (c PostEditCheckSpec) Validate() error {
+	if strings.TrimSpace(c.Name) == "" {
+		return fmt.Errorf("session: post_edit_check name is empty")
+	}
+	if c.Operation.Name == "" {
+		return fmt.Errorf("session: post_edit_check %q operation is empty", c.Name)
+	}
+	switch c.Mode {
+	case "", PostEditCheckModeDiagnostic, PostEditCheckModeFix:
+	default:
+		return fmt.Errorf("session: post_edit_check %q mode %q is invalid", c.Name, c.Mode)
+	}
+	return nil
+}
+
 // Spec is an inert configured session profile. It describes a reusable entry
 // point into an app, not a live session instance or durable state.
 type Spec struct {

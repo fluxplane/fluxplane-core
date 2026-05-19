@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,6 +55,7 @@ type Session struct {
 	OperationCatalog     OperationCatalog
 	ToolSetCatalog       ToolSetCatalog
 	OperationSets        []operation.Set
+	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      sessionworkflow.WorkflowCatalog
 	OperationExecutor    sessionenv.OperationExecutor
@@ -610,6 +612,12 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 		}
 		effects = append(effects, batch...)
+		checkBatch, checkToolResults, err := s.applyPostEditChecks(ctx, agentCtx, in.Inbound, len(effects), batch)
+		if err != nil {
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+		}
+		effects = append(effects, checkBatch...)
+		toolResults = append(toolResults, checkToolResults...)
 		// Persist tool results before the budget check at the top of the next
 		// iteration fires so they are durably recorded if the loop exits there.
 		if step+1 >= maxSteps {
@@ -617,7 +625,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
 			}
 		}
-		observations = append(observations, observationsForEffects(batch)...)
+		observations = append(observations, observationsForEffects(append(batch, checkBatch...))...)
 		observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseToolFollowup, observations, signals)
 		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, signals, reactions, observations, in.Events)
 		effects = append(effects, reactionEffects...)
@@ -2287,6 +2295,12 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 		if opReq.ProviderCallID != "" {
 			effect.Observation.Metadata["provider_call_id"] = opReq.ProviderCallID
 		}
+		if opReq.Operation.Name == "file_edit" {
+			if editedPath, dryRun, ok := fileEditResultPath(effect.Result); ok {
+				effect.Observation.Metadata["edited_path"] = editedPath
+				effect.Observation.Metadata["edit_dry_run"] = dryRun
+			}
+		}
 		effect, replacementErr := replaceOversizedToolResult(agentCtx, effect, opReq.Operation, callID)
 		if replacementErr != nil {
 			effect = operationEffect(operation.Failed("tool_result_replacement_failed", replacementErr.Error(), map[string]any{
@@ -2328,6 +2342,239 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 		s.emitLive(completed)
 	}
 	return effects, toolResults, nil
+}
+
+func (s Session) applyPostEditChecks(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, editEffects []environment.EffectResult) ([]environment.EffectResult, []coreconversation.Item, error) {
+	if len(s.PostEditChecks) == 0 || len(editEffects) == 0 {
+		return nil, nil, nil
+	}
+	paths := postEditPaths(editEffects)
+	if len(paths) == 0 {
+		return nil, nil, nil
+	}
+	provider := s.providerIdentity()
+	var effects []environment.EffectResult
+	var toolResults []coreconversation.Item
+	for _, editedPath := range paths {
+		for _, check := range s.PostEditChecks {
+			if !postEditCheckMatches(check, editedPath) {
+				continue
+			}
+			callID := operationCallID(inbound.ID, startIndex+len(effects)+1)
+			input := postEditCheckInput(check.Input, editedPath)
+			requested := sessionenv.OperationRequested{
+				RunID:     inbound.ID,
+				CallID:    callID,
+				Operation: check.Operation,
+				Input:     input,
+			}
+			if err := s.appendThreadEvents(ctx, requested); err != nil {
+				return nil, nil, err
+			}
+			s.emitLive(requested)
+			effect := s.applyOperation(agentCtx, check.Operation, input, callID)
+			effect.Result = annotatePostEditCheckResult(check, editedPath, effect.Result)
+			effect.Observation.Content = effect.Result
+			if effect.Observation.Metadata == nil {
+				effect.Observation.Metadata = map[string]any{}
+			}
+			effect.Observation.Metadata["operation"] = check.Operation.String()
+			effect.Observation.Metadata["call_id"] = string(callID)
+			effect.Observation.Metadata["post_edit_check"] = check.Name
+			effect.Observation.Metadata["edited_path"] = editedPath
+			effect, replacementErr := replaceOversizedToolResult(agentCtx, effect, check.Operation, callID)
+			if replacementErr != nil {
+				effect = operationEffect(operation.Failed("post_edit_check_result_replacement_failed", replacementErr.Error(), map[string]any{
+					"operation":       check.Operation.String(),
+					"call_id":         string(callID),
+					"post_edit_check": check.Name,
+					"edited_path":     editedPath,
+				}))
+				effect.Observation.Metadata = map[string]any{
+					"operation":       check.Operation.String(),
+					"call_id":         string(callID),
+					"post_edit_check": check.Name,
+					"edited_path":     editedPath,
+				}
+			}
+			effects = append(effects, effect)
+			opReq := agent.OperationRequest{Operation: check.Operation, Input: input}
+			toolResult := operationResultTranscriptItem(provider, opReq, callID, effect.Result)
+			if toolResult.Metadata == nil {
+				toolResult.Metadata = map[string]string{}
+			}
+			toolResult.Metadata["post_edit_check"] = check.Name
+			toolResult.Metadata["edited_path"] = editedPath
+			if replacement, ok := toolResultReplacement(effect.Result); ok {
+				toolResult.Metadata["replaced"] = "true"
+				toolResult.Metadata["replacement"] = replacement.Kind
+				toolResult.Metadata["replacement_path"] = replacement.Path
+				toolResult.Metadata["replacement_size_bytes"] = fmt.Sprintf("%d", replacement.SizeBytes)
+				toolResult.Metadata["replacement_threshold_bytes"] = fmt.Sprintf("%d", replacement.ThresholdBytes)
+				if effect.Observation.Metadata == nil {
+					effect.Observation.Metadata = map[string]any{}
+				}
+				effect.Observation.Metadata["replaced"] = true
+				effect.Observation.Metadata["replacement"] = replacement
+			}
+			toolResults = append(toolResults, toolResult)
+			completed := sessionenv.OperationCompleted{
+				RunID:     inbound.ID,
+				CallID:    callID,
+				Operation: check.Operation,
+				Result:    effect.Result,
+			}
+			if err := s.appendThreadEvents(ctx, completed); err != nil {
+				return nil, nil, err
+			}
+			s.emitLive(completed)
+		}
+	}
+	return effects, toolResults, nil
+}
+
+func postEditPaths(effects []environment.EffectResult) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, effect := range effects {
+		if effect.Result.Status != operation.StatusOK {
+			continue
+		}
+		if name, _ := effect.Observation.Metadata["operation"].(string); name != "file_edit" {
+			continue
+		}
+		editedPath, _ := effect.Observation.Metadata["edited_path"].(string)
+		dryRun, _ := effect.Observation.Metadata["edit_dry_run"].(bool)
+		if editedPath == "" {
+			var ok bool
+			editedPath, dryRun, ok = fileEditResultPath(effect.Result)
+			if !ok {
+				continue
+			}
+		}
+		if dryRun {
+			continue
+		}
+		editedPath = strings.TrimSpace(editedPath)
+		if editedPath == "" || seen[editedPath] {
+			continue
+		}
+		seen[editedPath] = true
+		out = append(out, editedPath)
+	}
+	return out
+}
+
+func fileEditResultPath(result operation.Result) (string, bool, bool) {
+	if result.Status != operation.StatusOK {
+		return "", false, false
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		return "", false, false
+	}
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		return "", false, false
+	}
+	editedPath, _ := data["path"].(string)
+	dryRun, _ := data["dry_run"].(bool)
+	editedPath = strings.TrimSpace(editedPath)
+	return editedPath, dryRun, editedPath != ""
+}
+
+func postEditCheckMatches(check coresession.PostEditCheckSpec, editedPath string) bool {
+	if len(check.MatchPaths) == 0 {
+		return true
+	}
+	for _, pattern := range check.MatchPaths {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if ok, err := path.Match(pattern, editedPath); err == nil && ok {
+			return true
+		}
+		if ok, err := path.Match(pattern, path.Base(editedPath)); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+func postEditCheckInput(input operation.Value, editedPath string) operation.Value {
+	if input == nil {
+		return map[string]any{"path": editedPath}
+	}
+	dir := path.Dir(editedPath)
+	if dir == "." {
+		dir = ""
+	}
+	values := map[string]string{
+		"path": editedPath,
+		"dir":  dir,
+		"base": path.Base(editedPath),
+	}
+	return expandPostEditValue(input, values)
+}
+
+func expandPostEditValue(value any, values map[string]string) any {
+	switch typed := value.(type) {
+	case string:
+		out := typed
+		for key, replacement := range values {
+			out = strings.ReplaceAll(out, "${"+key+"}", replacement)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = expandPostEditValue(item, values)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = expandPostEditValue(item, values)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func annotatePostEditCheckResult(check coresession.PostEditCheckSpec, editedPath string, result operation.Result) operation.Result {
+	prefix := fmt.Sprintf("Post-edit check %s ran for %s.", check.Name, editedPath)
+	if check.Mode == coresession.PostEditCheckModeFix {
+		prefix = fmt.Sprintf("Post-edit check %s may have auto-applied fixes for %s.", check.Name, editedPath)
+	}
+	if rendered, ok := result.Output.(operation.Rendered); ok {
+		rendered.Text = strings.TrimSpace(prefix + "\n\n" + strings.TrimSpace(rendered.Text))
+		rendered.Model = strings.TrimSpace(prefix + "\n\n" + strings.TrimSpace(rendered.ModelText()))
+		if data, ok := rendered.Data.(map[string]any); ok {
+			copied := make(map[string]any, len(data)+2)
+			for key, value := range data {
+				copied[key] = value
+			}
+			copied["post_edit_check"] = check.Name
+			copied["edited_path"] = editedPath
+			rendered.Data = copied
+		}
+		result.Output = rendered
+		return result
+	}
+	if result.Status == operation.StatusOK {
+		result.Output = operation.Rendered{
+			Text:  prefix,
+			Model: prefix,
+			Data: map[string]any{
+				"post_edit_check": check.Name,
+				"edited_path":     editedPath,
+				"output":          result.Output,
+			},
+		}
+	}
+	return result
 }
 
 func (s Session) applyProjectedOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {

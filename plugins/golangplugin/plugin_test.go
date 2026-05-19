@@ -11,6 +11,7 @@ import (
 	corelanguage "github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
+	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/testrun"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
@@ -759,6 +760,23 @@ func TestGoLanguageSupportIncludesDependencyToolchainOperations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("toolchain operation set %q not found", ToolchainSet)
+	}
+}
+
+func TestGoPluginContributesPostEditFmtCheck(t *testing.T) {
+	bundle, err := Plugin{}.Contributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.PostEditChecks) != 1 {
+		t.Fatalf("post-edit checks = %#v, want one Go formatter check", bundle.PostEditChecks)
+	}
+	check := bundle.PostEditChecks[0]
+	if check.Name != "golang.fmt" || check.Operation.Name != operation.Name(FmtOp) {
+		t.Fatalf("post-edit check = %#v, want golang.fmt using go_fmt", check)
+	}
+	if check.Mode != coresession.PostEditCheckModeFix {
+		t.Fatalf("post-edit check mode = %q, want fix", check.Mode)
 	}
 }
 

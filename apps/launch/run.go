@@ -1024,6 +1024,7 @@ func cloneBundles(bundles []resource.ContributionBundle) []resource.Contribution
 		out[i].Datasources = append(out[i].Datasources[:0:0], bundle.Datasources...)
 		out[i].DataSources = append(out[i].DataSources[:0:0], bundle.DataSources...)
 		out[i].Sessions = append(out[i].Sessions[:0:0], bundle.Sessions...)
+		out[i].PostEditChecks = append(out[i].PostEditChecks[:0:0], bundle.PostEditChecks...)
 		out[i].Skills = append(out[i].Skills[:0:0], bundle.Skills...)
 		out[i].ContextProviders = append(out[i].ContextProviders[:0:0], bundle.ContextProviders...)
 		out[i].Workflows = append(out[i].Workflows[:0:0], bundle.Workflows...)

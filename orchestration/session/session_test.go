@@ -691,6 +691,107 @@ func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundInputRunsPostEditCheckBeforeNextAgentStep(t *testing.T) {
+	fileEditRef := operation.Ref{Name: "file_edit"}
+	formatRef := operation.Ref{Name: "go_fmt"}
+	var formatInputs []operation.Value
+	ops := operation.NewRegistry()
+	if err := ops.Register(
+		operation.New(operation.Spec{Ref: fileEditRef}, func(_ operation.Context, input operation.Value) operation.Result {
+			data := map[string]any{"path": "pkg/example/main.go", "dry_run": false}
+			return operation.OK(operation.Rendered{Text: "Edited pkg/example/main.go", Data: data})
+		}),
+		operation.New(operation.Spec{Ref: formatRef}, func(_ operation.Context, input operation.Value) operation.Result {
+			formatInputs = append(formatInputs, input)
+			return operation.OK(operation.Rendered{Text: "Go fmt: 1 file(s)", Data: map[string]any{"files": []string{"pkg/example/main.go"}}})
+		}),
+	); err != nil {
+		t.Fatalf("register operations: %v", err)
+	}
+	agentRuntime := &sequenceAgent{
+		spec: agent.Spec{
+			Name:   "llm",
+			Driver: agent.DriverSpec{Kind: "llmagent"},
+		},
+		results: []agent.StepResult{
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:       agent.DecisionOperation,
+					Operations: []agent.OperationRequest{{Operation: fileEditRef, Input: map[string]any{"path": "pkg/example/main.go"}}},
+				},
+			},
+			{
+				Status: agent.StatusOK,
+				Decision: agent.Decision{
+					Kind:    agent.DecisionMessage,
+					Message: &agent.Message{Content: "done"},
+				},
+			},
+		},
+	}
+	s := Session{
+		Agent:             agentRuntime,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		TurnTools: []tool.Spec{{
+			Name: "file_edit",
+			Target: invocation.Target{
+				Kind:      invocation.TargetOperation,
+				Operation: fileEditRef,
+			},
+		}},
+		PostEditChecks: []coresession.PostEditCheckSpec{{
+			Name:       "golang.fmt",
+			MatchPaths: []string{"*.go", "**/*.go"},
+			Operation:  formatRef,
+			Input: map[string]any{
+				"patterns": []any{"${path}"},
+				"dry_run":  false,
+			},
+			Mode: coresession.PostEditCheckModeFix,
+		}},
+	}
+
+	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{
+		ID:      "run-1",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "edit"},
+	})
+
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
+	}
+	if len(result.Effects) != 2 {
+		t.Fatalf("effects len = %d, want file edit plus post-edit check", len(result.Effects))
+	}
+	if len(formatInputs) != 1 {
+		t.Fatalf("format inputs len = %d, want 1", len(formatInputs))
+	}
+	formatInput, ok := formatInputs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("format input = %#v, want map", formatInputs[0])
+	}
+	patterns, ok := formatInput["patterns"].([]any)
+	if !ok || len(patterns) != 1 || patterns[0] != "pkg/example/main.go" || formatInput["dry_run"] != false {
+		t.Fatalf("format input = %#v, want expanded path and dry_run=false", formatInput)
+	}
+	if len(agentRuntime.inputs) != 2 {
+		t.Fatalf("agent steps = %d, want 2", len(agentRuntime.inputs))
+	}
+	observations := agentRuntime.inputs[1].Observations
+	if len(observations) != 3 {
+		t.Fatalf("second observations len = %d, want user input, edit result, check result", len(observations))
+	}
+	rendered, ok := observations[2].Content.(operation.Result).Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("post-edit observation content = %#v, want rendered operation result", observations[2].Content)
+	}
+	if !strings.Contains(rendered.ModelText(), "Post-edit check golang.fmt may have auto-applied fixes") {
+		t.Fatalf("post-edit result = %q, want explicit auto-fix notice", rendered.ModelText())
+	}
+}
+
 func TestExecuteInboundInputRequiresAgent(t *testing.T) {
 	result := (Session{}).ExecuteInboundInput(context.Background(), channel.Inbound{
 		Kind:    channel.InboundMessage,

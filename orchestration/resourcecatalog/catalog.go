@@ -84,6 +84,7 @@ type Specs struct {
 	WorkflowSpecs    []workflow.Spec
 	OperationSets    []operation.Set
 	Toolchains       []language.ToolchainSpec
+	PostEditChecks   []coresession.PostEditCheckSpec
 }
 
 // Collect validates, indexes, and returns inert resource catalogs and specs.
@@ -128,6 +129,10 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 	if err != nil {
 		return Catalogs{}, Specs{}, diag, err
 	}
+	postEditChecks, diag, err := collectPostEditChecks(bundles)
+	if err != nil {
+		return Catalogs{}, Specs{}, diag, err
+	}
 	return Catalogs{
 			AppCatalog:           appCatalog,
 			AgentCatalog:         agentCatalog,
@@ -150,6 +155,7 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 			WorkflowSpecs:    workflowSpecs,
 			OperationSets:    operationSets,
 			Toolchains:       toolchains,
+			PostEditChecks:   postEditChecks,
 		}, resource.Diagnostic{}, nil
 }
 
@@ -310,6 +316,19 @@ func collectToolchains(bundles []resource.ContributionBundle, index *resource.Re
 		func(spec language.ToolchainSpec) error { return spec.Validate() },
 	)
 	return ToolchainCatalog(catalog), specs, diag, err
+}
+
+func collectPostEditChecks(bundles []resource.ContributionBundle) ([]coresession.PostEditCheckSpec, resource.Diagnostic, error) {
+	var out []coresession.PostEditCheckSpec
+	for _, bundle := range bundles {
+		for _, spec := range bundle.PostEditChecks {
+			if err := spec.Validate(); err != nil {
+				return nil, diagnostic(bundle.Source, err), err
+			}
+			out = append(out, spec)
+		}
+	}
+	return out, resource.Diagnostic{}, nil
 }
 
 func appResourceName(spec coreapp.Spec, source resource.SourceRef) string {

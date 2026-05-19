@@ -107,6 +107,7 @@ type Config struct {
 	CommandCatalog       session.CommandCatalog
 	OperationCatalog     session.OperationCatalog
 	OperationSets        []operation.Set
+	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      resourcecatalog.WorkflowCatalog
 	ToolSetCatalog       session.ToolSetCatalog
@@ -190,6 +191,7 @@ func New(cfg Config) (*Service, error) {
 		CommandCatalog:       cfg.CommandCatalog,
 		OperationCatalog:     cfg.OperationCatalog,
 		OperationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		WorkflowCatalog:      cfg.WorkflowCatalog,
 		ToolSetCatalog:       cfg.ToolSetCatalog,
@@ -343,6 +345,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if len(cfg.OperationSets) == 0 {
 		cfg.OperationSets = composition.OperationSets
+	}
+	if len(cfg.PostEditChecks) == 0 {
+		cfg.PostEditChecks = composition.PostEditChecks
 	}
 	if len(cfg.ContextProviders) == 0 {
 		cfg.ContextProviders = composition.ContextProviderImpls

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added an embedded coder skill with a reference guide for writing and
   reviewing `agentsdk.app.yaml` app manifests.
 
+- Added plugin-contributed post-edit checks so active plugins can run
+  formatter or diagnostic operations immediately after matching file edits.
+
 - Added an observations and reactions design note for unifying project signals,
   toolchain probes, skill triggers, environment facts, and configurable signal
   reactions.
