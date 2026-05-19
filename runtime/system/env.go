@@ -11,7 +11,7 @@ import (
 	"unicode"
 )
 
-var defaultProcessEnvKeys = []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE"}
+var defaultProcessEnvKeys = []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE", "SSH_AUTH_SOCK"}
 
 var processOverrideEnvKeys = map[string]bool{
 	"CGO_ENABLED": true,

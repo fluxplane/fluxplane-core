@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Preserved `SSH_AUTH_SOCK` in the bounded host process environment so git
+  operations, including `git_push`, can authenticate through the user's SSH
+  agent instead of hanging on passkey prompts.
+
 ### Added
 
 - Added a Kubernetes datasource plugin and enabled coder to list, search, and

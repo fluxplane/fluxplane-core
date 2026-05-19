@@ -426,6 +426,22 @@ func TestHostProcessAllowsConfiguredAndToolchainEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestHostProcessPreservesSSHAgentSocket(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/test-ssh-agent.sock")
+	sys, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	run, err := sys.Process().Run(context.Background(), ProcessRequest{Command: "env", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(run.Stdout, "SSH_AUTH_SOCK=/tmp/test-ssh-agent.sock\n") {
+		t.Fatalf("stdout = %q, want SSH_AUTH_SOCK", run.Stdout)
+	}
+}
+
 func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	root := t.TempDir()
 	tmp := filepath.Join(t.TempDir(), "scratch")
