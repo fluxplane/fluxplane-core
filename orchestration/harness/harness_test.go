@@ -22,8 +22,10 @@ import (
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/core/tool"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
@@ -1121,6 +1123,84 @@ func TestHandleInboundPromptCommandUsesAgentProvider(t *testing.T) {
 	}
 }
 
+func TestHandleInboundPromptCommandProjectsTools(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{
+		Path: command.Path{"review"},
+		Target: invocation.Target{
+			Kind:   invocation.TargetPrompt,
+			Prompt: "Review {{ .Argument }}.",
+		},
+	}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+	createOp := operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "file_create"},
+		Description: "Create a file.",
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectFilesystem, operation.EffectCreate},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(operation.Context, operation.Value) operation.Result { return operation.OK(nil) })
+	agentRuntime := &harnessPromptAgent{response: "reviewed"}
+	service := New(Config{
+		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
+			return agentRuntime, nil
+		}),
+		Commands: commands,
+		OperationCatalog: session.OperationCatalog{
+			"operation:embedded:file_create": {
+				ID:        resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "file_create"},
+				Operation: createOp,
+			},
+		},
+		ToolProjection: toolprojection.Config{
+			AllowSideEffects:      true,
+			MaxRisk:               operation.RiskMedium,
+			IncludeBareOperations: true,
+		},
+		ThreadStore: threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session: coresession.Ref{Name: "coder"},
+		Profile: coresession.Spec{
+			Name:  "coder",
+			Agent: coreagent.Ref{Name: "coder"},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-prompt-tools"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-prompt-tools",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-prompt-tools"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"review"}, Args: []string{"diff"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("status = %s, error = %#v", result.Command.Status, result.Command.Error)
+	}
+	if len(agentRuntime.tools) != 1 {
+		t.Fatalf("StepWithTools calls = %d, want 1", len(agentRuntime.tools))
+	}
+	if !toolSpecsContain(agentRuntime.tools[0], "file_create") {
+		t.Fatalf("projected tools = %#v, want file_create", agentRuntime.tools[0])
+	}
+}
+
 func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
@@ -1306,6 +1386,7 @@ func (a harnessProviderAgent) Step(coreagent.Context, coreagent.StepInput) corea
 type harnessPromptAgent struct {
 	response string
 	inputs   []coreagent.StepInput
+	tools    [][]tool.Spec
 }
 
 func (a *harnessPromptAgent) Spec() coreagent.Spec {
@@ -1321,6 +1402,26 @@ func (a *harnessPromptAgent) Step(_ coreagent.Context, input coreagent.StepInput
 			Message: &coreagent.Message{Content: a.response},
 		},
 	}
+}
+func (a *harnessPromptAgent) StepWithTools(_ coreagent.Context, input coreagent.StepInput, tools []tool.Spec) coreagent.StepResult {
+	a.inputs = append(a.inputs, input)
+	a.tools = append(a.tools, append([]tool.Spec(nil), tools...))
+	return coreagent.StepResult{
+		Status: coreagent.StatusOK,
+		Decision: coreagent.Decision{
+			Kind:    coreagent.DecisionMessage,
+			Message: &coreagent.Message{Content: a.response},
+		},
+	}
+}
+
+func toolSpecsContain(specs []tool.Spec, name string) bool {
+	for _, spec := range specs {
+		if string(spec.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 type harnessContextProvider struct {

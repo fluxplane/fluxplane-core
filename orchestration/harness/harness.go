@@ -517,6 +517,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 			return InboundResult{Session: info}, err
 		}
 	}
+	turnTools := s.projectToolsForInbound(agentRuntime, inbound)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
 		Agent:                agentRuntime,
@@ -538,6 +539,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
+		TurnTools:            turnTools,
 		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
 		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
 		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
