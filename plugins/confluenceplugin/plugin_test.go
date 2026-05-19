@@ -74,11 +74,11 @@ func TestConfluenceDatasourceDefaultsToAllEntities(t *testing.T) {
 	}
 }
 
-func TestPageListUsesConfluenceV2BaseAndTokenAuth(t *testing.T) {
+func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 	network := &recordingNetwork{response: system.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
-		Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","spaceId":"42","version":{"number":7},"body":{"storage":{"value":"<p>Hello &amp; welcome</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{"next":"/wiki/api/v2/pages?cursor=next-1"}}`),
+		Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","space":{"id":42,"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello &amp; welcome</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{"next":"/wiki/rest/api/content?start=1"}}`),
 	}}
 	plugin := New(fakeSystem{
 		network: network,
@@ -98,17 +98,19 @@ func TestPageListUsesConfluenceV2BaseAndTokenAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/confluence/cloud-1/wiki/api/v2/pages") {
+	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/confluence/cloud-1/wiki/rest/api/content") {
 		t.Fatalf("request URL = %q", network.request.URL)
 	}
 	if got := network.request.Headers["Authorization"]; got != "Bearer confluence-token" {
 		t.Fatalf("authorization = %q, want bearer token", got)
 	}
-	if !strings.Contains(network.request.URL, "body-format=storage") || !strings.Contains(network.request.URL, "limit=3") {
-		t.Fatalf("request URL = %q, want body-format and limit", network.request.URL)
+	for _, want := range []string{"type=page", "expand=body.storage%2Cversion%2Cspace%2Cancestors", "limit=3"} {
+		if !strings.Contains(network.request.URL, want) {
+			t.Fatalf("request URL = %q, missing %s", network.request.URL, want)
+		}
 	}
-	if result.NextCursor != "next-1" {
-		t.Fatalf("next cursor = %q, want next-1", result.NextCursor)
+	if result.NextCursor != "1" {
+		t.Fatalf("next cursor = %q, want 1", result.NextCursor)
 	}
 	if len(result.Records) != 1 || result.Records[0].Content != "Hello & welcome" {
 		t.Fatalf("records = %#v", result.Records)
@@ -118,11 +120,11 @@ func TestPageListUsesConfluenceV2BaseAndTokenAuth(t *testing.T) {
 	}
 }
 
-func TestSpaceGetUsesConfluenceV2BaseAndTokenAuth(t *testing.T) {
+func TestSpaceGetUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 	network := &recordingNetwork{response: system.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
-		Body:       []byte(`{"id":"42","key":"ENG","name":"Engineering","type":"global","status":"current","description":{"plain":{"value":"Team docs"}},"_links":{"webui":"/wiki/spaces/ENG"}}`),
+		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","type":"global","status":"current","description":{"plain":{"value":"Team docs"}},"_links":{"webui":"/wiki/spaces/ENG"}}]}`),
 	}}
 	plugin := New(fakeSystem{
 		network: network,
@@ -138,14 +140,16 @@ func TestSpaceGetUsesConfluenceV2BaseAndTokenAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: SpaceEntity, ID: "42"})
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: SpaceEntity, ID: "ENG"})
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if network.request.URL != "https://api.atlassian.com/ex/confluence/cloud-1/wiki/api/v2/spaces/42" {
+	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/confluence/cloud-1/wiki/rest/api/space?") ||
+		!strings.Contains(network.request.URL, "spaceKey=ENG") ||
+		!strings.Contains(network.request.URL, "expand=description.plain") {
 		t.Fatalf("request URL = %q", network.request.URL)
 	}
-	if record.ID != "42" || record.Title != "Engineering" || record.Metadata["key"] != "ENG" {
+	if record.ID != "ENG" || record.Title != "Engineering" || record.Metadata["key"] != "ENG" {
 		t.Fatalf("record = %#v", record)
 	}
 }
@@ -154,7 +158,7 @@ func TestSpaceGetSupportsDetectedSpaceKeys(t *testing.T) {
 	network := &recordingNetwork{response: system.HTTPResponse{
 		StatusCode: 200,
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
-		Body:       []byte(`{"results":[{"id":"42","key":"ENG","name":"Engineering","description":{"plain":{"value":"Team docs"}}}],"_links":{}}`),
+		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","description":{"plain":{"value":"Team docs"}}}],"_links":{}}`),
 	}}
 	plugin := New(fakeSystem{
 		network: network,
@@ -174,11 +178,11 @@ func TestSpaceGetSupportsDetectedSpaceKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/confluence/cloud-1/wiki/api/v2/spaces?") ||
-		!strings.Contains(network.request.URL, "keys=ENG") {
+	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/confluence/cloud-1/wiki/rest/api/space?") ||
+		!strings.Contains(network.request.URL, "spaceKey=ENG") {
 		t.Fatalf("request URL = %q", network.request.URL)
 	}
-	if record.ID != "42" || record.Metadata["key"] != "ENG" {
+	if record.ID != "ENG" || record.Metadata["key"] != "ENG" {
 		t.Fatalf("record = %#v", record)
 	}
 }

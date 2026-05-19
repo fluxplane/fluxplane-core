@@ -360,7 +360,11 @@ and Confluence use Atlassian OAuth2 stored credentials from
 `coder connect jira --instance jira` and
 `coder connect confluence --instance confluence`; service-account
 deployments can set `auth.method: token` and `auth.token_env` for a bearer
-token environment variable. Native GitLab instances declare a
+token environment variable. Jira and Confluence scoped service-account API-token
+deployments can set `JIRA_API_TOKEN` or `CONFLUENCE_API_TOKEN` and `cloud_id`;
+Basic API-token auth additionally needs an account email such as `JIRA_EMAIL`
+and `site_url` or `base_url` so requests use the site REST endpoint. Native
+GitLab instances declare a
 `personal_access_token` env auth method and OAuth2 metadata. When GitLab
 `auth.token_env` is set, it is the configured environment-variable address for
 that instance. When it is omitted, the resolver probes the advertised aliases:

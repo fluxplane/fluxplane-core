@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added Atlassian API-token env support for native Jira and Confluence auth,
+  including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
+  service-account bearer tokens and optional account-email Basic auth against
+  site REST endpoints.
+
+### Fixed
+- Routed native Confluence bearer-token sessions through Confluence's v1 REST
+  endpoints so scoped service-account API tokens can read pages and spaces.
+
 ## [0.14.1] - 2026-05-19
 
 ### Fixed

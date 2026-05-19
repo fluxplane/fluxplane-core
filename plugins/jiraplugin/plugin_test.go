@@ -2,6 +2,7 @@ package jiraplugin
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -158,6 +159,66 @@ func TestIssueSearchUsesNativeHTTPAndTokenAuth(t *testing.T) {
 	}
 	if !strings.Contains(network.request.URL, "maxResults=3") {
 		t.Fatalf("request URL = %q, want maxResults=3", network.request.URL)
+	}
+}
+
+func TestIssueSearchUsesAtlassianServiceAccountAPITokenAuth(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"issues":[],"total":0}`),
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"JIRA_API_TOKEN": "jira-api-token"}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{CloudID: "cloud-1", Auth: atlassianplugin.AuthConfig{Method: atlassianplugin.TokenMethod}}
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := ops[0].Run(coreoperation.NewContext(context.Background(), nil), map[string]any{"jql": "project = DEV"})
+	if result.Status != coreoperation.StatusOK {
+		t.Fatalf("status = %s error = %#v", result.Status, result.Error)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/search/jql") {
+		t.Fatalf("request URL = %q", network.request.URL)
+	}
+	if got := network.request.Headers["Authorization"]; got != "Bearer jira-api-token" {
+		t.Fatalf("authorization = %q, want bearer API token auth", got)
+	}
+}
+
+func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"issues":[],"total":0}`),
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env: fakeEnvironment{values: map[string]string{
+			"JIRA_API_TOKEN": "jira-api-token",
+			"JIRA_EMAIL":     "user@example.com",
+		}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{SiteURL: "https://company.atlassian.net", Auth: atlassianplugin.AuthConfig{Method: "basic"}}
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := ops[0].Run(coreoperation.NewContext(context.Background(), nil), map[string]any{"jql": "project = DEV"})
+	if result.Status != coreoperation.StatusOK {
+		t.Fatalf("status = %s error = %#v", result.Status, result.Error)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://company.atlassian.net/rest/api/3/search/jql") {
+		t.Fatalf("request URL = %q", network.request.URL)
+	}
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("user@example.com:jira-api-token"))
+	if got := network.request.Headers["Authorization"]; got != want {
+		t.Fatalf("authorization = %q, want basic API token auth", got)
 	}
 }
 
