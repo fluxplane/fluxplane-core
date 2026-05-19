@@ -13,6 +13,7 @@ import (
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
@@ -38,8 +39,8 @@ func TestBundleComposes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.AgentSpecs) != 6 {
-		t.Fatalf("agent specs len = %d, want 6", len(composition.AgentSpecs))
+	if len(composition.AgentSpecs) != 7 {
+		t.Fatalf("agent specs len = %d, want 7", len(composition.AgentSpecs))
 	}
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
@@ -63,6 +64,12 @@ func TestBundleComposes(t *testing.T) {
 	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, "web_search", "web_search") {
 		t.Fatalf("datasource specs = %#v, want web_search", composition.DatasourceSpecs)
+	}
+	if !agentHasSkill(composition.AgentSpecs[0], "coder") {
+		t.Fatalf("coder agent skills = %#v, want coder", composition.AgentSpecs[0].Skills)
+	}
+	if !hasSkillSpec(composition.SkillSpecs, "coder") {
+		t.Fatalf("skill specs = %#v, want coder", composition.SkillSpecs)
 	}
 	session := composition.SessionSpecs[0]
 	if len(session.Delegation.Commands) != 0 {
@@ -180,6 +187,23 @@ func findAgentSpec(specs []agent.Spec, name string) (agent.Spec, bool) {
 func agentHasDatasource(spec agent.Spec, name string) bool {
 	for _, ref := range spec.Datasources {
 		if ref.Name == coredatasource.Name(name) {
+			return true
+		}
+	}
+	return false
+}
+func agentHasSkill(spec agent.Spec, name string) bool {
+	for _, ref := range spec.Skills {
+		if ref.Name == skill.Name(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSkillSpec(specs []skill.Spec, name string) bool {
+	for _, spec := range specs {
+		if spec.Name == skill.Name(name) {
 			return true
 		}
 	}

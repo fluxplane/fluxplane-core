@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/sdk"
@@ -67,6 +68,7 @@ func Bundle() resource.ContributionBundle {
 		WithDatasource("web_search").
 		WithDatasource(kubernetesplugin.Name).
 		Build()
+	agentSpec.Skills = append(agentSpec.Skills, skill.Ref{Name: "coder"})
 
 	bundle := sdk.NewApp(AppName).
 		WithSource(resource.SourceRef{
@@ -123,8 +125,8 @@ func Bundle() resource.ContributionBundle {
 		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
 		bundle.Apps[0].Security = localCoderSecurity()
 	}
+	bundle.Append(embedded)
 	bundle.Commands = append(bundle.Commands, shellExecCommandSpec())
-	bundle.Commands = append(bundle.Commands, embedded.Commands...)
 	return bundle
 }
 
