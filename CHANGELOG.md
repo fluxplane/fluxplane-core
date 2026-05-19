@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added an embedded coder skill with a reference guide for writing and
+  reviewing `agentsdk.app.yaml` app manifests.
+
 - Added `coder app deploy --target kubernetes` for plain kubectl manifest
   deployments, including local k3d image import, external registry mode,
   generated Kubernetes resources for app runtime MySQL/NATS backends, and
