@@ -32,6 +32,12 @@ func TestBundleComposes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, kubernetesplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", kubernetesplugin.Name)
+	}
+	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
+	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
 		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), kubernetesplugin.New(sys)},
@@ -62,8 +68,14 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasDatasource(composition.AgentSpecs[0], "web_search") {
 		t.Fatalf("coder agent datasources = %#v, want web_search", composition.AgentSpecs[0].Datasources)
 	}
+	if !agentHasDatasource(composition.AgentSpecs[0], kubernetesplugin.Name) {
+		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, kubernetesplugin.Name)
+	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, "web_search", "web_search") {
 		t.Fatalf("datasource specs = %#v, want web_search", composition.DatasourceSpecs)
+	}
+	if !hasDatasourceSpec(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.Name) {
+		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, kubernetesplugin.Name)
 	}
 	if !agentHasSkill(composition.AgentSpecs[0], "coder") {
 		t.Fatalf("coder agent skills = %#v, want coder", composition.AgentSpecs[0].Skills)
@@ -173,6 +185,26 @@ func findCommandSpec(specs []command.Spec, name string) (command.Spec, bool) {
 		}
 	}
 	return command.Spec{}, false
+}
+
+func bundleHasPluginRef(bundles []resource.ContributionBundle, name string) bool {
+	for _, bundle := range bundles {
+		for _, ref := range bundle.Plugins {
+			if ref.Name == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pluginListContains(plugins []pluginhost.Plugin, name string) bool {
+	for _, plugin := range plugins {
+		if plugin != nil && plugin.Manifest().Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func findAgentSpec(specs []agent.Spec, name string) (agent.Spec, bool) {
