@@ -350,6 +350,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed the legacy `cmd/agentsdk` and `cmd/codershell` launchers; repository
+  build and install tasks now produce only the `coder` binary.
 - Removed the old `plugins/planexec` runtime assembly path.
 - Removed the legacy `orchestration/subagent` package and `subagent.*` event
   registration/rendering/classification.
