@@ -51,7 +51,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 
 // EnvironmentObservers returns executable Docker observers.
 func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{dockerObserver{system: p.system}}, nil
+	return []runtimeenvironment.Observer{dockerObserver(p)}, nil
 }
 
 // SignalDerivers returns executable Docker signal derivation.
@@ -228,9 +228,7 @@ func parseDockerVersionText(out string) string {
 		return ""
 	}
 	const prefix = "Docker version "
-	if strings.HasPrefix(out, prefix) {
-		out = strings.TrimPrefix(out, prefix)
-	}
+	out = strings.TrimPrefix(out, prefix)
 	if idx := strings.Index(out, ","); idx >= 0 {
 		out = out[:idx]
 	}
