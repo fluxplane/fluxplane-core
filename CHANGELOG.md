@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retrieve live Kubernetes namespaces, pods, services, and containers through
   the default datasource tool surface.
 
+- Added NATS JetStream-backed launch event store selection for app runtime
+  sessions through `runtime.events.store` configuration.
 - Added first-class channel operation submissions and wired `coder shell`
   command execution through direct `shell_exec` operation calls.
 - Added OpenRouter defaults for generated Docker Compose app deployments,
