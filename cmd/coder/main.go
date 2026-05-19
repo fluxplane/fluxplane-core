@@ -6,11 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/apps/coderapp"
+	coderapp "github.com/fluxplane/agentruntime/apps/coder/app"
+	codercli "github.com/fluxplane/agentruntime/apps/coder/cli"
 )
 
 func main() {
-	app, err := coderapp.New(context.Background(), coderapp.Config{
+	cmd, err := codercli.NewCommand(context.Background(), coderapp.Config{
 		Root:            ".",
 		CoderConfigPath: configPathFromArgs(os.Args[1:]),
 	})
@@ -18,7 +19,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	cmd := app.Command()
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

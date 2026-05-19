@@ -91,6 +91,13 @@ func TestBundleComposes(t *testing.T) {
 		t.Fatal("worker operations len = 0, want operation-projected tools")
 	}
 	commandSpecs := composition.Commands.All()
+	shellCmd, ok := findCommandSpec(commandSpecs, "shell/exec")
+	if !ok {
+		t.Fatalf("command specs = %#v, missing /shell/exec", commandSpecs)
+	}
+	if shellCmd.Target.Kind != "operation" || shellCmd.Target.Operation.Name != "shell_exec" {
+		t.Fatalf("shell exec command target = %#v, want shell_exec operation", shellCmd.Target)
+	}
 	reflectCmd, ok := findCommandSpec(commandSpecs, ReflectCommand)
 	if !ok {
 		t.Fatalf("command specs = %#v, missing /%s", commandSpecs, ReflectCommand)

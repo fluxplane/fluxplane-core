@@ -60,6 +60,53 @@ func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
 	}
 }
 
+func TestProjectSkipsHiddenCommandButKeepsBareOperation(t *testing.T) {
+	op := operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "shell_exec"},
+		Description: "Run a command.",
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectProcess},
+			Risk:    operation.RiskMedium,
+		},
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	opID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "shell_exec"}
+	commandID := resource.ResourceID{Kind: "command", Origin: "embedded", Name: "shell_exec"}
+	result := Project(Config{
+		Operations: session.OperationCatalog{
+			opID.Address(): {ID: opID, Operation: op},
+		},
+		Commands: session.CommandCatalog{
+			commandID.Address(): {
+				ID:          commandID,
+				OperationID: opID,
+				Spec: command.Spec{
+					Path:        command.Path{"shell", "exec"},
+					Description: "Internal shell dispatch.",
+					Target: invocation.Target{
+						Kind:      invocation.TargetOperation,
+						Operation: operation.Ref{Name: "shell_exec"},
+					},
+					Annotations: map[string]string{"tool_projection": "hidden"},
+				},
+			},
+		},
+		IncludeBareOperations: true,
+		AllowSideEffects:      true,
+		MaxRisk:               operation.RiskMedium,
+		Caller:                policy.Caller{Kind: policy.CallerUser},
+		Trust:                 policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+	})
+
+	if len(result.Tools) != 1 {
+		t.Fatalf("tools len = %d, want 1: %#v", len(result.Tools), result.Diagnostics)
+	}
+	if result.Tools[0].Name != "shell_exec" {
+		t.Fatalf("tool name = %q, want shell_exec", result.Tools[0].Name)
+	}
+}
+
 func TestProjectRejectsSideEffectingOperationByDefault(t *testing.T) {
 	op := operation.New(operation.Spec{
 		Ref: operation.Ref{Name: "write"},

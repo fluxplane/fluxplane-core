@@ -4,15 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fluxplane/agentruntime/apps/coder/shell"
+	codershell "github.com/fluxplane/agentruntime/apps/coder/shell"
 )
 
 func main() {
-	path := "."
-	if len(os.Args) > 1 {
-		path = os.Args[1]
-	}
-	if err := shell.Run(shell.Options{Path: path}); err != nil {
+	cmd := codershell.NewCommand()
+	if err := cmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

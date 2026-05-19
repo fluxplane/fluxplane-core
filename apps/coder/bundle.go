@@ -8,7 +8,9 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/agentdir"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
+	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -105,8 +107,25 @@ func Bundle() resource.ContributionBundle {
 		bundle.Apps[0].Discovery.IncludeGlobalUserResources = true
 		bundle.Apps[0].Security = localCoderSecurity()
 	}
+	bundle.Commands = append(bundle.Commands, shellExecCommandSpec())
 	bundle.Commands = append(bundle.Commands, embedded.Commands...)
 	return bundle
+}
+
+func shellExecCommandSpec() command.Spec {
+	return command.Spec{
+		Path:        command.Path{"shell", "exec"},
+		Description: "Run one direct executable through the shell_exec operation.",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "shell_exec"},
+		},
+		Policy: policy.InvocationPolicy{
+			AllowedCallers: []policy.CallerKind{policy.CallerUser},
+			RequiredTrust:  policy.TrustVerified,
+		},
+		Annotations: map[string]string{"tool_projection": "hidden"},
+	}
 }
 
 func localCoderSecurity() policy.AuthorizationPolicy {

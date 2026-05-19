@@ -204,6 +204,9 @@ func toolSetSpec(value any) (tool.Set, bool) {
 
 func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool, string) {
 	spec := binding.Spec
+	if spec.Annotations != nil && spec.Annotations["tool_projection"] == "hidden" {
+		return tool.Spec{}, false, "command_tool_projection_hidden"
+	}
 	evaluation := policy.EvaluateInvocation(spec.Policy, cfg.Caller, cfg.Trust)
 	switch evaluation.Decision {
 	case policy.DecisionDeny:

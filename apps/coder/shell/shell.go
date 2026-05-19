@@ -1,4 +1,4 @@
-package shell
+package codershell
 
 import (
 	"context"
@@ -11,9 +11,15 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	agentruntime "github.com/fluxplane/agentruntime"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	projectruntime "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
+)
+
+const (
+	defaultDirectEndpoint = "http://127.0.0.1:8080"
+	defaultSessionName    = "coder"
 )
 
 // Options configures the experimental coder shell TUI.
@@ -27,11 +33,42 @@ type Options struct {
 	In io.Reader
 	// Out receives terminal output. When nil, Bubble Tea uses stdout.
 	Out io.Writer
+	// DirectClient can provide an already opened channel client for tests or embedders.
+	DirectClient agentruntime.ChannelClient
+	// Connect selects the shell endpoint. Empty uses the provided direct channel.
+	// Supported values include fake, direct, unix://PATH, http(s)://URL, and future target URLs.
+	Connect string
+}
+
+// Config configures a shell presentation instance.
+type Config = Options
+
+// Shell is the coder shell presentation layer.
+type Shell struct {
+	opts Options
+}
+
+// New creates a shell presentation instance.
+func New(cfg Config) *Shell {
+	return &Shell{opts: Options(cfg)}
+}
+
+// Run starts the shell presentation.
+func (s *Shell) Run(ctx context.Context) error {
+	if s == nil {
+		return Run(Options{})
+	}
+	return run(ctx, s.opts)
 }
 
 // Run starts the first minimal coder shell TUI.
 func Run(opts Options) error {
-	ctx := context.Background()
+	return run(context.Background(), opts)
+}
+
+func run(ctx context.Context, opts Options) error {
+	ctx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
 	path := strings.TrimSpace(opts.Path)
 	if path == "" {
 		path = "."
@@ -55,8 +92,64 @@ func Run(opts Options) error {
 	if opts.Out != nil {
 		programOpts = append(programOpts, tea.WithOutput(opts.Out))
 	}
-	_, err := tea.NewProgram(newModel(status), programOpts...).Run()
+	client := newClient(sharedSystem, opts)
+	connection := connectionDescription(client, opts.Connect)
+	_, err := tea.NewProgram(newModel(status, client, connection), programOpts...).Run()
 	return err
+}
+
+func newClient(sys system.System, opts Options) ShellClient {
+	if strings.TrimSpace(opts.Connect) == "" || strings.TrimSpace(opts.Connect) == "direct" {
+		if opts.DirectClient != nil {
+			return NewDirectChannelClient(DirectChannelClientOptions{Client: opts.DirectClient, Session: agentruntime.SessionRef{Name: defaultSessionName}})
+		}
+		client, err := newRemoteDirectChannelClient(defaultDirectEndpoint)
+		if err == nil {
+			return client
+		}
+		return NewRemoteClient(RemoteClientOptions{Endpoint: defaultDirectEndpoint, ParseError: err})
+	}
+	return newClientFromEndpoint(sys, opts.Connect)
+}
+
+func connectionDescription(client ShellClient, fallback string) string {
+	if described, ok := client.(interface{ ConnectionDescription() string }); ok {
+		if value := strings.TrimSpace(described.ConnectionDescription()); value != "" {
+			return value
+		}
+	}
+	if strings.TrimSpace(fallback) == "" {
+		return "direct"
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func newClientFromEndpoint(sys system.System, endpoint string) ShellClient {
+	parsed, err := parseConnectEndpoint(endpoint)
+	if err != nil {
+		return NewRemoteClient(RemoteClientOptions{Endpoint: strings.TrimSpace(endpoint), ParseError: err})
+	}
+	switch parsed.Mode {
+	case ClientModeFake:
+		return NewFakeClient()
+	case ClientModeDirect:
+		if client, err := newRemoteDirectChannelClient(defaultDirectEndpoint); err == nil {
+			return client
+		}
+		return NewRemoteClient(RemoteClientOptions{Endpoint: defaultDirectEndpoint})
+	case ClientModeLocal:
+		if client, err := newRemoteDirectChannelClient(parsed.Endpoint); err == nil {
+			return client
+		}
+		return NewRemoteClient(RemoteClientOptions{Endpoint: parsed.Endpoint})
+	case ClientModeRemote:
+		if client, err := newRemoteDirectChannelClient(parsed.Endpoint); err == nil {
+			return client
+		}
+		return NewRemoteClient(RemoteClientOptions{Endpoint: parsed.Endpoint})
+	default:
+		return NewLocalClient(sys)
+	}
 }
 
 type shellStatus struct {
@@ -219,28 +312,45 @@ func detectGoVersion(ctx context.Context, sys system.System) string {
 }
 
 type model struct {
-	status shellStatus
-	width  int
-	height int
-	input  string
-	log    []string
+	status  shellStatus
+	width   int
+	height  int
+	shell   *ShellObject
+	mention MentionState
 }
 
-func newModel(status shellStatus) model {
+func newModel(status shellStatus, client ShellClient, connection string) model {
 	project := status.projectName
 	if project == "" {
 		project = "no project inventory"
 	}
-	return model{
-		status: status,
-		input:  "",
-		log: []string{
-			"coder shell experimental TUI",
-			fmt.Sprintf("project: %s", project),
-			"type text and press enter to echo it",
-			"press ctrl+c, esc, or q on an empty prompt to quit",
-		},
+	state, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: status.cwd, Connection: connection})
+	if err != nil {
+		state = &ShellObject{client: client, tabs: []TabSession{{
+			ID:        disconnectedSessionID,
+			Label:     "1",
+			CWD:       status.cwd,
+			InputMode: InputModeShell,
+			Transcript: []TranscriptEvent{
+				transcriptConnectionEvent(disconnectedSessionID, connection),
+				{
+					ID:      newEventID("error"),
+					Kind:    EventError,
+					Summary: err.Error(),
+				},
+			},
+		}}}
 	}
+	active := state.ActiveTab()
+	if active != nil {
+		active.Transcript = append(active.Transcript,
+			TranscriptEvent{ID: newEventID("intro"), SessionID: active.ID, Time: time.Now(), Summary: "coder shell experimental TUI"},
+			TranscriptEvent{ID: newEventID("project"), SessionID: active.ID, Time: time.Now(), Summary: fmt.Sprintf("project: %s", project)},
+			TranscriptEvent{ID: newEventID("hint"), SessionID: active.ID, Time: time.Now(), Summary: "type text and press enter to submit through the selected shell client"},
+			TranscriptEvent{ID: newEventID("quit"), SessionID: active.ID, Time: time.Now(), Summary: "press ctrl+c, esc, or q on an empty prompt to quit"},
+		)
+	}
+	return model{status: status, shell: state}
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -252,36 +362,101 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 	case tea.KeyMsg:
+		tab := m.shell.ActiveTab()
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+		case tea.KeyCtrlT:
+			cwd := m.status.cwd
+			if tab != nil && strings.TrimSpace(tab.CWD) != "" {
+				cwd = tab.CWD
+			}
+			_, _ = m.shell.NewTab(context.Background(), cwd)
+			m.mention = MentionState{}
+			return m, nil
 		case tea.KeyRunes:
-			m.input += msg.String()
+			value := msg.String()
+			if value == "q" && tab != nil && tab.InputBuffer == "" {
+				return m, tea.Quit
+			}
+			if len(value) == 1 && value[0] >= '1' && value[0] <= '9' && msg.Alt {
+				m.shell.SelectTab(int(value[0] - '1'))
+				return m, nil
+			}
+			m.shell.AppendInput(value)
+			m.refreshMention()
 			return m, nil
 		case tea.KeySpace:
-			m.input += " "
+			m.shell.AppendInput(" ")
+			m.mention = MentionState{}
 			return m, nil
 		case tea.KeyBackspace, tea.KeyCtrlH:
-			if m.input != "" {
-				runes := []rune(m.input)
-				m.input = string(runes[:len(runes)-1])
-			}
+			m.shell.BackspaceInput()
+			m.refreshMention()
 			return m, nil
 		case tea.KeyEnter:
-			line := strings.TrimSpace(m.input)
-			if line == "" {
-				m.log = append(m.log, "")
-			} else {
-				m.log = append(m.log, fmt.Sprintf("$ %s", m.input), fmt.Sprintf("echo: %s", m.input))
-			}
-			m.input = ""
+			m.mention = MentionState{}
+			_ = m.shell.SubmitActiveInput(context.Background())
 			return m, nil
-		}
-		if msg.String() == "q" && m.input == "" {
-			return m, tea.Quit
+		case tea.KeyUp:
+			if m.mention.Open && m.mention.Index > 0 {
+				m.mention.Index--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.mention.Open && m.mention.Index+1 < len(m.mention.Results) {
+				m.mention.Index++
+			}
+			return m, nil
+		case tea.KeyTab:
+			if msg.Alt {
+				m.shell.ToggleInputMode()
+				return m, nil
+			}
+			if result, ok := m.mention.activeResult(); ok {
+				tab := m.shell.ActiveTab()
+				if tab != nil {
+					tab.InputBuffer = replaceMentionFragment(tab.InputBuffer, result)
+					tab.Mentions = append(tab.Mentions, ResourceMention{
+						Kind:       result.Kind,
+						ID:         result.ID,
+						Label:      result.Label,
+						URI:        result.URI,
+						InsertText: result.InsertText,
+						Metadata:   result.Metadata,
+					})
+					tab.Transcript = append(tab.Transcript, TranscriptEvent{
+						ID:        newEventID("mention"),
+						SessionID: tab.ID,
+						Time:      time.Now(),
+						Kind:      EventResourceMentioned,
+						Summary:   string(result.Kind) + ": " + result.Label,
+					})
+				}
+				m.mention = MentionState{}
+			}
+			return m, nil
 		}
 	}
 	return m, nil
+}
+func (m *model) refreshMention() {
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		m.mention = MentionState{}
+		return
+	}
+	query, ok := mentionQuery(tab.InputBuffer)
+	if !ok {
+		m.mention = MentionState{}
+		return
+	}
+	results, err := m.shell.SearchResources(context.Background(), ResourceSearchQuery{Text: query, Limit: 6, Mention: true})
+	if err != nil {
+		m.mention = MentionState{}
+		return
+	}
+	m.mention = MentionState{Open: true, Query: query, Results: results}
 }
 
 var (
@@ -343,8 +518,11 @@ func (m model) View() string {
 		m.renderHeader(contentWidth),
 		m.renderStatus(contentWidth),
 		m.renderTimeline(contentWidth, bodyLines),
-		m.renderPrompt(contentWidth),
 	}
+	if m.mention.Open {
+		parts = append(parts, m.renderMentionPicker(contentWidth))
+	}
+	parts = append(parts, m.renderPrompt(contentWidth))
 	return pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
@@ -368,6 +546,15 @@ func (m model) renderHeader(width int) string {
 	if m.status.goVersion != "" {
 		rightParts = append(rightParts, statusPill("go", strings.TrimPrefix(m.status.goVersion, "go")))
 	}
+	if active := m.shell.ActiveTab(); active != nil {
+		rightParts = append(rightParts, statusPill("session", active.ID))
+	}
+	if len(m.shell.tabs) > 0 {
+		rightParts = append(rightParts, statusPill("tabs", fmt.Sprintf("%d", len(m.shell.tabs))))
+	}
+	if connection := strings.TrimSpace(m.shell.connection); connection != "" {
+		rightParts = append(rightParts, statusPill("conn", connection))
+	}
 	if m.status.taskCount > 0 {
 		rightParts = append(rightParts, statusPill("tasks", fmt.Sprintf("%d", m.status.taskCount)))
 	}
@@ -384,8 +571,12 @@ func (m model) renderHeader(width int) string {
 }
 
 func (m model) renderStatus(width int) string {
+	activeCWD := m.status.cwd
+	if active := m.shell.ActiveTab(); active != nil && strings.TrimSpace(active.CWD) != "" {
+		activeCWD = active.CWD
+	}
 	leftItems := []string{
-		statusItem("pwd", shortPath(m.status.cwd)),
+		statusItem("pwd", shortPath(activeCWD)),
 	}
 	if m.status.projectKind != "" {
 		leftItems = append(leftItems, statusItem("kind", m.status.projectKind))
@@ -410,8 +601,37 @@ func (m model) renderStatus(width int) string {
 	return statusPanelStyle.Width(width).Render(truncateStyled(line, width))
 }
 
+func (m model) renderMentionPicker(width int) string {
+	if !m.mention.Open {
+		return ""
+	}
+	lines := []string{subtleStyle.Render("@ resources") + " " + valueStyle.Render(m.mention.Query)}
+	if len(m.mention.Results) == 0 {
+		lines = append(lines, mutedStyle.Render("no results"))
+	}
+	for i, result := range m.mention.Results {
+		prefix := "  "
+		style := valueStyle
+		if i == m.mention.Index {
+			prefix = "❯ "
+			style = accentStyle
+		}
+		icon := strings.TrimSpace(result.Icon)
+		if icon != "" {
+			icon += " "
+		}
+		lines = append(lines, prefix+subtleStyle.Render("["+string(result.Kind)+"] ")+style.Render(icon+result.Label))
+	}
+	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
 func (m model) renderTimeline(width, maxLines int) string {
-	lines := visibleLines(m.log, maxLines)
+	tab := m.shell.ActiveTab()
+	lines := []string{"Ready."}
+	if tab != nil {
+		lines = TimelineLines(tab.Transcript)
+	}
+	lines = visibleLines(lines, maxLines)
 	if len(lines) == 0 {
 		lines = []string{"Ready."}
 	}
@@ -425,8 +645,26 @@ func (m model) renderTimeline(width, maxLines int) string {
 
 func renderTimelineLine(line string) string {
 	switch {
+	case strings.HasPrefix(line, "> "):
+		return promptStyle.Render("> ") + valueStyle.Render(strings.TrimPrefix(line, "> "))
 	case strings.HasPrefix(line, "$ "):
 		return promptStyle.Render("$ ") + valueStyle.Render(strings.TrimPrefix(line, "$ "))
+	case strings.HasPrefix(line, "out:"):
+		return subtleStyle.Render("↳ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "out:")))
+	case strings.HasPrefix(line, "exit:"):
+		summary := strings.TrimSpace(strings.TrimPrefix(line, "exit:"))
+		if summary == "0" || summary == "ok" {
+			return okStyle.Render("✓ ") + valueStyle.Render(summary)
+		}
+		return warnStyle.Render("✗ ") + valueStyle.Render(summary)
+	case strings.HasPrefix(line, "agent:"):
+		return accentStyle.Render("🤖 ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "agent:")))
+	case strings.HasPrefix(line, "mention:"):
+		return accentStyle.Render("@ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "mention:")))
+	case strings.HasPrefix(line, "slash:"):
+		return promptStyle.Render("/ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "slash:")))
+	case strings.HasPrefix(line, "error:"):
+		return warnStyle.Render("! ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "error:")))
 	case strings.HasPrefix(line, "echo:"):
 		return subtleStyle.Render("↳ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "echo:")))
 	case strings.HasPrefix(line, "project:"):
@@ -439,8 +677,17 @@ func renderTimelineLine(line string) string {
 }
 
 func (m model) renderPrompt(width int) string {
-	prompt := promptStyle.Render("❯ ") + inputStyle.Render(m.input)
-	help := subtleStyle.Render("ctrl+c/esc quit")
+	tab := m.shell.ActiveTab()
+	input := ""
+	marker := "❯ "
+	if tab != nil {
+		input = tab.InputBuffer
+		if tab.InputMode == InputModeAsk {
+			marker = "🤖 "
+		}
+	}
+	prompt := promptStyle.Render(marker) + inputStyle.Render(input)
+	help := subtleStyle.Render("ctrl+t new tab · alt+tab mode · ctrl+c/esc quit")
 	gap := width - lipgloss.Width(prompt) - lipgloss.Width(help)
 	if gap < 1 {
 		gap = 1

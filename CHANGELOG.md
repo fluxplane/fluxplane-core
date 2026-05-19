@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current app facet, app operations, workflows, and agents explicitly.
 - Added `coderapp.App.Run` and wired `cmd/coder`'s `coder app run` path through
   the configured coder app wrapper so `.coder.yaml` workspace defaults apply.
-- Added `apps/coderapp` with initial `.coder.yaml` discovery, explicit
+- Added `apps/coder/app` with initial `.coder.yaml` discovery, explicit
   `--config` support, `coder config show`, and workspace/env-file defaults for
   coder sessions.
 - Added project inventory facets for agentruntime app manifests, `.coder.yaml`
@@ -142,6 +142,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Coder app configuration now lives under `apps/coder/app` package
+  `coderapp`, shell code uses package `codershell`, and `coder shell` local
+  mode uses an in-process direct channel client instead of starting a local
+  HTTP or Unix-socket daemon.
 - `coder app build` now defaults to app-local artifact generation, writing a
   launcher, `Dockerfile`, `docker-compose.yaml`, and building the app image
   unless a narrower `--target` is selected.
