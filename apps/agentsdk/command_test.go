@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/apps/launch"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 )
@@ -20,7 +21,7 @@ func TestRootCommandHasExpectedCommands(t *testing.T) {
 		names = append(names, child.Name())
 	}
 	got := strings.Join(names, ",")
-	for _, want := range []string{"coder", "evaluator", "init", "build", "run", "serve", "models", "connect", "remote", "discover"} {
+	for _, want := range []string{"coder", "evaluator", "init", "build", "run", "serve", "models", "connect", "remote", "datasource", "discover"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("commands = %s, want %s", got, want)
 		}
@@ -285,9 +286,9 @@ func TestConnectProviderInfoUsesProductRegistry(t *testing.T) {
 }
 
 func TestTerminalEventRegistryDecodesPluginCatalogEvents(t *testing.T) {
-	registry, err := terminalEventRegistry()
+	registry, err := launch.TerminalEventRegistry()
 	if err != nil {
-		t.Fatalf("terminalEventRegistry: %v", err)
+		t.Fatalf("TerminalEventRegistry: %v", err)
 	}
 	for _, sample := range eventcatalog.All() {
 		raw, err := json.Marshal(sample)

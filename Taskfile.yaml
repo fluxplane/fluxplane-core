@@ -13,8 +13,7 @@ tasks:
   install:
     desc: Install the agentsdk and coder binaries on this machine.
     cmds:
-      - go install ./cmd/agentsdk
-      - go install ./cmd/coder
+      - go run ./cmd/build/main.go --install apps/agentsdk apps/coder
 
   hooks:install:
     desc: Configure this clone to use the tracked Git hooks.
@@ -27,34 +26,12 @@ tasks:
       GOTMPDIR: "{{.TASKFILE_DIR}}/.cache/go-tmp"
     cmds:
       - mkdir -p bin .cache/go-build .cache/go-tmp
-      - |
-        set -euo pipefail
-        targets="
-        linux/amd64
-        linux/arm64
-        darwin/amd64
-        darwin/arm64
-        windows/amd64
-        windows/arm64
-        "
-        for target in $targets; do
-          goos="${target%/*}"
-          goarch="${target#*/}"
-          ext=""
-          if [ "$goos" = "windows" ]; then
-            ext=".exe"
-          fi
-          for app in agentsdk coder; do
-            out="bin/${app}_${goos}_${goarch}${ext}"
-            printf 'build: %s\n' "$out"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -o "$out" "./cmd/$app"
-          done
-        done
+      - go run ./cmd/build/main.go apps/agentsdk apps/coder
 
   index:
     desc: Build or update the root app semantic index for local markdown docs.
     cmds:
-      - go run ./cmd/agentsdk datasource index build . --datasource local-docs --entity file.document --full
+      - go run ./cmd/coder datasource index build . --datasource local-docs --entity file.document --full
 
   verify:
     desc: Run the rewrite quality gate.

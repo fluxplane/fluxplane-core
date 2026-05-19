@@ -1,0 +1,28 @@
+kind: app
+name: {{quote .Name}}
+description: Minimal local agentsdk app.
+default_agent:
+  name: default
+daemon:
+  listeners:
+    - name: local
+      type: http
+      addr: {{quote .Socket}}
+      auth:
+        mode: local_socket
+  channels:
+    - name: local
+      type: direct
+      listener: local
+      session: default
+      access:
+        mode: open
+---
+kind: session
+name: default
+agent: default
+---
+kind: agent
+name: default
+system: |
+  You are a helpful assistant for this local agentsdk app.

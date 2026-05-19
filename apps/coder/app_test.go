@@ -4,22 +4,31 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
+	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
+	"github.com/fluxplane/agentruntime/apps/launch"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	corecommand "github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
+	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
@@ -67,8 +76,32 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "discover") {
 		t.Fatalf("help = %q, want discover command", help)
 	}
+	if !strings.Contains(help, "datasource") {
+		t.Fatalf("help = %q, want datasource command", help)
+	}
+	if !strings.Contains(help, "evaluator") {
+		t.Fatalf("help = %q, want evaluator command", help)
+	}
+	if !strings.Contains(help, "app") {
+		t.Fatalf("help = %q, want app command", help)
+	}
+	if !strings.Contains(help, "agent") {
+		t.Fatalf("help = %q, want agent command", help)
+	}
+	if !strings.Contains(help, "op") {
+		t.Fatalf("help = %q, want op command", help)
+	}
+	if !strings.Contains(help, "remote") {
+		t.Fatalf("help = %q, want remote command", help)
+	}
 	if !strings.Contains(help, "serve") {
 		t.Fatalf("help = %q, want serve command", help)
+	}
+	if !strings.Contains(help, "shell") {
+		t.Fatalf("help = %q, want shell command", help)
+	}
+	if !strings.Contains(help, "workflow") {
+		t.Fatalf("help = %q, want workflow command", help)
 	}
 	if strings.Contains(help, "--openai-store") {
 		t.Fatalf("help = %q, want openai-store removed", help)
@@ -84,6 +117,453 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	if !hasDescribe {
 		t.Fatalf("coder command missing describe subcommand")
+	}
+}
+
+func TestResourceRunParsesUnknownFlagsAsInput(t *testing.T) {
+	name, opts, err := parseResourceRunArgs([]string{"echo", "--arg", "name=Ada", "--count=3", "--enabled", "--", "tail"})
+	if err != nil {
+		t.Fatalf("parseResourceRunArgs: %v", err)
+	}
+	if name != "echo" {
+		t.Fatalf("name = %q, want echo", name)
+	}
+	input, err := commandInput(opts)
+	if err != nil {
+		t.Fatalf("commandInput: %v", err)
+	}
+	got, ok := input.(map[string]any)
+	if !ok {
+		t.Fatalf("input = %#v, want map", input)
+	}
+	if got["name"] != "Ada" || got["count"] != "3" || got["enabled"] != true {
+		t.Fatalf("input = %#v, want parsed args", got)
+	}
+	if args, ok := got["args"].([]string); !ok || len(args) != 1 || args[0] != "tail" {
+		t.Fatalf("args = %#v, want tail", got["args"])
+	}
+}
+
+func TestRunPromptHandlerIgnoresNonRunSlashCommands(t *testing.T) {
+	handled, err := newRunPromptHandler(func(context.Context, string) (distribution.Loaded, error) {
+		t.Fatalf("loader should not be called")
+		return distribution.Loaded{}, nil
+	})(context.Background(), "/context", nil, distcli.RunOptions{})
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+	if handled {
+		t.Fatalf("handled = true, want false")
+	}
+}
+
+func TestRunPromptResourceOptionsFromSlashCommand(t *testing.T) {
+	inv, ok, err := corecommand.ParseSlash(`/run op upper tail --app ./sample --arg text=hello --count=3 --debug`)
+	if err != nil || !ok {
+		t.Fatalf("ParseSlash ok=%v err=%v", ok, err)
+	}
+	opts := resourceRunOptionsFromInvocation(inv, distcli.RunOptions{Yolo: true, Dev: true}, 3)
+	if opts.appPath != "./sample" || opts.args["text"] != "hello" || opts.args["count"] != "3" {
+		t.Fatalf("opts = %#v, want app path and parsed args", opts)
+	}
+	if !opts.debug || !opts.yolo || !opts.dev {
+		t.Fatalf("opts booleans = debug:%v yolo:%v dev:%v, want inherited/enabled", opts.debug, opts.yolo, opts.dev)
+	}
+	if len(opts.positional) != 1 || opts.positional[0] != "tail" {
+		t.Fatalf("positional = %#v, want tail", opts.positional)
+	}
+}
+
+func TestRunPromptAgentTextFromSlashPathRemainder(t *testing.T) {
+	inv, ok, err := corecommand.ParseSlash(`/run agent writer implement tests`)
+	if err != nil || !ok {
+		t.Fatalf("ParseSlash ok=%v err=%v", ok, err)
+	}
+	opts := resourceRunOptionsFromInvocation(inv, distcli.RunOptions{}, 3)
+	if got := textInput(opts); got != "implement tests" {
+		t.Fatalf("textInput = %q, want path remainder as text", got)
+	}
+}
+
+func TestRunPromptAppOptionsFromSlashCommand(t *testing.T) {
+	inv, ok, err := corecommand.ParseSlash(`/run app ./demo --input hi --debug --max-continuations=7`)
+	if err != nil || !ok {
+		t.Fatalf("ParseSlash ok=%v err=%v", ok, err)
+	}
+	if len(inv.Args) == 0 || inv.Args[0] != "./demo" {
+		t.Fatalf("invocation args = %#v, want app path argument", inv.Args)
+	}
+	inv.Args = inv.Args[1:]
+	inheritedWorkspace := distribution.WorkspaceConfig{Roots: []distribution.WorkspaceRoot{{Name: "api", Path: "../api", Access: "read_only"}}}
+	opts := appRunOptionsFromInvocation(inv, distcli.RunOptions{
+		Yolo:           true,
+		WorkspaceRoots: []string{"../web"},
+		EnvFiles:       []string{".env"},
+		Workspace:      inheritedWorkspace,
+	})
+	if opts.Input != "hi" || !opts.Debug || !opts.Yolo || opts.MaxContinuations != 7 || !opts.MaxContinuationsSet {
+		t.Fatalf("opts = %#v, want parsed app run options", opts)
+	}
+	if len(opts.WorkspaceRoots) != 1 || opts.WorkspaceRoots[0] != "../web" {
+		t.Fatalf("workspace roots = %#v, want inherited", opts.WorkspaceRoots)
+	}
+	if len(opts.EnvFiles) != 1 || opts.EnvFiles[0] != ".env" {
+		t.Fatalf("env files = %#v, want inherited", opts.EnvFiles)
+	}
+	if len(opts.Workspace.Roots) != 1 || opts.Workspace.Roots[0].Access != "read_only" {
+		t.Fatalf("workspace = %#v, want inherited structured workspace", opts.Workspace)
+	}
+}
+
+func TestRunPromptHandlerRunsAppFacet(t *testing.T) {
+	runtime := &fakeAppRunRuntime{}
+	var loadedPath string
+	var out bytes.Buffer
+	handled, err := newRunPromptHandler(func(_ context.Context, path string) (distribution.Loaded, error) {
+		loadedPath = path
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec: coredistribution.Spec{
+					Name:           "sample",
+					DefaultSession: agentruntime.SessionRef{Name: "main"},
+				},
+				Runtime: runtime,
+			},
+		}, nil
+	})(context.Background(), `/run app ./demo --input hi --debug`, nil, distcli.RunOptions{Out: &out, Yolo: true})
+	if err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+	if !handled {
+		t.Fatalf("handled = false, want true")
+	}
+	if loadedPath != "./demo" {
+		t.Fatalf("loaded path = %q, want ./demo", loadedPath)
+	}
+	if !runtime.request.Debug || !runtime.request.Yolo {
+		t.Fatalf("runtime request = %#v, want debug and inherited yolo", runtime.request)
+	}
+	if !strings.Contains(out.String(), "ok") {
+		t.Fatalf("output = %q, want rendered app output", out.String())
+	}
+}
+
+func TestRemoteCommandUsesCoderDefaults(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"remote", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"--local", "--session", defaultRemoteSession, defaultRemoteConversation} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestAppCommandHasAgentsdkParityActions(t *testing.T) {
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"init", "run", "serve", "build", "config"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestDatasourceCommandHasIndexActions(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"datasource", "index", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"build", "embed", "status", "clear"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestAppInitCreatesMinimalManifest(t *testing.T) {
+	dir := t.TempDir()
+	cmd := newAppCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"init", dir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	manifestPath := filepath.Join(dir, "agentsdk.app.yaml")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	file, err := appconfig.DecodeFile(manifestPath, data)
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Apps) != 1 || string(file.Bundle.Apps[0].Name) != filepath.Base(dir) {
+		t.Fatalf("apps = %#v, want app named after directory", file.Bundle.Apps)
+	}
+	if !strings.Contains(out.String(), "created ") {
+		t.Fatalf("output = %q, want created message", out.String())
+	}
+}
+
+func TestAppRunHelpIncludesLaunchFlags(t *testing.T) {
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"run", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage", "--yolo", "--connectors-path", "--workspace-root"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestAppRunForwardsWorkspaceRootFlags(t *testing.T) {
+	runtime := &fakeAppRunRuntime{}
+	cmd := newAppCommandWithOptions(appCommandOptions{
+		runLoader: func(context.Context, string) (distribution.Loaded, error) {
+			return distribution.Loaded{
+				Distribution: distribution.Distribution{
+					Spec: coredistribution.Spec{
+						Name:           "sample",
+						DefaultSession: agentruntime.SessionRef{Name: "main"},
+					},
+					Runtime: runtime,
+				},
+			}, nil
+		},
+	})
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"run", "--input", "hello", "--workspace-root", "api=../api"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	roots := runtime.request.Launch.Workspace.Roots
+	if len(roots) != 1 || roots[0].Name != "api" || roots[0].Path != "../api" {
+		t.Fatalf("workspace roots = %#v, want api=../api", roots)
+	}
+}
+
+func TestAppServeForwardsModelSelection(t *testing.T) {
+	var got launch.Options
+	cmd := newAppCommandWithOptions(appCommandOptions{
+		serveRunner: func(_ context.Context, opts launch.Options) error {
+			got = opts
+			return nil
+		},
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"serve", "--provider", "codex", "--model", "gpt-5.5", "examples/slack-bot"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if got.AppDir != "examples/slack-bot" || got.Provider != "codex" || got.Model != "gpt-5.5" {
+		t.Fatalf("serve options = %#v, want app dir/provider/model", got)
+	}
+}
+
+type fakeAppRunRuntime struct {
+	request distribution.OpenRequest
+}
+
+func (r *fakeAppRunRuntime) OpenSession(_ context.Context, req distribution.OpenRequest) (clientapi.SessionHandle, error) {
+	r.request = req
+	info := clientapi.SessionInfo{
+		Session:      req.Session,
+		Thread:       corethread.Ref{ID: "thread-1", BranchID: corethread.MainBranch},
+		Conversation: req.Conversation,
+	}
+	return fakeAppRunSession{info: info}, nil
+}
+
+type fakeAppRunSession struct {
+	info clientapi.SessionInfo
+}
+
+func (s fakeAppRunSession) Info() clientapi.SessionInfo { return s.info }
+
+func (s fakeAppRunSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
+	return fakeAppRunHandle{info: s.info, submission: submission}, nil
+}
+
+func (s fakeAppRunSession) Events(context.Context, clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch, func() {}, nil
+}
+
+func (s fakeAppRunSession) OnEvent(context.Context, func(clientapi.Event)) (func(), error) {
+	return func() {}, nil
+}
+
+func (s fakeAppRunSession) Close(context.Context) error { return nil }
+
+type fakeAppRunHandle struct {
+	info       clientapi.SessionInfo
+	submission clientapi.Submission
+}
+
+func (r fakeAppRunHandle) ID() clientapi.RunID { return "run-1" }
+
+func (r fakeAppRunHandle) Session() clientapi.SessionInfo { return r.info }
+
+func (r fakeAppRunHandle) Submission() clientapi.Submission { return r.submission }
+
+func (r fakeAppRunHandle) Events() <-chan clientapi.Event {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch
+}
+
+func (r fakeAppRunHandle) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+func (r fakeAppRunHandle) Err() error { return nil }
+
+func (r fakeAppRunHandle) Wait(context.Context) (clientapi.Result, error) {
+	return clientapi.Result{
+		RunID:      r.ID(),
+		Session:    r.info,
+		Submission: r.submission,
+		Input:      &session.InputResult{Status: session.InputStatusOK},
+		Outbound: &channel.Outbound{
+			Kind:    channel.OutboundMessage,
+			Message: &channel.Message{Content: "ok"},
+		},
+	}, nil
+}
+
+func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
+	cmd := newAppCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"build", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{"build [path]", "--docker", "--tag", "--platform", "--push", "--dry-run", "--connectors-path"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help = %q, want %s", help, want)
+		}
+	}
+}
+
+func TestAppBuildRequiresDockerFlag(t *testing.T) {
+	cmd := newAppCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"build", "."})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "only Docker builds are supported") {
+		t.Fatalf("Execute error = %v, want docker-only error", err)
+	}
+}
+
+func TestAppConfigShowRendersLoadedDistribution(t *testing.T) {
+	root := t.TempDir()
+	cmd := newAppCommandWithOptions(appCommandOptions{
+		configLoader: func(_ context.Context, path string) (distribution.Loaded, error) {
+			if path != "." {
+				t.Fatalf("path = %q, want .", path)
+			}
+			return distribution.Loaded{
+				Root:     root,
+				Manifest: filepath.Join(root, "agentsdk.app.yaml"),
+				Distribution: distribution.Distribution{
+					Spec: coredistribution.Spec{
+						Name:        "sample",
+						Description: "Sample app.",
+					},
+				},
+			}, nil
+		},
+	})
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"config", "show", "-o", "json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	text := out.String()
+	for _, want := range []string{`"distribution"`, `"name": "sample"`, `"description": "Sample app."`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config show output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestAppConfigShowRequiresManifest(t *testing.T) {
+	root := t.TempDir()
+	cmd := newAppCommandWithOptions(appCommandOptions{
+		configLoader: func(context.Context, string) (distribution.Loaded, error) {
+			return distribution.Loaded{Root: root}, nil
+		},
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"config", "show"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "no app manifest found") {
+		t.Fatalf("Execute error = %v, want missing manifest", err)
+	}
+}
+
+func TestAppConfigEditOpensLoadedManifest(t *testing.T) {
+	root := t.TempDir()
+	manifest := filepath.Join(root, "agentsdk.app.yaml")
+	var edited string
+	cmd := newAppCommandWithOptions(appCommandOptions{
+		configLoader: func(context.Context, string) (distribution.Loaded, error) {
+			return distribution.Loaded{Root: root, Manifest: manifest}, nil
+		},
+		editorRunner: func(_ context.Context, path string, _ io.Reader, _, _ io.Writer) error {
+			edited = path
+			return nil
+		},
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"config", "edit"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if edited != manifest {
+		t.Fatalf("edited = %q, want %q", edited, manifest)
 	}
 }
 
@@ -575,6 +1055,151 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	}
 }
 
+func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
+}
+
+func TestCoderLaunchProjectsCoreToolsToModel(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	runtime, err := launch.Launch(ctx, launch.RuntimeOptions{
+		Root:                root,
+		Spec:                Distribution().Spec,
+		Bundles:             []resource.ContributionBundle{Bundle()},
+		Plugins:             localPlugins,
+		ToolProjection:      ToolProjectionConfig(),
+		ModelResolver:       agentfactory.ModelResolverFunc(func(context.Context, coreagent.Spec) (llmagent.Model, error) { return model, nil }),
+		AllowPrivateNetwork: true,
+		Yolo:                true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "launch-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
+}
+
+func TestCoderStartupLaunchProjectsCoreToolsToModel(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	chdir(t, root)
+	writeFile(t, root, ".agents/skills/project-skill/SKILL.md", `---
+name: project-skill
+description: Project skill.
+---
+Project skill body.
+`)
+	writeFile(t, home, ".claude/skills/user-skill/SKILL.md", `---
+name: user-skill
+description: User skill.
+---
+User skill body.
+`)
+	startup := loadStartupResources(ctx)
+	if len(startup.Diagnostics) > 0 {
+		t.Fatalf("startup diagnostics = %#v", startup.Diagnostics)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	runtime, err := launch.Launch(ctx, launch.RuntimeOptions{
+		Root:                startup.Root,
+		Spec:                Distribution().Spec,
+		Bundles:             startup.Bundles,
+		Plugins:             localPlugins,
+		ToolProjection:      ToolProjectionConfig(),
+		ModelResolver:       agentfactory.ModelResolverFunc(func(context.Context, coreagent.Spec) (llmagent.Model, error) { return model, nil }),
+		AllowPrivateNetwork: true,
+		Yolo:                true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "startup-launch-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
+}
+
 func operationCatalogContains(catalog session.OperationCatalog, name string) bool {
 	for _, binding := range catalog {
 		if binding.ID.Name == name {
@@ -582,6 +1207,19 @@ func operationCatalogContains(catalog session.OperationCatalog, name string) boo
 		}
 	}
 	return false
+}
+
+func assertRequestTools(t *testing.T, request llmagent.Request, want ...string) {
+	t.Helper()
+	names := map[string]bool{}
+	for _, spec := range request.Tools {
+		names[string(spec.Name)] = true
+	}
+	for _, name := range want {
+		if !names[name] {
+			t.Fatalf("model request tools missing %q: tools=%#v agent=%q agent_ops=%d", name, names, request.Agent.Name, len(request.Agent.Operations))
+		}
+	}
 }
 
 func TestBundleAppliesModelOverride(t *testing.T) {

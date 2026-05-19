@@ -180,6 +180,40 @@ func TestRunCommandForwardsEnvFileFlags(t *testing.T) {
 	}
 }
 
+func TestRunCommandForwardsWorkspaceRootFlags(t *testing.T) {
+	runtime := &fakeRunRuntime{}
+	loader := func(_ context.Context, path string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Distribution: distribution.Distribution{
+				Spec: coredistribution.Spec{
+					Name:           "sample",
+					DefaultSession: coresession.Ref{Name: "main"},
+				},
+				Runtime: runtime,
+			},
+		}, nil
+	}
+	cmd := NewRunCommandWithLoader(loader)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--input", "hello", "--workspace-root", "api=../api", "--workspace-root", "../web"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	roots := runtime.request.Launch.Workspace.Roots
+	if len(roots) != 2 {
+		t.Fatalf("workspace roots = %#v, want two roots", roots)
+	}
+	if roots[0].Name != "api" || roots[0].Path != "../api" {
+		t.Fatalf("workspace roots[0] = %#v, want api=../api", roots[0])
+	}
+	if roots[1].Name != "web" || roots[1].Path != "../web" {
+		t.Fatalf("workspace roots[1] = %#v, want derived web root", roots[1])
+	}
+}
+
 func TestRunCommandRejectsInvalidThinking(t *testing.T) {
 	cmd := NewRunCommandWithLoader(func(context.Context, string) (distribution.Loaded, error) {
 		t.Fatal("loader should not be called")

@@ -74,6 +74,7 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	cmd.AddCommand(newServeCommandWithOptions(startup, serveCommandOptions{
 		workspaceRoots: opts.WorkspaceRoots,
 		envFiles:       opts.EnvFiles,
+		workspace:      opts.Workspace,
 	}))
 	cmd.AddCommand(newShellCommand())
 	cmd.AddCommand(newWorkflowCommand())

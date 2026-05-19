@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `coder app run`, `coder app serve`, `coder app build`, and
+  `coder app config show` as area/action app lifecycle commands backed by the
+  existing local app launch, serve, and Docker build paths.
+- Added `coder datasource index ...` using the shared datasource index command
+  path so datasource management is available through coder.
+- Added `coder remote` and `coder evaluator` so the remaining agentsdk
+  terminal surfaces are available from the coder root command.
+- Added `coder config edit` for `.coder.yaml` and `coder app config edit` for
+  opening the resolved app manifest in the user's editor.
+- Added `cmd/build/main.go` and switched repository install/build tasks to use
+  the shared build entrypoint for `apps/agentsdk` and `apps/coder`.
+- Added explicit `coder op run`, `coder workflow run`, and `coder agent run`
+  area/action commands for running app-scoped resources without importing them
+  into the coder session.
+- Added `/run` handling in coder prompts so the REPL and `--input` can run the
+  current app facet, app operations, workflows, and agents explicitly.
+- Added `coderapp.App.Run` and wired `cmd/coder`'s `coder app run` path through
+  the configured coder app wrapper so `.coder.yaml` workspace defaults apply.
+- Added `apps/coderapp` with initial `.coder.yaml` discovery, explicit
+  `--config` support, `coder config show`, and workspace/env-file defaults for
+  coder sessions.
+- Added project inventory facets for agentruntime app manifests, `.coder.yaml`
+  configs, and generalized AI config files such as `AGENTS.md`, `CLAUDE.md`,
+  `MEMORY.md`, and `.claude/agents/*.md`.
+- Added `coder app init` using the shared local app initialization path.
+- Added unified coder app surface and coder shell design notes covering the
+  planned area/action command consolidation, `.coder.yaml` role, app facet
+  behavior, agentsdk parity milestone, and programmatic `coderapp` API.
 - Added a datasource mirror architecture design that separates live datasource
   access, local mirrored entity storage, secondary indexes, semantic retrieval,
   and future MySQL-backed mirror storage.
@@ -173,6 +201,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values.
 - Fixed MySQL initialization for SQL-backed datasource mirror and `core/data`
   stores so reopening an existing database tolerates already-created indexes.
+- Fixed local app runs so repeated `--workspace-root` flags are forwarded into
+  the launched app workspace, including through `coder app run`.
+- Fixed `.coder.yaml` workspace defaults so structured root access, create, and
+  env-file metadata are preserved when launching coder sessions, app runs, and
+  coder serve.
+- Fixed relative `.coder.yaml` workspace paths and env files so they resolve
+  from the config file location instead of the process working directory.
+- Fixed coder sessions with project or user skills loaded so the skill
+  activation wrapper preserves per-turn projected tools such as `shell_exec`.
 
 ## [0.13.0] - 2026-05-17
 

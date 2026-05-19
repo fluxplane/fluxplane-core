@@ -208,6 +208,47 @@ func TestCommandPropagatesWorkspaceRootFlags(t *testing.T) {
 	}
 }
 
+func TestCommandPreservesStructuredWorkspaceDefaults(t *testing.T) {
+	runtime := &captureRuntime{}
+	cmd := NewCommandWithOptions(distribution.Distribution{
+		Spec: coredistribution.Spec{
+			Name:                "coder",
+			DefaultSession:      coresession.Ref{Name: "coder"},
+			DefaultConversation: channel.ConversationRef{ID: "coder"},
+		},
+		Runtime: runtime,
+	}, CommandOptions{
+		Workspace: distribution.WorkspaceConfig{
+			Roots: []distribution.WorkspaceRoot{{
+				Name:     "api",
+				Path:     "../api",
+				Access:   "read_only",
+				Create:   true,
+				EnvFiles: []string{"api.env"},
+			}},
+			EnvFiles: []string{".env"},
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--input", "hello", "--workspace-root", "web=../web", "--env-file", "local.env"})
+
+	err := cmd.Execute()
+	if !errors.Is(err, errStopOpen) {
+		t.Fatalf("Execute error = %v, want stop open", err)
+	}
+	workspace := runtime.request.Launch.Workspace
+	if len(workspace.Roots) != 2 || workspace.Roots[0].Name != "api" || workspace.Roots[1].Name != "web" {
+		t.Fatalf("workspace roots = %#v, want config root plus flag root", workspace.Roots)
+	}
+	if workspace.Roots[0].Access != "read_only" || !workspace.Roots[0].Create || strings.Join(workspace.Roots[0].EnvFiles, ",") != "api.env" {
+		t.Fatalf("config root = %#v, want structured metadata preserved", workspace.Roots[0])
+	}
+	if strings.Join(workspace.EnvFiles, ",") != ".env,local.env" {
+		t.Fatalf("env files = %#v, want config plus flag env files", workspace.EnvFiles)
+	}
+}
+
 func TestCommandPropagatesEnvFileFlagsToRootWorkspace(t *testing.T) {
 	runtime := &captureRuntime{}
 	cmd := NewCommand(distribution.Distribution{

@@ -95,6 +95,36 @@ func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
 	})
 }
 
+func TestManagerDetectsAgentRuntimeCoderAndAIConfigFacets(t *testing.T) {
+	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
+		writeWorkspaceFile(t, ws, "agentsdk.app.yaml", "kind: app\nname: demo\n")
+		writeWorkspaceFile(t, ws, ".coder.yaml", "version: 1\nworkspace: {}\nimports: {}\n")
+		writeWorkspaceFile(t, ws, "AGENTS.md", "# Agents\n")
+		writeWorkspaceFile(t, ws, "CLAUDE.md", "# Claude\n")
+		writeWorkspaceFile(t, ws, "MEMORY.md", "# Memory\n")
+		writeWorkspaceFile(t, ws, ".claude/agents/writer.md", "# Writer\n")
+
+		inventory, _, err := NewManager(ws).Inventory(context.Background(), coreproject.InventoryQuery{Refresh: true})
+		if err != nil {
+			t.Fatalf("Inventory: %v", err)
+		}
+		root := projectByRoot(t, inventory, "")
+		appFacet := facetByKindAndPath(t, root, coreproject.FacetAppManifest, "agentsdk.app.yaml")
+		if appFacet.Summary["name"] != "demo" || appFacet.Manifest.Kind != "agentruntime_app_manifest" {
+			t.Fatalf("app facet = %#v, want demo app manifest", appFacet)
+		}
+		coderFacet := facetByKindAndPath(t, root, coreproject.FacetCoderConfig, ".coder.yaml")
+		if coderFacet.Summary["version"] != "1" || coderFacet.Manifest.Kind != "coder_config" {
+			t.Fatalf("coder facet = %#v, want versioned coder config", coderFacet)
+		}
+		assertAIConfig(t, root, "AGENTS.md", "generic", "instruction", "")
+		assertAIConfig(t, root, "CLAUDE.md", "claude", "instruction", "")
+		assertAIConfig(t, root, "MEMORY.md", "generic", "context:memory", "")
+		assertAIConfig(t, root, ".claude", "claude", "bundle", "")
+		assertAIConfig(t, root, ".claude/agents/writer.md", "claude", "agent", ".claude")
+	})
+}
+
 func TestManagerResolvesProjectTaskRunCommands(t *testing.T) {
 	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
 		writeWorkspaceFile(t, ws, "package.json", `{"name":"app","scripts":{"test":"vitest run"}}`)
@@ -248,6 +278,25 @@ func hasFacet(project coreproject.Project, kind coreproject.FacetKind) bool {
 		}
 	}
 	return false
+}
+
+func facetByKindAndPath(t *testing.T, project coreproject.Project, kind coreproject.FacetKind, rel string) coreproject.Facet {
+	t.Helper()
+	for _, facet := range project.Facets {
+		if facet.Kind == kind && facet.Manifest.Path == rel {
+			return facet
+		}
+	}
+	t.Fatalf("facet %s at %s not found in %#v", kind, rel, project.Facets)
+	return coreproject.Facet{}
+}
+
+func assertAIConfig(t *testing.T, project coreproject.Project, rel, vendor, kind, parent string) {
+	t.Helper()
+	facet := facetByKindAndPath(t, project, coreproject.FacetAIConfig, rel)
+	if facet.Summary["vendor"] != vendor || facet.Summary["kind"] != kind || facet.Summary["parent"] != parent {
+		t.Fatalf("ai config facet = %#v, want vendor=%s kind=%s parent=%s", facet, vendor, kind, parent)
+	}
 }
 
 func hasSignal(signals []coreproject.Signal, language, toolchain, path string) bool {

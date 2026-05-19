@@ -75,7 +75,7 @@ func NewCommand(opts CommandOptions) *cobra.Command {
 	state.conversation = opts.DefaultConversation
 	cmd := &cobra.Command{
 		Use:   "remote",
-		Short: "Connect to a running agentsdk daemon session",
+		Short: "Connect to a running local daemon session",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			state.sessionExplicit = cmd.Flags().Changed("session")
@@ -126,7 +126,7 @@ func Run(ctx context.Context, opts Options) error {
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
 	uiState := terminalui.UIState{}
-	_, _ = fmt.Fprintln(errOut, "agentsdk remote. Type /exit or /quit to stop.")
+	_, _ = fmt.Fprintln(errOut, "remote session. Type /exit or /quit to stop.")
 	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
 		_, _ = fmt.Fprint(stdout, "remote> ")

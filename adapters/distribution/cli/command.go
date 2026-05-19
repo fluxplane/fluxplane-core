@@ -22,13 +22,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// CommandOptions configures distribution command defaults.
+type CommandOptions struct {
+	WorkspaceRoots []string
+	EnvFiles       []string
+	Workspace      distribution.WorkspaceConfig
+	PromptHandler  PromptHandler
+}
+
+// PromptHandler handles distribution-specific terminal prompts before the
+// generic slash-command/input path.
+type PromptHandler func(context.Context, string, clientapi.SessionHandle, RunOptions) (bool, error)
+
 // NewCommand builds a Cobra command for a distribution.
 func NewCommand(dist distribution.Distribution) *cobra.Command {
+	return NewCommandWithOptions(dist, CommandOptions{})
+}
+
+// NewCommandWithOptions builds a Cobra command for a distribution with
+// configured launch defaults.
+func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *cobra.Command {
 	opts := options{
 		provider:         dist.Spec.DefaultModel.Provider,
 		model:            dist.Spec.DefaultModel.Model,
 		thinking:         "auto",
 		maxContinuations: 20,
+		workspaceRoots:   append([]string(nil), cfg.WorkspaceRoots...),
+		envFiles:         append([]string(nil), cfg.EnvFiles...),
+		workspace:        cloneWorkspaceConfig(cfg.Workspace),
 	}
 	cmd := &cobra.Command{
 		Use:   dist.Spec.Name,
@@ -56,7 +77,9 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 				Dev:                 opts.dev,
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
+				Workspace:           opts.workspace,
 				Prompt:              dist.Spec.Name,
+				PromptHandler:       cfg.PromptHandler,
 				In:                  os.Stdin,
 				Out:                 os.Stdout,
 				Err:                 os.Stderr,
@@ -74,8 +97,8 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 	cmd.PersistentFlags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.PersistentFlags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.PersistentFlags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
-	cmd.PersistentFlags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
-	cmd.PersistentFlags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
+	cmd.PersistentFlags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
+	cmd.PersistentFlags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
 	cmd.AddCommand(newDescribeCommand(dist))
 	cmd.AddCommand(newModelsCommand(dist))
 	return cmd
@@ -95,6 +118,7 @@ type options struct {
 	dev              bool
 	workspaceRoots   []string
 	envFiles         []string
+	workspace        distribution.WorkspaceConfig
 }
 
 // RunOptions configures a distribution REPL or one-shot run.
@@ -118,7 +142,9 @@ type RunOptions struct {
 	Dev                 bool
 	WorkspaceRoots      []string
 	EnvFiles            []string
+	Workspace           distribution.WorkspaceConfig
 	Prompt              string
+	PromptHandler       PromptHandler
 	In                  io.Reader
 	Out                 io.Writer
 	Err                 io.Writer
@@ -152,6 +178,12 @@ func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOpt
 		return err
 	}
 	defer func() { _ = session.Close(ctx) }()
+	if opts.PromptHandler != nil {
+		handled, err := opts.PromptHandler(ctx, opts.Input, session, opts)
+		if handled || err != nil {
+			return err
+		}
+	}
 	turnOpts := terminalOptions(opts)
 	turnOpts.WaitForBackgroundTasks = true
 	return terminalui.RunTurn(ctx, session, opts.Input, turnOpts, usage.NewTracker())
@@ -191,6 +223,19 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 			}
 			continue
 		}
+		if opts.PromptHandler != nil {
+			handled, err := opts.PromptHandler(ctx, prompt, session, opts)
+			if handled {
+				if err != nil {
+					_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+				}
+				continue
+			}
+			if err != nil {
+				_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
+				continue
+			}
+		}
 		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
@@ -209,8 +254,11 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 	if err != nil {
 		return nil, err
 	}
+	workspace := cloneWorkspaceConfig(opts.Workspace)
+	workspace.Roots = append(workspace.Roots, roots...)
+	workspace.EnvFiles = append(workspace.EnvFiles, trimStrings(opts.EnvFiles)...)
 	return dist.Runtime.OpenSession(ctx, distribution.OpenRequest{
-		Launch:       distribution.LaunchConfig{Workspace: distribution.WorkspaceConfig{Roots: roots, EnvFiles: trimStrings(opts.EnvFiles)}},
+		Launch:       distribution.LaunchConfig{Workspace: workspace},
 		Session:      coresession.Ref{Name: coresession.Name(strings.TrimSpace(opts.Session))},
 		Conversation: channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
 		Provider:     opts.Provider,
@@ -223,6 +271,27 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 		Yolo:         opts.Yolo,
 		Dev:          opts.Dev,
 	})
+}
+
+func cloneWorkspaceConfig(cfg distribution.WorkspaceConfig) distribution.WorkspaceConfig {
+	out := distribution.WorkspaceConfig{
+		Roots:       cloneWorkspaceRoots(cfg.Roots),
+		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
+		EnvFiles:    append([]string(nil), cfg.EnvFiles...),
+	}
+	return out
+}
+
+func cloneWorkspaceRoots(roots []distribution.WorkspaceRoot) []distribution.WorkspaceRoot {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]distribution.WorkspaceRoot, 0, len(roots))
+	for _, root := range roots {
+		root.EnvFiles = append([]string(nil), root.EnvFiles...)
+		out = append(out, root)
+	}
+	return out
 }
 
 func terminalOptions(opts RunOptions, states ...terminalui.UIState) terminalui.TurnOptions {

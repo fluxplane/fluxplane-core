@@ -10,6 +10,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/core/tool"
 )
 
 const ContextProviderName corecontext.ProviderName = "skills"
@@ -55,6 +56,17 @@ func WrapAgent(runtime agent.Agent, state *ActivationState) agent.Agent {
 }
 
 func (a statefulAgent) SkillActivationState() *ActivationState { return a.state }
+
+// StepWithTools forwards per-turn tool projections through the skill wrapper.
+func (a statefulAgent) StepWithTools(ctx agent.Context, input agent.StepInput, tools []tool.Spec) agent.StepResult {
+	carrier, ok := a.Agent.(interface {
+		StepWithTools(agent.Context, agent.StepInput, []tool.Spec) agent.StepResult
+	})
+	if !ok || carrier == nil {
+		return a.Step(ctx, input)
+	}
+	return carrier.StepWithTools(ctx, input, tools)
+}
 
 // ContextProviders forwards session-level context materialization support from
 // the wrapped agent.

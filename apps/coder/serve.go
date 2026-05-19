@@ -22,10 +22,24 @@ type serveOptions struct {
 	model          string
 	workspaceRoots []string
 	envFiles       []string
+	workspace      distribution.WorkspaceConfig
+}
+
+type serveCommandOptions struct {
+	workspaceRoots []string
+	envFiles       []string
+	workspace      distribution.WorkspaceConfig
 }
 
 func newServeCommand(startup startupResources) *cobra.Command {
+	return newServeCommandWithOptions(startup, serveCommandOptions{})
+}
+
+func newServeCommandWithOptions(startup startupResources, defaults serveCommandOptions) *cobra.Command {
 	opts := serveOptions{socket: "auto"}
+	opts.workspaceRoots = append([]string(nil), defaults.workspaceRoots...)
+	opts.envFiles = append([]string(nil), defaults.envFiles...)
+	opts.workspace = cloneCoderServeWorkspace(defaults.workspace)
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve coder over a local Unix socket",
@@ -41,6 +55,7 @@ func newServeCommand(startup startupResources) *cobra.Command {
 				return err
 			}
 			launchConfig := coderServeLaunch(addr)
+			launchConfig.Workspace = cloneCoderServeWorkspace(opts.workspace)
 			launchConfig.Workspace.Roots = append(launchConfig.Workspace.Roots, roots...)
 			launchConfig.Workspace.EnvFiles = append(launchConfig.Workspace.EnvFiles, trimCoderServeStrings(opts.envFiles)...)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "coder serve listening on unix:%s\n", addr)
@@ -75,8 +90,8 @@ func newServeCommand(startup startupResources) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for served coder sessions")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.model, "model", DefaultModel, "model name or provider/model")
-	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
-	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
+	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
+	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
 	return cmd
 }
 
@@ -132,6 +147,27 @@ func trimCoderServeStrings(values []string) []string {
 		if value = strings.TrimSpace(value); value != "" {
 			out = append(out, value)
 		}
+	}
+	return out
+}
+
+func cloneCoderServeWorkspace(cfg distribution.WorkspaceConfig) distribution.WorkspaceConfig {
+	out := distribution.WorkspaceConfig{
+		Roots:       cloneCoderServeWorkspaceRoots(cfg.Roots),
+		ScratchRoot: strings.TrimSpace(cfg.ScratchRoot),
+		EnvFiles:    append([]string(nil), cfg.EnvFiles...),
+	}
+	return out
+}
+
+func cloneCoderServeWorkspaceRoots(roots []distribution.WorkspaceRoot) []distribution.WorkspaceRoot {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]distribution.WorkspaceRoot, 0, len(roots))
+	for _, root := range roots {
+		root.EnvFiles = append([]string(nil), root.EnvFiles...)
+		out = append(out, root)
 	}
 	return out
 }

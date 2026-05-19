@@ -196,6 +196,7 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 				addResourceDir(builders, dir, rel, coreproject.FacetAgentsDir, "agents_dir")
 			case ".claude":
 				addResourceDir(builders, dir, rel, coreproject.FacetClaudeDir, "claude_dir")
+				addAIConfig(builders, dir, rel, "claude", "bundle", "")
 			case ".git":
 				builderFor(builders, dir).addFacet(coreproject.Facet{Kind: coreproject.FacetGitRepo, Manifest: manifest(rel, "git_repo", coreproject.ParseStatusParsed, nil, "")})
 			}
@@ -214,6 +215,10 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 			addSimpleFacet(builders, dir, rel, coreproject.FacetCargoManifest, "cargo.toml")
 		case name == "Cargo.lock":
 			addSimpleFacet(builders, dir, rel, coreproject.FacetCargoLockfile, "cargo.lock")
+		case isAppManifestName(name):
+			addAppManifest(ctx, ws, builders, dir, rel, maxBytes)
+		case isCoderConfigName(name):
+			addCoderConfig(ctx, ws, builders, dir, rel, maxBytes)
 		case name == "Taskfile.yaml" || name == "Taskfile.yml":
 			addTaskfile(ctx, ws, builders, dir, rel, maxBytes)
 		case name == "Makefile" || name == "makefile":
@@ -222,6 +227,12 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 			builderFor(builders, dir).addFacet(coreproject.Facet{Kind: coreproject.FacetGitRepo, Manifest: manifest(rel, "git_repo", coreproject.ParseStatusParsed, nil, "")})
 		case strings.HasPrefix(rel, ".github/workflows/"):
 			builderFor(builders, ".").addFacet(coreproject.Facet{Kind: coreproject.FacetCI, Manifest: manifest(rel, "github_workflow", coreproject.ParseStatusUnsupported, nil, "")})
+		case isInstructionAIConfig(name):
+			addInstructionAIConfig(builders, dir, rel, name)
+			markdown = append(markdown, readMarkdown(ctx, ws, dir, rel, maxBytes))
+		case isClaudeAgentConfig(rel):
+			addAIConfig(builders, aiConfigProjectRoot(rel), rel, "claude", "agent", parentAIConfig(rel))
+			markdown = append(markdown, readMarkdown(ctx, ws, dir, rel, maxBytes))
 		case strings.HasSuffix(strings.ToLower(name), ".md"):
 			markdown = append(markdown, readMarkdown(ctx, ws, dir, rel, maxBytes))
 		}
@@ -287,6 +298,11 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 		{path: "Taskfile.yml", add: addTaskfile},
 		{path: "Makefile", add: addMakefile},
 		{path: "makefile", add: addMakefile},
+		{path: "agentsdk.app.yaml", add: addAppManifest},
+		{path: "agentsdk.app.yml", add: addAppManifest},
+		{path: "agentsdk.app.json", add: addAppManifest},
+		{path: ".coder.yaml", add: addCoderConfig},
+		{path: ".coder.yml", add: addCoderConfig},
 	}
 	for _, probe := range probes {
 		if _, _, err := ws.Stat(ctx, probe.path); err == nil {
@@ -301,6 +317,7 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 	}
 	if _, _, err := ws.Stat(ctx, ".claude"); err == nil {
 		addResourceDir(builders, "", ".claude", coreproject.FacetClaudeDir, "claude_dir")
+		addAIConfig(builders, "", ".claude", "claude", "bundle", "")
 	}
 	if _, _, err := ws.Stat(ctx, ".github/workflows"); err == nil {
 		builderFor(builders, "").addFacet(coreproject.Facet{Kind: coreproject.FacetCI, Manifest: manifest(".github/workflows", "github_workflow", coreproject.ParseStatusUnsupported, nil, "")})
@@ -318,6 +335,89 @@ func addResourceDir(builders map[string]*projectBuilder, dir, rel string, kind c
 	builderFor(builders, dir).addFacet(coreproject.Facet{
 		Kind:     kind,
 		Manifest: manifest(rel, manifestKind, coreproject.ParseStatusParsed, nil, ""),
+	})
+}
+
+func addAppManifest(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
+	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	status := coreproject.ParseStatusParsed
+	summary := map[string]string{}
+	var msg string
+	if err != nil {
+		status, msg = coreproject.ParseStatusFailed, err.Error()
+	} else {
+		var raw struct {
+			Kind string `yaml:"kind" json:"kind"`
+			Name string `yaml:"name" json:"name"`
+		}
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			status, msg = coreproject.ParseStatusFailed, err.Error()
+		} else {
+			summary["kind"] = strings.TrimSpace(raw.Kind)
+			summary["name"] = strings.TrimSpace(raw.Name)
+			if truncated {
+				summary["truncated"] = "true"
+			}
+		}
+	}
+	builderFor(builders, dir).addFacet(coreproject.Facet{
+		Kind:     coreproject.FacetAppManifest,
+		Name:     summary["name"],
+		Manifest: manifest(rel, "agentruntime_app_manifest", status, summary, msg),
+		Summary:  summary,
+	})
+}
+
+func addCoderConfig(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
+	data, truncated, _, err := ws.ReadFile(ctx, rel, int64(maxBytes))
+	status := coreproject.ParseStatusParsed
+	summary := map[string]string{}
+	var msg string
+	if err != nil {
+		status, msg = coreproject.ParseStatusFailed, err.Error()
+	} else {
+		var raw struct {
+			Version int `yaml:"version" json:"version"`
+		}
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			status, msg = coreproject.ParseStatusFailed, err.Error()
+		} else {
+			if raw.Version > 0 {
+				summary["version"] = fmt.Sprint(raw.Version)
+			}
+			if truncated {
+				summary["truncated"] = "true"
+			}
+		}
+	}
+	builderFor(builders, dir).addFacet(coreproject.Facet{
+		Kind:     coreproject.FacetCoderConfig,
+		Manifest: manifest(rel, "coder_config", status, summary, msg),
+		Summary:  summary,
+	})
+}
+
+func addInstructionAIConfig(builders map[string]*projectBuilder, dir, rel, name string) {
+	switch name {
+	case "AGENTS.md":
+		addAIConfig(builders, dir, rel, "generic", "instruction", "")
+	case "CLAUDE.md":
+		addAIConfig(builders, dir, rel, "claude", "instruction", "")
+	case "MEMORY.md":
+		addAIConfig(builders, dir, rel, "generic", "context:memory", "")
+	}
+}
+
+func addAIConfig(builders map[string]*projectBuilder, dir, rel, vendor, kind, parent string) {
+	summary := map[string]string{"vendor": vendor, "kind": kind}
+	if strings.TrimSpace(parent) != "" {
+		summary["parent"] = cleanRel(parent)
+	}
+	builderFor(builders, dir).addFacet(coreproject.Facet{
+		Kind:     coreproject.FacetAIConfig,
+		Name:     aiConfigName(rel, kind),
+		Manifest: manifest(rel, "ai_config", coreproject.ParseStatusParsed, summary, ""),
+		Summary:  summary,
 	})
 }
 
@@ -735,6 +835,71 @@ func cleanRel(raw string) string {
 		return ""
 	}
 	return strings.TrimPrefix(clean, "./")
+}
+
+func isAppManifestName(name string) bool {
+	switch name {
+	case "agentsdk.app.yaml", "agentsdk.app.yml", "agentsdk.app.json":
+		return true
+	default:
+		return false
+	}
+}
+
+func isCoderConfigName(name string) bool {
+	switch name {
+	case ".coder.yaml", ".coder.yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInstructionAIConfig(name string) bool {
+	switch name {
+	case "AGENTS.md", "CLAUDE.md", "MEMORY.md":
+		return true
+	default:
+		return false
+	}
+}
+
+func isClaudeAgentConfig(rel string) bool {
+	parts := strings.Split(cleanRel(rel), "/")
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] == ".claude" && parts[i+1] == "agents" && strings.HasSuffix(strings.ToLower(parts[len(parts)-1]), ".md") {
+			return true
+		}
+	}
+	return false
+}
+
+func aiConfigProjectRoot(rel string) string {
+	parts := strings.Split(cleanRel(rel), "/")
+	for i, part := range parts {
+		if part == ".claude" {
+			return strings.Join(parts[:i], "/")
+		}
+	}
+	return path.Dir(cleanRel(rel))
+}
+
+func parentAIConfig(rel string) string {
+	parts := strings.Split(cleanRel(rel), "/")
+	for i, part := range parts {
+		if part == ".claude" {
+			return strings.Join(append(parts[:i:i], ".claude"), "/")
+		}
+	}
+	return ""
+}
+
+func aiConfigName(rel, kind string) string {
+	if kind == "agent" {
+		base := path.Base(rel)
+		return strings.TrimSuffix(base, path.Ext(base))
+	}
+	return path.Base(rel)
 }
 
 func taskID(kind, rel, name string) coreproject.TaskID {

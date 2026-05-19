@@ -3,17 +3,13 @@ package agentsdk
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
 	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
 	"github.com/fluxplane/agentruntime/apps/coder"
 	"github.com/fluxplane/agentruntime/apps/evaluator"
 	"github.com/fluxplane/agentruntime/apps/launch"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/spf13/cobra"
 )
@@ -42,13 +38,13 @@ func NewCommand() *cobra.Command {
 		DefaultSession:      defaultRemoteSession,
 		DefaultConversation: defaultRemoteConversation,
 		DefaultSocket:       defaultRemoteSocket,
-		Events:              mustTerminalEventRegistry(),
+		Events:              launch.MustTerminalEventRegistry(),
 	}))
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
 		NativeRegistry:    launch.AuthPluginRegistry,
 		ConnectorRegistry: connectorPluginRegistry,
 	}))
-	cmd.AddCommand(newDatasourceCommand())
+	cmd.AddCommand(launch.NewDatasourceCommand())
 	cmd.AddCommand(newDiscoverCommand())
 	return cmd
 }
@@ -57,20 +53,4 @@ func connectorPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
 		openaiplugin.New(),
 	}, nil
-}
-
-func mustTerminalEventRegistry() *coreevent.Registry {
-	registry, err := terminalEventRegistry()
-	if err != nil {
-		panic(fmt.Sprintf("agentsdk: build terminal event registry: %v", err))
-	}
-	return registry
-}
-
-func terminalEventRegistry() (*coreevent.Registry, error) {
-	registry, err := eventregistry.New(eventregistry.Config{EventTypes: eventcatalog.All()})
-	if err != nil {
-		return nil, err
-	}
-	return registry, nil
 }

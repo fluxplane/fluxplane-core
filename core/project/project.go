@@ -28,6 +28,9 @@ const (
 	FacetCargoLockfile FacetKind = "cargo_lockfile"
 	FacetAgentsDir     FacetKind = "agents_dir"
 	FacetClaudeDir     FacetKind = "claude_dir"
+	FacetAppManifest   FacetKind = "agentruntime_app_manifest"
+	FacetCoderConfig   FacetKind = "coder_config"
+	FacetAIConfig      FacetKind = "ai_config"
 	FacetGitRepo       FacetKind = "git_repo"
 	FacetCI            FacetKind = "ci"
 )

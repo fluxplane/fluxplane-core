@@ -27,12 +27,27 @@ Top-level behavior and commands:
 - `--usage` prints usage events after each response.
 - `describe` describes bundled distribution metadata and resources.
 - `describe agent <name-or-ref>` describes a bundled agent.
+- `config show` shows the resolved `.coder.yaml` configuration.
+- `config edit` opens the resolved `.coder.yaml`, creating one when needed.
+- `datasource index build|embed|status|clear` manages app datasource indexes.
+- `remote` connects to a running local daemon session.
+- `evaluator` evaluates AgentRuntime apps over the public channel protocol.
 - `models` lists available model providers and models.
+- `agent run <name>` runs an app-scoped agent explicitly.
+- `op run <name>` runs an app-scoped operation explicitly.
+- `workflow run <id>` runs an app-scoped workflow explicitly.
+- `app init [path]` creates a minimal local app manifest.
+- `app run [path]` runs a local agentruntime app manifest.
+- `app serve [path]` serves a local app daemon.
+- `app build [path]` builds a local app distribution.
+- `app config show [path]` shows resolved local app configuration.
+- `app config edit [path]` opens the resolved local app manifest.
 
 Use command help for current flags:
 
 ```bash
 coder --help
+coder app --help
 coder describe --help
 coder models --help
 ```
@@ -46,7 +61,7 @@ go install github.com/fluxplane/agentruntime/cmd/coder@latest
 From a local checkout:
 
 ```bash
-go install ./cmd/coder
+task install
 ```
 
 ### First Run
@@ -75,6 +90,17 @@ Inside the REPL, use `/goal --max <max-continuations> "<goal>"`:
 coder> /goal --max 20 "Test coverage has increased to 90%"
 ```
 
+Use `/run` inside the coder REPL or with `--input` to target the current app
+facet explicitly without importing that app's resources into coder:
+
+```text
+coder> /run
+coder> /run app . --input "Hello"
+coder> /run op upper --arg text=hello
+coder> /run workflow release --json '{"version":"1.2.3"}'
+coder> /run agent planner --input "Plan the release"
+```
+
 Use `/whoami` to inspect the local canonical user, trust, and authorization
 subjects that policy checks see for the current turn.
 
@@ -91,6 +117,48 @@ coder describe
 coder describe agent coder
 coder discover
 coder models
+coder config show
+```
+
+Coder discovers the nearest `.coder.yaml` or `.coder.yml` by walking upward
+from the current directory. Pass `--config <path>` to use an explicit config
+file. The first supported config slice accepts workspace roots and env files:
+
+```yaml
+version: 1
+workspace:
+  roots:
+    - name: api
+      path: ../api
+  env_files:
+    - .env
+imports: {}
+```
+
+Project inventory reports agentruntime app manifests, `.coder.yaml`, and AI
+configuration files as inert facets. Detecting those files does not import app
+agents, skills, workflows, or operations into the running coder session.
+
+Programmatic callers can construct the same configured product surface through
+`coderapp.New(coderapp.Config)` and call `Run` to execute an app facet with
+resolved `.coder.yaml` workspace defaults.
+
+Run or inspect an agentruntime app from the current directory:
+
+```bash
+coder app run . --input "Hello"
+coder app config show .
+coder app config edit .
+coder app init ./my-app
+```
+
+Run app-scoped resources without importing them into the coder session:
+
+```bash
+coder op run upper --app . --input hello
+coder op run publish --app . --channel=release --dry_run
+coder workflow run release --app . --json '{"version":"1.2.3"}'
+coder agent run planner --app . --input "Plan the release"
 ```
 
 At startup, `coder` includes resources declared by its app discovery policy:

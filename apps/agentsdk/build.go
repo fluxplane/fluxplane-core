@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
 	"github.com/spf13/cobra"
@@ -59,4 +60,11 @@ func runBuild(ctx context.Context, opts buildOptions, appDir string, out, errOut
 		Runner:         opts.runner,
 	})
 	return err
+}
+
+func optionalAppDir(args []string) string {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		return "."
+	}
+	return args[0]
 }
