@@ -222,6 +222,119 @@ func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
 	}
 }
 
+func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
+	network := &sequenceNetwork{responses: []system.HTTPResponse{
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`[{"id":"cloud-1","url":"https://company.atlassian.net","name":"Company"}]`),
+		},
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"id":"48997","key":"DEV-380","self":"https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}`),
+		},
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{CloudID: "cloud-1", Auth: atlassianplugin.AuthConfig{Method: atlassianplugin.TokenMethod}}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{Name: "jira", Kind: Name})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: IssueEntity, ID: "DEV-380"})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.URL != "https://company.atlassian.net/browse/DEV-380" {
+		t.Fatalf("record url = %q, want canonical Jira web URL", record.URL)
+	}
+	if record.Metadata["api_url"] != "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997" {
+		t.Fatalf("metadata api_url = %q", record.Metadata["api_url"])
+	}
+	if len(network.requests) != 2 || network.requests[0].URL != "https://api.atlassian.com/oauth/token/accessible-resources" {
+		t.Fatalf("requests = %#v, want discovery before issue get", network.requests)
+	}
+}
+
+func TestIssueGetLeavesURLBlankWhenSiteDiscoveryDoesNotMatch(t *testing.T) {
+	network := &sequenceNetwork{responses: []system.HTTPResponse{
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`[{"id":"other-cloud","url":"https://other.atlassian.net","name":"Other"}]`),
+		},
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"id":"48997","key":"DEV-380","self":"https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}`),
+		},
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{CloudID: "cloud-1", Auth: atlassianplugin.AuthConfig{Method: atlassianplugin.TokenMethod}}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{Name: "jira", Kind: Name})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: IssueEntity, ID: "DEV-380"})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.URL != "" {
+		t.Fatalf("record url = %q, want no fabricated canonical URL", record.URL)
+	}
+	if record.Metadata["api_url"] == "" {
+		t.Fatalf("metadata = %#v, want api_url preserved", record.Metadata)
+	}
+}
+
+func TestProjectGetUsesCanonicalWebURL(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"id":"10000","key":"DEV","name":"Development","projectTypeKey":"software","self":"https://api.example/rest/api/3/project/10000"}`),
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{CloudID: "cloud-1", SiteURL: "https://company.atlassian.net", Auth: atlassianplugin.AuthConfig{Method: atlassianplugin.TokenMethod}}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{Name: "jira", Kind: Name})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: ProjectEntity, ID: "DEV"})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if record.URL != "https://company.atlassian.net/browse/DEV" {
+		t.Fatalf("record url = %q, want canonical Jira project URL", record.URL)
+	}
+	if record.Metadata["api_url"] != "https://api.example/rest/api/3/project/10000" {
+		t.Fatalf("metadata api_url = %q", record.Metadata["api_url"])
+	}
+}
+
 func TestDescriptionTextExtractsAtlassianDocumentText(t *testing.T) {
 	doc := map[string]any{
 		"type": "doc",
@@ -275,6 +388,21 @@ type recordingNetwork struct {
 func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
+}
+
+type sequenceNetwork struct {
+	requests  []system.HTTPRequest
+	responses []system.HTTPResponse
+}
+
+func (n *sequenceNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+	n.requests = append(n.requests, req)
+	if len(n.responses) == 0 {
+		return system.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
+	}
+	resp := n.responses[0]
+	n.responses = n.responses[1:]
+	return resp, nil
 }
 
 type fakeEnvironment struct {

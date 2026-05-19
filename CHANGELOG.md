@@ -179,6 +179,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   site REST endpoints.
 
 ### Fixed
+- Emitted canonical Jira and Confluence web-app links for datasource records
+  when Atlassian token auth is configured with only a cloud ID, and stopped
+  rendering Jira REST API `self` URLs and Slack avatar image URLs as record
+  links.
+
 - Preserved nested GitLab project paths when detecting merge request URLs so
   links like `/ai/agents/slack-bot/-/merge_requests/2310` resolve to
   `ai/agents/slack-bot!2310` instead of losing the parent namespace.

@@ -194,7 +194,7 @@ type Issue struct {
 	Summary     string `json:"summary,omitempty" datasource:"searchable" jsonschema:"description=Issue summary."`
 	Description string `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Issue description."`
 	Status      string `json:"status,omitempty" datasource:"filterable" jsonschema:"description=Issue status."`
-	Self        string `json:"self,omitempty" datasource:"url" jsonschema:"description=Jira API URL."`
+	Self        string `json:"self,omitempty" jsonschema:"description=Jira API URL."`
 }
 
 type Project struct {
@@ -203,7 +203,7 @@ type Project struct {
 	Name           string `json:"name,omitempty" datasource:"searchable" jsonschema:"description=Project name."`
 	Description    string `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Project description."`
 	ProjectTypeKey string `json:"projectTypeKey,omitempty" datasource:"filterable" jsonschema:"description=Jira project type."`
-	Self           string `json:"self,omitempty" datasource:"url" jsonschema:"description=Jira API URL."`
+	Self           string `json:"self,omitempty" jsonschema:"description=Jira API URL."`
 }
 
 type jiraDatasourceProvider struct {
@@ -266,13 +266,17 @@ func (a jiraAccessor) Search(ctx context.Context, req coredatasource.SearchReque
 		if _, err := jiraSearchIssues(ctx, a.plugin.system, session, jiraDatasourceJQL(req.Query), 0, limit, &data); err != nil {
 			return coredatasource.SearchResult{}, err
 		}
-		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), a.issueRecord), data.Total), nil
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), func(issue Issue) coredatasource.Record {
+			return a.issueRecord(session, issue)
+		}), data.Total), nil
 	case ProjectEntity:
 		projects, total, err := jiraListProjects(ctx, a.plugin.system, session, 0, max(limit, 200))
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
-		records := runtimedatasource.NonEmptyRecordsFrom(filterProjects(projects, req.Query), a.projectRecord)
+		records := runtimedatasource.NonEmptyRecordsFrom(filterProjects(projects, req.Query), func(project Project) coredatasource.Record {
+			return a.projectRecord(session, project)
+		})
 		if len(records) > limit {
 			records = records[:limit]
 		}
@@ -302,13 +306,17 @@ func (a jiraAccessor) List(ctx context.Context, req coredatasource.ListRequest) 
 		if _, err := jiraSearchIssues(ctx, a.plugin.system, session, "updated >= -30d ORDER BY updated DESC", start, limit, &data); err != nil {
 			return coredatasource.ListResult{}, err
 		}
-		return runtimedatasource.ListResultOffset(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), a.issueRecord), data.Total, start, limit), nil
+		return runtimedatasource.ListResultOffset(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(issuesFromJira(data.Issues), func(issue Issue) coredatasource.Record {
+			return a.issueRecord(session, issue)
+		}), data.Total, start, limit), nil
 	case ProjectEntity:
 		projects, total, err := jiraListProjects(ctx, a.plugin.system, session, start, limit)
 		if err != nil {
 			return coredatasource.ListResult{}, err
 		}
-		return runtimedatasource.ListResultOffset(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(projects, a.projectRecord), total, start, limit), nil
+		return runtimedatasource.ListResultOffset(a.spec.Name, entity, runtimedatasource.NonEmptyRecordsFrom(projects, func(project Project) coredatasource.Record {
+			return a.projectRecord(session, project)
+		}), total, start, limit), nil
 	default:
 		return coredatasource.ListResult{}, fmt.Errorf("datasource %q entity %q does not support list", a.spec.Name, entity)
 	}
@@ -328,13 +336,13 @@ func (a jiraAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (c
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
-		return a.issueRecord(issue), nil
+		return a.issueRecord(session, issue), nil
 	case ProjectEntity:
 		project, err := jiraGetProject(ctx, a.plugin.system, session, req.ID)
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
-		return a.projectRecord(project), nil
+		return a.projectRecord(session, project), nil
 	default:
 		return coredatasource.Record{}, fmt.Errorf("datasource %q entity %q does not support get", a.spec.Name, req.Entity)
 	}
@@ -353,15 +361,16 @@ func (a jiraAccessor) BatchGet(ctx context.Context, req coredatasource.BatchGetR
 	return out, nil
 }
 
-func (a jiraAccessor) issueRecord(issue Issue) coredatasource.Record {
+func (a jiraAccessor) issueRecord(session atlassianplugin.Session, issue Issue) coredatasource.Record {
 	return coredatasource.Record{
 		ID:         issue.Key,
 		Datasource: a.spec.Name,
 		Entity:     IssueEntity,
 		Title:      firstNonEmpty(issue.Summary, issue.Key),
 		Content:    issue.Description,
-		URL:        a.issueURL(issue),
+		URL:        jiraIssueURL(session, issue),
 		Metadata: map[string]string{
+			"api_url": issue.Self,
 			"id":      issue.ID,
 			"key":     issue.Key,
 			"status":  issue.Status,
@@ -371,15 +380,16 @@ func (a jiraAccessor) issueRecord(issue Issue) coredatasource.Record {
 	}
 }
 
-func (a jiraAccessor) projectRecord(project Project) coredatasource.Record {
+func (a jiraAccessor) projectRecord(session atlassianplugin.Session, project Project) coredatasource.Record {
 	return coredatasource.Record{
 		ID:         project.Key,
 		Datasource: a.spec.Name,
 		Entity:     ProjectEntity,
 		Title:      firstNonEmpty(project.Name, project.Key),
 		Content:    strings.Join(cleaned([]string{project.Description, project.ProjectTypeKey}), " "),
-		URL:        project.Self,
+		URL:        jiraProjectURL(session, project),
 		Metadata: map[string]string{
+			"api_url":      project.Self,
 			"id":           project.ID,
 			"key":          project.Key,
 			"project_type": project.ProjectTypeKey,
@@ -388,13 +398,18 @@ func (a jiraAccessor) projectRecord(project Project) coredatasource.Record {
 	}
 }
 
-func (a jiraAccessor) issueURL(issue Issue) string {
-	cfg := atlassianplugin.NormalizeConfig(a.plugin.cfg)
-	siteURL := firstNonEmpty(cfg.SiteURL, a.plugin.storedSiteURL(context.Background()))
-	if siteURL != "" && issue.Key != "" {
-		return strings.TrimRight(siteURL, "/") + "/browse/" + issue.Key
+func jiraIssueURL(session atlassianplugin.Session, issue Issue) string {
+	if session.SiteURL != "" && issue.Key != "" {
+		return strings.TrimRight(session.SiteURL, "/") + "/browse/" + issue.Key
 	}
-	return issue.Self
+	return ""
+}
+
+func jiraProjectURL(session atlassianplugin.Session, project Project) string {
+	if session.SiteURL != "" && project.Key != "" {
+		return strings.TrimRight(session.SiteURL, "/") + "/browse/" + project.Key
+	}
+	return ""
 }
 
 func entitySpecs() []coredatasource.EntitySpec {
@@ -708,12 +723,4 @@ func (p Plugin) authzBaseURL(ctx context.Context) string {
 		}
 	}
 	return "https://api.atlassian.com"
-}
-
-func (p Plugin) storedSiteURL(ctx context.Context) string {
-	stored, ok, err := p.store.LoadSecret(ctx, atlassianplugin.OAuthSecretRef(Name, p.ref))
-	if err != nil || !ok {
-		return ""
-	}
-	return strings.TrimSpace(stored.Metadata["site_url"])
 }

@@ -229,6 +229,23 @@ func TestPluginContributesSlackEntityDetectors(t *testing.T) {
 	}
 }
 
+func TestSlackUserRecordDoesNotUseAvatarAsCanonicalURL(t *testing.T) {
+	record := (slackAccessor{spec: coredatasource.Spec{Name: "slack"}}).userRecord(slack.User{
+		ID:   "U123",
+		Name: "ada",
+		Profile: slack.UserProfile{
+			DisplayName:   "Ada",
+			ImageOriginal: "https://avatars.slack-edge.com/avatar.png",
+		},
+	})
+	if record.URL != "" {
+		t.Fatalf("record URL = %q, want empty canonical URL for Slack user", record.URL)
+	}
+	if record.Metadata["avatar_url"] != "https://avatars.slack-edge.com/avatar.png" {
+		t.Fatalf("metadata = %#v, want avatar_url", record.Metadata)
+	}
+}
+
 func TestNormalizeSlackMessageRecordKeepsCanonicalChannelMetadata(t *testing.T) {
 	record := normalizeSlackMessageRecord(coredatasource.Record{
 		Entity:  MessageEntity,

@@ -120,6 +120,45 @@ func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 	}
 }
 
+func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
+	network := &sequenceNetwork{responses: []system.HTTPResponse{
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`[{"id":"cloud-1","url":"https://company.atlassian.net","name":"Company"}]`),
+		},
+		{
+			StatusCode: 200,
+			Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","space":{"id":42,"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{}}`),
+		},
+	}}
+	plugin := New(fakeSystem{
+		network: network,
+		env:     fakeEnvironment{values: map[string]string{"CONFLUENCE_TOKEN": "confluence-token"}},
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassianplugin.Config{CloudID: "cloud-1", Auth: atlassianplugin.AuthConfig{Method: atlassianplugin.TokenMethod}}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{Name: "confluence", Kind: Name})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Lister).List(context.Background(), coredatasource.ListRequest{Entity: PageEntity, Limit: 1})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].URL != "https://company.atlassian.net/wiki/spaces/ENG/pages/123/Runbook" {
+		t.Fatalf("records = %#v, want discovered canonical URL", result.Records)
+	}
+	if len(network.requests) != 2 || network.requests[0].URL != "https://api.atlassian.com/oauth/token/accessible-resources" {
+		t.Fatalf("requests = %#v, want discovery before confluence list", network.requests)
+	}
+}
+
 func TestSpaceGetUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 	network := &recordingNetwork{response: system.HTTPResponse{
 		StatusCode: 200,
@@ -222,6 +261,21 @@ type recordingNetwork struct {
 func (n *recordingNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
 	n.request = req
 	return n.response, nil
+}
+
+type sequenceNetwork struct {
+	requests  []system.HTTPRequest
+	responses []system.HTTPResponse
+}
+
+func (n *sequenceNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+	n.requests = append(n.requests, req)
+	if len(n.responses) == 0 {
+		return system.HTTPResponse{StatusCode: 500, Body: []byte(`unexpected request`)}, nil
+	}
+	resp := n.responses[0]
+	n.responses = n.responses[1:]
+	return resp, nil
 }
 
 type fakeEnvironment struct {

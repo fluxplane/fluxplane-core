@@ -382,8 +382,8 @@ func (a slackAccessor) userRecord(user slack.User) coredatasource.Record {
 		Entity:     UserEntity,
 		Title:      displayName,
 		Content:    strings.Join(cleaned([]string{user.Name, user.Profile.Title}), " "),
-		URL:        user.Profile.ImageOriginal,
 		Metadata: map[string]string{
+			"avatar_url":   user.Profile.ImageOriginal,
 			"id":           user.ID,
 			"name":         user.Name,
 			"real_name":    user.RealName,

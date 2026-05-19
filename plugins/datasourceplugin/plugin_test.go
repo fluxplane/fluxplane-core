@@ -783,6 +783,24 @@ func TestDetectedProviderDoesNotCallDatasourceIO(t *testing.T) {
 	}
 }
 
+func TestRenderRecordUsesCanonicalURLNotAPIURLMetadata(t *testing.T) {
+	text := renderRecord(coredatasource.Record{
+		ID:      "DEV-380",
+		Title:   "Jira issue DEV-380",
+		URL:     "https://company.atlassian.net/browse/DEV-380",
+		Content: "Fix datasource links",
+		Metadata: map[string]string{
+			"api_url": "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997",
+		},
+	})
+	if !strings.Contains(text, "https://company.atlassian.net/browse/DEV-380") {
+		t.Fatalf("rendered text = %q, want canonical URL", text)
+	}
+	if strings.Contains(text, "rest/api/3") {
+		t.Fatalf("rendered text = %q, must not include API URL metadata", text)
+	}
+}
+
 func TestSearchAddsRecordCrosslinksWithoutAutoFetch(t *testing.T) {
 	jira := &countingAccessor{
 		memoryAccessor: memoryAccessor{
