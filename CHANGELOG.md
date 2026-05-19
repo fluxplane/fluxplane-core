@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-05-19
+
 ### Fixed
 - Preserved `SSH_AUTH_SOCK` in the bounded host process environment so git
   operations, including `git_push`, can authenticate through the user's SSH
@@ -739,7 +741,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/fluxplane/agentruntime/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/fluxplane/agentruntime/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/fluxplane/agentruntime/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...v0.12.0
