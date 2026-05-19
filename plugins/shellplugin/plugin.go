@@ -487,12 +487,17 @@ func (p Plugin) resolveShell(ctx context.Context, requested string) (shellInfo, 
 func (p Plugin) availableShells(ctx context.Context) []map[string]any {
 	out := make([]map[string]any, 0, len(supportedShells))
 	seen := map[string]bool{}
+	resolver, _ := p.system.Environment().(system.ExecutableResolver)
 	for _, name := range supportedShells {
 		if seen[name] {
 			continue
 		}
 		seen[name] = true
-		path, ok, _ := p.system.Environment().(*system.WorkspaceEnvironment).ResolveExecutable(ctx, name)
+		var path string
+		var ok bool
+		if resolver != nil {
+			path, ok, _ = resolver.ResolveExecutable(ctx, name)
+		}
 		info := map[string]any{"name": name, "available": ok}
 		if ok {
 			info["path"] = path

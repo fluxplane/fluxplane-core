@@ -115,6 +115,22 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	t.Fatalf("output = %#v, want captured text", out.Output)
 }
 
+func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
+	host, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := system.WithAuthorization(host, system.AuthorizationConfig{})
+	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := findOp(t, ops, ShellInfoOp).Run(operation.NewContext(context.Background(), nil), map[string]any{})
+	if result.IsError() {
+		t.Fatalf("shell_info error = %#v", result.Error)
+	}
+}
+
 func findOp(t *testing.T, ops []operation.Operation, name string) operation.Operation {
 	t.Helper()
 	for _, op := range ops {

@@ -127,12 +127,16 @@ func (e *WorkspaceEnvironment) processEnv(root workspaceRoot, overrides []string
 
 // ResolveExecutable resolves an executable using the workspace process PATH.
 func (e *WorkspaceEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
-	if strings.TrimSpace(name) == "" || strings.ContainsRune(name, filepath.Separator) {
-		return "", false, nil
-	}
 	pathValue, ok, err := e.Lookup(ctx, "PATH")
 	if err != nil || !ok {
 		return "", false, err
+	}
+	return resolveExecutableInPath(name, pathValue)
+}
+
+func resolveExecutableInPath(name, pathValue string) (string, bool, error) {
+	if strings.TrimSpace(name) == "" || strings.ContainsRune(name, filepath.Separator) {
+		return "", false, nil
 	}
 	for _, dir := range filepath.SplitList(pathValue) {
 		if strings.TrimSpace(dir) == "" {

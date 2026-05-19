@@ -501,6 +501,14 @@ func (e authorizedEnvironment) Lookup(ctx context.Context, key string) (string, 
 	return e.base.Lookup(ctx, key)
 }
 
+func (e authorizedEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
+	resolver, ok := e.base.(ExecutableResolver)
+	if !ok {
+		return "", false, nil
+	}
+	return resolver.ResolveExecutable(ctx, name)
+}
+
 func authorizeSystem(ctx context.Context, cfg AuthorizationConfig, resource policy.ResourceRef, action policy.Action) error {
 	if ctx == nil {
 		ctx = context.Background()

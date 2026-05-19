@@ -145,6 +145,12 @@ type Environment interface {
 	Lookup(context.Context, string) (string, bool, error)
 }
 
+// ExecutableResolver optionally resolves executables using an environment's
+// process PATH without exposing the PATH value itself.
+type ExecutableResolver interface {
+	ResolveExecutable(context.Context, string) (string, bool, error)
+}
+
 // HostEnvironment implements Environment using an explicitly allowed env set.
 type HostEnvironment struct {
 	values map[string]string
@@ -154,6 +160,15 @@ type HostEnvironment struct {
 func (e HostEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
 	value, ok := e.values[strings.TrimSpace(key)]
 	return value, ok, nil
+}
+
+// ResolveExecutable resolves an executable using the environment PATH.
+func (e HostEnvironment) ResolveExecutable(ctx context.Context, name string) (string, bool, error) {
+	pathValue, ok, err := e.Lookup(ctx, "PATH")
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return resolveExecutableInPath(name, pathValue)
 }
 
 // Workspace is a root-confined filesystem boundary.
