@@ -655,7 +655,7 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 		if scanLimit <= 0 || scanLimit > 100000 {
 			scanLimit = 10000
 		}
-		paths, truncated, err := ws.Glob(ctx, req.Pattern, system.GlobOptions{Base: base, MaxResults: limit, MaxScanned: scanLimit})
+		paths, truncated, err := ws.Glob(ctx, req.Pattern, system.GlobOptions{Base: base, MaxResults: limit, MaxScanned: scanLimit, SkipDirs: globSkipDirs()})
 		if err != nil {
 			return operation.Failed("glob_failed", err.Error(), nil)
 		}
@@ -672,6 +672,10 @@ func (p Plugin) glob(ws system.Workspace) operation.Handler {
 		text := strings.Join(lines, "\n")
 		return operation.OK(operation.Rendered{Text: strings.TrimSpace(text), Data: map[string]any{"matches": matches, "truncated": truncated, "max_scanned": scanLimit}})
 	}
+}
+
+func globSkipDirs() []string {
+	return []string{".cache", ".git", "node_modules", "vendor", "dist", "build", "target", "tmp"}
 }
 
 // defaultGrepContextLines is the number of surrounding lines returned when the

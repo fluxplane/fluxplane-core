@@ -172,6 +172,42 @@ func TestHostWorkspaceGlobMaxResultsDoesNotLimitTraversal(t *testing.T) {
 	}
 }
 
+func TestHostWorkspaceGlobSkipsConfiguredNoisyDirs(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 250; i++ {
+		path := filepath.Join(root, ".cache", "go-build", fmt.Sprintf("file-%03d.txt", i))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join("apps", "coder", "resources", ".agents", "commands", "reflect.yaml")
+	targetPath := filepath.Join(root, target)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sys, err := NewHost(Config{Root: root})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+
+	matches, truncated, err := sys.Workspace().Glob(context.Background(), "apps/coder/resources/.agents/**/reflect.yaml", GlobOptions{Base: ".", MaxResults: 10, MaxScanned: 50, SkipDirs: []string{".cache"}})
+	if err != nil {
+		t.Fatalf("Glob reflect.yaml: %v", err)
+	}
+	if !resolvedContains(matches, filepath.ToSlash(target)) {
+		t.Fatalf("matches = %#v, want %s", matches, filepath.ToSlash(target))
+	}
+	if truncated {
+		t.Fatalf("truncated = true, want false after skipping .cache")
+	}
+}
+
 func TestHostWorkspaceGlobMatchesBraceAlternation(t *testing.T) {
 	root := t.TempDir()
 	for _, rel := range []string{

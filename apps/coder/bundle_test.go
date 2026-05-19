@@ -15,8 +15,10 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
@@ -37,12 +39,18 @@ func TestBundleComposes(t *testing.T) {
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, kubernetesplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", kubernetesplugin.Name)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, dockerplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", dockerplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), dockerplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", dockerplugin.Name)
+	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), kubernetesplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -166,6 +174,9 @@ func TestBundleContributesLanguageActivationReactions(t *testing.T) {
 	}
 	if !hasReaction(bundle.Reactions, "coder.language.markdown", "markdown") {
 		t.Fatalf("reactions = %#v, want markdown operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.integration.docker.available", codeplugin.Name) {
+		t.Fatalf("reactions = %#v, want Docker operation-set reaction", bundle.Reactions)
 	}
 	if !hasReaction(bundle.Reactions, "coder.toolchain.go.available", "golang.toolchain") {
 		t.Fatalf("reactions = %#v, want Go toolchain operation-set reaction", bundle.Reactions)

@@ -17,6 +17,9 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 		writeWorkspaceFile(t, ws, "package.json", `{"name":"root-js","scripts":{"test":"node test.js"}}`)
 		writeWorkspaceFile(t, ws, "Makefile", "build:\n\tgo build ./...\n")
 		writeWorkspaceFile(t, ws, "Taskfile.yaml", "version: '3'\ntasks:\n  lint:\n    cmds:\n      - go vet ./...\n")
+		writeWorkspaceFile(t, ws, "Dockerfile", "FROM scratch\n")
+		writeWorkspaceFile(t, ws, "api.Dockerfile", "FROM alpine\n")
+		writeWorkspaceFile(t, ws, "docker-compose.yaml", "services:\n  app:\n    image: example/app\n")
 		writeWorkspaceFile(t, ws, ".git/config", "[core]\n")
 		writeWorkspaceFile(t, ws, ".agents/plans/example.md", "# Plan\n")
 		writeWorkspaceFile(t, ws, ".claude/commands/check.md", "# Check\n")
@@ -40,14 +43,17 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 			t.Fatalf("projects = %#v, want root and tools", inventory.Projects)
 		}
 		root := projectByRoot(t, inventory, "")
-		if !hasFacet(root, coreproject.FacetGoModule) || !hasFacet(root, coreproject.FacetGoWorkspace) || !hasFacet(root, coreproject.FacetNodePackage) || !hasFacet(root, coreproject.FacetMakefile) || !hasFacet(root, coreproject.FacetTaskfile) || !hasFacet(root, coreproject.FacetMarkdownDocs) || !hasFacet(root, coreproject.FacetAgentsDir) || !hasFacet(root, coreproject.FacetClaudeDir) || !hasFacet(root, coreproject.FacetGitRepo) {
+		if !hasFacet(root, coreproject.FacetGoModule) || !hasFacet(root, coreproject.FacetGoWorkspace) || !hasFacet(root, coreproject.FacetNodePackage) || !hasFacet(root, coreproject.FacetMakefile) || !hasFacet(root, coreproject.FacetTaskfile) || !hasFacet(root, coreproject.FacetMarkdownDocs) || !hasFacet(root, coreproject.FacetDockerfile) || !hasFacet(root, coreproject.FacetDockerCompose) || !hasFacet(root, coreproject.FacetAgentsDir) || !hasFacet(root, coreproject.FacetClaudeDir) || !hasFacet(root, coreproject.FacetGitRepo) {
 			t.Fatalf("root facets = %#v", root.Facets)
 		}
+		facetByKindAndPath(t, root, coreproject.FacetDockerfile, "Dockerfile")
+		facetByKindAndPath(t, root, coreproject.FacetDockerfile, "api.Dockerfile")
+		facetByKindAndPath(t, root, coreproject.FacetDockerCompose, "docker-compose.yaml")
 		if !hasDocument(root, "docs/guide.md") {
 			t.Fatalf("root documents = %#v, want nested docs/guide.md attached to root", root.Facets)
 		}
-		if !hasSignal(inventory.Signals, "go", "go", "go.mod") || !hasSignal(inventory.Signals, "markdown", "", "README.md") {
-			t.Fatalf("signals = %#v, want go and markdown project signals", inventory.Signals)
+		if !hasSignal(inventory.Signals, "go", "go", "go.mod") || !hasSignal(inventory.Signals, "markdown", "", "README.md") || !hasSignal(inventory.Signals, "", "docker", "Dockerfile") || !hasSignal(inventory.Signals, "", "docker-compose", "docker-compose.yaml") {
+			t.Fatalf("signals = %#v, want go, markdown, Docker, and docker-compose project signals", inventory.Signals)
 		}
 		tools := projectByRoot(t, inventory, "tools")
 		if tools.ParentID != root.ID {

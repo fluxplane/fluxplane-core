@@ -17,6 +17,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/plugins/codeplugin"
+	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
@@ -35,6 +37,7 @@ const (
 	SkillsPlugin     = "skills"
 	ImagePlugin      = "image"
 	KubernetesPlugin = "kubernetes"
+	DockerPlugin     = "docker"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 	ReflectCommand   = "reflect"
@@ -87,6 +90,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: TaskPlugin}).
 		WithPlugin(resource.PluginRef{Name: SkillsPlugin}).
 		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
+		WithPlugin(resource.PluginRef{Name: DockerPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
 		WithDefaultAgent(agentSpec).
 		WithDefaultSession(coresession.Spec{
@@ -155,6 +159,16 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: markdownplugin.Name,
+		}},
+	}, {
+		Name: "coder.integration.docker.available",
+		When: corereaction.Matcher{
+			Signal: dockerplugin.SignalAvailable,
+			Target: dockerplugin.Name,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: codeplugin.Name,
 		}},
 	}, {
 		Name: "coder.toolchain.go.available",

@@ -3,6 +3,7 @@ package projectplugin
 import (
 	"context"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -155,7 +156,7 @@ func (p Plugin) projectManager(ctx context.Context) *runtimeproject.Manager {
 
 func specs() []operation.Spec {
 	return []operation.Spec{
-		spec[coreproject.InventoryQuery](InventoryOp, "Discover Workspace projects and facets such as go.mod, go.work, package.json, Makefile, Taskfile.yaml, and markdown docs. The inventory is memory-only; refresh rebuilds it for this plugin instance."),
+		spec[coreproject.InventoryQuery](InventoryOp, "Discover Workspace projects and facets such as go.mod, go.work, package.json, Makefile, Taskfile.yaml, Dockerfile, docker-compose.yaml, and markdown docs. The inventory is memory-only; refresh rebuilds it for this plugin instance."),
 		spec[coreproject.FilesQuery](FilesOp, "List a bounded project file tree scoped to a detected project or path. This is read-only and uses Workspace-relative paths."),
 		spec[coreproject.TasksQuery](TasksOp, "List cheap project task entry points discovered from Makefiles, Taskfiles, and package.json scripts."),
 		taskRunSpec(),
@@ -806,6 +807,10 @@ func fileMatchesFacet(rel, facet string) bool {
 		return strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".ts") || strings.HasSuffix(rel, "package.json")
 	case string(coreproject.FacetMarkdownDocs):
 		return strings.HasSuffix(strings.ToLower(rel), ".md")
+	case string(coreproject.FacetDockerfile):
+		return dockerfileName(path.Base(rel))
+	case string(coreproject.FacetDockerCompose):
+		return path.Base(rel) == "docker-compose.yaml"
 	case string(coreproject.FacetAgentsDir):
 		return rel == ".agents" || strings.HasPrefix(rel, ".agents/")
 	case string(coreproject.FacetClaudeDir):
@@ -813,6 +818,10 @@ func fileMatchesFacet(rel, facet string) bool {
 	default:
 		return true
 	}
+}
+
+func dockerfileName(name string) bool {
+	return name == "Dockerfile" || strings.HasSuffix(name, ".Dockerfile")
 }
 
 func displayRoot(root string) string {

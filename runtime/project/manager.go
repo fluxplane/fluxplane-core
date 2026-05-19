@@ -223,6 +223,10 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 			addTaskfile(ctx, ws, builders, dir, rel, maxBytes)
 		case name == "Makefile" || name == "makefile":
 			addMakefile(ctx, ws, builders, dir, rel, maxBytes)
+		case isDockerfileName(name):
+			addSimpleFacet(builders, dir, rel, coreproject.FacetDockerfile, "dockerfile")
+		case name == "docker-compose.yaml":
+			addSimpleFacet(builders, dir, rel, coreproject.FacetDockerCompose, "docker_compose")
 		case name == ".git" || strings.HasSuffix(rel, "/.git"):
 			builderFor(builders, dir).addFacet(coreproject.Facet{Kind: coreproject.FacetGitRepo, Manifest: manifest(rel, "git_repo", coreproject.ParseStatusParsed, nil, "")})
 		case strings.HasPrefix(rel, ".github/workflows/"):
@@ -298,6 +302,8 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 		{path: "Taskfile.yml", add: addTaskfile},
 		{path: "Makefile", add: addMakefile},
 		{path: "makefile", add: addMakefile},
+		{path: "Dockerfile", add: addDockerfile},
+		{path: "docker-compose.yaml", add: addDockerCompose},
 		{path: "agentsdk.app.yaml", add: addAppManifest},
 		{path: "agentsdk.app.yml", add: addAppManifest},
 		{path: "agentsdk.app.json", add: addAppManifest},
@@ -336,6 +342,14 @@ func addResourceDir(builders map[string]*projectBuilder, dir, rel string, kind c
 		Kind:     kind,
 		Manifest: manifest(rel, manifestKind, coreproject.ParseStatusParsed, nil, ""),
 	})
+}
+
+func addDockerfile(_ context.Context, _ system.Workspace, builders map[string]*projectBuilder, dir, rel string, _ int) {
+	addSimpleFacet(builders, dir, rel, coreproject.FacetDockerfile, "dockerfile")
+}
+
+func addDockerCompose(_ context.Context, _ system.Workspace, builders map[string]*projectBuilder, dir, rel string, _ int) {
+	addSimpleFacet(builders, dir, rel, coreproject.FacetDockerCompose, "docker_compose")
 }
 
 func addAppManifest(ctx context.Context, ws system.Workspace, builders map[string]*projectBuilder, dir, rel string, maxBytes int) {
@@ -706,10 +720,20 @@ func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet, workspac
 		base.Kind = "task"
 	case coreproject.FacetCI:
 		base.Kind = "ci"
+	case coreproject.FacetDockerfile:
+		base.Toolchain = "docker"
+		base.Metadata["name"] = path.Base(facet.Manifest.Path)
+	case coreproject.FacetDockerCompose:
+		base.Toolchain = "docker-compose"
+		base.Metadata["name"] = "docker-compose.yaml"
 	default:
 		return nil
 	}
 	return []coreproject.Signal{base}
+}
+
+func isDockerfileName(name string) bool {
+	return name == "Dockerfile" || strings.HasSuffix(name, ".Dockerfile")
 }
 
 func nodeLockToolchain(rel string) string {

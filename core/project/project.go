@@ -32,6 +32,8 @@ const (
 	FacetAIConfig      FacetKind = "ai_config"
 	FacetGitRepo       FacetKind = "git_repo"
 	FacetCI            FacetKind = "ci"
+	FacetDockerfile    FacetKind = "dockerfile"
+	FacetDockerCompose FacetKind = "docker_compose"
 )
 
 // ParseStatus describes whether a manifest was parsed successfully.

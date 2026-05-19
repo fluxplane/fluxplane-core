@@ -21,12 +21,15 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	runProjectPluginBackends(t, func(t *testing.T, sys system.System) {
 		writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
 		writeProjectFile(t, sys.Workspace(), "package.json", `{"name":"app","scripts":{"test":"node test.js"}}`)
+		writeProjectFile(t, sys.Workspace(), "Dockerfile", "FROM scratch\n")
+		writeProjectFile(t, sys.Workspace(), "api.Dockerfile", "FROM alpine\n")
+		writeProjectFile(t, sys.Workspace(), "docker-compose.yaml", "services:\n  app:\n    image: example/app\n")
 		writeProjectFile(t, sys.Workspace(), ".agents/plans/example.md", "# Plan\n")
 		writeProjectFile(t, sys.Workspace(), ".claude/commands/check.md", "# Check\n")
 		writeProjectFile(t, sys.Workspace(), "README.md", "# App\n\n## Usage\n\n### CLI\n")
 
 		inventory := runProjectOp(t, sys, InventoryOp, map[string]any{"refresh": true})
-		if !strings.Contains(inventory.Text, ". [project:.]") || !strings.Contains(inventory.Text, "go_module go.mod") || !strings.Contains(inventory.Text, "node_package package.json") || !strings.Contains(inventory.Text, "agents_dir .agents") || !strings.Contains(inventory.Text, "claude_dir .claude") {
+		if !strings.Contains(inventory.Text, ". [project:.]") || !strings.Contains(inventory.Text, "go_module go.mod") || !strings.Contains(inventory.Text, "node_package package.json") || !strings.Contains(inventory.Text, "dockerfile Dockerfile") || !strings.Contains(inventory.Text, "docker_compose docker-compose.yaml") || !strings.Contains(inventory.Text, "agents_dir .agents") || !strings.Contains(inventory.Text, "claude_dir .claude") {
 			t.Fatalf("inventory text = %q", inventory.Text)
 		}
 		data, ok := inventory.Data.(map[string]any)
@@ -61,6 +64,14 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		agentFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "agents_dir", "max_results": 10})
 		if !strings.Contains(agentFiles.Text, ".agents/plans/example.md") || strings.Contains(agentFiles.Text, ".claude/commands/check.md") {
 			t.Fatalf("agent facet files text = %q", agentFiles.Text)
+		}
+		dockerfileFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "dockerfile", "max_results": 20})
+		if !strings.Contains(dockerfileFiles.Text, "Dockerfile") || !strings.Contains(dockerfileFiles.Text, "api.Dockerfile") || strings.Contains(dockerfileFiles.Text, "docker-compose.yaml") {
+			t.Fatalf("dockerfile facet files text = %q", dockerfileFiles.Text)
+		}
+		composeFiles := runProjectOp(t, sys, FilesOp, map[string]any{"path": ".", "facet_kind": "docker_compose", "max_results": 20})
+		if !strings.Contains(composeFiles.Text, "docker-compose.yaml") || strings.Contains(composeFiles.Text, "Dockerfile") {
+			t.Fatalf("docker compose facet files text = %q", composeFiles.Text)
 		}
 		providers, err := New(sys).ContextProviders(context.Background(), pluginhost.Context{})
 		if err != nil {

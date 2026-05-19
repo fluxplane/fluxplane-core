@@ -233,6 +233,7 @@ type GlobOptions struct {
 	Base       string
 	MaxResults int
 	MaxScanned int
+	SkipDirs   []string
 }
 
 // ScratchDir is an isolated temporary directory owned by the runtime system.
@@ -796,7 +797,7 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 	if scanLimit <= 0 || scanLimit > 100000 {
 		scanLimit = 10000
 	}
-	entries, root, truncated, err := w.Walk(ctx, base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit})
+	entries, root, truncated, err := w.Walk(ctx, base, WalkOptions{Depth: 50, ShowHidden: true, MaxEntries: scanLimit, SkipDirs: opts.SkipDirs})
 	if err != nil {
 		return nil, false, err
 	}
