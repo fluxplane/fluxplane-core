@@ -83,7 +83,7 @@ func newAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 		},
 	}
 	cmd.Flags().BoolVar(&opts.docker, "docker", false, "build a Docker image")
-	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose; may be repeated or comma-separated")
+	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose|kubernetes; may be repeated or comma-separated")
 	cmd.Flags().StringVar(&opts.image, "image", "", "Docker image tag to use for app artifacts")
 	cmd.Flags().StringVar(&opts.outDir, "out", "", "output directory for generated app artifacts")
 	cmd.Flags().StringArrayVarP(&opts.tags, "tag", "t", nil, "Docker image tag; may be repeated")
@@ -140,6 +140,9 @@ type appDeployOptions struct {
 	provider       string
 	model          string
 	effort         string
+	namespace      string
+	registryMode   string
+	registry       string
 	runner         distdeploy.CommandRunner
 }
 
@@ -159,7 +162,7 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 			return runAppDeploy(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose")
+	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose|kubernetes")
 	cmd.Flags().StringVar(&opts.image, "image", "", "App image to build and reference in generated deployment resources")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
@@ -169,6 +172,9 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
 	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
 	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
+	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Kubernetes namespace for kubernetes deploy target")
+	cmd.Flags().StringVar(&opts.registryMode, "registry-mode", "", "Kubernetes registry mode: namespace|external")
+	cmd.Flags().StringVar(&opts.registry, "registry", "", "External registry prefix for kubernetes deploy target")
 	return cmd
 }
 
@@ -177,10 +183,30 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	if target == "" {
 		target = "docker-compose"
 	}
-	if target != "docker-compose" {
+	if target != "docker-compose" && target != "kubernetes" {
 		return fmt.Errorf("app deploy: unsupported target %q", target)
 	}
 	if err := distrun.ValidateReasoningFlags("", false, opts.effort, strings.TrimSpace(opts.effort) != ""); err != nil {
+		return err
+	}
+	if target == "kubernetes" {
+		_, err := distdeploy.DeployKubernetes(ctx, distdeploy.KubernetesOptions{
+			AppDir:         appDir,
+			Image:          opts.image,
+			BaseImage:      opts.baseImage,
+			ConnectorsPath: opts.connectorsPath,
+			Provider:       opts.provider,
+			Model:          opts.model,
+			Effort:         opts.effort,
+			Namespace:      opts.namespace,
+			RegistryMode:   opts.registryMode,
+			Registry:       opts.registry,
+			DryRun:         opts.dryRun,
+			Force:          opts.force,
+			Out:            out,
+			Err:            errOut,
+			Runner:         opts.runner,
+		})
 		return err
 	}
 	_, err := distdeploy.DeployDockerCompose(ctx, distdeploy.ComposeDeployOptions{

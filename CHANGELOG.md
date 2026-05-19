@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `coder app deploy --target kubernetes` for plain kubectl manifest
+  deployments, including local k3d image import, external registry mode,
+  generated Kubernetes resources for app runtime MySQL/NATS backends, and
+  Kubernetes Secrets generated from manifest-declared root workspace env files.
+
 - Added Atlassian API-token env support for native Jira and Confluence auth,
   including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
   service-account bearer tokens and optional account-email Basic auth against

@@ -27,22 +27,42 @@ type WorkspaceEnvironment struct {
 	sets map[string]map[string]string
 }
 
+// EnvFileSet contains env values loaded from workspace env files.
+type EnvFileSet struct {
+	Files  []string
+	Values map[string]string
+}
+
+// LoadEnvFiles resolves and parses env files relative to root. Later files
+// override earlier values, matching workspace runtime environment semantics.
+func LoadEnvFiles(root string, patterns []string) (EnvFileSet, error) {
+	files, err := resolveEnvFiles(root, patterns)
+	if err != nil {
+		return EnvFileSet{}, err
+	}
+	values := map[string]string{}
+	for _, file := range files {
+		loaded, err := parseEnvFile(file)
+		if err != nil {
+			return EnvFileSet{}, err
+		}
+		for key, value := range loaded {
+			values[key] = value
+		}
+	}
+	return EnvFileSet{Files: files, Values: values}, nil
+}
+
 func newWorkspaceEnvironment(workspace *HostWorkspace) (*WorkspaceEnvironment, error) {
 	sets := map[string]map[string]string{}
 	for _, root := range workspace.roots {
 		values := defaultHostEnv()
-		files, err := resolveEnvFiles(root.root, root.envFiles)
+		envFiles, err := LoadEnvFiles(root.root, root.envFiles)
 		if err != nil {
 			return nil, err
 		}
-		for _, file := range files {
-			loaded, err := parseEnvFile(file)
-			if err != nil {
-				return nil, err
-			}
-			for key, value := range loaded {
-				values[key] = value
-			}
+		for key, value := range envFiles.Values {
+			values[key] = value
 		}
 		for key := range values {
 			if hostValue, ok := os.LookupEnv(key); ok {

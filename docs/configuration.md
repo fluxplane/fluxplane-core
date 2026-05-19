@@ -564,7 +564,18 @@ Build with:
 coder build --target docker-base --tag fluxplane/coder-base:local
 coder app build . --image support-bot:local
 coder app deploy . --target docker-compose --image support-bot:local
+coder app deploy . --target kubernetes --namespace ai-bots --image support-bot:local
 ```
+
+For Kubernetes deploys, `--registry-mode namespace` imports the app image into
+the current k3d cluster and uses the local image tag in the Deployment. Use
+`--registry-mode external --registry <registry-prefix>` for ECR or another
+registry that cluster nodes can pull from. Root workspace `env_files` are
+converted into a Kubernetes Secret and injected into the app container
+environment. Runtime backend DSN variables generated for MySQL or NATS are set
+directly on the app Deployment and override matching env-file keys. Named root
+`env_files` are not supported by Kubernetes deploy until workspace roots are
+mounted there.
 
 ### Model Providers
 

@@ -359,6 +359,266 @@ name: assistant
 	}
 }
 
+func TestGenerateKubernetesManifestsCreatesEnvSecret(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    env_files:
+      - .env
+      - .env.local
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=secret-one\nSHARED=first\n")
+	writeTestFile(t, app, ".env.local", "SHARED=last\n")
+
+	result, err := GenerateKubernetesManifests(context.Background(), KubernetesManifestOptions{
+		AppDir: app,
+		Image:  "sample:test",
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateKubernetesManifests: %v", err)
+	}
+	for _, want := range []string{
+		"kind: Secret",
+		"  name: sample-env",
+		"  OPENROUTER_API_KEY: \"secret-one\"",
+		"  SHARED: \"last\"",
+		"          envFrom:",
+		"                name: sample-env",
+		"          image: sample:test",
+		`          args: ["app","serve","/app","--connectors-path","/connectors","--health-addr","0.0.0.0:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("kubernetes manifest missing %q:\n%s", want, result.Content)
+		}
+	}
+}
+
+func TestGenerateKubernetesManifestsIncludesRuntimeBackends(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: support-bot
+runtime:
+  data:
+    store:
+      kind: mysql
+      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+  events:
+    store:
+      kind: nats
+      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: support-bot
+      tags: [local]
+---
+kind: agent
+name: assistant
+`)
+	result, err := GenerateKubernetesManifests(context.Background(), KubernetesManifestOptions{
+		AppDir: app,
+		Image:  "support-bot:test",
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateKubernetesManifests: %v", err)
+	}
+	for _, want := range []string{
+		"kind: StatefulSet",
+		"  name: mysql",
+		"          image: mysql:8.4",
+		"              value: \"agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true\"",
+		"  name: nats",
+		"          image: nats:2.11-alpine",
+		"              value: \"nats://nats:4222\"",
+	} {
+		if !strings.Contains(result.Content, want) {
+			t.Fatalf("kubernetes manifest missing %q:\n%s", want, result.Content)
+		}
+	}
+}
+
+func TestGenerateKubernetesManifestsRejectsNamedRootEnvFiles(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    roots:
+      - name: tmp
+        path: /tmp/agentruntime-test
+        env_files: [.env.tmp]
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	_, err := GenerateKubernetesManifests(context.Background(), KubernetesManifestOptions{
+		AppDir: app,
+		DryRun: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), `does not support env_files on workspace root "tmp"`) {
+		t.Fatalf("GenerateKubernetesManifests error = %v, want named root env_files error", err)
+	}
+}
+
+func TestDeployKubernetesDryRunRedactsEnvSecretValues(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    env_files: [.env]
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=supersecret\n")
+	var out bytes.Buffer
+	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
+		AppDir: app,
+		Image:  "sample:test",
+		DryRun: true,
+		Out:    &out,
+	})
+	if err != nil {
+		t.Fatalf("DeployKubernetes dry-run: %v", err)
+	}
+	if !result.DryRun || result.SecretName != "sample-env" {
+		t.Fatalf("result = %#v", result)
+	}
+	for _, want := range []string{
+		"write=" + filepath.Join(app, "kubernetes.yaml"),
+		"secret=sample-env keys=OPENROUTER_API_KEY",
+		"command=k3d image import sample:test --cluster <current-k3d-cluster>",
+		"command=kubectl delete deployment/coder-registry service/coder-registry pvc/coder-registry-data -n sample --ignore-not-found",
+		"command=kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "supersecret") {
+		t.Fatalf("dry-run output leaked secret:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), ".svc.cluster.local") || strings.Contains(out.String(), "127.0.0.1:5000") {
+		t.Fatalf("dry-run output used registry pull path:\n%s", out.String())
+	}
+}
+
+func TestDeployKubernetesNamespaceRegistryFlow(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	originalDetect := detectK3DClusterName
+	detectK3DClusterName = func(context.Context) (string, error) { return "sample-cluster", nil }
+	defer func() { detectK3DClusterName = originalDetect }()
+
+	runner := &recordingRunner{}
+	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
+		AppDir: app,
+		Image:  "sample:test",
+		Force:  true,
+		Runner: runner,
+	})
+	if err != nil {
+		t.Fatalf("DeployKubernetes: %v", err)
+	}
+	if result.Image != "sample:test" {
+		t.Fatalf("image = %q", result.Image)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	for _, want := range []string{
+		"docker build -t fluxplane/coder-base:local ",
+		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
+		"k3d image import sample:test --cluster sample-cluster",
+		"kubectl delete deployment/coder-registry service/coder-registry pvc/coder-registry-data -n sample --ignore-not-found",
+		"kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("commands missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, ".svc.cluster.local") || strings.Contains(joined, "127.0.0.1:5000") {
+		t.Fatalf("commands used registry pull path:\n%s", joined)
+	}
+}
+
+func TestDeployKubernetesExternalRegistryDryRunSkipsNamespaceRegistry(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [agentsdk.app.yaml]
+    docker:
+      image: sample
+      tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	var out bytes.Buffer
+	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
+		AppDir:       app,
+		Image:        "sample:test",
+		RegistryMode: "external",
+		Registry:     "123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots",
+		DryRun:       true,
+		Out:          &out,
+	})
+	if err != nil {
+		t.Fatalf("DeployKubernetes external dry-run: %v", err)
+	}
+	if result.Image != "123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test" {
+		t.Fatalf("image = %q", result.Image)
+	}
+	if strings.Contains(out.String(), "coder-registry") || strings.Contains(out.String(), "<registry-manifest>") {
+		t.Fatalf("external registry dry-run included namespace registry:\n%s", out.String())
+	}
+	for _, want := range []string{
+		"command=docker tag sample:test 123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test",
+		"command=docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots/sample:test",
+		"command=kubectl apply -f " + filepath.Join(app, "kubernetes.yaml"),
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 	dir := t.TempDir()
 	coderPath := filepath.Join(dir, "coder")
@@ -709,4 +969,13 @@ func writeTestFile(t *testing.T, root, rel, data string) {
 	if err := os.WriteFile(filename, []byte(data), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
+}
+
+type recordingRunner struct {
+	calls []string
+}
+
+func (r *recordingRunner) Run(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+	r.calls = append(r.calls, name+" "+strings.Join(args, " "))
+	return nil
 }

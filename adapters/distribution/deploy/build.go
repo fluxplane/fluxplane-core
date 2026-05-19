@@ -1,5 +1,5 @@
 // Package deploy adapts distributions into deployable artifacts such as
-// container images and Helm charts.
+// container images and kubectl manifests.
 package deploy
 
 import (
@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
@@ -23,6 +24,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/pathpattern"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 const (
@@ -32,8 +34,10 @@ const (
 	defaultMySQLDSNEnv    = "AGENTRUNTIME_DATASTORE_MYSQL_DSN"
 	defaultNATSDSNEnv     = "AGENTRUNTIME_EVENTSTORE_NATS_DSN"
 	defaultHealthAddr     = "127.0.0.1:18080"
+	defaultKubeHealthAddr = "0.0.0.0:18080"
 	defaultHealthURL      = "http://127.0.0.1:18080/control/status"
 	openRouterAPIKeyEnv   = "OPENROUTER_API_KEY"
+	defaultRegistryPort   = "5000"
 )
 
 const (
@@ -44,6 +48,8 @@ const (
 	// DefaultAppEffort is the reasoning effort used by generated app containers.
 	DefaultAppEffort = "medium"
 )
+
+var detectK3DClusterName = currentK3DClusterName
 
 // CommandRunner runs an external command.
 type CommandRunner interface {
@@ -177,6 +183,7 @@ type AppBuildResult struct {
 	DryRun     bool
 	Dockerfile string
 	Compose    string
+	Kubernetes string
 	Binary     string
 }
 
@@ -247,6 +254,64 @@ type ComposeDeployResult struct {
 	DryRun    bool
 }
 
+// KubernetesOptions configures kubectl-manifest deployment.
+type KubernetesOptions struct {
+	AppDir         string
+	Image          string
+	BaseImage      string
+	ConnectorsPath string
+	Provider       string
+	Model          string
+	Effort         string
+	Namespace      string
+	RegistryMode   string
+	Registry       string
+	DryRun         bool
+	Force          bool
+	Out            io.Writer
+	Err            io.Writer
+	Runner         CommandRunner
+}
+
+// KubernetesResult describes generated Kubernetes deployment artifacts.
+type KubernetesResult struct {
+	BaseImage  BaseImageResult
+	AppBuild   AppBuildResult
+	Manifest   string
+	Namespace  string
+	Image      string
+	Registry   string
+	Commands   [][]string
+	DryRun     bool
+	SecretName string
+}
+
+// KubernetesManifestOptions configures plain Kubernetes manifest generation.
+type KubernetesManifestOptions struct {
+	AppDir         string
+	Image          string
+	ConnectorsPath string
+	Provider       string
+	Model          string
+	Effort         string
+	Namespace      string
+	RegistryMode   string
+	Registry       string
+	DryRun         bool
+	Out            io.Writer
+}
+
+// KubernetesManifestResult describes generated Kubernetes manifest content.
+type KubernetesManifestResult struct {
+	AppDir     string
+	Name       string
+	Namespace  string
+	Image      string
+	SecretName string
+	Content    string
+	DryRun     bool
+}
+
 // BuildApp builds app-local artifacts such as bin launchers, Dockerfiles,
 // Docker Compose resources, and Docker images.
 func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error) {
@@ -288,6 +353,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	binaryPath := filepath.Join(outDir, "bin", composeServiceName(name))
 	dockerfilePath := filepath.Join(outDir, "Dockerfile")
 	composePath := filepath.Join(outDir, "docker-compose.yaml")
+	kubernetesPath := filepath.Join(outDir, "kubernetes.yaml")
 	composeImage := firstTag(tags)
 	if composeImage == "" {
 		composeImage = defaultAppImage
@@ -301,6 +367,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		DryRun:     opts.DryRun,
 		Dockerfile: dockerfilePath,
 		Compose:    composePath,
+		Kubernetes: kubernetesPath,
 		Binary:     binaryPath,
 	}
 	out := opts.Out
@@ -330,6 +397,22 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		case "docker-compose":
 			result.Artifacts = append(result.Artifacts, composePath)
 			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, connectorsPath, appRuntime, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
+				return AppBuildResult{}, err
+			}
+		case "kubernetes":
+			result.Artifacts = append(result.Artifacts, kubernetesPath)
+			content, err := kubernetesContent(loaded, kubernetesRenderOptions{
+				Name:            name,
+				Namespace:       kubernetesName(name),
+				Image:           composeImage,
+				ConnectorsPath:  connectorsPath,
+				AppRuntime:      appRuntime,
+				IncludeRegistry: false,
+			})
+			if err != nil {
+				return AppBuildResult{}, err
+			}
+			if err := maybeWriteFile(kubernetesPath, content.Content, 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "docker-image":
@@ -417,6 +500,155 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	}
 	if err := runner.Run(ctx, app.AppDir, command[0], command[1:], out, errOut); err != nil {
 		return ComposeDeployResult{}, err
+	}
+	return result, nil
+}
+
+// DeployKubernetes builds local app artifacts, pushes the app image according to
+// the registry mode, and applies generated kubectl manifests.
+func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesResult, error) {
+	baseImage := strings.TrimSpace(opts.BaseImage)
+	if baseImage == "" {
+		baseImage = defaultBaseImage
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	errOut := opts.Err
+	if errOut == nil {
+		errOut = io.Discard
+	}
+	runner := opts.Runner
+	if runner == nil {
+		runner = execRunner{}
+	}
+	loaded, err := distlocal.Load(ctx, firstNonEmpty(strings.TrimSpace(opts.AppDir), "."))
+	if err != nil {
+		return KubernetesResult{}, err
+	}
+	name := distributionName(loaded.Distribution.Spec)
+	namespace := kubernetesName(firstNonEmpty(strings.TrimSpace(opts.Namespace), name))
+	registryMode := strings.ToLower(firstNonEmpty(strings.TrimSpace(opts.RegistryMode), "namespace"))
+	if registryMode != "namespace" && registryMode != "external" {
+		return KubernetesResult{}, fmt.Errorf("distribution deploy: unsupported kubernetes registry mode %q", opts.RegistryMode)
+	}
+	tags := resolveAppBuildTags(loaded.Distribution.Spec, AppBuildOptions{Image: opts.Image})
+	sourceImage := firstTag(tags)
+	if sourceImage == "" {
+		sourceImage = defaultAppImage
+	}
+	refs := kubernetesImageRefs(namespace, name, sourceImage, registryMode, opts.Registry)
+	k3dCluster := "<current-k3d-cluster>"
+	if registryMode == "namespace" && !opts.DryRun {
+		var err error
+		k3dCluster, err = detectK3DClusterName(ctx)
+		if err != nil {
+			return KubernetesResult{}, err
+		}
+	}
+	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		Effort:   opts.Effort,
+	})
+
+	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
+		Tags:   []string{baseImage},
+		DryRun: opts.DryRun,
+		Out:    out,
+		Err:    errOut,
+		Runner: runner,
+	})
+	if err != nil {
+		return KubernetesResult{}, err
+	}
+	app, err := BuildApp(ctx, AppBuildOptions{
+		AppDir:         loaded.Root,
+		Targets:        []string{"dockerfile", "docker-image"},
+		Image:          sourceImage,
+		DryRun:         opts.DryRun,
+		Force:          opts.Force,
+		BaseImage:      baseImage,
+		ConnectorsPath: opts.ConnectorsPath,
+		Provider:       opts.Provider,
+		Model:          opts.Model,
+		Effort:         opts.Effort,
+		Out:            out,
+		Err:            errOut,
+		Runner:         runner,
+	})
+	if err != nil {
+		return KubernetesResult{}, err
+	}
+	manifest := filepath.Join(app.OutDir, "kubernetes.yaml")
+	rendered, err := kubernetesContent(loaded, kubernetesRenderOptions{
+		Name:            name,
+		Namespace:       namespace,
+		Image:           refs.Cluster,
+		ConnectorsPath:  opts.ConnectorsPath,
+		AppRuntime:      appRuntime,
+		IncludeRegistry: false,
+	})
+	if err != nil {
+		return KubernetesResult{}, err
+	}
+	if err := maybeWriteFile(manifest, rendered.Content, 0o600, opts.DryRun, opts.Force, out); err != nil {
+		return KubernetesResult{}, err
+	}
+
+	result := KubernetesResult{
+		BaseImage:  base,
+		AppBuild:   app,
+		Manifest:   manifest,
+		Namespace:  namespace,
+		Image:      refs.Cluster,
+		Registry:   refs.Registry,
+		DryRun:     opts.DryRun,
+		SecretName: rendered.SecretName,
+	}
+	if rendered.SecretName != "" {
+		printKubernetesSecretSummary(out, rendered.SecretName, rendered.SecretKeys, opts.DryRun)
+	}
+
+	if registryMode == "namespace" {
+		command := []string{"k3d", "image", "import", sourceImage, "--cluster", k3dCluster}
+		result.Commands = append(result.Commands, command)
+		if opts.DryRun {
+			_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
+		} else if err := runner.Run(ctx, "", command[0], command[1:], out, errOut); err != nil {
+			return KubernetesResult{}, err
+		}
+		cleanup := []string{"kubectl", "delete", "deployment/coder-registry", "service/coder-registry", "pvc/coder-registry-data", "-n", namespace, "--ignore-not-found"}
+		result.Commands = append(result.Commands, cleanup)
+		if opts.DryRun {
+			_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(cleanup, " "))
+		} else if err := runner.Run(ctx, "", cleanup[0], cleanup[1:], out, errOut); err != nil {
+			return KubernetesResult{}, err
+		}
+	}
+
+	if registryMode == "external" {
+		pushCommands := kubernetesPushCommands(sourceImage, refs.Push)
+		for _, command := range pushCommands {
+			result.Commands = append(result.Commands, command)
+			if opts.DryRun {
+				_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
+				continue
+			}
+			if err := runner.Run(ctx, "", command[0], command[1:], out, errOut); err != nil {
+				return KubernetesResult{}, err
+			}
+		}
+	}
+	apply := []string{"kubectl", "apply", "-f", manifest}
+	result.Commands = append(result.Commands, apply)
+	if opts.DryRun {
+		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(apply, " "))
+		return result, nil
+	}
+	if err := runner.Run(ctx, "", apply[0], apply[1:], out, errOut); err != nil {
+		return KubernetesResult{}, err
 	}
 	return result, nil
 }
@@ -611,6 +843,60 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	return ComposeResult{}, errors.New("distribution deploy: docker-compose generation currently requires --dry-run")
 }
 
+// GenerateKubernetesManifests generates plain kubectl manifests for an app image.
+func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOptions) (KubernetesManifestResult, error) {
+	appDir := strings.TrimSpace(opts.AppDir)
+	if appDir == "" {
+		appDir = "."
+	}
+	loaded, err := distlocal.Load(ctx, appDir)
+	if err != nil {
+		return KubernetesManifestResult{}, err
+	}
+	name := distributionName(loaded.Distribution.Spec)
+	namespace := kubernetesName(firstNonEmpty(strings.TrimSpace(opts.Namespace), name))
+	image := strings.TrimSpace(opts.Image)
+	if image == "" {
+		image = firstTag(resolveTags(loaded.Distribution.Spec, nil))
+	}
+	if image == "" {
+		image = defaultAppImage
+	}
+	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
+		Provider: opts.Provider,
+		Model:    opts.Model,
+		Effort:   opts.Effort,
+	})
+	rendered, err := kubernetesContent(loaded, kubernetesRenderOptions{
+		Name:            name,
+		Namespace:       namespace,
+		Image:           image,
+		ConnectorsPath:  opts.ConnectorsPath,
+		AppRuntime:      appRuntime,
+		IncludeRegistry: false,
+	})
+	if err != nil {
+		return KubernetesManifestResult{}, err
+	}
+	result := KubernetesManifestResult{
+		AppDir:     loaded.Root,
+		Name:       name,
+		Namespace:  namespace,
+		Image:      image,
+		SecretName: rendered.SecretName,
+		Content:    rendered.Content,
+		DryRun:     opts.DryRun,
+	}
+	out := opts.Out
+	if out == nil {
+		out = io.Discard
+	}
+	if opts.DryRun {
+		_, _ = io.WriteString(out, rendered.Content)
+	}
+	return result, nil
+}
+
 type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, dir, name string, args []string, stdout, stderr io.Writer) error {
@@ -722,7 +1008,7 @@ func appBuildTargets(values []string) ([]string, error) {
 		switch target {
 		case "all":
 			expanded = append(expanded, "binary", "dockerfile", "docker-compose", "docker-image")
-		case "binary", "dockerfile", "docker-image", "docker-compose":
+		case "binary", "dockerfile", "docker-image", "docker-compose", "kubernetes":
 			expanded = append(expanded, target)
 		default:
 			return nil, fmt.Errorf("distribution build: unsupported app target %q", target)
@@ -987,15 +1273,22 @@ func workspaceDockerfile(baseImage, connectorsPath string, appRuntime appRuntime
 }
 
 func appServeCommand(connectorsPath string, appRuntime appRuntimeOptions) []string {
+	return appServeCommandWithHealthAddr(connectorsPath, appRuntime, defaultHealthAddr)
+}
+
+func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeOptions, healthAddr string) []string {
 	connectorsPath = strings.TrimSpace(connectorsPath)
 	if connectorsPath == "" {
 		connectorsPath = defaultConnectorsPath
+	}
+	if strings.TrimSpace(healthAddr) == "" {
+		healthAddr = defaultHealthAddr
 	}
 	appRuntime = appRuntime.withDefaults()
 	return []string{
 		"app", "serve", "/app",
 		"--connectors-path", connectorsPath,
-		"--health-addr", defaultHealthAddr,
+		"--health-addr", healthAddr,
 		"--provider", appRuntime.Provider,
 		"--model", appRuntime.Model,
 		"--effort", appRuntime.Effort,
@@ -1385,4 +1678,570 @@ func composeServiceName(value string) string {
 		return "app"
 	}
 	return out
+}
+
+type kubernetesRenderOptions struct {
+	Name            string
+	Namespace       string
+	Image           string
+	ConnectorsPath  string
+	AppRuntime      appRuntimeOptions
+	IncludeRegistry bool
+}
+
+type kubernetesRenderResult struct {
+	Content         string
+	RegistryContent string
+	SecretName      string
+	SecretKeys      []string
+}
+
+type kubernetesEnvSecret struct {
+	Name   string
+	Files  []string
+	Values map[string]string
+}
+
+type kubernetesImageRefSet struct {
+	Registry string
+	Push     string
+	Cluster  string
+}
+
+func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions) (kubernetesRenderResult, error) {
+	name := kubernetesName(firstNonEmpty(opts.Name, loaded.Distribution.Spec.Name, "app"))
+	namespace := kubernetesName(firstNonEmpty(opts.Namespace, name))
+	image := strings.TrimSpace(opts.Image)
+	if image == "" {
+		image = defaultAppImage
+	}
+	secret, err := kubernetesEnvSecretForLoaded(loaded, name)
+	if err != nil {
+		return kubernetesRenderResult{}, err
+	}
+	var registryContent string
+	var docs []string
+	docs = append(docs, kubernetesNamespace(namespace))
+	if opts.IncludeRegistry {
+		registryContent = kubernetesRegistryContent(namespace)
+		docs = append(docs, splitYAMLDocuments(registryContent)...)
+	}
+	if secret.Name != "" {
+		docs = append(docs, kubernetesSecret(namespace, secret))
+	}
+	if composeUsesMySQL(loaded.Launch) {
+		docs = append(docs, splitYAMLDocuments(kubernetesMySQL(namespace))...)
+	}
+	if composeUsesNATS(loaded.Launch) {
+		docs = append(docs, splitYAMLDocuments(kubernetesNATS(namespace))...)
+	}
+	docs = append(docs, kubernetesAppService(namespace, name))
+	docs = append(docs, kubernetesAppDeployment(namespace, name, image, opts.ConnectorsPath, opts.AppRuntime, loaded.Launch, secret.Name))
+	content := joinYAMLDocuments(docs)
+	return kubernetesRenderResult{
+		Content:         content,
+		RegistryContent: registryContent,
+		SecretName:      secret.Name,
+		SecretKeys:      sortedKeys(secret.Values),
+	}, nil
+}
+
+func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name string) (kubernetesEnvSecret, error) {
+	for _, root := range loaded.Launch.Workspace.Roots {
+		if len(cleanStrings(root.EnvFiles)) > 0 {
+			return kubernetesEnvSecret{}, fmt.Errorf("distribution deploy: kubernetes target does not support env_files on workspace root %q", root.Name)
+		}
+	}
+	patterns := cleanStrings(loaded.Launch.Workspace.EnvFiles)
+	if len(patterns) == 0 {
+		return kubernetesEnvSecret{}, nil
+	}
+	envFiles, err := system.LoadEnvFiles(loaded.Root, patterns)
+	if err != nil {
+		return kubernetesEnvSecret{}, err
+	}
+	if len(envFiles.Values) == 0 {
+		return kubernetesEnvSecret{}, nil
+	}
+	return kubernetesEnvSecret{
+		Name:   kubernetesName(name + "-env"),
+		Files:  envFiles.Files,
+		Values: envFiles.Values,
+	}, nil
+}
+
+func kubernetesNamespace(namespace string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Namespace\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func kubernetesSecret(namespace string, secret kubernetesEnvSecret) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Secret\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(secret.Name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("type: Opaque\n")
+	b.WriteString("stringData:\n")
+	for _, key := range sortedKeys(secret.Values) {
+		b.WriteString("  ")
+		b.WriteString(key)
+		b.WriteString(": ")
+		b.WriteString(yamlString(secret.Values[key]))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func kubernetesAppService(namespace, name string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Service\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    app.kubernetes.io/name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  ports:\n")
+	b.WriteString("    - name: control\n")
+	b.WriteString("      port: 18080\n")
+	b.WriteString("      targetPort: control\n")
+	return b.String()
+}
+
+func kubernetesAppDeployment(namespace, name, image, connectorsPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig, secretName string) string {
+	env := kubernetesRuntimeEnv(launch)
+	var b strings.Builder
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: Deployment\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  replicas: 1\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    matchLabels:\n")
+	b.WriteString("      app.kubernetes.io/name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("  template:\n")
+	b.WriteString("    metadata:\n")
+	b.WriteString("      labels:\n")
+	b.WriteString("        app.kubernetes.io/name: ")
+	b.WriteString(name)
+	b.WriteByte('\n')
+	b.WriteString("    spec:\n")
+	b.WriteString("      containers:\n")
+	b.WriteString("        - name: app\n")
+	b.WriteString("          image: ")
+	b.WriteString(image)
+	b.WriteByte('\n')
+	b.WriteString("          imagePullPolicy: IfNotPresent\n")
+	args, _ := json.Marshal(appServeCommandWithHealthAddr(connectorsPath, appRuntime, defaultKubeHealthAddr))
+	b.WriteString("          args: ")
+	b.Write(args)
+	b.WriteByte('\n')
+	b.WriteString("          ports:\n")
+	b.WriteString("            - name: control\n")
+	b.WriteString("              containerPort: 18080\n")
+	if secretName != "" {
+		b.WriteString("          envFrom:\n")
+		b.WriteString("            - secretRef:\n")
+		b.WriteString("                name: ")
+		b.WriteString(secretName)
+		b.WriteByte('\n')
+	}
+	if len(env) > 0 {
+		b.WriteString("          env:\n")
+		for _, key := range sortedKeys(env) {
+			b.WriteString("            - name: ")
+			b.WriteString(key)
+			b.WriteByte('\n')
+			b.WriteString("              value: ")
+			b.WriteString(yamlString(env[key]))
+			b.WriteByte('\n')
+		}
+	}
+	probe, _ := json.Marshal(appHealthcheckCommand())
+	b.WriteString("          readinessProbe:\n")
+	b.WriteString("            exec:\n")
+	b.WriteString("              command: ")
+	b.Write(probe)
+	b.WriteByte('\n')
+	b.WriteString("            periodSeconds: 10\n")
+	b.WriteString("            failureThreshold: 12\n")
+	b.WriteString("          livenessProbe:\n")
+	b.WriteString("            exec:\n")
+	b.WriteString("              command: ")
+	b.Write(probe)
+	b.WriteByte('\n')
+	b.WriteString("            periodSeconds: 20\n")
+	b.WriteString("            failureThreshold: 6\n")
+	return b.String()
+}
+
+func kubernetesRuntimeEnv(launch distribution.LaunchConfig) map[string]string {
+	env := map[string]string{}
+	if composeUsesMySQL(launch) {
+		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
+		if name == "" {
+			name = defaultMySQLDSNEnv
+		}
+		env[name] = "agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true"
+	}
+	if composeUsesNATS(launch) {
+		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
+		if name == "" {
+			name = defaultNATSDSNEnv
+		}
+		env[name] = "nats://nats:4222"
+	}
+	return env
+}
+
+func kubernetesRegistryContent(namespace string) string {
+	var b strings.Builder
+	b.WriteString(kubernetesNamespace(namespace))
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: PersistentVolumeClaim\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: coder-registry-data\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  accessModes: [\"ReadWriteOnce\"]\n")
+	b.WriteString("  resources:\n")
+	b.WriteString("    requests:\n")
+	b.WriteString("      storage: 5Gi\n")
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: Deployment\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: coder-registry\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  replicas: 1\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    matchLabels:\n")
+	b.WriteString("      app.kubernetes.io/name: coder-registry\n")
+	b.WriteString("  template:\n")
+	b.WriteString("    metadata:\n")
+	b.WriteString("      labels:\n")
+	b.WriteString("        app.kubernetes.io/name: coder-registry\n")
+	b.WriteString("    spec:\n")
+	b.WriteString("      containers:\n")
+	b.WriteString("        - name: registry\n")
+	b.WriteString("          image: registry:2\n")
+	b.WriteString("          ports:\n")
+	b.WriteString("            - name: registry\n")
+	b.WriteString("              containerPort: 5000\n")
+	b.WriteString("          volumeMounts:\n")
+	b.WriteString("            - name: data\n")
+	b.WriteString("              mountPath: /var/lib/registry\n")
+	b.WriteString("      volumes:\n")
+	b.WriteString("        - name: data\n")
+	b.WriteString("          persistentVolumeClaim:\n")
+	b.WriteString("            claimName: coder-registry-data\n")
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Service\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: coder-registry\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    app.kubernetes.io/name: coder-registry\n")
+	b.WriteString("  ports:\n")
+	b.WriteString("    - name: registry\n")
+	b.WriteString("      port: 5000\n")
+	b.WriteString("      targetPort: registry\n")
+	return b.String()
+}
+
+func kubernetesMySQL(namespace string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Service\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: mysql\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    app.kubernetes.io/name: mysql\n")
+	b.WriteString("  ports:\n")
+	b.WriteString("    - name: mysql\n")
+	b.WriteString("      port: 3306\n")
+	b.WriteString("      targetPort: mysql\n")
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: StatefulSet\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: mysql\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  serviceName: mysql\n")
+	b.WriteString("  replicas: 1\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    matchLabels:\n")
+	b.WriteString("      app.kubernetes.io/name: mysql\n")
+	b.WriteString("  template:\n")
+	b.WriteString("    metadata:\n")
+	b.WriteString("      labels:\n")
+	b.WriteString("        app.kubernetes.io/name: mysql\n")
+	b.WriteString("    spec:\n")
+	b.WriteString("      containers:\n")
+	b.WriteString("        - name: mysql\n")
+	b.WriteString("          image: mysql:8.4\n")
+	b.WriteString("          ports:\n")
+	b.WriteString("            - name: mysql\n")
+	b.WriteString("              containerPort: 3306\n")
+	b.WriteString("          env:\n")
+	b.WriteString("            - name: MYSQL_DATABASE\n")
+	b.WriteString("              value: agentruntime\n")
+	b.WriteString("            - name: MYSQL_USER\n")
+	b.WriteString("              value: agentruntime\n")
+	b.WriteString("            - name: MYSQL_PASSWORD\n")
+	b.WriteString("              value: agentruntime\n")
+	b.WriteString("            - name: MYSQL_ROOT_PASSWORD\n")
+	b.WriteString("              value: agentruntime-root\n")
+	b.WriteString("          volumeMounts:\n")
+	b.WriteString("            - name: data\n")
+	b.WriteString("              mountPath: /var/lib/mysql\n")
+	b.WriteString("  volumeClaimTemplates:\n")
+	b.WriteString("    - metadata:\n")
+	b.WriteString("        name: data\n")
+	b.WriteString("      spec:\n")
+	b.WriteString("        accessModes: [\"ReadWriteOnce\"]\n")
+	b.WriteString("        resources:\n")
+	b.WriteString("          requests:\n")
+	b.WriteString("            storage: 5Gi\n")
+	return b.String()
+}
+
+func kubernetesNATS(namespace string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: v1\n")
+	b.WriteString("kind: Service\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: nats\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    app.kubernetes.io/name: nats\n")
+	b.WriteString("  ports:\n")
+	b.WriteString("    - name: client\n")
+	b.WriteString("      port: 4222\n")
+	b.WriteString("      targetPort: client\n")
+	b.WriteString("    - name: monitor\n")
+	b.WriteString("      port: 8222\n")
+	b.WriteString("      targetPort: monitor\n")
+	b.WriteString("---\n")
+	b.WriteString("apiVersion: apps/v1\n")
+	b.WriteString("kind: StatefulSet\n")
+	b.WriteString("metadata:\n")
+	b.WriteString("  name: nats\n")
+	b.WriteString("  namespace: ")
+	b.WriteString(namespace)
+	b.WriteByte('\n')
+	b.WriteString("spec:\n")
+	b.WriteString("  serviceName: nats\n")
+	b.WriteString("  replicas: 1\n")
+	b.WriteString("  selector:\n")
+	b.WriteString("    matchLabels:\n")
+	b.WriteString("      app.kubernetes.io/name: nats\n")
+	b.WriteString("  template:\n")
+	b.WriteString("    metadata:\n")
+	b.WriteString("      labels:\n")
+	b.WriteString("        app.kubernetes.io/name: nats\n")
+	b.WriteString("    spec:\n")
+	b.WriteString("      containers:\n")
+	b.WriteString("        - name: nats\n")
+	b.WriteString("          image: nats:2.11-alpine\n")
+	b.WriteString("          args: [\"-js\", \"-sd\", \"/data\", \"-m\", \"8222\"]\n")
+	b.WriteString("          ports:\n")
+	b.WriteString("            - name: client\n")
+	b.WriteString("              containerPort: 4222\n")
+	b.WriteString("            - name: monitor\n")
+	b.WriteString("              containerPort: 8222\n")
+	b.WriteString("          volumeMounts:\n")
+	b.WriteString("            - name: data\n")
+	b.WriteString("              mountPath: /data\n")
+	b.WriteString("  volumeClaimTemplates:\n")
+	b.WriteString("    - metadata:\n")
+	b.WriteString("        name: data\n")
+	b.WriteString("      spec:\n")
+	b.WriteString("        accessModes: [\"ReadWriteOnce\"]\n")
+	b.WriteString("        resources:\n")
+	b.WriteString("          requests:\n")
+	b.WriteString("            storage: 2Gi\n")
+	return b.String()
+}
+
+func kubernetesImageRefs(namespace, name, sourceImage, mode, registry string) kubernetesImageRefSet {
+	repoTag := imageRepoTag(sourceImage, name)
+	switch mode {
+	case "external":
+		registry = strings.Trim(strings.TrimSpace(registry), "/")
+		if registry == "" {
+			return kubernetesImageRefSet{Registry: imageRegistry(sourceImage), Push: sourceImage, Cluster: sourceImage}
+		}
+		cluster := registry + "/" + repoTag
+		return kubernetesImageRefSet{Registry: registry, Push: cluster, Cluster: cluster}
+	default:
+		return kubernetesImageRefSet{Registry: "k3d", Push: "", Cluster: sourceImage}
+	}
+}
+
+func kubernetesPushCommands(sourceImage, pushImage string) [][]string {
+	if strings.TrimSpace(sourceImage) == strings.TrimSpace(pushImage) {
+		return [][]string{{"docker", "push", pushImage}}
+	}
+	return [][]string{
+		{"docker", "tag", sourceImage, pushImage},
+		{"docker", "push", pushImage},
+	}
+}
+
+func imageRepoTag(image, fallback string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return kubernetesName(fallback) + ":latest"
+	}
+	parts := strings.Split(image, "/")
+	last := parts[len(parts)-1]
+	if strings.Contains(last, ":") {
+		return last
+	}
+	return kubernetesName(last) + ":latest"
+}
+
+func imageRegistry(image string) string {
+	parts := strings.Split(strings.TrimSpace(image), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	first := parts[0]
+	if strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost" {
+		return first
+	}
+	return ""
+}
+
+func kubernetesName(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if valid {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "app"
+	}
+	if len(out) > 63 {
+		out = strings.Trim(out[:63], "-")
+	}
+	if out == "" {
+		return "app"
+	}
+	return out
+}
+
+func yamlString(value string) string {
+	return strconv.Quote(value)
+}
+
+func sortedKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func joinYAMLDocuments(docs []string) string {
+	var cleaned []string
+	for _, doc := range docs {
+		doc = strings.TrimSpace(doc)
+		if doc != "" {
+			cleaned = append(cleaned, doc+"\n")
+		}
+	}
+	return strings.Join(cleaned, "---\n")
+}
+
+func splitYAMLDocuments(content string) []string {
+	var docs []string
+	for _, doc := range strings.Split(content, "\n---\n") {
+		doc = strings.TrimSpace(doc)
+		if doc != "" {
+			docs = append(docs, doc+"\n")
+		}
+	}
+	return docs
+}
+
+func printKubernetesSecretSummary(out io.Writer, name string, keys []string, dryRun bool) {
+	if !dryRun {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "secret=%s keys=%s\n", name, strings.Join(keys, ","))
+}
+
+func currentK3DClusterName(ctx context.Context) (string, error) {
+	command := exec.CommandContext(ctx, "kubectl", "config", "current-context")
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("distribution deploy: resolve current kubernetes context: %w", err)
+	}
+	contextName := strings.TrimSpace(string(output))
+	cluster, ok := strings.CutPrefix(contextName, "k3d-")
+	if !ok || cluster == "" {
+		return "", fmt.Errorf("distribution deploy: registry-mode namespace requires a k3d current context; got %q, use --registry-mode external for node-reachable registries", contextName)
+	}
+	return cluster, nil
 }

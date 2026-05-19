@@ -551,7 +551,7 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path", "--provider", "--model", "--effort"} {
+	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose|kubernetes", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path", "--provider", "--model", "--effort"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -579,7 +579,7 @@ func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"deploy [path]", "--target", "docker-compose", "--image", "--base-image", "--connectors-path", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach"} {
+	for _, want := range []string{"deploy [path]", "--target", "docker-compose|kubernetes", "--image", "--base-image", "--connectors-path", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach", "--namespace", "--registry-mode", "--registry"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
