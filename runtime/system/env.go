@@ -11,7 +11,8 @@ import (
 	"unicode"
 )
 
-var defaultProcessEnvKeys = []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE", "SSH_AUTH_SOCK"}
+var defaultProcessEnvKeys = []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE"}
+var hostForwardedProcessEnvKeys = []string{"SSH_AUTH_SOCK"}
 
 var processOverrideEnvKeys = map[string]bool{
 	"CGO_ENABLED": true,
@@ -48,6 +49,11 @@ func newWorkspaceEnvironment(workspace *HostWorkspace) (*WorkspaceEnvironment, e
 				values[key] = hostValue
 			}
 		}
+		for _, key := range hostForwardedProcessEnvKeys {
+			if hostValue, ok := os.LookupEnv(key); ok {
+				values[key] = hostValue
+			}
+		}
 		sets[root.name] = values
 	}
 	rootValues := cloneEnvMap(sets[""])
@@ -60,6 +66,11 @@ func newWorkspaceEnvironment(workspace *HostWorkspace) (*WorkspaceEnvironment, e
 func defaultHostEnv() map[string]string {
 	out := map[string]string{}
 	for _, key := range defaultProcessEnvKeys {
+		if value, ok := os.LookupEnv(key); ok {
+			out[key] = value
+		}
+	}
+	for _, key := range hostForwardedProcessEnvKeys {
 		if value, ok := os.LookupEnv(key); ok {
 			out[key] = value
 		}

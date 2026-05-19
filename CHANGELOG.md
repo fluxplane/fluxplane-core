@@ -12,7 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operations, including `git_push`, can authenticate through the user's SSH
   agent instead of hanging on passkey prompts.
 
+## [0.14.0] - 2026-05-19
+
 ### Added
+- Added Go dependency toolchain operations `go_get` and `go_mod_tidy`, both
+  defaulting to dry-run previews before updating module files.
 
 - Added a Kubernetes datasource plugin and enabled coder to list, search, and
   retrieve live Kubernetes namespaces, pods, services, and containers through
@@ -261,6 +265,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the config file location instead of the process working directory.
 - Fixed coder sessions with project or user skills loaded so the skill
   activation wrapper preserves per-turn projected tools such as `shell_exec`.
+- Redacted Kubernetes datasource raw pod and container records so environment
+  variable values and value sources are not exposed when retrieving resources.
 
 ## [0.13.0] - 2026-05-17
 
@@ -733,7 +739,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed and split by layer: `core`, `runtime`, `orchestration`, `adapters`,
   `plugins`, and `apps`.
 
-[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/fluxplane/agentruntime/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/fluxplane/agentruntime/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/fluxplane/agentruntime/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/fluxplane/agentruntime/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/fluxplane/agentruntime/compare/v0.10.0...v0.11.0

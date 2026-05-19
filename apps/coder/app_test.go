@@ -38,6 +38,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
+	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -984,6 +985,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
+			kubernetesplugin.New(sys),
 		},
 	})
 	if err != nil {
@@ -1064,6 +1066,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 			taskplugin.New(),
 			skillplugin.New(),
 			imageplugin.New(sys),
+			kubernetesplugin.New(sys),
 		},
 	})
 	if err != nil {
@@ -1123,7 +1126,7 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1193,7 +1196,7 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), kubernetesplugin.New(sys)},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
