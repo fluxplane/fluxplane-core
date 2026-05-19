@@ -2,7 +2,13 @@
 
 ## Status
 
-Draft.
+Implementation checkpoint, 2026-05-19. The initial standalone shell exists
+behind `cmd/codershell` and the app-level `coder shell` command. It has a Bubble
+Tea REPL surface, client/session abstraction, tab-per-session state object,
+resource mention picker, cwd handling, structured transcript events, endpoint
+selection, and a default direct-channel client backed by `agentruntime` session
+handles. The implementation is still early: it is usable for exercising the UI
+and channel path, but not yet a complete managed process shell.
 
 ## Summary
 
@@ -28,6 +34,89 @@ tasks, workflows, and agent turns.
 milestone. It can share runtime, process, terminal, command, project, and
 configuration packages, but it should not force the default `coder` REPL to become
 a full shell.
+
+## Implementation Checkpoint: 2026-05-19
+
+### Done
+
+- Added the standalone `cmd/codershell` entrypoint and app command wiring for
+  `coder shell`.
+- Added an experimental Bubble Tea REPL view with header/status/timeline/prompt
+  rendering, tab creation/switching, shell/ask input modes, slash handling, cwd
+  changes, and mention picker state.
+- Split shell state from the UI model with a `ShellObject` that owns tabs,
+  session IDs, cwd, input mode, transcript, selected mentions, and context
+  projection policy.
+- Introduced the shell client boundary: `ShellClient`, `CreateSession`,
+  `SubmitCommand`, `SubmitAsk`, `SubmitSlash`, `ChangeCWD`, and
+  `ResourceSearch`.
+- Added client implementations for:
+  - deterministic `FakeClient` tests/demos;
+  - local process-backed prototype client;
+  - remote endpoint placeholder for `unix://`, `http(s)://`, and future target
+    URLs;
+  - default `DirectChannelClient` backed by `agentruntime.ChannelClient` and real
+    `agentruntime.Session` handles.
+- Made default `--connect` resolve to direct-channel mode. Plain text/ask input
+  now submits through `Session.Submit(NewSubmission().WithText(...))`; slash input
+  submits `command.Invocation` values through the direct channel path.
+- Added connection metadata to shell state and transcripts so the UI can show the
+  selected endpoint/client.
+- Added structured transcript events for client connection, submitted input,
+  command start/output/completion, ask output, slash submission, resource
+  mentions, cwd changes, and errors.
+- Added static resource search/mention plumbing as a stand-in for future
+  datasource-backed completion.
+- Added unit coverage for command wiring, endpoint parsing/selection, direct
+  channel session/submit behavior, local client session behavior, shell object
+  state transitions, ask context projection, slash dispatch, mention selection,
+  and protocol round trips.
+
+### Still open
+
+- The TUI is still compact/prototype quality. It does not yet implement the final
+  header/footer split, dashboard view, scrollback controls, viewport selection,
+  long-output rendering, or a polished theme.
+- Direct-channel plain input currently behaves as agent conversational input. Raw
+  OS process execution is available only through the local prototype client path,
+  not through the default direct-channel mode.
+- The intended command-execution path for normal shell lines still needs a stable
+  coder command/operation contract instead of the temporary direct text
+  submission behavior.
+- There is no streaming UI path yet: client submissions wait for run completion
+  and then append compact transcript events.
+- Remote transport is still a placeholder. `unix://` and `http(s)://` endpoints
+  parse and preserve endpoint metadata, but do not connect to a daemon/control
+  API yet.
+- `cmdrisk` assessment, approval prompts, cancellation, background process
+  lifecycle, and managed process dashboard rendering remain unimplemented in the
+  TUI.
+- Resource search is static. It should be replaced by datasource-style resource
+  search owned by the connected client/session.
+- Session close/resume policy is minimal; tab close, reconnect, and persisted
+  shell transcripts are not finished.
+- `.coder.yaml` shell preferences, profile loading, environment file handling,
+  default panes, and model-visible history policy are not wired.
+- Full-screen app/editor handoff is not implemented.
+- The prototype has targeted package tests, but has not yet gone through the full
+  repository `task verify` gate in this checkpoint.
+
+### Next three bigger batches
+
+1. **Real execution and streaming transport.** Define the stable shell command
+   contract over the coder client/session boundary, connect normal shell input to
+   managed runtime process execution, stream stdout/stderr into transcript events,
+   support cancellation/backgrounding, and remove the ambiguity between
+   direct-channel conversational input and process command input.
+2. **Safety and lifecycle controls.** Insert `cmdrisk` before dispatch, render
+   approval prompts, wire deny/allow/cancel flows, attach every process/task/run
+   to its tab session, implement tab close/resume policy, and expose active runs
+   in the dashboard/status surfaces.
+3. **Product polish and remote attachment.** Finish the intended header/footer,
+   scrollback, dashboard, theming, help, path/resource completion, persisted
+   history policy, `.coder.yaml` preferences, and replace the remote placeholder
+   with local daemon `unix://` plus HTTP/channel attachment.
+
 
 ## Goals
 
@@ -846,9 +935,11 @@ Manual/live tests:
    structured request/result/events. Command transcript entries include request,
    streamed output, and final result. Agent asks receive a selected projection of
    prior interactions as context, but commands do not trigger agents by default.
-3. **Session attachment:** `coder shell` connects to the specified target. By
-   default, it connects to the local embedded coder daemon for the selected coder
-   instance via unix socket. Each coder instance needs an instance ID and socket.
+3. **Session attachment:** `coder shell` connects to the specified target. The
+   current default is the in-process `direct` channel client backed by
+   `agentruntime.ChannelClient`; local daemon `unix://` attachment remains the
+   next remote-attachment milestone. Each coder instance still needs an instance
+   ID and socket for the daemon form.
 4. **Full-screen subprocesses:** Editors use system read to temp, yield terminal
    to `$EDITOR`, then write changed content back through the system/client
    boundary. Other full-screen tools use the same managed/yielded terminal model.
@@ -883,16 +974,18 @@ Manual/live tests:
   configured.
 - Treat app facets as visible inventory, not automatic session imports.
 - Current implementation uses `cmd/codershell` as a temporary standalone entry
-  point while the app-level command shape is refined.
+  point while the app-level command shape is refined; `coder shell` also wires to
+  the same package.
 - The primary shell UI is the REPL view; dashboard is the second top-level view.
 - Use a Monokai-inspired default theme.
 - Move detailed project/toolchain/status data to the footer; keep the header
   focused on title, active view, tabs, and high-priority state.
 - Handle `/exit` and `exit` locally. Send other slash commands through the coder
   client/session abstraction.
-- Execute commands through the connected coder client command-execution path for
-  real streaming. Do not embed a shell interpreter in the shell app and do not
-  implement application command execution by invoking external agent tool calls.
+- The current default client is `direct`, backed by `agentruntime.ChannelClient`
+  and per-tab `agentruntime.Session` handles. Plain input is currently
+  conversational input; the managed process command contract is still the next
+  implementation step.
 - Support future remote coder attachment by keeping TUI dispatch behind a client
   abstraction.
 - Integrate `cmdrisk` before command dispatch; risky commands require explicit
