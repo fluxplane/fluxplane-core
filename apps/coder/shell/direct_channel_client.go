@@ -105,7 +105,7 @@ func (c *DirectChannelClient) SubmitCommand(ctx context.Context, sessionID strin
 	if err != nil {
 		return events, err
 	}
-	return append(events, transcriptEventsForResult(sessionID, result, EventCommandOutput, EventCommandComplete)...), nil
+	return append(events, transcriptEventsForResultWithOptions(sessionID, result, EventCommandOutput, EventCommandComplete, shellCommandTranscriptOptions())...), nil
 }
 
 func (c *DirectChannelClient) SubmitCommandStream(ctx context.Context, sessionID string, req CommandRequest) (ShellRunStream, error) {
@@ -122,7 +122,7 @@ func (c *DirectChannelClient) SubmitCommandStream(ctx context.Context, sessionID
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	return c.streamRun(ctx, sessionID, run, EventCommandOutput, EventCommandComplete), nil
+	return c.streamRunWithOptions(ctx, sessionID, run, EventCommandOutput, EventCommandComplete, shellCommandTranscriptOptions()), nil
 }
 
 func (c *DirectChannelClient) SubmitAsk(ctx context.Context, sessionID string, req AskRequest) ([]TranscriptEvent, error) {
@@ -141,7 +141,9 @@ func (c *DirectChannelClient) SubmitAsk(ctx context.Context, sessionID string, r
 	if err != nil {
 		return events, err
 	}
-	return append(events, transcriptEventsForResult(sessionID, result, EventAskOutput, EventCommandComplete)...), nil
+	return append(events, transcriptEventsForResultWithOptions(sessionID, result, EventAskOutput, EventCommandComplete, transcriptResultOptions{
+		suppressSuccessfulCompletion: true,
+	})...), nil
 }
 
 func (c *DirectChannelClient) SubmitAskStream(ctx context.Context, sessionID string, req AskRequest) (ShellRunStream, error) {
@@ -154,7 +156,9 @@ func (c *DirectChannelClient) SubmitAskStream(ctx context.Context, sessionID str
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	return c.streamRun(ctx, sessionID, run, EventAskOutput, EventCommandComplete), nil
+	return c.streamRunWithOptions(ctx, sessionID, run, EventAskOutput, EventCommandComplete, transcriptResultOptions{
+		suppressSuccessfulCompletion: true,
+	}), nil
 }
 
 func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string, req SlashRequest) ([]TranscriptEvent, error) {
@@ -190,6 +194,10 @@ func (c *DirectChannelClient) SubmitSlashStream(ctx context.Context, sessionID s
 }
 
 func (c *DirectChannelClient) streamRun(ctx context.Context, sessionID string, run agentruntime.Run, outputKind TranscriptKind, completeKind TranscriptKind) ShellRunStream {
+	return c.streamRunWithOptions(ctx, sessionID, run, outputKind, completeKind, transcriptResultOptions{})
+}
+
+func (c *DirectChannelClient) streamRunWithOptions(ctx context.Context, sessionID string, run agentruntime.Run, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) ShellRunStream {
 	events := make(chan TranscriptEvent, 128)
 	done := make(chan ShellRunDone, 1)
 	go func() {
@@ -204,14 +212,14 @@ func (c *DirectChannelClient) streamRun(ctx context.Context, sessionID string, r
 			case event, ok := <-run.Events():
 				if !ok {
 					result, err := run.Wait(ctx)
-					finalEvents := transcriptEventsForResult(sessionID, result, outputKind, completeKind)
+					finalEvents := transcriptEventsForResultWithOptions(sessionID, result, outputKind, completeKind, opts)
 					if sawLiveOutput {
 						finalEvents = dropOutputEvents(finalEvents, outputKind)
 					}
 					done <- ShellRunDone{Events: finalEvents, Err: err}
 					return
 				}
-				for _, transcript := range transcriptEventsForRunEvent(sessionID, event) {
+				for _, transcript := range transcriptEventsForRunEventWithOptions(sessionID, event, opts) {
 					if transcript.Kind == EventAskDelta || transcript.Kind == EventProcessOutput {
 						sawLiveOutput = true
 					}
@@ -238,10 +246,17 @@ func dropOutputEvents(events []TranscriptEvent, kind TranscriptKind) []Transcrip
 }
 
 func transcriptEventsForRunEvent(sessionID string, event clientapi.Event) []TranscriptEvent {
+	return transcriptEventsForRunEventWithOptions(sessionID, event, transcriptResultOptions{})
+}
+
+func transcriptEventsForRunEventWithOptions(sessionID string, event clientapi.Event, opts transcriptResultOptions) []TranscriptEvent {
 	now := time.Now()
 	switch event.Kind {
 	case clientapi.EventOperationRequested:
 		if event.Operation == nil {
+			return nil
+		}
+		if opts.suppressShellOperationEvents && event.Operation.Operation.Name == "shell_exec" {
 			return nil
 		}
 		return []TranscriptEvent{{
@@ -254,6 +269,9 @@ func transcriptEventsForRunEvent(sessionID string, event clientapi.Event) []Tran
 		}}
 	case clientapi.EventOperationCompleted:
 		if event.Operation == nil || event.Operation.Result == nil {
+			return nil
+		}
+		if opts.suppressShellOperationEvents && event.Operation.Operation.Name == "shell_exec" {
 			return nil
 		}
 		summary := operationCompletedSummary(event.Operation.Operation, *event.Operation.Result)
@@ -273,13 +291,13 @@ func transcriptEventsForRunEvent(sessionID string, event clientapi.Event) []Tran
 		if event.Runtime == nil {
 			return nil
 		}
-		return transcriptEventsForRuntimeEvent(sessionID, now, *event.Runtime)
+		return transcriptEventsForRuntimeEventWithOptions(sessionID, now, *event.Runtime, opts)
 	default:
 		return nil
 	}
 }
 
-func transcriptEventsForRuntimeEvent(sessionID string, now time.Time, runtimeEvent clientapi.RuntimeEvent) []TranscriptEvent {
+func transcriptEventsForRuntimeEventWithOptions(sessionID string, now time.Time, runtimeEvent clientapi.RuntimeEvent, opts transcriptResultOptions) []TranscriptEvent {
 	switch runtimeEvent.Name {
 	case coreusage.EventRecordedName:
 		recorded, ok := decodeRuntimePayload[coreusage.Recorded](runtimeEvent.Payload)
@@ -318,7 +336,7 @@ func transcriptEventsForRuntimeEvent(sessionID string, now time.Time, runtimeEve
 		if !ok {
 			return nil
 		}
-		return transcriptEventsForProcessEvent(sessionID, now, processEvent)
+		return transcriptEventsForProcessEventWithOptions(sessionID, now, processEvent, opts)
 	default:
 		return nil
 	}
@@ -374,9 +392,12 @@ func addDecimalStrings(left, right string) string {
 	return fmt.Sprintf("%.6f", l+r)
 }
 
-func transcriptEventsForProcessEvent(sessionID string, now time.Time, event system.ProcessEvent) []TranscriptEvent {
+func transcriptEventsForProcessEventWithOptions(sessionID string, now time.Time, event system.ProcessEvent, opts transcriptResultOptions) []TranscriptEvent {
 	switch event.Kind {
 	case "started":
+		if opts.suppressProcessLifecycle {
+			return nil
+		}
 		return []TranscriptEvent{{ID: newEventID("proc-start"), SessionID: sessionID, Time: now, Kind: EventProcessStarted, Summary: event.ProcessID}}
 	case "output":
 		prefix := event.Stream
@@ -388,17 +409,26 @@ func transcriptEventsForProcessEvent(sessionID string, now time.Time, event syst
 			if line == "" {
 				continue
 			}
+			summary := prefix + ": " + strings.TrimRight(line, "\n")
+			data := map[string]string{"process_id": event.ProcessID, "stream": prefix}
+			if opts.rawProcessOutput {
+				summary = strings.TrimRight(line, "\n")
+				data["raw"] = "true"
+			}
 			out = append(out, TranscriptEvent{
 				ID:        newEventID("proc-out"),
 				SessionID: sessionID,
 				Time:      now,
 				Kind:      EventProcessOutput,
-				Summary:   prefix + ": " + strings.TrimRight(line, "\n"),
-				Data:      map[string]string{"process_id": event.ProcessID, "stream": prefix},
+				Summary:   summary,
+				Data:      data,
 			})
 		}
 		return out
 	case "exited":
+		if opts.suppressProcessLifecycle {
+			return nil
+		}
 		code := strings.TrimSpace(event.Data)
 		if code == "" {
 			code = "unknown"
@@ -501,6 +531,26 @@ func (c *DirectChannelClient) sessionHandle(sessionID string) (agentruntime.Sess
 }
 
 func transcriptEventsForResult(sessionID string, result agentruntime.Result, outputKind TranscriptKind, completeKind TranscriptKind) []TranscriptEvent {
+	return transcriptEventsForResultWithOptions(sessionID, result, outputKind, completeKind, transcriptResultOptions{})
+}
+
+type transcriptResultOptions struct {
+	suppressSuccessfulCompletion bool
+	suppressShellOperationEvents bool
+	suppressProcessLifecycle     bool
+	rawProcessOutput             bool
+}
+
+func shellCommandTranscriptOptions() transcriptResultOptions {
+	return transcriptResultOptions{
+		suppressSuccessfulCompletion: true,
+		suppressShellOperationEvents: true,
+		suppressProcessLifecycle:     true,
+		rawProcessOutput:             true,
+	}
+}
+
+func transcriptEventsForResultWithOptions(sessionID string, result agentruntime.Result, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) []TranscriptEvent {
 	now := time.Now()
 	events := []TranscriptEvent{}
 	hasOutbound := false
@@ -522,7 +572,9 @@ func transcriptEventsForResult(sessionID string, result agentruntime.Result, out
 				events = append(events, TranscriptEvent{ID: newEventID("op-out"), SessionID: sessionID, Time: now, Kind: outputKind, Summary: text})
 			}
 		}
-		events = append(events, TranscriptEvent{ID: newEventID("op-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		if !opts.suppressSuccessfulCompletion || !isSuccessfulCompletionSummary(summary) {
+			events = append(events, TranscriptEvent{ID: newEventID("op-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		}
 		return events
 	}
 	if result.Command != nil {
@@ -530,7 +582,9 @@ func transcriptEventsForResult(sessionID string, result agentruntime.Result, out
 		if result.Command.Error != nil {
 			return append(events, TranscriptEvent{ID: newEventID("cmd-error"), SessionID: sessionID, Time: now, Kind: EventError, Summary: result.Command.Error.Message})
 		}
-		events = append(events, TranscriptEvent{ID: newEventID("cmd-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		if !opts.suppressSuccessfulCompletion || !isSuccessfulCompletionSummary(summary) {
+			events = append(events, TranscriptEvent{ID: newEventID("cmd-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		}
 		return events
 	}
 	if result.Input != nil {
@@ -538,9 +592,16 @@ func transcriptEventsForResult(sessionID string, result agentruntime.Result, out
 		if result.Input.Error != nil {
 			return append(events, TranscriptEvent{ID: newEventID("input-error"), SessionID: sessionID, Time: now, Kind: EventError, Summary: result.Input.Error.Message})
 		}
-		events = append(events, TranscriptEvent{ID: newEventID("input-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		if !opts.suppressSuccessfulCompletion || !isSuccessfulCompletionSummary(summary) {
+			events = append(events, TranscriptEvent{ID: newEventID("input-done"), SessionID: sessionID, Time: now, Kind: completeKind, Summary: summary})
+		}
 	}
 	return events
+}
+
+func isSuccessfulCompletionSummary(summary string) bool {
+	summary = strings.TrimSpace(strings.ToLower(summary))
+	return summary == "" || summary == "ok"
 }
 
 func operationResultText(result operation.Result) string {

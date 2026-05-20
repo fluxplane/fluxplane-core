@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreusage "github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/agentruntime/orchestration/session"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -59,6 +60,9 @@ func TestDirectChannelClientSubmitAskUsesChannelClient(t *testing.T) {
 	if events[1].Kind != EventAskOutput || events[1].Summary != "echo: hello" {
 		t.Fatalf("events[1] = %#v", events[1])
 	}
+	if countTranscriptKind(events, EventCommandComplete) != 0 {
+		t.Fatalf("events = %#v, want no visible ask success completion", events)
+	}
 }
 
 func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
@@ -88,8 +92,8 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitCommand() error = %v", err)
 	}
-	if len(events) != 3 {
-		t.Fatalf("events = %#v, want start output complete", events)
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want start and raw shell output", events)
 	}
 	if events[0].Kind != EventCommandStarted {
 		t.Fatalf("events[0] = %#v", events[0])
@@ -97,8 +101,8 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 	if events[1].Kind != EventCommandOutput || events[1].Summary != "ran" {
 		t.Fatalf("events[1] = %#v", events[1])
 	}
-	if events[2].Kind != EventCommandComplete || events[2].Summary != "ok" {
-		t.Fatalf("events[2] = %#v", events[2])
+	if countTranscriptKind(events, EventCommandComplete) != 0 {
+		t.Fatalf("events = %#v, want no visible shell success completion", events)
 	}
 }
 
@@ -114,6 +118,33 @@ func TestTranscriptEventsForResultUsesRenderedOutboundText(t *testing.T) {
 	}
 	if events[0].Summary != "Environment\n\nObservers\n  - runtime.baseline" {
 		t.Fatalf("summary = %q, want rendered text only", events[0].Summary)
+	}
+}
+
+func TestTranscriptEventsForAskResultSuppressesSuccessfulCompletion(t *testing.T) {
+	events := transcriptEventsForResultWithOptions("session-1", agentruntime.Result{
+		Outbound: &channel.Outbound{Message: &channel.Message{Content: "Here are your available clusters:\n- prod\n- staging"}},
+		Input:    &session.InputResult{Status: session.InputStatusOK},
+	}, EventAskOutput, EventCommandComplete, transcriptResultOptions{suppressSuccessfulCompletion: true})
+
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want only ask output", events)
+	}
+	if events[0].Kind != EventAskOutput || !strings.Contains(events[0].Summary, "prod") {
+		t.Fatalf("events[0] = %#v, want ask output", events[0])
+	}
+}
+
+func TestTranscriptEventsForAskResultKeepsErrors(t *testing.T) {
+	events := transcriptEventsForResultWithOptions("session-1", agentruntime.Result{
+		Input: &session.InputResult{
+			Status: session.InputStatusFailed,
+			Error:  &session.CommandError{Message: "ask failed"},
+		},
+	}, EventAskOutput, EventCommandComplete, transcriptResultOptions{suppressSuccessfulCompletion: true})
+
+	if len(events) != 1 || events[0].Kind != EventError || events[0].Summary != "ask failed" {
+		t.Fatalf("events = %#v, want ask error", events)
 	}
 }
 
@@ -151,6 +182,27 @@ func TestTranscriptEventsForRunEventMapsLiveRuntimeSignals(t *testing.T) {
 	})
 	if len(processEvents) != 1 || processEvents[0].Kind != EventProcessOutput || processEvents[0].Summary != "stdout: line" {
 		t.Fatalf("process events = %#v, want process output", processEvents)
+	}
+
+	rawProcessEvents := transcriptEventsForRunEventWithOptions("session-1", clientapi.Event{
+		Kind: clientapi.EventRuntimeEmitted,
+		Runtime: &clientapi.RuntimeEvent{
+			Name:    system.EventProcessOutput,
+			Payload: system.ProcessEvent{ProcessID: "proc-1", Kind: "output", Stream: "stdout", Data: "line\n"},
+		},
+	}, shellCommandTranscriptOptions())
+	if len(rawProcessEvents) != 1 || rawProcessEvents[0].Kind != EventProcessOutput || rawProcessEvents[0].Summary != "line" || rawProcessEvents[0].Data["raw"] != "true" {
+		t.Fatalf("raw process events = %#v, want raw process output", rawProcessEvents)
+	}
+
+	shellOpEvents := transcriptEventsForRunEventWithOptions("session-1", clientapi.Event{
+		Kind: clientapi.EventOperationRequested,
+		Operation: &clientapi.OperationEvent{
+			Operation: operation.Ref{Name: "shell_exec"},
+		},
+	}, shellCommandTranscriptOptions())
+	if len(shellOpEvents) != 0 {
+		t.Fatalf("shell operation events = %#v, want hidden shell tool start", shellOpEvents)
 	}
 
 	usageEvents := transcriptEventsForRunEvent("session-1", clientapi.Event{

@@ -126,7 +126,7 @@ func TestShellPromptSeparatesInputFromFooter(t *testing.T) {
 
 func TestShellPromptFooterShowsUsageStats(t *testing.T) {
 	m := viewportTestModel()
-	m.appendStreamTranscript("session-1", TranscriptEvent{
+	m.appendStreamTranscript("session-1", "", TranscriptEvent{
 		Kind: EventUsageRecorded,
 		Data: map[string]string{
 			"input_tokens":     "1200",
@@ -436,6 +436,60 @@ func TestShellInitialTranscriptDoesNotSeedPlaceholderCopy(t *testing.T) {
 	}
 	if !strings.Contains(content, "connected: fake") {
 		t.Fatalf("initial transcript missing connection event:\n%s", content)
+	}
+}
+
+func TestTimelineCachePreservesMultilineStreamedAnswerWhenNextAskStarts(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeAsk
+	tab.Transcript = append(tab.Transcript,
+		TranscriptEvent{Kind: EventAskSubmitted, Summary: "list clusters"},
+		TranscriptEvent{Kind: EventAskDelta, Summary: "Here are your available clusters:\n"},
+		TranscriptEvent{Kind: EventAskDelta, Summary: "- prod\n- staging\n"},
+	)
+	before := m.timelineContent(100)
+	for _, want := range []string{"Here are your available clusters:", "prod", "staging"} {
+		if !strings.Contains(before, want) {
+			t.Fatalf("before content missing %q:\n%s", want, before)
+		}
+	}
+
+	tab.Transcript = append(tab.Transcript, TranscriptEvent{Kind: EventAskSubmitted, Summary: "next question"})
+	after := m.timelineContent(100)
+	for _, want := range []string{"Here are your available clusters:", "prod", "staging", "next question"} {
+		if !strings.Contains(after, want) {
+			t.Fatalf("after content missing %q:\n%s", want, after)
+		}
+	}
+}
+
+func TestShellModeTimelineRendersLikePlainShell(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeShell
+	tab.Transcript = append(tab.Transcript,
+		TranscriptEvent{Kind: EventCommandStarted, Summary: "printf hello"},
+		TranscriptEvent{Kind: EventProcessOutput, Summary: "hello", Data: map[string]string{"raw": "true", "stream": "stdout"}},
+	)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 20})
+
+	view := m.View().Content
+	for _, want := range []string{"printf hello", "hello"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	for _, forbidden := range []string{"stdout:", "● shell_exec", "shell_exec status=ok", "process proc-1", "exit proc-1", "╭", "╰"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("view contains shell chrome %q:\n%s", forbidden, view)
+		}
 	}
 }
 

@@ -154,8 +154,59 @@ func TestShellStreamingAskUpdatesBeforeCompletion(t *testing.T) {
 	if len(m.activeRuns) != 0 {
 		t.Fatalf("active runs = %#v, want empty", m.activeRuns)
 	}
-	if countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete) != 1 {
-		t.Fatalf("command complete count = %d, want 1", countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete))
+	if countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete) != 0 {
+		t.Fatalf("command complete count = %d, want no visible ask success completion", countTranscriptKind(m.shell.ActiveTab().Transcript, EventCommandComplete))
+	}
+}
+
+func TestShellStreamingDrainsBufferedEventsBeforeDone(t *testing.T) {
+	events := make(chan TranscriptEvent, 4)
+	done := make(chan ShellRunDone, 1)
+	client := &streamingAskTestClient{stream: ShellRunStream{Events: events, Done: done}}
+	m := newModel(shellStatus{cwd: "/workspace", projectName: "project", goVersion: "go1.25"}, client, "test")
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeAsk
+	tab.InputBuffer = "list clusters"
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("Update returned nil command, want stream command")
+	}
+	m = updated.(model)
+
+	events <- TranscriptEvent{ID: "delta-1", Kind: EventAskDelta, Summary: "Here are your available clusters:\n"}
+	events <- TranscriptEvent{ID: "delta-2", Kind: EventAskDelta, Summary: "- prod\n- staging\n"}
+	done <- ShellRunDone{Events: []TranscriptEvent{{ID: "done", Kind: EventCommandComplete, Summary: "ok"}}}
+	close(events)
+
+	updated, cmd = m.Update(cmd())
+	if cmd == nil {
+		t.Fatal("first stream event update returned nil command")
+	}
+	m = updated.(model)
+	updated, cmd = m.Update(cmd())
+	if cmd == nil {
+		t.Fatal("second stream event update returned nil command")
+	}
+	m = updated.(model)
+	updated, _ = m.Update(cmd())
+	m = updated.(model)
+
+	transcript := m.shell.ActiveTab().Transcript
+	if countTranscriptKind(transcript, EventAskDelta) != 2 {
+		t.Fatalf("ask delta count = %d, want 2", countTranscriptKind(transcript, EventAskDelta))
+	}
+	content := m.timelineContent(100)
+	for _, want := range []string{"Here are your available clusters:", "prod", "staging"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("timeline missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "ok") || countTranscriptKind(transcript, EventCommandComplete) != 0 {
+		t.Fatalf("timeline/transcript includes visible ask success completion:\n%s\n%#v", content, transcript)
 	}
 }
 

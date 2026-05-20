@@ -123,6 +123,10 @@ func TimelineLines(events []TranscriptEvent) []string {
 		case EventProcessOutput:
 			flushThinking()
 			flushAgentDelta()
+			if event.Data["raw"] == "true" {
+				lines = append(lines, "raw: "+summary)
+				continue
+			}
 			lines = append(lines, "proc-out: "+summary)
 		case EventProcessExited:
 			flushThinking()

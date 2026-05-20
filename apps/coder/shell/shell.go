@@ -4,25 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	legacytea "github.com/charmbracelet/bubbletea"
-	mdbubble "github.com/codewandler/markdown/bubbleview"
-	"github.com/codewandler/markdown/stream"
-	mdterminal "github.com/codewandler/markdown/terminal"
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/command"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
-	projectruntime "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -96,12 +84,7 @@ func run(ctx context.Context, opts Options) error {
 		}
 		sharedSystem = host
 	}
-	status := loadStatus(ctx, sharedSystem)
-	if status.cwd == "" {
-		status.cwd = path
-	}
-	status.provider = strings.TrimSpace(opts.Provider)
-	status.model = strings.TrimSpace(opts.Model)
+	status := initialStatus(sharedSystem, path, opts)
 	programOpts := []tea.ProgramOption{}
 	if opts.In != nil {
 		programOpts = append(programOpts, tea.WithInput(opts.In))
@@ -111,7 +94,7 @@ func run(ctx context.Context, opts Options) error {
 	}
 	client := newClient(sharedSystem, opts)
 	connection := connectionDescription(client, opts.Connect)
-	_, err := tea.NewProgram(newModel(status, client, connection), programOpts...).Run()
+	_, err := tea.NewProgram(newModelWithContext(ctx, status, client, connection, loadStatusCmd(ctx, sharedSystem, status)), programOpts...).Run()
 	return err
 }
 
@@ -169,252 +152,75 @@ func newClientFromEndpoint(sys system.System, endpoint string) ShellClient {
 	}
 }
 
-type shellStatus struct {
-	cwd          string
-	workspace    string
-	projectName  string
-	projectKind  string
-	goModule     string
-	goVersion    string
-	locale       string
-	user         string
-	provider     string
-	model        string
-	facets       []string
-	taskCount    int
-	projectCount int
-	warningCount int
-}
-
-func loadStatus(ctx context.Context, sys system.System) shellStatus {
-	status := shellStatus{}
-	if sys == nil || sys.Workspace() == nil {
-		return status
-	}
-	workspace := sys.Workspace()
-	status.workspace = workspace.Root()
-	status.cwd = workspace.Root()
-
-	manager := projectruntime.NewManager(workspace)
-	inventory, _, err := manager.Inventory(ctx, coreproject.InventoryQuery{MaxResults: 25, MaxBytes: 64 * 1024})
-	if err == nil {
-		status.projectCount = len(inventory.Projects)
-		status.warningCount = len(inventory.Warnings)
-		if len(inventory.Projects) > 0 {
-			project := chooseStatusProject(inventory.Projects, workspace.Root())
-			status.projectName = project.Name
-			status.projectKind = project.Kind
-			status.facets = compactFacetNames(project.Facets)
-			status.taskCount = countTasks(project.Facets)
-			status.goModule = goModuleName(project.Facets)
-			status.warningCount += len(project.Warnings)
-		}
-	}
-	status.applyBaselineObservations(ctx)
-	status.goVersion = detectGoVersion(ctx, sys)
-	return status
-}
-
-func (s *shellStatus) applyBaselineObservations(ctx context.Context) {
-	if s == nil {
-		return
-	}
-	observations, err := runtimeenvironment.BaselineObserver().Observe(ctx, runtimeenvironment.ObservationRequest{
-		Phase: coreenvironment.PhaseTurn,
-	})
-	if err != nil {
-		return
-	}
-	for _, observation := range observations {
-		content, ok := observation.Content.(map[string]any)
-		if !ok {
-			continue
-		}
-		switch observation.Kind {
-		case runtimeenvironment.ObservationSystemLocale:
-			s.locale = firstStringValue(content, "LC_ALL", "LC_CTYPE", "LANG")
-		case runtimeenvironment.ObservationSystemUser:
-			s.user = firstStringValue(content, "username")
-		}
-	}
-}
-
-func firstStringValue(content map[string]any, keys ...string) string {
-	for _, key := range keys {
-		value, ok := content[key]
-		if !ok {
-			continue
-		}
-		switch typed := value.(type) {
-		case string:
-			if trimmed := strings.TrimSpace(typed); trimmed != "" {
-				return trimmed
-			}
-		case fmt.Stringer:
-			if trimmed := strings.TrimSpace(typed.String()); trimmed != "" {
-				return trimmed
-			}
-		}
-	}
-	return ""
-}
-
-func chooseStatusProject(projects []coreproject.Project, root string) coreproject.Project {
-	if len(projects) == 0 {
-		return coreproject.Project{}
-	}
-	cleanRoot, err := filepath.Abs(root)
-	if err != nil {
-		cleanRoot = root
-	}
-	for _, project := range projects {
-		projectRoot := project.Root
-		abs, err := filepath.Abs(projectRoot)
-		if err == nil {
-			projectRoot = abs
-		}
-		if projectRoot == cleanRoot || project.Root == "." {
-			return project
-		}
-	}
-	return projects[0]
-}
-
-func compactFacetNames(facets []coreproject.Facet) []string {
-	labels := make([]string, 0, len(facets))
-	for _, facet := range facets {
-		switch facet.Kind {
-		case coreproject.FacetGoModule:
-			labels = append(labels, "go.mod")
-		case coreproject.FacetGoWorkspace:
-			labels = append(labels, "go.work")
-		case coreproject.FacetGitRepo:
-			labels = append(labels, "git")
-		case coreproject.FacetTaskfile:
-			labels = append(labels, "task")
-		case coreproject.FacetMakefile:
-			labels = append(labels, "make")
-		case coreproject.FacetMarkdownDocs:
-			labels = append(labels, "docs")
-		case coreproject.FacetAgentsDir:
-			labels = append(labels, "agents")
-		case coreproject.FacetClaudeDir:
-			labels = append(labels, "claude")
-		case coreproject.FacetNodePackage:
-			labels = append(labels, "node")
-		default:
-			labels = append(labels, strings.TrimSpace(string(facet.Kind)))
-		}
-	}
-	labels = uniqueStrings(labels)
-	if len(labels) > 8 {
-		labels = append(labels[:8], fmt.Sprintf("+%d", len(labels)-8))
-	}
-	return labels
-}
-
-func uniqueStrings(values []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func countTasks(facets []coreproject.Facet) int {
-	total := 0
-	for _, facet := range facets {
-		total += len(facet.Tasks)
-	}
-	return total
-}
-
-func goModuleName(facets []coreproject.Facet) string {
-	for _, facet := range facets {
-		if facet.Kind != coreproject.FacetGoModule {
-			continue
-		}
-		if module := strings.TrimSpace(facet.Summary["module"]); module != "" {
-			return module
-		}
-		if module := strings.TrimSpace(facet.Manifest.Summary["module"]); module != "" {
-			return module
-		}
-		if name := strings.TrimSpace(facet.Name); name != "" {
-			return name
-		}
-	}
-	return ""
-}
-
-func detectGoVersion(ctx context.Context, sys system.System) string {
-	if sys == nil || sys.Process() == nil {
-		return ""
-	}
-	runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	result, err := sys.Process().Run(runCtx, system.ProcessRequest{
-		Command:   "go",
-		Args:      []string{"version"},
-		Timeout:   2 * time.Second,
-		MaxStdout: 256,
-		MaxStderr: 256,
-	})
-	if err != nil {
-		return ""
-	}
-	fields := strings.Fields(result.Stdout)
-	if len(fields) >= 3 && fields[0] == "go" && fields[1] == "version" {
-		return fields[2]
-	}
-	return strings.TrimSpace(result.Stdout)
-}
-
 type model struct {
 	status         shellStatus
 	width          int
 	height         int
 	shell          *ShellObject
 	mention        MentionState
+	mentionSeq     int
+	mentionCancel  context.CancelFunc
 	timeline       viewport.Model
 	timelinePinned bool
+	timelineCache  *timelineRenderCache
 	activeRuns     map[string]string
+	activeRunKinds map[string]TranscriptKind
+	activeRunKeys  map[string]string
+	activeCancels  map[string]context.CancelFunc
+	canceledRuns   map[string]string
 	activeOps      map[string]string
 	usage          usageTotals
+	ctx            context.Context
+	cancel         context.CancelFunc
+	statusCmd      tea.Cmd
 }
 
 type askSubmittedMsg struct {
 	sessionID string
+	runKey    string
 	events    []TranscriptEvent
 	err       error
 }
 
 type shellStreamEventMsg struct {
 	sessionID string
+	runKey    string
 	stream    ShellRunStream
 	event     TranscriptEvent
 }
 
 type shellStreamDoneMsg struct {
 	sessionID string
+	runKey    string
 	done      ShellRunDone
 }
 
+type mentionRefreshMsg struct {
+	seq     int
+	input   string
+	state   MentionState
+	results []ResourceSearchResult
+	err     error
+}
+
+const mentionDebounceDelay = 80 * time.Millisecond
+
 func newModel(status shellStatus, client ShellClient, connection string) model {
-	state, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: status.cwd, Connection: connection})
+	return newModelWithContext(context.Background(), status, client, connection, nil)
+}
+
+func newModelWithContext(ctx context.Context, status shellStatus, client ShellClient, connection string, statusCmd tea.Cmd) model {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	modelCtx, cancel := context.WithCancel(ctx)
+	state, err := NewShellObject(modelCtx, ShellObjectOptions{Client: client, CWD: status.cwd, Connection: connection})
 	if err != nil {
 		state = &ShellObject{client: client, tabs: []TabSession{{
 			ID:          disconnectedSessionID,
 			Label:       "1",
 			CWD:         status.cwd,
-			InputMode:   InputModeShell,
+			InputMode:   defaultInputMode,
 			InputCursor: -1,
 			Transcript: []TranscriptEvent{
 				transcriptConnectionEvent(disconnectedSessionID, connection),
@@ -428,12 +234,27 @@ func newModel(status shellStatus, client ShellClient, connection string) model {
 	}
 	timeline := viewport.New(viewport.WithWidth(1), viewport.WithHeight(1))
 	timeline.MouseWheelEnabled = true
-	m := model{status: status, shell: state, timeline: timeline, timelinePinned: true, activeRuns: map[string]string{}, activeOps: map[string]string{}}
+	m := model{
+		status:         status,
+		shell:          state,
+		timeline:       timeline,
+		timelinePinned: true,
+		timelineCache:  newTimelineRenderCache(),
+		activeRuns:     map[string]string{},
+		activeRunKinds: map[string]TranscriptKind{},
+		activeRunKeys:  map[string]string{},
+		activeCancels:  map[string]context.CancelFunc{},
+		canceledRuns:   map[string]string{},
+		activeOps:      map[string]string{},
+		ctx:            modelCtx,
+		cancel:         cancel,
+		statusCmd:      statusCmd,
+	}
 	m.syncTimelineViewport(true)
 	return m
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return m.statusCmd }
 
 func isPlainTextKey(key tea.Key) bool {
 	return !key.Mod.Contains(tea.ModAlt | tea.ModCtrl | tea.ModMeta | tea.ModHyper | tea.ModSuper)
@@ -455,16 +276,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.syncTimelineViewport(false)
 		return m, nil
+	case shellStatusLoadedMsg:
+		if msg.err == nil {
+			m.status = msg.status
+		}
+		m.syncTimelineViewport(false)
+		return m, nil
+	case mentionRefreshMsg:
+		if msg.seq != m.mentionSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.mention = MentionState{}
+			return m, nil
+		}
+		state := msg.state
+		if state.Kind == completionCommand {
+			if len(msg.results) == 0 || slashCommandInputComplete(msg.input, state.Query, msg.results) {
+				m.mention = MentionState{}
+				return m, nil
+			}
+		}
+		if state.Kind == completionOption && len(msg.results) == 0 {
+			m.mention = MentionState{}
+			return m, nil
+		}
+		state.Results = msg.results
+		m.mention = state
+		return m, nil
 	case askSubmittedMsg:
-		m.appendAsyncTranscript(msg.sessionID, msg.events, msg.err)
+		m.appendAsyncTranscript(msg.sessionID, msg.runKey, msg.events, msg.err)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
 		return m, nil
 	case shellStreamEventMsg:
-		m.appendStreamTranscript(msg.sessionID, msg.event)
+		m.appendStreamTranscript(msg.sessionID, msg.runKey, msg.event)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
-		return m, waitShellStream(msg.sessionID, msg.stream)
+		return m, waitShellStream(msg.sessionID, msg.runKey, msg.stream)
 	case shellStreamDoneMsg:
-		m.finishStreamTranscript(msg.sessionID, msg.done)
+		m.finishStreamTranscript(msg.sessionID, msg.runKey, msg.done)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
 		return m, nil
 	case tea.MouseWheelMsg:
@@ -501,20 +350,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Code == tea.KeyHome || msg.Keystroke() == "ctrl+a":
 			m.shell.MoveInputCursorStart()
-			m.mention = MentionState{}
+			m.clearMention()
 			return m, nil
 		case key.Code == tea.KeyEnd || msg.Keystroke() == "ctrl+e":
 			m.shell.MoveInputCursorEnd()
-			m.refreshMention()
-			return m, nil
+			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeyLeft:
 			m.shell.MoveInputCursorLeft()
-			m.mention = MentionState{}
+			m.clearMention()
 			return m, nil
 		case key.Code == tea.KeyRight:
 			m.shell.MoveInputCursorRight()
-			m.refreshMention()
-			return m, nil
+			return m, m.queueMentionRefresh()
 		case msg.Keystroke() == "ctrl+u":
 			m.syncTimelineViewport(false)
 			m.timeline.HalfPageUp()
@@ -526,14 +373,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.timelinePinned = m.timeline.AtBottom()
 			return m, nil
 		case msg.Keystroke() == "ctrl+c" || key.Code == tea.KeyEscape:
-			return m, tea.Quit
+			if m.cancelActiveRuns() {
+				m.syncTimelineViewport(true)
+				return m, nil
+			}
+			return m, m.quitCmd()
 		case msg.Keystroke() == "ctrl+t":
 			cwd := m.status.cwd
 			if tab != nil && strings.TrimSpace(tab.CWD) != "" {
 				cwd = tab.CWD
 			}
 			_, _ = m.shell.NewTab(context.Background(), cwd)
-			m.mention = MentionState{}
+			m.clearMention()
 			m.syncTimelineViewport(true)
 			return m, nil
 		case key.Text != "":
@@ -541,17 +392,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if tab != nil && tab.inputCursor() == 0 && value == "!" && tab.InputMode == InputModeAsk {
 				tab.InputMode = InputModeShell
 				tab.resetHistoryNavigation()
-				m.mention = MentionState{}
+				m.clearMention()
 				return m, nil
 			}
 			if tab != nil && tab.inputCursor() == 0 && value == "?" && tab.InputMode == InputModeShell {
 				tab.InputMode = InputModeAsk
 				tab.resetHistoryNavigation()
-				m.mention = MentionState{}
+				m.clearMention()
 				return m, nil
 			}
 			if value == "q" && tab != nil && tab.InputBuffer == "" {
-				return m, tea.Quit
+				if m.cancelActiveRuns() {
+					m.syncTimelineViewport(true)
+					return m, nil
+				}
+				return m, m.quitCmd()
 			}
 			if len(value) == 1 && value[0] >= '1' && value[0] <= '9' && key.Mod.Contains(tea.ModAlt) {
 				m.shell.SelectTab(int(value[0] - '1'))
@@ -562,18 +417,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.shell.AppendInput(value)
-			m.refreshMention()
-			return m, nil
+			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeySpace:
 			m.shell.AppendInput(" ")
-			m.mention = MentionState{}
+			m.clearMention()
 			return m, nil
 		case key.Code == tea.KeyBackspace || msg.Keystroke() == "ctrl+h":
 			m.shell.BackspaceInput()
-			m.refreshMention()
-			return m, nil
+			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
-			m.mention = MentionState{}
+			m.clearMention()
 			if cmd := m.submitActiveInputAsync(); cmd != nil {
 				m.syncTimelineViewport(true)
 				return m, cmd
@@ -586,7 +439,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.shell.PreviousInputHistory() {
-				m.refreshMention()
+				return m, m.queueMentionRefresh()
 			}
 			return m, nil
 		case key.Code == tea.KeyDown:
@@ -595,7 +448,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.shell.NextInputHistory() {
-				m.refreshMention()
+				return m, m.queueMentionRefresh()
 			}
 			return m, nil
 		case key.Code == tea.KeyTab:
@@ -629,7 +482,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						})
 					}
 				}
-				m.mention = MentionState{}
+				m.clearMention()
 				m.syncTimelineViewport(true)
 			}
 			return m, nil
@@ -642,116 +495,49 @@ func (m *model) submitActiveInputAsync() tea.Cmd {
 	if m == nil || m.shell == nil {
 		return nil
 	}
-	tab := m.shell.ActiveTab()
-	if tab == nil {
+	submission, ok, err := m.shell.startActiveSubmission(m.ctx)
+	if err != nil || !ok {
 		return nil
 	}
-	line := strings.TrimSpace(tab.InputBuffer)
-	if line == "" {
-		tab.Transcript = append(tab.Transcript, TranscriptEvent{
-			ID:        newEventID("input"),
-			SessionID: tab.ID,
-			Time:      time.Now(),
-			Kind:      EventInputSubmitted,
-			Summary:   "",
-		})
-		tab.InputBuffer = ""
-		return nil
-	}
-	if tab.ID == disconnectedSessionID {
-		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
-		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
-		tab.InputBuffer = ""
-		tab.resetHistoryNavigation()
-		return nil
-	}
-
-	submittedMode := tab.InputMode
-	tab.recordHistory(line, submittedMode)
-	intent := classifyInput(line, tab.InputMode)
-	if intent.Kind == IntentCD {
-		result, err := m.shell.client.ChangeCWD(context.Background(), tab.ID, intent.Arg)
-		if err != nil {
-			tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
-			return nil
-		}
-		tab.CWD = result.CWD
-		tab.Transcript = append(tab.Transcript, TranscriptEvent{
-			ID:        newEventID("cwd"),
-			SessionID: tab.ID,
-			Time:      time.Now(),
-			Kind:      EventCWDChanged,
-			Summary:   result.CWD,
-			Data:      map[string]string{"target": intent.Arg},
-		})
-		tab.InputBuffer = ""
-		return nil
-	}
-
-	sessionID := tab.ID
-	cwd := tab.CWD
-	var start TranscriptEvent
-	var fallback func(context.Context) ([]TranscriptEvent, error)
-	var stream func(context.Context, StreamingShellClient) (ShellRunStream, error)
-	switch intent.Kind {
-	case IntentAsk:
-		projection := ProjectTranscript(tab.Transcript, m.shell.contextPolicy)
-		start = TranscriptEvent{
-			ID:        newEventID("ask"),
-			SessionID: sessionID,
-			Time:      time.Now(),
-			Kind:      EventAskSubmitted,
-			Summary:   line,
-			Data:      map[string]string{"cwd": cwd, "context_items": fmt.Sprintf("%d", len(projection))},
-		}
-		req := AskRequest{Text: line, CWD: cwd, Context: projection}
-		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
-			return m.shell.client.SubmitAsk(ctx, sessionID, req)
-		}
-		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
-			return client.SubmitAskStream(ctx, sessionID, req)
-		}
-	case IntentSlash:
-		start = TranscriptEvent{ID: newEventID("slash"), SessionID: sessionID, Time: time.Now(), Kind: EventSlashSubmitted, Summary: intent.Text, Data: map[string]string{"cwd": cwd}}
-		req := SlashRequest{Line: intent.Text, CWD: cwd}
-		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
-			return m.shell.client.SubmitSlash(ctx, sessionID, req)
-		}
-		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
-			return client.SubmitSlashStream(ctx, sessionID, req)
-		}
-	default:
-		start = TranscriptEvent{ID: newEventID("cmd-start"), SessionID: sessionID, Time: time.Now(), Kind: EventCommandStarted, Summary: intent.Text, Data: map[string]string{"cwd": cwd}}
-		req := CommandRequest{Line: intent.Text, CWD: cwd}
-		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
-			return m.shell.client.SubmitCommand(ctx, sessionID, req)
-		}
-		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
-			return client.SubmitCommandStream(ctx, sessionID, req)
-		}
-	}
-	tab.Transcript = append(tab.Transcript, start)
-	tab.InputBuffer = ""
 	client := m.shell.client
 	if m.activeRuns == nil {
 		m.activeRuns = map[string]string{}
 	}
-	m.activeRuns[sessionID] = string(start.Kind)
+	if m.activeCancels == nil {
+		m.activeCancels = map[string]context.CancelFunc{}
+	}
+	runCtx, cancel := context.WithCancel(m.ctx)
+	m.activeRuns[submission.sessionID] = string(submission.start.Kind)
+	if m.activeRunKinds == nil {
+		m.activeRunKinds = map[string]TranscriptKind{}
+	}
+	if m.activeRunKeys == nil {
+		m.activeRunKeys = map[string]string{}
+	}
+	m.activeRunKinds[submission.sessionID] = submission.start.Kind
+	m.activeRunKeys[submission.sessionID] = submission.runKey
+	m.activeCancels[submission.sessionID] = cancel
 	if streaming, ok := client.(StreamingShellClient); ok {
-		streamHandle, err := stream(context.Background(), streaming)
+		streamHandle, err := submission.stream(runCtx, streaming)
 		if err == nil {
-			return waitShellStream(sessionID, streamHandle)
+			return waitShellStream(submission.sessionID, submission.runKey, streamHandle)
 		}
-		tab.Transcript = append(tab.Transcript, errorEvent(sessionID, err))
-		delete(m.activeRuns, sessionID)
+		if tab := m.shell.ActiveTab(); tab != nil && tab.ID == submission.sessionID {
+			tab.Transcript = append(tab.Transcript, errorEvent(submission.sessionID, err))
+		}
+		cancel()
+		delete(m.activeRuns, submission.sessionID)
+		delete(m.activeRunKeys, submission.sessionID)
+		delete(m.activeCancels, submission.sessionID)
 		return nil
 	}
 	return func() tea.Msg {
+		defer cancel()
 		if client == nil {
-			return askSubmittedMsg{sessionID: sessionID, err: fmt.Errorf("shell client is unavailable")}
+			return askSubmittedMsg{sessionID: submission.sessionID, runKey: submission.runKey, err: fmt.Errorf("shell client is unavailable")}
 		}
-		events, err := fallback(context.Background())
-		return askSubmittedMsg{sessionID: sessionID, events: dropSubmittedStartEvent(events, start.Kind), err: err}
+		events, err := submission.fallback(runCtx)
+		return askSubmittedMsg{sessionID: submission.sessionID, runKey: submission.runKey, events: dropSubmittedStartEvent(events, submission.start.Kind), err: err}
 	}
 }
 
@@ -769,29 +555,78 @@ func dropSubmittedStartEvent(events []TranscriptEvent, kind TranscriptKind) []Tr
 	return out
 }
 
-func waitShellStream(sessionID string, stream ShellRunStream) tea.Cmd {
+func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 	return func() tea.Msg {
 		if stream.Events != nil {
-			if event, ok := <-stream.Events; ok {
-				return shellStreamEventMsg{sessionID: sessionID, stream: stream, event: event}
+			select {
+			case event, ok := <-stream.Events:
+				if !ok {
+					stream.Events = nil
+					break
+				}
+				return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+			default:
 			}
 		}
-		if stream.Done == nil {
-			return shellStreamDoneMsg{sessionID: sessionID}
+		switch {
+		case stream.Events != nil && stream.Done != nil:
+			select {
+			case event, ok := <-stream.Events:
+				if ok {
+					return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+				}
+				stream.Events = nil
+				done, ok := <-stream.Done
+				if !ok {
+					return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
+				}
+				return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey, done: done}
+			case done, ok := <-stream.Done:
+				if !ok {
+					return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
+				}
+				return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey, done: done}
+			}
+		case stream.Events != nil:
+			event, ok := <-stream.Events
+			if !ok {
+				return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
+			}
+			return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+		case stream.Done == nil:
+			return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
+		default:
+			done, ok := <-stream.Done
+			if !ok {
+				return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
+			}
+			return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey, done: done}
 		}
-		done, ok := <-stream.Done
-		if !ok {
-			return shellStreamDoneMsg{sessionID: sessionID}
-		}
-		return shellStreamDoneMsg{sessionID: sessionID, done: done}
 	}
 }
 
-func (m *model) appendAsyncTranscript(sessionID string, events []TranscriptEvent, err error) {
+func (m *model) appendAsyncTranscript(sessionID, runKey string, events []TranscriptEvent, err error) {
 	if m == nil || m.shell == nil {
 		return
 	}
+	if m.canceledRuns[sessionID] == runKey {
+		delete(m.canceledRuns, sessionID)
+		return
+	}
+	if m.activeRunKeys[sessionID] != runKey {
+		return
+	}
+	isAskRun := m.activeRunKinds[sessionID] == EventAskSubmitted
 	delete(m.activeRuns, sessionID)
+	delete(m.activeRunKinds, sessionID)
+	delete(m.activeRunKeys, sessionID)
+	if cancel := m.activeCancels[sessionID]; cancel != nil {
+		cancel()
+	}
+	delete(m.activeCancels, sessionID)
+	if isAskRun {
+		events = dropSuccessfulCompletionEvents(events)
+	}
 	m.addUsageEvents(events)
 	for i := range m.shell.tabs {
 		if m.shell.tabs[i].ID != sessionID {
@@ -806,8 +641,11 @@ func (m *model) appendAsyncTranscript(sessionID string, events []TranscriptEvent
 	}
 }
 
-func (m *model) appendStreamTranscript(sessionID string, event TranscriptEvent) {
+func (m *model) appendStreamTranscript(sessionID, runKey string, event TranscriptEvent) {
 	if m == nil || m.shell == nil {
+		return
+	}
+	if runKey != "" && (m.canceledRuns[sessionID] == runKey || m.activeRunKeys[sessionID] != runKey) {
 		return
 	}
 	if event.SessionID == "" {
@@ -845,13 +683,30 @@ func (m *model) appendStreamTranscript(sessionID string, event TranscriptEvent) 
 	}
 }
 
-func (m *model) finishStreamTranscript(sessionID string, done ShellRunDone) {
+func (m *model) finishStreamTranscript(sessionID, runKey string, done ShellRunDone) {
 	if m == nil || m.shell == nil {
 		return
 	}
+	if m.canceledRuns[sessionID] == runKey {
+		delete(m.canceledRuns, sessionID)
+		return
+	}
+	if m.activeRunKeys[sessionID] != runKey {
+		return
+	}
+	isAskRun := m.activeRunKinds[sessionID] == EventAskSubmitted
 	delete(m.activeRuns, sessionID)
+	delete(m.activeRunKinds, sessionID)
+	delete(m.activeRunKeys, sessionID)
+	if cancel := m.activeCancels[sessionID]; cancel != nil {
+		cancel()
+	}
+	delete(m.activeCancels, sessionID)
 	if len(m.activeRuns) == 0 {
 		m.activeOps = map[string]string{}
+	}
+	if isAskRun {
+		done.Events = dropSuccessfulCompletionEvents(done.Events)
 	}
 	m.addUsageEvents(done.Events)
 	for i := range m.shell.tabs {
@@ -865,6 +720,20 @@ func (m *model) finishStreamTranscript(sessionID string, done ShellRunDone) {
 		m.shell.tabs[i].Transcript = append(m.shell.tabs[i].Transcript, done.Events...)
 		return
 	}
+}
+
+func dropSuccessfulCompletionEvents(events []TranscriptEvent) []TranscriptEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := events[:0]
+	for _, event := range events {
+		if event.Kind == EventCommandComplete && isSuccessfulCompletionSummary(event.Summary) {
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
 }
 
 func (m *model) addUsageEvents(events []TranscriptEvent) {
@@ -903,130 +772,176 @@ func (m model) activeSessionID() string {
 	return ""
 }
 
-type shellLayout struct {
-	contentWidth        int
-	timelineOuterHeight int
-	timelineInnerWidth  int
-	timelineInnerHeight int
+func (m *model) cancelActiveRuns() bool {
+	if m == nil || len(m.activeCancels) == 0 {
+		return false
+	}
+	now := time.Now()
+	for sessionID, cancel := range m.activeCancels {
+		if m.canceledRuns == nil {
+			m.canceledRuns = map[string]string{}
+		}
+		m.canceledRuns[sessionID] = m.activeRunKeys[sessionID]
+		if cancel != nil {
+			cancel()
+		}
+		if m.shell != nil {
+			for i := range m.shell.tabs {
+				if m.shell.tabs[i].ID == sessionID {
+					m.shell.tabs[i].Transcript = append(m.shell.tabs[i].Transcript, TranscriptEvent{
+						ID:        newEventID("cancel"),
+						SessionID: sessionID,
+						Time:      now,
+						Kind:      EventError,
+						Summary:   "run canceled",
+					})
+				}
+			}
+		}
+		delete(m.activeCancels, sessionID)
+		delete(m.activeRuns, sessionID)
+		delete(m.activeRunKinds, sessionID)
+		delete(m.activeRunKeys, sessionID)
+	}
+	if len(m.activeRuns) == 0 {
+		m.activeOps = map[string]string{}
+	}
+	return true
 }
 
-func (m model) layout() shellLayout {
-	width := m.width
-	if width <= 0 {
-		width = 96
+func (m *model) quitCmd() tea.Cmd {
+	var shell *ShellObject
+	if m != nil {
+		shell = m.shell
+		if m.cancel != nil {
+			m.cancel()
+		}
+		for _, cancel := range m.activeCancels {
+			if cancel != nil {
+				cancel()
+			}
+		}
 	}
-	contentWidth := width
-	if contentWidth < 40 {
-		contentWidth = width
-	}
-	height := m.height
-	if height <= 0 {
-		height = 24
-	}
+	return tea.Batch(closeShellSessionsCmd(shell), tea.Quit)
+}
 
-	header := m.renderHeader(contentWidth)
-	status := m.renderStatus(contentWidth)
-	prompt := m.renderPrompt(contentWidth)
-	fixedHeight := lipgloss.Height(header) + lipgloss.Height(status) + lipgloss.Height(prompt)
-	if m.mention.Open {
-		fixedHeight += lipgloss.Height(m.renderMentionPicker(contentWidth))
-	}
-
-	available := height - fixedHeight
-	if available < 3 {
-		available = 3
-	}
-	innerHeight := available - 2
-	if innerHeight < 1 {
-		innerHeight = 1
-	}
-	innerWidth := contentWidth - 4
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
-	return shellLayout{
-		contentWidth:        contentWidth,
-		timelineOuterHeight: available,
-		timelineInnerWidth:  innerWidth,
-		timelineInnerHeight: innerHeight,
+func closeShellSessionsCmd(shell *ShellObject) tea.Cmd {
+	return func() tea.Msg {
+		if shell == nil || shell.client == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		seen := map[string]bool{}
+		for _, tab := range shell.tabs {
+			if tab.ID == "" || tab.ID == disconnectedSessionID || seen[tab.ID] {
+				continue
+			}
+			seen[tab.ID] = true
+			_ = shell.client.CloseSession(ctx, tab.ID)
+		}
+		return nil
 	}
 }
 
-func (m *model) syncTimelineViewport(follow bool) {
+func (m *model) clearMention() {
 	if m == nil {
 		return
 	}
-	layout := m.layout()
-	pinned := follow || m.timelinePinned || m.timeline.AtBottom() || m.timeline.TotalLineCount() == 0
-	m.timeline.SetWidth(layout.timelineInnerWidth)
-	m.timeline.SetHeight(layout.timelineInnerHeight)
-	m.timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
-	if pinned {
-		m.timeline.GotoBottom()
+	if m.mentionCancel != nil {
+		m.mentionCancel()
+		m.mentionCancel = nil
 	}
-	m.timelinePinned = m.timeline.AtBottom()
+	m.mentionSeq++
+	m.mention = MentionState{}
 }
 
-func (m model) timelineContent(width int) string {
+func (m *model) queueMentionRefresh() tea.Cmd {
+	if m == nil || m.shell == nil {
+		return nil
+	}
+	if m.mentionCancel != nil {
+		m.mentionCancel()
+		m.mentionCancel = nil
+	}
 	tab := m.shell.ActiveTab()
-	lines := []string{"Ready."}
-	if tab != nil {
-		lines = TimelineLines(tab.Transcript)
+	state, query, sessionID, input, ok := m.mentionSearch(tab)
+	if !ok {
+		m.clearMention()
+		return nil
 	}
-	if len(lines) == 0 {
-		lines = []string{"Ready."}
+	m.mentionSeq++
+	seq := m.mentionSeq
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	rendered := make([]string, 0, len(lines))
-	wrap := lipgloss.NewStyle().Width(width)
-	for _, line := range lines {
-		wrapped := wrap.Render(renderTimelineLine(line, width))
-		rendered = append(rendered, strings.Split(wrapped, "\n")...)
+	searchCtx, cancel := context.WithCancel(ctx)
+	m.mentionCancel = cancel
+	client := m.shell.client
+	return func() tea.Msg {
+		timer := time.NewTimer(mentionDebounceDelay)
+		defer timer.Stop()
+		select {
+		case <-searchCtx.Done():
+			return mentionRefreshMsg{seq: seq, err: searchCtx.Err()}
+		case <-timer.C:
+		}
+		if client == nil {
+			return mentionRefreshMsg{seq: seq, err: fmt.Errorf("shell client is unavailable")}
+		}
+		results, err := client.ResourceSearch(searchCtx, sessionID, query)
+		return mentionRefreshMsg{seq: seq, input: input, state: state, results: results, err: err}
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, rendered...)
 }
 
 func (m *model) refreshMention() {
+	if m == nil || m.shell == nil {
+		return
+	}
 	tab := m.shell.ActiveTab()
-	if tab == nil {
-		m.mention = MentionState{}
-		return
-	}
-	if state, ok := slashCompletionQuery(tab.InputBuffer); ok {
-		query := ResourceSearchQuery{Text: state.Query, Limit: 6, Kinds: []ResourceKind{ResourceCommand}, PrefixMode: "slash"}
-		if state.Kind == completionOption {
-			query.PrefixMode = "slash-option"
-			query.CommandPath = state.CommandPath
-		}
-		results, err := m.shell.SearchResources(context.Background(), query)
-		if err != nil {
-			m.mention = MentionState{}
-			return
-		}
-		if state.Kind == completionCommand {
-			if len(results) == 0 || slashCommandInputComplete(tab.InputBuffer, state.Query, results) {
-				m.mention = MentionState{}
-				return
-			}
-		}
-		if state.Kind == completionOption && len(results) == 0 {
-			m.mention = MentionState{}
-			return
-		}
-		state.Results = results
-		m.mention = state
-		return
-	}
-	query, ok := mentionQuery(tab.InputBuffer)
+	state, query, sessionID, input, ok := m.mentionSearch(tab)
 	if !ok {
 		m.mention = MentionState{}
 		return
 	}
-	results, err := m.shell.SearchResources(context.Background(), ResourceSearchQuery{Text: query, Limit: 6, Mention: true})
+	results, err := m.shell.client.ResourceSearch(context.Background(), sessionID, query)
 	if err != nil {
 		m.mention = MentionState{}
 		return
 	}
-	m.mention = MentionState{Open: true, Kind: completionMention, Query: query, Results: results}
+	if state.Kind == completionCommand {
+		if len(results) == 0 || slashCommandInputComplete(input, state.Query, results) {
+			m.mention = MentionState{}
+			return
+		}
+	}
+	if state.Kind == completionOption && len(results) == 0 {
+		m.mention = MentionState{}
+		return
+	}
+	state.Results = results
+	m.mention = state
+}
+
+func (m *model) mentionSearch(tab *TabSession) (MentionState, ResourceSearchQuery, string, string, bool) {
+	if m == nil || tab == nil {
+		return MentionState{}, ResourceSearchQuery{}, "", "", false
+	}
+	input := tab.InputBuffer
+	if state, ok := slashCompletionQuery(input); ok {
+		query := ResourceSearchQuery{Text: state.Query, Limit: 6, Kinds: []ResourceKind{ResourceCommand}, PrefixMode: "slash", CWD: tab.CWD}
+		if state.Kind == completionOption {
+			query.PrefixMode = "slash-option"
+			query.CommandPath = state.CommandPath
+		}
+		return state, query, tab.ID, input, true
+	}
+	queryText, ok := mentionQuery(input)
+	if !ok {
+		return MentionState{}, ResourceSearchQuery{}, "", "", false
+	}
+	return MentionState{Open: true, Kind: completionMention, Query: queryText}, ResourceSearchQuery{Text: queryText, Limit: 6, Mention: true, CWD: tab.CWD}, tab.ID, input, true
 }
 
 func slashCommandInputComplete(input string, query string, results []ResourceSearchResult) bool {
@@ -1046,696 +961,4 @@ func normalizeSlashCompletionText(value string) string {
 	value = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "/"))
 	value = strings.ReplaceAll(value, "/", " ")
 	return strings.Join(strings.Fields(value), " ")
-}
-
-var (
-	pageStyle = lipgloss.NewStyle()
-
-	monokaiForeground = lipgloss.Color("#F8F8F2")
-	monokaiBackground = lipgloss.Color("#272822")
-	monokaiSurface    = lipgloss.Color("#3E3D32")
-	monokaiComment    = lipgloss.Color("#75715E")
-	monokaiMuted      = lipgloss.Color("#A59F85")
-	monokaiPink       = lipgloss.Color("#F92672")
-	monokaiGreen      = lipgloss.Color("#A6E22E")
-	monokaiYellow     = lipgloss.Color("#E6DB74")
-	monokaiOrange     = lipgloss.Color("#FD971F")
-	monokaiPurple     = lipgloss.Color("#AE81FF")
-	monokaiCyan       = lipgloss.Color("#66D9EF")
-
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(monokaiBackground).
-			Background(monokaiPink).
-			Padding(0, 1)
-
-	subtleStyle = lipgloss.NewStyle().Foreground(monokaiMuted)
-	mutedStyle  = lipgloss.NewStyle().Foreground(monokaiComment)
-	valueStyle  = lipgloss.NewStyle().Foreground(monokaiForeground)
-	accentStyle = lipgloss.NewStyle().Foreground(monokaiPurple).Bold(true)
-	askStyle    = lipgloss.NewStyle().Foreground(monokaiCyan).Bold(true)
-	okStyle     = lipgloss.NewStyle().Foreground(monokaiGreen)
-	warnStyle   = lipgloss.NewStyle().Foreground(monokaiOrange)
-
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(monokaiSurface).
-			Padding(0, 1)
-
-	chipStyle = lipgloss.NewStyle().
-			Foreground(monokaiYellow).
-			Padding(0, 1)
-
-	promptBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(monokaiSurface).
-			Padding(0, 1)
-	promptStyle = lipgloss.NewStyle().Foreground(monokaiGreen).Bold(true)
-	inputStyle  = lipgloss.NewStyle().Foreground(monokaiForeground)
-	cursorStyle = lipgloss.NewStyle().Foreground(monokaiBackground).Background(monokaiYellow)
-	footerStyle = lipgloss.NewStyle().Foreground(monokaiMuted).Padding(0, 1)
-)
-
-func (m model) View() tea.View {
-	layout := m.layout()
-
-	parts := []string{
-		m.renderHeader(layout.contentWidth),
-		m.renderStatus(layout.contentWidth),
-		m.renderTimeline(layout),
-	}
-	if m.mention.Open {
-		parts = append(parts, m.renderMentionPicker(layout.contentWidth))
-	}
-	parts = append(parts, m.renderPrompt(layout.contentWidth))
-	view := tea.NewView(pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...)))
-	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
-	return view
-}
-
-func (m model) renderHeader(width int) string {
-	project := m.status.projectName
-	if project == "" {
-		project = "workspace"
-	}
-	title := titleStyle.Render(" coder shell ")
-	rightParts := []string{}
-	if model := m.modelSummary(); model != "" {
-		rightParts = append(rightParts, metaItem("model", model))
-	}
-	if m.shell != nil {
-		if connection := strings.TrimSpace(m.shell.connection); connection != "" {
-			rightParts = append(rightParts, metaItem("conn", connection))
-		}
-	}
-	if tab := m.tabSummary(); tab != "" {
-		rightParts = append(rightParts, metaItem("tab", tab))
-	}
-	lines := []string{alignLine(title, fitRightParts(width-lipgloss.Width(title)-2, rightParts), width)}
-
-	projectParts := []string{accentStyle.Render(truncateStyled(project, projectWidth(width)))}
-	if module := strings.TrimSpace(m.status.goModule); module != "" && module != project && width >= 72 {
-		if moduleWidth := moduleWidth(width, project); moduleWidth > 0 {
-			projectParts = append(projectParts, mutedStyle.Render(truncateStyled(module, moduleWidth)))
-		}
-	}
-	lines = append(lines, fitParts(width, projectParts, mutedStyle.Render("  ")))
-
-	if locationLine := m.renderLocationLine(width); locationLine != "" {
-		lines = append(lines, locationLine)
-	}
-	return lipgloss.NewStyle().Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-}
-
-func (m model) renderStatus(width int) string {
-	facts := m.observedFacts()
-	if len(facts) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(facts))
-	for _, fact := range facts {
-		parts = append(parts, fact.Render())
-	}
-	line := fitParts(width, parts, subtleStyle.Render("  "))
-	return lipgloss.NewStyle().Width(width).Render(line)
-}
-
-func (m model) renderLocationLine(width int) string {
-	activeCWD := strings.TrimSpace(m.status.cwd)
-	if m.shell != nil {
-		if active := m.shell.ActiveTab(); active != nil && strings.TrimSpace(active.CWD) != "" {
-			activeCWD = active.CWD
-		}
-	}
-	left := mutedStyle.Render(shortPath(activeCWD))
-	if width >= 96 && strings.TrimSpace(activeCWD) != "" {
-		left = mutedStyle.Render(activeCWD)
-	}
-	right := ""
-	if m.shell != nil {
-		if active := m.shell.ActiveTab(); active != nil {
-			right = metaItem("session", active.ID)
-		}
-	}
-	return alignLine(left, right, width)
-}
-
-func (m model) modelSummary() string {
-	provider := strings.TrimSpace(m.status.provider)
-	model := strings.TrimSpace(m.status.model)
-	switch {
-	case provider != "" && model != "":
-		return provider + "/" + model
-	case model != "":
-		return model
-	case provider != "":
-		return provider
-	default:
-		return ""
-	}
-}
-
-func (m model) tabSummary() string {
-	if m.shell == nil || len(m.shell.tabs) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d/%d", m.shell.ActiveIndex()+1, len(m.shell.tabs))
-}
-
-type observedFact struct {
-	Label string
-	Value string
-	Style lipgloss.Style
-}
-
-func (f observedFact) Render() string {
-	value := strings.TrimSpace(f.Value)
-	if value == "" {
-		return ""
-	}
-	if strings.TrimSpace(f.Label) == "" {
-		return f.Style.Render(value)
-	}
-	return subtleStyle.Render(f.Label) + " " + f.Style.Render(value)
-}
-
-func (m model) observedFacts() []observedFact {
-	project := strings.TrimSpace(m.status.projectName)
-	if project == "" {
-		project = workspaceLabel(m.status.workspace, m.status.cwd)
-	}
-	facts := []observedFact{}
-	if len(m.activeRuns) > 0 {
-		facts = append(facts, observedFact{Value: activeRunSummary(m.activeRuns), Style: accentStyle})
-	}
-	if len(m.activeOps) > 0 {
-		facts = append(facts, observedFact{Label: "ops", Value: fmt.Sprintf("%d running", len(m.activeOps)), Style: valueStyle})
-	}
-	facts = append(facts, observedFact{Label: "workspace", Value: project, Style: valueStyle})
-	if kind := strings.TrimSpace(m.status.projectKind); kind != "" {
-		facts = append(facts, observedFact{Label: "kind", Value: kind, Style: valueStyle})
-	}
-	for _, facet := range m.status.facets {
-		facts = append(facts, observedFact{Value: facet, Style: chipStyle})
-	}
-	if m.status.warningCount > 0 {
-		facts = append(facts, observedFact{Value: fmt.Sprintf("%d warnings", m.status.warningCount), Style: warnStyle})
-	} else if m.status.projectCount > 0 || len(m.status.facets) > 0 {
-		facts = append(facts, observedFact{Value: "inventory ok", Style: okStyle})
-	}
-	if version := displayGoVersion(m.status.goVersion); version != "" {
-		facts = append(facts, observedFact{Label: "go", Value: version, Style: valueStyle})
-	}
-	if locale := compactLocale(m.status.locale); locale != "" {
-		facts = append(facts, observedFact{Label: "locale", Value: locale, Style: valueStyle})
-	}
-	if user := compactUser(m.status.user); user != "" {
-		facts = append(facts, observedFact{Label: "user", Value: user, Style: valueStyle})
-	}
-	if m.status.taskCount > 0 {
-		facts = append(facts, observedFact{Label: "tasks", Value: fmt.Sprintf("%d", m.status.taskCount), Style: valueStyle})
-	}
-	if m.status.projectCount > 1 {
-		facts = append(facts, observedFact{Label: "projects", Value: fmt.Sprintf("%d", m.status.projectCount), Style: valueStyle})
-	}
-	return facts
-}
-
-func activeRunSummary(active map[string]string) string {
-	for _, summary := range active {
-		if strings.TrimSpace(summary) != "" {
-			return summary
-		}
-	}
-	if len(active) == 1 {
-		return "running"
-	}
-	return fmt.Sprintf("%d runs", len(active))
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func workspaceLabel(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		base := filepath.Base(value)
-		if base != "." && base != string(filepath.Separator) && base != "" {
-			return base
-		}
-	}
-	return "workspace"
-}
-
-func displayGoVersion(version string) string {
-	version = strings.TrimSpace(version)
-	version = strings.TrimPrefix(version, "go version ")
-	version = strings.TrimPrefix(version, "go")
-	version = strings.TrimSpace(version)
-	if version == "n/a" {
-		return ""
-	}
-	return version
-}
-
-func compactLocale(locale string) string {
-	locale = strings.TrimSpace(locale)
-	if index := strings.Index(locale, "."); index > 0 {
-		locale = locale[:index]
-	}
-	return locale
-}
-
-func compactUser(user string) string {
-	user = strings.TrimSpace(user)
-	if index := strings.LastIndex(user, string(filepath.Separator)); index >= 0 && index+1 < len(user) {
-		user = user[index+1:]
-	}
-	if index := strings.LastIndex(user, "\\"); index >= 0 && index+1 < len(user) {
-		user = user[index+1:]
-	}
-	return user
-}
-
-func metaItem(key, value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	return subtleStyle.Render(key) + " " + valueStyle.Render(value)
-}
-
-func fitRightParts(width int, parts []string) string {
-	if width <= 0 || len(parts) == 0 {
-		return ""
-	}
-	for count := len(parts); count > 0; count-- {
-		candidate := strings.Join(parts[:count], "  ")
-		if lipgloss.Width(candidate) <= width {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func projectWidth(width int) int {
-	if width < 44 {
-		return width
-	}
-	return width / 2
-}
-
-func moduleWidth(width int, project string) int {
-	remaining := width - projectWidth(width) - 2
-	if remaining < 20 && strings.TrimSpace(project) != "" {
-		return 0
-	}
-	return remaining
-}
-
-func alignLine(left, right string, width int) string {
-	if width <= 0 {
-		return left
-	}
-	left = strings.TrimRight(left, " ")
-	right = strings.TrimSpace(right)
-	if right == "" {
-		return truncateStyled(left, width)
-	}
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		return truncateStyled(left+" "+right, width)
-	}
-	return left + strings.Repeat(" ", gap) + right
-}
-
-func fitParts(width int, parts []string, sep string) string {
-	if width <= 0 {
-		return strings.Join(parts, sep)
-	}
-	line := ""
-	hidden := 0
-	for _, part := range parts {
-		if strings.TrimSpace(part) == "" {
-			continue
-		}
-		next := part
-		if line != "" {
-			next = line + sep + part
-		}
-		if lipgloss.Width(next) <= width {
-			line = next
-			continue
-		}
-		hidden++
-	}
-	if hidden == 0 {
-		return line
-	}
-	more := mutedStyle.Render(fmt.Sprintf("+%d", hidden))
-	if line == "" {
-		return truncateStyled(more, width)
-	}
-	next := line + sep + more
-	if lipgloss.Width(next) <= width {
-		return next
-	}
-	return truncateStyled(line, width)
-}
-
-func (m model) renderMentionPicker(width int) string {
-	if !m.mention.Open {
-		return ""
-	}
-	header := "@ resources"
-	switch m.mention.Kind {
-	case completionCommand:
-		header = "/ commands"
-	case completionOption:
-		header = "/ options " + m.mention.CommandPath
-	}
-	lines := []string{subtleStyle.Render(header) + " " + valueStyle.Render(m.mention.Query)}
-	if len(m.mention.Results) == 0 {
-		lines = append(lines, mutedStyle.Render("no results"))
-	}
-	for i, result := range m.mention.Results {
-		prefix := "  "
-		style := valueStyle
-		if i == m.mention.Index {
-			prefix = "❯ "
-			style = accentStyle
-		}
-		icon := strings.TrimSpace(result.Icon)
-		if icon != "" {
-			icon += " "
-		}
-		detail := strings.TrimSpace(result.Detail)
-		if detail != "" {
-			detail = subtleStyle.Render("  " + detail)
-		}
-		kindPrefix := subtleStyle.Render("[" + string(result.Kind) + "] ")
-		if m.mention.Kind == completionCommand || m.mention.Kind == completionOption {
-			kindPrefix = ""
-		}
-		lines = append(lines, prefix+kindPrefix+style.Render(icon+result.Label)+detail)
-	}
-	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-}
-
-func (m model) renderTimeline(layout shellLayout) string {
-	timeline := m.timeline
-	timeline.SetWidth(layout.timelineInnerWidth)
-	timeline.SetHeight(layout.timelineInnerHeight)
-	timeline.SetContent(m.timelineContent(layout.timelineInnerWidth))
-	if m.timelinePinned || timeline.TotalLineCount() <= timeline.Height() {
-		timeline.GotoBottom()
-	}
-	return panelStyle.Width(layout.contentWidth).Height(layout.timelineOuterHeight - 2).Render(timeline.View())
-}
-
-func renderTimelineLine(line string, width int) string {
-	switch {
-	case strings.HasPrefix(line, "? "):
-		return askStyle.Render("? ") + valueStyle.Render(strings.TrimPrefix(line, "? "))
-	case strings.HasPrefix(line, "> "):
-		return promptStyle.Render("> ") + valueStyle.Render(strings.TrimPrefix(line, "> "))
-	case strings.HasPrefix(line, "$ "):
-		return promptStyle.Render("$ ") + valueStyle.Render(strings.TrimPrefix(line, "$ "))
-	case strings.HasPrefix(line, "out:"):
-		return subtleStyle.Render("↳ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "out:")))
-	case strings.HasPrefix(line, "exit:"):
-		summary := strings.TrimSpace(strings.TrimPrefix(line, "exit:"))
-		if summary == "0" || summary == "ok" {
-			return okStyle.Render("✓ ") + valueStyle.Render(summary)
-		}
-		return warnStyle.Render("✗ ") + valueStyle.Render(summary)
-	case strings.HasPrefix(line, "agent:"):
-		return renderTimelineMarkdown("🤖 ", accentStyle, strings.TrimSpace(strings.TrimPrefix(line, "agent:")), width)
-	case strings.HasPrefix(line, "thinking:"):
-		return renderTimelineMarkdown("… ", subtleStyle, strings.TrimSpace(strings.TrimPrefix(line, "thinking:")), width)
-	case strings.HasPrefix(line, "op:"):
-		return accentStyle.Render("● ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "op:")))
-	case strings.HasPrefix(line, "op-done:"):
-		return okStyle.Render("✓ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "op-done:")))
-	case strings.HasPrefix(line, "proc:"):
-		return subtleStyle.Render("process ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "proc:")))
-	case strings.HasPrefix(line, "proc-out:"):
-		return subtleStyle.Render("│ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "proc-out:")))
-	case strings.HasPrefix(line, "proc-exit:"):
-		return subtleStyle.Render("exit ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "proc-exit:")))
-	case strings.HasPrefix(line, "mention:"):
-		return accentStyle.Render("@ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "mention:")))
-	case strings.HasPrefix(line, "slash:"):
-		return promptStyle.Render("/ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "slash:")))
-	case strings.HasPrefix(line, "error:"):
-		return warnStyle.Render("! ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "error:")))
-	case strings.HasPrefix(line, "echo:"):
-		return subtleStyle.Render("↳ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "echo:")))
-	case strings.HasPrefix(line, "project:"):
-		return subtleStyle.Render("◆ ") + accentStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "project:")))
-	case line == "":
-		return ""
-	default:
-		return subtleStyle.Render("· ") + valueStyle.Render(line)
-	}
-}
-
-func renderTimelineMarkdown(marker string, markerStyle lipgloss.Style, text string, width int) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return markerStyle.Render(strings.TrimSpace(marker))
-	}
-	contentWidth := width - 3
-	if contentWidth < 20 {
-		contentWidth = width
-	}
-	rendered := renderMarkdownBubbleView(text, contentWidth)
-	if strings.TrimSpace(rendered) == "" {
-		rendered = text
-	}
-	lines := strings.Split(rendered, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) == 0 {
-		return accentStyle.Render("🤖")
-	}
-	out := make([]string, 0, len(lines))
-	for i, line := range lines {
-		prefix := "  "
-		if i == 0 {
-			prefix = markerStyle.Render(marker)
-		}
-		out = append(out, prefix+line)
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, out...)
-}
-
-func renderMarkdownBubbleView(text string, width int) string {
-	if width <= 0 {
-		width = 80
-	}
-	height := strings.Count(text, "\n") + 16
-	if height < 24 {
-		height = 24
-	}
-	if height > 240 {
-		height = 240
-	}
-	model := mdbubble.NewStreamModel(
-		mdbubble.WithWrapWidth(width),
-		mdbubble.WithAnsi(mdterminal.AnsiOn),
-		mdbubble.WithTheme(mdterminal.MonokaiTheme()),
-		mdbubble.WithParserOptions(stream.WithGFMAutolinks()),
-	)
-	updated, cmd := model.Update(legacytea.WindowSizeMsg{Width: width, Height: height})
-	if next, ok := updated.(mdbubble.StreamModel); ok {
-		model = next
-	}
-	if cmd != nil {
-		_ = cmd()
-	}
-	if cmd := model.Write([]byte(text)); cmd != nil {
-		_ = cmd()
-	}
-	if cmd := model.Flush(); cmd != nil {
-		_ = cmd()
-	}
-	return strings.TrimRight(model.View(), " \n")
-}
-
-type usageTotals struct {
-	inputTokens      int64
-	cacheWriteTokens int64
-	cachedTokens     int64
-	outputTokens     int64
-	reasoningTokens  int64
-	totalTokens      int64
-	cost             float64
-	currency         string
-}
-
-func (u *usageTotals) add(event TranscriptEvent) {
-	if u == nil || event.Kind != EventUsageRecorded {
-		return
-	}
-	u.inputTokens += parseIntData(event.Data, "input_tokens")
-	u.cacheWriteTokens += parseIntData(event.Data, "cache_write_tokens")
-	u.cachedTokens += parseIntData(event.Data, "cached_tokens")
-	u.outputTokens += parseIntData(event.Data, "output_tokens")
-	u.reasoningTokens += parseIntData(event.Data, "reasoning_tokens")
-	u.totalTokens += parseIntData(event.Data, "total_tokens")
-	u.cost += parseFloatData(event.Data, "cost")
-	if currency := strings.TrimSpace(event.Data["currency"]); currency != "" {
-		u.currency = currency
-	}
-}
-
-func (u usageTotals) summary() string {
-	parts := []string{}
-	input := u.inputTokens + u.cacheWriteTokens
-	if input > 0 {
-		parts = append(parts, "in "+formatCompactInt(input))
-	}
-	if u.cachedTokens > 0 {
-		parts = append(parts, "cached "+formatCompactInt(u.cachedTokens))
-	}
-	if u.outputTokens > 0 {
-		parts = append(parts, "out "+formatCompactInt(u.outputTokens))
-	}
-	if u.reasoningTokens > 0 {
-		parts = append(parts, "reason "+formatCompactInt(u.reasoningTokens))
-	}
-	if u.totalTokens > 0 && len(parts) == 0 {
-		parts = append(parts, "total "+formatCompactInt(u.totalTokens))
-	}
-	if u.cost > 0 {
-		parts = append(parts, formatUsageCost(u.cost, u.currency))
-	}
-	if len(parts) == 0 {
-		return "usage --"
-	}
-	return "usage " + strings.Join(parts, "  ")
-}
-
-func usageSummaryFromData(data map[string]string) string {
-	var totals usageTotals
-	totals.add(TranscriptEvent{Kind: EventUsageRecorded, Data: data})
-	return totals.summary()
-}
-
-func parseIntData(data map[string]string, key string) int64 {
-	value := strings.TrimSpace(data[key])
-	if value == "" {
-		return 0
-	}
-	if parsed, err := strconv.ParseFloat(value, 64); err == nil {
-		return int64(parsed + 0.5)
-	}
-	return 0
-}
-
-func parseFloatData(data map[string]string, key string) float64 {
-	value := strings.TrimSpace(data[key])
-	if value == "" {
-		return 0
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return 0
-	}
-	return parsed
-}
-
-func formatCompactInt(value int64) string {
-	switch {
-	case value >= 1_000_000:
-		return fmt.Sprintf("%.1fm", float64(value)/1_000_000)
-	case value >= 10_000:
-		return fmt.Sprintf("%.0fk", float64(value)/1_000)
-	case value >= 1_000:
-		return fmt.Sprintf("%.1fk", float64(value)/1_000)
-	default:
-		return fmt.Sprintf("%d", value)
-	}
-}
-
-func formatUsageCost(cost float64, currency string) string {
-	currency = strings.ToUpper(strings.TrimSpace(currency))
-	if currency == "" || currency == "USD" {
-		return fmt.Sprintf("$%.4f", cost)
-	}
-	return fmt.Sprintf("%.4f %s", cost, currency)
-}
-
-func (m model) renderPrompt(width int) string {
-	tab := m.shell.ActiveTab()
-	input := ""
-	marker := "❯ "
-	if tab != nil {
-		if tab.InputMode == InputModeAsk {
-			marker = "🤖 "
-		}
-		input = renderInputWithCursor(tab)
-	}
-	prompt := promptStyle.Render(marker) + input
-	box := promptBoxStyle.Width(width).Render(prompt)
-	footer := footerStyle.Width(width).Align(lipgloss.Right).Render(m.usage.summary())
-	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
-}
-
-func renderInputWithCursor(tab *TabSession) string {
-	if tab == nil {
-		return cursorStyle.Render(" ")
-	}
-	runes := []rune(tab.InputBuffer)
-	cursor := tab.inputCursor()
-	if len(runes) == 0 {
-		return cursorStyle.Render(" ")
-	}
-	if cursor >= len(runes) {
-		return inputStyle.Render(tab.InputBuffer) + cursorStyle.Render(" ")
-	}
-	before := string(runes[:cursor])
-	current := string(runes[cursor])
-	after := string(runes[cursor+1:])
-	return inputStyle.Render(before) + cursorStyle.Render(current) + inputStyle.Render(after)
-}
-
-func shortPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "."
-	}
-	base := filepath.Base(path)
-	parent := filepath.Base(filepath.Dir(path))
-	if parent == "." || parent == string(filepath.Separator) || parent == "" {
-		return base
-	}
-	return filepath.Join(parent, base)
-}
-
-func truncateStyled(value string, width int) string {
-	if width <= 0 || lipgloss.Width(value) <= width {
-		return value
-	}
-	plain := lipgloss.NewStyle().Render(value)
-	if len([]rune(plain)) <= width {
-		return plain
-	}
-	runes := []rune(plain)
-	if width <= 1 {
-		return string(runes[:width])
-	}
-	return string(runes[:width-1]) + "…"
 }

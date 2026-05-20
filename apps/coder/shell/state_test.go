@@ -16,6 +16,16 @@ func TestAppendInputStripsANSIEscapeSequences(t *testing.T) {
 	}
 }
 
+func TestShellObjectDefaultsToShellMode(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	if got := shell.ActiveTab().InputMode; got != InputModeShell {
+		t.Fatalf("default input mode = %q, want shell", got)
+	}
+}
+
 func TestAppendInputStripsMouseEscapeSequences(t *testing.T) {
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
 	if err != nil {
@@ -211,6 +221,9 @@ func TestShellObjectAskModeSubmitsAsk(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("ask submission event not recorded")
+	}
+	if got := shell.ActiveTab().InputMode; got != InputModeShell {
+		t.Fatalf("mode after ask submit = %q, want shell", got)
 	}
 }
 

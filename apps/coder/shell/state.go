@@ -16,6 +16,9 @@ const (
 	InputModeShell InputMode = "shell"
 	InputModeAsk   InputMode = "ask"
 )
+
+const defaultInputMode = InputModeShell
+
 const disconnectedSessionID = "session-error"
 
 // ShellObject owns shell state that must stay independent from the TUI layer.
@@ -33,6 +36,14 @@ type ShellObjectOptions struct {
 	CWD           string
 	Connection    string
 	ContextPolicy ContextPolicy
+}
+
+type activeSubmission struct {
+	sessionID string
+	runKey    string
+	start     TranscriptEvent
+	fallback  func(context.Context) ([]TranscriptEvent, error)
+	stream    func(context.Context, StreamingShellClient) (ShellRunStream, error)
 }
 
 // NewShellObject creates shell state with one client-backed session tab.
@@ -114,7 +125,7 @@ func (s *ShellObject) NewTab(ctx context.Context, cwd string) (*TabSession, erro
 		ID:           info.ID,
 		Label:        fmt.Sprintf("%d", len(s.tabs)+1),
 		CWD:          strings.TrimSpace(info.CWD),
-		InputMode:    InputModeShell,
+		InputMode:    defaultInputMode,
 		InputCursor:  -1,
 		historyIndex: -1,
 		Transcript: []TranscriptEvent{
@@ -373,9 +384,30 @@ func (s *ShellObject) MoveInputCursorRight() {
 // SubmitActiveInput submits the active tab input through the shell client and
 // records returned events in that tab transcript.
 func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
+	submission, ok, err := s.startActiveSubmission(ctx)
+	if !ok {
+		return err
+	}
+	events, err := submission.fallback(ctx)
+	events = dropSubmittedStartEvent(events, submission.start.Kind)
+	for i := range s.tabs {
+		if s.tabs[i].ID != submission.sessionID {
+			continue
+		}
+		if err != nil {
+			s.tabs[i].Transcript = append(s.tabs[i].Transcript, errorEvent(submission.sessionID, err))
+			return err
+		}
+		s.tabs[i].Transcript = append(s.tabs[i].Transcript, events...)
+		return nil
+	}
+	return err
+}
+
+func (s *ShellObject) startActiveSubmission(ctx context.Context) (activeSubmission, bool, error) {
 	tab := s.ActiveTab()
 	if tab == nil {
-		return nil
+		return activeSubmission{}, false, nil
 	}
 	line := strings.TrimSpace(tab.InputBuffer)
 	if line == "" {
@@ -388,7 +420,7 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 		})
 		tab.InputBuffer = ""
 		tab.InputCursor = 0
-		return nil
+		return activeSubmission{}, false, nil
 	}
 	if tab.ID == disconnectedSessionID {
 		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
@@ -396,7 +428,7 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 		tab.InputBuffer = ""
 		tab.InputCursor = 0
 		tab.resetHistoryNavigation()
-		return err
+		return activeSubmission{}, false, err
 	}
 
 	submittedMode := tab.InputMode
@@ -406,7 +438,7 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 		result, err := s.client.ChangeCWD(ctx, tab.ID, intent.Arg)
 		if err != nil {
 			tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
-			return err
+			return activeSubmission{}, false, err
 		}
 		tab.CWD = result.CWD
 		tab.Transcript = append(tab.Transcript, TranscriptEvent{
@@ -419,28 +451,58 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 		})
 		tab.InputBuffer = ""
 		tab.InputCursor = 0
-		return nil
+		return activeSubmission{}, false, nil
 	}
 
-	var events []TranscriptEvent
-	var err error
+	sessionID := tab.ID
+	cwd := tab.CWD
+	var start TranscriptEvent
+	var fallback func(context.Context) ([]TranscriptEvent, error)
+	var stream func(context.Context, StreamingShellClient) (ShellRunStream, error)
 	switch intent.Kind {
 	case IntentSlash:
-		events, err = s.client.SubmitSlash(ctx, tab.ID, SlashRequest{Line: intent.Text, CWD: tab.CWD})
+		start = TranscriptEvent{ID: newEventID("slash"), SessionID: sessionID, Time: time.Now(), Kind: EventSlashSubmitted, Summary: intent.Text, Data: map[string]string{"cwd": cwd}}
+		req := SlashRequest{Line: intent.Text, CWD: cwd}
+		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
+			return s.client.SubmitSlash(ctx, sessionID, req)
+		}
+		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
+			return client.SubmitSlashStream(ctx, sessionID, req)
+		}
 	case IntentAsk:
 		projection := ProjectTranscript(tab.Transcript, s.contextPolicy)
-		events, err = s.client.SubmitAsk(ctx, tab.ID, AskRequest{Text: line, CWD: tab.CWD, Context: projection})
+		start = TranscriptEvent{
+			ID:        newEventID("ask"),
+			SessionID: sessionID,
+			Time:      time.Now(),
+			Kind:      EventAskSubmitted,
+			Summary:   line,
+			Data:      map[string]string{"cwd": cwd, "context_items": fmt.Sprintf("%d", len(projection))},
+		}
+		req := AskRequest{Text: line, CWD: cwd, Context: projection}
+		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
+			return s.client.SubmitAsk(ctx, sessionID, req)
+		}
+		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
+			return client.SubmitAskStream(ctx, sessionID, req)
+		}
 	default:
-		events, err = s.client.SubmitCommand(ctx, tab.ID, CommandRequest{Line: line, CWD: tab.CWD})
+		start = TranscriptEvent{ID: newEventID("cmd-start"), SessionID: sessionID, Time: time.Now(), Kind: EventCommandStarted, Summary: intent.Text, Data: map[string]string{"cwd": cwd}}
+		req := CommandRequest{Line: intent.Text, CWD: cwd}
+		fallback = func(ctx context.Context) ([]TranscriptEvent, error) {
+			return s.client.SubmitCommand(ctx, sessionID, req)
+		}
+		stream = func(ctx context.Context, client StreamingShellClient) (ShellRunStream, error) {
+			return client.SubmitCommandStream(ctx, sessionID, req)
+		}
 	}
-	if err != nil {
-		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
-		return err
-	}
-	tab.Transcript = append(tab.Transcript, events...)
+	tab.Transcript = append(tab.Transcript, start)
 	tab.InputBuffer = ""
 	tab.InputCursor = 0
-	return nil
+	if intent.Kind == IntentAsk {
+		tab.InputMode = defaultInputMode
+	}
+	return activeSubmission{sessionID: sessionID, runKey: start.ID, start: start, fallback: fallback, stream: stream}, true, nil
 }
 func lastSessionError(events []TranscriptEvent) string {
 	for i := len(events) - 1; i >= 0; i-- {
@@ -458,7 +520,7 @@ func (s *ShellObject) ToggleInputMode() {
 		return
 	}
 	if tab.InputMode == InputModeAsk {
-		tab.InputMode = InputModeShell
+		tab.InputMode = defaultInputMode
 		return
 	}
 	tab.InputMode = InputModeAsk
@@ -564,7 +626,7 @@ func (t *TabSession) recordHistory(text string, mode InputMode) {
 		return
 	}
 	if mode == "" {
-		mode = InputModeShell
+		mode = defaultInputMode
 	}
 	entry := InputHistoryEntry{Text: text, Mode: mode}
 	if len(t.InputHistory) > 0 {
