@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -18,7 +18,7 @@ const (
 	ObservationAWSEnvironment = "aws.environment"
 
 	observerName = "aws.environment"
-	deriverName  = "aws.signals"
+	deriverName  = "aws.assertions"
 )
 
 type Config struct {
@@ -39,7 +39,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys}
@@ -62,17 +62,17 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p.ref = ctx.Ref
 	return resource.ContributionBundle{
-		Observers:      []coreenvironment.ObserverSpec{observerSpec(p.ref)},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{signalDeriverSpec()},
+		Observers:         []coreevidence.ObserverSpec{observerSpec(p.ref)},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{assertionDeriverSpec()},
 	}, nil
 }
 
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{observer{plugin: p}}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{observer{plugin: p}}, nil
 }
 
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{signalDeriver{}}, nil
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{assertionDeriver{}}, nil
 }
 
 func NormalizeConfig(cfg Config) Config {
@@ -87,11 +87,11 @@ type observer struct {
 	plugin Plugin
 }
 
-func (o observer) Spec() coreenvironment.ObserverSpec {
+func (o observer) Spec() coreevidence.ObserverSpec {
 	return observerSpec(o.plugin.ref)
 }
 
-func (o observer) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o observer) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	content := map[string]any{
 		"configured":               false,
 		"available":                false,
@@ -164,9 +164,9 @@ func (o observer) Observe(ctx context.Context, _ runtimeenvironment.ObservationR
 	content["available"] = available
 
 	now := time.Now().UTC()
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "integration:aws:" + observerInstance(o.plugin.ref),
-		Environment: coreenvironment.Ref{Name: coreenvironment.Name(Name)},
+		Environment: coreevidence.Ref{Name: coreevidence.Name(Name)},
 		Kind:        ObservationAWSEnvironment,
 		Scope:       awsScope(profile, region, o.plugin.ref),
 		Content:     content,
@@ -174,24 +174,25 @@ func (o observer) Observe(ctx context.Context, _ runtimeenvironment.ObservationR
 	}}, nil
 }
 
-type signalDeriver struct{}
+type assertionDeriver struct{}
 
-func (signalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return signalDeriverSpec()
+func (assertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return assertionDeriverSpec()
 }
 
-func (signalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (assertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != ObservationAWSEnvironment {
 			continue
 		}
 		content, _ := observation.Content.(map[string]any)
-		metadata := signalMetadata(content)
+		metadata := assertionMetadata(content)
 		if boolContent(content, "configured") {
-			out = append(out, coreenvironment.Signal{
+			out = append(out, coreevidence.Assertion{
 				Kind:           "integration.configured",
 				Target:         Name,
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -200,9 +201,10 @@ func (signalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeri
 			})
 		}
 		if boolContent(content, "available") {
-			out = append(out, coreenvironment.Signal{
+			out = append(out, coreevidence.Assertion{
 				Kind:           "integration.available",
 				Target:         Name,
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -214,14 +216,14 @@ func (signalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeri
 	return out, nil
 }
 
-func observerSpec(ref resource.PluginRef) coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func observerSpec(ref resource.PluginRef) coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:        observerName,
 		Description: "Reports non-secret AWS environment configuration and credential presence.",
-		Environment: coreenvironment.Ref{
-			Name: coreenvironment.Name(Name),
+		Environment: coreevidence.Ref{
+			Name: coreevidence.Name(Name),
 		},
-		Phase:           coreenvironment.PhaseTurn,
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{ObservationAWSEnvironment},
 		Dynamic:         true,
 		Annotations: map[string]string{
@@ -231,14 +233,14 @@ func observerSpec(ref resource.PluginRef) coreenvironment.ObserverSpec {
 	}
 }
 
-func signalDeriverSpec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
+func assertionDeriverSpec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
 		Name:             deriverName,
-		Description:      "Derives AWS integration configured/available signals from AWS environment observations.",
+		Description:      "Derives AWS integration configured/available assertions from AWS environment observations.",
 		ObservationKinds: []string{ObservationAWSEnvironment},
-		Signals: []coreenvironment.SignalTemplate{
-			{Kind: "integration.configured", Target: Name},
-			{Kind: "integration.available", Target: Name},
+		Assertions: []coreevidence.AssertionTemplate{
+			{Kind: "integration.configured", Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
+			{Kind: "integration.available", Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
 		},
 	}
 }
@@ -311,7 +313,7 @@ func boolContent(content map[string]any, key string) bool {
 	return value
 }
 
-func signalMetadata(content map[string]any) map[string]string {
+func assertionMetadata(content map[string]any) map[string]string {
 	out := map[string]string{}
 	for _, key := range []string{"profile", "region"} {
 		value, _ := content[key].(string)

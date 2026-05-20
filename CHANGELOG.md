@@ -11,15 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved coder shell responsiveness by batching stream repaints, caching
   transcript rendering incrementally, bounding rendered history, showing
   completion loading state, and passing shell input as raw command text.
+- Improved coder shell discoverability by adding mode-aware prompt hints,
+  completion picker control hints, and richer `coder shell --help` guidance.
+- Further improved coder shell onboarding with empty-prompt placeholders, new-session
+  timeline tips, completion counts/details, escape-to-close completion behavior, and
+  running-state cancel hints.
+- Added coder shell line-editing affordances for word jumps, word deletion,
+  delete-under-cursor, kill-to-end, visible edit shortcuts, and quieter empty
+  submits.
 - Expanded `/env/explain` to show current observations, derived assertions, and
   matching reaction actions in addition to configured observers and active
   session state.
 - Reduced coder's always-on default tool surface by moving Go, Markdown, and
   Docker-backed code execution tools behind existing evidence/reaction
   activation, and by gating Loki/MySQL endpoint tools behind endpoint
-  availability evidence, browser/image tools behind availability plus turn
-  intent, and memory mutation tools behind explicit memory intent while keeping
-  those operations composed for reactive enablement.
+  availability evidence, browser/image tools behind stable runtime/provider
+  availability, and memory mutation tools behind stable memory-store
+  availability while keeping those operations composed for reactive enablement.
+- Completed the evidence/assertion vocabulary migration: `core/evidence` owns
+  observations, assertions, subjects, observers, and assertion derivers;
+  `runtime/evidence` owns observer and assertion-deriver execution; project
+  inventory signals are now hints; and channel signal submissions are now
+  triggers.
 - Reorganized first-party plugin packages from the flat `plugins/*plugin`
   layout into categorized `bundles`, `native`, `languages`, `integrations`,
   `support`, `internal`, and `examples` directories with suffix-free package
@@ -48,9 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a `go-refactor` developer CLI under the future Go language plugin tree
   for moving Go package directories, renaming package clauses, and rewriting
   internal imports during package layout migrations.
-- Added initial `core/evidence` and `runtime/evidence` alias packages with a
-  typed assertion subject vocabulary for the observation/signal naming
-  migration.
+- Added `core/evidence` and `runtime/evidence` packages with typed assertion
+  subjects, assertion fingerprints, baseline observation, and template
+  assertion-deriver support.
 - Added Kubernetes app deploy RBAC generation for apps that declare the
   Kubernetes plugin, including a dedicated ServiceAccount and read-only access
   to configured namespaces.

@@ -17,7 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 )
 
@@ -67,13 +67,13 @@ type ContextProviderContributor interface {
 // ObserverContributor is implemented by plugins that provide executable
 // environment observers in addition to inert observer specs.
 type ObserverContributor interface {
-	EnvironmentObservers(context.Context, Context) ([]runtimeenvironment.Observer, error)
+	EnvironmentObservers(context.Context, Context) ([]runtimeevidence.Observer, error)
 }
 
-// SignalDeriverContributor is implemented by plugins that derive normalized
-// environment signals from observations.
-type SignalDeriverContributor interface {
-	SignalDerivers(context.Context, Context) ([]runtimeenvironment.SignalDeriver, error)
+// AssertionDeriverContributor is implemented by plugins that derive normalized
+// evidence assertions from observations.
+type AssertionDeriverContributor interface {
+	AssertionDerivers(context.Context, Context) ([]runtimeevidence.AssertionDeriver, error)
 }
 
 // ReactionContributor is implemented by plugins that contribute instance-aware
@@ -175,14 +175,14 @@ type ContextProviderContribution struct {
 // plugin instance.
 type EnvironmentObserverContribution struct {
 	Source   resource.SourceRef
-	Observer runtimeenvironment.Observer
+	Observer runtimeevidence.Observer
 }
 
-// SignalDeriverContribution is one executable signal deriver contributed by a
+// AssertionDeriverContribution is one executable assertion deriver contributed by a
 // plugin instance.
-type SignalDeriverContribution struct {
+type AssertionDeriverContribution struct {
 	Source  resource.SourceRef
-	Deriver runtimeenvironment.SignalDeriver
+	Deriver runtimeevidence.AssertionDeriver
 }
 
 // ReactionContribution is one reaction rule contributed by a plugin instance.
@@ -210,7 +210,7 @@ type Resolution struct {
 	Operations          []OperationContribution
 	ContextProviders    []ContextProviderContribution
 	Observers           []EnvironmentObserverContribution
-	SignalDerivers      []SignalDeriverContribution
+	AssertionDerivers   []AssertionDeriverContribution
 	Reactions           []ReactionContribution
 	Channels            []ChannelContribution
 	ConnectorProviders  []ConnectorProviderContribution
@@ -391,16 +391,16 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
-		if contributor, ok := resolvedPlugin.(SignalDeriverContributor); ok {
-			derivers, err := contributor.SignalDerivers(ctx, pluginCtx)
+		if contributor, ok := resolvedPlugin.(AssertionDeriverContributor); ok {
+			derivers, err := contributor.AssertionDerivers(ctx, pluginCtx)
 			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q signal derivers: %w", pluginLabel(ref), err)
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q assertion derivers: %w", pluginLabel(ref), err)
 			}
 			for _, deriver := range derivers {
 				if deriver == nil {
 					continue
 				}
-				out.SignalDerivers = append(out.SignalDerivers, SignalDeriverContribution{
+				out.AssertionDerivers = append(out.AssertionDerivers, AssertionDeriverContribution{
 					Source:  source,
 					Deriver: deriver,
 				})

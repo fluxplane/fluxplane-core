@@ -22,7 +22,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -191,7 +191,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 				bundle.Operations = append(bundle.Operations, spec)
 			}
 			bundle.Observers = append(bundle.Observers, manifest.Observations.Observers...)
-			bundle.SignalDerivers = append(bundle.SignalDerivers, manifest.Observations.SignalDerivers...)
+			bundle.AssertionDerivers = append(bundle.AssertionDerivers, manifest.Observations.AssertionDerivers...)
 			for i, rule := range manifest.Reactions {
 				if err := rule.Validate(); err != nil {
 					return File{}, fmt.Errorf("appconfig: validate reactions[%d]: %w", i, err)
@@ -265,12 +265,12 @@ func DecodeFile(path string, data []byte) (File, error) {
 				return File{}, err
 			}
 			bundle.Observers = append(bundle.Observers, spec)
-		case "signal_deriver":
-			spec, err := decodeSignalDeriverDoc(doc)
+		case "assertion_deriver":
+			spec, err := decodeAssertionDeriverDoc(doc)
 			if err != nil {
 				return File{}, err
 			}
-			bundle.SignalDerivers = append(bundle.SignalDerivers, spec)
+			bundle.AssertionDerivers = append(bundle.AssertionDerivers, spec)
 		case "reaction":
 			spec, err := decodeReactionDoc(doc)
 			if err != nil {
@@ -508,8 +508,8 @@ type Manifest struct {
 }
 
 type observationsDoc struct {
-	Observers      []coreenvironment.ObserverSpec      `json:"observers,omitempty" yaml:"observers,omitempty"`
-	SignalDerivers []coreenvironment.SignalDeriverSpec `json:"signal_derivers,omitempty" yaml:"signal_derivers,omitempty"`
+	Observers         []coreevidence.ObserverSpec         `json:"observers,omitempty" yaml:"observers,omitempty"`
+	AssertionDerivers []coreevidence.AssertionDeriverSpec `json:"assertion_derivers,omitempty" yaml:"assertion_derivers,omitempty"`
 }
 
 type identityDoc struct {
@@ -1705,32 +1705,32 @@ func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 	return spec, nil
 }
 
-func decodeObserverDoc(node yaml.Node) (coreenvironment.ObserverSpec, error) {
+func decodeObserverDoc(node yaml.Node) (coreevidence.ObserverSpec, error) {
 	if err := validateYAMLNode[observerDoc](node); err != nil {
-		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: validate observer document schema: %w", err)
+		return coreevidence.ObserverSpec{}, fmt.Errorf("appconfig: validate observer document schema: %w", err)
 	}
 	var raw observerDoc
 	if err := node.Decode(&raw); err != nil {
-		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: decode observer document: %w", err)
+		return coreevidence.ObserverSpec{}, fmt.Errorf("appconfig: decode observer document: %w", err)
 	}
 	spec := raw.Spec()
 	if strings.TrimSpace(spec.Name) == "" {
-		return coreenvironment.ObserverSpec{}, fmt.Errorf("appconfig: observer document name is empty")
+		return coreevidence.ObserverSpec{}, fmt.Errorf("appconfig: observer document name is empty")
 	}
 	return spec, nil
 }
 
-func decodeSignalDeriverDoc(node yaml.Node) (coreenvironment.SignalDeriverSpec, error) {
-	if err := validateYAMLNode[signalDeriverDoc](node); err != nil {
-		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: validate signal_deriver document schema: %w", err)
+func decodeAssertionDeriverDoc(node yaml.Node) (coreevidence.AssertionDeriverSpec, error) {
+	if err := validateYAMLNode[assertionDeriverDoc](node); err != nil {
+		return coreevidence.AssertionDeriverSpec{}, fmt.Errorf("appconfig: validate assertion_deriver document schema: %w", err)
 	}
-	var raw signalDeriverDoc
+	var raw assertionDeriverDoc
 	if err := node.Decode(&raw); err != nil {
-		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: decode signal_deriver document: %w", err)
+		return coreevidence.AssertionDeriverSpec{}, fmt.Errorf("appconfig: decode assertion_deriver document: %w", err)
 	}
 	spec := raw.Spec()
 	if strings.TrimSpace(spec.Name) == "" {
-		return coreenvironment.SignalDeriverSpec{}, fmt.Errorf("appconfig: signal_deriver document name is empty")
+		return coreevidence.AssertionDeriverSpec{}, fmt.Errorf("appconfig: assertion_deriver document name is empty")
 	}
 	return spec, nil
 }
@@ -1751,19 +1751,19 @@ func decodeReactionDoc(node yaml.Node) (corereaction.Rule, error) {
 }
 
 type observerDoc struct {
-	Kind            string                           `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name            string                           `json:"name" yaml:"name"`
-	Description     string                           `json:"description,omitempty" yaml:"description,omitempty"`
-	Environment     coreenvironment.Ref              `json:"environment,omitempty" yaml:"environment,omitempty"`
-	Phase           coreenvironment.ObservationPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
-	ObservableKinds []string                         `json:"observable_kinds,omitempty" yaml:"observable_kinds,omitempty"`
-	Dynamic         bool                             `json:"dynamic,omitempty" yaml:"dynamic,omitempty"`
-	Disabled        bool                             `json:"disabled,omitempty" yaml:"disabled,omitempty"`
-	Annotations     map[string]string                `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+	Kind            string                        `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name            string                        `json:"name" yaml:"name"`
+	Description     string                        `json:"description,omitempty" yaml:"description,omitempty"`
+	Environment     coreevidence.Ref              `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Phase           coreevidence.ObservationPhase `json:"phase,omitempty" yaml:"phase,omitempty"`
+	ObservableKinds []string                      `json:"observable_kinds,omitempty" yaml:"observable_kinds,omitempty"`
+	Dynamic         bool                          `json:"dynamic,omitempty" yaml:"dynamic,omitempty"`
+	Disabled        bool                          `json:"disabled,omitempty" yaml:"disabled,omitempty"`
+	Annotations     map[string]string             `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
-func (d observerDoc) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func (d observerDoc) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:            strings.TrimSpace(d.Name),
 		Description:     strings.TrimSpace(d.Description),
 		Environment:     d.Environment,
@@ -1775,21 +1775,21 @@ func (d observerDoc) Spec() coreenvironment.ObserverSpec {
 	}
 }
 
-type signalDeriverDoc struct {
+type assertionDeriverDoc struct {
 	Kind             string                           `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name             string                           `json:"name" yaml:"name"`
 	Description      string                           `json:"description,omitempty" yaml:"description,omitempty"`
 	ObservationKinds []string                         `json:"observation_kinds,omitempty" yaml:"observation_kinds,omitempty"`
-	Signals          []coreenvironment.SignalTemplate `json:"signals,omitempty" yaml:"signals,omitempty"`
+	Assertions       []coreevidence.AssertionTemplate `json:"assertions,omitempty" yaml:"assertions,omitempty"`
 	Annotations      map[string]string                `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
-func (d signalDeriverDoc) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
+func (d assertionDeriverDoc) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
 		Name:             strings.TrimSpace(d.Name),
 		Description:      strings.TrimSpace(d.Description),
 		ObservationKinds: append([]string(nil), d.ObservationKinds...),
-		Signals:          append([]coreenvironment.SignalTemplate(nil), d.Signals...),
+		Assertions:       append([]coreevidence.AssertionTemplate(nil), d.Assertions...),
 		Annotations:      cloneStringMap(d.Annotations),
 	}
 }

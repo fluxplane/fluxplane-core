@@ -26,18 +26,18 @@ func (ActionPlanned) EventName() event.Name { return EventActionPlanned }
 
 // ActionApplied records one successful reaction action application.
 type ActionApplied struct {
-	Rule              string     `json:"rule,omitempty"`
-	Action            ActionKind `json:"action,omitempty"`
-	IdempotencyKey    string     `json:"idempotency_key,omitempty"`
-	Target            string     `json:"target,omitempty"`
-	Signal            string     `json:"signal,omitempty"`
-	SignalTarget      string     `json:"signal_target,omitempty"`
-	SignalSubjectKind string     `json:"signal_subject_kind,omitempty"`
-	SignalSubjectName string     `json:"signal_subject_name,omitempty"`
-	SignalSubjectID   string     `json:"signal_subject_id,omitempty"`
-	SignalScope       string     `json:"signal_scope,omitempty"`
-	SignalSource      string     `json:"signal_source,omitempty"`
-	ObservationIDs    []string   `json:"observation_ids,omitempty"`
+	Rule                 string     `json:"rule,omitempty"`
+	Action               ActionKind `json:"action,omitempty"`
+	IdempotencyKey       string     `json:"idempotency_key,omitempty"`
+	Target               string     `json:"target,omitempty"`
+	Assertion            string     `json:"assertion,omitempty"`
+	AssertionTarget      string     `json:"assertion_target,omitempty"`
+	AssertionSubjectKind string     `json:"assertion_subject_kind,omitempty"`
+	AssertionSubjectName string     `json:"assertion_subject_name,omitempty"`
+	AssertionSubjectID   string     `json:"assertion_subject_id,omitempty"`
+	AssertionScope       string     `json:"assertion_scope,omitempty"`
+	AssertionSource      string     `json:"assertion_source,omitempty"`
+	ObservationIDs       []string   `json:"observation_ids,omitempty"`
 }
 
 func (ActionApplied) EventName() event.Name { return EventActionApplied }

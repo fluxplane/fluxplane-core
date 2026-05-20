@@ -7,13 +7,13 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/core/skill"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 )
 
 func TestHostResolvesPluginContributions(t *testing.T) {
@@ -254,8 +254,8 @@ func TestHostResolvesEnvironmentObservers(t *testing.T) {
 	}
 }
 
-func TestHostResolvesSignalDerivers(t *testing.T) {
-	host, err := New(fakeSignalDeriverPlugin{name: "kubernetes"})
+func TestHostResolvesAssertionDerivers(t *testing.T) {
+	host, err := New(fakeAssertionDeriverPlugin{name: "kubernetes"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -263,14 +263,14 @@ func TestHostResolvesSignalDerivers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if len(resolution.SignalDerivers) != 1 {
-		t.Fatalf("signal derivers len = %d, want 1", len(resolution.SignalDerivers))
+	if len(resolution.AssertionDerivers) != 1 {
+		t.Fatalf("assertion derivers len = %d, want 1", len(resolution.AssertionDerivers))
 	}
-	if resolution.SignalDerivers[0].Deriver.Spec().Name != "kubernetes.signals" {
-		t.Fatalf("deriver spec = %#v", resolution.SignalDerivers[0].Deriver.Spec())
+	if resolution.AssertionDerivers[0].Deriver.Spec().Name != "kubernetes.assertions" {
+		t.Fatalf("deriver spec = %#v", resolution.AssertionDerivers[0].Deriver.Spec())
 	}
-	if resolution.SignalDerivers[0].Source.ID != "plugin:kubernetes" {
-		t.Fatalf("source ID = %q, want plugin:kubernetes", resolution.SignalDerivers[0].Source.ID)
+	if resolution.AssertionDerivers[0].Source.ID != "plugin:kubernetes" {
+		t.Fatalf("source ID = %q, want plugin:kubernetes", resolution.AssertionDerivers[0].Source.ID)
 	}
 }
 
@@ -449,44 +449,44 @@ func (p fakeObserverPlugin) Contributions(context.Context, Context) (resource.Co
 	return resource.ContributionBundle{}, nil
 }
 
-func (p fakeObserverPlugin) EnvironmentObservers(context.Context, Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{fakeObserver{}}, nil
+func (p fakeObserverPlugin) EnvironmentObservers(context.Context, Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{fakeObserver{}}, nil
 }
 
 type fakeObserver struct{}
 
-func (fakeObserver) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{Name: "kubernetes.context", Phase: coreenvironment.PhaseTurn}
+func (fakeObserver) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{Name: "kubernetes.context", Phase: coreevidence.PhaseTurn}
 }
 
-func (fakeObserver) Observe(context.Context, runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
-	return []coreenvironment.Observation{{Kind: "kubernetes.context"}}, nil
+func (fakeObserver) Observe(context.Context, runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+	return []coreevidence.Observation{{Kind: "kubernetes.context"}}, nil
 }
 
-type fakeSignalDeriverPlugin struct {
+type fakeAssertionDeriverPlugin struct {
 	name string
 }
 
-func (p fakeSignalDeriverPlugin) Manifest() Manifest {
+func (p fakeAssertionDeriverPlugin) Manifest() Manifest {
 	return Manifest{Name: p.name}
 }
 
-func (p fakeSignalDeriverPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
+func (p fakeAssertionDeriverPlugin) Contributions(context.Context, Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{}, nil
 }
 
-func (p fakeSignalDeriverPlugin) SignalDerivers(context.Context, Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{fakeSignalDeriver{}}, nil
+func (p fakeAssertionDeriverPlugin) AssertionDerivers(context.Context, Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{fakeAssertionDeriver{}}, nil
 }
 
-type fakeSignalDeriver struct{}
+type fakeAssertionDeriver struct{}
 
-func (fakeSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{Name: "kubernetes.signals", ObservationKinds: []string{"kubernetes.context"}}
+func (fakeAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{Name: "kubernetes.assertions", ObservationKinds: []string{"kubernetes.context"}}
 }
 
-func (fakeSignalDeriver) Derive(context.Context, runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	return []coreenvironment.Signal{{Kind: "integration.available", Target: "kubernetes"}}, nil
+func (fakeAssertionDeriver) Derive(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	return []coreevidence.Assertion{{Kind: "integration.available", Target: "kubernetes"}}, nil
 }
 
 type fakeReactionPlugin struct {
@@ -504,7 +504,7 @@ func (p fakeReactionPlugin) Contributions(context.Context, Context) (resource.Co
 func (p fakeReactionPlugin) Reactions(context.Context, Context) ([]corereaction.Rule, error) {
 	return []corereaction.Rule{{
 		Name: "go-skill",
-		When: corereaction.Matcher{Signal: "language.detected", Target: "go"},
+		When: corereaction.Matcher{Assertion: "language.detected", Target: "go"},
 		Actions: []corereaction.Action{{
 			Kind:  corereaction.ActionActivateSkill,
 			Skill: skill.Ref{Name: "go"},

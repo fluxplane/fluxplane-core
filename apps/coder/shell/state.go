@@ -381,6 +381,89 @@ func (s *ShellObject) MoveInputCursorRight() {
 	}
 }
 
+// MoveInputCursorWordLeft moves the active tab input cursor to the previous word boundary.
+func (s *ShellObject) MoveInputCursorWordLeft() {
+	if tab := s.ActiveTab(); tab != nil {
+		runes := []rune(tab.InputBuffer)
+		cursor := tab.inputCursor()
+		for cursor > 0 && unicode.IsSpace(runes[cursor-1]) {
+			cursor--
+		}
+		for cursor > 0 && !unicode.IsSpace(runes[cursor-1]) {
+			cursor--
+		}
+		tab.InputCursor = cursor
+	}
+}
+
+// MoveInputCursorWordRight moves the active tab input cursor to the next word boundary.
+func (s *ShellObject) MoveInputCursorWordRight() {
+	if tab := s.ActiveTab(); tab != nil {
+		runes := []rune(tab.InputBuffer)
+		cursor := tab.inputCursor()
+		for cursor < len(runes) && unicode.IsSpace(runes[cursor]) {
+			cursor++
+		}
+		for cursor < len(runes) && !unicode.IsSpace(runes[cursor]) {
+			cursor++
+		}
+		for cursor < len(runes) && unicode.IsSpace(runes[cursor]) {
+			cursor++
+		}
+		tab.InputCursor = cursor
+	}
+}
+
+// DeleteInput deletes the rune under the active input cursor.
+func (s *ShellObject) DeleteInput() {
+	if tab := s.ActiveTab(); tab != nil {
+		runes := []rune(tab.InputBuffer)
+		cursor := tab.inputCursor()
+		if cursor >= len(runes) {
+			return
+		}
+		out := append([]rune{}, runes[:cursor]...)
+		out = append(out, runes[cursor+1:]...)
+		tab.InputBuffer = string(out)
+		tab.InputCursor = cursor
+		tab.resetHistoryNavigation()
+	}
+}
+
+// DeleteInputToEnd deletes input from the active cursor to the end of the line.
+func (s *ShellObject) DeleteInputToEnd() {
+	if tab := s.ActiveTab(); tab != nil {
+		runes := []rune(tab.InputBuffer)
+		cursor := tab.inputCursor()
+		tab.InputBuffer = string(runes[:cursor])
+		tab.InputCursor = cursor
+		tab.resetHistoryNavigation()
+	}
+}
+
+// DeleteInputPreviousWord deletes the word before the active input cursor.
+func (s *ShellObject) DeleteInputPreviousWord() {
+	if tab := s.ActiveTab(); tab != nil {
+		runes := []rune(tab.InputBuffer)
+		cursor := tab.inputCursor()
+		if cursor == 0 {
+			return
+		}
+		start := cursor
+		for start > 0 && unicode.IsSpace(runes[start-1]) {
+			start--
+		}
+		for start > 0 && !unicode.IsSpace(runes[start-1]) {
+			start--
+		}
+		out := append([]rune{}, runes[:start]...)
+		out = append(out, runes[cursor:]...)
+		tab.InputBuffer = string(out)
+		tab.InputCursor = start
+		tab.resetHistoryNavigation()
+	}
+}
+
 // SubmitActiveInput submits the active tab input through the shell client and
 // records returned events in that tab transcript.
 func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
@@ -411,15 +494,9 @@ func (s *ShellObject) startActiveSubmission(ctx context.Context) (activeSubmissi
 	}
 	line := strings.TrimSpace(tab.InputBuffer)
 	if line == "" {
-		tab.Transcript = append(tab.Transcript, TranscriptEvent{
-			ID:        newEventID("input"),
-			SessionID: tab.ID,
-			Time:      time.Now(),
-			Kind:      EventInputSubmitted,
-			Summary:   "",
-		})
 		tab.InputBuffer = ""
 		tab.InputCursor = 0
+		tab.resetHistoryNavigation()
 		return activeSubmission{}, false, nil
 	}
 	if tab.ID == disconnectedSessionID {

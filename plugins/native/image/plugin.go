@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -25,11 +25,10 @@ const (
 	ProvidersOp        = "image_providers"
 	defaultMaxFileSize = 10 * 1024 * 1024
 
-	ObservationImageProviders = "image.providers"
-	SignalImageReadyRequested = "capability.ready_and_requested"
-	imageChannelMessageKind   = "channel.message"
-	imageProviderObserverName = "image.providers"
-	imageIntentSignalDeriver  = "image.intent"
+	ObservationImageProviders     = "image.providers"
+	AssertionImageProviderReady   = "capability.available"
+	imageProviderObserverName     = "image.providers"
+	imageProviderAssertionDeriver = "image.availability"
 )
 
 // Plugin contributes image generation and understanding operations.
@@ -42,7 +41,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // Option customizes the image plugin.
 type Option func(*Plugin)
@@ -115,34 +114,34 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		},
 		ToolSets:   []tool.Set{imageToolSet()},
 		Operations: specs,
-		Observers: []coreenvironment.ObserverSpec{{
+		Observers: []coreevidence.ObserverSpec{{
 			Name:            imageProviderObserverName,
 			Description:     "Observes configured image generation and understanding providers.",
-			Environment:     coreenvironment.Ref{Name: Name},
-			Phase:           coreenvironment.PhaseTurn,
+			Environment:     coreevidence.Ref{Name: Name},
+			Phase:           coreevidence.PhaseTurn,
 			ObservableKinds: []string{ObservationImageProviders},
 			Dynamic:         true,
 		}},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-			Name:             imageIntentSignalDeriver,
-			Description:      "Derives image activation when provider availability and turn intent are both present.",
-			ObservationKinds: []string{ObservationImageProviders, imageChannelMessageKind},
-			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalImageReadyRequested, Target: GenerationSet, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: GenerationSet}},
-				{Kind: SignalImageReadyRequested, Target: UnderstandingSet, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: UnderstandingSet}},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+			Name:             imageProviderAssertionDeriver,
+			Description:      "Derives image activation from stable provider availability.",
+			ObservationKinds: []string{ObservationImageProviders},
+			Assertions: []coreevidence.AssertionTemplate{
+				{Kind: AssertionImageProviderReady, Target: GenerationSet, Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: GenerationSet}},
+				{Kind: AssertionImageProviderReady, Target: UnderstandingSet, Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: UnderstandingSet}},
 			},
 		}},
 	}, nil
 }
 
 // EnvironmentObservers returns image provider availability observers.
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{imageProviderObserver{plugin: p}}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{imageProviderObserver{plugin: p}}, nil
 }
 
-// SignalDerivers returns image intent derivers.
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{imageIntentDeriver{}}, nil
+// AssertionDerivers returns image provider availability derivers.
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{imageProviderDeriver{}}, nil
 }
 
 // Operations returns executable image operations.
@@ -166,26 +165,26 @@ type imageProviderObserver struct {
 	plugin Plugin
 }
 
-func (o imageProviderObserver) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func (o imageProviderObserver) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:            imageProviderObserverName,
 		Description:     "Observes configured image generation and understanding providers.",
-		Environment:     coreenvironment.Ref{Name: Name},
-		Phase:           coreenvironment.PhaseTurn,
+		Environment:     coreevidence.Ref{Name: Name},
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{ObservationImageProviders},
 		Dynamic:         true,
 	}
 }
 
-func (o imageProviderObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o imageProviderObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	out := o.plugin.providerOutput(ctx)
 	evidence := ImageProviderEvidence{
 		Generation:    append([]ProviderInfo(nil), out.Generation...),
 		Understanding: append([]ProviderInfo(nil), out.Understanding...),
 	}
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "image:providers",
-		Environment: coreenvironment.Ref{Name: Name},
+		Environment: coreevidence.Ref{Name: Name},
 		Kind:        ObservationImageProviders,
 		Scope:       "runtime",
 		Content:     evidence,
@@ -193,60 +192,54 @@ func (o imageProviderObserver) Observe(ctx context.Context, _ runtimeenvironment
 	}}, nil
 }
 
-type imageIntentDeriver struct{}
+type imageProviderDeriver struct{}
 
-func (imageIntentDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
-		Name:             imageIntentSignalDeriver,
-		Description:      "Derives image activation when provider availability and turn intent are both present.",
-		ObservationKinds: []string{ObservationImageProviders, imageChannelMessageKind},
+func (imageProviderDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             imageProviderAssertionDeriver,
+		Description:      "Derives image activation from stable provider availability.",
+		ObservationKinds: []string{ObservationImageProviders},
 	}
 }
 
-func (imageIntentDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+func (imageProviderDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 	var providers ImageProviderEvidence
 	var sawProviders bool
-	var intent imageIntent
 	var ids []string
 	var scope string
 	for _, observation := range req.Observations {
-		switch observation.Kind {
-		case ObservationImageProviders:
-			if evidence, ok := imageProvidersFromObservation(observation.Content); ok {
-				providers = evidence
-				sawProviders = true
-				ids = appendImageObservationID(ids, observation.ID)
-			}
-		case imageChannelMessageKind:
-			if detected := detectImageTurnIntent(observation.Content); !detected.isZero() {
-				intent = intent.merge(detected)
-				ids = appendImageObservationID(ids, observation.ID)
-				if scope == "" {
-					scope = observation.Scope
-				}
+		if observation.Kind != ObservationImageProviders {
+			continue
+		}
+		if evidence, ok := imageProvidersFromObservation(observation.Content); ok {
+			providers = evidence
+			sawProviders = true
+			ids = appendImageObservationID(ids, observation.ID)
+			if scope == "" {
+				scope = observation.Scope
 			}
 		}
 	}
 	if !sawProviders {
 		return nil, nil
 	}
-	var signals []coreenvironment.Signal
-	if intent.Generate && providerListAvailable(providers.Generation) {
-		signals = append(signals, imageReadySignal(GenerationSet, "generation", scope, ids))
+	var assertions []coreevidence.Assertion
+	if providerListAvailable(providers.Generation) {
+		assertions = append(assertions, imageReadyAssertion(GenerationSet, "generation", scope, ids))
 	}
-	if intent.Understand && providerListAvailable(providers.Understanding) {
-		signals = append(signals, imageReadySignal(UnderstandingSet, "understanding", scope, ids))
+	if providerListAvailable(providers.Understanding) {
+		assertions = append(assertions, imageReadyAssertion(UnderstandingSet, "understanding", scope, ids))
 	}
-	return signals, nil
+	return assertions, nil
 }
 
-func imageReadySignal(target, mode, scope string, ids []string) coreenvironment.Signal {
-	return coreenvironment.Signal{
-		Kind:           SignalImageReadyRequested,
+func imageReadyAssertion(target, mode, scope string, ids []string) coreevidence.Assertion {
+	return coreevidence.Assertion{
+		Kind:           AssertionImageProviderReady,
 		Target:         target,
-		Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: target},
+		Subject:        coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: target},
 		Scope:          scope,
-		Environment:    coreenvironment.Ref{Name: Name},
+		Environment:    coreevidence.Ref{Name: Name},
 		Confidence:     1,
 		ObservationIDs: append([]string(nil), ids...),
 		Metadata:       map[string]string{"capability": Name, "mode": mode},
@@ -274,64 +267,6 @@ func providerListAvailable(providers []ProviderInfo) bool {
 		}
 	}
 	return false
-}
-
-type imageIntent struct {
-	Generate   bool
-	Understand bool
-}
-
-func (i imageIntent) isZero() bool {
-	return !i.Generate && !i.Understand
-}
-
-func (i imageIntent) merge(other imageIntent) imageIntent {
-	return imageIntent{Generate: i.Generate || other.Generate, Understand: i.Understand || other.Understand}
-}
-
-func detectImageTurnIntent(content any) imageIntent {
-	text := strings.ToLower(strings.TrimSpace(fmt.Sprint(content)))
-	if text == "" {
-		return imageIntent{}
-	}
-	intent := imageIntent{}
-	for _, phrase := range []string{
-		"generate an image",
-		"create an image",
-		"make an image",
-		"draw an image",
-		"generate a picture",
-		"create a picture",
-		"make a picture",
-		"image generation",
-	} {
-		if strings.Contains(text, phrase) {
-			intent.Generate = true
-		}
-	}
-	for _, phrase := range []string{
-		"describe this image",
-		"understand this image",
-		"analyze this image",
-		"inspect this image",
-	} {
-		if strings.Contains(text, phrase) {
-			intent.Understand = true
-		}
-	}
-	if strings.Contains(text, "image") {
-		for _, token := range []string{"generate", "create", "make", "draw"} {
-			if strings.Contains(text, token) {
-				intent.Generate = true
-			}
-		}
-		for _, token := range []string{"describe", "understand", "analyze", "inspect"} {
-			if strings.Contains(text, token) {
-				intent.Understand = true
-			}
-		}
-	}
-	return intent
 }
 
 func appendImageObservationID(ids []string, id string) []string {

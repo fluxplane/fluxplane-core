@@ -13,8 +13,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -27,8 +27,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
@@ -150,29 +150,29 @@ func TestNewRunsStartupEnvironmentOnceAndPassesObservationsToSessions(t *testing
 	observerCalls := 0
 	startupDeriverCalls := 0
 	observer := harnessEnvironmentObserver{
-		spec: coreenvironment.ObserverSpec{Name: "startup.observer", Phase: coreenvironment.PhaseStartup},
-		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+		spec: coreevidence.ObserverSpec{Name: "startup.observer", Phase: coreevidence.PhaseStartup},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 			observerCalls++
-			if req.Phase != coreenvironment.PhaseStartup {
+			if req.Phase != coreevidence.PhaseStartup {
 				t.Fatalf("phase = %q, want startup", req.Phase)
 			}
-			return []coreenvironment.Observation{{Kind: "startup.fact", Content: "ready"}}, nil
+			return []coreevidence.Observation{{Kind: "startup.fact", Content: "ready"}}, nil
 		},
 	}
-	deriver := harnessSignalDeriver{
-		spec: coreenvironment.SignalDeriverSpec{Name: "startup.signals"},
-		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	deriver := harnessAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "startup.assertions"},
+		derive: func(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 			if len(req.Observations) == 1 && req.Observations[0].Kind == "startup.fact" {
 				startupDeriverCalls++
 			}
-			return []coreenvironment.Signal{{Kind: "startup.ready", Target: "runtime"}}, nil
+			return []coreevidence.Assertion{{Kind: "startup.ready", Target: "runtime"}}, nil
 		},
 	}
 	service := New(Config{
 		Agent:                agentRuntime,
 		ThreadStore:          threadStore,
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
-		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
+		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
 	})
 	if observerCalls != 1 || startupDeriverCalls != 1 {
 		t.Fatalf("startup calls observer=%d deriver=%d, want once each", observerCalls, startupDeriverCalls)
@@ -1459,31 +1459,31 @@ func (p harnessContextProvider) Build(context.Context, corecontext.Request) ([]c
 }
 
 type harnessEnvironmentObserver struct {
-	spec    coreenvironment.ObserverSpec
-	observe func(context.Context, runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error)
+	spec    coreevidence.ObserverSpec
+	observe func(context.Context, runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error)
 }
 
-func (o harnessEnvironmentObserver) Spec() coreenvironment.ObserverSpec {
+func (o harnessEnvironmentObserver) Spec() coreevidence.ObserverSpec {
 	return o.spec
 }
 
-func (o harnessEnvironmentObserver) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o harnessEnvironmentObserver) Observe(ctx context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	if o.observe == nil {
 		return nil, nil
 	}
 	return o.observe(ctx, req)
 }
 
-type harnessSignalDeriver struct {
-	spec   coreenvironment.SignalDeriverSpec
-	derive func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error)
+type harnessAssertionDeriver struct {
+	spec   coreevidence.AssertionDeriverSpec
+	derive func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error)
 }
 
-func (d harnessSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+func (d harnessAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
 	return d.spec
 }
 
-func (d harnessSignalDeriver) Derive(ctx context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+func (d harnessAssertionDeriver) Derive(ctx context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 	if d.derive == nil {
 		return nil, nil
 	}

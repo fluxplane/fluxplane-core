@@ -10,8 +10,8 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
@@ -23,8 +23,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 )
@@ -60,8 +60,8 @@ type Composition struct {
 	resourcecatalog.Catalogs
 	ContextProviderImpls []corecontext.Provider
 	DatasourceProviders  []coredatasource.Provider
-	EnvironmentObservers []runtimeenvironment.Observer
-	SignalDerivers       []runtimeenvironment.SignalDeriver
+	EnvironmentObservers []runtimeevidence.Observer
+	AssertionDerivers    []runtimeevidence.AssertionDeriver
 	ReactionRules        []corereaction.Rule
 	resourcecatalog.Specs
 	appresources.Resources
@@ -88,7 +88,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginSignalDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginAssertionDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -107,13 +107,13 @@ func Compose(cfg Config) (Composition, error) {
 		return Composition{Diagnostics: diagnostics}, err
 	}
 	reactions := append(bundleReactions, pluginReactions...)
-	baselineObservers := []runtimeenvironment.Observer{runtimeenvironment.BaselineObserver()}
-	environmentObservers := append([]runtimeenvironment.Observer(nil), baselineObservers...)
+	baselineObservers := []runtimeevidence.Observer{runtimeevidence.BaselineObserver()}
+	environmentObservers := append([]runtimeevidence.Observer(nil), baselineObservers...)
 	environmentObservers = append(environmentObservers, pluginObservers...)
 	environmentObservers = applyObserverOverrides(environmentObservers, observerOverrideSpecs(cfg.Bundles))
-	configuredSignalDerivers := runtimeenvironment.TemplateSignalDerivers(templateSignalDeriverSpecs(bundles, pluginSignalDerivers))
-	signalDerivers := append(configuredSignalDerivers, pluginSignalDerivers...)
-	environmentDiagnostics := validateEnvironmentContributions(bundles, environmentObservers, signalDerivers)
+	configuredAssertionDerivers := runtimeevidence.TemplateAssertionDerivers(templateAssertionDeriverSpecs(bundles, pluginAssertionDerivers))
+	assertionDerivers := append(configuredAssertionDerivers, pluginAssertionDerivers...)
+	environmentDiagnostics := validateEnvironmentContributions(bundles, environmentObservers, assertionDerivers)
 	diagnostics = append(diagnostics, environmentDiagnostics...)
 	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendEventTypesFromBundles(cfg.EventTypes, bundles)})
 	if err != nil {
@@ -148,8 +148,8 @@ func Compose(cfg Config) (Composition, error) {
 		diagnostics = append(diagnostics, resourceDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
-	if deriver := newSkillTriggerSignalDeriver(specs.SkillSpecs); deriver != nil {
-		signalDerivers = append(signalDerivers, deriver)
+	if deriver := newSkillTriggerAssertionDeriver(specs.SkillSpecs); deriver != nil {
+		assertionDerivers = append(assertionDerivers, deriver)
 	}
 	reactions = append(reactions, skillTriggerReactionBindings(specs.SkillSpecs)...)
 	reactionDiagnostics := validateReactionTargets(reactions, specs, appResources)
@@ -182,7 +182,7 @@ func Compose(cfg Config) (Composition, error) {
 		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
 		DatasourceProviders:  pluginDatasourceProviders,
 		EnvironmentObservers: environmentObservers,
-		SignalDerivers:       signalDerivers,
+		AssertionDerivers:    assertionDerivers,
 		ReactionRules:        reactionRules(reactions),
 		Specs:                specs,
 		Resources:            appResources,
@@ -214,12 +214,12 @@ func mergeIdentity(bundles []resource.ContributionBundle) coreapp.IdentitySpec {
 	return out
 }
 
-func templateSignalDeriverSpecs(bundles []resource.ContributionBundle, executable []runtimeenvironment.SignalDeriver) []coreenvironment.SignalDeriverSpec {
-	executableNames := signalDeriverNames(executable)
-	var out []coreenvironment.SignalDeriverSpec
+func templateAssertionDeriverSpecs(bundles []resource.ContributionBundle, executable []runtimeevidence.AssertionDeriver) []coreevidence.AssertionDeriverSpec {
+	executableNames := assertionDeriverNames(executable)
+	var out []coreevidence.AssertionDeriverSpec
 	for _, bundle := range bundles {
-		for _, spec := range bundle.SignalDerivers {
-			if len(spec.Signals) == 0 {
+		for _, spec := range bundle.AssertionDerivers {
+			if len(spec.Assertions) == 0 {
 				continue
 			}
 			if executableNames[strings.TrimSpace(spec.Name)] {
@@ -232,20 +232,20 @@ func templateSignalDeriverSpecs(bundles []resource.ContributionBundle, executabl
 }
 
 type observerSpecOverride struct {
-	observer runtimeenvironment.Observer
-	spec     coreenvironment.ObserverSpec
+	observer runtimeevidence.Observer
+	spec     coreevidence.ObserverSpec
 }
 
-func (o observerSpecOverride) Spec() coreenvironment.ObserverSpec {
+func (o observerSpecOverride) Spec() coreevidence.ObserverSpec {
 	return o.spec
 }
 
-func (o observerSpecOverride) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o observerSpecOverride) Observe(ctx context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	return o.observer.Observe(ctx, req)
 }
 
-func observerOverrideSpecs(bundles []resource.ContributionBundle) map[string]coreenvironment.ObserverSpec {
-	out := map[string]coreenvironment.ObserverSpec{}
+func observerOverrideSpecs(bundles []resource.ContributionBundle) map[string]coreevidence.ObserverSpec {
+	out := map[string]coreevidence.ObserverSpec{}
 	for _, bundle := range bundles {
 		for _, spec := range bundle.Observers {
 			name := strings.TrimSpace(spec.Name)
@@ -259,11 +259,11 @@ func observerOverrideSpecs(bundles []resource.ContributionBundle) map[string]cor
 	return out
 }
 
-func applyObserverOverrides(observers []runtimeenvironment.Observer, overrides map[string]coreenvironment.ObserverSpec) []runtimeenvironment.Observer {
+func applyObserverOverrides(observers []runtimeevidence.Observer, overrides map[string]coreevidence.ObserverSpec) []runtimeevidence.Observer {
 	if len(overrides) == 0 {
 		return observers
 	}
-	out := make([]runtimeenvironment.Observer, 0, len(observers))
+	out := make([]runtimeevidence.Observer, 0, len(observers))
 	for _, observer := range observers {
 		if observer == nil {
 			out = append(out, observer)
@@ -286,7 +286,7 @@ func applyObserverOverrides(observers []runtimeenvironment.Observer, overrides m
 	return out
 }
 
-func mergeObserverSpec(base, override coreenvironment.ObserverSpec) coreenvironment.ObserverSpec {
+func mergeObserverSpec(base, override coreevidence.ObserverSpec) coreevidence.ObserverSpec {
 	out := base
 	if name := strings.TrimSpace(override.Name); name != "" {
 		out.Name = name
@@ -326,7 +326,7 @@ func mergeStringMap(base, override map[string]string) map[string]string {
 	return out
 }
 
-func validateEnvironmentContributions(bundles []resource.ContributionBundle, observers []runtimeenvironment.Observer, derivers []runtimeenvironment.SignalDeriver) []resource.Diagnostic {
+func validateEnvironmentContributions(bundles []resource.ContributionBundle, observers []runtimeevidence.Observer, derivers []runtimeevidence.AssertionDeriver) []resource.Diagnostic {
 	observerNames := map[string]bool{}
 	for _, observer := range observers {
 		if observer == nil {
@@ -336,7 +336,7 @@ func validateEnvironmentContributions(bundles []resource.ContributionBundle, obs
 			observerNames[name] = true
 		}
 	}
-	deriverNames := signalDeriverNames(derivers)
+	deriverNames := assertionDeriverNames(derivers)
 	var diagnostics []resource.Diagnostic
 	for _, bundle := range bundles {
 		for _, spec := range bundle.Observers {
@@ -346,18 +346,18 @@ func validateEnvironmentContributions(bundles []resource.ContributionBundle, obs
 			}
 			diagnostics = append(diagnostics, warningDiagnostic(bundle.Source, fmt.Sprintf("observer %q is configured but no enabled runtime or plugin provides an executable observer", name)))
 		}
-		for _, spec := range bundle.SignalDerivers {
+		for _, spec := range bundle.AssertionDerivers {
 			name := strings.TrimSpace(spec.Name)
 			if name == "" || deriverNames[name] {
 				continue
 			}
-			diagnostics = append(diagnostics, warningDiagnostic(bundle.Source, fmt.Sprintf("signal deriver %q is configured but no enabled runtime or plugin provides an executable signal deriver", name)))
+			diagnostics = append(diagnostics, warningDiagnostic(bundle.Source, fmt.Sprintf("assertion deriver %q is configured but no enabled runtime or plugin provides an executable assertion deriver", name)))
 		}
 	}
 	return diagnostics
 }
 
-func signalDeriverNames(derivers []runtimeenvironment.SignalDeriver) map[string]bool {
+func assertionDeriverNames(derivers []runtimeevidence.AssertionDeriver) map[string]bool {
 	names := map[string]bool{}
 	for _, deriver := range derivers {
 		if deriver == nil {
@@ -506,20 +506,20 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeenvironment.Observer, []runtimeenvironment.SignalDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
 	var datasourceProviders []coredatasource.Provider
-	var observers []runtimeenvironment.Observer
-	var signalDerivers []runtimeenvironment.SignalDeriver
+	var observers []runtimeevidence.Observer
+	var assertionDerivers []runtimeevidence.AssertionDeriver
 	var reactions []reactionRuleBinding
 	var externalIdentities []identity.ExternalResolver
 	var diagnostics []resource.Diagnostic
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
+		return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
 	}
 	discoveryRegistry := runtimediscovery.NewRegistry()
 	endpointRegistry := runtimeendpoint.NewRegistry(0)
@@ -538,7 +538,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
+			return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
@@ -551,8 +551,8 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		for _, observer := range contributed.Observers {
 			observers = append(observers, observer.Observer)
 		}
-		for _, deriver := range contributed.SignalDerivers {
-			signalDerivers = append(signalDerivers, deriver.Deriver)
+		for _, deriver := range contributed.AssertionDerivers {
+			assertionDerivers = append(assertionDerivers, deriver.Deriver)
 		}
 		for _, reaction := range contributed.Reactions {
 			reactions = append(reactions, reactionRuleBinding{Source: reaction.Source, Rule: reaction.Rule})
@@ -561,7 +561,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 			externalIdentities = append(externalIdentities, resolver.Resolver)
 		}
 	}
-	return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, nil
+	return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, nil
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {

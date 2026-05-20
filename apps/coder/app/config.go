@@ -16,7 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -76,8 +76,8 @@ type fileConfig struct {
 
 // ObservationConfig carries inert observer configuration from .coder.yaml.
 type ObservationConfig struct {
-	Observers      []coreenvironment.ObserverSpec      `json:"observers,omitempty" yaml:"observers,omitempty"`
-	SignalDerivers []coreenvironment.SignalDeriverSpec `json:"signal_derivers,omitempty" yaml:"signal_derivers,omitempty"`
+	Observers         []coreevidence.ObserverSpec         `json:"observers,omitempty" yaml:"observers,omitempty"`
+	AssertionDerivers []coreevidence.AssertionDeriverSpec `json:"assertion_derivers,omitempty" yaml:"assertion_derivers,omitempty"`
 }
 
 type workspaceFile struct {
@@ -94,34 +94,34 @@ type workspaceRootFile struct {
 }
 
 type observationFile struct {
-	Observers      []observerFile      `yaml:"observers"`
-	SignalDerivers []signalDeriverFile `yaml:"signal_derivers"`
+	Observers         []observerFile         `yaml:"observers"`
+	AssertionDerivers []assertionDeriverFile `yaml:"assertion_derivers"`
 }
 
 type observerFile struct {
-	Name            string                           `yaml:"name"`
-	Description     string                           `yaml:"description"`
-	Environment     environmentRefFile               `yaml:"environment"`
-	Phase           coreenvironment.ObservationPhase `yaml:"phase"`
-	ObservableKinds []string                         `yaml:"observable_kinds"`
-	Dynamic         bool                             `yaml:"dynamic"`
-	Disabled        bool                             `yaml:"disabled"`
-	Annotations     map[string]string                `yaml:"annotations"`
+	Name            string                        `yaml:"name"`
+	Description     string                        `yaml:"description"`
+	Environment     environmentRefFile            `yaml:"environment"`
+	Phase           coreevidence.ObservationPhase `yaml:"phase"`
+	ObservableKinds []string                      `yaml:"observable_kinds"`
+	Dynamic         bool                          `yaml:"dynamic"`
+	Disabled        bool                          `yaml:"disabled"`
+	Annotations     map[string]string             `yaml:"annotations"`
 }
 
 type environmentRefFile struct {
-	Name coreenvironment.Name `yaml:"name"`
+	Name coreevidence.Name `yaml:"name"`
 }
 
-type signalDeriverFile struct {
-	Name             string               `yaml:"name"`
-	Description      string               `yaml:"description"`
-	ObservationKinds []string             `yaml:"observation_kinds"`
-	Signals          []signalTemplateFile `yaml:"signals"`
-	Annotations      map[string]string    `yaml:"annotations"`
+type assertionDeriverFile struct {
+	Name             string                  `yaml:"name"`
+	Description      string                  `yaml:"description"`
+	ObservationKinds []string                `yaml:"observation_kinds"`
+	Assertions       []assertionTemplateFile `yaml:"assertions"`
+	Annotations      map[string]string       `yaml:"annotations"`
 }
 
-type signalTemplateFile struct {
+type assertionTemplateFile struct {
 	Kind    string      `yaml:"kind"`
 	Target  string      `yaml:"target"`
 	Subject subjectFile `yaml:"subject"`
@@ -130,9 +130,9 @@ type signalTemplateFile struct {
 }
 
 type subjectFile struct {
-	Kind coreenvironment.SubjectKind `yaml:"kind"`
-	Name string                      `yaml:"name"`
-	ID   string                      `yaml:"id"`
+	Kind coreevidence.SubjectKind `yaml:"kind"`
+	Name string                   `yaml:"name"`
+	ID   string                   `yaml:"id"`
 }
 
 type reactionFile struct {
@@ -145,12 +145,12 @@ type reactionFile struct {
 }
 
 type matcherFile struct {
-	Signal  string            `yaml:"signal"`
-	Target  string            `yaml:"target"`
-	Subject subjectFile       `yaml:"subject"`
-	Scope   string            `yaml:"scope"`
-	Source  string            `yaml:"source"`
-	Meta    map[string]string `yaml:"meta"`
+	Assertion string            `yaml:"assertion"`
+	Target    string            `yaml:"target"`
+	Subject   subjectFile       `yaml:"subject"`
+	Scope     string            `yaml:"scope"`
+	Source    string            `yaml:"source"`
+	Meta      map[string]string `yaml:"meta"`
 }
 
 type reactionActionFile struct {
@@ -430,8 +430,8 @@ func decodeConfigFile(path string) (ResolvedConfig, error) {
 
 func observationConfigFromFile(raw observationFile) (ObservationConfig, error) {
 	out := ObservationConfig{
-		Observers:      make([]coreenvironment.ObserverSpec, 0, len(raw.Observers)),
-		SignalDerivers: make([]coreenvironment.SignalDeriverSpec, 0, len(raw.SignalDerivers)),
+		Observers:         make([]coreevidence.ObserverSpec, 0, len(raw.Observers)),
+		AssertionDerivers: make([]coreevidence.AssertionDeriverSpec, 0, len(raw.AssertionDerivers)),
 	}
 	for i, observer := range raw.Observers {
 		spec := observer.Spec()
@@ -440,18 +440,18 @@ func observationConfigFromFile(raw observationFile) (ObservationConfig, error) {
 		}
 		out.Observers = append(out.Observers, spec)
 	}
-	for i, deriver := range raw.SignalDerivers {
+	for i, deriver := range raw.AssertionDerivers {
 		spec := deriver.Spec()
 		if strings.TrimSpace(spec.Name) == "" {
-			return ObservationConfig{}, fmt.Errorf("observations.signal_derivers[%d].name is empty", i)
+			return ObservationConfig{}, fmt.Errorf("observations.assertion_derivers[%d].name is empty", i)
 		}
-		out.SignalDerivers = append(out.SignalDerivers, spec)
+		out.AssertionDerivers = append(out.AssertionDerivers, spec)
 	}
 	return out, nil
 }
 
-func (f observerFile) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func (f observerFile) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:            strings.TrimSpace(f.Name),
 		Description:     strings.TrimSpace(f.Description),
 		Environment:     f.Environment.Ref(),
@@ -463,26 +463,26 @@ func (f observerFile) Spec() coreenvironment.ObserverSpec {
 	}
 }
 
-func (f environmentRefFile) Ref() coreenvironment.Ref {
-	return coreenvironment.Ref{Name: f.Name}
+func (f environmentRefFile) Ref() coreevidence.Ref {
+	return coreevidence.Ref{Name: f.Name}
 }
 
-func (f signalDeriverFile) Spec() coreenvironment.SignalDeriverSpec {
-	signals := make([]coreenvironment.SignalTemplate, 0, len(f.Signals))
-	for _, signal := range f.Signals {
-		signals = append(signals, signal.Template())
+func (f assertionDeriverFile) Spec() coreevidence.AssertionDeriverSpec {
+	assertions := make([]coreevidence.AssertionTemplate, 0, len(f.Assertions))
+	for _, assertion := range f.Assertions {
+		assertions = append(assertions, assertion.Template())
 	}
-	return coreenvironment.SignalDeriverSpec{
+	return coreevidence.AssertionDeriverSpec{
 		Name:             strings.TrimSpace(f.Name),
 		Description:      strings.TrimSpace(f.Description),
 		ObservationKinds: trimStrings(f.ObservationKinds),
-		Signals:          signals,
+		Assertions:       assertions,
 		Annotations:      cloneStringMap(f.Annotations),
 	}
 }
 
-func (f signalTemplateFile) Template() coreenvironment.SignalTemplate {
-	return coreenvironment.SignalTemplate{
+func (f assertionTemplateFile) Template() coreevidence.AssertionTemplate {
+	return coreevidence.AssertionTemplate{
 		Kind:    strings.TrimSpace(f.Kind),
 		Target:  strings.TrimSpace(f.Target),
 		Subject: f.Subject.Subject(),
@@ -508,17 +508,17 @@ func (f reactionFile) Rule() corereaction.Rule {
 
 func (f matcherFile) Matcher() corereaction.Matcher {
 	return corereaction.Matcher{
-		Signal:  strings.TrimSpace(f.Signal),
-		Target:  strings.TrimSpace(f.Target),
-		Subject: f.Subject.Subject(),
-		Scope:   strings.TrimSpace(f.Scope),
-		Source:  strings.TrimSpace(f.Source),
-		Meta:    cloneStringMap(f.Meta),
+		Assertion: strings.TrimSpace(f.Assertion),
+		Target:    strings.TrimSpace(f.Target),
+		Subject:   f.Subject.Subject(),
+		Scope:     strings.TrimSpace(f.Scope),
+		Source:    strings.TrimSpace(f.Source),
+		Meta:      cloneStringMap(f.Meta),
 	}
 }
 
-func (f subjectFile) Subject() coreenvironment.Subject {
-	return coreenvironment.Subject{
+func (f subjectFile) Subject() coreevidence.Subject {
+	return coreevidence.Subject{
 		Kind: f.Kind,
 		Name: strings.TrimSpace(f.Name),
 		ID:   strings.TrimSpace(f.ID),
@@ -703,7 +703,7 @@ func renderConfig(out io.Writer, cfg ResolvedConfig, output string) error {
 }
 
 func coderConfigBundles(cfg ResolvedConfig) []resource.ContributionBundle {
-	if len(cfg.Observations.Observers) == 0 && len(cfg.Observations.SignalDerivers) == 0 && len(cfg.Reactions) == 0 {
+	if len(cfg.Observations.Observers) == 0 && len(cfg.Observations.AssertionDerivers) == 0 && len(cfg.Reactions) == 0 {
 		return nil
 	}
 	path := strings.TrimSpace(cfg.Path)
@@ -713,9 +713,9 @@ func coderConfigBundles(cfg ResolvedConfig) []resource.ContributionBundle {
 			Scope:    resource.ScopeProject,
 			Location: path,
 		},
-		Observers:      append([]coreenvironment.ObserverSpec(nil), cfg.Observations.Observers...),
-		SignalDerivers: append([]coreenvironment.SignalDeriverSpec(nil), cfg.Observations.SignalDerivers...),
-		Reactions:      append([]corereaction.Rule(nil), cfg.Reactions...),
+		Observers:         append([]coreevidence.ObserverSpec(nil), cfg.Observations.Observers...),
+		AssertionDerivers: append([]coreevidence.AssertionDeriverSpec(nil), cfg.Observations.AssertionDerivers...),
+		Reactions:         append([]corereaction.Rule(nil), cfg.Reactions...),
 	}}
 }
 

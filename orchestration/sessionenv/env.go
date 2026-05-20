@@ -8,8 +8,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -176,7 +176,7 @@ func ScopeFromContext(ctx context.Context) (Scope, bool) {
 
 // ContextProviderContext adds session-scoped datasource state to a context
 // provider render context.
-func ContextProviderContext(ctx context.Context, cfg Config, observations []environment.Observation) context.Context {
+func ContextProviderContext(ctx context.Context, cfg Config, observations []coreevidence.Observation) context.Context {
 	ctx = ensureContext(ctx)
 	ctx = WithBaseContext(ctx, cfg, "")
 	if cfg.Agent == nil && cfg.Active == nil {

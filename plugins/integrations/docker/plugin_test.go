@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
 
-func TestPluginContributesObserverAndSignalDeriver(t *testing.T) {
+func TestPluginContributesObserverAndAssertionDeriver(t *testing.T) {
 	bundle, err := Plugin{}.Contributions(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
@@ -21,8 +21,8 @@ func TestPluginContributesObserverAndSignalDeriver(t *testing.T) {
 	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != ObserverName {
 		t.Fatalf("observers = %#v, want Docker observer spec", bundle.Observers)
 	}
-	if len(bundle.SignalDerivers) != 1 || bundle.SignalDerivers[0].Name != SignalDeriverName {
-		t.Fatalf("signal derivers = %#v, want Docker signal deriver spec", bundle.SignalDerivers)
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != AssertionDeriverName {
+		t.Fatalf("assertion derivers = %#v, want Docker assertion deriver spec", bundle.AssertionDerivers)
 	}
 }
 
@@ -31,7 +31,7 @@ func TestDockerObserverReportsUnavailableWithoutProcessManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
 	}
-	observations, err := observers[0].Observe(context.Background(), runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, err := observers[0].Observe(context.Background(), runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestDockerObserverReportsUnavailableWithoutProcessManager(t *testing.T) {
 	}
 }
 
-func TestDockerSignalsFollowBinaryAndDaemonAvailability(t *testing.T) {
+func TestDockerAssertionsFollowBinaryAndDaemonAvailability(t *testing.T) {
 	tests := []struct {
 		name       string
 		process    *fakeProcess
@@ -85,31 +85,31 @@ func TestDockerSignalsFollowBinaryAndDaemonAvailability(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EnvironmentObservers: %v", err)
 			}
-			observations, err := observers[0].Observe(context.Background(), runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+			observations, err := observers[0].Observe(context.Background(), runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 			if err != nil {
 				t.Fatalf("Observe: %v", err)
 			}
-			derivers, err := Plugin{}.SignalDerivers(context.Background(), pluginhost.Context{})
+			derivers, err := Plugin{}.AssertionDerivers(context.Background(), pluginhost.Context{})
 			if err != nil {
-				t.Fatalf("SignalDerivers: %v", err)
+				t.Fatalf("AssertionDerivers: %v", err)
 			}
-			signals, err := derivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{Observations: observations})
+			assertions, err := derivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{Observations: observations})
 			if err != nil {
 				t.Fatalf("Derive: %v", err)
 			}
-			if hasSignal(signals, SignalConfigured) != tc.configured {
-				t.Fatalf("configured signal present=%v want %v signals=%#v", hasSignal(signals, SignalConfigured), tc.configured, signals)
+			if hasAssertion(assertions, AssertionConfigured) != tc.configured {
+				t.Fatalf("configured assertion present=%v want %v assertions=%#v", hasAssertion(assertions, AssertionConfigured), tc.configured, assertions)
 			}
-			if hasSignal(signals, SignalAvailable) != tc.available {
-				t.Fatalf("available signal present=%v want %v signals=%#v", hasSignal(signals, SignalAvailable), tc.available, signals)
+			if hasAssertion(assertions, AssertionAvailable) != tc.available {
+				t.Fatalf("available assertion present=%v want %v assertions=%#v", hasAssertion(assertions, AssertionAvailable), tc.available, assertions)
 			}
 		})
 	}
 }
 
-func hasSignal(signals []coreenvironment.Signal, kind string) bool {
-	for _, signal := range signals {
-		if signal.Kind == kind && signal.Target == Name {
+func hasAssertion(assertions []coreevidence.Assertion, kind string) bool {
+	for _, assertion := range assertions {
+		if assertion.Kind == kind && assertion.Target == Name {
 			return true
 		}
 	}

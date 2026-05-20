@@ -7,13 +7,13 @@ import (
 	"time"
 
 	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -27,7 +27,7 @@ const (
 	EndpointGetOp  = "endpoint_get"
 
 	ObservationEndpointRegistry = "endpoint.registry"
-	SignalEndpointAvailable     = "endpoint.available"
+	AssertionEndpointAvailable  = "endpoint.available"
 )
 
 type Plugin struct {
@@ -40,7 +40,7 @@ var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 func New() Plugin { return Plugin{} }
 
@@ -60,31 +60,31 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Discovery status and endpoint introspection.", Operations: operationRefs(specs)}},
 		Operations:    specs,
-		Observers: []coreenvironment.ObserverSpec{{
+		Observers: []coreevidence.ObserverSpec{{
 			Name:            "endpoint.registry",
 			Description:     "Observes non-secret endpoint registry summaries for activation.",
-			Environment:     coreenvironment.Ref{Name: "endpoint"},
-			Phase:           coreenvironment.PhaseTurn,
+			Environment:     coreevidence.Ref{Name: "endpoint"},
+			Phase:           coreevidence.PhaseTurn,
 			ObservableKinds: []string{ObservationEndpointRegistry},
 			Dynamic:         true,
 		}},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-			Name:             "endpoint.signals",
-			Description:      "Derives endpoint availability signals from endpoint registry observations.",
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+			Name:             "endpoint.assertions",
+			Description:      "Derives endpoint availability assertions from endpoint registry observations.",
 			ObservationKinds: []string{ObservationEndpointRegistry},
-			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalEndpointAvailable},
+			Assertions: []coreevidence.AssertionTemplate{
+				{Kind: AssertionEndpointAvailable},
 			},
 		}},
 	}, nil
 }
 
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{endpointRegistryObserver{endpoints: p.endpoints}}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{endpointRegistryObserver{endpoints: p.endpoints}}, nil
 }
 
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{endpointSignalDeriver{}}, nil
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{endpointAssertionDeriver{}}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
@@ -182,18 +182,18 @@ type endpointRegistryObserver struct {
 	endpoints *runtimeendpoint.Registry
 }
 
-func (o endpointRegistryObserver) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func (o endpointRegistryObserver) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:            "endpoint.registry",
 		Description:     "Observes non-secret endpoint registry summaries for activation.",
-		Environment:     coreenvironment.Ref{Name: "endpoint"},
-		Phase:           coreenvironment.PhaseTurn,
+		Environment:     coreevidence.Ref{Name: "endpoint"},
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{ObservationEndpointRegistry},
 		Dynamic:         true,
 	}
 }
 
-func (o endpointRegistryObserver) Observe(_ context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o endpointRegistryObserver) Observe(_ context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	if o.endpoints == nil {
 		return nil, nil
 	}
@@ -212,9 +212,9 @@ func (o endpointRegistryObserver) Observe(_ context.Context, _ runtimeenvironmen
 	if len(evidence.Endpoints) == 0 {
 		return nil, nil
 	}
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "endpoint:registry",
-		Environment: coreenvironment.Ref{Name: "endpoint"},
+		Environment: coreevidence.Ref{Name: "endpoint"},
 		Kind:        ObservationEndpointRegistry,
 		Scope:       "runtime",
 		Content:     evidence,
@@ -222,18 +222,18 @@ func (o endpointRegistryObserver) Observe(_ context.Context, _ runtimeenvironmen
 	}}, nil
 }
 
-type endpointSignalDeriver struct{}
+type endpointAssertionDeriver struct{}
 
-func (endpointSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
-		Name:             "endpoint.signals",
-		Description:      "Derives endpoint availability signals from endpoint registry observations.",
+func (endpointAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             "endpoint.assertions",
+		Description:      "Derives endpoint availability assertions from endpoint registry observations.",
 		ObservationKinds: []string{ObservationEndpointRegistry},
 	}
 }
 
-func (endpointSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (endpointAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != ObservationEndpointRegistry {
 			continue
@@ -246,10 +246,10 @@ func (endpointSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Si
 			if !endpointAvailableForActivation(endpoint) {
 				continue
 			}
-			out = append(out, coreenvironment.Signal{
-				Kind:           SignalEndpointAvailable,
+			out = append(out, coreevidence.Assertion{
+				Kind:           AssertionEndpointAvailable,
 				Target:         endpoint.Product,
-				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectEndpoint, Name: endpoint.Product, ID: string(endpoint.Ref)},
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: endpoint.Product, ID: string(endpoint.Ref)},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,

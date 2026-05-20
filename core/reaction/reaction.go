@@ -7,7 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/core/workflow"
@@ -17,9 +17,9 @@ import (
 type Mode string
 
 const (
-	// ModeOnChange fires when a matching signal appears or changes.
+	// ModeOnChange fires when a matching assertion appears or changes.
 	ModeOnChange Mode = "on_change"
-	// ModeEveryTurn fires on every evaluated turn while the signal matches.
+	// ModeEveryTurn fires on every evaluated turn while the assertion matches.
 	ModeEveryTurn Mode = "every_turn"
 )
 
@@ -58,17 +58,17 @@ func (r Rule) Validate() error {
 // Matcher selects evidence assertions. Empty fields are wildcards, but at
 // least one matching field must be set.
 type Matcher struct {
-	Signal  string              `json:"signal,omitempty"`
-	Target  string              `json:"target,omitempty"`
-	Subject environment.Subject `json:"subject,omitempty"`
-	Scope   string              `json:"scope,omitempty"`
-	Source  string              `json:"source,omitempty"`
-	Meta    map[string]string   `json:"meta,omitempty"`
+	Assertion string               `json:"assertion,omitempty" yaml:"assertion,omitempty"`
+	Target    string               `json:"target,omitempty" yaml:"target,omitempty"`
+	Subject   coreevidence.Subject `json:"subject,omitempty" yaml:"subject,omitempty"`
+	Scope     string               `json:"scope,omitempty" yaml:"scope,omitempty"`
+	Source    string               `json:"source,omitempty" yaml:"source,omitempty"`
+	Meta      map[string]string    `json:"meta,omitempty" yaml:"meta,omitempty"`
 }
 
 // Validate checks that the matcher is not an accidental match-all rule.
 func (m Matcher) Validate() error {
-	if strings.TrimSpace(m.Signal) == "" &&
+	if strings.TrimSpace(m.Assertion) == "" &&
 		strings.TrimSpace(m.Target) == "" &&
 		m.Subject.IsZero() &&
 		strings.TrimSpace(m.Scope) == "" &&
@@ -80,41 +80,41 @@ func (m Matcher) Validate() error {
 }
 
 // Matches reports whether an assertion satisfies the matcher.
-func (m Matcher) Matches(signal environment.Signal) bool {
-	if strings.TrimSpace(m.Signal) != "" && strings.TrimSpace(m.Signal) != strings.TrimSpace(signal.Kind) {
+func (m Matcher) Matches(assertion coreevidence.Assertion) bool {
+	if strings.TrimSpace(m.Assertion) != "" && strings.TrimSpace(m.Assertion) != strings.TrimSpace(assertion.Kind) {
 		return false
 	}
-	if strings.TrimSpace(m.Target) != "" && strings.TrimSpace(m.Target) != strings.TrimSpace(signal.Target) {
+	if strings.TrimSpace(m.Target) != "" && strings.TrimSpace(m.Target) != strings.TrimSpace(assertion.Target) {
 		return false
 	}
-	if !subjectMatches(m.Subject, signal.Subject) {
+	if !subjectMatches(m.Subject, assertion.Subject) {
 		return false
 	}
-	if strings.TrimSpace(m.Scope) != "" && strings.TrimSpace(m.Scope) != strings.TrimSpace(signal.Scope) {
+	if strings.TrimSpace(m.Scope) != "" && strings.TrimSpace(m.Scope) != strings.TrimSpace(assertion.Scope) {
 		return false
 	}
-	if strings.TrimSpace(m.Source) != "" && strings.TrimSpace(m.Source) != strings.TrimSpace(signal.Source) {
+	if strings.TrimSpace(m.Source) != "" && strings.TrimSpace(m.Source) != strings.TrimSpace(assertion.Source) {
 		return false
 	}
 	for key, value := range m.Meta {
-		if signal.Metadata == nil || signal.Metadata[key] != value {
+		if assertion.Metadata == nil || assertion.Metadata[key] != value {
 			return false
 		}
 	}
 	return true
 }
 
-func subjectMatches(matcher, signal environment.Subject) bool {
+func subjectMatches(matcher, assertion coreevidence.Subject) bool {
 	if matcher.IsZero() {
 		return true
 	}
-	if strings.TrimSpace(string(matcher.Kind)) != "" && strings.TrimSpace(string(matcher.Kind)) != strings.TrimSpace(string(signal.Kind)) {
+	if strings.TrimSpace(string(matcher.Kind)) != "" && strings.TrimSpace(string(matcher.Kind)) != strings.TrimSpace(string(assertion.Kind)) {
 		return false
 	}
-	if strings.TrimSpace(matcher.Name) != "" && strings.TrimSpace(matcher.Name) != strings.TrimSpace(signal.Name) {
+	if strings.TrimSpace(matcher.Name) != "" && strings.TrimSpace(matcher.Name) != strings.TrimSpace(assertion.Name) {
 		return false
 	}
-	if strings.TrimSpace(matcher.ID) != "" && strings.TrimSpace(matcher.ID) != strings.TrimSpace(signal.ID) {
+	if strings.TrimSpace(matcher.ID) != "" && strings.TrimSpace(matcher.ID) != strings.TrimSpace(assertion.ID) {
 		return false
 	}
 	return true

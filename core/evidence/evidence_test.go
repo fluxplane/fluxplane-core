@@ -1,9 +1,9 @@
-package environment
+package evidence
 
 import "testing"
 
-func TestSignalActivationKeyUsesStableMatchingFields(t *testing.T) {
-	signal := Signal{
+func TestAssertionActivationKeyUsesStableMatchingFields(t *testing.T) {
+	assertion := Assertion{
 		Kind:       " language.detected ",
 		Target:     " go ",
 		Subject:    Subject{Kind: SubjectLanguage, Name: " go "},
@@ -12,13 +12,13 @@ func TestSignalActivationKeyUsesStableMatchingFields(t *testing.T) {
 		Confidence: 1,
 		Metadata:   map[string]string{"ignored": "for-key"},
 	}
-	if got, want := signal.ActivationKey(), "language.detected\x1fgo\x1flanguage\x1fgo\x1f\x1fworkspace:/repo\x1fproject.inventory"; got != want {
+	if got, want := assertion.ActivationKey(), "language.detected\x1fgo\x1flanguage\x1fgo\x1f\x1fworkspace:/repo\x1fproject.inventory"; got != want {
 		t.Fatalf("ActivationKey = %q, want %q", got, want)
 	}
 }
 
-func TestSignalFingerprintChangesWhenContentChanges(t *testing.T) {
-	base := Signal{
+func TestAssertionFingerprintChangesWhenContentChanges(t *testing.T) {
+	base := Assertion{
 		Kind:           "toolchain.available",
 		Target:         "go",
 		Subject:        Subject{Kind: SubjectToolchain, Name: "go"},
@@ -39,15 +39,15 @@ func TestSignalFingerprintChangesWhenContentChanges(t *testing.T) {
 	}
 }
 
-func TestSignalFingerprintIsStableForMapOrder(t *testing.T) {
-	left := Signal{
+func TestAssertionFingerprintIsStableForMapOrder(t *testing.T) {
+	left := Assertion{
 		Kind:     "integration.available",
 		Target:   "kubernetes",
 		Scope:    "integration:kubernetes:default",
 		Source:   "kubernetes.context",
 		Metadata: map[string]string{"context": "k3d-ai", "namespace": "ai-bots"},
 	}
-	right := Signal{
+	right := Assertion{
 		Kind:     "integration.available",
 		Target:   "kubernetes",
 		Scope:    "integration:kubernetes:default",

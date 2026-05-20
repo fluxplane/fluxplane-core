@@ -6,35 +6,35 @@ import (
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	"github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/skill"
 )
 
-func TestMatcherMatchesSignalFieldsAndMetadata(t *testing.T) {
+func TestMatcherMatchesAssertionFieldsAndMetadata(t *testing.T) {
 	matcher := Matcher{
-		Signal:  "integration.available",
-		Target:  "kubernetes",
-		Subject: environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"},
-		Scope:   "workspace:/repo",
-		Meta:    map[string]string{"namespace": "ai-bots"},
+		Assertion: "integration.available",
+		Target:    "kubernetes",
+		Subject:   coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "kubernetes"},
+		Scope:     "workspace:/repo",
+		Meta:      map[string]string{"namespace": "ai-bots"},
 	}
-	signal := environment.Signal{
+	assertion := coreevidence.Assertion{
 		Kind:     "integration.available",
 		Target:   "kubernetes",
-		Subject:  environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"},
+		Subject:  coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "kubernetes"},
 		Scope:    "workspace:/repo",
 		Metadata: map[string]string{"namespace": "ai-bots"},
 	}
-	if !matcher.Matches(signal) {
+	if !matcher.Matches(assertion) {
 		t.Fatal("Matches = false, want true")
 	}
-	signal.Metadata["namespace"] = "default"
-	if matcher.Matches(signal) {
+	assertion.Metadata["namespace"] = "default"
+	if matcher.Matches(assertion) {
 		t.Fatal("Matches = true after metadata changed, want false")
 	}
-	signal.Metadata["namespace"] = "ai-bots"
-	signal.Subject.Name = "aws"
-	if matcher.Matches(signal) {
+	assertion.Metadata["namespace"] = "ai-bots"
+	assertion.Subject.Name = "aws"
+	if matcher.Matches(assertion) {
 		t.Fatal("Matches = true after subject changed, want false")
 	}
 }
@@ -42,7 +42,7 @@ func TestMatcherMatchesSignalFieldsAndMetadata(t *testing.T) {
 func TestRuleValidateAcceptsSubjectMatcher(t *testing.T) {
 	err := Rule{
 		Name: "go-language",
-		When: Matcher{Subject: environment.Subject{Kind: environment.SubjectLanguage, Name: "go"}},
+		When: Matcher{Subject: coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "go"}},
 		Actions: []Action{{
 			Kind:         ActionEnableOperationSet,
 			OperationSet: "golang.parser",
@@ -69,7 +69,7 @@ func TestRuleValidateRejectsMatchAll(t *testing.T) {
 func TestRuleValidateAcceptsActivationActions(t *testing.T) {
 	err := Rule{
 		Name: "kubernetes",
-		When: Matcher{Signal: "integration.available", Target: "kubernetes"},
+		When: Matcher{Assertion: "integration.available", Target: "kubernetes"},
 		Actions: []Action{
 			{
 				Kind:       ActionEnableDatasource,

@@ -605,16 +605,16 @@ observations:
       phase: turn
       observable_kinds: [kubernetes.context]
       disabled: true
-  signal_derivers:
-    - name: kubernetes.signals
+  assertion_derivers:
+    - name: kubernetes.assertions
       observation_kinds: [kubernetes.context]
-      signals:
+      assertions:
         - kind: integration.available
           target: kubernetes
 reactions:
   - name: kubernetes-available
     when:
-      signal: integration.available
+      assertion: integration.available
       target: kubernetes
     actions:
       - kind: activate_skill
@@ -667,8 +667,8 @@ reactions:
 	if !file.Bundle.Observers[0].Disabled {
 		t.Fatalf("observer disabled = false, want true")
 	}
-	if len(file.Bundle.SignalDerivers) != 1 || file.Bundle.SignalDerivers[0].Name != "kubernetes.signals" {
-		t.Fatalf("signal derivers = %#v, want kubernetes.signals", file.Bundle.SignalDerivers)
+	if len(file.Bundle.AssertionDerivers) != 1 || file.Bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v, want kubernetes.assertions", file.Bundle.AssertionDerivers)
 	}
 	if len(file.Bundle.Reactions) != 1 || file.Bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v, want kubernetes-available", file.Bundle.Reactions)
@@ -703,17 +703,17 @@ name: kubernetes.context
 phase: turn
 observable_kinds: [kubernetes.context]
 ---
-kind: signal_deriver
-name: kubernetes.signals
+kind: assertion_deriver
+name: kubernetes.assertions
 observation_kinds: [kubernetes.context]
-signals:
+assertions:
   - kind: integration.available
     target: kubernetes
 ---
 kind: reaction
 name: kubernetes-available
 when:
-  signal: integration.available
+  assertion: integration.available
   target: kubernetes
 actions:
   - kind: activate_skill
@@ -735,8 +735,8 @@ actions:
 	if len(file.Bundle.Observers) != 1 || file.Bundle.Observers[0].Name != "kubernetes.context" {
 		t.Fatalf("observers = %#v", file.Bundle.Observers)
 	}
-	if len(file.Bundle.SignalDerivers) != 1 || file.Bundle.SignalDerivers[0].Name != "kubernetes.signals" {
-		t.Fatalf("signal derivers = %#v", file.Bundle.SignalDerivers)
+	if len(file.Bundle.AssertionDerivers) != 1 || file.Bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v", file.Bundle.AssertionDerivers)
 	}
 	if len(file.Bundle.Reactions) != 1 || file.Bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v", file.Bundle.Reactions)

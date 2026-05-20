@@ -20,13 +20,13 @@ import (
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -141,7 +141,7 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.DiscoveryProviderContributor = Plugin{}
 var _ pluginhost.SecretResolverContributor = Plugin{}
 
@@ -171,11 +171,11 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 	p.ref = ctx.Ref
 	specs := operationSpecs()
 	return resource.ContributionBundle{
-		DataSources:    []coredata.SourceSpec{DataSourceSpec(p.ref)},
-		OperationSets:  []operation.Set{{Name: Name, Description: "Kubernetes cluster operations.", Operations: operationRefs(specs)}},
-		Operations:     specs,
-		Observers:      []coreenvironment.ObserverSpec{kubernetesObserverSpec(p.ref)},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{kubernetesSignalDeriverSpec()},
+		DataSources:       []coredata.SourceSpec{DataSourceSpec(p.ref)},
+		OperationSets:     []operation.Set{{Name: Name, Description: "Kubernetes cluster operations.", Operations: operationRefs(specs)}},
+		Operations:        specs,
+		Observers:         []coreevidence.ObserverSpec{kubernetesObserverSpec(p.ref)},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{kubernetesAssertionDeriverSpec()},
 	}, nil
 }
 
@@ -190,12 +190,12 @@ func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]core
 	return []coredatasource.Provider{kubernetesDatasourceProvider{plugin: p}}, nil
 }
 
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{kubernetesObserver{plugin: p}}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{kubernetesObserver{plugin: p}}, nil
 }
 
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{kubernetesSignalDeriver{}}, nil
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{kubernetesAssertionDeriver{}}, nil
 }
 
 func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]runtimediscovery.Provider, error) {

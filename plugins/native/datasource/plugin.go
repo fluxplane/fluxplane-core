@@ -13,7 +13,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -1835,7 +1835,7 @@ func (p detectedProvider) Build(ctx context.Context, req corecontext.Request) ([
 	}}, nil
 }
 
-func detectionInputFromObservations(observations []coreenvironment.Observation) coredatasource.DetectionInput {
+func detectionInputFromObservations(observations []coreevidence.Observation) coredatasource.DetectionInput {
 	var sources []coredatasource.DetectionSource
 	for i, observation := range observations {
 		text := detectionText(observation.Content)

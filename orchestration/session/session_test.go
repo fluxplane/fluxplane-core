@@ -16,6 +16,7 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -33,8 +34,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimereaction "github.com/fluxplane/agentruntime/runtime/reaction"
 	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
@@ -1478,23 +1479,23 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T) {
 	ctx := context.Background()
 	observer := &scriptedEnvironmentObserver{
-		spec: environment.ObserverSpec{Name: "test.observer", Phase: environment.PhaseTurn},
-		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
-			if req.Phase != environment.PhaseTurn {
+		spec: coreevidence.ObserverSpec{Name: "test.observer", Phase: coreevidence.PhaseTurn},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+			if req.Phase != coreevidence.PhaseTurn {
 				t.Fatalf("phase = %q, want turn", req.Phase)
 			}
-			return []environment.Observation{{
+			return []coreevidence.Observation{{
 				Kind:    "test.observation",
 				Content: "observed",
 			}}, nil
 		},
 	}
-	var deriverObservations []environment.Observation
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
-		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			deriverObservations = append([]environment.Observation(nil), req.Observations...)
-			return []environment.Signal{{Kind: "test.signal", Target: "ok"}}, nil
+	var deriverObservations []coreevidence.Observation
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			deriverObservations = append([]coreevidence.Observation(nil), req.Observations...)
+			return []coreevidence.Assertion{{Kind: "test.assertion", Target: "ok"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1506,8 +1507,8 @@ func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T
 	}
 	result := (Session{
 		Agent:                agentRuntime,
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
-		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
+		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
 	}).ExecuteInboundInput(ctx, channel.Inbound{
 		ID:      "run-env-1",
 		Kind:    channel.InboundMessage,
@@ -1541,12 +1542,12 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
-	var phases []environment.ObservationPhase
+	var phases []coreevidence.ObservationPhase
 	observer := &scriptedEnvironmentObserver{
-		spec: environment.ObserverSpec{Name: "session.open", Phase: environment.PhaseSessionOpen},
-		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+		spec: coreevidence.ObserverSpec{Name: "session.open", Phase: coreevidence.PhaseSessionOpen},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 			phases = append(phases, req.Phase)
-			return []environment.Observation{{Kind: "session.opened"}}, nil
+			return []coreevidence.Observation{{Kind: "session.opened"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1563,7 +1564,7 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 		Agent:                agentRuntime,
 		ThreadStore:          threadStore,
 		Thread:               thread,
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
 	}
 	first := session.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-session-open-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "first"}})
 	if first.Status != InputStatusOK {
@@ -1573,7 +1574,7 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 	if second.Status != InputStatusOK {
 		t.Fatalf("second status = %q: %#v", second.Status, second)
 	}
-	if len(phases) != 1 || phases[0] != environment.PhaseSessionOpen {
+	if len(phases) != 1 || phases[0] != coreevidence.PhaseSessionOpen {
 		t.Fatalf("phases = %#v, want one session_open run", phases)
 	}
 	if len(agentRuntime.inputs) != 2 {
@@ -1591,13 +1592,13 @@ func TestExecuteInboundInputRunsLazyEnvironmentBeforeContextMaterialization(t *t
 	ctx := context.Background()
 	observerCalls := 0
 	observer := &scriptedEnvironmentObserver{
-		spec: environment.ObserverSpec{Name: "lazy.observer", Phase: environment.PhaseLazy},
-		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+		spec: coreevidence.ObserverSpec{Name: "lazy.observer", Phase: coreevidence.PhaseLazy},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 			observerCalls++
-			if req.Phase != environment.PhaseLazy {
+			if req.Phase != coreevidence.PhaseLazy {
 				t.Fatalf("phase = %q, want lazy", req.Phase)
 			}
-			return []environment.Observation{{Kind: "lazy.fact", Content: "ready"}}, nil
+			return []coreevidence.Observation{{Kind: "lazy.fact", Content: "ready"}}, nil
 		},
 	}
 	var providerObservationKinds []string
@@ -1616,7 +1617,7 @@ func TestExecuteInboundInputRunsLazyEnvironmentBeforeContextMaterialization(t *t
 	}
 	result := (Session{
 		Agent:                runtimeAgent,
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
 	}).ExecuteInboundInput(ctx, channel.Inbound{ID: "run-lazy-env", Kind: channel.InboundMessage, Message: &channel.Message{Content: "hello"}})
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
@@ -1638,23 +1639,23 @@ func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	var observerPhases []environment.ObservationPhase
+	var observerPhases []coreevidence.ObservationPhase
 	observer := &scriptedEnvironmentObserver{
-		spec: environment.ObserverSpec{Name: "followup.observer", Phase: environment.PhaseToolFollowup},
-		observe: func(_ context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+		spec: coreevidence.ObserverSpec{Name: "followup.observer", Phase: coreevidence.PhaseToolFollowup},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 			observerPhases = append(observerPhases, req.Phase)
-			return []environment.Observation{{
+			return []coreevidence.Observation{{
 				Kind:    "tool.followup",
 				Content: "lookup finished",
 			}}, nil
 		},
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "followup.deriver"},
-		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "followup.deriver"},
+		derive: func(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 			for _, observation := range req.Observations {
 				if observation.Kind == "tool.followup" {
-					return []environment.Signal{{Kind: "tool.followup.ready", Target: "lookup"}}, nil
+					return []coreevidence.Assertion{{Kind: "tool.followup.ready", Target: "lookup"}}, nil
 				}
 			}
 			return nil, nil
@@ -1691,11 +1692,11 @@ func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
 		Operations:           ops,
 		OperationExecutor:    operationruntime.NewExecutor(),
 		ContextProviders:     []corecontext.Provider{contextProvider},
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
-		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
+		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "followup-context",
-			When: corereaction.Matcher{Signal: "tool.followup.ready", Target: "lookup"},
+			When: corereaction.Matcher{Assertion: "tool.followup.ready", Target: "lookup"},
 			Actions: []corereaction.Action{{
 				Kind:            corereaction.ActionEnableContext,
 				ContextProvider: corecontext.ProviderRef{Name: "followup.context"},
@@ -1705,7 +1706,7 @@ func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if len(observerPhases) != 1 || observerPhases[0] != environment.PhaseToolFollowup {
+	if len(observerPhases) != 1 || observerPhases[0] != coreevidence.PhaseToolFollowup {
 		t.Fatalf("observer phases = %#v, want one tool_followup run", observerPhases)
 	}
 	if len(transcripts) != 2 {
@@ -1733,10 +1734,10 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "integration.available", Target: "lookup"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.available", Target: "lookup"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1751,10 +1752,10 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 		Agent:             agentRuntime,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
-		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "lookup-available",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "lookup"},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "lookup"},
 			Actions: []corereaction.Action{{
 				Kind: corereaction.ActionRunOperation,
 				Operation: corereaction.OperationAction{
@@ -1806,10 +1807,10 @@ func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T)
 	})); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "integration.available", Target: "lookup"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.available", Target: "lookup"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1824,10 +1825,10 @@ func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T)
 		Agent:             agentRuntime,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
-		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "lookup-available",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "lookup"},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "lookup"},
 			Actions: []corereaction.Action{{
 				Kind:            corereaction.ActionRunOperation,
 				RequireApproval: true,
@@ -1885,10 +1886,10 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("register command: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "command.ready", Target: "echo"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "command.ready", Target: "echo"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1903,10 +1904,10 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 		Commands:          commands,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
-		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "echo-command",
-			When: corereaction.Matcher{Signal: "command.ready", Target: "echo"},
+			When: corereaction.Matcher{Assertion: "command.ready", Target: "echo"},
 			Actions: []corereaction.Action{{
 				Kind: corereaction.ActionRunCommand,
 				Command: command.Invocation{
@@ -1945,10 +1946,10 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 	operationID := resource.ResourceID{Kind: "operation", Origin: "project", Name: "echo"}
 	index := resource.NewResourceIndex()
 	index.Add(workflowID)
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "reaction.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "workflow.ready", Target: "feature"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "reaction.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "workflow.ready", Target: "feature"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -1978,10 +1979,10 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 			operationID.Address(): {ID: operationID, Operation: op},
 		},
 		OperationExecutor: operationruntime.NewExecutor(),
-		SignalDerivers:    []runtimeenvironment.SignalDeriver{deriver},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "feature-workflow",
-			When: corereaction.Matcher{Signal: "workflow.ready", Target: "feature"},
+			When: corereaction.Matcher{Assertion: "workflow.ready", Target: "feature"},
 			Actions: []corereaction.Action{{
 				Kind: corereaction.ActionRunWorkflow,
 				Workflow: corereaction.WorkflowAction{
@@ -2029,10 +2030,10 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new activation state: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "integration.available", Target: "kubernetes"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.available", Target: "kubernetes"}}, nil
 		},
 	}
 	agentRuntime := &sequenceAgent{
@@ -2044,11 +2045,11 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 	}
 	var emitted []event.Name
 	result := (Session{
-		Agent:          runtimeskill.WrapAgent(agentRuntime, state),
-		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
+		Agent:             runtimeskill.WrapAgent(agentRuntime, state),
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "kubernetes-reference",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "kubernetes"},
 			Actions: []corereaction.Action{{
 				Kind: corereaction.ActionActivateReference,
 				Reference: corereaction.ReferenceAction{
@@ -2106,14 +2107,14 @@ func TestExecuteInboundInputSkipsPersistedReactionAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new activation state: %v", err)
 	}
-	signal := environment.Signal{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}
+	assertion := coreevidence.Assertion{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}
 	action := corereaction.Action{Kind: corereaction.ActionActivateSkill, Skill: coreskill.Ref{Name: "kubernetes"}}
 	rule := corereaction.Rule{
 		Name:    "kubernetes-skill",
-		When:    corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+		When:    corereaction.Matcher{Assertion: "integration.available", Target: "kubernetes"},
 		Actions: []corereaction.Action{action},
 	}
-	key := runtimereaction.IdempotencyKey(rule, signal, 0, action)
+	key := runtimereaction.IdempotencyKey(rule, assertion, 0, action)
 	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
 		Name: coresession.EventRuntimeEmitted,
 		Payload: coresession.RuntimeEmitted{
@@ -2127,19 +2128,19 @@ func TestExecuteInboundInputSkipsPersistedReactionAction(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("append reaction event: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{signal}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{assertion}, nil
 		},
 	}
 	var emitted []event.Name
 	result := (Session{
-		Agent:          runtimeskill.WrapAgent(&sequenceAgent{spec: agent.Spec{Name: "coder"}}, state),
-		ThreadStore:    threadStore,
-		Thread:         thread,
-		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
-		ReactionRules:  []corereaction.Rule{rule},
+		Agent:             runtimeskill.WrapAgent(&sequenceAgent{spec: agent.Spec{Name: "coder"}}, state),
+		ThreadStore:       threadStore,
+		Thread:            thread,
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
+		ReactionRules:     []corereaction.Rule{rule},
 		Events: event.SinkFunc(func(payload event.Event) {
 			if payload != nil {
 				emitted = append(emitted, payload.EventName())
@@ -2204,13 +2205,13 @@ func TestReplayReactionEventsRestoresActiveState(t *testing.T) {
 		Payload: coresession.RuntimeEmitted{
 			Name: corereaction.EventActionApplied,
 			Payload: corereaction.ActionApplied{
-				Rule:           "kubernetes-context",
-				Action:         corereaction.ActionEnableContext,
-				Target:         "kubernetes.context",
-				IdempotencyKey: "context-key",
-				Signal:         "integration.available",
-				SignalTarget:   "kubernetes",
-				ObservationIDs: []string{"kubernetes:context"},
+				Rule:            "kubernetes-context",
+				Action:          corereaction.ActionEnableContext,
+				Target:          "kubernetes.context",
+				IdempotencyKey:  "context-key",
+				Assertion:       "integration.available",
+				AssertionTarget: "kubernetes",
+				ObservationIDs:  []string{"kubernetes:context"},
 			},
 		},
 	}}); err != nil {
@@ -2249,41 +2250,41 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 		Payload: coresession.RuntimeEmitted{
 			Name: corereaction.EventActionApplied,
 			Payload: corereaction.ActionApplied{
-				Rule:           "kubernetes-context",
-				Action:         corereaction.ActionEnableContext,
-				Target:         "kubernetes.context",
-				IdempotencyKey: "context-key",
-				Signal:         "integration.available",
-				SignalTarget:   "kubernetes",
-				ObservationIDs: []string{"kubernetes:context"},
+				Rule:            "kubernetes-context",
+				Action:          corereaction.ActionEnableContext,
+				Target:          "kubernetes.context",
+				IdempotencyKey:  "context-key",
+				Assertion:       "integration.available",
+				AssertionTarget: "kubernetes",
+				ObservationIDs:  []string{"kubernetes:context"},
 			},
 		},
 	}}); err != nil {
 		t.Fatalf("append reaction event: %v", err)
 	}
 	observer := &scriptedEnvironmentObserver{
-		spec: environment.ObserverSpec{Name: "kubernetes.context", Phase: environment.PhaseTurn, ObservableKinds: []string{"kubernetes.context"}},
-		observe: func(context.Context, runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
-			return []environment.Observation{{
+		spec: coreevidence.ObserverSpec{Name: "kubernetes.context", Phase: coreevidence.PhaseTurn, ObservableKinds: []string{"kubernetes.context"}},
+		observe: func(context.Context, runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+			return []coreevidence.Observation{{
 				ID:          "kubernetes:context",
-				Environment: environment.Ref{Name: "kubernetes"},
+				Environment: coreevidence.Ref{Name: "kubernetes"},
 				Kind:        "kubernetes.context",
 				Scope:       "workspace",
 				Content:     map[string]string{"context": "dev", "namespace": "latest"},
 			}}, nil
 		},
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "kubernetes.signals", ObservationKinds: []string{"kubernetes.context"}},
-		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "kubernetes.assertions", ObservationKinds: []string{"kubernetes.context"}},
+		derive: func(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 			if len(req.Observations) == 0 {
 				return nil, nil
 			}
-			return []environment.Signal{{
+			return []coreevidence.Assertion{{
 				Kind:           "integration.available",
 				Target:         "kubernetes",
-				Subject:        environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"},
-				Environment:    environment.Ref{Name: "kubernetes"},
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "kubernetes"},
+				Environment:    coreevidence.Ref{Name: "kubernetes"},
 				ObservationIDs: []string{"kubernetes:context"},
 			}}, nil
 		},
@@ -2291,14 +2292,21 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	result := (Session{
 		ThreadStore:          threadStore,
 		Thread:               thread,
-		EnvironmentObservers: []runtimeenvironment.Observer{observer},
-		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
+		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "kubernetes-context",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes", Subject: environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"}},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "kubernetes", Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: "kubernetes"}},
 			Actions: []corereaction.Action{{
 				Kind:            corereaction.ActionEnableContext,
 				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
+			}},
+		}, {
+			Name: "loki-endpoint",
+			When: corereaction.Matcher{Assertion: "endpoint.available", Target: "loki", Subject: coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: "loki"}},
+			Actions: []corereaction.Action{{
+				Kind:         corereaction.ActionEnableOperationSet,
+				OperationSet: "loki",
 			}},
 		}},
 	}).ExecuteInboundCommand(ctx, channel.Inbound{
@@ -2321,8 +2329,11 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 		!strings.Contains(rendered.Text, "Matching Reactions") ||
 		!strings.Contains(rendered.Text, "- kubernetes.context") ||
 		!strings.Contains(rendered.Text, "integration.available") ||
+		!strings.Contains(rendered.Text, "status=unmatched") ||
+		!strings.Contains(rendered.Text, "reason=no_matching_assertion") ||
+		!strings.Contains(rendered.Text, "assertion=endpoint.available:loki") ||
 		!strings.Contains(rendered.Text, "applied reactions: 1") ||
-		!strings.Contains(rendered.Text, "signal=integration.available:kubernetes") {
+		!strings.Contains(rendered.Text, "assertion=integration.available:kubernetes") {
 		t.Fatalf("rendered text = %q, want readable env explain summary", rendered.Text)
 	}
 	data, ok := rendered.Data.(envExplainData)
@@ -2332,11 +2343,11 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	if len(data.Observers) != 1 || data.Observers[0].Name != "kubernetes.context" {
 		t.Fatalf("observers = %#v, want kubernetes.context", data.Observers)
 	}
-	if len(data.SignalDerivers) != 1 || data.SignalDerivers[0].Name != "kubernetes.signals" {
-		t.Fatalf("signal derivers = %#v, want kubernetes.signals", data.SignalDerivers)
+	if len(data.AssertionDerivers) != 1 || data.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v, want kubernetes.assertions", data.AssertionDerivers)
 	}
-	if len(data.ReactionRules) != 1 || data.ReactionRules[0] != "kubernetes-context" {
-		t.Fatalf("reaction rules = %#v, want kubernetes-context", data.ReactionRules)
+	if len(data.ReactionRules) != 2 || data.ReactionRules[0] != "kubernetes-context" || data.ReactionRules[1] != "loki-endpoint" {
+		t.Fatalf("reaction rules = %#v, want kubernetes-context and loki-endpoint", data.ReactionRules)
 	}
 	if len(data.Observations) != 1 || data.Observations[0].Kind != "kubernetes.context" || !strings.Contains(data.Observations[0].Content, "latest") {
 		t.Fatalf("observations = %#v, want bounded Kubernetes context evidence", data.Observations)
@@ -2344,14 +2355,17 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	if len(data.Assertions) != 1 || data.Assertions[0].Kind != "integration.available" || data.Assertions[0].Target != "kubernetes" || data.Assertions[0].Subject.Kind != "integration" {
 		t.Fatalf("assertions = %#v, want Kubernetes availability assertion", data.Assertions)
 	}
-	if len(data.Matching) != 1 || data.Matching[0].Rule != "kubernetes-context" || data.Matching[0].Status != "planned" || data.Matching[0].SignalSubject.Kind != "integration" {
-		t.Fatalf("matching = %#v, want planned Kubernetes context reaction", data.Matching)
+	if len(data.Matching) != 2 || data.Matching[0].Rule != "kubernetes-context" || data.Matching[0].Status != "planned" || data.Matching[0].AssertionSubject.Kind != "integration" {
+		t.Fatalf("matching = %#v, want planned Kubernetes context reaction and unmatched Loki reaction", data.Matching)
+	}
+	if data.Matching[1].Rule != "loki-endpoint" || data.Matching[1].Status != "unmatched" || data.Matching[1].Reason != "no_matching_assertion" || data.Matching[1].AssertionSubject.Kind != "endpoint" {
+		t.Fatalf("matching = %#v, want unmatched Loki endpoint reaction", data.Matching)
 	}
 	if data.AppliedReactions != 1 || len(data.Active.ContextProviders) != 1 || data.Active.ContextProviders[0] != "kubernetes.context" {
 		t.Fatalf("active = %#v applied=%d, want active context provider", data.Active, data.AppliedReactions)
 	}
-	if len(data.Applied) != 1 || data.Applied[0].Signal != "integration.available" || data.Applied[0].SignalTarget != "kubernetes" || len(data.Applied[0].ObservationIDs) != 1 {
-		t.Fatalf("applied = %#v, want causal signal and observation IDs", data.Applied)
+	if len(data.Applied) != 1 || data.Applied[0].Assertion != "integration.available" || data.Applied[0].AssertionTarget != "kubernetes" || len(data.Applied[0].ObservationIDs) != 1 {
+		t.Fatalf("applied = %#v, want causal assertion and observation IDs", data.Applied)
 	}
 }
 
@@ -2367,10 +2381,10 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 	if err := ops.Register(echo); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "integration.available", Target: "test", Source: "test.deriver"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.available", Target: "test", Source: "test.deriver"}}, nil
 		},
 	}
 	agentRuntime := &toolCaptureAgent{
@@ -2383,10 +2397,10 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 			Name:       "echo-tools",
 			Operations: []operation.Ref{{Name: "echo"}},
 		}},
-		SignalDerivers: []runtimeenvironment.SignalDeriver{deriver},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "echo-tools",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "test"},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "test"},
 			Actions: []corereaction.Action{{
 				Kind:         corereaction.ActionEnableOperationSet,
 				OperationSet: "echo-tools",
@@ -2449,21 +2463,21 @@ func TestExecuteInboundInputMaterializesActiveContextProvider(t *testing.T) {
 			Content: "namespace ai-bots",
 		}},
 	}
-	deriver := &scriptedSignalDeriver{
-		spec: environment.SignalDeriverSpec{Name: "test.deriver"},
-		derive: func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
-			return []environment.Signal{{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}}, nil
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.available", Target: "kubernetes", Source: "test.deriver"}}, nil
 		},
 	}
 	result := (Session{
-		Agent:            runtimeAgent,
-		ThreadStore:      threadStore,
-		Thread:           corethread.Ref{ID: "thread-active-context"},
-		ContextProviders: []corecontext.Provider{contextProvider},
-		SignalDerivers:   []runtimeenvironment.SignalDeriver{deriver},
+		Agent:             runtimeAgent,
+		ThreadStore:       threadStore,
+		Thread:            corethread.Ref{ID: "thread-active-context"},
+		ContextProviders:  []corecontext.Provider{contextProvider},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "kubernetes-context",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			When: corereaction.Matcher{Assertion: "integration.available", Target: "kubernetes"},
 			Actions: []corereaction.Action{{
 				Kind:            corereaction.ActionEnableContext,
 				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
@@ -4360,31 +4374,31 @@ func (e *sequenceStopEvaluator) EvaluateStopCondition(_ context.Context, input S
 }
 
 type scriptedEnvironmentObserver struct {
-	spec    environment.ObserverSpec
-	observe func(context.Context, runtimeenvironment.ObservationRequest) ([]environment.Observation, error)
+	spec    coreevidence.ObserverSpec
+	observe func(context.Context, runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error)
 }
 
-func (o *scriptedEnvironmentObserver) Spec() environment.ObserverSpec {
+func (o *scriptedEnvironmentObserver) Spec() coreevidence.ObserverSpec {
 	return o.spec
 }
 
-func (o *scriptedEnvironmentObserver) Observe(ctx context.Context, req runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+func (o *scriptedEnvironmentObserver) Observe(ctx context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	if o.observe == nil {
 		return nil, nil
 	}
 	return o.observe(ctx, req)
 }
 
-type scriptedSignalDeriver struct {
-	spec   environment.SignalDeriverSpec
-	derive func(context.Context, runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error)
+type scriptedAssertionDeriver struct {
+	spec   coreevidence.AssertionDeriverSpec
+	derive func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error)
 }
 
-func (d *scriptedSignalDeriver) Spec() environment.SignalDeriverSpec {
+func (d *scriptedAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
 	return d.spec
 }
 
-func (d *scriptedSignalDeriver) Derive(ctx context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+func (d *scriptedAssertionDeriver) Derive(ctx context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 	if d.derive == nil {
 		return nil, nil
 	}

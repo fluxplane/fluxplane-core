@@ -360,6 +360,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Code == tea.KeyEnd || msg.Keystroke() == "ctrl+e":
 			m.shell.MoveInputCursorEnd()
 			return m, m.queueMentionRefresh()
+		case key.Code == tea.KeyLeft && key.Mod.Contains(tea.ModAlt):
+			m.shell.MoveInputCursorWordLeft()
+			m.clearMention()
+			return m, nil
+		case key.Code == tea.KeyRight && key.Mod.Contains(tea.ModAlt):
+			m.shell.MoveInputCursorWordRight()
+			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeyLeft:
 			m.shell.MoveInputCursorLeft()
 			m.clearMention()
@@ -378,6 +385,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.timelinePinned = m.timeline.AtBottom()
 			return m, nil
 		case msg.Keystroke() == "ctrl+c" || key.Code == tea.KeyEscape:
+			if key.Code == tea.KeyEscape && m.mention.Open {
+				m.clearMention()
+				return m, nil
+			}
 			if m.cancelActiveRuns() {
 				m.syncTimelineViewport(true)
 				return m, nil
@@ -429,6 +440,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Code == tea.KeyBackspace || msg.Keystroke() == "ctrl+h":
 			m.shell.BackspaceInput()
+			return m, m.queueMentionRefresh()
+		case key.Code == tea.KeyDelete:
+			m.shell.DeleteInput()
+			return m, m.queueMentionRefresh()
+		case msg.Keystroke() == "ctrl+k":
+			m.shell.DeleteInputToEnd()
+			return m, m.queueMentionRefresh()
+		case msg.Keystroke() == "ctrl+w":
+			m.shell.DeleteInputPreviousWord()
 			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
 			m.clearMention()

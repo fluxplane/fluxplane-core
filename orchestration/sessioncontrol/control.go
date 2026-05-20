@@ -149,7 +149,7 @@ var ContextCommandSpec = command.Spec{
 // configured environment observation and reaction state.
 var EnvExplainCommandSpec = command.Spec{
 	Path:        command.Path{"env", "explain"},
-	Description: "Explain configured environment observers, signal derivers, reaction rules, and active reaction state.",
+	Description: "Explain configured environment observers, assertion derivers, reaction rules, and active reaction state.",
 	Target:      invocation.Target{Kind: invocation.TargetSession},
 	Policy: policy.InvocationPolicy{
 		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},

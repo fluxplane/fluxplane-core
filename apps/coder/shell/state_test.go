@@ -124,6 +124,67 @@ func TestShellObjectEditsInputAtCursor(t *testing.T) {
 	}
 }
 
+func TestShellObjectAdvancedInputEditing(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	tab := shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+
+	shell.AppendInput("alpha beta gamma")
+	shell.MoveInputCursorWordLeft()
+	if got, want := tab.InputCursor, len([]rune("alpha beta ")); got != want {
+		t.Fatalf("cursor after word-left = %d, want %d", got, want)
+	}
+	shell.DeleteInputPreviousWord()
+	if got := tab.InputBuffer; got != "alpha gamma" {
+		t.Fatalf("buffer after previous-word delete = %q, want alpha gamma", got)
+	}
+	if got, want := tab.InputCursor, len([]rune("alpha ")); got != want {
+		t.Fatalf("cursor after previous-word delete = %d, want %d", got, want)
+	}
+
+	shell.MoveInputCursorWordRight()
+	if got, want := tab.InputCursor, len([]rune("alpha gamma")); got != want {
+		t.Fatalf("cursor after word-right = %d, want %d", got, want)
+	}
+	shell.MoveInputCursorStart()
+	shell.MoveInputCursorRight()
+	shell.DeleteInput()
+	if got := tab.InputBuffer; got != "apha gamma" {
+		t.Fatalf("buffer after delete = %q, want apha gamma", got)
+	}
+	shell.DeleteInputToEnd()
+	if got := tab.InputBuffer; got != "a" {
+		t.Fatalf("buffer after delete-to-end = %q, want a", got)
+	}
+}
+
+func TestShellObjectEmptySubmitDoesNotAppendTranscriptEvent(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	tab := shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	before := len(tab.Transcript)
+	shell.AppendInput("   ")
+	if err := shell.SubmitActiveInput(context.Background()); err != nil {
+		t.Fatalf("SubmitActiveInput() error = %v", err)
+	}
+	if got := len(tab.Transcript); got != before {
+		t.Fatalf("transcript length after empty submit = %d, want %d", got, before)
+	}
+	if got := tab.InputBuffer; got != "" {
+		t.Fatalf("input after empty submit = %q, want empty", got)
+	}
+}
+
 func TestShellObjectCreatesSessionScopedTabs(t *testing.T) {
 	client := NewFakeClient()
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: "/workspace"})

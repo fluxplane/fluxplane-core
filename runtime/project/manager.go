@@ -250,12 +250,12 @@ func scan(ctx context.Context, ws system.Workspace, req coreproject.InventoryQue
 		projects = projects[:limit]
 		truncated = true
 	}
-	signals := attachSignals(projects, workspaceID)
+	hints := attachHints(projects, workspaceID)
 	return coreproject.Inventory{
 		WorkspaceID: workspaceID,
 		Root:        ".",
 		Projects:    projects,
-		Signals:     signals,
+		Hints:       hints,
 		Truncated:   truncated,
 		Summary: coreproject.Summary{
 			ProjectCount: len(projects),
@@ -655,14 +655,14 @@ func finalize(builders map[string]*projectBuilder, workspaceID coreworkspace.ID)
 	return projects
 }
 
-func attachSignals(projects []coreproject.Project, workspaceID coreworkspace.ID) []coreproject.Signal {
-	var out []coreproject.Signal
+func attachHints(projects []coreproject.Project, workspaceID coreworkspace.ID) []coreproject.Hint {
+	var out []coreproject.Hint
 	for i := range projects {
 		project := &projects[i]
 		for _, facet := range project.Facets {
-			for _, signal := range signalsForFacet(project.ID, facet, workspaceID) {
-				project.Signals = append(project.Signals, signal)
-				out = append(out, signal)
+			for _, hint := range hintsForFacet(project.ID, facet, workspaceID) {
+				project.Hints = append(project.Hints, hint)
+				out = append(out, hint)
 			}
 		}
 	}
@@ -678,8 +678,8 @@ func attachSignals(projects []coreproject.Project, workspaceID coreworkspace.ID)
 	return out
 }
 
-func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet, workspaceID coreworkspace.ID) []coreproject.Signal {
-	base := coreproject.Signal{
+func hintsForFacet(projectID coreproject.ID, facet coreproject.Facet, workspaceID coreworkspace.ID) []coreproject.Hint {
+	base := coreproject.Hint{
 		WorkspaceID: workspaceID,
 		Kind:        "manifest",
 		Path:        facet.Manifest.Path,
@@ -729,7 +729,7 @@ func signalsForFacet(projectID coreproject.ID, facet coreproject.Facet, workspac
 	default:
 		return nil
 	}
-	return []coreproject.Signal{base}
+	return []coreproject.Hint{base}
 }
 
 func isDockerfileName(name string) bool {

@@ -7,12 +7,12 @@ import (
 	"time"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
@@ -40,7 +40,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if !ok {
 			t.Fatalf("inventory summary = %#v, want inventorySummary", data["inventory"])
 		}
-		if summary.WorkspaceID == "" || len(summary.Signals) == 0 || summary.Signals[0].WorkspaceID == "" {
+		if summary.WorkspaceID == "" || len(summary.Hints) == 0 || summary.Hints[0].WorkspaceID == "" {
 			t.Fatalf("summary = %#v, want workspace ids", summary)
 		}
 
@@ -93,7 +93,7 @@ func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {
 	})
 }
 
-func TestProjectObserverAndSignalDeriver(t *testing.T) {
+func TestProjectObserverAndAssertionDeriver(t *testing.T) {
 	sys := systemtest.NewMemory()
 	writeProjectFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
 	writeProjectFile(t, sys.Workspace(), "README.md", "# App\n")
@@ -106,7 +106,7 @@ func TestProjectObserverAndSignalDeriver(t *testing.T) {
 	if len(observers) != 1 || observers[0].Spec().Name != ObserverName {
 		t.Fatalf("observers = %#v, want project inventory observer", observers)
 	}
-	observations, err := observers[0].Observe(context.Background(), runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseSessionOpen})
+	observations, err := observers[0].Observe(context.Background(), runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseSessionOpen})
 	if err != nil {
 		t.Fatalf("Observe: %v", err)
 	}
@@ -114,25 +114,25 @@ func TestProjectObserverAndSignalDeriver(t *testing.T) {
 		t.Fatalf("observations = %#v, want project inventory observation", observations)
 	}
 
-	derivers, err := plugin.SignalDerivers(context.Background(), pluginhost.Context{})
+	derivers, err := plugin.AssertionDerivers(context.Background(), pluginhost.Context{})
 	if err != nil {
-		t.Fatalf("SignalDerivers: %v", err)
+		t.Fatalf("AssertionDerivers: %v", err)
 	}
-	signals, err := derivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	hints, err := derivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
-	if !hasEnvironmentSignal(signals, SignalLanguageDetected, "go") {
-		t.Fatalf("signals = %#v, want Go language signal", signals)
+	if !hasEnvironmentHint(hints, AssertionLanguageDetected, "go") {
+		t.Fatalf("hints = %#v, want Go language hint", hints)
 	}
-	if !hasEnvironmentSignal(signals, SignalLanguageDetected, "markdown") {
-		t.Fatalf("signals = %#v, want markdown language signal", signals)
+	if !hasEnvironmentHint(hints, AssertionLanguageDetected, "markdown") {
+		t.Fatalf("hints = %#v, want markdown language hint", hints)
 	}
-	if !hasEnvironmentSignal(signals, SignalProjectToolchainHint, "go") {
-		t.Fatalf("signals = %#v, want Go toolchain hint", signals)
+	if !hasEnvironmentHint(hints, AssertionProjectToolchainHint, "go") {
+		t.Fatalf("hints = %#v, want Go toolchain hint", hints)
 	}
-	if !hasEnvironmentSignal(signals, SignalProjectManifest, "go.mod") {
-		t.Fatalf("signals = %#v, want go.mod manifest signal", signals)
+	if !hasEnvironmentHint(hints, AssertionProjectManifest, "go.mod") {
+		t.Fatalf("hints = %#v, want go.mod manifest hint", hints)
 	}
 }
 
@@ -174,9 +174,9 @@ func TestProjectPluginResolvesWorkspaceDeclarationsLazily(t *testing.T) {
 	}
 }
 
-func hasEnvironmentSignal(signals []coreenvironment.Signal, kind, target string) bool {
-	for _, signal := range signals {
-		if signal.Kind == kind && signal.Target == target {
+func hasEnvironmentHint(hints []coreevidence.Assertion, kind, target string) bool {
+	for _, hint := range hints {
+		if hint.Kind == kind && hint.Target == target {
 			return true
 		}
 	}

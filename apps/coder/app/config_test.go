@@ -12,7 +12,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -35,10 +35,10 @@ observations:
       phase: turn
       observable_kinds: [kubernetes.context]
       disabled: true
-  signal_derivers:
-    - name: kubernetes.signals
+  assertion_derivers:
+    - name: kubernetes.assertions
       observation_kinds: [kubernetes.context]
-      signals:
+      assertions:
         - kind: integration.available
           target: kubernetes
           subject:
@@ -47,7 +47,7 @@ observations:
 reactions:
   - name: kubernetes-available
     when:
-      signal: integration.available
+      assertion: integration.available
       target: kubernetes
       subject:
         kind: integration
@@ -88,16 +88,16 @@ reactions:
 	if !cfg.Observations.Observers[0].Disabled {
 		t.Fatalf("observer disabled = false, want true")
 	}
-	if len(cfg.Observations.SignalDerivers) != 1 || cfg.Observations.SignalDerivers[0].Name != "kubernetes.signals" {
-		t.Fatalf("signal derivers = %#v, want kubernetes.signals", cfg.Observations.SignalDerivers)
+	if len(cfg.Observations.AssertionDerivers) != 1 || cfg.Observations.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v, want kubernetes.assertions", cfg.Observations.AssertionDerivers)
 	}
-	if got := cfg.Observations.SignalDerivers[0].Signals[0].Subject; got.Kind != coreenvironment.SubjectIntegration || got.Name != "kubernetes" {
-		t.Fatalf("signal subject = %#v, want integration/kubernetes", got)
+	if got := cfg.Observations.AssertionDerivers[0].Assertions[0].Subject; got.Kind != coreevidence.SubjectIntegration || got.Name != "kubernetes" {
+		t.Fatalf("assertion subject = %#v, want integration/kubernetes", got)
 	}
 	if len(cfg.Reactions) != 1 || cfg.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v, want kubernetes-available", cfg.Reactions)
 	}
-	if got := cfg.Reactions[0].When.Subject; got.Kind != coreenvironment.SubjectIntegration || got.Name != "kubernetes" {
+	if got := cfg.Reactions[0].When.Subject; got.Kind != coreevidence.SubjectIntegration || got.Name != "kubernetes" {
 		t.Fatalf("reaction subject = %#v, want integration/kubernetes", got)
 	}
 	if got := cfg.Reactions[0].Actions[1].ContextProvider.Name; got != "kubernetes.context" {
@@ -107,7 +107,7 @@ reactions:
 	if len(bundles) != 1 {
 		t.Fatalf("config bundles len = %d, want 1", len(bundles))
 	}
-	if len(bundles[0].Observers) != 1 || len(bundles[0].SignalDerivers) != 1 || len(bundles[0].Reactions) != 1 {
+	if len(bundles[0].Observers) != 1 || len(bundles[0].AssertionDerivers) != 1 || len(bundles[0].Reactions) != 1 {
 		t.Fatalf("config bundle = %#v, want observations and reactions", bundles[0])
 	}
 }

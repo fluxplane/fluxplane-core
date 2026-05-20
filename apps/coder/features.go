@@ -14,7 +14,7 @@ import (
 type FeatureName string
 
 const (
-	FeatureProjectSignals  FeatureName = "project_signals"
+	FeatureProjectEvidence FeatureName = "project_evidence"
 	FeatureBaseLocalCoding FeatureName = "base_local_coding"
 )
 
@@ -35,7 +35,7 @@ type OperationExpansionConfig struct {
 func fullCapabilityOperationNames() []string {
 	return expandOperations(OperationExpansionConfig{
 		Features: []FeatureSpec{
-			ProjectSignalsFeature(),
+			ProjectEvidenceFeature(),
 			BaseLocalCodingFeature(),
 		},
 	})
@@ -64,7 +64,7 @@ func defaultDelegationOperationNames() []string {
 	}
 	delegation := expandOperations(OperationExpansionConfig{
 		Features: []FeatureSpec{
-			ProjectSignalsFeature(),
+			ProjectEvidenceFeature(),
 			BaseLocalCodingFeature(),
 			{OperationSets: []string{golang.ParserSet, golang.ToolchainSet, markdown.Name}},
 		},
@@ -79,10 +79,10 @@ func defaultDelegationOperationNames() []string {
 	return out
 }
 
-// ProjectSignalsFeature includes project inventory and signal context.
-func ProjectSignalsFeature() FeatureSpec {
+// ProjectEvidenceFeature includes project inventory and evidence context.
+func ProjectEvidenceFeature() FeatureSpec {
 	return FeatureSpec{
-		Name:       FeatureProjectSignals,
+		Name:       FeatureProjectEvidence,
 		Operations: []string{project.InventoryOp, project.FilesOp, project.TasksOp, project.TaskRunOp, project.DocsOp},
 	}
 }

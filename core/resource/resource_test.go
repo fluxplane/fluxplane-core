@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
+	"github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/session"
@@ -13,17 +13,17 @@ import (
 func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 	bundle := ContributionBundle{}
 	bundle.Append(ContributionBundle{
-		Observers: []environment.ObserverSpec{{
+		Observers: []evidence.ObserverSpec{{
 			Name:  "kubernetes.context",
-			Phase: environment.PhaseTurn,
+			Phase: evidence.PhaseTurn,
 		}},
-		SignalDerivers: []environment.SignalDeriverSpec{{
-			Name:             "kubernetes.signals",
+		AssertionDerivers: []evidence.AssertionDeriverSpec{{
+			Name:             "kubernetes.assertions",
 			ObservationKinds: []string{"kubernetes.context"},
 		}},
 		Reactions: []reaction.Rule{{
 			Name: "kubernetes-available",
-			When: reaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			When: reaction.Matcher{Assertion: "integration.available", Target: "kubernetes"},
 			Actions: []reaction.Action{{
 				Kind:       reaction.ActionEnableDatasource,
 				Datasource: datasource.Ref{Name: "kubernetes"},
@@ -37,8 +37,8 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != "kubernetes.context" {
 		t.Fatalf("observers = %#v", bundle.Observers)
 	}
-	if len(bundle.SignalDerivers) != 1 || bundle.SignalDerivers[0].Name != "kubernetes.signals" {
-		t.Fatalf("signal derivers = %#v", bundle.SignalDerivers)
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
+		t.Fatalf("assertion derivers = %#v", bundle.AssertionDerivers)
 	}
 	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v", bundle.Reactions)

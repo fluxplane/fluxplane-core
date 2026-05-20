@@ -7,7 +7,7 @@ import (
 
 // Support describes the reusable activation surface for one language family.
 // Concrete plugins own execution; this runtime shape only connects project
-// signals, operation sets, and optional toolchain probes.
+// assertions, operation sets, and optional toolchain probes.
 type Support interface {
 	SupportSpec() SupportSpec
 }

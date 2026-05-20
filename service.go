@@ -27,8 +27,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
 )
@@ -48,7 +48,7 @@ type (
 	OperationInvocation      = clientapi.OperationInvocation
 	TrustDowngrade           = clientapi.TrustDowngrade
 	Input                    = clientapi.Input
-	Signal                   = clientapi.Signal
+	Trigger                  = clientapi.Trigger
 	EventKind                = clientapi.EventKind
 	EventCursor              = clientapi.EventCursor
 	OperationEvent           = clientapi.OperationEvent
@@ -75,7 +75,7 @@ const (
 	SubmissionCommand   = clientapi.SubmissionCommand
 	SubmissionOperation = clientapi.SubmissionOperation
 	SubmissionEvent     = clientapi.SubmissionEvent
-	SubmissionSignal    = clientapi.SubmissionSignal
+	SubmissionTrigger   = clientapi.SubmissionTrigger
 
 	EventSubmissionReceived = clientapi.EventSubmissionReceived
 	EventInputCompleted     = clientapi.EventInputCompleted
@@ -113,8 +113,8 @@ type Config struct {
 	ToolSetCatalog       session.ToolSetCatalog
 	SessionCatalog       session.SessionCatalog
 	OperationExecutor    operationruntime.Executor
-	EnvironmentObservers []runtimeenvironment.Observer
-	SignalDerivers       []runtimeenvironment.SignalDeriver
+	EnvironmentObservers []runtimeevidence.Observer
+	AssertionDerivers    []runtimeevidence.AssertionDeriver
 	ReactionRules        []corereaction.Rule
 	Events               coreevent.Sink
 	EventStore           coreevent.Store
@@ -198,7 +198,7 @@ func New(cfg Config) (*Service, error) {
 		SessionCatalog:       cfg.SessionCatalog,
 		OperationExecutor:    executor,
 		EnvironmentObservers: cfg.EnvironmentObservers,
-		SignalDerivers:       cfg.SignalDerivers,
+		AssertionDerivers:    cfg.AssertionDerivers,
 		ReactionRules:        cfg.ReactionRules,
 		Events:               cfg.Events,
 		ThreadStore:          threadStore,
@@ -373,8 +373,8 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if len(cfg.EnvironmentObservers) == 0 {
 		cfg.EnvironmentObservers = composition.EnvironmentObservers
 	}
-	if len(cfg.SignalDerivers) == 0 {
-		cfg.SignalDerivers = composition.SignalDerivers
+	if len(cfg.AssertionDerivers) == 0 {
+		cfg.AssertionDerivers = composition.AssertionDerivers
 	}
 	if len(cfg.ReactionRules) == 0 {
 		cfg.ReactionRules = composition.ReactionRules

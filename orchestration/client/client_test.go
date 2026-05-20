@@ -31,10 +31,10 @@ func TestSubmissionValidateRejectsUnionExtras(t *testing.T) {
 	}
 }
 
-func TestSubmissionValidateSignal(t *testing.T) {
+func TestSubmissionValidateAssertion(t *testing.T) {
 	submission := Submission{
-		Kind:   SubmissionSignal,
-		Signal: &Signal{Name: "timer.tick", Source: "scheduler"},
+		Kind:    SubmissionTrigger,
+		Trigger: &Trigger{Name: "timer.tick", Source: "scheduler"},
 	}
 	if err := submission.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -121,15 +121,15 @@ func TestSubmissionBuilderPayloadSettersClearPreviousPayloads(t *testing.T) {
 		WithCommand(command.Invocation{Path: command.Path{"echo"}}).
 		WithOperation(operation.Ref{Name: "echo"}, "hello").
 		WithEvent(testEvent{}).
-		WithSignal(Signal{Name: "timer.tick"})
-	if submission.Kind != SubmissionSignal {
-		t.Fatalf("kind = %q, want signal", submission.Kind)
+		WithTrigger(Trigger{Name: "timer.tick"})
+	if submission.Kind != SubmissionTrigger {
+		t.Fatalf("kind = %q, want trigger", submission.Kind)
 	}
 	if submission.Input != nil || submission.Command != nil || submission.Operation != nil || submission.Event != nil {
 		t.Fatalf("cleared payloads input=%#v command=%#v operation=%#v event=%#v", submission.Input, submission.Command, submission.Operation, submission.Event)
 	}
-	if submission.Signal == nil || submission.Signal.Name != "timer.tick" {
-		t.Fatalf("signal = %#v, want timer.tick", submission.Signal)
+	if submission.Trigger == nil || submission.Trigger.Name != "timer.tick" {
+		t.Fatalf("trigger = %#v, want timer.tick", submission.Trigger)
 	}
 	if err := submission.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

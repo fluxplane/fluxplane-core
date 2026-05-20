@@ -202,15 +202,15 @@ type ToolchainBinarySpec struct {
 
 // ToolchainSpec describes an inert language/toolchain capability surface.
 type ToolchainSpec struct {
-	ID                string                `json:"id"`
-	DisplayName       string                `json:"display_name,omitempty"`
-	Languages         []LanguageID          `json:"languages,omitempty"`
-	RequiredBinaries  []ToolchainBinarySpec `json:"required_binaries,omitempty"`
-	Capabilities      []ToolchainCapability `json:"capabilities,omitempty"`
-	OperationSets     []string              `json:"operation_sets,omitempty"`
-	Operations        []operation.Ref       `json:"operations,omitempty"`
-	ActivationSignals []string              `json:"activation_signals,omitempty"`
-	Annotations       map[string]string     `json:"annotations,omitempty"`
+	ID               string                `json:"id"`
+	DisplayName      string                `json:"display_name,omitempty"`
+	Languages        []LanguageID          `json:"languages,omitempty"`
+	RequiredBinaries []ToolchainBinarySpec `json:"required_binaries,omitempty"`
+	Capabilities     []ToolchainCapability `json:"capabilities,omitempty"`
+	OperationSets    []string              `json:"operation_sets,omitempty"`
+	Operations       []operation.Ref       `json:"operations,omitempty"`
+	ActivationHints  []string              `json:"activation_hints,omitempty"`
+	Annotations      map[string]string     `json:"annotations,omitempty"`
 }
 
 // Validate checks the toolchain spec has a stable identity and binary names.

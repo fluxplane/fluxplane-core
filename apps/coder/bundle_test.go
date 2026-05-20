@@ -245,7 +245,7 @@ func TestBundleComposes(t *testing.T) {
 
 func TestExpandOperationsUsesExplicitFeaturesAndOperationSets(t *testing.T) {
 	ops := expandOperations(OperationExpansionConfig{
-		Features: []FeatureSpec{ProjectSignalsFeature(), {OperationSets: []string{golang.ParserSet, markdown.Name}}},
+		Features: []FeatureSpec{ProjectEvidenceFeature(), {OperationSets: []string{golang.ParserSet, markdown.Name}}},
 	})
 	if !containsName(ops, project.InventoryOp) || !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
 		t.Fatalf("ops = %#v, want project, Go parser, and markdown operations", ops)
@@ -335,16 +335,16 @@ func TestBundleContributesLanguageActivationReactions(t *testing.T) {
 	if !hasReaction(bundle.Reactions, "coder.endpoint.mysql.available", discovery.Name) {
 		t.Fatalf("reactions = %#v, want MySQL endpoint reaction to enable discovery operation set", bundle.Reactions)
 	}
-	if !hasReaction(bundle.Reactions, "coder.capability.browser.ready_requested", browser.Name) {
-		t.Fatalf("reactions = %#v, want browser intent operation-set reaction", bundle.Reactions)
+	if !hasReaction(bundle.Reactions, "coder.capability.browser.available", browser.Name) {
+		t.Fatalf("reactions = %#v, want browser availability operation-set reaction", bundle.Reactions)
 	}
-	if !hasReaction(bundle.Reactions, "coder.capability.image.generation.ready_requested", image.GenerationSet) {
-		t.Fatalf("reactions = %#v, want image generation intent operation-set reaction", bundle.Reactions)
+	if !hasReaction(bundle.Reactions, "coder.capability.image.generation.available", image.GenerationSet) {
+		t.Fatalf("reactions = %#v, want image generation availability operation-set reaction", bundle.Reactions)
 	}
-	if !hasReaction(bundle.Reactions, "coder.capability.image.understanding.ready_requested", image.UnderstandingSet) {
-		t.Fatalf("reactions = %#v, want image understanding intent operation-set reaction", bundle.Reactions)
+	if !hasReaction(bundle.Reactions, "coder.capability.image.understanding.available", image.UnderstandingSet) {
+		t.Fatalf("reactions = %#v, want image understanding availability operation-set reaction", bundle.Reactions)
 	}
-	if !hasReaction(bundle.Reactions, "coder.capability.memory_mutation.ready_requested", memory.MutationSet) {
+	if !hasReaction(bundle.Reactions, "coder.capability.memory_mutation.available", memory.MutationSet) {
 		t.Fatalf("reactions = %#v, want memory mutation operation-set reaction", bundle.Reactions)
 	}
 }

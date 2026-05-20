@@ -125,6 +125,116 @@ func TestShellPromptSeparatesInputFromFooter(t *testing.T) {
 	}
 }
 
+func TestShellPromptShowsEmptyInputPlaceholder(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+
+	tab.InputMode = InputModeAsk
+	askPrompt := m.renderPrompt(100)
+	if !strings.Contains(askPrompt, "Ask the agent...") {
+		t.Fatalf("ask prompt missing placeholder:\n%s", askPrompt)
+	}
+
+	tab.InputMode = InputModeShell
+	shellPrompt := m.renderPrompt(100)
+	if !strings.Contains(shellPrompt, "Run a shell command...") {
+		t.Fatalf("shell prompt missing placeholder:\n%s", shellPrompt)
+	}
+}
+
+func TestShellPromptFooterShowsModeHints(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+
+	tab.InputMode = InputModeAsk
+	askPrompt := m.renderPrompt(100)
+	for _, want := range []string{"ask mode", "! shell", "/ command", "@ mention", "↑ history", "pgup scroll", "usage --"} {
+		if !strings.Contains(askPrompt, want) {
+			t.Fatalf("ask prompt missing %q:\n%s", want, askPrompt)
+		}
+	}
+
+	tab.InputMode = InputModeShell
+	shellPrompt := m.renderPrompt(100)
+	for _, want := range []string{"shell mode", "? ask", "/ command", "@ mention", "↑ history", "pgup scroll", "usage --"} {
+		if !strings.Contains(shellPrompt, want) {
+			t.Fatalf("shell prompt missing %q:\n%s", want, shellPrompt)
+		}
+	}
+}
+
+func TestShellPromptFooterShowsCancelHintWhileRunning(t *testing.T) {
+	m := viewportTestModel()
+	m.activeRuns["session-1"] = "ask.submitted"
+
+	prompt := m.renderPrompt(120)
+	for _, want := range []string{"esc cancel", "pgup scroll", "usage --"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("running prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestShellPromptFooterShowsEditingShortcuts(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "alpha beta"
+
+	prompt := m.renderPrompt(120)
+	for _, want := range []string{"ctrl+w word", "ctrl+k tail", "usage --"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("editing prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestShellAdvancedEditingKeys(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "alpha beta gamma"
+	tab.InputCursor = len([]rune(tab.InputBuffer))
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft, Mod: tea.ModAlt}))
+	if got, want := tab.InputCursor, len([]rune("alpha beta ")); got != want {
+		t.Fatalf("cursor after alt-left = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: 'w', Mod: tea.ModCtrl}))
+	if got := tab.InputBuffer; got != "alpha gamma" {
+		t.Fatalf("input after ctrl+w = %q, want alpha gamma", got)
+	}
+	if got, want := tab.InputCursor, len([]rune("alpha ")); got != want {
+		t.Fatalf("cursor after ctrl+w = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight, Mod: tea.ModAlt}))
+	if got, want := tab.InputCursor, len([]rune("alpha gamma")); got != want {
+		t.Fatalf("cursor after alt-right = %d, want %d", got, want)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}))
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if got := tab.InputBuffer; got != "apha gamma" {
+		t.Fatalf("input after delete = %q, want apha gamma", got)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: 'k', Mod: tea.ModCtrl}))
+	if got := tab.InputBuffer; got != "a" {
+		t.Fatalf("input after ctrl+k = %q, want a", got)
+	}
+}
+
 func TestShellPromptFooterShowsUsageStats(t *testing.T) {
 	m := viewportTestModel()
 	m.appendStreamTranscript("session-1", "", TranscriptEvent{
@@ -166,6 +276,44 @@ func TestShellSlashCommandCompletionUsesCommandCatalog(t *testing.T) {
 		if result.Kind != ResourceCommand {
 			t.Fatalf("result kind = %q, want command", result.Kind)
 		}
+	}
+}
+
+func TestShellCompletionPickerShowsControls(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "/co"
+	refreshMentionSync(&m)
+
+	picker := m.renderMentionPicker(100)
+	for _, want := range []string{"1/", "results", "info", "tab accept", "↑↓ select", "esc close"} {
+		if !strings.Contains(picker, want) {
+			t.Fatalf("picker missing hint %q:\n%s", want, picker)
+		}
+	}
+	if strings.Contains(picker, "enter submit") {
+		t.Fatalf("picker contains misleading enter-submit hint:\n%s", picker)
+	}
+}
+
+func TestShellEscapeClosesCompletionPickerBeforeQuit(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "/co"
+	refreshMentionSync(&m)
+	if !m.mention.Open {
+		t.Fatal("completion did not open")
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape}))
+	if m.mention.Open {
+		t.Fatalf("completion still open after escape: %#v", m.mention)
 	}
 }
 
@@ -437,6 +585,11 @@ func TestShellInitialTranscriptDoesNotSeedPlaceholderCopy(t *testing.T) {
 	}
 	if !strings.Contains(content, "connected: fake") {
 		t.Fatalf("initial transcript missing connection event:\n%s", content)
+	}
+	for _, want := range []string{"tip", "ask a question", "/ for commands", "@ for resources", "! for shell mode"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("initial transcript missing onboarding tip %q:\n%s", want, content)
+		}
 	}
 }
 

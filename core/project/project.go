@@ -50,7 +50,7 @@ type Inventory struct {
 	WorkspaceID workspace.ID `json:"workspace_id,omitempty"`
 	Root        string       `json:"root,omitempty"`
 	Projects    []Project    `json:"projects,omitempty"`
-	Signals     []Signal     `json:"signals,omitempty"`
+	Hints       []Hint       `json:"hints,omitempty"`
 	Truncated   bool         `json:"truncated,omitempty"`
 	Summary     Summary      `json:"summary,omitempty"`
 	Warnings    []Warning    `json:"warnings,omitempty"`
@@ -71,7 +71,7 @@ type Project struct {
 	Kind        string       `json:"kind,omitempty"`
 	ParentID    ID           `json:"parent_id,omitempty"`
 	Facets      []Facet      `json:"facets,omitempty"`
-	Signals     []Signal     `json:"signals,omitempty"`
+	Hints       []Hint       `json:"hints,omitempty"`
 	Files       []FileRef    `json:"files,omitempty"`
 	Warnings    []Warning    `json:"warnings,omitempty"`
 }
@@ -166,9 +166,9 @@ type Warning struct {
 	Message string `json:"message"`
 }
 
-// Signal records an inert workspace/project hint used for capability
+// Hint records an inert workspace/project hint used for capability
 // selection. Discovery does not activate plugins or operations directly.
-type Signal struct {
+type Hint struct {
 	WorkspaceID workspace.ID        `json:"workspace_id,omitempty"`
 	Kind        string              `json:"kind"`
 	Path        string              `json:"path,omitempty"`

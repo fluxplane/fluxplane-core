@@ -52,8 +52,8 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if !hasDocument(root, "docs/guide.md") {
 			t.Fatalf("root documents = %#v, want nested docs/guide.md attached to root", root.Facets)
 		}
-		if !hasSignal(inventory.Signals, "go", "go", "go.mod") || !hasSignal(inventory.Signals, "markdown", "", "README.md") || !hasSignal(inventory.Signals, "", "docker", "Dockerfile") || !hasSignal(inventory.Signals, "", "docker-compose", "docker-compose.yaml") {
-			t.Fatalf("signals = %#v, want go, markdown, Docker, and docker-compose project signals", inventory.Signals)
+		if !hasHint(inventory.Hints, "go", "go", "go.mod") || !hasHint(inventory.Hints, "markdown", "", "README.md") || !hasHint(inventory.Hints, "", "docker", "Dockerfile") || !hasHint(inventory.Hints, "", "docker-compose", "docker-compose.yaml") {
+			t.Fatalf("hints = %#v, want go, markdown, Docker, and docker-compose project hints", inventory.Hints)
 		}
 		tools := projectByRoot(t, inventory, "tools")
 		if tools.ParentID != root.ID {
@@ -74,8 +74,8 @@ func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {
 		if len(limited.Projects) != 1 || !hasFacet(limited.Projects[0], coreproject.FacetGoModule) {
 			t.Fatalf("limited projects = %#v, want one discovered Go project", limited.Projects)
 		}
-		if hasSignalProject(limited.Signals, tools.ID) {
-			t.Fatalf("limited signals = %#v, want no signals for omitted project %s", limited.Signals, tools.ID)
+		if hasHintProject(limited.Hints, tools.ID) {
+			t.Fatalf("limited hints = %#v, want no hints for omitted project %s", limited.Hints, tools.ID)
 		}
 
 		inventory, rebuilt, err = manager.Inventory(context.Background(), coreproject.InventoryQuery{})
@@ -305,18 +305,18 @@ func assertAIConfig(t *testing.T, project coreproject.Project, rel, vendor, kind
 	}
 }
 
-func hasSignal(signals []coreproject.Signal, language, toolchain, path string) bool {
-	for _, signal := range signals {
-		if string(signal.Language) == language && signal.Toolchain == toolchain && signal.Path == path {
+func hasHint(hints []coreproject.Hint, language, toolchain, path string) bool {
+	for _, hint := range hints {
+		if string(hint.Language) == language && hint.Toolchain == toolchain && hint.Path == path {
 			return true
 		}
 	}
 	return false
 }
 
-func hasSignalProject(signals []coreproject.Signal, projectID coreproject.ID) bool {
-	for _, signal := range signals {
-		if signal.ProjectID == projectID {
+func hasHintProject(hints []coreproject.Hint, projectID coreproject.ID) bool {
+	for _, hint := range hints {
+		if hint.ProjectID == projectID {
 			return true
 		}
 	}
@@ -394,8 +394,8 @@ func TestManagerDetectsProjectsInNamedHostRoots(t *testing.T) {
 	if apiProject.Name != "example.com/api" {
 		t.Fatalf("api project name = %q, want module path", apiProject.Name)
 	}
-	if !hasSignal(inventory.Signals, "go", "go", "@api/go.mod") {
-		t.Fatalf("signals = %#v, want named-root go signal", inventory.Signals)
+	if !hasHint(inventory.Hints, "go", "go", "@api/go.mod") {
+		t.Fatalf("hints = %#v, want named-root go hint", inventory.Hints)
 	}
 }
 func TestManagerRejectsWorkspaceIDWhenUnscoped(t *testing.T) {

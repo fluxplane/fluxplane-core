@@ -3,15 +3,15 @@ package reaction
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/skill"
 )
 
-func TestPlanFiresOnNewSignal(t *testing.T) {
+func TestPlanFiresOnNewAssertion(t *testing.T) {
 	rule := testRule()
-	signal := testSignal("go1.24")
-	result := Plan(Request{Rules: []corereaction.Rule{rule}, Signals: []environment.Signal{signal}})
+	assertion := testAssertion("go1.24")
+	result := Plan(Request{Rules: []corereaction.Rule{rule}, Assertions: []coreevidence.Assertion{assertion}})
 	if len(result.Diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
 	}
@@ -21,46 +21,46 @@ func TestPlanFiresOnNewSignal(t *testing.T) {
 	if result.Planned[0].Rule != "go-toolchain" {
 		t.Fatalf("planned rule = %q, want go-toolchain", result.Planned[0].Rule)
 	}
-	if result.Current[signal.ActivationKey()] != signal.Fingerprint() {
-		t.Fatalf("current = %#v, missing signal fingerprint", result.Current)
+	if result.Current[assertion.ActivationKey()] != assertion.Fingerprint() {
+		t.Fatalf("current = %#v, missing assertion fingerprint", result.Current)
 	}
 }
 
-func TestPlanSuppressesUnchangedSignal(t *testing.T) {
+func TestPlanSuppressesUnchangedAssertion(t *testing.T) {
 	rule := testRule()
-	signal := testSignal("go1.24")
+	assertion := testAssertion("go1.24")
 	result := Plan(Request{
-		Rules:    []corereaction.Rule{rule},
-		Signals:  []environment.Signal{signal},
-		Previous: map[string]string{signal.ActivationKey(): signal.Fingerprint()},
+		Rules:      []corereaction.Rule{rule},
+		Assertions: []coreevidence.Assertion{assertion},
+		Previous:   map[string]string{assertion.ActivationKey(): assertion.Fingerprint()},
 	})
 	if len(result.Planned) != 0 {
 		t.Fatalf("planned len = %d, want 0", len(result.Planned))
 	}
 }
 
-func TestPlanFiresWhenSignalFingerprintChanges(t *testing.T) {
+func TestPlanFiresWhenAssertionFingerprintChanges(t *testing.T) {
 	rule := testRule()
-	previous := testSignal("go1.24")
-	current := testSignal("go1.25")
+	previous := testAssertion("go1.24")
+	current := testAssertion("go1.25")
 	result := Plan(Request{
-		Rules:    []corereaction.Rule{rule},
-		Signals:  []environment.Signal{current},
-		Previous: map[string]string{previous.ActivationKey(): previous.Fingerprint()},
+		Rules:      []corereaction.Rule{rule},
+		Assertions: []coreevidence.Assertion{current},
+		Previous:   map[string]string{previous.ActivationKey(): previous.Fingerprint()},
 	})
 	if len(result.Planned) != 1 {
 		t.Fatalf("planned len = %d, want 1", len(result.Planned))
 	}
 }
 
-func TestPlanEveryTurnFiresForUnchangedSignal(t *testing.T) {
+func TestPlanEveryTurnFiresForUnchangedAssertion(t *testing.T) {
 	rule := testRule()
 	rule.Mode = corereaction.ModeEveryTurn
-	signal := testSignal("go1.24")
+	assertion := testAssertion("go1.24")
 	result := Plan(Request{
-		Rules:    []corereaction.Rule{rule},
-		Signals:  []environment.Signal{signal},
-		Previous: map[string]string{signal.ActivationKey(): signal.Fingerprint()},
+		Rules:      []corereaction.Rule{rule},
+		Assertions: []coreevidence.Assertion{assertion},
+		Previous:   map[string]string{assertion.ActivationKey(): assertion.Fingerprint()},
 	})
 	if len(result.Planned) != 1 {
 		t.Fatalf("planned len = %d, want 1", len(result.Planned))
@@ -70,12 +70,12 @@ func TestPlanEveryTurnFiresForUnchangedSignal(t *testing.T) {
 func TestPlanEveryTurnIgnoresAlreadyAppliedIdempotencyKey(t *testing.T) {
 	rule := testRule()
 	rule.Mode = corereaction.ModeEveryTurn
-	signal := testSignal("go1.24")
-	key := IdempotencyKey(rule, signal, 0, rule.Actions[0])
+	assertion := testAssertion("go1.24")
+	key := IdempotencyKey(rule, assertion, 0, rule.Actions[0])
 	result := Plan(Request{
 		Rules:       []corereaction.Rule{rule},
-		Signals:     []environment.Signal{signal},
-		Previous:    map[string]string{signal.ActivationKey(): signal.Fingerprint()},
+		Assertions:  []coreevidence.Assertion{assertion},
+		Previous:    map[string]string{assertion.ActivationKey(): assertion.Fingerprint()},
 		AppliedKeys: map[string]bool{key: true},
 	})
 	if len(result.Planned) != 1 {
@@ -88,11 +88,11 @@ func TestPlanEveryTurnIgnoresAlreadyAppliedIdempotencyKey(t *testing.T) {
 
 func TestPlanSkipsAlreadyAppliedIdempotencyKey(t *testing.T) {
 	rule := testRule()
-	signal := testSignal("go1.24")
-	key := IdempotencyKey(rule, signal, 0, rule.Actions[0])
+	assertion := testAssertion("go1.24")
+	key := IdempotencyKey(rule, assertion, 0, rule.Actions[0])
 	result := Plan(Request{
 		Rules:       []corereaction.Rule{rule},
-		Signals:     []environment.Signal{signal},
+		Assertions:  []coreevidence.Assertion{assertion},
 		AppliedKeys: map[string]bool{key: true},
 	})
 	if len(result.Planned) != 0 {
@@ -113,7 +113,7 @@ func TestPlanReportsInvalidRuleDiagnostic(t *testing.T) {
 func testRule() corereaction.Rule {
 	return corereaction.Rule{
 		Name: "go-toolchain",
-		When: corereaction.Matcher{Signal: "toolchain.available", Target: "go"},
+		When: corereaction.Matcher{Assertion: "toolchain.available", Target: "go"},
 		Actions: []corereaction.Action{{
 			Kind:  corereaction.ActionActivateSkill,
 			Skill: skill.Ref{Name: "go"},
@@ -121,8 +121,8 @@ func testRule() corereaction.Rule {
 	}
 }
 
-func testSignal(version string) environment.Signal {
-	return environment.Signal{
+func testAssertion(version string) coreevidence.Assertion {
+	return coreevidence.Assertion{
 		Kind:     "toolchain.available",
 		Target:   "go",
 		Scope:    "workspace:/repo",

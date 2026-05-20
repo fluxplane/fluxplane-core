@@ -148,7 +148,7 @@ func TestTranscriptEventsForAskResultKeepsErrors(t *testing.T) {
 	}
 }
 
-func TestTranscriptEventsForRunEventMapsLiveRuntimeSignals(t *testing.T) {
+func TestTranscriptEventsForRunEventMapsLiveRuntimeAssertions(t *testing.T) {
 	requestedEvents := transcriptEventsForRunEvent("session-1", clientapi.Event{
 		Kind: clientapi.EventRuntimeEmitted,
 		Runtime: &clientapi.RuntimeEvent{

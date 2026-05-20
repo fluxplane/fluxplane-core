@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -36,14 +36,14 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != observerName {
 		t.Fatalf("observers = %#v, want AWS observer spec", bundle.Observers)
 	}
-	if len(bundle.SignalDerivers) != 1 || bundle.SignalDerivers[0].Name != deriverName {
-		t.Fatalf("signal derivers = %#v, want AWS deriver spec", bundle.SignalDerivers)
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != deriverName {
+		t.Fatalf("assertion derivers = %#v, want AWS deriver spec", bundle.AssertionDerivers)
 	}
 	observers, err := resolved.EnvironmentObservers(ctx, pluginhost.Context{Ref: ref})
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
 	}
-	observations, diagnostics := runtimeenvironment.RunObservers(ctx, observers, runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, diagnostics := runtimeevidence.RunObservers(ctx, observers, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", diagnostics)
 	}
@@ -62,16 +62,16 @@ func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {
 			t.Fatalf("content leaked secret value %q: %#v", secret, content)
 		}
 	}
-	derivers, err := resolved.SignalDerivers(ctx, pluginhost.Context{Ref: ref})
+	derivers, err := resolved.AssertionDerivers(ctx, pluginhost.Context{Ref: ref})
 	if err != nil {
-		t.Fatalf("SignalDerivers: %v", err)
+		t.Fatalf("AssertionDerivers: %v", err)
 	}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(ctx, derivers, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(ctx, derivers, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
-		t.Fatalf("signal diagnostics = %#v, want none", diagnostics)
+		t.Fatalf("assertion diagnostics = %#v, want none", diagnostics)
 	}
-	if !hasSignal(signals, "integration.configured", Name) || !hasSignal(signals, "integration.available", Name) {
-		t.Fatalf("signals = %#v, want configured and available AWS signals", signals)
+	if !hasAssertion(assertions, "integration.configured", Name) || !hasAssertion(assertions, "integration.available", Name) {
+		t.Fatalf("assertions = %#v, want configured and available AWS assertions", assertions)
 	}
 }
 
@@ -82,19 +82,19 @@ func TestAWSObserverTreatsRegionOnlyAsConfiguredNotAvailable(t *testing.T) {
 		ref:    resource.PluginRef{Name: Name},
 		cfg:    Config{},
 	}
-	observations, diagnostics := runtimeenvironment.RunObservers(ctx, []runtimeenvironment.Observer{observer{plugin: plugin}}, runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, diagnostics := runtimeevidence.RunObservers(ctx, []runtimeevidence.Observer{observer{plugin: plugin}}, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", diagnostics)
 	}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(ctx, []runtimeenvironment.SignalDeriver{signalDeriver{}}, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(ctx, []runtimeevidence.AssertionDeriver{assertionDeriver{}}, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
-		t.Fatalf("signal diagnostics = %#v, want none", diagnostics)
+		t.Fatalf("assertion diagnostics = %#v, want none", diagnostics)
 	}
-	if !hasSignal(signals, "integration.configured", Name) {
-		t.Fatalf("signals = %#v, want configured AWS signal", signals)
+	if !hasAssertion(assertions, "integration.configured", Name) {
+		t.Fatalf("assertions = %#v, want configured AWS assertion", assertions)
 	}
-	if hasSignal(signals, "integration.available", Name) {
-		t.Fatalf("signals = %#v, want no available AWS signal for region-only config", signals)
+	if hasAssertion(assertions, "integration.available", Name) {
+		t.Fatalf("assertions = %#v, want no available AWS assertion for region-only config", assertions)
 	}
 }
 
@@ -116,9 +116,9 @@ func (s fakeSystem) Browser() system.BrowserManager  { return nil }
 func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
 
-func hasSignal(signals []coreenvironment.Signal, kind, target string) bool {
-	for _, signal := range signals {
-		if signal.Kind == kind && signal.Target == target {
+func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool {
+	for _, assertion := range assertions {
+		if assertion.Kind == kind && assertion.Target == target {
 			return true
 		}
 	}

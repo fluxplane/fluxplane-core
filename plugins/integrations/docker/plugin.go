@@ -7,31 +7,31 @@ import (
 	"strings"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
 const (
-	Name               = "docker"
-	ObserverName       = "docker.status"
-	SignalDeriverName  = "docker.signals"
-	ObservationStatus  = "docker.status"
-	SignalConfigured   = "integration.configured"
-	SignalAvailable    = "integration.available"
-	defaultStatusScope = "local"
+	Name                 = "docker"
+	ObserverName         = "docker.status"
+	AssertionDeriverName = "docker.assertions"
+	ObservationStatus    = "docker.status"
+	AssertionConfigured  = "integration.configured"
+	AssertionAvailable   = "integration.available"
+	defaultStatusScope   = "local"
 )
 
-// Plugin contributes Docker environment observation and signals.
+// Plugin contributes Docker environment observation and assertions.
 type Plugin struct {
 	system system.System
 }
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a Docker integration plugin.
 func New(sys system.System) Plugin { return Plugin{system: sys} }
@@ -44,19 +44,19 @@ func (Plugin) Manifest() pluginhost.Manifest {
 // Contributions returns Docker observation resources.
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
-		Observers:      []coreenvironment.ObserverSpec{observerSpec()},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{signalDeriverSpec()},
+		Observers:         []coreevidence.ObserverSpec{observerSpec()},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{assertionDeriverSpec()},
 	}, nil
 }
 
 // EnvironmentObservers returns executable Docker observers.
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{dockerObserver(p)}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{dockerObserver(p)}, nil
 }
 
-// SignalDerivers returns executable Docker signal derivation.
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{dockerSignalDeriver{}}, nil
+// AssertionDerivers returns executable Docker assertion derivation.
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{dockerAssertionDeriver{}}, nil
 }
 
 // Status records non-secret Docker availability facts.
@@ -73,15 +73,15 @@ type dockerObserver struct {
 	system system.System
 }
 
-func (dockerObserver) Spec() coreenvironment.ObserverSpec {
+func (dockerObserver) Spec() coreevidence.ObserverSpec {
 	return observerSpec()
 }
 
-func (o dockerObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o dockerObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	status := observeDockerStatus(ctx, o.system)
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "integration:docker:local",
-		Environment: coreenvironment.Ref{Name: coreenvironment.Name(Name)},
+		Environment: coreevidence.Ref{Name: coreevidence.Name(Name)},
 		Kind:        ObservationStatus,
 		Scope:       defaultStatusScope,
 		Content:     status,
@@ -89,28 +89,28 @@ func (o dockerObserver) Observe(ctx context.Context, _ runtimeenvironment.Observ
 	}}, nil
 }
 
-func observerSpec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func observerSpec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:        ObserverName,
 		Description: "Reports non-secret Docker CLI and daemon availability.",
-		Environment: coreenvironment.Ref{
-			Name: coreenvironment.Name(Name),
+		Environment: coreevidence.Ref{
+			Name: coreevidence.Name(Name),
 		},
-		Phase:           coreenvironment.PhaseTurn,
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{ObservationStatus},
 		Dynamic:         true,
 		Annotations:     map[string]string{"plugin": Name},
 	}
 }
 
-type dockerSignalDeriver struct{}
+type dockerAssertionDeriver struct{}
 
-func (dockerSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return signalDeriverSpec()
+func (dockerAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return assertionDeriverSpec()
 }
 
-func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (dockerAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != ObservationStatus {
 			continue
@@ -119,12 +119,12 @@ func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 		if !ok {
 			continue
 		}
-		metadata := dockerSignalMetadata(status)
+		metadata := dockerAssertionMetadata(status)
 		if status.BinaryAvailable {
-			out = append(out, coreenvironment.Signal{
-				Kind:           SignalConfigured,
+			out = append(out, coreevidence.Assertion{
+				Kind:           AssertionConfigured,
 				Target:         Name,
-				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name},
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -133,10 +133,10 @@ func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 			})
 		}
 		if status.DaemonAvailable {
-			out = append(out, coreenvironment.Signal{
-				Kind:           SignalAvailable,
+			out = append(out, coreevidence.Assertion{
+				Kind:           AssertionAvailable,
 				Target:         Name,
-				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name},
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -148,14 +148,14 @@ func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 	return out, nil
 }
 
-func signalDeriverSpec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
-		Name:             SignalDeriverName,
-		Description:      "Derives Docker integration configured/available signals from Docker status observations.",
+func assertionDeriverSpec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             AssertionDeriverName,
+		Description:      "Derives Docker integration configured/available assertions from Docker status observations.",
 		ObservationKinds: []string{ObservationStatus},
-		Signals: []coreenvironment.SignalTemplate{
-			{Kind: SignalConfigured, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name}},
-			{Kind: SignalAvailable, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name}},
+		Assertions: []coreevidence.AssertionTemplate{
+			{Kind: AssertionConfigured, Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
+			{Kind: AssertionAvailable, Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
 		},
 	}
 }
@@ -210,7 +210,7 @@ func dockerStatusFromObservation(content any) (Status, bool) {
 	}
 }
 
-func dockerSignalMetadata(status Status) map[string]string {
+func dockerAssertionMetadata(status Status) map[string]string {
 	metadata := map[string]string{}
 	if strings.TrimSpace(status.ClientVersion) != "" {
 		metadata["client_version"] = strings.TrimSpace(status.ClientVersion)

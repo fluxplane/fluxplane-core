@@ -6,7 +6,7 @@ import (
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/runtime/skill"
@@ -16,7 +16,7 @@ import (
 // application.
 type ReactionAction struct {
 	Rule           string
-	Signal         coreenvironment.Signal
+	Assertion      coreevidence.Assertion
 	Action         corereaction.Action
 	IdempotencyKey string
 }
@@ -139,18 +139,18 @@ func ApplyReactionActions(actions []ReactionAction, cfg Config) ReactionApplyRes
 		if planned.IdempotencyKey != "" {
 			result.AppliedKeys = append(result.AppliedKeys, planned.IdempotencyKey)
 			emitRuntimeEvent(cfg, corereaction.ActionApplied{
-				Rule:              planned.Rule,
-				Action:            planned.Action.Kind,
-				IdempotencyKey:    planned.IdempotencyKey,
-				Target:            reactionActionTarget(planned.Action),
-				Signal:            planned.Signal.Kind,
-				SignalTarget:      planned.Signal.Target,
-				SignalSubjectKind: string(planned.Signal.Subject.Kind),
-				SignalSubjectName: planned.Signal.Subject.Name,
-				SignalSubjectID:   planned.Signal.Subject.ID,
-				SignalScope:       planned.Signal.Scope,
-				SignalSource:      planned.Signal.Source,
-				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:                 planned.Rule,
+				Action:               planned.Action.Kind,
+				IdempotencyKey:       planned.IdempotencyKey,
+				Target:               reactionActionTarget(planned.Action),
+				Assertion:            planned.Assertion.Kind,
+				AssertionTarget:      planned.Assertion.Target,
+				AssertionSubjectKind: string(planned.Assertion.Subject.Kind),
+				AssertionSubjectName: planned.Assertion.Subject.Name,
+				AssertionSubjectID:   planned.Assertion.Subject.ID,
+				AssertionScope:       planned.Assertion.Scope,
+				AssertionSource:      planned.Assertion.Source,
+				ObservationIDs:       append([]string(nil), planned.Assertion.ObservationIDs...),
 			})
 		}
 	}

@@ -11,8 +11,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -26,7 +26,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/native/text"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 )
 
 func TestComposeRegistersResourceCommandsAgainstProvidedOperations(t *testing.T) {
@@ -414,11 +414,11 @@ func TestComposeCarriesEnvironmentPluginContributions(t *testing.T) {
 	if len(composition.EnvironmentObservers) != 2 {
 		t.Fatalf("environment observers len = %d, want baseline plus plugin observer", len(composition.EnvironmentObservers))
 	}
-	if composition.EnvironmentObservers[0].Spec().Name != runtimeenvironment.BaselineObserverName {
+	if composition.EnvironmentObservers[0].Spec().Name != runtimeevidence.BaselineObserverName {
 		t.Fatalf("first observer = %#v, want baseline observer", composition.EnvironmentObservers[0].Spec())
 	}
-	if len(composition.SignalDerivers) != 1 {
-		t.Fatalf("signal derivers len = %d, want 1", len(composition.SignalDerivers))
+	if len(composition.AssertionDerivers) != 1 {
+		t.Fatalf("assertion derivers len = %d, want 1", len(composition.AssertionDerivers))
 	}
 	if len(composition.ReactionRules) != 1 || composition.ReactionRules[0].Name != "go-skill" {
 		t.Fatalf("reaction rules = %#v, want go-skill", composition.ReactionRules)
@@ -431,9 +431,9 @@ func TestComposeAppliesConfiguredObserverOverridesToSelectedImplementations(t *t
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "environment-plugin"}},
 			Skills:  []skill.Spec{{Name: "go"}},
-			Observers: []coreenvironment.ObserverSpec{{
+			Observers: []coreevidence.ObserverSpec{{
 				Name:            "project.inventory",
-				Phase:           coreenvironment.PhaseLazy,
+				Phase:           coreevidence.PhaseLazy,
 				ObservableKinds: []string{"project.inventory.summary"},
 				Annotations: map[string]string{
 					"configured": "true",
@@ -447,7 +447,7 @@ func TestComposeAppliesConfiguredObserverOverridesToSelectedImplementations(t *t
 	if len(composition.Diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", composition.Diagnostics)
 	}
-	var got coreenvironment.ObserverSpec
+	var got coreevidence.ObserverSpec
 	for _, observer := range composition.EnvironmentObservers {
 		if observer.Spec().Name == "project.inventory" {
 			got = observer.Spec()
@@ -457,7 +457,7 @@ func TestComposeAppliesConfiguredObserverOverridesToSelectedImplementations(t *t
 	if got.Name == "" {
 		t.Fatal("project.inventory observer not found")
 	}
-	if got.Phase != coreenvironment.PhaseLazy {
+	if got.Phase != coreevidence.PhaseLazy {
 		t.Fatalf("phase = %q, want lazy override", got.Phase)
 	}
 	if len(got.ObservableKinds) != 1 || got.ObservableKinds[0] != "project.inventory.summary" {
@@ -474,7 +474,7 @@ func TestComposeAppliesConfiguredObserverDisableToSelectedImplementations(t *tes
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{Name: "environment-plugin"}},
 			Skills:  []skill.Spec{{Name: "go"}},
-			Observers: []coreenvironment.ObserverSpec{{
+			Observers: []coreevidence.ObserverSpec{{
 				Name:     "project.inventory",
 				Disabled: true,
 			}},
@@ -491,7 +491,7 @@ func TestComposeAppliesConfiguredObserverDisableToSelectedImplementations(t *tes
 			t.Fatalf("project.inventory observer remained after disable: %#v", observer.Spec())
 		}
 	}
-	if len(composition.EnvironmentObservers) != 1 || composition.EnvironmentObservers[0].Spec().Name != runtimeenvironment.BaselineObserverName {
+	if len(composition.EnvironmentObservers) != 1 || composition.EnvironmentObservers[0].Spec().Name != runtimeevidence.BaselineObserverName {
 		t.Fatalf("environment observers = %#v, want only baseline observer", composition.EnvironmentObservers)
 	}
 }
@@ -501,7 +501,7 @@ func TestComposeCarriesBundleReactions(t *testing.T) {
 		Bundles: []resource.ContributionBundle{{
 			Reactions: []corereaction.Rule{{
 				Name: "go-skill",
-				When: corereaction.Matcher{Signal: "language.detected", Target: "go"},
+				When: corereaction.Matcher{Assertion: "language.detected", Target: "go"},
 				Actions: []corereaction.Action{{
 					Kind:  corereaction.ActionActivateSkill,
 					Skill: skill.Ref{Name: "go"},
@@ -517,13 +517,13 @@ func TestComposeCarriesBundleReactions(t *testing.T) {
 	}
 }
 
-func TestComposeRunsBundleSignalDeriversAsTemplates(t *testing.T) {
+func TestComposeRunsBundleAssertionDeriversAsTemplates(t *testing.T) {
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
-			SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-				Name:             "taskfile.signals",
+			AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+				Name:             "taskfile.assertions",
 				ObservationKinds: []string{"project.task_runner"},
-				Signals: []coreenvironment.SignalTemplate{{
+				Assertions: []coreevidence.AssertionTemplate{{
 					Kind:   "project.task_runner.detected",
 					Target: "taskfile",
 				}},
@@ -533,11 +533,11 @@ func TestComposeRunsBundleSignalDeriversAsTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.SignalDerivers) != 1 {
-		t.Fatalf("signal derivers len = %d, want 1", len(composition.SignalDerivers))
+	if len(composition.AssertionDerivers) != 1 {
+		t.Fatalf("assertion derivers len = %d, want 1", len(composition.AssertionDerivers))
 	}
-	signals, err := composition.SignalDerivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{
-		Observations: []coreenvironment.Observation{{
+	assertions, err := composition.AssertionDerivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{
+		Observations: []coreevidence.Observation{{
 			Kind:  "project.task_runner",
 			Scope: "workspace:/repo",
 		}},
@@ -545,26 +545,26 @@ func TestComposeRunsBundleSignalDeriversAsTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
-	if len(signals) != 1 || signals[0].Kind != "project.task_runner.detected" || signals[0].Target != "taskfile" {
-		t.Fatalf("signals = %#v, want taskfile signal", signals)
+	if len(assertions) != 1 || assertions[0].Kind != "project.task_runner.detected" || assertions[0].Target != "taskfile" {
+		t.Fatalf("assertions = %#v, want taskfile assertion", assertions)
 	}
 }
 
-func TestComposeRunsPluginSignalDeriverSpecsAsTemplates(t *testing.T) {
+func TestComposeRunsPluginAssertionDeriverSpecsAsTemplates(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{templateSignalPlugin{}},
+		Plugins: []pluginhost.Plugin{templateAssertionPlugin{}},
 		Bundles: []resource.ContributionBundle{{
-			Plugins: []resource.PluginRef{{Name: "template-signal-plugin"}},
+			Plugins: []resource.PluginRef{{Name: "template-assertion-plugin"}},
 		}},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.SignalDerivers) != 1 {
-		t.Fatalf("signal derivers len = %d, want 1", len(composition.SignalDerivers))
+	if len(composition.AssertionDerivers) != 1 {
+		t.Fatalf("assertion derivers len = %d, want 1", len(composition.AssertionDerivers))
 	}
-	signals, err := composition.SignalDerivers[0].Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{
-		Observations: []coreenvironment.Observation{{
+	assertions, err := composition.AssertionDerivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{
+		Observations: []coreevidence.Observation{{
 			Kind:  "template.observation",
 			Scope: "workspace:/repo",
 		}},
@@ -572,8 +572,8 @@ func TestComposeRunsPluginSignalDeriverSpecsAsTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
-	if len(signals) != 1 || signals[0].Kind != "template.signal" || signals[0].Scope != "workspace:/repo" {
-		t.Fatalf("signals = %#v, want template signal", signals)
+	if len(assertions) != 1 || assertions[0].Kind != "template.assertion" || assertions[0].Scope != "workspace:/repo" {
+		t.Fatalf("assertions = %#v, want template assertion", assertions)
 	}
 }
 
@@ -582,7 +582,7 @@ func TestComposeDiagnosesConfiguredObserverWithoutEnabledImplementation(t *testi
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
 			Source: source,
-			Observers: []coreenvironment.ObserverSpec{{
+			Observers: []coreevidence.ObserverSpec{{
 				Name: "kubernetes.context",
 			}},
 		}},
@@ -605,7 +605,7 @@ func TestComposeDiagnosesConfiguredObserverWithoutEnabledImplementation(t *testi
 func TestComposeDoesNotDiagnoseDisabledObserverWithoutEnabledImplementation(t *testing.T) {
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
-			Observers: []coreenvironment.ObserverSpec{{
+			Observers: []coreevidence.ObserverSpec{{
 				Name:     "kubernetes.context",
 				Disabled: true,
 			}},
@@ -622,8 +622,8 @@ func TestComposeDoesNotDiagnoseDisabledObserverWithoutEnabledImplementation(t *t
 func TestComposeDoesNotDiagnoseConfiguredBaselineObserver(t *testing.T) {
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
-			Observers: []coreenvironment.ObserverSpec{{
-				Name: runtimeenvironment.BaselineObserverName,
+			Observers: []coreevidence.ObserverSpec{{
+				Name: runtimeevidence.BaselineObserverName,
 			}},
 		}},
 	})
@@ -635,13 +635,13 @@ func TestComposeDoesNotDiagnoseConfiguredBaselineObserver(t *testing.T) {
 	}
 }
 
-func TestComposeDiagnosesSignalDeriverSpecWithoutTemplateOrImplementation(t *testing.T) {
+func TestComposeDiagnosesAssertionDeriverSpecWithoutTemplateOrImplementation(t *testing.T) {
 	source := resource.SourceRef{Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"}
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
 			Source: source,
-			SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-				Name:             "custom.signals",
+			AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+				Name:             "custom.assertions",
 				ObservationKinds: []string{"custom.observation"},
 			}},
 		}},
@@ -656,8 +656,8 @@ func TestComposeDiagnosesSignalDeriverSpecWithoutTemplateOrImplementation(t *tes
 	if diagnostic.Severity != resource.SeverityWarning || diagnostic.Source.Location != source.Location {
 		t.Fatalf("diagnostic = %#v, want warning from %s", diagnostic, source.Location)
 	}
-	if !strings.Contains(diagnostic.Message, `signal deriver "custom.signals"`) || !strings.Contains(diagnostic.Message, "no enabled runtime or plugin") {
-		t.Fatalf("diagnostic message = %q, want unavailable signal deriver", diagnostic.Message)
+	if !strings.Contains(diagnostic.Message, `assertion deriver "custom.assertions"`) || !strings.Contains(diagnostic.Message, "no enabled runtime or plugin") {
+		t.Fatalf("diagnostic message = %q, want unavailable assertion deriver", diagnostic.Message)
 	}
 }
 
@@ -668,7 +668,7 @@ func TestComposeDiagnosesReactionTargetsOutsideSelectedGraph(t *testing.T) {
 			Source: source,
 			Reactions: []corereaction.Rule{{
 				Name: "missing-targets",
-				When: corereaction.Matcher{Signal: "integration.available"},
+				When: corereaction.Matcher{Assertion: "integration.available"},
 				Actions: []corereaction.Action{
 					{Kind: corereaction.ActionActivateSkill, Skill: skill.Ref{Name: "missing-skill"}},
 					{Kind: corereaction.ActionEnableOperationSet, OperationSet: "missing-ops"},
@@ -740,7 +740,7 @@ func TestComposeDoesNotDiagnoseKnownReactionTargets(t *testing.T) {
 			}},
 			Reactions: []corereaction.Rule{{
 				Name: "known-targets",
-				When: corereaction.Matcher{Signal: "language.detected"},
+				When: corereaction.Matcher{Assertion: "language.detected"},
 				Actions: []corereaction.Action{
 					{Kind: corereaction.ActionActivateSkill, Skill: skill.Ref{Name: "go"}},
 					{Kind: corereaction.ActionActivateReference, Reference: corereaction.ReferenceAction{Skill: skill.Ref{Name: "go"}, Path: "references/testing.md"}},
@@ -762,7 +762,7 @@ func TestComposeDoesNotDiagnoseKnownReactionTargets(t *testing.T) {
 	}
 }
 
-func TestComposeConvertsSkillTriggersToSignalDeriverAndReactions(t *testing.T) {
+func TestComposeConvertsSkillTriggersToAssertionDeriverAndReactions(t *testing.T) {
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
 			Skills: []skill.Spec{{
@@ -787,25 +787,25 @@ func TestComposeConvertsSkillTriggersToSignalDeriverAndReactions(t *testing.T) {
 	if !hasReactionRule(composition.ReactionRules, "skill.reference.trigger.go.references/testing.md") {
 		t.Fatalf("reaction rules = %#v, missing reference trigger rule", composition.ReactionRules)
 	}
-	var deriver runtimeenvironment.SignalDeriver
-	for _, candidate := range composition.SignalDerivers {
+	var deriver runtimeevidence.AssertionDeriver
+	for _, candidate := range composition.AssertionDerivers {
 		if candidate.Spec().Name == skillTriggerDeriverName {
 			deriver = candidate
 			break
 		}
 	}
 	if deriver == nil {
-		t.Fatalf("signal derivers = %#v, missing skill trigger deriver", composition.SignalDerivers)
+		t.Fatalf("assertion derivers = %#v, missing skill trigger deriver", composition.AssertionDerivers)
 	}
-	signals, err := deriver.Derive(context.Background(), runtimeenvironment.SignalDeriveRequest{Observations: []coreenvironment.Observation{{
+	assertions, err := deriver.Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{Observations: []coreevidence.Observation{{
 		Kind:    "channel.message",
 		Content: "please use go trigger and testing trigger",
 	}}})
 	if err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
-	if !hasEnvironmentSignal(signals, signalSkillRequested, "go") || !hasEnvironmentSignal(signals, signalSkillReferenceNeeded, "references/testing.md") {
-		t.Fatalf("signals = %#v, want skill and reference request signals", signals)
+	if !hasEnvironmentAssertion(assertions, assertionSkillRequested, "go") || !hasEnvironmentAssertion(assertions, assertionSkillReferenceNeeded, "references/testing.md") {
+		t.Fatalf("assertions = %#v, want skill and reference request assertions", assertions)
 	}
 }
 
@@ -826,9 +826,9 @@ func hasReactionRule(rules []corereaction.Rule, name string) bool {
 	return false
 }
 
-func hasEnvironmentSignal(signals []coreenvironment.Signal, kind, target string) bool {
-	for _, signal := range signals {
-		if signal.Kind == kind && signal.Target == target {
+func hasEnvironmentAssertion(assertions []coreevidence.Assertion, kind, target string) bool {
+	for _, assertion := range assertions {
+		if assertion.Kind == kind && assertion.Target == target {
 			return true
 		}
 	}
@@ -1146,18 +1146,18 @@ func (environmentPlugin) Contributions(context.Context, pluginhost.Context) (res
 	return resource.ContributionBundle{}, nil
 }
 
-func (environmentPlugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{testEnvironmentObserver{}}, nil
+func (environmentPlugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{testEnvironmentObserver{}}, nil
 }
 
-func (environmentPlugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{testSignalDeriver{}}, nil
+func (environmentPlugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{testAssertionDeriver{}}, nil
 }
 
 func (environmentPlugin) Reactions(context.Context, pluginhost.Context) ([]corereaction.Rule, error) {
 	return []corereaction.Rule{{
 		Name: "go-skill",
-		When: corereaction.Matcher{Signal: "language.detected", Target: "go"},
+		When: corereaction.Matcher{Assertion: "language.detected", Target: "go"},
 		Actions: []corereaction.Action{{
 			Kind:  corereaction.ActionActivateSkill,
 			Skill: skill.Ref{Name: "go"},
@@ -1167,37 +1167,37 @@ func (environmentPlugin) Reactions(context.Context, pluginhost.Context) ([]corer
 
 type testEnvironmentObserver struct{}
 
-func (testEnvironmentObserver) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{Name: "project.inventory", Phase: coreenvironment.PhaseSessionOpen}
+func (testEnvironmentObserver) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{Name: "project.inventory", Phase: coreevidence.PhaseSessionOpen}
 }
 
-func (testEnvironmentObserver) Observe(context.Context, runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
-	return []coreenvironment.Observation{{Kind: "project.inventory"}}, nil
+func (testEnvironmentObserver) Observe(context.Context, runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+	return []coreevidence.Observation{{Kind: "project.inventory"}}, nil
 }
 
-type testSignalDeriver struct{}
+type testAssertionDeriver struct{}
 
-func (testSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{Name: "project.signals"}
+func (testAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{Name: "project.assertions"}
 }
 
-func (testSignalDeriver) Derive(context.Context, runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	return []coreenvironment.Signal{{Kind: "language.detected", Target: "go"}}, nil
+func (testAssertionDeriver) Derive(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	return []coreevidence.Assertion{{Kind: "language.detected", Target: "go"}}, nil
 }
 
-type templateSignalPlugin struct{}
+type templateAssertionPlugin struct{}
 
-func (templateSignalPlugin) Manifest() pluginhost.Manifest {
-	return pluginhost.Manifest{Name: "template-signal-plugin"}
+func (templateAssertionPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: "template-assertion-plugin"}
 }
 
-func (templateSignalPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (templateAssertionPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-			Name:             "template.signals",
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+			Name:             "template.assertions",
 			ObservationKinds: []string{"template.observation"},
-			Signals: []coreenvironment.SignalTemplate{{
-				Kind: "template.signal",
+			Assertions: []coreevidence.AssertionTemplate{{
+				Kind: "template.assertion",
 			}},
 		}},
 	}, nil

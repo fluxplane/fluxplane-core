@@ -10,8 +10,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/usage"
@@ -43,7 +43,7 @@ func TestAgentStepSendsStructuredRequestAndReturnsMessageDecision(t *testing.T) 
 
 	result := runtime.Step(testAgentContext{}, agent.StepInput{
 		Goal: "fix tests",
-		Observations: []environment.Observation{{
+		Observations: []coreevidence.Observation{{
 			Source:  "channel",
 			Kind:    "message",
 			Content: "please fix tests",
@@ -149,11 +149,11 @@ func TestAgentStepWithToolsOverridesConfiguredTools(t *testing.T) {
 }
 
 func TestAgentStepPassesObservationsToContextProviders(t *testing.T) {
-	var gotObservations []environment.Observation
+	var gotObservations []coreevidence.Observation
 	provider := contextProviderFunc{
 		spec: corecontext.ProviderSpec{Name: "detect"},
 		build: func(_ context.Context, req corecontext.Request) ([]corecontext.Block, error) {
-			gotObservations = append([]environment.Observation(nil), req.Observations...)
+			gotObservations = append([]coreevidence.Observation(nil), req.Observations...)
 			return []corecontext.Block{{ID: "detect", Provider: "detect", Kind: corecontext.BlockText, Content: "detected"}}, nil
 		},
 	}
@@ -166,7 +166,7 @@ func TestAgentStepPassesObservationsToContextProviders(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	result := runtime.Step(testAgentContext{}, agent.StepInput{Observations: []environment.Observation{{
+	result := runtime.Step(testAgentContext{}, agent.StepInput{Observations: []coreevidence.Observation{{
 		Source:  "channel",
 		Kind:    "channel.message",
 		Content: map[string]any{"text": "see DEV-381"},

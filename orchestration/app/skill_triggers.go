@@ -6,40 +6,40 @@ import (
 	"fmt"
 	"strings"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 )
 
 const (
-	skillTriggerDeriverName    = "skill.triggers"
-	signalSkillRequested       = "skill.requested"
-	signalSkillReferenceNeeded = "skill.reference.requested"
+	skillTriggerDeriverName       = "skill.triggers"
+	assertionSkillRequested       = "skill.requested"
+	assertionSkillReferenceNeeded = "skill.reference.requested"
 )
 
-type skillTriggerSignalDeriver struct {
+type skillTriggerAssertionDeriver struct {
 	skills []coreskill.Spec
 }
 
-func newSkillTriggerSignalDeriver(skills []coreskill.Spec) runtimeenvironment.SignalDeriver {
+func newSkillTriggerAssertionDeriver(skills []coreskill.Spec) runtimeevidence.AssertionDeriver {
 	if !hasSkillTriggers(skills) {
 		return nil
 	}
-	return skillTriggerSignalDeriver{skills: append([]coreskill.Spec(nil), skills...)}
+	return skillTriggerAssertionDeriver{skills: append([]coreskill.Spec(nil), skills...)}
 }
 
-func (d skillTriggerSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
+func (d skillTriggerAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
 		Name:             skillTriggerDeriverName,
-		Description:      "Derives skill and reference request signals from channel message observations.",
+		Description:      "Derives skill and reference request assertions from channel message observations.",
 		ObservationKinds: []string{"channel.message", "session.continuation"},
 	}
 }
 
-func (d skillTriggerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (d skillTriggerAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != "channel.message" && observation.Kind != "session.continuation" {
 			continue
@@ -54,8 +54,8 @@ func (d skillTriggerSignalDeriver) Derive(_ context.Context, req runtimeenvironm
 				continue
 			}
 			if triggerMatches(text, spec.Triggers) {
-				out = append(out, coreenvironment.Signal{
-					Kind:           signalSkillRequested,
+				out = append(out, coreevidence.Assertion{
+					Kind:           assertionSkillRequested,
 					Target:         skillName,
 					Scope:          observation.Scope,
 					Environment:    observation.Environment,
@@ -67,8 +67,8 @@ func (d skillTriggerSignalDeriver) Derive(_ context.Context, req runtimeenvironm
 				if !triggerMatches(text, ref.Triggers) {
 					continue
 				}
-				out = append(out, coreenvironment.Signal{
-					Kind:           signalSkillReferenceNeeded,
+				out = append(out, coreevidence.Assertion{
+					Kind:           assertionSkillReferenceNeeded,
 					Target:         ref.Path,
 					Scope:          observation.Scope,
 					Environment:    observation.Environment,
@@ -99,8 +99,8 @@ func skillTriggerReactionBindings(skills []coreskill.Spec) []reactionRuleBinding
 			out = append(out, reactionRuleBinding{Source: source, Rule: corereaction.Rule{
 				Name: "skill.trigger." + skillName,
 				When: corereaction.Matcher{
-					Signal: signalSkillRequested,
-					Target: skillName,
+					Assertion: assertionSkillRequested,
+					Target:    skillName,
 				},
 				Actions: []corereaction.Action{{
 					Kind:  corereaction.ActionActivateSkill,
@@ -115,9 +115,9 @@ func skillTriggerReactionBindings(skills []coreskill.Spec) []reactionRuleBinding
 			out = append(out, reactionRuleBinding{Source: source, Rule: corereaction.Rule{
 				Name: "skill.reference.trigger." + skillName + "." + ref.Path,
 				When: corereaction.Matcher{
-					Signal: signalSkillReferenceNeeded,
-					Target: ref.Path,
-					Meta:   map[string]string{"skill": skillName},
+					Assertion: assertionSkillReferenceNeeded,
+					Target:    ref.Path,
+					Meta:      map[string]string{"skill": skillName},
 				},
 				Actions: []corereaction.Action{{
 					Kind: corereaction.ActionActivateReference,

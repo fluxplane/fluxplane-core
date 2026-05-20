@@ -10,7 +10,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/tool"
 )
 
@@ -257,7 +257,7 @@ func (a *Agent) request(ctx agent.Context, input agent.StepInput, toolOverride [
 		Tools:        tools,
 		Goal:         input.Goal,
 		Objective:    chooseObjective(input.Objective, a.spec.Objective),
-		Observations: append([]environment.Observation(nil), input.Observations...),
+		Observations: append([]coreevidence.Observation(nil), input.Observations...),
 		Context:      append([]corecontext.Block(nil), input.Context...),
 		Transcript:   transcriptFromContext(ctx),
 		State:        input.State,
@@ -269,7 +269,7 @@ func (a *Agent) buildContext(ctx context.Context, input agent.StepInput) ([]core
 		return nil, nil
 	}
 	ctx = a.withDatasourceAccess(ctx)
-	req := corecontext.Request{Observations: append([]environment.Observation(nil), input.Observations...)}
+	req := corecontext.Request{Observations: append([]coreevidence.Observation(nil), input.Observations...)}
 	var out []corecontext.Block
 	for _, provider := range a.contextProviders {
 		if provider == nil {

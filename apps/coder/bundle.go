@@ -240,9 +240,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.language.go.parser",
 		When: corereaction.Matcher{
-			Signal:  project.SignalLanguageDetected,
-			Target:  "go",
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "go"},
+			Assertion: project.AssertionLanguageDetected,
+			Target:    "go",
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "go"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -251,9 +251,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.language.markdown",
 		When: corereaction.Matcher{
-			Signal:  project.SignalLanguageDetected,
-			Target:  "markdown",
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "markdown"},
+			Assertion: project.AssertionLanguageDetected,
+			Target:    "markdown",
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "markdown"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -262,9 +262,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.integration.docker.available",
 		When: corereaction.Matcher{
-			Signal:  docker.SignalAvailable,
-			Target:  docker.Name,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: docker.Name},
+			Assertion: docker.AssertionAvailable,
+			Target:    docker.Name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: docker.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -273,9 +273,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.toolchain.go.available",
 		When: corereaction.Matcher{
-			Signal:  golang.SignalToolchainAvailable,
-			Target:  "go",
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectToolchain, Name: "go"},
+			Assertion: golang.AssertionToolchainAvailable,
+			Target:    "go",
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectToolchain, Name: "go"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -288,9 +288,9 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.endpoint.loki.available",
 		When: corereaction.Matcher{
-			Signal:  discovery.SignalEndpointAvailable,
-			Target:  loki.Name,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: loki.Name},
+			Assertion: discovery.AssertionEndpointAvailable,
+			Target:    loki.Name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: loki.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -305,9 +305,9 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.endpoint.mysql.available",
 		When: corereaction.Matcher{
-			Signal:  discovery.SignalEndpointAvailable,
-			Target:  mysql.Name,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: mysql.Name},
+			Assertion: discovery.AssertionEndpointAvailable,
+			Target:    mysql.Name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: mysql.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -321,44 +321,44 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 
 func coderIntentActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
-		Name: "coder.capability.browser.ready_requested",
+		Name: "coder.capability.browser.available",
 		When: corereaction.Matcher{
-			Signal:  browser.SignalBrowserReadyRequested,
-			Target:  browser.Name,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: browser.Name},
+			Assertion: browser.AssertionBrowserAvailable,
+			Target:    browser.Name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: browser.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: browser.Name,
 		}},
 	}, {
-		Name: "coder.capability.image.generation.ready_requested",
+		Name: "coder.capability.image.generation.available",
 		When: corereaction.Matcher{
-			Signal:  image.SignalImageReadyRequested,
-			Target:  image.GenerationSet,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.GenerationSet},
+			Assertion: image.AssertionImageProviderReady,
+			Target:    image.GenerationSet,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.GenerationSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: image.GenerationSet,
 		}},
 	}, {
-		Name: "coder.capability.image.understanding.ready_requested",
+		Name: "coder.capability.image.understanding.available",
 		When: corereaction.Matcher{
-			Signal:  image.SignalImageReadyRequested,
-			Target:  image.UnderstandingSet,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.UnderstandingSet},
+			Assertion: image.AssertionImageProviderReady,
+			Target:    image.UnderstandingSet,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.UnderstandingSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: image.UnderstandingSet,
 		}},
 	}, {
-		Name: "coder.capability.memory_mutation.ready_requested",
+		Name: "coder.capability.memory_mutation.available",
 		When: corereaction.Matcher{
-			Signal:  memory.SignalMemoryMutationRequest,
-			Target:  memory.MutationSet,
-			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: memory.MutationSet},
+			Assertion: memory.AssertionMemoryMutationReady,
+			Target:    memory.MutationSet,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: memory.MutationSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,

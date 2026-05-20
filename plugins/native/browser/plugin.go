@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/core/usage"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -35,10 +35,9 @@ const (
 	CloseOp      = "browser_close"
 
 	ObservationBrowserRuntime   = "browser.runtime"
-	SignalBrowserReadyRequested = "capability.ready_and_requested"
-	browserChannelMessageKind   = "channel.message"
+	AssertionBrowserAvailable   = "capability.available"
 	browserRuntimeObserverName  = "browser.runtime"
-	browserSignalDeriverName    = "browser.intent"
+	browserAssertionDeriverName = "browser.availability"
 )
 
 // Plugin contributes browser automation operations.
@@ -49,7 +48,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a browser plugin.
 func New(sys system.System) Plugin { return Plugin{system: sys} }
@@ -65,33 +64,33 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Browser automation operations.", Operations: refs(specs)}},
 		Operations:    specs,
-		Observers: []coreenvironment.ObserverSpec{{
+		Observers: []coreevidence.ObserverSpec{{
 			Name:            browserRuntimeObserverName,
 			Description:     "Observes whether browser automation is configured for this runtime.",
-			Environment:     coreenvironment.Ref{Name: Name},
-			Phase:           coreenvironment.PhaseTurn,
+			Environment:     coreevidence.Ref{Name: Name},
+			Phase:           coreevidence.PhaseTurn,
 			ObservableKinds: []string{ObservationBrowserRuntime},
 			Dynamic:         true,
 		}},
-		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
-			Name:             browserSignalDeriverName,
-			Description:      "Derives browser activation when runtime availability and turn intent are both present.",
-			ObservationKinds: []string{ObservationBrowserRuntime, browserChannelMessageKind},
-			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalBrowserReadyRequested, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: Name}},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{{
+			Name:             browserAssertionDeriverName,
+			Description:      "Derives browser activation from stable runtime availability.",
+			ObservationKinds: []string{ObservationBrowserRuntime},
+			Assertions: []coreevidence.AssertionTemplate{
+				{Kind: AssertionBrowserAvailable, Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: Name}},
 			},
 		}},
 	}, nil
 }
 
 // EnvironmentObservers returns browser availability observers.
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	return []runtimeenvironment.Observer{browserRuntimeObserver(p)}, nil
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	return []runtimeevidence.Observer{browserRuntimeObserver(p)}, nil
 }
 
-// SignalDerivers returns browser intent derivers.
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{browserIntentDeriver{}}, nil
+// AssertionDerivers returns browser availability derivers.
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{browserAvailabilityDeriver{}}, nil
 }
 
 // Operations returns executable browser operations.
@@ -177,25 +176,25 @@ type browserRuntimeObserver struct {
 	system system.System
 }
 
-func (o browserRuntimeObserver) Spec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func (o browserRuntimeObserver) Spec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:            browserRuntimeObserverName,
 		Description:     "Observes whether browser automation is configured for this runtime.",
-		Environment:     coreenvironment.Ref{Name: Name},
-		Phase:           coreenvironment.PhaseTurn,
+		Environment:     coreevidence.Ref{Name: Name},
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{ObservationBrowserRuntime},
 		Dynamic:         true,
 	}
 }
 
-func (o browserRuntimeObserver) Observe(_ context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o browserRuntimeObserver) Observe(_ context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	evidence := BrowserRuntimeEvidence{Available: o.system != nil && o.system.Browser() != nil}
 	if !evidence.Available {
 		evidence.Reason = "browser manager is not configured"
 	}
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "browser:runtime",
-		Environment: coreenvironment.Ref{Name: Name},
+		Environment: coreevidence.Ref{Name: Name},
 		Kind:        ObservationBrowserRuntime,
 		Scope:       "runtime",
 		Content:     evidence,
@@ -203,47 +202,41 @@ func (o browserRuntimeObserver) Observe(_ context.Context, _ runtimeenvironment.
 	}}, nil
 }
 
-type browserIntentDeriver struct{}
+type browserAvailabilityDeriver struct{}
 
-func (browserIntentDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
-		Name:             browserSignalDeriverName,
-		Description:      "Derives browser activation when runtime availability and turn intent are both present.",
-		ObservationKinds: []string{ObservationBrowserRuntime, browserChannelMessageKind},
+func (browserAvailabilityDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             browserAssertionDeriverName,
+		Description:      "Derives browser activation from stable runtime availability.",
+		ObservationKinds: []string{ObservationBrowserRuntime},
 	}
 }
 
-func (browserIntentDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+func (browserAvailabilityDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
 	var available bool
-	var intent bool
 	var ids []string
 	var scope string
 	for _, observation := range req.Observations {
-		switch observation.Kind {
-		case ObservationBrowserRuntime:
-			if browserRuntimeAvailable(observation.Content) {
-				available = true
-				ids = appendObservationID(ids, observation.ID)
-			}
-		case browserChannelMessageKind:
-			if browserTurnIntent(observation.Content) {
-				intent = true
-				ids = appendObservationID(ids, observation.ID)
-				if scope == "" {
-					scope = observation.Scope
-				}
+		if observation.Kind != ObservationBrowserRuntime {
+			continue
+		}
+		if browserRuntimeAvailable(observation.Content) {
+			available = true
+			ids = appendObservationID(ids, observation.ID)
+			if scope == "" {
+				scope = observation.Scope
 			}
 		}
 	}
-	if !available || !intent {
+	if !available {
 		return nil, nil
 	}
-	return []coreenvironment.Signal{{
-		Kind:           SignalBrowserReadyRequested,
+	return []coreevidence.Assertion{{
+		Kind:           AssertionBrowserAvailable,
 		Target:         Name,
-		Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: Name},
+		Subject:        coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: Name},
 		Scope:          scope,
-		Environment:    coreenvironment.Ref{Name: Name},
+		Environment:    coreevidence.Ref{Name: Name},
 		Confidence:     1,
 		ObservationIDs: ids,
 		Metadata:       map[string]string{"capability": Name},
@@ -262,37 +255,6 @@ func browserRuntimeAvailable(content any) bool {
 	default:
 		return false
 	}
-}
-
-func browserTurnIntent(content any) bool {
-	text := strings.ToLower(strings.TrimSpace(fmt.Sprint(content)))
-	if text == "" {
-		return false
-	}
-	if strings.Contains(text, "browser") {
-		for _, token := range []string{"open", "use", "check", "inspect", "render", "screenshot", "navigate", "click"} {
-			if strings.Contains(text, token) {
-				return true
-			}
-		}
-	}
-	for _, phrase := range []string{
-		"take a screenshot",
-		"capture a screenshot",
-		"inspect the rendered ui",
-		"check the rendered ui",
-		"click the login button",
-		"click the button",
-		"open this page",
-		"open the page",
-		"navigate to http",
-		"navigate to https",
-	} {
-		if strings.Contains(text, phrase) {
-			return true
-		}
-	}
-	return false
 }
 
 func appendObservationID(ids []string, id string) []string {

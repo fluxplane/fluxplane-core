@@ -392,7 +392,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Outbound:   result.Outbound,
 		}, nil)
 		waitForForward = true
-	case clientapi.SubmissionEvent, clientapi.SubmissionSignal:
+	case clientapi.SubmissionEvent, clientapi.SubmissionTrigger:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is invalid", r.submission.Kind))

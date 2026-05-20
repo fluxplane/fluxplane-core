@@ -5,26 +5,26 @@ import (
 	"strings"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/resource"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 )
 
 const (
 	kubernetesObservationKind = "kubernetes.context"
 	kubernetesObserverName    = "kubernetes.context"
-	kubernetesDeriverName     = "kubernetes.signals"
+	kubernetesDeriverName     = "kubernetes.assertions"
 )
 
 type kubernetesObserver struct {
 	plugin Plugin
 }
 
-func (o kubernetesObserver) Spec() coreenvironment.ObserverSpec {
+func (o kubernetesObserver) Spec() coreevidence.ObserverSpec {
 	return kubernetesObserverSpec(o.plugin.ref)
 }
 
-func (o kubernetesObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o kubernetesObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	content := map[string]any{
 		"configured":          false,
 		"available":           false,
@@ -50,9 +50,9 @@ func (o kubernetesObserver) Observe(ctx context.Context, _ runtimeenvironment.Ob
 	if namespace != "" {
 		content["namespace"] = namespace
 	}
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:          "integration:kubernetes:" + observerInstance(o.plugin.ref),
-		Environment: coreenvironment.Ref{Name: coreenvironment.Name(Name)},
+		Environment: coreevidence.Ref{Name: coreevidence.Name(Name)},
 		Kind:        kubernetesObservationKind,
 		Scope:       kubernetesScope(o.plugin.ref),
 		Content:     content,
@@ -60,23 +60,24 @@ func (o kubernetesObserver) Observe(ctx context.Context, _ runtimeenvironment.Ob
 	}}, nil
 }
 
-type kubernetesSignalDeriver struct{}
+type kubernetesAssertionDeriver struct{}
 
-func (kubernetesSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return kubernetesSignalDeriverSpec()
+func (kubernetesAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return kubernetesAssertionDeriverSpec()
 }
 
-func (kubernetesSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (kubernetesAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != kubernetesObservationKind {
 			continue
 		}
 		content, _ := observation.Content.(map[string]any)
 		if boolContent(content, "configured") {
-			out = append(out, coreenvironment.Signal{
+			out = append(out, coreevidence.Assertion{
 				Kind:           "integration.configured",
 				Target:         Name,
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -84,9 +85,10 @@ func (kubernetesSignalDeriver) Derive(_ context.Context, req runtimeenvironment.
 			})
 		}
 		if boolContent(content, "available") {
-			out = append(out, coreenvironment.Signal{
+			out = append(out, coreevidence.Assertion{
 				Kind:           "integration.available",
 				Target:         Name,
+				Subject:        coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -97,14 +99,14 @@ func (kubernetesSignalDeriver) Derive(_ context.Context, req runtimeenvironment.
 	return out, nil
 }
 
-func kubernetesObserverSpec(ref resource.PluginRef) coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func kubernetesObserverSpec(ref resource.PluginRef) coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:        kubernetesObserverName,
 		Description: "Reports non-secret Kubernetes context and namespace availability for a selected Kubernetes plugin instance.",
-		Environment: coreenvironment.Ref{
-			Name: coreenvironment.Name(Name),
+		Environment: coreevidence.Ref{
+			Name: coreevidence.Name(Name),
 		},
-		Phase:           coreenvironment.PhaseTurn,
+		Phase:           coreevidence.PhaseTurn,
 		ObservableKinds: []string{kubernetesObservationKind},
 		Dynamic:         true,
 		Annotations: map[string]string{
@@ -114,14 +116,14 @@ func kubernetesObserverSpec(ref resource.PluginRef) coreenvironment.ObserverSpec
 	}
 }
 
-func kubernetesSignalDeriverSpec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
+func kubernetesAssertionDeriverSpec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
 		Name:             kubernetesDeriverName,
-		Description:      "Derives Kubernetes integration configured/available signals from Kubernetes context observations.",
+		Description:      "Derives Kubernetes integration configured/available assertions from Kubernetes context observations.",
 		ObservationKinds: []string{kubernetesObservationKind},
-		Signals: []coreenvironment.SignalTemplate{
-			{Kind: "integration.configured", Target: Name},
-			{Kind: "integration.available", Target: Name},
+		Assertions: []coreevidence.AssertionTemplate{
+			{Kind: "integration.configured", Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
+			{Kind: "integration.available", Target: Name, Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: Name}},
 		},
 	}
 }

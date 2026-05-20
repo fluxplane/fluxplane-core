@@ -23,6 +23,7 @@ import (
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -38,7 +39,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
 	"github.com/fluxplane/agentruntime/orchestration/sessionworkflow"
 	conversationruntime "github.com/fluxplane/agentruntime/runtime/conversation"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	runtimereaction "github.com/fluxplane/agentruntime/runtime/reaction"
 )
 
@@ -67,10 +68,10 @@ type Session struct {
 	StopEvaluator        StopEvaluator
 	RunID                string
 	TurnTools            []tool.Spec
-	StartupObservations  []environment.Observation
-	StartupSignals       []environment.Signal
-	EnvironmentObservers []runtimeenvironment.Observer
-	SignalDerivers       []runtimeenvironment.SignalDeriver
+	StartupObservations  []coreevidence.Observation
+	StartupAssertions    []coreevidence.Assertion
+	EnvironmentObservers []runtimeevidence.Observer
+	AssertionDerivers    []runtimeevidence.AssertionDeriver
 	ReactionRules        []corereaction.Rule
 	Security             policy.AuthorizationPolicy
 	SecurityTrace        bool
@@ -171,11 +172,11 @@ type resolvedCommand struct {
 
 // StepRequest describes one agent step request.
 type StepRequest struct {
-	Goal         string                    `json:"goal,omitempty"`
-	Objective    agent.Objective           `json:"objective,omitempty"`
-	Observations []environment.Observation `json:"observations,omitempty"`
-	Context      []corecontext.Block       `json:"context,omitempty"`
-	State        agent.StateRef            `json:"state,omitempty"`
+	Goal         string                     `json:"goal,omitempty"`
+	Objective    agent.Objective            `json:"objective,omitempty"`
+	Observations []coreevidence.Observation `json:"observations,omitempty"`
+	Context      []corecontext.Block        `json:"context,omitempty"`
+	State        agent.StateRef             `json:"state,omitempty"`
 }
 
 // StepResult describes one orchestrated agent step.
@@ -183,7 +184,7 @@ type StepResult struct {
 	Agent       agent.StepResult           `json:"agent"`
 	Effect      *environment.EffectResult  `json:"effect,omitempty"`
 	Effects     []environment.EffectResult `json:"effects,omitempty"`
-	Observation *environment.Observation   `json:"observation,omitempty"`
+	Observation *coreevidence.Observation  `json:"observation,omitempty"`
 }
 
 // Step runs one observe-decide-apply cycle.
@@ -399,7 +400,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	var localContinuation *coreconversation.ContinuationHandle
 	var localContextRecords map[corecontext.ProviderName]corecontext.ProviderRenderRecord
 	events := s.conversationEventSink(ctx, inbound.ID, &conversationErr, &localTranscript, &localContinuation)
-	observations := []environment.Observation{{
+	observations := []coreevidence.Observation{{
 		Source:   "channel",
 		Kind:     "channel.message",
 		Content:  inbound.Message.Content,
@@ -407,17 +408,17 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	}}
 	goal := strings.TrimSpace(opts.Goal)
 	var (
-		state     agent.StateRef
-		effects   []environment.EffectResult
-		signals   = append([]environment.Signal(nil), s.StartupSignals...)
-		reactions = replayedReactions
-		pending   = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
+		state      agent.StateRef
+		effects    []environment.EffectResult
+		assertions = append([]coreevidence.Assertion(nil), s.StartupAssertions...)
+		reactions  = replayedReactions
+		pending    = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
 	)
 	observations = append(observations, s.StartupObservations...)
 	if s.shouldRunSessionOpenPhase(ctx) {
-		observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseSessionOpen, observations, signals)
+		observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseSessionOpen, observations, assertions)
 		var reactionEffects []environment.EffectResult
-		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, inbound, signals, reactions, observations, events)
+		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, inbound, assertions, reactions, observations, events)
 		effects = append(effects, reactionEffects...)
 	}
 	for continuation := 0; ; continuation++ {
@@ -433,7 +434,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			Pending:             pending,
 			Goal:                goal,
 			Observations:        observations,
-			Signals:             signals,
+			Assertions:          assertions,
 			Reactions:           reactions,
 			State:               state,
 			Effects:             effects,
@@ -447,7 +448,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 		}
 		state = inner.State
 		effects = inner.Effects
-		signals = inner.Signals
+		assertions = inner.Assertions
 		reactions = inner.Reactions
 		decision := s.evaluateContinuation(ctx, inbound, opts, continuation, inner.AgentResult, effects)
 		if decision.Result.Status != "" {
@@ -467,7 +468,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			instruction = "Continue."
 		}
 		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), instruction)}
-		observations = []environment.Observation{{
+		observations = []coreevidence.Observation{{
 			Source:  "session",
 			Kind:    "session.continuation",
 			Content: instruction,
@@ -490,8 +491,8 @@ type innerTurnInput struct {
 	LocalContextRecords *map[corecontext.ProviderName]corecontext.ProviderRenderRecord
 	Pending             []coreconversation.Item
 	Goal                string
-	Observations        []environment.Observation
-	Signals             []environment.Signal
+	Observations        []coreevidence.Observation
+	Assertions          []coreevidence.Assertion
 	Reactions           reactionState
 	State               agent.StateRef
 	Effects             []environment.EffectResult
@@ -506,23 +507,23 @@ type innerTurnResult struct {
 	AgentResult agent.StepResult
 	State       agent.StateRef
 	Effects     []environment.EffectResult
-	Signals     []environment.Signal
+	Assertions  []coreevidence.Assertion
 	Reactions   reactionState
 }
 
 type reactionState struct {
-	PreviousSignals map[string]string
-	AppliedKeys     map[string]bool
-	Active          sessionenv.ActiveState
-	Applied         []corereaction.ActionApplied
+	PreviousAssertions map[string]string
+	AppliedKeys        map[string]bool
+	Active             sessionenv.ActiveState
+	Applied            []corereaction.ActionApplied
 }
 
 func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnResult {
 	pending := append([]coreconversation.Item(nil), in.Pending...)
-	observations := append([]environment.Observation(nil), in.Observations...)
-	signals := append([]environment.Signal(nil), in.Signals...)
-	observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseTurn, observations, signals)
-	reactions, observations, reactionEffects := s.applyTurnReactions(ctx, in.Inbound, signals, in.Reactions, observations, in.Events)
+	observations := append([]coreevidence.Observation(nil), in.Observations...)
+	assertions := append([]coreevidence.Assertion(nil), in.Assertions...)
+	observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseTurn, observations, assertions)
+	reactions, observations, reactionEffects := s.applyTurnReactions(ctx, in.Inbound, assertions, in.Reactions, observations, in.Events)
 	state := in.State
 	effects := append([]environment.EffectResult(nil), in.Effects...)
 	effects = append(effects, reactionEffects...)
@@ -541,27 +542,27 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 					AgentResult: lastAgentResult,
 					State:       state,
 					Effects:     effects,
-					Signals:     signals,
+					Assertions:  assertions,
 					Reactions:   reactions,
 				}
 			}
 			// Clean break: outer loop will call evaluateContinuation.
-			return innerTurnResult{AgentResult: lastAgentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{AgentResult: lastAgentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if !lazyPrepared && s.shouldRunLazyEnvironment(reactions.Active) {
-			observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseLazy, observations, signals)
+			observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseLazy, observations, assertions)
 			var reactionEffects []environment.EffectResult
-			reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, signals, reactions, observations, in.Events)
+			reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, assertions, reactions, observations, in.Events)
 			effects = append(effects, reactionEffects...)
 			lazyPrepared = true
 		}
 		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations, reactions.Active)
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		transcript, err := s.transcriptForPending(ctx, projectedPending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		modelCtx := sessioncontrol.ContextWithTranscript(in.BaseContext, &transcript)
 		modelCtx = s.withBaseContext(modelCtx, "", in.Events, reactions.Active)
@@ -584,38 +585,38 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			agentResult = s.Agent.Step(agentCtx, stepInput)
 		}
 		if in.ConversationErr != nil && *in.ConversationErr != nil {
-			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if err := s.appendThreadEvents(ctx, sessionenv.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if agentResult.Status != agent.StatusOK {
 			if err := s.persistFailedTurnTranscript(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript, agentErrorMessage(agentResult)); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 			}
-			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if err := s.commitContextRender(ctx, contextResult, in.LocalContextRecords); err != nil {
-			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if !stateRefIsZero(agentResult.State.Ref) {
 			state = agentResult.State.Ref
 		}
 		lastAgentResult = agentResult
 		if agentResult.Decision.Kind != agent.DecisionOperation {
-			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if len(agentResult.Decision.Operations) == 0 {
-			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations)
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		effects = append(effects, batch...)
 		checkBatch, checkToolResults, err := s.applyPostEditChecks(ctx, agentCtx, in.Inbound, len(effects), batch)
 		if err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		effects = append(effects, checkBatch...)
 		toolResults = append(toolResults, checkToolResults...)
@@ -623,44 +624,44 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		// iteration fires so they are durably recorded if the loop exits there.
 		if step+1 >= maxSteps {
 			if err := s.persistPendingTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Signals: signals, Reactions: reactions}
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 			}
 		}
 		observations = append(observations, observationsForEffects(append(batch, checkBatch...))...)
-		observations, signals = s.prepareEnvironmentPhase(ctx, environment.PhaseToolFollowup, observations, signals)
-		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, signals, reactions, observations, in.Events)
+		observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseToolFollowup, observations, assertions)
+		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, assertions, reactions, observations, in.Events)
 		effects = append(effects, reactionEffects...)
 		pending = toolResults
 	}
 }
 
-func (s Session) prepareEnvironmentPhase(ctx context.Context, phase environment.ObservationPhase, observations []environment.Observation, signals []environment.Signal) ([]environment.Observation, []environment.Signal) {
+func (s Session) prepareEnvironmentPhase(ctx context.Context, phase coreevidence.ObservationPhase, observations []coreevidence.Observation, assertions []coreevidence.Assertion) ([]coreevidence.Observation, []coreevidence.Assertion) {
 	if len(s.EnvironmentObservers) > 0 {
-		extra, diagnostics := runtimeenvironment.RunObservers(ctx, s.EnvironmentObservers, runtimeenvironment.ObservationRequest{
+		extra, diagnostics := runtimeevidence.RunObservers(ctx, s.EnvironmentObservers, runtimeevidence.ObservationRequest{
 			Phase:        phase,
-			Observations: append([]environment.Observation(nil), observations...),
+			Observations: append([]coreevidence.Observation(nil), observations...),
 		})
 		observations = append(observations, extra...)
 		observations = append(observations, environmentDiagnostics("observer", diagnostics)...)
 	}
-	if len(s.SignalDerivers) > 0 {
-		extra, diagnostics := runtimeenvironment.DeriveSignals(ctx, s.SignalDerivers, runtimeenvironment.SignalDeriveRequest{
-			Observations: append([]environment.Observation(nil), observations...),
+	if len(s.AssertionDerivers) > 0 {
+		extra, diagnostics := runtimeevidence.DeriveAssertions(ctx, s.AssertionDerivers, runtimeevidence.AssertionDeriveRequest{
+			Observations: append([]coreevidence.Observation(nil), observations...),
 		})
-		signals = append(signals, extra...)
-		observations = append(observations, environmentDiagnostics("signal_deriver", diagnostics)...)
+		assertions = append(assertions, extra...)
+		observations = append(observations, environmentDiagnostics("assertion_deriver", diagnostics)...)
 	}
-	return observations, signals
+	return observations, assertions
 }
 
 func (s Session) shouldRunLazyEnvironment(active sessionenv.ActiveState) bool {
-	if !s.hasObserverPhase(environment.PhaseLazy) {
+	if !s.hasObserverPhase(coreevidence.PhaseLazy) {
 		return false
 	}
 	return len(s.contextProviders(active)) > 0
 }
 
-func (s Session) hasObserverPhase(phase environment.ObservationPhase) bool {
+func (s Session) hasObserverPhase(phase coreevidence.ObservationPhase) bool {
 	for _, observer := range s.EnvironmentObservers {
 		if observer == nil {
 			continue
@@ -673,17 +674,17 @@ func (s Session) hasObserverPhase(phase environment.ObservationPhase) bool {
 	return false
 }
 
-func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound, signals []environment.Signal, state reactionState, observations []environment.Observation, sink sessionenv.EventSink) (reactionState, []environment.Observation, []environment.EffectResult) {
-	if len(s.ReactionRules) == 0 || len(signals) == 0 {
+func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound, assertions []coreevidence.Assertion, state reactionState, observations []coreevidence.Observation, sink sessionenv.EventSink) (reactionState, []coreevidence.Observation, []environment.EffectResult) {
+	if len(s.ReactionRules) == 0 || len(assertions) == 0 {
 		return state, observations, nil
 	}
 	plan := runtimereaction.Plan(runtimereaction.Request{
 		Rules:       s.ReactionRules,
-		Signals:     signals,
-		Previous:    state.PreviousSignals,
+		Assertions:  assertions,
+		Previous:    state.PreviousAssertions,
 		AppliedKeys: state.AppliedKeys,
 	})
-	state.PreviousSignals = plan.Current
+	state.PreviousAssertions = plan.Current
 	emitReactionPlanDiagnostics(sink, plan.Diagnostics)
 	emitSkippedReactionActions(sink, plan.Skipped)
 	observations = append(observations, reactionPlanDiagnostics(plan.Diagnostics)...)
@@ -703,7 +704,7 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 		})
 		action := sessionenv.ReactionAction{
 			Rule:           planned.Rule,
-			Signal:         planned.Signal,
+			Assertion:      planned.Assertion,
 			Action:         planned.Action,
 			IdempotencyKey: planned.IdempotencyKey,
 		}
@@ -835,18 +836,18 @@ func (s Session) applyReactionOperations(ctx context.Context, runID string, acti
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:              planned.Rule,
-				Action:            planned.Action.Kind,
-				IdempotencyKey:    planned.IdempotencyKey,
-				Target:            ref.String(),
-				Signal:            planned.Signal.Kind,
-				SignalTarget:      planned.Signal.Target,
-				SignalSubjectKind: string(planned.Signal.Subject.Kind),
-				SignalSubjectName: planned.Signal.Subject.Name,
-				SignalSubjectID:   planned.Signal.Subject.ID,
-				SignalScope:       planned.Signal.Scope,
-				SignalSource:      planned.Signal.Source,
-				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:                 planned.Rule,
+				Action:               planned.Action.Kind,
+				IdempotencyKey:       planned.IdempotencyKey,
+				Target:               ref.String(),
+				Assertion:            planned.Assertion.Kind,
+				AssertionTarget:      planned.Assertion.Target,
+				AssertionSubjectKind: string(planned.Assertion.Subject.Kind),
+				AssertionSubjectName: planned.Assertion.Subject.Name,
+				AssertionSubjectID:   planned.Assertion.Subject.ID,
+				AssertionScope:       planned.Assertion.Scope,
+				AssertionSource:      planned.Assertion.Source,
+				ObservationIDs:       append([]string(nil), planned.Assertion.ObservationIDs...),
 			})
 		}
 	}
@@ -893,29 +894,29 @@ func (s Session) applyReactionCommands(ctx context.Context, inbound channel.Inbo
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:              planned.Rule,
-				Action:            planned.Action.Kind,
-				IdempotencyKey:    planned.IdempotencyKey,
-				Target:            planned.Action.Command.Path.String(),
-				Signal:            planned.Signal.Kind,
-				SignalTarget:      planned.Signal.Target,
-				SignalSubjectKind: string(planned.Signal.Subject.Kind),
-				SignalSubjectName: planned.Signal.Subject.Name,
-				SignalSubjectID:   planned.Signal.Subject.ID,
-				SignalScope:       planned.Signal.Scope,
-				SignalSource:      planned.Signal.Source,
-				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:                 planned.Rule,
+				Action:               planned.Action.Kind,
+				IdempotencyKey:       planned.IdempotencyKey,
+				Target:               planned.Action.Command.Path.String(),
+				Assertion:            planned.Assertion.Kind,
+				AssertionTarget:      planned.Assertion.Target,
+				AssertionSubjectKind: string(planned.Assertion.Subject.Kind),
+				AssertionSubjectName: planned.Assertion.Subject.Name,
+				AssertionSubjectID:   planned.Assertion.Subject.ID,
+				AssertionScope:       planned.Assertion.Scope,
+				AssertionSource:      planned.Assertion.Source,
+				ObservationIDs:       append([]string(nil), planned.Assertion.ObservationIDs...),
 			})
 		}
 	}
 	return effects, diagnostics, appliedKeys
 }
 
-func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actions []sessionenv.ReactionAction, sink sessionenv.EventSink) ([]environment.Observation, []sessionenv.ReactionDiagnostic, []string) {
+func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actions []sessionenv.ReactionAction, sink sessionenv.EventSink) ([]coreevidence.Observation, []sessionenv.ReactionDiagnostic, []string) {
 	if len(actions) == 0 {
 		return nil, nil, nil
 	}
-	var observations []environment.Observation
+	var observations []coreevidence.Observation
 	var diagnostics []sessionenv.ReactionDiagnostic
 	var appliedKeys []string
 	for i, planned := range actions {
@@ -951,7 +952,7 @@ func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actio
 			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: result.Error.Message})
 			continue
 		}
-		observations = append(observations, environment.Observation{
+		observations = append(observations, coreevidence.Observation{
 			Source:  "workflow",
 			Kind:    "workflow.result",
 			Content: result,
@@ -966,35 +967,35 @@ func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actio
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:              planned.Rule,
-				Action:            planned.Action.Kind,
-				IdempotencyKey:    planned.IdempotencyKey,
-				Target:            string(workflowName),
-				Signal:            planned.Signal.Kind,
-				SignalTarget:      planned.Signal.Target,
-				SignalSubjectKind: string(planned.Signal.Subject.Kind),
-				SignalSubjectName: planned.Signal.Subject.Name,
-				SignalSubjectID:   planned.Signal.Subject.ID,
-				SignalScope:       planned.Signal.Scope,
-				SignalSource:      planned.Signal.Source,
-				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:                 planned.Rule,
+				Action:               planned.Action.Kind,
+				IdempotencyKey:       planned.IdempotencyKey,
+				Target:               string(workflowName),
+				Assertion:            planned.Assertion.Kind,
+				AssertionTarget:      planned.Assertion.Target,
+				AssertionSubjectKind: string(planned.Assertion.Subject.Kind),
+				AssertionSubjectName: planned.Assertion.Subject.Name,
+				AssertionSubjectID:   planned.Assertion.Subject.ID,
+				AssertionScope:       planned.Assertion.Scope,
+				AssertionSource:      planned.Assertion.Source,
+				ObservationIDs:       append([]string(nil), planned.Assertion.ObservationIDs...),
 			})
 		}
 	}
 	return observations, diagnostics, appliedKeys
 }
 
-func environmentDiagnostics(kind string, diagnostics []runtimeenvironment.Diagnostic) []environment.Observation {
+func environmentDiagnostics(kind string, diagnostics []runtimeevidence.Diagnostic) []coreevidence.Observation {
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	out := make([]environment.Observation, 0, len(diagnostics))
+	out := make([]coreevidence.Observation, 0, len(diagnostics))
 	for _, diagnostic := range diagnostics {
 		if strings.TrimSpace(diagnostic.Message) == "" {
 			continue
 		}
-		out = append(out, environment.Observation{
-			Source:  "runtime/environment",
+		out = append(out, coreevidence.Observation{
+			Source:  "runtime/evidence",
 			Kind:    "environment.diagnostic",
 			Content: diagnostic.Message,
 			Metadata: map[string]any{
@@ -1006,16 +1007,16 @@ func environmentDiagnostics(kind string, diagnostics []runtimeenvironment.Diagno
 	return out
 }
 
-func reactionPlanDiagnostics(diagnostics []runtimereaction.Diagnostic) []environment.Observation {
+func reactionPlanDiagnostics(diagnostics []runtimereaction.Diagnostic) []coreevidence.Observation {
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	out := make([]environment.Observation, 0, len(diagnostics))
+	out := make([]coreevidence.Observation, 0, len(diagnostics))
 	for _, diagnostic := range diagnostics {
 		if strings.TrimSpace(diagnostic.Message) == "" {
 			continue
 		}
-		out = append(out, environment.Observation{
+		out = append(out, coreevidence.Observation{
 			Source:  "runtime/reaction",
 			Kind:    "reaction.diagnostic",
 			Content: diagnostic.Message,
@@ -1027,16 +1028,16 @@ func reactionPlanDiagnostics(diagnostics []runtimereaction.Diagnostic) []environ
 	return out
 }
 
-func reactionApplyDiagnostics(diagnostics []sessionenv.ReactionDiagnostic) []environment.Observation {
+func reactionApplyDiagnostics(diagnostics []sessionenv.ReactionDiagnostic) []coreevidence.Observation {
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	out := make([]environment.Observation, 0, len(diagnostics))
+	out := make([]coreevidence.Observation, 0, len(diagnostics))
 	for _, diagnostic := range diagnostics {
 		if strings.TrimSpace(diagnostic.Message) == "" {
 			continue
 		}
-		out = append(out, environment.Observation{
+		out = append(out, coreevidence.Observation{
 			Source:  "orchestration/sessionenv",
 			Kind:    "reaction.diagnostic",
 			Content: diagnostic.Message,
@@ -1239,15 +1240,15 @@ type contextPreviewData struct {
 }
 
 type envExplainData struct {
-	Observers        []environment.ObserverSpec      `json:"observers,omitempty"`
-	SignalDerivers   []environment.SignalDeriverSpec `json:"signal_derivers,omitempty"`
-	ReactionRules    []string                        `json:"reaction_rules,omitempty"`
-	Observations     []envExplainObservation         `json:"observations,omitempty"`
-	Assertions       []envExplainAssertion           `json:"assertions,omitempty"`
-	Matching         []envExplainReactionMatch       `json:"matching,omitempty"`
-	Active           envExplainActive                `json:"active,omitempty"`
-	Applied          []envExplainApplied             `json:"applied,omitempty"`
-	AppliedReactions int                             `json:"applied_reactions,omitempty"`
+	Observers         []coreevidence.ObserverSpec         `json:"observers,omitempty"`
+	AssertionDerivers []coreevidence.AssertionDeriverSpec `json:"assertion_derivers,omitempty"`
+	ReactionRules     []string                            `json:"reaction_rules,omitempty"`
+	Observations      []envExplainObservation             `json:"observations,omitempty"`
+	Assertions        []envExplainAssertion               `json:"assertions,omitempty"`
+	Matching          []envExplainReactionMatch           `json:"matching,omitempty"`
+	Active            envExplainActive                    `json:"active,omitempty"`
+	Applied           []envExplainApplied                 `json:"applied,omitempty"`
+	AppliedReactions  int                                 `json:"applied_reactions,omitempty"`
 }
 
 type envExplainObservation struct {
@@ -1279,15 +1280,15 @@ type envExplainSubject struct {
 }
 
 type envExplainReactionMatch struct {
-	Rule           string            `json:"rule,omitempty"`
-	Action         string            `json:"action,omitempty"`
-	Target         string            `json:"target,omitempty"`
-	Signal         string            `json:"signal,omitempty"`
-	SignalTarget   string            `json:"signal_target,omitempty"`
-	SignalSubject  envExplainSubject `json:"signal_subject,omitempty"`
-	ObservationIDs []string          `json:"observation_ids,omitempty"`
-	Status         string            `json:"status,omitempty"`
-	Reason         string            `json:"reason,omitempty"`
+	Rule             string            `json:"rule,omitempty"`
+	Action           string            `json:"action,omitempty"`
+	Target           string            `json:"target,omitempty"`
+	Assertion        string            `json:"assertion,omitempty"`
+	AssertionTarget  string            `json:"assertion_target,omitempty"`
+	AssertionSubject envExplainSubject `json:"assertion_subject,omitempty"`
+	ObservationIDs   []string          `json:"observation_ids,omitempty"`
+	Status           string            `json:"status,omitempty"`
+	Reason           string            `json:"reason,omitempty"`
 }
 
 type envExplainActive struct {
@@ -1297,15 +1298,15 @@ type envExplainActive struct {
 }
 
 type envExplainApplied struct {
-	Rule           string            `json:"rule,omitempty"`
-	Action         string            `json:"action,omitempty"`
-	Target         string            `json:"target,omitempty"`
-	Signal         string            `json:"signal,omitempty"`
-	SignalTarget   string            `json:"signal_target,omitempty"`
-	SignalSubject  envExplainSubject `json:"signal_subject,omitempty"`
-	SignalScope    string            `json:"signal_scope,omitempty"`
-	SignalSource   string            `json:"signal_source,omitempty"`
-	ObservationIDs []string          `json:"observation_ids,omitempty"`
+	Rule             string            `json:"rule,omitempty"`
+	Action           string            `json:"action,omitempty"`
+	Target           string            `json:"target,omitempty"`
+	Assertion        string            `json:"assertion,omitempty"`
+	AssertionTarget  string            `json:"assertion_target,omitempty"`
+	AssertionSubject envExplainSubject `json:"assertion_subject,omitempty"`
+	AssertionScope   string            `json:"assertion_scope,omitempty"`
+	AssertionSource  string            `json:"assertion_source,omitempty"`
+	ObservationIDs   []string          `json:"observation_ids,omitempty"`
 }
 
 func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
@@ -1313,24 +1314,24 @@ func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.I
 	if err != nil {
 		return commandFailed("reaction_replay_failed", err.Error(), nil)
 	}
-	observations := append([]environment.Observation(nil), s.StartupObservations...)
-	assertions := append([]environment.Signal(nil), s.StartupSignals...)
-	observations, assertions = s.prepareEnvironmentPhase(ctx, environment.PhaseTurn, observations, assertions)
+	observations := append([]coreevidence.Observation(nil), s.StartupObservations...)
+	assertions := append([]coreevidence.Assertion(nil), s.StartupAssertions...)
+	observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseTurn, observations, assertions)
 	plan := runtimereaction.Plan(runtimereaction.Request{
 		Rules:       s.ReactionRules,
-		Signals:     assertions,
+		Assertions:  assertions,
 		AppliedKeys: state.AppliedKeys,
 	})
 	data := envExplainData{
-		Observers:        environmentObserverSpecs(s.EnvironmentObservers),
-		SignalDerivers:   signalDeriverSpecs(s.SignalDerivers),
-		ReactionRules:    reactionRuleNames(s.ReactionRules),
-		Observations:     explainObservations(observations),
-		Assertions:       explainAssertions(assertions),
-		Matching:         explainReactionMatches(plan),
-		Active:           explainActiveState(state.Active),
-		Applied:          explainAppliedReactions(state.Applied),
-		AppliedReactions: len(state.AppliedKeys),
+		Observers:         environmentObserverSpecs(s.EnvironmentObservers),
+		AssertionDerivers: assertionDeriverSpecs(s.AssertionDerivers),
+		ReactionRules:     reactionRuleNames(s.ReactionRules),
+		Observations:      explainObservations(observations),
+		Assertions:        explainAssertions(assertions),
+		Matching:          explainReactionMatches(plan, s.ReactionRules, assertions),
+		Active:            explainActiveState(state.Active),
+		Applied:           explainAppliedReactions(state.Applied),
+		AppliedReactions:  len(state.AppliedKeys),
 	}
 	return CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: operation.Rendered{
 		Text: renderEnvExplain(data),
@@ -1342,7 +1343,7 @@ func renderEnvExplain(data envExplainData) string {
 	var b strings.Builder
 	b.WriteString("Environment\n")
 	writeEnvExplainObservers(&b, data.Observers)
-	writeEnvExplainDerivers(&b, data.SignalDerivers)
+	writeEnvExplainDerivers(&b, data.AssertionDerivers)
 	writeEnvExplainRules(&b, data.ReactionRules)
 	writeEnvExplainObservations(&b, data.Observations)
 	writeEnvExplainAssertions(&b, data.Assertions)
@@ -1352,7 +1353,7 @@ func renderEnvExplain(data envExplainData) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func writeEnvExplainObservers(b *strings.Builder, observers []environment.ObserverSpec) {
+func writeEnvExplainObservers(b *strings.Builder, observers []coreevidence.ObserverSpec) {
 	b.WriteString("\nObservers\n")
 	if len(observers) == 0 {
 		b.WriteString("  none\n")
@@ -1379,8 +1380,8 @@ func writeEnvExplainObservers(b *strings.Builder, observers []environment.Observ
 	}
 }
 
-func writeEnvExplainDerivers(b *strings.Builder, derivers []environment.SignalDeriverSpec) {
-	b.WriteString("\nSignal Derivers\n")
+func writeEnvExplainDerivers(b *strings.Builder, derivers []coreevidence.AssertionDeriverSpec) {
+	b.WriteString("\nAssertion Derivers\n")
 	if len(derivers) == 0 {
 		b.WriteString("  none\n")
 		return
@@ -1390,10 +1391,10 @@ func writeEnvExplainDerivers(b *strings.Builder, derivers []environment.SignalDe
 		if len(deriver.ObservationKinds) > 0 {
 			parts = append(parts, "from="+strings.Join(deriver.ObservationKinds, ","))
 		}
-		if len(deriver.Signals) > 0 {
-			parts = append(parts, "signals="+strings.Join(signalTemplateNames(deriver.Signals), ","))
+		if len(deriver.Assertions) > 0 {
+			parts = append(parts, "assertions="+strings.Join(assertionTemplateNames(deriver.Assertions), ","))
 		} else {
-			parts = append(parts, "signals=custom")
+			parts = append(parts, "assertions=custom")
 		}
 		writeEnvExplainLine(b, deriver.Name, parts)
 	}
@@ -1489,14 +1490,14 @@ func writeEnvExplainMatching(b *strings.Builder, matches []envExplainReactionMat
 		if match.Target != "" {
 			parts = append(parts, "target="+match.Target)
 		}
-		if match.Signal != "" {
-			signal := match.Signal
-			if match.SignalTarget != "" {
-				signal += ":" + match.SignalTarget
+		if match.Assertion != "" {
+			assertion := match.Assertion
+			if match.AssertionTarget != "" {
+				assertion += ":" + match.AssertionTarget
 			}
-			parts = append(parts, "signal="+signal)
+			parts = append(parts, "assertion="+assertion)
 		}
-		if subject := renderEnvExplainSubject(match.SignalSubject); subject != "" {
+		if subject := renderEnvExplainSubject(match.AssertionSubject); subject != "" {
 			parts = append(parts, "subject="+subject)
 		}
 		if len(match.ObservationIDs) > 0 {
@@ -1536,14 +1537,14 @@ func writeEnvExplainApplied(b *strings.Builder, applied []envExplainApplied) {
 		if item.Target != "" {
 			parts = append(parts, "target="+item.Target)
 		}
-		if item.Signal != "" {
-			signal := item.Signal
-			if item.SignalTarget != "" {
-				signal += ":" + item.SignalTarget
+		if item.Assertion != "" {
+			assertion := item.Assertion
+			if item.AssertionTarget != "" {
+				assertion += ":" + item.AssertionTarget
 			}
-			parts = append(parts, "signal="+signal)
+			parts = append(parts, "assertion="+assertion)
 		}
-		if subject := renderEnvExplainSubject(item.SignalSubject); subject != "" {
+		if subject := renderEnvExplainSubject(item.AssertionSubject); subject != "" {
 			parts = append(parts, "subject="+subject)
 		}
 		if len(item.ObservationIDs) > 0 {
@@ -1568,25 +1569,25 @@ func explainAppliedReactions(in []corereaction.ActionApplied) []envExplainApplie
 	out := make([]envExplainApplied, 0, len(in))
 	for _, applied := range in {
 		out = append(out, envExplainApplied{
-			Rule:         applied.Rule,
-			Action:       string(applied.Action),
-			Target:       applied.Target,
-			Signal:       applied.Signal,
-			SignalTarget: applied.SignalTarget,
-			SignalSubject: envExplainSubject{
-				Kind: strings.TrimSpace(applied.SignalSubjectKind),
-				Name: strings.TrimSpace(applied.SignalSubjectName),
-				ID:   strings.TrimSpace(applied.SignalSubjectID),
+			Rule:            applied.Rule,
+			Action:          string(applied.Action),
+			Target:          applied.Target,
+			Assertion:       applied.Assertion,
+			AssertionTarget: applied.AssertionTarget,
+			AssertionSubject: envExplainSubject{
+				Kind: strings.TrimSpace(applied.AssertionSubjectKind),
+				Name: strings.TrimSpace(applied.AssertionSubjectName),
+				ID:   strings.TrimSpace(applied.AssertionSubjectID),
 			},
-			SignalScope:    applied.SignalScope,
-			SignalSource:   applied.SignalSource,
-			ObservationIDs: append([]string(nil), applied.ObservationIDs...),
+			AssertionScope:  applied.AssertionScope,
+			AssertionSource: applied.AssertionSource,
+			ObservationIDs:  append([]string(nil), applied.ObservationIDs...),
 		})
 	}
 	return out
 }
 
-func explainObservations(in []environment.Observation) []envExplainObservation {
+func explainObservations(in []coreevidence.Observation) []envExplainObservation {
 	out := make([]envExplainObservation, 0, len(in))
 	for _, observation := range in {
 		kind := strings.TrimSpace(observation.Kind)
@@ -1607,7 +1608,7 @@ func explainObservations(in []environment.Observation) []envExplainObservation {
 	return out
 }
 
-func explainAssertions(in []environment.Signal) []envExplainAssertion {
+func explainAssertions(in []coreevidence.Assertion) []envExplainAssertion {
 	out := make([]envExplainAssertion, 0, len(in))
 	for _, assertion := range in {
 		kind := strings.TrimSpace(assertion.Kind)
@@ -1623,13 +1624,13 @@ func explainAssertions(in []environment.Signal) []envExplainAssertion {
 			Environment:    strings.TrimSpace(string(assertion.Environment.Name)),
 			Confidence:     assertion.Confidence,
 			ObservationIDs: append([]string(nil), assertion.ObservationIDs...),
-			Metadata:       cloneEnvExplainSignalMetadata(assertion.Metadata),
+			Metadata:       cloneEnvExplainAssertionMetadata(assertion.Metadata),
 		})
 	}
 	return out
 }
 
-func explainSubject(subject environment.Subject) envExplainSubject {
+func explainSubject(subject coreevidence.Subject) envExplainSubject {
 	return envExplainSubject{
 		Kind: strings.TrimSpace(string(subject.Kind)),
 		Name: strings.TrimSpace(subject.Name),
@@ -1651,34 +1652,61 @@ func renderEnvExplainSubject(subject envExplainSubject) string {
 	return strings.Join(parts, "/")
 }
 
-func explainReactionMatches(plan runtimereaction.Result) []envExplainReactionMatch {
-	out := make([]envExplainReactionMatch, 0, len(plan.Planned)+len(plan.Skipped))
+func explainReactionMatches(plan runtimereaction.Result, rules []corereaction.Rule, assertions []coreevidence.Assertion) []envExplainReactionMatch {
+	out := make([]envExplainReactionMatch, 0, len(plan.Planned)+len(plan.Skipped)+len(rules))
+	matchedRules := map[string]bool{}
 	for _, planned := range plan.Planned {
+		matchedRules[planned.Rule] = true
 		out = append(out, envExplainReactionMatch{
-			Rule:           planned.Rule,
-			Action:         string(planned.Action.Kind),
-			Target:         envExplainReactionActionTarget(planned.Action),
-			Signal:         planned.Signal.Kind,
-			SignalTarget:   planned.Signal.Target,
-			SignalSubject:  explainSubject(planned.Signal.Subject),
-			ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
-			Status:         "planned",
+			Rule:             planned.Rule,
+			Action:           string(planned.Action.Kind),
+			Target:           envExplainReactionActionTarget(planned.Action),
+			Assertion:        planned.Assertion.Kind,
+			AssertionTarget:  planned.Assertion.Target,
+			AssertionSubject: explainSubject(planned.Assertion.Subject),
+			ObservationIDs:   append([]string(nil), planned.Assertion.ObservationIDs...),
+			Status:           "planned",
 		})
 	}
 	for _, skipped := range plan.Skipped {
+		matchedRules[skipped.Rule] = true
 		out = append(out, envExplainReactionMatch{
-			Rule:           skipped.Rule,
-			Action:         string(skipped.Action.Kind),
-			Target:         envExplainReactionActionTarget(skipped.Action),
-			Signal:         skipped.Signal.Kind,
-			SignalTarget:   skipped.Signal.Target,
-			SignalSubject:  explainSubject(skipped.Signal.Subject),
-			ObservationIDs: append([]string(nil), skipped.Signal.ObservationIDs...),
-			Status:         "skipped",
-			Reason:         skipped.Reason,
+			Rule:             skipped.Rule,
+			Action:           string(skipped.Action.Kind),
+			Target:           envExplainReactionActionTarget(skipped.Action),
+			Assertion:        skipped.Assertion.Kind,
+			AssertionTarget:  skipped.Assertion.Target,
+			AssertionSubject: explainSubject(skipped.Assertion.Subject),
+			ObservationIDs:   append([]string(nil), skipped.Assertion.ObservationIDs...),
+			Status:           "skipped",
+			Reason:           skipped.Reason,
 		})
 	}
+	for _, rule := range rules {
+		if matchedRules[rule.Name] {
+			continue
+		}
+		item := envExplainReactionMatch{
+			Rule:             rule.Name,
+			Assertion:        rule.When.Assertion,
+			AssertionTarget:  rule.When.Target,
+			AssertionSubject: explainSubject(rule.When.Subject),
+			Status:           "unmatched",
+			Reason:           unmatchedReactionReason(rule, assertions),
+		}
+		out = append(out, item)
+	}
 	return out
+}
+
+func unmatchedReactionReason(rule corereaction.Rule, assertions []coreevidence.Assertion) string {
+	if err := rule.Validate(); err != nil {
+		return err.Error()
+	}
+	if len(assertions) == 0 {
+		return "no_assertions"
+	}
+	return "no_matching_assertion"
 }
 
 func envExplainReactionActionTarget(action corereaction.Action) string {
@@ -1742,7 +1770,7 @@ func cloneObservationMetadata(in map[string]any) map[string]any {
 	return out
 }
 
-func cloneEnvExplainSignalMetadata(in map[string]string) map[string]string {
+func cloneEnvExplainAssertionMetadata(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
@@ -1753,12 +1781,12 @@ func cloneEnvExplainSignalMetadata(in map[string]string) map[string]string {
 	return out
 }
 
-func signalTemplateNames(templates []environment.SignalTemplate) []string {
+func assertionTemplateNames(templates []coreevidence.AssertionTemplate) []string {
 	out := make([]string, 0, len(templates))
-	for _, signal := range templates {
-		name := strings.TrimSpace(signal.Kind)
-		if signal.Target != "" {
-			name += ":" + strings.TrimSpace(signal.Target)
+	for _, assertion := range templates {
+		name := strings.TrimSpace(assertion.Kind)
+		if assertion.Target != "" {
+			name += ":" + strings.TrimSpace(assertion.Target)
 		}
 		if name != "" {
 			out = append(out, name)
@@ -1855,11 +1883,11 @@ func sortedProviderNames(providers []corecontext.Provider) []string {
 	return names
 }
 
-func environmentObserverSpecs(observers []runtimeenvironment.Observer) []environment.ObserverSpec {
+func environmentObserverSpecs(observers []runtimeevidence.Observer) []coreevidence.ObserverSpec {
 	if len(observers) == 0 {
 		return nil
 	}
-	out := make([]environment.ObserverSpec, 0, len(observers))
+	out := make([]coreevidence.ObserverSpec, 0, len(observers))
 	for _, observer := range observers {
 		if observer == nil {
 			continue
@@ -1869,11 +1897,11 @@ func environmentObserverSpecs(observers []runtimeenvironment.Observer) []environ
 	return out
 }
 
-func signalDeriverSpecs(derivers []runtimeenvironment.SignalDeriver) []environment.SignalDeriverSpec {
+func assertionDeriverSpecs(derivers []runtimeevidence.AssertionDeriver) []coreevidence.AssertionDeriverSpec {
 	if len(derivers) == 0 {
 		return nil
 	}
-	out := make([]environment.SignalDeriverSpec, 0, len(derivers))
+	out := make([]coreevidence.AssertionDeriverSpec, 0, len(derivers))
 	for _, deriver := range derivers {
 		if deriver == nil {
 			continue
@@ -1935,7 +1963,7 @@ func sortedNameBoolMapKeys[K ~string](values map[K]bool) []string {
 	return out
 }
 
-func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, []coreconversation.Item, error) {
+func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []coreevidence.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, []coreconversation.Item, error) {
 	providers := s.contextProviders(active)
 	if len(providers) == 0 {
 		return corecontext.BuildResult{}, oneShotUserContextPending(in.Inbound, pending, corecontext.RenderTurn), nil
@@ -1954,7 +1982,7 @@ func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pend
 		InputText:     inboundInputText(in.Inbound),
 		RecentContext: recentContextExcerpt(derefItems(in.LocalTranscript), pending),
 		Scope:         contextRequestScope(in.Inbound),
-		Observations:  append([]environment.Observation(nil), observations...),
+		Observations:  append([]coreevidence.Observation(nil), observations...),
 		Previous:      records,
 	})
 	if err != nil {
@@ -2178,7 +2206,7 @@ func (s Session) contextProviders(active ...sessionenv.ActiveState) []corecontex
 	return providers
 }
 
-func (s Session) contextProviderContext(ctx context.Context, observations []environment.Observation, active ...sessionenv.ActiveState) context.Context {
+func (s Session) contextProviderContext(ctx context.Context, observations []coreevidence.Observation, active ...sessionenv.ActiveState) context.Context {
 	cfg := s.envConfig(s.eventSink())
 	if len(active) > 0 {
 		cfg.Active = &active[0]
@@ -2186,7 +2214,7 @@ func (s Session) contextProviderContext(ctx context.Context, observations []envi
 	return sessionenv.ContextProviderContext(ctx, cfg, observations)
 }
 
-func contextRenderReason(pending []coreconversation.Item, observations []environment.Observation) corecontext.RenderReason {
+func contextRenderReason(pending []coreconversation.Item, observations []coreevidence.Observation) corecontext.RenderReason {
 	for _, item := range pending {
 		if item.Kind == coreconversation.ItemToolResult {
 			return corecontext.RenderToolFollowup
@@ -3364,12 +3392,12 @@ func continuationLimitResult(agentResult agent.StepResult, effects []environment
 	}}
 }
 
-func observationsForEffects(effects []environment.EffectResult) []environment.Observation {
-	observations := make([]environment.Observation, 0, len(effects))
+func observationsForEffects(effects []environment.EffectResult) []coreevidence.Observation {
+	observations := make([]coreevidence.Observation, 0, len(effects))
 	for _, effect := range effects {
 		obs := effect.Observation
 		if obs.ID == "" && obs.Kind == "" {
-			obs = environment.Observation{
+			obs = coreevidence.Observation{
 				Source:  "operation",
 				Kind:    "operation.result",
 				Content: effect.Result,
@@ -4710,13 +4738,13 @@ func reactionAppliedPayload(payload any) (corereaction.ActionApplied, bool) {
 		out.Action = corereaction.ActionKind(action)
 		out.IdempotencyKey, _ = typed["idempotency_key"].(string)
 		out.Target, _ = typed["target"].(string)
-		out.Signal, _ = typed["signal"].(string)
-		out.SignalTarget, _ = typed["signal_target"].(string)
-		out.SignalSubjectKind, _ = typed["signal_subject_kind"].(string)
-		out.SignalSubjectName, _ = typed["signal_subject_name"].(string)
-		out.SignalSubjectID, _ = typed["signal_subject_id"].(string)
-		out.SignalScope, _ = typed["signal_scope"].(string)
-		out.SignalSource, _ = typed["signal_source"].(string)
+		out.Assertion, _ = typed["assertion"].(string)
+		out.AssertionTarget, _ = typed["assertion_target"].(string)
+		out.AssertionSubjectKind, _ = typed["assertion_subject_kind"].(string)
+		out.AssertionSubjectName, _ = typed["assertion_subject_name"].(string)
+		out.AssertionSubjectID, _ = typed["assertion_subject_id"].(string)
+		out.AssertionScope, _ = typed["assertion_scope"].(string)
+		out.AssertionSource, _ = typed["assertion_source"].(string)
 		out.ObservationIDs = stringSliceFromAny(typed["observation_ids"])
 		return out, true
 	default:
@@ -4878,7 +4906,7 @@ func cloneCommandInvocation(in command.Invocation) *command.Invocation {
 func operationEffect(result operation.Result) environment.EffectResult {
 	return environment.EffectResult{
 		Result: result,
-		Observation: environment.Observation{
+		Observation: coreevidence.Observation{
 			Source:  "operation",
 			Kind:    "operation.result",
 			Content: result,

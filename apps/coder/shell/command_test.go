@@ -43,6 +43,20 @@ func TestNewCommandExposesConnectFlag(t *testing.T) {
 	}
 }
 
+func TestNewCommandHelpDescribesShellModes(t *testing.T) {
+	cmd := NewCommand()
+	for _, want := range []string{"ask mode", "shell mode", "/ for coder commands", "@ to mention"} {
+		if !strings.Contains(cmd.Long, want) {
+			t.Fatalf("Long help missing %q:\n%s", want, cmd.Long)
+		}
+	}
+	for _, want := range []string{"coder shell ~/src/project", "--connect=fake"} {
+		if !strings.Contains(cmd.Example, want) {
+			t.Fatalf("Examples missing %q:\n%s", want, cmd.Example)
+		}
+	}
+}
+
 func TestNewCommandExposesLocalLaunchFlags(t *testing.T) {
 	cmd := NewCommand()
 	for _, name := range []string{

@@ -101,7 +101,7 @@ const (
 	SubmissionCommand   SubmissionKind = "command"
 	SubmissionOperation SubmissionKind = "operation"
 	SubmissionEvent     SubmissionKind = "event"
-	SubmissionSignal    SubmissionKind = "signal"
+	SubmissionTrigger   SubmissionKind = "trigger"
 )
 
 // OperationInvocation is a direct operation call submitted through a channel
@@ -128,7 +128,7 @@ type Submission struct {
 	CommandLine string               `json:"command_line,omitempty"`
 	Operation   *OperationInvocation `json:"operation,omitempty"`
 	Event       event.Event          `json:"event,omitempty"`
-	Signal      *Signal              `json:"signal,omitempty"`
+	Trigger     *Trigger             `json:"trigger,omitempty"`
 	Caller      policy.Caller        `json:"caller,omitempty"`
 	Trust       policy.Trust         `json:"trust,omitempty"`
 	// TrustDowngrade requests a lower trust level on remote transports that
@@ -195,11 +195,11 @@ func (s Submission) WithEvent(ev event.Event) Submission {
 	return s
 }
 
-// WithSignal configures the submission as a structured signal.
-func (s Submission) WithSignal(signal Signal) Submission {
+// WithTrigger configures the submission as a structured trigger.
+func (s Submission) WithTrigger(trigger Trigger) Submission {
 	s.clearPayload()
-	s.Kind = SubmissionSignal
-	s.Signal = &signal
+	s.Kind = SubmissionTrigger
+	s.Trigger = &trigger
 	return s
 }
 
@@ -238,7 +238,7 @@ func (s *Submission) clearPayload() {
 	s.Command = nil
 	s.Operation = nil
 	s.Event = nil
-	s.Signal = nil
+	s.Trigger = nil
 }
 
 // Input is a conversational/user input payload.
@@ -256,10 +256,10 @@ func (i Input) ContentOrText() any {
 	return i.Text
 }
 
-// Signal is a structured non-message trigger, such as a scheduler or file
+// Trigger is a structured non-message trigger, such as a scheduler or file
 // watcher notification. Concrete timer/fs implementations belong outside this
 // package.
-type Signal struct {
+type Trigger struct {
 	Name     string         `json:"name"`
 	Source   string         `json:"source,omitempty"`
 	Payload  any            `json:"payload,omitempty"`
@@ -301,14 +301,14 @@ func (s Submission) Validate() error {
 			return fmt.Errorf("client: event submission payload is nil")
 		}
 		return rejectSubmissionExtras(s, "event")
-	case SubmissionSignal:
-		if s.Signal == nil {
-			return fmt.Errorf("client: signal submission payload is nil")
+	case SubmissionTrigger:
+		if s.Trigger == nil {
+			return fmt.Errorf("client: trigger submission payload is nil")
 		}
-		if s.Signal.Name == "" {
-			return fmt.Errorf("client: signal name is empty")
+		if s.Trigger.Name == "" {
+			return fmt.Errorf("client: trigger name is empty")
 		}
-		return rejectSubmissionExtras(s, "signal")
+		return rejectSubmissionExtras(s, "trigger")
 	default:
 		return fmt.Errorf("client: submission kind %q is invalid", s.Kind)
 	}
@@ -330,8 +330,8 @@ func rejectSubmissionExtras(submission Submission, expected string) error {
 	if expected != "event" && submission.Event != nil {
 		return fmt.Errorf("client: %s submission cannot also carry event", expected)
 	}
-	if expected != "signal" && submission.Signal != nil {
-		return fmt.Errorf("client: %s submission cannot also carry signal", expected)
+	if expected != "trigger" && submission.Trigger != nil {
+		return fmt.Errorf("client: %s submission cannot also carry trigger", expected)
 	}
 	return nil
 }

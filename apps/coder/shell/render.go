@@ -392,7 +392,14 @@ func (m model) renderMentionPicker(width int) string {
 	case completionOption:
 		header = "/ options " + m.mention.CommandPath
 	}
-	lines := []string{subtleStyle.Render(header) + " " + valueStyle.Render(m.mention.Query)}
+	headerLine := subtleStyle.Render(header)
+	if query := strings.TrimSpace(m.mention.Query); query != "" {
+		headerLine += " " + valueStyle.Render(query)
+	}
+	if summary := mentionPickerSummary(m.mention); summary != "" {
+		headerLine = alignLine(headerLine, subtleStyle.Render(summary), width-4)
+	}
+	lines := []string{headerLine}
 	if m.mention.Loading {
 		lines = append(lines, mutedStyle.Render("searching..."))
 	} else if len(m.mention.Results) == 0 {
@@ -419,7 +426,30 @@ func (m model) renderMentionPicker(width int) string {
 		}
 		lines = append(lines, prefix+kindPrefix+style.Render(icon+result.Label)+detail)
 	}
+	if result, ok := m.mention.activeResult(); ok {
+		if detail := firstNonEmptyString(result.Description, result.Detail, result.URI); detail != "" {
+			lines = append(lines, subtleStyle.Render("info ")+valueStyle.Render(truncateStyled(detail, width-8)))
+		}
+	}
+	lines = append(lines, mutedStyle.Render("tab accept · ↑↓ select · esc close"))
 	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func mentionPickerSummary(state MentionState) string {
+	if state.Loading {
+		return "loading"
+	}
+	if len(state.Results) == 0 {
+		return "0 results"
+	}
+	index := state.Index + 1
+	if index < 1 {
+		index = 1
+	}
+	if index > len(state.Results) {
+		index = len(state.Results)
+	}
+	return fmt.Sprintf("%d/%d results", index, len(state.Results))
 }
 
 func (m model) renderTimeline(layout shellLayout) string {
@@ -480,6 +510,8 @@ func renderTimelineLineWithCache(line string, width int, markdownCache map[timel
 		return subtleStyle.Render("↳ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "echo:")))
 	case strings.HasPrefix(line, "project:"):
 		return subtleStyle.Render("◆ ") + accentStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "project:")))
+	case strings.HasPrefix(line, "tip:"):
+		return subtleStyle.Render("tip ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "tip:")))
 	case line == "":
 		return ""
 	default:
@@ -562,26 +594,64 @@ func (m model) renderPrompt(width int) string {
 	tab := m.shell.ActiveTab()
 	input := ""
 	marker := "❯ "
+	mode := InputModeShell
+	editing := false
 	if tab != nil {
+		mode = tab.InputMode
+		editing = tab.InputBuffer != ""
 		if tab.InputMode == InputModeAsk {
 			marker = "🤖 "
 		}
-		input = renderInputWithCursor(tab)
+		input = renderInputWithCursor(tab, promptPlaceholder(mode))
 	}
 	prompt := promptStyle.Render(marker) + input
 	box := promptBoxStyle.Width(width).Render(prompt)
-	footer := footerStyle.Width(width).Align(lipgloss.Right).Render(m.usage.summary())
+	footer := footerStyle.Width(width).Render(m.promptFooter(mode, width, editing))
 	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
 }
 
-func renderInputWithCursor(tab *TabSession) string {
+func promptPlaceholder(mode InputMode) string {
+	if mode == InputModeAsk {
+		return "Ask the agent..."
+	}
+	return "Run a shell command..."
+}
+
+func (m model) promptFooter(mode InputMode, width int, editing bool) string {
+	usage := m.usage.summary()
+	modeHint := "shell mode  ? ask · / command · @ mention"
+	if mode == InputModeAsk {
+		modeHint = "ask mode  ! shell · / command · @ mention"
+	}
+	navHint := "↑ history · pgup scroll"
+	if editing {
+		navHint = "ctrl+w word · ctrl+k tail"
+	}
+	if len(m.activeRuns) > 0 || len(m.activeCancels) > 0 {
+		navHint = "esc cancel · pgup scroll"
+	}
+	hint := modeHint + " · " + navHint
+	if lipgloss.Width(hint)+lipgloss.Width(usage)+1 <= width {
+		return alignLine(mutedStyle.Render(hint), subtleStyle.Render(usage), width)
+	}
+	if lipgloss.Width(modeHint)+lipgloss.Width(usage)+1 <= width {
+		return alignLine(mutedStyle.Render(modeHint), subtleStyle.Render(usage), width)
+	}
+	return subtleStyle.Render(usage)
+}
+
+func renderInputWithCursor(tab *TabSession, placeholder string) string {
 	if tab == nil {
 		return cursorStyle.Render(" ")
 	}
 	runes := []rune(tab.InputBuffer)
 	cursor := tab.inputCursor()
 	if len(runes) == 0 {
-		return cursorStyle.Render(" ")
+		placeholder = strings.TrimSpace(placeholder)
+		if placeholder == "" {
+			return cursorStyle.Render(" ")
+		}
+		return mutedStyle.Render(placeholder) + cursorStyle.Render(" ")
 	}
 	if cursor >= len(runes) {
 		return inputStyle.Render(tab.InputBuffer) + cursorStyle.Render(" ")

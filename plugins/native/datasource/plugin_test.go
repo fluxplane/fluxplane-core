@@ -9,7 +9,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
@@ -1009,7 +1009,7 @@ func TestDetectedProviderListsOnlyAllowedLocalReferences(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"jira"}})
-	blocks, err := (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreenvironment.Observation{{
+	blocks, err := (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreevidence.Observation{{
 		Kind:    "channel.message",
 		Content: "Please check DEV-381 and README.md",
 	}}})
@@ -1044,7 +1044,7 @@ func TestDetectedProviderDoesNotCallDatasourceIO(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"jira"}})
-	_, err = (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreenvironment.Observation{{
+	_, err = (detectedProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreevidence.Observation{{
 		Kind:    "channel.message",
 		Content: "DEV-381",
 	}}})

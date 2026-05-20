@@ -223,11 +223,29 @@ func (m *model) timelineContent(width int) string {
 	if tab != nil {
 		tabID = tab.ID
 		lines = m.timelineCache.linesFor(tabID, tab.Transcript)
+		if initialTranscript(tab.Transcript) {
+			lines = append(lines, "tip: ask a question, type / for commands, @ for resources, or ! for shell mode")
+		}
 	}
 	if len(lines) == 0 {
 		lines = []string{"Ready."}
 	}
 	return m.timelineCache.contentFor(tabID, width, lines)
+}
+
+func initialTranscript(events []TranscriptEvent) bool {
+	if len(events) == 0 {
+		return true
+	}
+	for _, event := range events {
+		switch event.Kind {
+		case EventClientConnected, EventUsageRecorded:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func renderTimelineLines(cache *timelineRenderCache, width int, lines []string) string {

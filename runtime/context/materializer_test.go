@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 )
 
 func TestMaterializerEmitsOnlyChangedBlocks(t *testing.T) {
@@ -82,7 +82,7 @@ func TestMaterializerPassesObservationsToProviders(t *testing.T) {
 	}
 	m := NewMaterializer([]corecontext.Provider{provider}, nil)
 	_, err := m.Build(context.Background(), corecontext.BuildRequest{
-		Observations: []coreenvironment.Observation{{
+		Observations: []coreevidence.Observation{{
 			Kind:    "kubernetes.context",
 			Content: "k3d-ai",
 		}},
@@ -105,7 +105,7 @@ func TestMaterializerPassesObservationsToFingerprinter(t *testing.T) {
 		"env": {Provider: "env", Fingerprint: "previous"},
 	})
 	_, err := m.Build(context.Background(), corecontext.BuildRequest{
-		Observations: []coreenvironment.Observation{{Kind: "channel.message", Content: "hello"}},
+		Observations: []coreevidence.Observation{{Kind: "channel.message", Content: "hello"}},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)

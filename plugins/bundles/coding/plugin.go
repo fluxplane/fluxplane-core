@@ -21,7 +21,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/native/human"
 	"github.com/fluxplane/agentruntime/plugins/native/project"
 	"github.com/fluxplane/agentruntime/plugins/native/shell"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -39,7 +39,7 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
@@ -127,8 +127,8 @@ func (p Plugin) DatasourceProviders(ctx context.Context, pluginCtx pluginhost.Co
 	return out, nil
 }
 
-func (p Plugin) EnvironmentObservers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeenvironment.Observer, error) {
-	var out []runtimeenvironment.Observer
+func (p Plugin) EnvironmentObservers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeevidence.Observer, error) {
+	var out []runtimeevidence.Observer
 	for _, plugin := range p.plugins {
 		contributor, ok := plugin.(pluginhost.ObserverContributor)
 		if !ok {
@@ -143,16 +143,16 @@ func (p Plugin) EnvironmentObservers(ctx context.Context, pluginCtx pluginhost.C
 	return out, nil
 }
 
-func (p Plugin) SignalDerivers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	var out []runtimeenvironment.SignalDeriver
+func (p Plugin) AssertionDerivers(ctx context.Context, pluginCtx pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	var out []runtimeevidence.AssertionDeriver
 	for _, plugin := range p.plugins {
-		contributor, ok := plugin.(pluginhost.SignalDeriverContributor)
+		contributor, ok := plugin.(pluginhost.AssertionDeriverContributor)
 		if !ok {
 			continue
 		}
-		derivers, err := contributor.SignalDerivers(ctx, pluginCtx)
+		derivers, err := contributor.AssertionDerivers(ctx, pluginCtx)
 		if err != nil {
-			return nil, fmt.Errorf("codingplugin: %s signal derivers: %w", plugin.Manifest().Name, err)
+			return nil, fmt.Errorf("codingplugin: %s assertion derivers: %w", plugin.Manifest().Name, err)
 		}
 		out = append(out, derivers...)
 	}

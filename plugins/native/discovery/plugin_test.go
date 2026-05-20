@@ -6,10 +6,10 @@ import (
 
 	corediscovery "github.com/fluxplane/agentruntime/core/discovery"
 	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 )
 
 func TestDiscoveryPluginListsProvidersAndEndpoints(t *testing.T) {
@@ -53,23 +53,23 @@ func TestEndpointRegistryEvidenceDerivesEndpointAvailability(t *testing.T) {
 		t.Fatalf("Put() error = %v", err)
 	}
 	observer := endpointRegistryObserver{endpoints: endpoints}
-	observations, diagnostics := runtimeenvironment.RunObservers(context.Background(), []runtimeenvironment.Observer{observer}, runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, diagnostics := runtimeevidence.RunObservers(context.Background(), []runtimeevidence.Observer{observer}, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 	if len(observations) != 1 || observations[0].Kind != ObservationEndpointRegistry {
 		t.Fatalf("observations = %#v", observations)
 	}
-	deriver := endpointSignalDeriver{}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(context.Background(), []runtimeenvironment.SignalDeriver{deriver}, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	deriver := endpointAssertionDeriver{}
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(context.Background(), []runtimeevidence.AssertionDeriver{deriver}, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
-	if len(signals) != 1 || signals[0].Kind != SignalEndpointAvailable || signals[0].Target != "loki" {
-		t.Fatalf("signals = %#v, want endpoint.available loki", signals)
+	if len(assertions) != 1 || assertions[0].Kind != AssertionEndpointAvailable || assertions[0].Target != "loki" {
+		t.Fatalf("assertions = %#v, want endpoint.available loki", assertions)
 	}
-	if signals[0].Metadata["endpoint_ref"] != string(ref) {
-		t.Fatalf("signal metadata = %#v, want endpoint ref %q", signals[0].Metadata, ref)
+	if assertions[0].Metadata["endpoint_ref"] != string(ref) {
+		t.Fatalf("assertion metadata = %#v, want endpoint ref %q", assertions[0].Metadata, ref)
 	}
 }
 
@@ -87,20 +87,20 @@ func TestEndpointRegistryEvidenceDoesNotDeriveAvailabilityForUnprobedProviderCan
 		t.Fatalf("Put() error = %v", err)
 	}
 	observer := endpointRegistryObserver{endpoints: endpoints}
-	observations, diagnostics := runtimeenvironment.RunObservers(context.Background(), []runtimeenvironment.Observer{observer}, runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, diagnostics := runtimeevidence.RunObservers(context.Background(), []runtimeevidence.Observer{observer}, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
 	if len(observations) != 1 || observations[0].Kind != ObservationEndpointRegistry {
 		t.Fatalf("observations = %#v", observations)
 	}
-	deriver := endpointSignalDeriver{}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(context.Background(), []runtimeenvironment.SignalDeriver{deriver}, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	deriver := endpointAssertionDeriver{}
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(context.Background(), []runtimeevidence.AssertionDeriver{deriver}, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
-	if len(signals) != 0 {
-		t.Fatalf("signals = %#v, want no endpoint availability for unprobed provider candidate", signals)
+	if len(assertions) != 0 {
+		t.Fatalf("assertions = %#v, want no endpoint availability for unprobed provider candidate", assertions)
 	}
 }
 
@@ -119,17 +119,17 @@ func TestEndpointRegistryEvidenceDerivesAvailabilityForReadyProviderCandidates(t
 		t.Fatalf("Put() error = %v", err)
 	}
 	observer := endpointRegistryObserver{endpoints: endpoints}
-	observations, diagnostics := runtimeenvironment.RunObservers(context.Background(), []runtimeenvironment.Observer{observer}, runtimeenvironment.ObservationRequest{Phase: coreenvironment.PhaseTurn})
+	observations, diagnostics := runtimeevidence.RunObservers(context.Background(), []runtimeevidence.Observer{observer}, runtimeevidence.ObservationRequest{Phase: coreevidence.PhaseTurn})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
-	deriver := endpointSignalDeriver{}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(context.Background(), []runtimeenvironment.SignalDeriver{deriver}, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	deriver := endpointAssertionDeriver{}
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(context.Background(), []runtimeevidence.AssertionDeriver{deriver}, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v", diagnostics)
 	}
-	if len(signals) != 1 || signals[0].Kind != SignalEndpointAvailable || signals[0].Target != "loki" {
-		t.Fatalf("signals = %#v, want endpoint.available loki", signals)
+	if len(assertions) != 1 || assertions[0].Kind != AssertionEndpointAvailable || assertions[0].Target != "loki" {
+		t.Fatalf("assertions = %#v, want endpoint.available loki", assertions)
 	}
 }
 

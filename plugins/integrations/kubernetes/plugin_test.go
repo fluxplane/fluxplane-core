@@ -17,11 +17,11 @@ import (
 	"k8s.io/client-go/rest"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/fluxplane/agentruntime/runtime/systemtest"
 )
@@ -311,14 +311,14 @@ func TestKubernetesPluginContributesObserverAndDeriver(t *testing.T) {
 	if len(bundle.Observers) != 1 || bundle.Observers[0].Name != kubernetesObserverName {
 		t.Fatalf("observers = %#v, want kubernetes observer spec", bundle.Observers)
 	}
-	if len(bundle.SignalDerivers) != 1 || bundle.SignalDerivers[0].Name != kubernetesDeriverName {
-		t.Fatalf("signal derivers = %#v, want kubernetes deriver spec", bundle.SignalDerivers)
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != kubernetesDeriverName {
+		t.Fatalf("assertion derivers = %#v, want kubernetes deriver spec", bundle.AssertionDerivers)
 	}
 	observers, err := resolved.EnvironmentObservers(ctx, pluginhostContext(ref, nil))
 	if err != nil {
 		t.Fatalf("EnvironmentObservers: %v", err)
 	}
-	observations, diagnostics := runtimeenvironment.RunObservers(ctx, observers, runtimeenvironment.ObservationRequest{Phase: bundle.Observers[0].Phase})
+	observations, diagnostics := runtimeevidence.RunObservers(ctx, observers, runtimeevidence.ObservationRequest{Phase: bundle.Observers[0].Phase})
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics = %#v, want none", diagnostics)
 	}
@@ -329,16 +329,16 @@ func TestKubernetesPluginContributesObserverAndDeriver(t *testing.T) {
 	if content["context"] != "k3d-ai" || content["namespace"] != "ai-bots" || content["available"] != true {
 		t.Fatalf("content = %#v, want configured k3d-ai ai-bots availability", content)
 	}
-	derivers, err := resolved.SignalDerivers(ctx, pluginhostContext(ref, nil))
+	derivers, err := resolved.AssertionDerivers(ctx, pluginhostContext(ref, nil))
 	if err != nil {
-		t.Fatalf("SignalDerivers: %v", err)
+		t.Fatalf("AssertionDerivers: %v", err)
 	}
-	signals, diagnostics := runtimeenvironment.DeriveSignals(ctx, derivers, runtimeenvironment.SignalDeriveRequest{Observations: observations})
+	assertions, diagnostics := runtimeevidence.DeriveAssertions(ctx, derivers, runtimeevidence.AssertionDeriveRequest{Observations: observations})
 	if len(diagnostics) != 0 {
-		t.Fatalf("signal diagnostics = %#v, want none", diagnostics)
+		t.Fatalf("assertion diagnostics = %#v, want none", diagnostics)
 	}
-	if !hasSignal(signals, "integration.configured", Name) || !hasSignal(signals, "integration.available", Name) {
-		t.Fatalf("signals = %#v, want configured and available kubernetes signals", signals)
+	if !hasAssertion(assertions, "integration.configured", Name) || !hasAssertion(assertions, "integration.available", Name) {
+		t.Fatalf("assertions = %#v, want configured and available kubernetes assertions", assertions)
 	}
 }
 
@@ -591,9 +591,9 @@ func pluginhostContext(ref resource.PluginRef, cfg any) pluginhost.Context {
 	return pluginhost.Context{Ref: ref, Config: cfg}
 }
 
-func hasSignal(signals []coreenvironment.Signal, kind, target string) bool {
-	for _, signal := range signals {
-		if signal.Kind == kind && signal.Target == target {
+func hasAssertion(assertions []coreevidence.Assertion, kind, target string) bool {
+	for _, assertion := range assertions {
+		if assertion.Kind == kind && assertion.Target == target {
 			return true
 		}
 	}

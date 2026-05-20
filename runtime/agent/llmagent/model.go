@@ -8,7 +8,7 @@ import (
 	corellmagent "github.com/fluxplane/agentruntime/core/agent/llmagent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/core/usage"
 )
@@ -52,7 +52,7 @@ type Request struct {
 	Tools        []tool.Spec                  `json:"tools,omitempty"`
 	Goal         string                       `json:"goal,omitempty"`
 	Objective    agent.Objective              `json:"objective,omitempty"`
-	Observations []environment.Observation    `json:"observations,omitempty"`
+	Observations []coreevidence.Observation   `json:"observations,omitempty"`
 	Context      []corecontext.Block          `json:"context,omitempty"`
 	Transcript   *coreconversation.Transcript `json:"transcript,omitempty"`
 	State        agent.StateRef               `json:"state,omitempty"`

@@ -13,8 +13,8 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
@@ -29,7 +29,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -51,8 +51,8 @@ type Config struct {
 	Events               coreevent.Sink
 	ThreadStore          corethread.Store
 	SessionAgents        *sessionagent.Runner
-	EnvironmentObservers []runtimeenvironment.Observer
-	SignalDerivers       []runtimeenvironment.SignalDeriver
+	EnvironmentObservers []runtimeevidence.Observer
+	AssertionDerivers    []runtimeevidence.AssertionDeriver
 	ReactionRules        []corereaction.Rule
 	StopEvaluator        session.StopEvaluator
 	IdentityResolver     identity.Resolver
@@ -86,10 +86,10 @@ type Service struct {
 	events               coreevent.Sink
 	threadStore          corethread.Store
 	sessionAgents        *sessionagent.Runner
-	startupObservations  []coreenvironment.Observation
-	startupSignals       []coreenvironment.Signal
-	environmentObservers []runtimeenvironment.Observer
-	signalDerivers       []runtimeenvironment.SignalDeriver
+	startupObservations  []coreevidence.Observation
+	startupAssertions    []coreevidence.Assertion
+	environmentObservers []runtimeevidence.Observer
+	assertionDerivers    []runtimeevidence.AssertionDeriver
 	reactionRules        []corereaction.Rule
 	stopEvaluator        session.StopEvaluator
 	identityResolver     identity.Resolver
@@ -110,7 +110,7 @@ type Service struct {
 
 // New returns a harness service.
 func New(cfg Config) *Service {
-	startupObservations, startupSignals := startupEnvironment(cfg.EnvironmentObservers, cfg.SignalDerivers)
+	startupObservations, startupAssertions := startupEnvironment(cfg.EnvironmentObservers, cfg.AssertionDerivers)
 	return &Service{
 		agent:                cfg.Agent,
 		agentProvider:        cfg.AgentProvider,
@@ -129,9 +129,9 @@ func New(cfg Config) *Service {
 		threadStore:          cfg.ThreadStore,
 		sessionAgents:        cfg.SessionAgents,
 		startupObservations:  startupObservations,
-		startupSignals:       startupSignals,
-		environmentObservers: append([]runtimeenvironment.Observer(nil), cfg.EnvironmentObservers...),
-		signalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), cfg.SignalDerivers...),
+		startupAssertions:    startupAssertions,
+		environmentObservers: append([]runtimeevidence.Observer(nil), cfg.EnvironmentObservers...),
+		assertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), cfg.AssertionDerivers...),
 		reactionRules:        append([]corereaction.Rule(nil), cfg.ReactionRules...),
 		stopEvaluator:        cfg.StopEvaluator,
 		identityResolver:     cfg.IdentityResolver,
@@ -146,14 +146,14 @@ func New(cfg Config) *Service {
 	}
 }
 
-func startupEnvironment(observers []runtimeenvironment.Observer, derivers []runtimeenvironment.SignalDeriver) ([]coreenvironment.Observation, []coreenvironment.Signal) {
-	observations, _ := runtimeenvironment.RunObservers(context.Background(), observers, runtimeenvironment.ObservationRequest{
-		Phase: coreenvironment.PhaseStartup,
+func startupEnvironment(observers []runtimeevidence.Observer, derivers []runtimeevidence.AssertionDeriver) ([]coreevidence.Observation, []coreevidence.Assertion) {
+	observations, _ := runtimeevidence.RunObservers(context.Background(), observers, runtimeevidence.ObservationRequest{
+		Phase: coreevidence.PhaseStartup,
 	})
-	signals, _ := runtimeenvironment.DeriveSignals(context.Background(), derivers, runtimeenvironment.SignalDeriveRequest{
-		Observations: append([]coreenvironment.Observation(nil), observations...),
+	assertions, _ := runtimeevidence.DeriveAssertions(context.Background(), derivers, runtimeevidence.AssertionDeriveRequest{
+		Observations: append([]coreevidence.Observation(nil), observations...),
 	})
-	return observations, signals
+	return observations, assertions
 }
 
 // SetSessionAgentRunner installs the command helper session runner used by
@@ -440,10 +440,10 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
 		TurnTools:            turnTools,
-		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
-		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
-		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
-		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		StartupObservations:  append([]coreevidence.Observation(nil), s.startupObservations...),
+		StartupAssertions:    append([]coreevidence.Assertion(nil), s.startupAssertions...),
+		EnvironmentObservers: append([]runtimeevidence.Observer(nil), s.environmentObservers...),
+		AssertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), s.assertionDerivers...),
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
@@ -552,10 +552,10 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
 		TurnTools:            turnTools,
-		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
-		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
-		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
-		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		StartupObservations:  append([]coreevidence.Observation(nil), s.startupObservations...),
+		StartupAssertions:    append([]coreevidence.Assertion(nil), s.startupAssertions...),
+		EnvironmentObservers: append([]runtimeevidence.Observer(nil), s.environmentObservers...),
+		AssertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), s.assertionDerivers...),
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,
@@ -617,10 +617,10 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		Delegation:           s.delegationForInfo(info),
 		StopEvaluator:        s.stopEvaluator,
 		RunID:                string(runID),
-		StartupObservations:  append([]coreenvironment.Observation(nil), s.startupObservations...),
-		StartupSignals:       append([]coreenvironment.Signal(nil), s.startupSignals...),
-		EnvironmentObservers: append([]runtimeenvironment.Observer(nil), s.environmentObservers...),
-		SignalDerivers:       append([]runtimeenvironment.SignalDeriver(nil), s.signalDerivers...),
+		StartupObservations:  append([]coreevidence.Observation(nil), s.startupObservations...),
+		StartupAssertions:    append([]coreevidence.Assertion(nil), s.startupAssertions...),
+		EnvironmentObservers: append([]runtimeevidence.Observer(nil), s.environmentObservers...),
+		AssertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), s.assertionDerivers...),
 		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
 		Security:             s.security,
 		SecurityTrace:        s.securityTrace,

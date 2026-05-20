@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/language"
 	"github.com/fluxplane/agentruntime/core/language/golang"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -21,7 +21,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimeproject "github.com/fluxplane/agentruntime/runtime/project"
@@ -29,42 +29,42 @@ import (
 )
 
 const (
-	Name               = "golang"
-	ParserSet          = "golang.parser"
-	ToolchainSet       = "golang.toolchain"
-	ToolchainObserver  = "golang.toolchain.status"
-	ToolchainSignals   = "golang.toolchain.signals"
-	ProjectOp          = golang.ProjectOp
-	InfoOp             = golang.InfoOp
-	EnvOp              = golang.EnvOp
-	VersionOp          = golang.VersionOp
-	DocOp              = golang.DocOp
-	ListOp             = golang.ListOp
-	TestOp             = golang.TestOp
-	FmtOp              = golang.FmtOp
-	VetOp              = golang.VetOp
-	BuildOp            = golang.BuildOp
-	InstallOp          = golang.InstallOp
-	GetOp              = golang.GetOp
-	ModTidyOp          = golang.ModTidyOp
-	PackagesOp         = golang.PackagesOp
-	OutlineOp          = golang.OutlineOp
-	SymbolOp           = golang.SymbolOp
-	DefinitionOp       = golang.DefinitionOp
-	SymbolInfoOp       = golang.SymbolInfoOp
-	ReferencesOp       = golang.ReferencesOp
-	ImportsOp          = golang.ImportsOp
-	ImplementationsOp  = golang.ImplementationsOp
-	CallersOp          = golang.CallersOp
-	CalleesOp          = golang.CalleesOp
-	SummaryProvider    = golang.SummaryProvider
-	defaultMaxResults  = 200
-	defaultSourceBytes = 512 * 1024
+	Name                = "golang"
+	ParserSet           = "golang.parser"
+	ToolchainSet        = "golang.toolchain"
+	ToolchainObserver   = "golang.toolchain.status"
+	ToolchainAssertions = "golang.toolchain.assertions"
+	ProjectOp           = golang.ProjectOp
+	InfoOp              = golang.InfoOp
+	EnvOp               = golang.EnvOp
+	VersionOp           = golang.VersionOp
+	DocOp               = golang.DocOp
+	ListOp              = golang.ListOp
+	TestOp              = golang.TestOp
+	FmtOp               = golang.FmtOp
+	VetOp               = golang.VetOp
+	BuildOp             = golang.BuildOp
+	InstallOp           = golang.InstallOp
+	GetOp               = golang.GetOp
+	ModTidyOp           = golang.ModTidyOp
+	PackagesOp          = golang.PackagesOp
+	OutlineOp           = golang.OutlineOp
+	SymbolOp            = golang.SymbolOp
+	DefinitionOp        = golang.DefinitionOp
+	SymbolInfoOp        = golang.SymbolInfoOp
+	ReferencesOp        = golang.ReferencesOp
+	ImportsOp           = golang.ImportsOp
+	ImplementationsOp   = golang.ImplementationsOp
+	CallersOp           = golang.CallersOp
+	CalleesOp           = golang.CalleesOp
+	SummaryProvider     = golang.SummaryProvider
+	defaultMaxResults   = 200
+	defaultSourceBytes  = 512 * 1024
 )
 
 const (
-	ObservationToolchainStatus = "toolchain.status"
-	SignalToolchainAvailable   = "toolchain.available"
+	ObservationToolchainStatus  = "toolchain.status"
+	AssertionToolchainAvailable = "toolchain.available"
 )
 
 // Plugin contributes Go language support operations.
@@ -77,7 +77,7 @@ var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
-var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
 
 // New returns a Go language plugin.
 func New(sys system.System) Plugin {
@@ -128,9 +128,9 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	specs := specs()
 	support := LanguageSupport().SupportSpec()
 	return resource.ContributionBundle{
-		ContextProviders: []corecontext.ProviderSpec{summaryContextSpec()},
-		Observers:        []coreenvironment.ObserverSpec{toolchainObserverSpec()},
-		SignalDerivers:   []coreenvironment.SignalDeriverSpec{toolchainSignalDeriverSpec()},
+		ContextProviders:  []corecontext.ProviderSpec{summaryContextSpec()},
+		Observers:         []coreevidence.ObserverSpec{toolchainObserverSpec()},
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{toolchainAssertionDeriverSpec()},
 		OperationSets: append(append([]operation.Set{}, support.OperationSets...),
 			support.ToolchainOperationSets...),
 		Toolchains: support.Toolchains,
@@ -150,7 +150,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 }
 
 // EnvironmentObservers returns executable Go environment observers.
-func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeevidence.Observer, error) {
 	if p.system == nil {
 		return nil, nil
 	}
@@ -158,12 +158,12 @@ func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]run
 	if len(support.Toolchains) == 0 {
 		return nil, nil
 	}
-	return []runtimeenvironment.Observer{goToolchainObserver{system: p.system, spec: support.Toolchains[0]}}, nil
+	return []runtimeevidence.Observer{goToolchainObserver{system: p.system, spec: support.Toolchains[0]}}, nil
 }
 
-// SignalDerivers returns executable Go signal derivation.
-func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
-	return []runtimeenvironment.SignalDeriver{goToolchainSignalDeriver{}}, nil
+// AssertionDerivers returns executable Go assertion derivation.
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{goToolchainAssertionDeriver{}}, nil
 }
 
 // ContextProviders returns executable Go context providers.
@@ -371,9 +371,9 @@ func goToolchainSpec(ops []operation.Ref) language.ToolchainSpec {
 			language.ToolchainCapabilityBuild,
 			language.ToolchainCapabilityInstall,
 		},
-		OperationSets:     []string{ToolchainSet},
-		Operations:        ops,
-		ActivationSignals: []string{"go.mod", "go.work"},
+		OperationSets:   []string{ToolchainSet},
+		Operations:      ops,
+		ActivationHints: []string{"go.mod", "go.work"},
 	}
 }
 
@@ -382,11 +382,11 @@ type goToolchainObserver struct {
 	spec   language.ToolchainSpec
 }
 
-func (goToolchainObserver) Spec() coreenvironment.ObserverSpec {
+func (goToolchainObserver) Spec() coreevidence.ObserverSpec {
 	return toolchainObserverSpec()
 }
 
-func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
 	if o.system == nil {
 		return nil, nil
 	}
@@ -395,38 +395,38 @@ func (o goToolchainObserver) Observe(ctx context.Context, _ runtimeenvironment.O
 	if workspace := o.system.Workspace(); workspace != nil && strings.TrimSpace(workspace.Root()) != "" {
 		scope = "workspace:" + workspace.Root()
 	}
-	return []coreenvironment.Observation{{
+	return []coreevidence.Observation{{
 		ID:      "toolchain:" + status.ID,
 		Kind:    ObservationToolchainStatus,
 		Scope:   scope,
 		Content: status,
-		Environment: coreenvironment.Ref{
+		Environment: coreevidence.Ref{
 			Name: "local",
 		},
 	}}, nil
 }
 
-func toolchainObserverSpec() coreenvironment.ObserverSpec {
-	return coreenvironment.ObserverSpec{
+func toolchainObserverSpec() coreevidence.ObserverSpec {
+	return coreevidence.ObserverSpec{
 		Name:        ToolchainObserver,
 		Description: "Observes local Go toolchain availability without exposing environment secrets.",
-		Environment: coreenvironment.Ref{
+		Environment: coreevidence.Ref{
 			Name: "local",
 		},
-		Phase:           coreenvironment.PhaseSessionOpen,
+		Phase:           coreevidence.PhaseSessionOpen,
 		ObservableKinds: []string{ObservationToolchainStatus},
 		Dynamic:         true,
 	}
 }
 
-type goToolchainSignalDeriver struct{}
+type goToolchainAssertionDeriver struct{}
 
-func (goToolchainSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
-	return toolchainSignalDeriverSpec()
+func (goToolchainAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return toolchainAssertionDeriverSpec()
 }
 
-func (goToolchainSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
-	var out []coreenvironment.Signal
+func (goToolchainAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
 	for _, observation := range req.Observations {
 		if observation.Kind != ObservationToolchainStatus {
 			continue
@@ -435,27 +435,27 @@ func (goToolchainSignalDeriver) Derive(_ context.Context, req runtimeenvironment
 		if !ok || !status.Available || strings.TrimSpace(status.ID) == "" {
 			continue
 		}
-		signal := coreenvironment.Signal{
-			Kind:           SignalToolchainAvailable,
+		assertion := coreevidence.Assertion{
+			Kind:           AssertionToolchainAvailable,
 			Target:         status.ID,
-			Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectToolchain, Name: status.ID},
+			Subject:        coreevidence.Subject{Kind: coreevidence.SubjectToolchain, Name: status.ID},
 			Scope:          observation.Scope,
 			Environment:    observation.Environment,
 			Confidence:     1,
 			ObservationIDs: observationIDs(observation.ID),
 		}
 		if strings.TrimSpace(status.Version) != "" {
-			signal.Metadata = map[string]string{"version": strings.TrimSpace(status.Version)}
+			assertion.Metadata = map[string]string{"version": strings.TrimSpace(status.Version)}
 		}
-		out = append(out, signal)
+		out = append(out, assertion)
 	}
 	return out, nil
 }
 
-func toolchainSignalDeriverSpec() coreenvironment.SignalDeriverSpec {
-	return coreenvironment.SignalDeriverSpec{
-		Name:             ToolchainSignals,
-		Description:      "Derives Go toolchain availability signals from toolchain status observations.",
+func toolchainAssertionDeriverSpec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             ToolchainAssertions,
+		Description:      "Derives Go toolchain availability assertions from toolchain status observations.",
 		ObservationKinds: []string{ObservationToolchainStatus},
 	}
 }

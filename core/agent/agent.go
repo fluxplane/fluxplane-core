@@ -7,8 +7,8 @@ import (
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/event"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/skill"
 )
@@ -205,11 +205,11 @@ type StateUpdate struct {
 
 // StepInput is the input to one agent decision step.
 type StepInput struct {
-	Goal         string                    `json:"goal,omitempty"`
-	Objective    Objective                 `json:"objective,omitempty"`
-	Observations []environment.Observation `json:"observations,omitempty"`
-	Context      []corecontext.Block       `json:"context,omitempty"`
-	State        StateRef                  `json:"state,omitempty"`
+	Goal         string                     `json:"goal,omitempty"`
+	Objective    Objective                  `json:"objective,omitempty"`
+	Observations []coreevidence.Observation `json:"observations,omitempty"`
+	Context      []corecontext.Block        `json:"context,omitempty"`
+	State        StateRef                   `json:"state,omitempty"`
 }
 
 // DecisionKind classifies what an agent chose to do.

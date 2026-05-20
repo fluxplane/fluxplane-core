@@ -1312,8 +1312,8 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 		t.Fatalf("Wait: %v", err)
 	}
 	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
-	assertRequestTools(t, request, memory.RetrieveOp)
-	assertRequestToolsAbsent(t, request, "go_outline", "markdown_outline", "loki_query", "mysql_query", "endpoint_list", browser.OpenOp, image.Name, image.GenerateOp, memory.MemorizeOp, memory.ForgetOp, memory.OrganizeOp)
+	assertRequestTools(t, request, memory.RetrieveOp, memory.MemorizeOp, memory.ForgetOp, memory.OrganizeOp, image.GenerateOp, image.ProvidersOp)
+	assertRequestToolsAbsent(t, request, "go_outline", "markdown_outline", "loki_query", "mysql_query", "endpoint_list", browser.OpenOp, image.Name, image.UnderstandOp)
 }
 
 func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
@@ -1415,7 +1415,7 @@ func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
 	assertRequestToolsAbsent(t, request, "mysql_query")
 }
 
-func TestCoderSessionActivatesBrowserToolsFromAvailabilityAndIntent(t *testing.T) {
+func TestCoderSessionActivatesBrowserToolsFromAvailability(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true, Browser: fakeBrowserManager{}})
@@ -1446,53 +1446,7 @@ func TestCoderSessionActivatesBrowserToolsFromAvailabilityAndIntent(t *testing.T
 	}
 	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
 		Session:      agentruntime.SessionRef{Name: SessionName},
-		Conversation: channel.ConversationRef{ID: "browser-evidence-tool-projection-test"},
-	})
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("open https://example.com in a browser and inspect the rendered UI"))
-	if err != nil {
-		t.Fatalf("Submit: %v", err)
-	}
-	if _, err := run.Wait(ctx); err != nil {
-		t.Fatalf("Wait: %v", err)
-	}
-	assertRequestTools(t, request, "project_inventory", browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
-}
-
-func TestCoderSessionDoesNotActivateBrowserToolsFromAvailabilityAlone(t *testing.T) {
-	ctx := context.Background()
-	root := t.TempDir()
-	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true, Browser: fakeBrowserManager{}})
-	if err != nil {
-		t.Fatalf("NewHost: %v", err)
-	}
-	var request llmagent.Request
-	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
-		request = req
-		return llmagent.MessageResponse("ok"), nil
-	})
-	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
-	})
-	if err != nil {
-		t.Fatalf("Compose: %v", err)
-	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
-		LLMModel:       model,
-		Channel:        channel.Ref{Name: "local"},
-		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
-		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
-		ToolProjection: ToolProjectionConfig(),
-	})
-	if err != nil {
-		t.Fatalf("NewFromComposition: %v", err)
-	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
-		Conversation: channel.ConversationRef{ID: "browser-availability-only-test"},
+		Conversation: channel.ConversationRef{ID: "browser-availability-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -1504,10 +1458,10 @@ func TestCoderSessionDoesNotActivateBrowserToolsFromAvailabilityAlone(t *testing
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	assertRequestToolsAbsent(t, request, browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
+	assertRequestTools(t, request, "project_inventory", browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
 }
 
-func TestCoderSessionActivatesImageToolsFromProviderAvailabilityAndIntent(t *testing.T) {
+func TestCoderSessionDoesNotActivateBrowserToolsWithoutAvailability(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
@@ -1538,12 +1492,58 @@ func TestCoderSessionActivatesImageToolsFromProviderAvailabilityAndIntent(t *tes
 	}
 	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
 		Session:      agentruntime.SessionRef{Name: SessionName},
-		Conversation: channel.ConversationRef{ID: "image-evidence-tool-projection-test"},
+		Conversation: channel.ConversationRef{ID: "browser-unavailable-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("generate an image of the architecture diagram"))
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestToolsAbsent(t, request, browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
+}
+
+func TestCoderSessionActivatesImageToolsFromProviderAvailability(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "image-availability-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1554,7 +1554,7 @@ func TestCoderSessionActivatesImageToolsFromProviderAvailabilityAndIntent(t *tes
 	assertRequestToolsAbsent(t, request, image.UnderstandOp)
 }
 
-func TestCoderSessionDoesNotActivateImageUnderstandingFromGenerationProvider(t *testing.T) {
+func TestCoderSessionDoesNotActivateImageUnderstandingWithoutProvider(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
@@ -1590,17 +1590,18 @@ func TestCoderSessionDoesNotActivateImageUnderstandingFromGenerationProvider(t *
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("describe this image in detail"))
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}
-	assertRequestToolsAbsent(t, request, image.GenerateOp, image.UnderstandOp, image.ProvidersOp)
+	assertRequestTools(t, request, image.GenerateOp, image.ProvidersOp)
+	assertRequestToolsAbsent(t, request, image.UnderstandOp)
 }
 
-func TestCoderSessionActivatesMemoryMutationToolsFromIntent(t *testing.T) {
+func TestCoderSessionActivatesMemoryMutationToolsFromStorageAvailability(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
@@ -1631,12 +1632,12 @@ func TestCoderSessionActivatesMemoryMutationToolsFromIntent(t *testing.T) {
 	}
 	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
 		Session:      agentruntime.SessionRef{Name: SessionName},
-		Conversation: channel.ConversationRef{ID: "memory-intent-tool-projection-test"},
+		Conversation: channel.ConversationRef{ID: "memory-availability-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("remember this preference for later"))
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}

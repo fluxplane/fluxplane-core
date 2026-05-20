@@ -9,9 +9,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	coreproject "github.com/fluxplane/agentruntime/core/project"
-	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	projectruntime "github.com/fluxplane/agentruntime/runtime/project"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -107,8 +107,8 @@ func (s *shellStatus) applyBaselineObservations(ctx context.Context) {
 	if s == nil {
 		return
 	}
-	observations, err := runtimeenvironment.BaselineObserver().Observe(ctx, runtimeenvironment.ObservationRequest{
-		Phase: coreenvironment.PhaseTurn,
+	observations, err := runtimeevidence.BaselineObserver().Observe(ctx, runtimeevidence.ObservationRequest{
+		Phase: coreevidence.PhaseTurn,
 	})
 	if err != nil {
 		return
@@ -119,9 +119,9 @@ func (s *shellStatus) applyBaselineObservations(ctx context.Context) {
 			continue
 		}
 		switch observation.Kind {
-		case runtimeenvironment.ObservationSystemLocale:
+		case runtimeevidence.ObservationSystemLocale:
 			s.locale = firstStringValue(content, "LC_ALL", "LC_CTYPE", "LANG")
-		case runtimeenvironment.ObservationSystemUser:
+		case runtimeevidence.ObservationSystemUser:
 			s.user = firstStringValue(content, "username")
 		}
 	}

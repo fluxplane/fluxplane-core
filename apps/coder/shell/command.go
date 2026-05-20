@@ -60,7 +60,15 @@ func NewCommandWithOptions(commandOpts CommandOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "shell [path]",
 		Short: "Start the experimental coder shell TUI",
-		Args:  cobra.MaximumNArgs(1),
+		Long: strings.TrimSpace(`Start an interactive coder shell for a workspace.
+
+The shell opens in ask mode by default. Type a question and press Enter to ask
+the agent, type ! at the start of an empty prompt to switch to shell mode, use
+/ for coder commands, and use @ to mention workspace resources.`),
+		Example: strings.TrimSpace(`  coder shell
+  coder shell ~/src/project --provider codex --model gpt-5.5
+  coder shell --connect=fake`),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "."
 			if len(args) > 0 && strings.TrimSpace(args[0]) != "" {
