@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Refactored distribution deploy internals into Docker, Docker Compose, and
+  Kubernetes boundaries, with native Docker Engine and Kubernetes client paths
+  for image, local stack, and manifest deployment operations.
+
+### Fixed
+- Cleaned generated Docker build contexts after dry-run app/base image builds
+  unless callers explicitly keep the context for inspection.
+- Restored Kubernetes namespace-registry deploys for real clusters while
+  keeping k3d image-import deploys available through auto-detection or
+  `--registry-mode k3d`.
+- Resolved host environment substitutions before native Docker Compose deploys
+  so required provider credentials are passed to containers correctly.
+- Kept Kubernetes undeploy from deleting shared namespace registry resources
+  that may be owned by another app or registry mode.
+
 ### Added
+- Added Kubernetes app deploy RBAC generation for apps that declare the
+  Kubernetes plugin, including a dedicated ServiceAccount and read-only access
+  to configured namespaces.
 - Added a MySQL query plugin for discovered endpoints, with Kubernetes
   Secret-backed credential resolution and read-only SQL execution.
 - Added a first-slice OpenAPI plugin that loads OpenAPI 3.x specs and

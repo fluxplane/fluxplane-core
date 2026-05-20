@@ -58,17 +58,17 @@ func QueryReadOnly(ctx context.Context, req QueryRequest) (QueryResult, error) {
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, req.Query)
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	columns, err := rows.Columns()
 	if err != nil {
 		return QueryResult{}, err
