@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/invocation"
@@ -16,6 +17,24 @@ import (
 	"github.com/fluxplane/agentruntime/core/workflow"
 	appcompose "github.com/fluxplane/agentruntime/orchestration/app"
 )
+
+func TestLoadFSLoadsManifestFromFilesystem(t *testing.T) {
+	file, err := LoadFSFile(context.Background(), fstest.MapFS{
+		"resources/agents.yaml": &fstest.MapFile{Data: []byte(`kind: agent
+name: coder
+operations: [web_search]
+`)},
+	}, "resources/agents.yaml")
+	if err != nil {
+		t.Fatalf("LoadFSFile: %v", err)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "coder" {
+		t.Fatalf("agents = %#v", file.Bundle.Agents)
+	}
+	if len(file.Bundle.Agents[0].Operations) != 1 || file.Bundle.Agents[0].Operations[0].Name != "web_search" {
+		t.Fatalf("agent operations = %#v", file.Bundle.Agents[0].Operations)
+	}
+}
 
 func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	data := []byte(`{

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -52,6 +53,35 @@ func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, erro
 		return resource.ContributionBundle{}, err
 	}
 	return file.Bundle, nil
+}
+
+// LoadFS loads one app/resource manifest from fsys at path.
+func LoadFS(ctx context.Context, fsys fs.FS, path string) (resource.ContributionBundle, error) {
+	file, err := LoadFSFile(ctx, fsys, path)
+	if err != nil {
+		return resource.ContributionBundle{}, err
+	}
+	return file.Bundle, nil
+}
+
+// LoadFSFile loads one app/resource manifest from fsys at path and returns both
+// pure resource contributions and serve/daemon configuration.
+func LoadFSFile(ctx context.Context, fsys fs.FS, path string) (File, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return File{}, err
+	}
+	if fsys == nil {
+		return File{}, fmt.Errorf("appconfig: nil filesystem")
+	}
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(path)), "./")
+	data, err := fs.ReadFile(fsys, clean)
+	if err != nil {
+		return File{}, fmt.Errorf("appconfig: read manifest %s: %w", clean, err)
+	}
+	return DecodeFile(clean, data)
 }
 
 // LoadDirFile loads the default app manifest from dir and returns both pure
@@ -1214,12 +1244,14 @@ type AccessDoc struct {
 type agentDoc struct {
 	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string   `json:"name" yaml:"name"`
+	Extends     []string `json:"extends,omitempty" yaml:"extends,omitempty"`
 	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
 	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	Turns       turnsDoc `json:"turns,omitempty" yaml:"turns,omitempty"`
 	Thinking    string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
 	Effort      string   `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Operations  []string `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Tools       []string `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Context     []string `json:"context,omitempty" yaml:"context,omitempty"`
 	Datasources []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
@@ -1290,6 +1322,18 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 				StopCondition:    raw.Turns.Continuation.StopCondition.Spec(),
 			},
 		},
+	}
+	for _, name := range raw.Extends {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Extends = append(spec.Extends, agent.Ref{Name: agent.Name(name)})
+		}
+	}
+	for _, name := range raw.Operations {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.Operations = append(spec.Operations, operation.Ref{Name: operation.Name(name)})
+		}
 	}
 	for _, name := range raw.Tools {
 		name = strings.TrimSpace(name)
