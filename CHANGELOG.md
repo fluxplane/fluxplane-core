@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Improved coder shell responsiveness by batching stream repaints, caching
+  transcript rendering incrementally, bounding rendered history, showing
+  completion loading state, and passing shell input as raw command text.
 - Expanded `/env/explain` to show current observations, derived assertions, and
   matching reaction actions in addition to configured observers and active
   session state.
@@ -29,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for image, local stack, and manifest deployment operations.
 
 ### Fixed
-- Made coder shell mode the persistent default, including after one-shot agent
-  asks, and rendered shell command output like a normal terminal stream.
+- Restored coder shell's agentic input mode as the default and kept timeline
+  dimensions stable when switching between agent and shell input.
 - Cleaned generated Docker build contexts after dry-run app/base image builds
   unless callers explicitly keep the context for inspection.
 - Restored Kubernetes namespace-registry deploys for real clusters while

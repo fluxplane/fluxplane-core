@@ -618,47 +618,6 @@ func outputText(value any) string {
 	return fmt.Sprint(value)
 }
 
-func splitShellFields(line string) ([]string, error) {
-	fields := []string{}
-	current := strings.Builder{}
-	var quote rune
-	escaped := false
-	for _, r := range line {
-		switch {
-		case escaped:
-			current.WriteRune(r)
-			escaped = false
-		case r == '\\':
-			escaped = true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				current.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote = r
-		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
-			if current.Len() > 0 {
-				fields = append(fields, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(r)
-		}
-	}
-	if escaped {
-		current.WriteRune('\\')
-	}
-	if quote != 0 {
-		return nil, fmt.Errorf("unterminated quoted string")
-	}
-	if current.Len() > 0 {
-		fields = append(fields, current.String())
-	}
-	return fields, nil
-}
-
 func (c *DirectChannelClient) ChangeCWD(ctx context.Context, sessionID string, path string) (CWDResult, error) {
 	_ = ctx
 	_ = sessionID
@@ -700,18 +659,14 @@ func newRemoteDirectChannelClient(endpoint string) (ShellClient, error) {
 }
 
 func shellOperationInvocation(line string, cwd string) (agentruntime.OperationInvocation, error) {
-	fields, err := splitShellFields(line)
-	if err != nil {
-		return agentruntime.OperationInvocation{}, err
-	}
-	if len(fields) == 0 {
+	line = strings.TrimSpace(line)
+	if line == "" {
 		return agentruntime.OperationInvocation{}, fmt.Errorf("shell command is empty")
 	}
 	return agentruntime.OperationInvocation{
 		Operation: operation.Ref{Name: "shell_exec"},
 		Input: map[string]any{
-			"command": fields[0],
-			"args":    fields[1:],
+			"command": line,
 			"workdir": strings.TrimSpace(cwd),
 		},
 	}, nil

@@ -182,11 +182,11 @@ type askSubmittedMsg struct {
 	err       error
 }
 
-type shellStreamEventMsg struct {
+type shellStreamEventsMsg struct {
 	sessionID string
 	runKey    string
 	stream    ShellRunStream
-	event     TranscriptEvent
+	events    []TranscriptEvent
 }
 
 type shellStreamDoneMsg struct {
@@ -203,7 +203,11 @@ type mentionRefreshMsg struct {
 	err     error
 }
 
-const mentionDebounceDelay = 80 * time.Millisecond
+const (
+	mentionDebounceDelay  = 80 * time.Millisecond
+	streamFrameDelay      = 16 * time.Millisecond
+	streamMaxEventsPerMsg = 64
+)
 
 func newModel(status shellStatus, client ShellClient, connection string) model {
 	return newModelWithContext(context.Background(), status, client, connection, nil)
@@ -302,14 +306,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		state.Results = msg.results
+		state.Loading = false
 		m.mention = state
 		return m, nil
 	case askSubmittedMsg:
 		m.appendAsyncTranscript(msg.sessionID, msg.runKey, msg.events, msg.err)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
 		return m, nil
-	case shellStreamEventMsg:
-		m.appendStreamTranscript(msg.sessionID, msg.runKey, msg.event)
+	case shellStreamEventsMsg:
+		m.appendStreamTranscripts(msg.sessionID, msg.runKey, msg.events)
 		m.syncTimelineViewport(msg.sessionID == m.activeSessionID())
 		return m, waitShellStream(msg.sessionID, msg.runKey, msg.stream)
 	case shellStreamDoneMsg:
@@ -557,6 +562,27 @@ func dropSubmittedStartEvent(events []TranscriptEvent, kind TranscriptKind) []Tr
 
 func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 	return func() tea.Msg {
+		events := make([]TranscriptEvent, 0, streamMaxEventsPerMsg)
+		drain := func(first TranscriptEvent) tea.Msg {
+			events = append(events, first)
+			deadline := time.NewTimer(streamFrameDelay)
+			defer deadline.Stop()
+			for len(events) < streamMaxEventsPerMsg {
+				select {
+				case event, ok := <-stream.Events:
+					if !ok {
+						stream.Events = nil
+						return shellStreamEventsMsg{sessionID: sessionID, runKey: runKey, stream: stream, events: events}
+					}
+					events = append(events, event)
+				case <-deadline.C:
+					return shellStreamEventsMsg{sessionID: sessionID, runKey: runKey, stream: stream, events: events}
+				default:
+					return shellStreamEventsMsg{sessionID: sessionID, runKey: runKey, stream: stream, events: events}
+				}
+			}
+			return shellStreamEventsMsg{sessionID: sessionID, runKey: runKey, stream: stream, events: events}
+		}
 		if stream.Events != nil {
 			select {
 			case event, ok := <-stream.Events:
@@ -564,7 +590,7 @@ func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 					stream.Events = nil
 					break
 				}
-				return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+				return drain(event)
 			default:
 			}
 		}
@@ -573,7 +599,7 @@ func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 			select {
 			case event, ok := <-stream.Events:
 				if ok {
-					return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+					return drain(event)
 				}
 				stream.Events = nil
 				done, ok := <-stream.Done
@@ -592,7 +618,7 @@ func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 			if !ok {
 				return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
 			}
-			return shellStreamEventMsg{sessionID: sessionID, runKey: runKey, stream: stream, event: event}
+			return drain(event)
 		case stream.Done == nil:
 			return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey}
 		default:
@@ -602,6 +628,12 @@ func waitShellStream(sessionID, runKey string, stream ShellRunStream) tea.Cmd {
 			}
 			return shellStreamDoneMsg{sessionID: sessionID, runKey: runKey, done: done}
 		}
+	}
+}
+
+func (m *model) appendStreamTranscripts(sessionID, runKey string, events []TranscriptEvent) {
+	for _, event := range events {
+		m.appendStreamTranscript(sessionID, runKey, event)
 	}
 }
 
@@ -792,7 +824,7 @@ func (m *model) cancelActiveRuns() bool {
 						ID:        newEventID("cancel"),
 						SessionID: sessionID,
 						Time:      now,
-						Kind:      EventError,
+						Kind:      EventRunCanceled,
 						Summary:   "run canceled",
 					})
 				}
@@ -870,6 +902,14 @@ func (m *model) queueMentionRefresh() tea.Cmd {
 		m.clearMention()
 		return nil
 	}
+	previous := MentionState{}
+	if m.mention.Open && m.mention.Kind == state.Kind && m.mention.Query == state.Query && m.mention.CommandPath == state.CommandPath {
+		previous = m.mention
+	}
+	state.Results = previous.Results
+	state.Index = previous.Index
+	state.Loading = true
+	m.mention = state
 	m.mentionSeq++
 	seq := m.mentionSeq
 	ctx := m.ctx
@@ -893,35 +933,6 @@ func (m *model) queueMentionRefresh() tea.Cmd {
 		results, err := client.ResourceSearch(searchCtx, sessionID, query)
 		return mentionRefreshMsg{seq: seq, input: input, state: state, results: results, err: err}
 	}
-}
-
-func (m *model) refreshMention() {
-	if m == nil || m.shell == nil {
-		return
-	}
-	tab := m.shell.ActiveTab()
-	state, query, sessionID, input, ok := m.mentionSearch(tab)
-	if !ok {
-		m.mention = MentionState{}
-		return
-	}
-	results, err := m.shell.client.ResourceSearch(context.Background(), sessionID, query)
-	if err != nil {
-		m.mention = MentionState{}
-		return
-	}
-	if state.Kind == completionCommand {
-		if len(results) == 0 || slashCommandInputComplete(input, state.Query, results) {
-			m.mention = MentionState{}
-			return
-		}
-	}
-	if state.Kind == completionOption && len(results) == 0 {
-		m.mention = MentionState{}
-		return
-	}
-	state.Results = results
-	m.mention = state
 }
 
 func (m *model) mentionSearch(tab *TabSession) (MentionState, ResourceSearchQuery, string, string, bool) {

@@ -72,7 +72,7 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 		if !ok {
 			return operation.Failed("bad_input", "input was not a map", nil)
 		}
-		if payload["command"] != "go" || payload["workdir"] != "/workspace" {
+		if payload["command"] != "go test ./apps/coder" || payload["workdir"] != "/workspace" {
 			return operation.Failed("bad_input", fmt.Sprintf("input = %#v", payload), nil)
 		}
 		return operation.OK("ran")
@@ -265,15 +265,14 @@ func TestShellOperationInvocationTargetsShellExecOperation(t *testing.T) {
 	if !ok {
 		t.Fatalf("input = %#v, want map", inv.Input)
 	}
-	if input["command"] != "go" {
-		t.Fatalf("command = %#v, want go", input["command"])
+	if input["command"] != "go test ./apps/coder" {
+		t.Fatalf("command = %#v, want raw command", input["command"])
 	}
 	if input["workdir"] != "/workspace" {
 		t.Fatalf("workdir = %#v, want /workspace", input["workdir"])
 	}
-	args, ok := input["args"].([]string)
-	if !ok || len(args) != 2 || args[0] != "test" || args[1] != "./apps/coder" {
-		t.Fatalf("args = %#v, want test ./apps/coder", input["args"])
+	if _, ok := input["args"]; ok {
+		t.Fatalf("args = %#v, want raw shell command without argv splitting", input["args"])
 	}
 }
 

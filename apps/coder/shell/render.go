@@ -65,14 +65,14 @@ func (m model) View() tea.View {
 	layout := m.layout()
 
 	parts := []string{
-		m.renderHeader(layout.contentWidth),
-		m.renderStatus(layout.contentWidth),
+		layout.header,
+		layout.status,
 		m.renderTimeline(layout),
 	}
 	if m.mention.Open {
-		parts = append(parts, m.renderMentionPicker(layout.contentWidth))
+		parts = append(parts, layout.mention)
 	}
-	parts = append(parts, m.renderPrompt(layout.contentWidth))
+	parts = append(parts, layout.prompt)
 	view := tea.NewView(pageStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...)))
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
@@ -393,7 +393,9 @@ func (m model) renderMentionPicker(width int) string {
 		header = "/ options " + m.mention.CommandPath
 	}
 	lines := []string{subtleStyle.Render(header) + " " + valueStyle.Render(m.mention.Query)}
-	if len(m.mention.Results) == 0 {
+	if m.mention.Loading {
+		lines = append(lines, mutedStyle.Render("searching..."))
+	} else if len(m.mention.Results) == 0 {
 		lines = append(lines, mutedStyle.Render("no results"))
 	}
 	for i, result := range m.mention.Results {
@@ -427,13 +429,14 @@ func (m model) renderTimeline(layout shellLayout) string {
 	if m.timelinePinned || timeline.TotalLineCount() <= timeline.Height() {
 		timeline.GotoBottom()
 	}
-	if layout.timelinePlain {
-		return lipgloss.NewStyle().Width(layout.contentWidth).Height(layout.timelineOuterHeight).Render(timeline.View())
-	}
-	return panelStyle.Width(layout.contentWidth).Height(layout.timelineOuterHeight - 2).Render(timeline.View())
+	return lipgloss.NewStyle().Width(layout.contentWidth).Height(layout.timelineOuterHeight).Render(timeline.View())
 }
 
 func renderTimelineLine(line string, width int) string {
+	return renderTimelineLineWithCache(line, width, nil)
+}
+
+func renderTimelineLineWithCache(line string, width int, markdownCache map[timelineCacheKey]string) string {
 	switch {
 	case strings.HasPrefix(line, "? "):
 		return askStyle.Render("? ") + valueStyle.Render(strings.TrimPrefix(line, "? "))
@@ -450,9 +453,9 @@ func renderTimelineLine(line string, width int) string {
 		}
 		return warnStyle.Render("✗ ") + valueStyle.Render(summary)
 	case strings.HasPrefix(line, "agent:"):
-		return renderTimelineMarkdown("🤖 ", accentStyle, strings.TrimSpace(strings.TrimPrefix(line, "agent:")), width)
+		return renderTimelineMarkdownCached("🤖 ", accentStyle, strings.TrimSpace(strings.TrimPrefix(line, "agent:")), width, markdownCache)
 	case strings.HasPrefix(line, "thinking:"):
-		return renderTimelineMarkdown("… ", subtleStyle, strings.TrimSpace(strings.TrimPrefix(line, "thinking:")), width)
+		return renderTimelineMarkdownCached("… ", subtleStyle, strings.TrimSpace(strings.TrimPrefix(line, "thinking:")), width, markdownCache)
 	case strings.HasPrefix(line, "op:"):
 		return accentStyle.Render("● ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "op:")))
 	case strings.HasPrefix(line, "op-done:"):
@@ -469,6 +472,8 @@ func renderTimelineLine(line string, width int) string {
 		return accentStyle.Render("@ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "mention:")))
 	case strings.HasPrefix(line, "slash:"):
 		return promptStyle.Render("/ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "slash:")))
+	case strings.HasPrefix(line, "canceled:"):
+		return mutedStyle.Render("cancel ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "canceled:")))
 	case strings.HasPrefix(line, "error:"):
 		return warnStyle.Render("! ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "error:")))
 	case strings.HasPrefix(line, "echo:"):
@@ -482,7 +487,7 @@ func renderTimelineLine(line string, width int) string {
 	}
 }
 
-func renderTimelineMarkdown(marker string, markerStyle lipgloss.Style, text string, width int) string {
+func renderTimelineMarkdownCached(marker string, markerStyle lipgloss.Style, text string, width int, cache map[timelineCacheKey]string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return markerStyle.Render(strings.TrimSpace(marker))
@@ -491,7 +496,14 @@ func renderTimelineMarkdown(marker string, markerStyle lipgloss.Style, text stri
 	if contentWidth < 20 {
 		contentWidth = width
 	}
-	rendered := renderMarkdownBubbleView(text, contentWidth)
+	key := timelineCacheKey{width: contentWidth, line: text}
+	rendered, ok := cache[key]
+	if !ok {
+		rendered = renderMarkdownBubbleView(text, contentWidth)
+		if cache != nil {
+			cache[key] = rendered
+		}
+	}
 	if strings.TrimSpace(rendered) == "" {
 		rendered = text
 	}

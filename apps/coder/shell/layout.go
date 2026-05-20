@@ -7,7 +7,10 @@ type shellLayout struct {
 	timelineOuterHeight int
 	timelineInnerWidth  int
 	timelineInnerHeight int
-	timelinePlain       bool
+	header              string
+	status              string
+	mention             string
+	prompt              string
 }
 
 func (m model) layout() shellLayout {
@@ -27,27 +30,23 @@ func (m model) layout() shellLayout {
 	header := m.renderHeader(contentWidth)
 	status := m.renderStatus(contentWidth)
 	prompt := m.renderPrompt(contentWidth)
+	mention := ""
+	if m.mention.Open {
+		mention = m.renderMentionPicker(contentWidth)
+	}
 	fixedHeight := lipgloss.Height(header) + lipgloss.Height(status) + lipgloss.Height(prompt)
 	if m.mention.Open {
-		fixedHeight += lipgloss.Height(m.renderMentionPicker(contentWidth))
+		fixedHeight += lipgloss.Height(mention)
 	}
-	plainTimeline := m.shellTimelinePlain()
-
 	available := height - fixedHeight
 	if available < 3 {
 		available = 3
 	}
-	innerHeight := available - 2
-	if plainTimeline {
-		innerHeight = available
-	}
+	innerHeight := available
 	if innerHeight < 1 {
 		innerHeight = 1
 	}
-	innerWidth := contentWidth - 4
-	if plainTimeline {
-		innerWidth = contentWidth
-	}
+	innerWidth := contentWidth
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
@@ -56,14 +55,9 @@ func (m model) layout() shellLayout {
 		timelineOuterHeight: available,
 		timelineInnerWidth:  innerWidth,
 		timelineInnerHeight: innerHeight,
-		timelinePlain:       plainTimeline,
+		header:              header,
+		status:              status,
+		mention:             mention,
+		prompt:              prompt,
 	}
-}
-
-func (m model) shellTimelinePlain() bool {
-	if m.shell == nil {
-		return false
-	}
-	tab := m.shell.ActiveTab()
-	return tab != nil && tab.InputMode == InputModeShell
 }

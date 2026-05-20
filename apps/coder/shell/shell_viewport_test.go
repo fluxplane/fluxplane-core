@@ -1,6 +1,7 @@
 package codershell
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -154,7 +155,7 @@ func TestShellSlashCommandCompletionUsesCommandCatalog(t *testing.T) {
 	}
 	tab.InputBuffer = "/co"
 
-	m.refreshMention()
+	refreshMentionSync(&m)
 	if !m.mention.Open || m.mention.Kind != completionCommand {
 		t.Fatalf("completion = %#v, want command completion", m.mention)
 	}
@@ -175,7 +176,7 @@ func TestShellSlashCommandPickerOmitsRedundantKindPrefix(t *testing.T) {
 		t.Fatal("active tab is nil")
 	}
 	tab.InputBuffer = "/co"
-	m.refreshMention()
+	refreshMentionSync(&m)
 
 	picker := m.renderMentionPicker(100)
 	if strings.Contains(picker, "[command]") {
@@ -194,7 +195,7 @@ func TestShellSlashCommandCompletionIgnoresNonLeadingSlash(t *testing.T) {
 	}
 	tab.InputBuffer = "hello /co"
 
-	m.refreshMention()
+	refreshMentionSync(&m)
 	if m.mention.Open {
 		t.Fatalf("completion open for non-leading slash: %#v", m.mention)
 	}
@@ -208,13 +209,13 @@ func TestShellSlashCommandCompletionStopsForFreeformArgs(t *testing.T) {
 	}
 
 	tab.InputBuffer = "/goal "
-	m.refreshMention()
+	refreshMentionSync(&m)
 	if m.mention.Open {
 		t.Fatalf("completion open after complete command with trailing space: %#v", m.mention)
 	}
 
 	tab.InputBuffer = "/goal write tests"
-	m.refreshMention()
+	refreshMentionSync(&m)
 	if m.mention.Open {
 		t.Fatalf("completion open while typing freeform command args: %#v", m.mention)
 	}
@@ -227,7 +228,7 @@ func TestShellSlashCommandCompletionInsertsMultiSegmentCommand(t *testing.T) {
 		t.Fatal("active tab is nil")
 	}
 	tab.InputBuffer = "/env"
-	m.refreshMention()
+	refreshMentionSync(&m)
 	found := false
 	for i, result := range m.mention.Results {
 		if result.Label == "/env explain" {
@@ -253,7 +254,7 @@ func TestShellSlashOptionCompletionInsertsFlag(t *testing.T) {
 		t.Fatal("active tab is nil")
 	}
 	tab.InputBuffer = "/goal --m"
-	m.refreshMention()
+	refreshMentionSync(&m)
 	if !m.mention.Open || m.mention.Kind != completionOption {
 		t.Fatalf("completion = %#v, want option completion", m.mention)
 	}
@@ -493,6 +494,65 @@ func TestShellModeTimelineRendersLikePlainShell(t *testing.T) {
 	}
 }
 
+func TestSwitchingInputModeDoesNotReflowTimeline(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputMode = InputModeAsk
+	tab.Transcript = append(tab.Transcript,
+		TranscriptEvent{Kind: EventAskSubmitted, Summary: "list clusters"},
+		TranscriptEvent{Kind: EventAskDelta, Summary: "Here are your available clusters:\n- prod\n- staging\n"},
+		TranscriptEvent{Kind: EventCommandStarted, Summary: "printf hello"},
+		TranscriptEvent{Kind: EventProcessOutput, Summary: "hello", Data: map[string]string{"raw": "true", "stream": "stdout"}},
+	)
+	appendViewportTestOutput(&m, 80)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 88, Height: 20})
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyPgUp}))
+	before := m.layout()
+	offset := m.timeline.YOffset()
+	content := m.timeline.View()
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}))
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "!", Code: '!'}))
+	if got := m.shell.ActiveTab().InputMode; got != InputModeShell {
+		t.Fatalf("mode after ! = %q, want shell", got)
+	}
+	afterShell := m.layout()
+	if afterShell.timelineInnerWidth != before.timelineInnerWidth || afterShell.timelineInnerHeight != before.timelineInnerHeight {
+		t.Fatalf("shell layout = %dx%d, want %dx%d", afterShell.timelineInnerWidth, afterShell.timelineInnerHeight, before.timelineInnerWidth, before.timelineInnerHeight)
+	}
+	if m.timeline.YOffset() != offset || m.timeline.View() != content {
+		t.Fatalf("timeline changed after shell mode switch: offset %d->%d", offset, m.timeline.YOffset())
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
+	if got := m.shell.ActiveTab().InputMode; got != InputModeAsk {
+		t.Fatalf("mode after ? = %q, want ask", got)
+	}
+	afterAsk := m.layout()
+	if afterAsk.timelineInnerWidth != before.timelineInnerWidth || afterAsk.timelineInnerHeight != before.timelineInnerHeight {
+		t.Fatalf("ask layout = %dx%d, want %dx%d", afterAsk.timelineInnerWidth, afterAsk.timelineInnerHeight, before.timelineInnerWidth, before.timelineInnerHeight)
+	}
+	if m.timeline.YOffset() != offset || m.timeline.View() != content {
+		t.Fatalf("timeline changed after ask mode switch: offset %d->%d", offset, m.timeline.YOffset())
+	}
+}
+
+func TestTimelineContentBoundsRenderedHistory(t *testing.T) {
+	m := viewportTestModel()
+	appendViewportTestOutput(&m, maxRenderedTimelineEvents+20)
+
+	content := m.timelineContent(100)
+	if !strings.Contains(content, "older events hidden") {
+		t.Fatalf("timeline missing hidden history notice:\n%s", content)
+	}
+	if strings.Contains(content, "line 000") {
+		t.Fatalf("timeline rendered oldest hidden line:\n%s", content)
+	}
+}
+
 func TestShellWindowSizeInitializesTimelineViewport(t *testing.T) {
 	m := viewportTestModel()
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 100, Height: 28})
@@ -600,6 +660,35 @@ func appendViewportTestOutput(m *model, count int) {
 		})
 	}
 	m.syncTimelineViewport(true)
+}
+
+func refreshMentionSync(m *model) {
+	if m == nil || m.shell == nil {
+		return
+	}
+	tab := m.shell.ActiveTab()
+	state, query, sessionID, input, ok := m.mentionSearch(tab)
+	if !ok {
+		m.mention = MentionState{}
+		return
+	}
+	results, err := m.shell.client.ResourceSearch(context.Background(), sessionID, query)
+	if err != nil {
+		m.mention = MentionState{}
+		return
+	}
+	if state.Kind == completionCommand {
+		if len(results) == 0 || slashCommandInputComplete(input, state.Query, results) {
+			m.mention = MentionState{}
+			return
+		}
+	}
+	if state.Kind == completionOption && len(results) == 0 {
+		m.mention = MentionState{}
+		return
+	}
+	state.Results = results
+	m.mention = state
 }
 
 func updateModel(t *testing.T, m model, msg tea.Msg) model {

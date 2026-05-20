@@ -90,8 +90,8 @@ func TestAsyncCompletionCancelsStaleSearchAndDoesNotBlockTyping(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("stale completion command did not return after cancellation")
 	}
-	if m.mention.Open {
-		t.Fatalf("stale result opened mention picker: %#v", m.mention)
+	if !m.mention.Open || !m.mention.Loading || m.mention.Query != "cod" {
+		t.Fatalf("stale result changed fresh loading picker: %#v", m.mention)
 	}
 
 	updated, _ = m.Update(cmd2())
@@ -158,8 +158,11 @@ func TestActiveRunCancelPropagatesAndLateResultIsIgnored(t *testing.T) {
 	updated, _ = m.Update(msg)
 	m = updated.(model)
 
-	if got := countTranscriptKind(m.shell.ActiveTab().Transcript, EventError); got != 1 {
-		t.Fatalf("error events after late canceled result = %d, want only local cancellation", got)
+	if got := countTranscriptKind(m.shell.ActiveTab().Transcript, EventRunCanceled); got != 1 {
+		t.Fatalf("cancel events after late canceled result = %d, want only local cancellation", got)
+	}
+	if got := countTranscriptKind(m.shell.ActiveTab().Transcript, EventError); got != 0 {
+		t.Fatalf("error events after late canceled result = %d, want none", got)
 	}
 }
 
@@ -183,7 +186,6 @@ func TestShellObjectAndModelShareSubmissionStartBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
-	shell.ToggleInputMode()
 	shell.AppendInput("explain")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput() error = %v", err)

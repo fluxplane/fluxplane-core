@@ -27,6 +27,7 @@ const (
 	EventResourceMentioned TranscriptKind = "resource.mentioned"
 	EventCWDChanged        TranscriptKind = "cwd.changed"
 	EventClientConnected   TranscriptKind = "client.connected"
+	EventRunCanceled       TranscriptKind = "run.canceled"
 	EventError             TranscriptKind = "error"
 )
 
@@ -134,29 +135,67 @@ func TimelineLines(events []TranscriptEvent) []string {
 			lines = append(lines, "proc-exit: "+summary)
 		case EventUsageRecorded:
 			continue
-		case EventResourceMentioned:
-			flushThinking()
-			flushAgentDelta()
-			lines = append(lines, "mention: "+summary)
-		case EventSlashSubmitted:
-			flushThinking()
-			flushAgentDelta()
-			lines = append(lines, "slash: "+summary)
-		case EventCWDChanged:
-			flushThinking()
-			flushAgentDelta()
-			lines = append(lines, "cwd: "+summary)
-		case EventError:
-			flushThinking()
-			flushAgentDelta()
-			lines = append(lines, "error: "+summary)
 		default:
 			flushThinking()
 			flushAgentDelta()
-			lines = append(lines, summary)
+			if line, ok := timelineLineForEvent(event, summary); ok {
+				lines = append(lines, line)
+			}
 		}
 	}
 	flushThinking()
 	flushAgentDelta()
 	return lines
+}
+
+func timelineLineForEvent(event TranscriptEvent, summary string) (string, bool) {
+	switch event.Kind {
+	case EventClientConnected:
+		if summary == "" {
+			summary = "session connected"
+		}
+		return summary, true
+	case EventInputSubmitted:
+		if summary == "" {
+			return "", true
+		}
+		return "> " + summary, true
+	case EventCommandStarted:
+		return "$ " + summary, true
+	case EventCommandOutput:
+		return "out: " + summary, true
+	case EventCommandComplete:
+		return "exit: " + summary, true
+	case EventAskSubmitted:
+		return "? " + summary, true
+	case EventAskOutput:
+		return "agent: " + summary, true
+	case EventOperationStarted:
+		return "op: " + summary, true
+	case EventOperationComplete:
+		return "op-done: " + summary, true
+	case EventProcessStarted:
+		return "proc: " + summary, true
+	case EventProcessOutput:
+		if event.Data["raw"] == "true" {
+			return "raw: " + summary, true
+		}
+		return "proc-out: " + summary, true
+	case EventProcessExited:
+		return "proc-exit: " + summary, true
+	case EventUsageRecorded:
+		return "", false
+	case EventResourceMentioned:
+		return "mention: " + summary, true
+	case EventSlashSubmitted:
+		return "slash: " + summary, true
+	case EventCWDChanged:
+		return "cwd: " + summary, true
+	case EventRunCanceled:
+		return "canceled: " + summary, true
+	case EventError:
+		return "error: " + summary, true
+	default:
+		return summary, true
+	}
 }

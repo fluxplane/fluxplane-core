@@ -16,13 +16,13 @@ func TestAppendInputStripsANSIEscapeSequences(t *testing.T) {
 	}
 }
 
-func TestShellObjectDefaultsToShellMode(t *testing.T) {
+func TestShellObjectDefaultsToAskMode(t *testing.T) {
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
-	if got := shell.ActiveTab().InputMode; got != InputModeShell {
-		t.Fatalf("default input mode = %q, want shell", got)
+	if got := shell.ActiveTab().InputMode; got != InputModeAsk {
+		t.Fatalf("default input mode = %q, want ask", got)
 	}
 }
 
@@ -208,7 +208,6 @@ func TestShellObjectAskModeSubmitsAsk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
-	shell.ToggleInputMode()
 	shell.AppendInput("what happened?")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput() error = %v", err)
@@ -222,8 +221,8 @@ func TestShellObjectAskModeSubmitsAsk(t *testing.T) {
 	if !found {
 		t.Fatal("ask submission event not recorded")
 	}
-	if got := shell.ActiveTab().InputMode; got != InputModeShell {
-		t.Fatalf("mode after ask submit = %q, want shell", got)
+	if got := shell.ActiveTab().InputMode; got != InputModeAsk {
+		t.Fatalf("mode after ask submit = %q, want ask", got)
 	}
 }
 
@@ -232,6 +231,7 @@ func TestShellObjectInputHistoryRestoresMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
+	shell.ToggleInputMode()
 	shell.AppendInput("go test ./apps/coder/shell")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput(shell) error = %v", err)
@@ -274,6 +274,7 @@ func TestShellObjectCDChangesOnlyActiveSession(t *testing.T) {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
 	firstID := shell.ActiveTab().ID
+	shell.ToggleInputMode()
 	shell.AppendInput("cd src")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput(cd) error = %v", err)
@@ -300,6 +301,7 @@ func TestShellObjectResourceSearchUsesActiveSessionCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
+	shell.ToggleInputMode()
 	shell.AppendInput("cd pkg")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput(cd) error = %v", err)
@@ -329,6 +331,7 @@ func TestAskProjectionIncludesPriorTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
+	shell.ToggleInputMode()
 	shell.AppendInput("echo hi")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput(command) error = %v", err)
@@ -374,7 +377,6 @@ func TestSlashCommandGoesThroughClientInAskMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewShellObject() error = %v", err)
 	}
-	shell.ToggleInputMode()
 	shell.AppendInput("/context")
 	if err := shell.SubmitActiveInput(context.Background()); err != nil {
 		t.Fatalf("SubmitActiveInput(/context) error = %v", err)

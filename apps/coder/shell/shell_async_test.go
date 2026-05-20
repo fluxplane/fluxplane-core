@@ -187,11 +187,6 @@ func TestShellStreamingDrainsBufferedEventsBeforeDone(t *testing.T) {
 		t.Fatal("first stream event update returned nil command")
 	}
 	m = updated.(model)
-	updated, cmd = m.Update(cmd())
-	if cmd == nil {
-		t.Fatal("second stream event update returned nil command")
-	}
-	m = updated.(model)
 	updated, _ = m.Update(cmd())
 	m = updated.(model)
 

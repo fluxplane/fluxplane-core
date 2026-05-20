@@ -17,7 +17,7 @@ const (
 	InputModeAsk   InputMode = "ask"
 )
 
-const defaultInputMode = InputModeShell
+const defaultInputMode = InputModeAsk
 
 const disconnectedSessionID = "session-error"
 
@@ -499,9 +499,6 @@ func (s *ShellObject) startActiveSubmission(ctx context.Context) (activeSubmissi
 	tab.Transcript = append(tab.Transcript, start)
 	tab.InputBuffer = ""
 	tab.InputCursor = 0
-	if intent.Kind == IntentAsk {
-		tab.InputMode = defaultInputMode
-	}
 	return activeSubmission{sessionID: sessionID, runKey: start.ID, start: start, fallback: fallback, stream: stream}, true, nil
 }
 func lastSessionError(events []TranscriptEvent) string {
@@ -520,7 +517,7 @@ func (s *ShellObject) ToggleInputMode() {
 		return
 	}
 	if tab.InputMode == InputModeAsk {
-		tab.InputMode = defaultInputMode
+		tab.InputMode = InputModeShell
 		return
 	}
 	tab.InputMode = InputModeAsk

@@ -18,6 +18,7 @@ type MentionState struct {
 	CommandPath string
 	Results     []ResourceSearchResult
 	Index       int
+	Loading     bool
 }
 
 func (m MentionState) activeResult() (ResourceSearchResult, bool) {
