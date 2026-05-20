@@ -10,7 +10,7 @@ import (
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	"github.com/spf13/cobra"
 )
@@ -76,7 +76,7 @@ func newDatasourceGitLabCommand() *cobra.Command {
 
 func newDatasourceGitLabCheckCommand() *cobra.Command {
 	opts := datasourceGitLabCheckOptions{
-		datasource: gitlabplugin.Name,
+		datasource: gitlab.Name,
 		envFiles:   []string{".env"},
 	}
 	cmd := &cobra.Command{

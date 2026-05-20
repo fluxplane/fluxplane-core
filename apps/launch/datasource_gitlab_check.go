@@ -13,7 +13,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -22,7 +22,7 @@ type datasourceGitLabCheckResult struct {
 	Root       string                         `json:"root"`
 	Env        datasourceGitLabEnvInfo        `json:"env"`
 	Datasource datasourceGitLabDatasourceInfo `json:"datasource"`
-	GitLab     gitlabplugin.AccessCheckResult `json:"gitlab"`
+	GitLab     gitlab.AccessCheckResult       `json:"gitlab"`
 	Index      []datasourceGitLabIndexInfo    `json:"index"`
 }
 
@@ -90,7 +90,7 @@ func runDatasourceGitLabCheck(ctx context.Context, opts datasourceGitLabCheckOpt
 			},
 		}
 	}
-	check, err := gitlabplugin.CheckAccess(ctx, checkSystem, ref, cfg, gitlabplugin.AccessCheckRequest{
+	check, err := gitlab.CheckAccess(ctx, checkSystem, ref, cfg, gitlab.AccessCheckRequest{
 		MergeRequest: opts.mergeRequest,
 	})
 	if err != nil {
@@ -125,10 +125,10 @@ func runDatasourceGitLabCheck(ctx context.Context, opts datasourceGitLabCheckOpt
 	return nil
 }
 
-func gitLabDatasourceConfig(bundles []resource.ContributionBundle, datasourceName string) (coredatasource.Spec, resource.PluginRef, gitlabplugin.Config, error) {
+func gitLabDatasourceConfig(bundles []resource.ContributionBundle, datasourceName string) (coredatasource.Spec, resource.PluginRef, gitlab.Config, error) {
 	name := strings.TrimSpace(datasourceName)
 	if name == "" {
-		name = gitlabplugin.Name
+		name = gitlab.Name
 	}
 	var ds coredatasource.Spec
 	for _, bundle := range bundles {
@@ -145,7 +145,7 @@ func gitLabDatasourceConfig(bundles []resource.ContributionBundle, datasourceNam
 	if ds.Name == "" {
 		for _, bundle := range bundles {
 			for _, candidate := range bundle.Datasources {
-				if strings.EqualFold(strings.TrimSpace(candidate.Kind), gitlabplugin.Name) {
+				if strings.EqualFold(strings.TrimSpace(candidate.Kind), gitlab.Name) {
 					ds = candidate
 					break
 				}
@@ -156,23 +156,23 @@ func gitLabDatasourceConfig(bundles []resource.ContributionBundle, datasourceNam
 		}
 	}
 	if ds.Name == "" {
-		return coredatasource.Spec{}, resource.PluginRef{}, gitlabplugin.Config{}, fmt.Errorf("datasource gitlab check: no GitLab datasource named %q found", name)
+		return coredatasource.Spec{}, resource.PluginRef{}, gitlab.Config{}, fmt.Errorf("datasource gitlab check: no GitLab datasource named %q found", name)
 	}
-	if strings.TrimSpace(ds.Kind) != "" && !strings.EqualFold(strings.TrimSpace(ds.Kind), gitlabplugin.Name) {
-		return coredatasource.Spec{}, resource.PluginRef{}, gitlabplugin.Config{}, fmt.Errorf("datasource gitlab check: datasource %q has kind %q, not gitlab", ds.Name, ds.Kind)
+	if strings.TrimSpace(ds.Kind) != "" && !strings.EqualFold(strings.TrimSpace(ds.Kind), gitlab.Name) {
+		return coredatasource.Spec{}, resource.PluginRef{}, gitlab.Config{}, fmt.Errorf("datasource gitlab check: datasource %q has kind %q, not gitlab", ds.Name, ds.Kind)
 	}
 	instance := strings.TrimSpace(ds.Config["instance"])
 	plugins := gitLabPluginRefs(bundles)
 	ref, ok := selectGitLabPluginRef(plugins, instance)
 	if !ok {
 		if instance != "" {
-			return coredatasource.Spec{}, resource.PluginRef{}, gitlabplugin.Config{}, fmt.Errorf("datasource gitlab check: no GitLab plugin instance %q found", instance)
+			return coredatasource.Spec{}, resource.PluginRef{}, gitlab.Config{}, fmt.Errorf("datasource gitlab check: no GitLab plugin instance %q found", instance)
 		}
-		return coredatasource.Spec{}, resource.PluginRef{}, gitlabplugin.Config{}, fmt.Errorf("datasource gitlab check: no GitLab plugin declaration found")
+		return coredatasource.Spec{}, resource.PluginRef{}, gitlab.Config{}, fmt.Errorf("datasource gitlab check: no GitLab plugin declaration found")
 	}
-	cfg, err := pluginhost.DecodeConfig[gitlabplugin.Config](ref.Config)
+	cfg, err := pluginhost.DecodeConfig[gitlab.Config](ref.Config)
 	if err != nil {
-		return coredatasource.Spec{}, resource.PluginRef{}, gitlabplugin.Config{}, fmt.Errorf("datasource gitlab check: decode GitLab plugin config: %w", err)
+		return coredatasource.Spec{}, resource.PluginRef{}, gitlab.Config{}, fmt.Errorf("datasource gitlab check: decode GitLab plugin config: %w", err)
 	}
 	return ds, ref, cfg, nil
 }
@@ -181,7 +181,7 @@ func gitLabPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRe
 	var refs []resource.PluginRef
 	for _, bundle := range bundles {
 		for _, ref := range bundle.Plugins {
-			if strings.EqualFold(strings.TrimSpace(ref.Name), gitlabplugin.Name) {
+			if strings.EqualFold(strings.TrimSpace(ref.Name), gitlab.Name) {
 				refs = append(refs, ref)
 			}
 		}
@@ -210,7 +210,7 @@ func gitLabIndexInfo(ctx context.Context, root string, bundles []resource.Contri
 		return nil, err
 	}
 	defer func() { _ = index.Close() }()
-	entities := []coredatasource.EntityType{gitlabplugin.MergeRequestEntity, gitlabplugin.MergeRequestDiffEntity}
+	entities := []coredatasource.EntityType{gitlab.MergeRequestEntity, gitlab.MergeRequestDiffEntity}
 	out := make([]datasourceGitLabIndexInfo, 0, len(entities))
 	for _, entity := range entities {
 		info := datasourceGitLabIndexInfo{
@@ -258,7 +258,7 @@ func gitLabTargetPresent(entity coredatasource.EntityType, targetMR string, stat
 }
 
 func gitLabStatusRefMatches(entity coredatasource.EntityType, targetMR, id string) bool {
-	if entity == gitlabplugin.MergeRequestDiffEntity {
+	if entity == gitlab.MergeRequestDiffEntity {
 		return strings.HasPrefix(id, targetMR+"!")
 	}
 	return id == targetMR
@@ -305,7 +305,7 @@ func printDatasourceGitLabCheck(out io.Writer, result datasourceGitLabCheckResul
 	}
 }
 
-func printAPIStatus(out io.Writer, label string, check gitlabplugin.APICheck) {
+func printAPIStatus(out io.Writer, label string, check gitlab.APICheck) {
 	if check.OK {
 		_, _ = fmt.Fprintf(out, "%s ok status=%d\n", label, check.Status)
 		return

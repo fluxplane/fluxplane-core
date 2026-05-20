@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Reorganized first-party plugin packages from the flat `plugins/*plugin`
+  layout into categorized `bundles`, `native`, `languages`, `integrations`,
+  `support`, `internal`, and `examples` directories with suffix-free package
+  names.
 - Refactored distribution deploy internals into Docker, Docker Compose, and
   Kubernetes boundaries, with native Docker Engine and Kubernetes client paths
   for image, local stack, and manifest deployment operations.
@@ -24,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that may be owned by another app or registry mode.
 
 ### Added
+- Added a `go-refactor` developer CLI under the future Go language plugin tree
+  for moving Go package directories, renaming package clauses, and rewriting
+  internal imports during package layout migrations.
 - Added Kubernetes app deploy RBAC generation for apps that declare the
   Kubernetes plugin, including a dedicated ServiceAccount and read-only access
   to configured namespaces.

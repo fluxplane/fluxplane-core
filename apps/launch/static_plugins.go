@@ -9,7 +9,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -59,9 +59,9 @@ func StaticPluginContributions(ctx context.Context, opts StaticPluginOptions) ([
 func staticPluginBaseBundles(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, map[string]bool) {
 	out := cloneBundles(bundles)
 	implicit := map[string]bool{}
-	if hasAnyDatasource(out) && !bundleHasPlugin(out, datasourceplugin.Name) {
-		ensurePluginRef(out, datasourceplugin.Name)
-		implicit[datasourceplugin.Name] = true
+	if hasAnyDatasource(out) && !bundleHasPlugin(out, datasource.Name) {
+		ensurePluginRef(out, datasource.Name)
+		implicit[datasource.Name] = true
 	}
 	return out, implicit
 }
@@ -134,7 +134,7 @@ func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 	}
 	plugins := availablePlugins(nil, nil, nil, "")
 	if hasAnyDatasource(opts.Bundles) {
-		plugins = append(plugins, datasourceplugin.New(nil))
+		plugins = append(plugins, datasource.New(nil))
 	}
 	return plugins
 }

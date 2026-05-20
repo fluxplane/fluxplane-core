@@ -15,24 +15,24 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/codeplugin"
-	"github.com/fluxplane/agentruntime/plugins/codingplugin"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
-	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
-	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/golangplugin"
-	"github.com/fluxplane/agentruntime/plugins/identityplugin"
-	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
-	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
-	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
-	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
-	"github.com/fluxplane/agentruntime/plugins/projectplugin"
-	"github.com/fluxplane/agentruntime/plugins/skillplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
+	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
+	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
+	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/web"
+	"github.com/fluxplane/agentruntime/plugins/languages/golang"
+	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
+	"github.com/fluxplane/agentruntime/plugins/native/code"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
+	"github.com/fluxplane/agentruntime/plugins/native/discovery"
+	"github.com/fluxplane/agentruntime/plugins/native/identity"
+	"github.com/fluxplane/agentruntime/plugins/native/image"
+	"github.com/fluxplane/agentruntime/plugins/native/memory"
+	"github.com/fluxplane/agentruntime/plugins/native/project"
+	"github.com/fluxplane/agentruntime/plugins/native/skills"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -41,51 +41,51 @@ func TestBundleComposes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, kubernetesplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", kubernetesplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, kubernetes.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", kubernetes.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, discoveryplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", discoveryplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, discovery.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", discovery.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, dockerplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", dockerplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, docker.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", docker.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlabplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", gitlabplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlab.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", gitlab.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, lokiplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", lokiplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, loki.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", loki.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, mysqlplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", mysqlplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, mysql.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", mysql.Name)
 	}
-	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, memoryplugin.Name) {
-		t.Fatalf("coder bundle plugin refs missing %s", memoryplugin.Name)
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, memory.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", memory.Name)
 	}
-	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
+	if !pluginListContains(localPlugins(sys), kubernetes.Name) {
+		t.Fatalf("coder local plugins missing %s", kubernetes.Name)
 	}
-	if !pluginListContains(localPlugins(sys), discoveryplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", discoveryplugin.Name)
+	if !pluginListContains(localPlugins(sys), discovery.Name) {
+		t.Fatalf("coder local plugins missing %s", discovery.Name)
 	}
-	if !pluginListContains(localPlugins(sys), dockerplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", dockerplugin.Name)
+	if !pluginListContains(localPlugins(sys), docker.Name) {
+		t.Fatalf("coder local plugins missing %s", docker.Name)
 	}
-	if !pluginListContains(localPlugins(sys), gitlabplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", gitlabplugin.Name)
+	if !pluginListContains(localPlugins(sys), gitlab.Name) {
+		t.Fatalf("coder local plugins missing %s", gitlab.Name)
 	}
-	if !pluginListContains(localPlugins(sys), lokiplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", lokiplugin.Name)
+	if !pluginListContains(localPlugins(sys), loki.Name) {
+		t.Fatalf("coder local plugins missing %s", loki.Name)
 	}
-	if !pluginListContains(localPlugins(sys), mysqlplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", mysqlplugin.Name)
+	if !pluginListContains(localPlugins(sys), mysql.Name) {
+		t.Fatalf("coder local plugins missing %s", mysql.Name)
 	}
-	if !pluginListContains(localPlugins(sys), memoryplugin.Name) {
-		t.Fatalf("coder local plugins missing %s", memoryplugin.Name)
+	if !pluginListContains(localPlugins(sys), memory.Name) {
+		t.Fatalf("coder local plugins missing %s", memory.Name)
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), mysqlplugin.New(), memoryplugin.New()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -99,10 +99,10 @@ func TestBundleComposes(t *testing.T) {
 	if len(composition.OperationSpecs) != 112 {
 		t.Fatalf("operation specs len = %d, want 112", len(composition.OperationSpecs))
 	}
-	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
-		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
+	if !agentHasOperation(composition.AgentSpecs[0], web.SearchOp) {
+		t.Fatalf("coder agent operations missing %s", web.SearchOp)
 	}
-	for _, name := range []string{datasourceplugin.SearchOperation, datasourceplugin.GetOperation, datasourceplugin.BatchGetOperation} {
+	for _, name := range []string{datasource.SearchOperation, datasource.GetOperation, datasource.BatchGetOperation} {
 		if !agentHasOperation(composition.AgentSpecs[0], name) {
 			t.Fatalf("coder agent operations missing %s", name)
 		}
@@ -110,7 +110,7 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasOperation(composition.AgentSpecs[0], "project_task_run") {
 		t.Fatalf("coder agent operations missing project_task_run")
 	}
-	for _, name := range []string{memoryplugin.MemorizeOp, memoryplugin.RetrieveOp, memoryplugin.ForgetOp, memoryplugin.OrganizeOp} {
+	for _, name := range []string{memory.MemorizeOp, memory.RetrieveOp, memory.ForgetOp, memory.OrganizeOp} {
 		if !agentHasOperation(composition.AgentSpecs[0], name) {
 			t.Fatalf("coder agent operations missing %s", name)
 		}
@@ -118,23 +118,23 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasDatasource(composition.AgentSpecs[0], "web_search") {
 		t.Fatalf("coder agent datasources = %#v, want web_search", composition.AgentSpecs[0].Datasources)
 	}
-	if !agentHasDatasource(composition.AgentSpecs[0], kubernetesplugin.Name) {
-		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, kubernetesplugin.Name)
+	if !agentHasDatasource(composition.AgentSpecs[0], kubernetes.Name) {
+		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, kubernetes.Name)
 	}
-	if !agentHasDatasource(composition.AgentSpecs[0], gitlabplugin.Name) {
-		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, gitlabplugin.Name)
+	if !agentHasDatasource(composition.AgentSpecs[0], gitlab.Name) {
+		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, gitlab.Name)
 	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, "web_search", "web_search") {
 		t.Fatalf("datasource specs = %#v, want web_search", composition.DatasourceSpecs)
 	}
-	if !hasDatasourceSpec(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.Name) {
-		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, kubernetesplugin.Name)
+	if !hasDatasourceSpec(composition.DatasourceSpecs, kubernetes.Name, kubernetes.Name) {
+		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, kubernetes.Name)
 	}
-	if !datasourceSpecHasEntity(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.ClusterEntity) {
-		t.Fatalf("kubernetes datasource spec missing %s: %#v", kubernetesplugin.ClusterEntity, composition.DatasourceSpecs)
+	if !datasourceSpecHasEntity(composition.DatasourceSpecs, kubernetes.Name, kubernetes.ClusterEntity) {
+		t.Fatalf("kubernetes datasource spec missing %s: %#v", kubernetes.ClusterEntity, composition.DatasourceSpecs)
 	}
-	if !hasDatasourceSpec(composition.DatasourceSpecs, gitlabplugin.Name, gitlabplugin.Name) {
-		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, gitlabplugin.Name)
+	if !hasDatasourceSpec(composition.DatasourceSpecs, gitlab.Name, gitlab.Name) {
+		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, gitlab.Name)
 	}
 	if !agentHasSkill(composition.AgentSpecs[0], "coder") {
 		t.Fatalf("coder agent skills = %#v, want coder", composition.AgentSpecs[0].Skills)
@@ -149,12 +149,12 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
-	for _, name := range []string{taskplugin.WorkerSession, taskplugin.ExplorerSession, taskplugin.ReviewerSession, taskplugin.TaskSession, taskplugin.PlanSession, "code-reviewer"} {
+	for _, name := range []string{task.WorkerSession, task.ExplorerSession, task.ReviewerSession, task.TaskSession, task.PlanSession, "code-reviewer"} {
 		if !sessionAllowsProfile(session, name) {
 			t.Fatalf("delegation allowed profiles = %#v, missing %s", session.Delegation.AllowedProfiles, name)
 		}
 	}
-	for _, name := range []string{taskplugin.WorkerAgent, taskplugin.ExplorerAgent, taskplugin.ReviewerAgent, taskplugin.TaskAgent, taskplugin.PlanAgent, "code-reviewer"} {
+	for _, name := range []string{task.WorkerAgent, task.ExplorerAgent, task.ReviewerAgent, task.TaskAgent, task.PlanAgent, "code-reviewer"} {
 		if !sessionAllowsAgent(session, name) {
 			t.Fatalf("delegation allowed agents = %#v, missing %s", session.Delegation.AllowedAgents, name)
 		}
@@ -167,9 +167,9 @@ func TestBundleComposes(t *testing.T) {
 			t.Fatalf("delegation operations missing %s", name)
 		}
 	}
-	worker, ok := findAgentSpec(composition.AgentSpecs, taskplugin.WorkerAgent)
+	worker, ok := findAgentSpec(composition.AgentSpecs, task.WorkerAgent)
 	if !ok {
-		t.Fatalf("agent specs = %#v, missing %s", composition.AgentSpecs, taskplugin.WorkerAgent)
+		t.Fatalf("agent specs = %#v, missing %s", composition.AgentSpecs, task.WorkerAgent)
 	}
 	if len(worker.Commands) != 0 {
 		t.Fatalf("worker commands len = %d, want 0", len(worker.Commands))
@@ -202,9 +202,9 @@ func TestBundleComposes(t *testing.T) {
 
 func TestExpandOperationsUsesExplicitFeaturesAndOperationSets(t *testing.T) {
 	ops := expandOperations(OperationExpansionConfig{
-		Features: []FeatureSpec{ProjectSignalsFeature(), {OperationSets: []string{golangplugin.ParserSet, markdownplugin.Name}}},
+		Features: []FeatureSpec{ProjectSignalsFeature(), {OperationSets: []string{golang.ParserSet, markdown.Name}}},
 	})
-	if !containsName(ops, projectplugin.InventoryOp) || !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
+	if !containsName(ops, project.InventoryOp) || !containsName(ops, "go_outline") || !containsName(ops, "markdown_outline") {
 		t.Fatalf("ops = %#v, want project, Go parser, and markdown operations", ops)
 	}
 	if containsName(ops, "go_test") {
@@ -212,7 +212,7 @@ func TestExpandOperationsUsesExplicitFeaturesAndOperationSets(t *testing.T) {
 	}
 
 	ops = expandOperations(OperationExpansionConfig{
-		Features: []FeatureSpec{{OperationSets: []string{golangplugin.ToolchainSet}}},
+		Features: []FeatureSpec{{OperationSets: []string{golang.ToolchainSet}}},
 		Add:      []string{"custom_op"},
 		Remove:   []string{"go_fmt"},
 	})
@@ -232,7 +232,7 @@ func TestBundleContributesLanguageActivationReactions(t *testing.T) {
 	if !hasReaction(bundle.Reactions, "coder.language.markdown", "markdown") {
 		t.Fatalf("reactions = %#v, want markdown operation-set reaction", bundle.Reactions)
 	}
-	if !hasReaction(bundle.Reactions, "coder.integration.docker.available", codeplugin.Name) {
+	if !hasReaction(bundle.Reactions, "coder.integration.docker.available", code.Name) {
 		t.Fatalf("reactions = %#v, want Docker operation-set reaction", bundle.Reactions)
 	}
 	if !hasReaction(bundle.Reactions, "coder.toolchain.go.available", "golang.toolchain") {

@@ -23,16 +23,16 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/codingplugin"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
-	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
+	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
+	"github.com/fluxplane/agentruntime/plugins/integrations/web"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
+	"github.com/fluxplane/agentruntime/plugins/native/memory"
+	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
+	"github.com/fluxplane/agentruntime/plugins/native/text"
+	"github.com/fluxplane/agentruntime/plugins/native/workspace"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
@@ -96,7 +96,7 @@ func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
-			Plugins: []resource.PluginRef{{Name: textplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: text.Name}},
 		}},
 		AllowPrivateNetwork: true,
 	})
@@ -118,7 +118,7 @@ func TestLaunchMemoryOnlyPluginGetsStores(t *testing.T) {
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
-			Plugins: []resource.PluginRef{{Name: memoryplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: memory.Name}},
 		}},
 		AllowPrivateNetwork: true,
 	})
@@ -127,10 +127,10 @@ func TestLaunchMemoryOnlyPluginGetsStores(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	if !hasOperationSpec(runtime, memoryplugin.MemorizeOp) {
-		t.Fatalf("expected memory operation %s", memoryplugin.MemorizeOp)
+	if !hasOperationSpec(runtime, memory.MemorizeOp) {
+		t.Fatalf("expected memory operation %s", memory.MemorizeOp)
 	}
-	if !hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
+	if !hasOperationSpec(runtime, datasource.SearchOperation) {
 		t.Fatal("expected datasource plugin for memory-only launch")
 	}
 }
@@ -152,18 +152,18 @@ func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
 func TestSelectDeclaredPluginsAllowsMultipleInstances(t *testing.T) {
 	plugins, err := selectDeclaredPlugins([]resource.ContributionBundle{{
 		Plugins: []resource.PluginRef{
-			{Name: textplugin.Name, Instance: "company-a"},
-			{Name: textplugin.Name, Instance: "company-b"},
+			{Name: text.Name, Instance: "company-a"},
+			{Name: text.Name, Instance: "company-b"},
 		},
-	}}, []pluginhost.Plugin{workspaceplugin.New(nil), textplugin.New()})
+	}}, []pluginhost.Plugin{workspace.New(nil), text.New()})
 	if err != nil {
 		t.Fatalf("selectDeclaredPlugins: %v", err)
 	}
 	if len(plugins) != 2 {
 		t.Fatalf("plugins len = %d, want workspace plus one text implementation", len(plugins))
 	}
-	if got := plugins[1].Manifest().Name; got != textplugin.Name {
-		t.Fatalf("selected plugin = %q, want %q", got, textplugin.Name)
+	if got := plugins[1].Manifest().Name; got != text.Name {
+		t.Fatalf("selected plugin = %q, want %q", got, text.Name)
 	}
 }
 
@@ -172,7 +172,7 @@ func TestLaunchProvidesCodingOnlyWhenDeclared(t *testing.T) {
 	runtime, err := Launch(context.Background(), RuntimeOptions{
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
-			Plugins: []resource.PluginRef{{Name: codingplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: coding.Name}},
 		}},
 		AllowPrivateNetwork: true,
 	})
@@ -281,10 +281,10 @@ func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	if !hasDatasourceSpec(runtime, string(sessionhistoryplugin.DatasourceName)) {
+	if !hasDatasourceSpec(runtime, string(sessionhistory.DatasourceName)) {
 		t.Fatal("expected session history datasource")
 	}
-	if !hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
+	if !hasOperationSpec(runtime, datasource.SearchOperation) {
 		t.Fatal("expected datasource search operation")
 	}
 }
@@ -294,19 +294,19 @@ func TestLaunchOpensCoderWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	bundles := []resource.ContributionBundle{{
-		Plugins: []resource.PluginRef{{Name: codingplugin.Name}},
+		Plugins: []resource.PluginRef{{Name: coding.Name}},
 		Datasources: []coredatasource.Spec{{
 			Name:        "web_search",
 			Description: "Default public web search datasource.",
 			Kind:        "web_search",
-			Entities:    []coredatasource.EntityType{webplugin.SearchResultEntity},
+			Entities:    []coredatasource.EntityType{web.SearchResultEntity},
 		}},
 	}}
 	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	plugins := []pluginhost.Plugin{codingplugin.New(sys)}
+	plugins := []pluginhost.Plugin{coding.New(sys)}
 
 	registry, err := datasourceRegistry(ctx, bundles, plugins, root)
 	if err != nil {
@@ -320,8 +320,8 @@ func TestLaunchOpensCoderWebSearchDatasourceThroughCodingPlugin(t *testing.T) {
 		t.Fatalf("kind = %q, want web_search", got)
 	}
 	entities := accessor.Entities()
-	if len(entities) != 1 || entities[0].Type != webplugin.SearchResultEntity {
-		t.Fatalf("entities = %#v, want %s", entities, webplugin.SearchResultEntity)
+	if len(entities) != 1 || entities[0].Type != web.SearchResultEntity {
+		t.Fatalf("entities = %#v, want %s", entities, web.SearchResultEntity)
 	}
 	if _, ok := accessor.(coredatasource.Searcher); !ok {
 		t.Fatalf("accessor = %T, want datasource searcher", accessor)
@@ -388,7 +388,7 @@ func TestLaunchSlackDatasourceUsesRuntimeAuthPath(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
 	authPath := t.TempDir()
-	ref := resource.PluginRef{Name: slackplugin.Name, Instance: "slack-bot"}
+	ref := resource.PluginRef{Name: slack.Name, Instance: "slack-bot"}
 	saveSlackBotToken(t, authPath, ref)
 	bundle := slackDatasourceBundle(ref)
 
@@ -403,7 +403,7 @@ func TestLaunchSlackDatasourceUsesRuntimeAuthPath(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	registry, err := datasourceplugin.BuildRegistry(ctx, bundle.Datasources, runtime.Composition.DatasourceProviders)
+	registry, err := datasource.BuildRegistry(ctx, bundle.Datasources, runtime.Composition.DatasourceProviders)
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestDatasourceIndexRuntimeSlackDatasourceUsesAuthPath(t *testing.T) {
 	withStateDir(t)
 	ctx := context.Background()
 	authPath := t.TempDir()
-	ref := resource.PluginRef{Name: slackplugin.Name, Instance: "slack-bot"}
+	ref := resource.PluginRef{Name: slack.Name, Instance: "slack-bot"}
 	saveSlackBotToken(t, authPath, ref)
 
 	runtime, err := NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
@@ -437,7 +437,7 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 		Root: t.TempDir(),
 		Bundles: []resource.ContributionBundle{{
 			Agents:  []coreagent.Spec{{Name: "main"}},
-			Plugins: []resource.PluginRef{{Name: taskplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: task.Name}},
 		}},
 		Dev:                 true,
 		AllowPrivateNetwork: true,
@@ -447,20 +447,20 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	for _, name := range []string{taskplugin.WorkerAgent, taskplugin.ExplorerAgent, taskplugin.ReviewerAgent} {
+	for _, name := range []string{task.WorkerAgent, task.ExplorerAgent, task.ReviewerAgent} {
 		spec, ok := agentSpec(runtime, name)
 		if !ok {
 			t.Fatalf("expected plugin agent %q", name)
 		}
-		if !agentHasOperation(spec, datasourceplugin.SearchOperation) ||
-			!agentHasOperation(spec, datasourceplugin.GetOperation) ||
-			!agentHasOperation(spec, datasourceplugin.BatchGetOperation) {
+		if !agentHasOperation(spec, datasource.SearchOperation) ||
+			!agentHasOperation(spec, datasource.GetOperation) ||
+			!agentHasOperation(spec, datasource.BatchGetOperation) {
 			t.Fatalf("expected datasource operations on agent %q: %#v", name, spec.Operations)
 		}
-		if !agentHasDatasource(spec, string(sessionhistoryplugin.DatasourceName)) {
+		if !agentHasDatasource(spec, string(sessionhistory.DatasourceName)) {
 			t.Fatalf("expected session history datasource on agent %q: %#v", name, spec.Datasources)
 		}
-		if !agentHasContext(spec, datasourceplugin.ContextProvider) {
+		if !agentHasContext(spec, datasource.ContextProvider) {
 			t.Fatalf("expected datasource catalog context on agent %q: %#v", name, spec.Context)
 		}
 	}
@@ -639,7 +639,7 @@ func saveSlackBotToken(t *testing.T, authPath string, ref resource.PluginRef) {
 	t.Helper()
 	store := runtimesecret.NewFileStore(authPath)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   slackplugin.BotTokenSecretRef(ref),
+		Ref:   slack.BotTokenSecretRef(ref),
 		Value: "xoxb-test",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
@@ -651,8 +651,8 @@ func slackDatasourceBundle(ref resource.PluginRef) resource.ContributionBundle {
 		Plugins: []resource.PluginRef{ref},
 		Datasources: []coredatasource.Spec{{
 			Name:     "slack-bot",
-			Kind:     slackplugin.Name,
-			Entities: []coredatasource.EntityType{slackplugin.ChannelEntity},
+			Kind:     slack.Name,
+			Entities: []coredatasource.EntityType{slack.ChannelEntity},
 			Config:   map[string]string{"instance": ref.InstanceName()},
 		}},
 	}
@@ -670,7 +670,7 @@ func assertSlackDatasourceLoadedToken(t *testing.T, registry *coredatasource.Reg
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := lister.List(canceled, coredatasource.ListRequest{Entity: slackplugin.ChannelEntity, Limit: 1})
+	_, err := lister.List(canceled, coredatasource.ListRequest{Entity: slack.ChannelEntity, Limit: 1})
 	if err == nil {
 		t.Fatal("List error is nil, want canceled request")
 	}

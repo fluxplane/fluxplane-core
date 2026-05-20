@@ -5,25 +5,25 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
-	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
+	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
 )
 
 func enableDevSessionHistory(bundles []resource.ContributionBundle) []resource.ContributionBundle {
 	if len(bundles) == 0 {
 		bundles = append(bundles, resource.ContributionBundle{})
 	}
-	if !hasDatasource(bundles, sessionhistoryplugin.DatasourceName) {
-		bundles[0].Datasources = append(bundles[0].Datasources, sessionhistoryplugin.DatasourceSpec())
+	if !hasDatasource(bundles, sessionhistory.DatasourceName) {
+		bundles[0].Datasources = append(bundles[0].Datasources, sessionhistory.DatasourceSpec())
 	}
 	for bundleIndex := range bundles {
 		for agentIndex := range bundles[bundleIndex].Agents {
 			agent := &bundles[bundleIndex].Agents[agentIndex]
-			appendOperationRef(&agent.Operations, datasourceplugin.SearchOperation)
-			appendOperationRef(&agent.Operations, datasourceplugin.GetOperation)
-			appendOperationRef(&agent.Operations, datasourceplugin.BatchGetOperation)
-			appendDatasourceRef(&agent.Datasources, sessionhistoryplugin.DatasourceName)
-			appendContextRef(&agent.Context, datasourceplugin.ContextProvider)
+			appendOperationRef(&agent.Operations, datasource.SearchOperation)
+			appendOperationRef(&agent.Operations, datasource.GetOperation)
+			appendOperationRef(&agent.Operations, datasource.BatchGetOperation)
+			appendDatasourceRef(&agent.Datasources, sessionhistory.DatasourceName)
+			appendContextRef(&agent.Context, datasource.ContextProvider)
 		}
 	}
 	return bundles
@@ -33,7 +33,7 @@ func ensureDevSessionHistoryPlugin(bundles []resource.ContributionBundle) []reso
 	if len(bundles) == 0 {
 		bundles = append(bundles, resource.ContributionBundle{})
 	}
-	ensurePluginRef(bundles, sessionhistoryplugin.Name)
+	ensurePluginRef(bundles, sessionhistory.Name)
 	return bundles
 }
 

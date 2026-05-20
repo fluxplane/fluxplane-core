@@ -20,12 +20,12 @@ func TestStandardPluginsDoNotImportHostIO(t *testing.T) {
 		"net/url":  true,
 	}
 	plugins := []string{
-		"plugins/browserplugin",
-		"plugins/codeplugin",
-		"plugins/filesystemplugin",
-		"plugins/humanplugin",
-		"plugins/shellplugin",
-		"plugins/webplugin",
+		"plugins/native/browser",
+		"plugins/native/code",
+		"plugins/native/filesystem",
+		"plugins/native/human",
+		"plugins/native/shell",
+		"plugins/integrations/web",
 	}
 	for _, dir := range plugins {
 		dir := filepath.Join(root, dir)

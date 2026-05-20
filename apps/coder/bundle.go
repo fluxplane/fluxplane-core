@@ -17,19 +17,19 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/plugins/codeplugin"
-	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
-	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/golangplugin"
-	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
-	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
-	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
-	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
-	"github.com/fluxplane/agentruntime/plugins/projectplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
+	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
+	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/web"
+	"github.com/fluxplane/agentruntime/plugins/languages/golang"
+	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
+	"github.com/fluxplane/agentruntime/plugins/native/code"
+	"github.com/fluxplane/agentruntime/plugins/native/discovery"
+	"github.com/fluxplane/agentruntime/plugins/native/memory"
+	"github.com/fluxplane/agentruntime/plugins/native/project"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
 	"github.com/fluxplane/agentruntime/sdk"
 )
 
@@ -38,16 +38,16 @@ const (
 	AgentName        = "coder"
 	SessionName      = "coder"
 	CodingPlugin     = "coding"
-	DiscoveryPlugin  = discoveryplugin.Name
+	DiscoveryPlugin  = discovery.Name
 	IdentityPlugin   = "identity"
 	TaskPlugin       = "task"
 	SkillsPlugin     = "skills"
 	ImagePlugin      = "image"
 	KubernetesPlugin = "kubernetes"
-	LokiPlugin       = lokiplugin.Name
-	MySQLPlugin      = mysqlplugin.Name
+	LokiPlugin       = loki.Name
+	MySQLPlugin      = mysql.Name
 	DockerPlugin     = "docker"
-	MemoryPlugin     = memoryplugin.Name
+	MemoryPlugin     = memory.Name
 	GitLabPlugin     = "gitlab"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
@@ -113,52 +113,52 @@ func Bundle() resource.ContributionBundle {
 		Name:        "web_search",
 		Description: "Default public web search datasource.",
 		Kind:        "web_search",
-		Entities:    []coredatasource.EntityType{webplugin.SearchResultEntity},
+		Entities:    []coredatasource.EntityType{web.SearchResultEntity},
 	})
 	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
-		Name:        kubernetesplugin.Name,
+		Name:        kubernetes.Name,
 		Description: "Default live Kubernetes cluster datasource.",
-		Kind:        kubernetesplugin.Name,
+		Kind:        kubernetes.Name,
 		Entities: []coredatasource.EntityType{
-			kubernetesplugin.ClusterEntity,
-			kubernetesplugin.NamespaceEntity,
-			kubernetesplugin.PodEntity,
-			kubernetesplugin.ServiceEntity,
-			kubernetesplugin.DeploymentEntity,
-			kubernetesplugin.ContainerEntity,
+			kubernetes.ClusterEntity,
+			kubernetes.NamespaceEntity,
+			kubernetes.PodEntity,
+			kubernetes.ServiceEntity,
+			kubernetes.DeploymentEntity,
+			kubernetes.ContainerEntity,
 		},
 	})
 	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
-		Name:        gitlabplugin.Name,
+		Name:        gitlab.Name,
 		Description: "Default live GitLab datasource.",
-		Kind:        gitlabplugin.Name,
+		Kind:        gitlab.Name,
 		Entities: []coredatasource.EntityType{
-			gitlabplugin.ProjectEntity,
-			gitlabplugin.MergeRequestEntity,
-			gitlabplugin.MergeRequestDiffEntity,
-			gitlabplugin.MergeRequestNoteEntity,
-			gitlabplugin.PipelineEntity,
-			gitlabplugin.BranchEntity,
-			gitlabplugin.TagEntity,
-			gitlabplugin.CommitEntity,
-			gitlabplugin.RepositoryTreeEntity,
-			gitlabplugin.RepositoryFileEntity,
-			gitlabplugin.JobEntity,
-			gitlabplugin.JobTraceEntity,
-			gitlabplugin.UserEntity,
-			gitlabplugin.GroupEntity,
-			gitlabplugin.MembershipEntity,
+			gitlab.ProjectEntity,
+			gitlab.MergeRequestEntity,
+			gitlab.MergeRequestDiffEntity,
+			gitlab.MergeRequestNoteEntity,
+			gitlab.PipelineEntity,
+			gitlab.BranchEntity,
+			gitlab.TagEntity,
+			gitlab.CommitEntity,
+			gitlab.RepositoryTreeEntity,
+			gitlab.RepositoryFileEntity,
+			gitlab.JobEntity,
+			gitlab.JobTraceEntity,
+			gitlab.UserEntity,
+			gitlab.GroupEntity,
+			gitlab.MembershipEntity,
 		},
 	})
 	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
-		Name:        lokiplugin.Name,
+		Name:        loki.Name,
 		Description: "Default live Loki log datasource.",
-		Kind:        lokiplugin.Name,
+		Kind:        loki.Name,
 		Entities: []coredatasource.EntityType{
-			lokiplugin.LogEntryEntity,
-			lokiplugin.StreamEntity,
-			lokiplugin.LabelEntity,
-			lokiplugin.DetectedEndpointEntity,
+			loki.LogEntryEntity,
+			loki.StreamEntity,
+			loki.LabelEntity,
+			loki.DetectedEndpointEntity,
 		},
 	})
 	bundle.Reactions = append(bundle.Reactions, coderLanguageActivationReactions()...)
@@ -191,9 +191,9 @@ func coderAgentSpec(operations []string) agent.Spec {
 		}).
 		WithOperations(operations...).
 		WithDatasource("web_search").
-		WithDatasource(kubernetesplugin.Name).
-		WithDatasource(gitlabplugin.Name).
-		WithDatasource(lokiplugin.Name).
+		WithDatasource(kubernetes.Name).
+		WithDatasource(gitlab.Name).
+		WithDatasource(loki.Name).
 		Build()
 	spec.Skills = append(spec.Skills, skill.Ref{Name: "coder"})
 	return spec
@@ -235,42 +235,42 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.language.go.parser",
 		When: corereaction.Matcher{
-			Signal: projectplugin.SignalLanguageDetected,
+			Signal: project.SignalLanguageDetected,
 			Target: "go",
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
-			OperationSet: golangplugin.ParserSet,
+			OperationSet: golang.ParserSet,
 		}},
 	}, {
 		Name: "coder.language.markdown",
 		When: corereaction.Matcher{
-			Signal: projectplugin.SignalLanguageDetected,
+			Signal: project.SignalLanguageDetected,
 			Target: "markdown",
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
-			OperationSet: markdownplugin.Name,
+			OperationSet: markdown.Name,
 		}},
 	}, {
 		Name: "coder.integration.docker.available",
 		When: corereaction.Matcher{
-			Signal: dockerplugin.SignalAvailable,
-			Target: dockerplugin.Name,
+			Signal: docker.SignalAvailable,
+			Target: docker.Name,
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
-			OperationSet: codeplugin.Name,
+			OperationSet: code.Name,
 		}},
 	}, {
 		Name: "coder.toolchain.go.available",
 		When: corereaction.Matcher{
-			Signal: golangplugin.SignalToolchainAvailable,
+			Signal: golang.SignalToolchainAvailable,
 			Target: "go",
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
-			OperationSet: golangplugin.ToolchainSet,
+			OperationSet: golang.ToolchainSet,
 		}},
 	}}
 }
@@ -366,11 +366,11 @@ func embeddedResourceBundle() resource.ContributionBundle {
 
 func defaultDelegationProfiles() []coresession.Ref {
 	names := []coresession.Name{
-		taskplugin.WorkerSession,
-		taskplugin.ExplorerSession,
-		taskplugin.ReviewerSession,
-		taskplugin.TaskSession,
-		taskplugin.PlanSession,
+		task.WorkerSession,
+		task.ExplorerSession,
+		task.ReviewerSession,
+		task.TaskSession,
+		task.PlanSession,
 		"code-reviewer",
 	}
 	out := make([]coresession.Ref, 0, len(names))
@@ -382,11 +382,11 @@ func defaultDelegationProfiles() []coresession.Ref {
 
 func defaultDelegationAgents() []agent.Ref {
 	names := []agent.Name{
-		taskplugin.WorkerAgent,
-		taskplugin.ExplorerAgent,
-		taskplugin.ReviewerAgent,
-		taskplugin.TaskAgent,
-		taskplugin.PlanAgent,
+		task.WorkerAgent,
+		task.ExplorerAgent,
+		task.ReviewerAgent,
+		task.TaskAgent,
+		task.PlanAgent,
 		"code-reviewer",
 	}
 	out := make([]agent.Ref, 0, len(names))

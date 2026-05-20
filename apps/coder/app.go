@@ -16,20 +16,20 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/awsplugin"
-	"github.com/fluxplane/agentruntime/plugins/codingplugin"
-	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
-	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/identityplugin"
-	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
-	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
-	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
-	"github.com/fluxplane/agentruntime/plugins/skillplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
+	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
+	"github.com/fluxplane/agentruntime/plugins/integrations/aws"
+	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
+	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
+	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/native/discovery"
+	"github.com/fluxplane/agentruntime/plugins/native/identity"
+	"github.com/fluxplane/agentruntime/plugins/native/image"
+	"github.com/fluxplane/agentruntime/plugins/native/memory"
+	"github.com/fluxplane/agentruntime/plugins/native/skills"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
+	"github.com/fluxplane/agentruntime/plugins/native/workspace"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	"github.com/spf13/cobra"
 )
@@ -176,20 +176,20 @@ func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
-		workspaceplugin.New(hostSystem),
-		discoveryplugin.New(),
-		identityplugin.New(),
-		codingplugin.New(hostSystem),
-		taskplugin.New(),
-		skillplugin.New(),
-		imageplugin.New(hostSystem),
-		awsplugin.New(hostSystem),
-		dockerplugin.New(hostSystem),
-		gitlabplugin.New(hostSystem),
-		kubernetesplugin.New(hostSystem),
-		lokiplugin.New(hostSystem),
-		mysqlplugin.New(),
-		memoryplugin.New(),
+		workspace.New(hostSystem),
+		discovery.New(),
+		identity.New(),
+		coding.New(hostSystem),
+		task.New(),
+		skills.New(),
+		image.New(hostSystem),
+		aws.New(hostSystem),
+		docker.New(hostSystem),
+		gitlab.New(hostSystem),
+		kubernetes.New(hostSystem),
+		loki.New(hostSystem),
+		mysql.New(),
+		memory.New(),
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 )
 
 // MustTerminalEventRegistry returns the terminal event registry used by local

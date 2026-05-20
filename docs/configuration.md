@@ -568,10 +568,13 @@ coder app deploy . --target kubernetes --namespace ai-bots --image support-bot:l
 coder app undeploy . --target kubernetes --namespace ai-bots
 ```
 
-For Kubernetes deploys, `--registry-mode namespace` imports the app image into
-the current k3d cluster and uses the local image tag in the Deployment. Use
-`--registry-mode external --registry <registry-prefix>` for ECR or another
-registry that cluster nodes can pull from. Root workspace `env_files` are
+For Kubernetes deploys, the default registry mode is `auto`: k3d contexts use
+`k3d image import`, while other Kubernetes contexts deploy a temporary registry
+service into the target namespace, push the app image through a local
+port-forward, and reference that registry from the app Deployment. Use
+`--registry-mode k3d` or `--registry-mode namespace` to select either path
+explicitly, or `--registry-mode external --registry <registry-prefix>` for ECR
+or another registry that cluster nodes can pull from. Root workspace `env_files` are
 converted into a Kubernetes Secret and injected into the app container
 environment. Runtime backend DSN variables generated for MySQL or NATS are set
 directly on the app Deployment and override matching env-file keys. Named root

@@ -17,17 +17,17 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
-	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/skillplugin"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
+	"github.com/fluxplane/agentruntime/plugins/integrations/web"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
+	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
+	"github.com/fluxplane/agentruntime/plugins/native/skills"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
+	"github.com/fluxplane/agentruntime/plugins/native/text"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -115,7 +115,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		}
 		eventStore = openedEventStore
 		closeThreadStore = closeStore
-		plugins = appendPluginIfMissing(plugins, sessionhistoryplugin.New(threadStore))
+		plugins = appendPluginIfMissing(plugins, sessionhistory.New(threadStore))
 	}
 	index, err = newSemanticIndex(root, bundles, opts.StorePath, opts.Provider, opts.Model)
 	if err != nil {
@@ -134,7 +134,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return DatasourceIndexRuntime{}, err
 	}
 	dataSources = append(dataSources, pluginDataSources...)
-	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
@@ -143,17 +143,17 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 }
 
 func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
-	dispatcher := slackplugin.NewDispatcher()
+	dispatcher := slack.NewDispatcher()
 	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	return []pluginhost.Plugin{
-		slackplugin.NewWithDispatcher(hostSystem, dispatcher, slackStore),
-		gitlabplugin.New(hostSystem),
-		jiraplugin.New(hostSystem),
-		confluenceplugin.New(hostSystem),
-		taskplugin.New(),
-		skillplugin.New(),
-		textplugin.New(),
-		webplugin.New(hostSystem),
+		slack.NewWithDispatcher(hostSystem, dispatcher, slackStore),
+		gitlab.New(hostSystem),
+		jira.New(hostSystem),
+		confluence.New(hostSystem),
+		task.New(),
+		skills.New(),
+		text.New(),
+		web.New(hostSystem),
 	}
 }
 

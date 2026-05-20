@@ -9,7 +9,7 @@ import (
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 )
 
@@ -17,11 +17,11 @@ func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
-	ref := resource.PluginRef{Name: slackplugin.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slackplugin.BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
+	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
 		t.Fatalf("Save bot token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slackplugin.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 
@@ -30,7 +30,7 @@ func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 		Type:     "slack",
 		Instance: "workspace-prod",
 		Session:  "slack-main",
-	}}, nil, Options{AuthPath: dir}, slackplugin.NewDispatcher(), nil)
+	}}, nil, Options{AuthPath: dir}, slack.NewDispatcher(), nil)
 	if err != nil {
 		t.Fatalf("serveChannels: %v", err)
 	}

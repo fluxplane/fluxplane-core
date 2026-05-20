@@ -18,7 +18,7 @@ import (
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/plugins/echoplugin"
+	"github.com/fluxplane/agentruntime/plugins/examples/echo"
 	llmagentruntime "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
@@ -296,7 +296,7 @@ func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:   echoAgent{},
-		Plugins: []pluginhost.Plugin{echoplugin.New()},
+		Plugins: []pluginhost.Plugin{echo.New()},
 		Bundles: []agentruntime.ResourceBundle{bundle},
 	})
 	if err != nil {

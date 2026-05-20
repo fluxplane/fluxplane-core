@@ -25,7 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	"github.com/fluxplane/agentruntime/plugins/native/text"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 )
 
@@ -837,10 +837,10 @@ func hasEnvironmentSignal(signals []coreenvironment.Signal, kind, target string)
 
 func TestComposeResolvesConfiguredPluginContributions(t *testing.T) {
 	composition, err := Compose(Config{
-		Plugins: []pluginhost.Plugin{textplugin.New()},
+		Plugins: []pluginhost.Plugin{text.New()},
 		Bundles: []resource.ContributionBundle{{
 			Plugins: []resource.PluginRef{{
-				Name: textplugin.Name,
+				Name: text.Name,
 				Config: map[string]any{
 					"operations": []any{"upper"},
 				},

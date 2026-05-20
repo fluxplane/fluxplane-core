@@ -33,32 +33,32 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
-	"github.com/fluxplane/agentruntime/orchestration/identity"
+	orchestrationidentity "github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
-	"github.com/fluxplane/agentruntime/plugins/codingplugin"
-	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
-	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
-	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
-	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
-	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
-	"github.com/fluxplane/agentruntime/plugins/identityplugin"
-	"github.com/fluxplane/agentruntime/plugins/imageplugin"
-	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
-	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
-	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
-	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
-	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
-	"github.com/fluxplane/agentruntime/plugins/openapiplugin"
-	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
-	"github.com/fluxplane/agentruntime/plugins/skillplugin"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
-	"github.com/fluxplane/agentruntime/plugins/taskplugin"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
-	"github.com/fluxplane/agentruntime/plugins/webplugin"
-	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
+	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
+	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
+	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
+	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
+	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/openai"
+	"github.com/fluxplane/agentruntime/plugins/integrations/openapi"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
+	"github.com/fluxplane/agentruntime/plugins/integrations/web"
+	"github.com/fluxplane/agentruntime/plugins/native/datasource"
+	"github.com/fluxplane/agentruntime/plugins/native/discovery"
+	"github.com/fluxplane/agentruntime/plugins/native/identity"
+	"github.com/fluxplane/agentruntime/plugins/native/image"
+	"github.com/fluxplane/agentruntime/plugins/native/memory"
+	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
+	"github.com/fluxplane/agentruntime/plugins/native/skills"
+	"github.com/fluxplane/agentruntime/plugins/native/task"
+	"github.com/fluxplane/agentruntime/plugins/native/text"
+	"github.com/fluxplane/agentruntime/plugins/native/workspace"
+	"github.com/fluxplane/agentruntime/plugins/support/connector"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
@@ -113,7 +113,7 @@ type Runtime struct {
 	Service     agentruntime.ChannelClient
 	Composition app.Composition
 	System      system.System
-	Dispatcher  *slackplugin.Dispatcher
+	Dispatcher  *slack.Dispatcher
 	Caller      policy.Caller
 	Trust       policy.Trust
 	Close       func()
@@ -295,7 +295,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 	}
 
-	dispatcher := slackplugin.NewDispatcher()
+	dispatcher := slack.NewDispatcher()
 	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
@@ -314,7 +314,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	closeThreadStore = closeStore
 	var taskScheduler *taskexecutor.Scheduler
 	var taskWorker *taskexecutor.DeferredWorker
-	if bundleHasPlugin(bundles, taskplugin.Name) {
+	if bundleHasPlugin(bundles, task.Name) {
 		taskStore, err := runtimetask.NewStore(eventStore)
 		if err != nil {
 			closeRuntime()
@@ -336,18 +336,18 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		available = opts.Plugins(runtimeSystem)
 	}
 	if taskScheduler != nil {
-		available = replacePlugin(available, taskplugin.NewWithRunnerAndSystem(taskScheduler, runtimeSystem))
+		available = replacePlugin(available, task.NewWithRunnerAndSystem(taskScheduler, runtimeSystem))
 	}
 	if opts.Dev {
-		available = appendPluginIfMissing(available, sessionhistoryplugin.New(threadStore))
+		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
 	}
 	plugins, err := selectDeclaredPlugins(bundles, available)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memoryplugin.Name)
-	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memoryplugin.Name)
+	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
+	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memory.Name)
 	if needsDataStore {
 		var closeData func() error
 		dataStore, closeData, err = openDataStore(ctx, opts.Launch.Data)
@@ -371,13 +371,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			return Runtime{}, err
 		}
 		dataSources = append(dataSources, pluginDataSources...)
-		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasource.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
-		plugins = append(plugins, datasourceplugin.NewWithSemanticAndDataStore(registry, index, dataStore, dataSources...))
-		ensurePluginRef(bundles, datasourceplugin.Name)
+		plugins = append(plugins, datasource.NewWithSemanticAndDataStore(registry, index, dataStore, dataSources...))
+		ensurePluginRef(bundles, datasource.Name)
 		ensureDatasourceCatalogAccess(bundles)
 		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, dataStore, dataSources, datasourceIndexFromBundles(bundles), opts.Debug)
 		startDatasourceIndexEmbedWorker(ctx, warmupDone, index, opts.Debug)
@@ -513,45 +513,45 @@ func nativeAuthPath(path string) string {
 	return path
 }
 
-func slackConfigForInstance(bundles []resource.ContributionBundle, instance string) slackplugin.Config {
+func slackConfigForInstance(bundles []resource.ContributionBundle, instance string) slack.Config {
 	instance = strings.TrimSpace(instance)
 	for _, bundle := range bundles {
 		for _, ref := range bundle.Plugins {
-			if strings.TrimSpace(ref.Name) != slackplugin.Name || ref.InstanceName() != instance {
+			if strings.TrimSpace(ref.Name) != slack.Name || ref.InstanceName() != instance {
 				continue
 			}
-			cfg, err := pluginhost.DecodeConfig[slackplugin.Config](ref.Config)
+			cfg, err := pluginhost.DecodeConfig[slack.Config](ref.Config)
 			if err != nil {
-				return slackplugin.Config{Auth: slackplugin.AuthConfig{Method: slackplugin.BotTokenMethod}}
+				return slack.Config{Auth: slack.AuthConfig{Method: slack.BotTokenMethod}}
 			}
-			return slackplugin.NormalizeConfig(cfg)
+			return slack.NormalizeConfig(cfg)
 		}
 	}
-	return slackplugin.Config{Auth: slackplugin.AuthConfig{Method: slackplugin.BotTokenMethod}}
+	return slack.Config{Auth: slack.AuthConfig{Method: slack.BotTokenMethod}}
 }
 
-func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatcher, taskRunner taskplugin.TaskRunner, authPath string) []pluginhost.Plugin {
+func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string) []pluginhost.Plugin {
 	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	return []pluginhost.Plugin{
-		workspaceplugin.New(hostSystem),
-		discoveryplugin.New(),
-		identityplugin.New(),
-		codingplugin.New(hostSystem),
-		openaiplugin.New(),
-		slackplugin.NewWithDispatcher(hostSystem, dispatcher, slackStore),
-		gitlabplugin.New(hostSystem),
-		imageplugin.New(hostSystem),
-		jiraplugin.New(hostSystem),
-		confluenceplugin.New(hostSystem),
-		kubernetesplugin.New(hostSystem),
-		lokiplugin.New(hostSystem),
-		mysqlplugin.New(),
-		openapiplugin.New(hostSystem),
-		memoryplugin.New(),
-		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
-		skillplugin.New(),
-		textplugin.New(),
-		webplugin.New(hostSystem),
+		workspace.New(hostSystem),
+		discovery.New(),
+		identity.New(),
+		coding.New(hostSystem),
+		openai.New(),
+		slack.NewWithDispatcher(hostSystem, dispatcher, slackStore),
+		gitlab.New(hostSystem),
+		image.New(hostSystem),
+		jira.New(hostSystem),
+		confluence.New(hostSystem),
+		kubernetes.New(hostSystem),
+		loki.New(hostSystem),
+		mysql.New(),
+		openapi.New(hostSystem),
+		memory.New(),
+		task.NewWithRunnerAndSystem(taskRunner, hostSystem),
+		skills.New(),
+		text.New(),
+		web.New(hostSystem),
 	}
 }
 
@@ -559,11 +559,11 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 // for distribution-level connect commands.
 func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 	return []pluginhost.Plugin{
-		openaiplugin.New(),
-		slackplugin.New(nil),
-		gitlabplugin.New(nil),
-		jiraplugin.New(nil),
-		confluenceplugin.New(nil),
+		openai.New(),
+		slack.New(nil),
+		gitlab.New(nil),
+		jira.New(nil),
+		confluence.New(nil),
 	}, nil
 }
 
@@ -595,19 +595,19 @@ func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []plug
 	return append(plugins, plugin)
 }
 
-func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, channels []distribution.Channel, bundles []resource.ContributionBundle) identity.Resolver {
+func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
 	store := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	var resolvers []identity.Resolver
+	var resolvers []orchestrationidentity.Resolver
 	for _, doc := range channels {
 		if doc.Type != "slack" {
 			continue
 		}
-		ref := resource.PluginRef{Name: slackplugin.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slackplugin.Name)}
-		session, err := slackplugin.Resolve(ctx, sys, store, ref, slackConfigForInstance(bundles, ref.InstanceName()))
+		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
+		session, err := slack.Resolve(ctx, sys, store, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
 		}
-		resolver := slackplugin.NewIdentityResolver(slackplugin.IdentityResolverConfig{
+		resolver := slack.NewIdentityResolver(slack.IdentityResolverConfig{
 			ChannelName: doc.Name,
 			BotToken:    session.BotToken,
 			UserToken:   session.UserToken,
@@ -623,7 +623,7 @@ func launchIdentityResolver(ctx context.Context, sys system.System, authPath str
 	case 1:
 		return resolvers[0]
 	default:
-		return identity.ChainResolver{Resolvers: resolvers}
+		return orchestrationidentity.ChainResolver{Resolvers: resolvers}
 	}
 }
 
@@ -644,11 +644,11 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	}
 	refs := make([]resource.PluginRef, 0, len(pluginRefs(bundles))+1)
 	for _, ref := range pluginRefs(bundles) {
-		if ref.Name != workspaceplugin.Name {
+		if ref.Name != workspace.Name {
 			refs = append(refs, ref)
 		}
 	}
-	refs = append([]resource.PluginRef{{Name: workspaceplugin.Name}}, refs...)
+	refs = append([]resource.PluginRef{{Name: workspace.Name}}, refs...)
 	plugins := make([]pluginhost.Plugin, 0, len(refs))
 	selected := map[string]bool{}
 	for _, ref := range refs {
@@ -665,7 +665,7 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	return plugins, nil
 }
 
-func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connectorplugin.Instance, error) {
+func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connector.Instance, error) {
 	if len(connectors) == 0 {
 		return nil, nil, nil
 	}
@@ -682,10 +682,10 @@ func launchConnectorEngine(ctx context.Context, authPath string, connectors map[
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	instances := make([]connectorplugin.Instance, 0, len(names))
+	instances := make([]connector.Instance, 0, len(names))
 	for _, instanceID := range names {
-		connector := connectors[instanceID]
-		kind := strings.TrimSpace(connector.Kind)
+		connectorConfig := connectors[instanceID]
+		kind := strings.TrimSpace(connectorConfig.Kind)
 		if kind == "" {
 			_ = engine.Close()
 			return nil, nil, fmt.Errorf("launch: connector instance %q kind is empty", instanceID)
@@ -707,7 +707,7 @@ func launchConnectorEngine(ctx context.Context, authPath string, connectors map[
 			_ = engine.Close()
 			return nil, nil, fmt.Errorf("launch: connect %s connector instance %q: %w", kind, instanceID, err)
 		}
-		instances = append(instances, connectorplugin.Instance{ID: instanceID, Kind: kind})
+		instances = append(instances, connector.Instance{ID: instanceID, Kind: kind})
 	}
 	return engine, instances, nil
 }
@@ -736,7 +736,7 @@ func newConnectEngine(ctx context.Context, basePath string) (*connectorsruntime.
 
 func connectorProviderNames(ctx context.Context) ([]string, error) {
 	plugins := []pluginhost.Plugin{
-		openaiplugin.New(),
+		openai.New(),
 	}
 	seen := map[string]bool{}
 	var names []string
@@ -783,10 +783,10 @@ func resolveConnectorsPath(path string) (string, error) {
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
-	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, datasourceplugin.RegistryOptions{})
+	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, datasource.RegistryOptions{})
 }
 
-func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, opts datasourceplugin.RegistryOptions) (*coredatasource.Registry, error) {
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, opts datasource.RegistryOptions) (*coredatasource.Registry, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err
@@ -801,10 +801,10 @@ func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.Contr
 	for _, contribution := range resolved.DatasourceProviders {
 		providers = append(providers, contribution.Provider)
 	}
-	providers = append(providers, datasourceplugin.NewFilesystemProvider(os.DirFS(root)))
+	providers = append(providers, datasource.NewFilesystemProvider(os.DirFS(root)))
 	specs := datasourceSpecs(bundles)
 	specs = appendDatasourceSpecs(specs, datasourceSpecs(resolved.Bundles)...)
-	return datasourceplugin.BuildRegistryWithOptions(ctx, specs, providers, opts)
+	return datasource.BuildRegistryWithOptions(ctx, specs, providers, opts)
 }
 
 func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]coredata.SourceSpec, error) {
@@ -822,10 +822,10 @@ func resolvedPluginDataSources(ctx context.Context, bundles []resource.Contribut
 }
 
 func ensureSkillDatasource(bundles []resource.ContributionBundle) {
-	if !bundleHasPlugin(bundles, skillplugin.Name) || hasDatasource(bundles, skillplugin.DatasourceName) || len(bundles) == 0 {
+	if !bundleHasPlugin(bundles, skills.Name) || hasDatasource(bundles, skills.DatasourceName) || len(bundles) == 0 {
 		return
 	}
-	bundles[0].Datasources = append(bundles[0].Datasources, skillplugin.DatasourceSpec())
+	bundles[0].Datasources = append(bundles[0].Datasources, skills.DatasourceSpec())
 }
 
 func ensurePluginRef(bundles []resource.ContributionBundle, name string) {
@@ -838,7 +838,7 @@ func ensurePluginRef(bundles []resource.ContributionBundle, name string) {
 func ensureDatasourceCatalogAccess(bundles []resource.ContributionBundle) {
 	for bundleIndex := range bundles {
 		for agentIndex := range bundles[bundleIndex].Agents {
-			appendDatasourceRef(&bundles[bundleIndex].Agents[agentIndex].Datasources, coredatasource.Name(datasourceplugin.Name))
+			appendDatasourceRef(&bundles[bundleIndex].Agents[agentIndex].Datasources, coredatasource.Name(datasource.Name))
 		}
 	}
 }
@@ -1056,7 +1056,7 @@ func pluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
 	for _, bundle := range bundles {
 		for _, ref := range bundle.Plugins {
 			key := ref.Key()
-			if ref.Name == datasourceplugin.Name || seen[key] {
+			if ref.Name == datasource.Name || seen[key] {
 				continue
 			}
 			seen[key] = true

@@ -6,7 +6,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 )
 
 func TestOpenLocalThreadStoreRejectsMissingNATSDSN(t *testing.T) {

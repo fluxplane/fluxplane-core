@@ -15,7 +15,7 @@ import (
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
+	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 

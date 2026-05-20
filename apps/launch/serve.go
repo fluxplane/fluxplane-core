@@ -28,7 +28,7 @@ import (
 	orchestrationdistribution "github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -195,7 +195,7 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 	return nil
 }
 
-func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slackplugin.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
+func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	store := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
 	for _, doc := range docs {
@@ -203,20 +203,20 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 		case "direct":
 			continue
 		case "slack":
-			ref := resource.PluginRef{Name: slackplugin.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slackplugin.Name)}
+			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
-			session, err := slackplugin.Resolve(ctx, sys, store, ref, cfg)
+			session, err := slack.Resolve(ctx, sys, store, ref, cfg)
 			if err != nil {
 				return nil, err
 			}
 			if session.AppToken == "" {
-				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run coder connect slack --instance %s --auth %s --field app_token=<value>", doc.Name, ref.InstanceName(), slackplugin.BotTokenMethod)
+				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run coder connect slack --instance %s --auth %s --field app_token=<value>", doc.Name, ref.InstanceName(), slack.BotTokenMethod)
 			}
 			sessionName := doc.Session
 			if sessionName == "" {
 				sessionName = doc.Name
 			}
-			ch, err := slackplugin.NewChannel(slackplugin.ChannelConfig{
+			ch, err := slack.NewChannel(slack.ChannelConfig{
 				Name:       doc.Name,
 				Session:    agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
 				BotToken:   session.BotToken,
@@ -258,8 +258,8 @@ func trimLaunchStrings(values []string) []string {
 	return out
 }
 
-func slackAccess(doc orchestrationdistribution.Access) slackplugin.AccessPolicy {
-	return slackplugin.AccessPolicy{
+func slackAccess(doc orchestrationdistribution.Access) slack.AccessPolicy {
+	return slack.AccessPolicy{
 		Mode:             doc.Mode,
 		AllowUsers:       append([]string(nil), doc.AllowUsers...),
 		DenyUsers:        append([]string(nil), doc.DenyUsers...),

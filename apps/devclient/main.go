@@ -24,8 +24,8 @@ import (
 	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/plugins/echoplugin"
-	"github.com/fluxplane/agentruntime/plugins/textplugin"
+	"github.com/fluxplane/agentruntime/plugins/examples/echo"
+	"github.com/fluxplane/agentruntime/plugins/native/text"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
 )
 
@@ -273,13 +273,13 @@ func serve(ctx context.Context, cfg config) error {
 
 func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) {
 	ops := operation.NewRegistry()
-	echo := operation.New(operation.Spec{
+	echoOp := operation.New(operation.Spec{
 		Ref:         operation.Ref{Name: "echo"},
 		Description: "Return the provided input.",
 	}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
 	})
-	if err := ops.Register(echo); err != nil {
+	if err := ops.Register(echoOp); err != nil {
 		return nil, err
 	}
 	synthetic := syntheticLookupOperation()
@@ -375,8 +375,8 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:      composeAgent,
-		Operations: appOperations(bundle, echo),
-		Plugins:    []pluginhost.Plugin{echoplugin.New(), textplugin.New()},
+		Operations: appOperations(bundle, echoOp),
+		Plugins:    []pluginhost.Plugin{echo.New(), text.New()},
 		Bundles:    []agentruntime.ResourceBundle{bundle},
 	})
 	if err != nil {
@@ -469,13 +469,13 @@ func debugRedactor(debug bool) adapterllm.Redactor {
 	return adapterllm.Redactor{ExposeThinking: true, ExposeToolArgs: true}
 }
 
-func appOperations(bundle agentruntime.ResourceBundle, echo operation.Operation) []operation.Operation {
+func appOperations(bundle agentruntime.ResourceBundle, echoOp operation.Operation) []operation.Operation {
 	for _, ref := range bundle.Plugins {
-		if ref.Name == echoplugin.Name {
+		if ref.Name == echo.Name {
 			return nil
 		}
 	}
-	return []operation.Operation{echo}
+	return []operation.Operation{echoOp}
 }
 
 type echoAgent struct{}

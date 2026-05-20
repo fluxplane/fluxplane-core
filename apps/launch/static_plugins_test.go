@@ -10,7 +10,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/plugins/slackplugin"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 )
 
 func TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin(t *testing.T) {
@@ -21,7 +21,7 @@ func TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin(
 				Name: "slack-bot",
 				Kind: "slack",
 			}},
-			Plugins: []resource.PluginRef{{Name: slackplugin.Name}},
+			Plugins: []resource.PluginRef{{Name: slack.Name}},
 		}},
 		Launch: distribution.LaunchConfig{},
 	})

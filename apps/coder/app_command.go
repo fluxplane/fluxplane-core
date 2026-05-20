@@ -131,20 +131,22 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 }
 
 type appDeployOptions struct {
-	target         string
-	image          string
-	baseImage      string
-	connectorsPath string
-	dryRun         bool
-	force          bool
-	detach         bool
-	provider       string
-	model          string
-	effort         string
-	namespace      string
-	registryMode   string
-	registry       string
-	runner         distdeploy.CommandRunner
+	target          string
+	image           string
+	imagePullPolicy string
+	baseImage       string
+	connectorsPath  string
+	dryRun          bool
+	force           bool
+	detach          bool
+	provider        string
+	model           string
+	effort          string
+	namespace       string
+	nodeSelectors   []string
+	registryMode    string
+	registry        string
+	runner          distdeploy.CommandRunner
 }
 
 func newAppDeployCommand() *cobra.Command {
@@ -165,6 +167,7 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	}
 	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose|kubernetes")
 	cmd.Flags().StringVar(&opts.image, "image", "", "App image to build and reference in generated deployment resources")
+	cmd.Flags().StringVar(&opts.imagePullPolicy, "image-pull-policy", "", "Kubernetes app image pull policy: Always|IfNotPresent|Never")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker commands without running them")
@@ -174,7 +177,8 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
 	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
 	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Kubernetes namespace for kubernetes deploy target")
-	cmd.Flags().StringVar(&opts.registryMode, "registry-mode", "", "Kubernetes registry mode: namespace|external")
+	cmd.Flags().StringArrayVar(&opts.nodeSelectors, "node-selector", nil, "Kubernetes node selector key=value; may be repeated")
+	cmd.Flags().StringVar(&opts.registryMode, "registry-mode", "", "Kubernetes registry mode: auto|k3d|namespace|external")
 	cmd.Flags().StringVar(&opts.registry, "registry", "", "External registry prefix for kubernetes deploy target")
 	return cmd
 }
@@ -192,21 +196,23 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	}
 	if target == "kubernetes" {
 		_, err := distdeploy.DeployKubernetes(ctx, distdeploy.KubernetesOptions{
-			AppDir:         appDir,
-			Image:          opts.image,
-			BaseImage:      opts.baseImage,
-			ConnectorsPath: opts.connectorsPath,
-			Provider:       opts.provider,
-			Model:          opts.model,
-			Effort:         opts.effort,
-			Namespace:      opts.namespace,
-			RegistryMode:   opts.registryMode,
-			Registry:       opts.registry,
-			DryRun:         opts.dryRun,
-			Force:          opts.force,
-			Out:            out,
-			Err:            errOut,
-			Runner:         opts.runner,
+			AppDir:          appDir,
+			Image:           opts.image,
+			ImagePullPolicy: opts.imagePullPolicy,
+			BaseImage:       opts.baseImage,
+			ConnectorsPath:  opts.connectorsPath,
+			Provider:        opts.provider,
+			Model:           opts.model,
+			Effort:          opts.effort,
+			Namespace:       opts.namespace,
+			NodeSelectors:   opts.nodeSelectors,
+			RegistryMode:    opts.registryMode,
+			Registry:        opts.registry,
+			DryRun:          opts.dryRun,
+			Force:           opts.force,
+			Out:             out,
+			Err:             errOut,
+			Runner:          opts.runner,
 		})
 		return err
 	}

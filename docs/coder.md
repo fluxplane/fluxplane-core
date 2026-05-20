@@ -187,9 +187,12 @@ coder app deploy . --target kubernetes --namespace ai-bots --image my-app:local
 
 `coder app deploy --target kubernetes` writes `.deploy/kubernetes.yaml`, ensures
 `.deploy/` is ignored by the app's `.gitignore`, and applies the manifest with
-`kubectl`. The default `--registry-mode namespace` is for local k3d clusters:
-it imports the built image into the current k3d cluster and the app Deployment
-references the local image tag with `IfNotPresent`. For managed clusters, use
+`kubectl`. The default registry mode is `auto`: local k3d contexts use
+`k3d image import`, while other Kubernetes contexts deploy a registry into the
+target namespace, push the app image through a local port-forward, and reference
+that registry from the app Deployment. Use `--registry-mode k3d` or
+`--registry-mode namespace` to select either path explicitly. For managed
+clusters with an existing registry, use
 `--registry-mode external --registry <registry-prefix>` for ECR or another
 node-reachable registry.
 

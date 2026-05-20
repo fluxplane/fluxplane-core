@@ -67,10 +67,10 @@ func TestAnalyzeReportsViolationsAndScore(t *testing.T) {
 		},
 		{
 			ImportPath: "github.com/fluxplane/agentruntime/adapters/slack",
-			Imports:    []string{"github.com/fluxplane/agentruntime/plugins/slackplugin"},
+			Imports:    []string{"github.com/fluxplane/agentruntime/plugins/integrations/slack"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/plugins/slackplugin",
+			ImportPath: "github.com/fluxplane/agentruntime/plugins/integrations/slack",
 			Imports:    []string{"github.com/fluxplane/agentruntime/adapters/slack"},
 		},
 		{
