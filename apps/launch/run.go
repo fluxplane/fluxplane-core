@@ -51,6 +51,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
+	"github.com/fluxplane/agentruntime/plugins/openapiplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
@@ -545,6 +546,7 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 		kubernetesplugin.New(hostSystem),
 		lokiplugin.New(hostSystem),
 		mysqlplugin.New(),
+		openapiplugin.New(hostSystem),
 		memoryplugin.New(),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),

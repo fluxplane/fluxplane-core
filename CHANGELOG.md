@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added a MySQL query plugin for discovered endpoints, with Kubernetes
   Secret-backed credential resolution and read-only SQL execution.
+- Added a first-slice OpenAPI plugin that loads OpenAPI 3.x specs and
+  generates HTTP operations, documentation datasource records, and auth method
+  declarations.
 - Added a first-slice Loki plugin with endpoint discovery, connection testing,
   bounded LogQL query operations, recent-log helpers, and Loki datasource
   entities.
