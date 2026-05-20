@@ -514,6 +514,7 @@ type reactionState struct {
 	PreviousSignals map[string]string
 	AppliedKeys     map[string]bool
 	Active          sessionenv.ActiveState
+	Applied         []corereaction.ActionApplied
 }
 
 func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnResult {
@@ -702,6 +703,7 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 		})
 		action := sessionenv.ReactionAction{
 			Rule:           planned.Rule,
+			Signal:         planned.Signal,
 			Action:         planned.Action,
 			IdempotencyKey: planned.IdempotencyKey,
 		}
@@ -837,6 +839,11 @@ func (s Session) applyReactionOperations(ctx context.Context, runID string, acti
 				Action:         planned.Action.Kind,
 				IdempotencyKey: planned.IdempotencyKey,
 				Target:         ref.String(),
+				Signal:         planned.Signal.Kind,
+				SignalTarget:   planned.Signal.Target,
+				SignalScope:    planned.Signal.Scope,
+				SignalSource:   planned.Signal.Source,
+				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -887,6 +894,11 @@ func (s Session) applyReactionCommands(ctx context.Context, inbound channel.Inbo
 				Action:         planned.Action.Kind,
 				IdempotencyKey: planned.IdempotencyKey,
 				Target:         planned.Action.Command.Path.String(),
+				Signal:         planned.Signal.Kind,
+				SignalTarget:   planned.Signal.Target,
+				SignalScope:    planned.Signal.Scope,
+				SignalSource:   planned.Signal.Source,
+				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -952,6 +964,11 @@ func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actio
 				Action:         planned.Action.Kind,
 				IdempotencyKey: planned.IdempotencyKey,
 				Target:         string(workflowName),
+				Signal:         planned.Signal.Kind,
+				SignalTarget:   planned.Signal.Target,
+				SignalScope:    planned.Signal.Scope,
+				SignalSource:   planned.Signal.Source,
+				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -1217,6 +1234,7 @@ type envExplainData struct {
 	SignalDerivers   []environment.SignalDeriverSpec `json:"signal_derivers,omitempty"`
 	ReactionRules    []string                        `json:"reaction_rules,omitempty"`
 	Active           envExplainActive                `json:"active,omitempty"`
+	Applied          []envExplainApplied             `json:"applied,omitempty"`
 	AppliedReactions int                             `json:"applied_reactions,omitempty"`
 }
 
@@ -1224,6 +1242,17 @@ type envExplainActive struct {
 	OperationSets    []string `json:"operation_sets,omitempty"`
 	Datasources      []string `json:"datasources,omitempty"`
 	ContextProviders []string `json:"context_providers,omitempty"`
+}
+
+type envExplainApplied struct {
+	Rule           string   `json:"rule,omitempty"`
+	Action         string   `json:"action,omitempty"`
+	Target         string   `json:"target,omitempty"`
+	Signal         string   `json:"signal,omitempty"`
+	SignalTarget   string   `json:"signal_target,omitempty"`
+	SignalScope    string   `json:"signal_scope,omitempty"`
+	SignalSource   string   `json:"signal_source,omitempty"`
+	ObservationIDs []string `json:"observation_ids,omitempty"`
 }
 
 func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
@@ -1236,6 +1265,7 @@ func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.I
 		SignalDerivers:   signalDeriverSpecs(s.SignalDerivers),
 		ReactionRules:    reactionRuleNames(s.ReactionRules),
 		Active:           explainActiveState(state.Active),
+		Applied:          explainAppliedReactions(state.Applied),
 		AppliedReactions: len(state.AppliedKeys),
 	}
 	return CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: operation.Rendered{
@@ -1251,6 +1281,7 @@ func renderEnvExplain(data envExplainData) string {
 	writeEnvExplainDerivers(&b, data.SignalDerivers)
 	writeEnvExplainRules(&b, data.ReactionRules)
 	writeEnvExplainActive(&b, data.Active, data.AppliedReactions)
+	writeEnvExplainApplied(&b, data.Applied)
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -1330,6 +1361,34 @@ func writeEnvExplainActive(b *strings.Builder, active envExplainActive, applied 
 	b.WriteByte('\n')
 }
 
+func writeEnvExplainApplied(b *strings.Builder, applied []envExplainApplied) {
+	b.WriteString("\nApplied Reactions\n")
+	if len(applied) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, item := range applied {
+		parts := []string{}
+		if item.Action != "" {
+			parts = append(parts, "action="+item.Action)
+		}
+		if item.Target != "" {
+			parts = append(parts, "target="+item.Target)
+		}
+		if item.Signal != "" {
+			signal := item.Signal
+			if item.SignalTarget != "" {
+				signal += ":" + item.SignalTarget
+			}
+			parts = append(parts, "signal="+signal)
+		}
+		if len(item.ObservationIDs) > 0 {
+			parts = append(parts, "observations="+strings.Join(item.ObservationIDs, ","))
+		}
+		writeEnvExplainLine(b, item.Rule, parts)
+	}
+}
+
 func writeEnvExplainLine(b *strings.Builder, name string, parts []string) {
 	b.WriteString("  - ")
 	b.WriteString(name)
@@ -1339,6 +1398,23 @@ func writeEnvExplainLine(b *strings.Builder, name string, parts []string) {
 		b.WriteByte(')')
 	}
 	b.WriteByte('\n')
+}
+
+func explainAppliedReactions(in []corereaction.ActionApplied) []envExplainApplied {
+	out := make([]envExplainApplied, 0, len(in))
+	for _, applied := range in {
+		out = append(out, envExplainApplied{
+			Rule:           applied.Rule,
+			Action:         string(applied.Action),
+			Target:         applied.Target,
+			Signal:         applied.Signal,
+			SignalTarget:   applied.SignalTarget,
+			SignalScope:    applied.SignalScope,
+			SignalSource:   applied.SignalSource,
+			ObservationIDs: append([]string(nil), applied.ObservationIDs...),
+		})
+	}
+	return out
 }
 
 func signalTemplateNames(templates []environment.SignalTemplate) []string {
@@ -4268,12 +4344,45 @@ func (s Session) replayReactionEvents(ctx context.Context) (reactionState, error
 		if key := reactionAppliedKey(runtimeEvent.Payload); key != "" {
 			state.AppliedKeys[key] = true
 		}
+		if applied, ok := reactionAppliedPayload(runtimeEvent.Payload); ok {
+			state.Applied = append(state.Applied, applied)
+		}
 		applyReplayedReactionActivation(runtimeEvent.Payload, &state.Active)
 	}
 	if len(state.AppliedKeys) == 0 {
 		state.AppliedKeys = nil
 	}
 	return state, nil
+}
+
+func reactionAppliedPayload(payload any) (corereaction.ActionApplied, bool) {
+	switch typed := payload.(type) {
+	case corereaction.ActionApplied:
+		typed.ObservationIDs = append([]string(nil), typed.ObservationIDs...)
+		return typed, true
+	case *corereaction.ActionApplied:
+		if typed == nil {
+			return corereaction.ActionApplied{}, false
+		}
+		out := *typed
+		out.ObservationIDs = append([]string(nil), typed.ObservationIDs...)
+		return out, true
+	case map[string]any:
+		out := corereaction.ActionApplied{}
+		out.Rule, _ = typed["rule"].(string)
+		action, _ := typed["action"].(string)
+		out.Action = corereaction.ActionKind(action)
+		out.IdempotencyKey, _ = typed["idempotency_key"].(string)
+		out.Target, _ = typed["target"].(string)
+		out.Signal, _ = typed["signal"].(string)
+		out.SignalTarget, _ = typed["signal_target"].(string)
+		out.SignalScope, _ = typed["signal_scope"].(string)
+		out.SignalSource, _ = typed["signal_source"].(string)
+		out.ObservationIDs = stringSliceFromAny(typed["observation_ids"])
+		return out, true
+	default:
+		return corereaction.ActionApplied{}, false
+	}
 }
 
 func reactionAppliedKey(payload any) string {
@@ -4290,6 +4399,24 @@ func reactionAppliedKey(payload any) string {
 		return strings.TrimSpace(key)
 	default:
 		return ""
+	}
+}
+
+func stringSliceFromAny(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok && strings.TrimSpace(text) != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

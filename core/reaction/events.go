@@ -30,6 +30,11 @@ type ActionApplied struct {
 	Action         ActionKind `json:"action,omitempty"`
 	IdempotencyKey string     `json:"idempotency_key,omitempty"`
 	Target         string     `json:"target,omitempty"`
+	Signal         string     `json:"signal,omitempty"`
+	SignalTarget   string     `json:"signal_target,omitempty"`
+	SignalScope    string     `json:"signal_scope,omitempty"`
+	SignalSource   string     `json:"signal_source,omitempty"`
+	ObservationIDs []string   `json:"observation_ids,omitempty"`
 }
 
 func (ActionApplied) EventName() event.Name { return EventActionApplied }

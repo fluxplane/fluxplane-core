@@ -2,11 +2,8 @@ package coder
 
 import (
 	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
-	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
 	"github.com/fluxplane/agentruntime/plugins/languages/golang"
 	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
-	"github.com/fluxplane/agentruntime/plugins/native/discovery"
 	"github.com/fluxplane/agentruntime/plugins/native/memory"
 	"github.com/fluxplane/agentruntime/plugins/native/project"
 	"github.com/fluxplane/agentruntime/plugins/native/task"
@@ -18,7 +15,7 @@ type FeatureName string
 
 const (
 	FeatureProjectSignals  FeatureName = "project_signals"
-	FeatureFullLocalCoding FeatureName = "full_local_coding"
+	FeatureBaseLocalCoding FeatureName = "base_local_coding"
 )
 
 // FeatureSpec describes operations implied by a coder feature.
@@ -39,7 +36,7 @@ func fullCapabilityOperationNames() []string {
 	return expandOperations(OperationExpansionConfig{
 		Features: []FeatureSpec{
 			ProjectSignalsFeature(),
-			FullLocalCodingFeature(),
+			BaseLocalCodingFeature(),
 		},
 	})
 }
@@ -65,8 +62,16 @@ func defaultDelegationOperationNames() []string {
 	for _, name := range markdownOperations() {
 		allowed[name] = true
 	}
+	delegation := expandOperations(OperationExpansionConfig{
+		Features: []FeatureSpec{
+			ProjectSignalsFeature(),
+			BaseLocalCodingFeature(),
+			{OperationSets: []string{golang.ParserSet, golang.ToolchainSet, markdown.Name}},
+		},
+		Add: []string{"code_execute"},
+	})
 	var out []string
-	for _, name := range fullCapabilityOperationNames() {
+	for _, name := range delegation {
 		if allowed[name] {
 			out = append(out, name)
 		}
@@ -82,37 +87,25 @@ func ProjectSignalsFeature() FeatureSpec {
 	}
 }
 
-// FullLocalCodingFeature preserves the current broad coder product surface.
-func FullLocalCodingFeature() FeatureSpec {
+// BaseLocalCodingFeature preserves the always-on coder product surface. Larger
+// environment-dependent capability groups are enabled by evidence reactions.
+func BaseLocalCodingFeature() FeatureSpec {
 	return FeatureSpec{
-		Name: FeatureFullLocalCoding,
-		OperationSets: []string{
-			golang.ParserSet,
-			golang.ToolchainSet,
-			markdown.Name,
-		},
+		Name: FeatureBaseLocalCoding,
 		Operations: []string{
 			"dir_create", "dir_list", "dir_tree",
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
 			"glob", "grep",
 			"web_search", "web_request",
-			discovery.StatusOp, discovery.DiscoverOp, discovery.ProvidersOp, discovery.EndpointListOp, discovery.EndpointGetOp,
-			loki.TestOp, loki.LabelsOp, loki.QueryOp, loki.RecentLogsOp,
-			mysql.QueryOp,
 			"datasource_search", "datasource_list", "datasource_get", "datasource_batch_get",
-			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
-			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",
-			"browser_hover", "browser_back", "browser_forward", "browser_pdf", "browser_close",
 			"git_status", "git_diff", "git_add", "git_commit", "git_tag", "git_push",
 			"shell", "shell_info", "shell_exec", "process_run", "process_start", "process_ensure", "process_list", "process_status", "process_output", "process_wait", "process_stop", "process_kill",
-			"code_execute",
 			"clarify", task.TaskCreateOp, task.TaskModifyOp, task.TaskGetOp, task.TaskListOp,
 			task.TaskListArtifactsOp, task.TaskGetArtifactOp, task.TaskReadArtifactOp,
 			task.TaskValidateOp, task.ReviewRequestOp,
 			task.TaskRunOp, task.TaskSchedulerStatusOp, task.TaskSchedulerSetEnabledOp,
 			"skill",
-			memory.MemorizeOp, memory.RetrieveOp, memory.ForgetOp, memory.OrganizeOp,
-			"image_generate", "image_understand", "image_providers",
+			memory.RetrieveOp,
 		},
 	}
 }

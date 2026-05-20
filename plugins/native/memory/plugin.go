@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	corememory "github.com/fluxplane/agentruntime/core/memory"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -16,6 +18,7 @@ import (
 	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	runtimememory "github.com/fluxplane/agentruntime/runtime/memory"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
@@ -27,6 +30,13 @@ const (
 	ForgetOp         = "memory_forget"
 	OrganizeOp       = "memory_organize"
 	MemoryDataSource = coredata.SourceName("memory")
+	MutationSet      = "memory.mutation"
+
+	ObservationMemoryStore      = "memory.store"
+	SignalMemoryMutationRequest = "capability.ready_and_requested"
+	memoryChannelMessageKind    = "channel.message"
+	memoryStoreObserverName     = "memory.store"
+	memoryIntentDeriverName     = "memory.intent"
 )
 
 type Plugin struct{}
@@ -34,6 +44,8 @@ type Plugin struct{}
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
 
 func New() Plugin { return Plugin{} }
 
@@ -48,11 +60,39 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Name:        Name,
 			Description: "Scoped structured memory tools.",
 			Operations:  operationRefs(specs),
+		}, {
+			Name:        MutationSet,
+			Description: "Scoped structured memory mutation tools.",
+			Operations:  []operation.Ref{{Name: MemorizeOp}, {Name: ForgetOp}, {Name: OrganizeOp}},
 		}},
 		Operations:  specs,
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 		Datasources: []coredatasource.Spec{DatasourceSpec()},
+		Observers: []coreenvironment.ObserverSpec{{
+			Name:            memoryStoreObserverName,
+			Description:     "Observes whether scoped memory storage is configured.",
+			Environment:     coreenvironment.Ref{Name: Name},
+			Phase:           coreenvironment.PhaseTurn,
+			ObservableKinds: []string{ObservationMemoryStore},
+			Dynamic:         true,
+		}},
+		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
+			Name:             memoryIntentDeriverName,
+			Description:      "Derives memory mutation activation when storage and explicit memory intent are present.",
+			ObservationKinds: []string{ObservationMemoryStore, memoryChannelMessageKind},
+			Signals: []coreenvironment.SignalTemplate{
+				{Kind: SignalMemoryMutationRequest, Target: MutationSet},
+			},
+		}},
 	}, nil
+}
+
+func (Plugin) EnvironmentObservers(_ context.Context, ctx pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	return []runtimeenvironment.Observer{memoryStoreObserver{configured: ctx.EventStore != nil}}, nil
+}
+
+func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{memoryIntentDeriver{}}, nil
 }
 
 func (Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
@@ -102,6 +142,131 @@ func (Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]
 		return nil, err
 	}
 	return []coredatasource.Provider{memoryDatasourceProvider{store: store}}, nil
+}
+
+type MemoryStoreEvidence struct {
+	Configured bool `json:"configured"`
+}
+
+type memoryStoreObserver struct {
+	configured bool
+}
+
+func (o memoryStoreObserver) Spec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:            memoryStoreObserverName,
+		Description:     "Observes whether scoped memory storage is configured.",
+		Environment:     coreenvironment.Ref{Name: Name},
+		Phase:           coreenvironment.PhaseTurn,
+		ObservableKinds: []string{ObservationMemoryStore},
+		Dynamic:         true,
+	}
+}
+
+func (o memoryStoreObserver) Observe(_ context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	return []coreenvironment.Observation{{
+		ID:          "memory:store",
+		Environment: coreenvironment.Ref{Name: Name},
+		Kind:        ObservationMemoryStore,
+		Scope:       "runtime",
+		Content:     MemoryStoreEvidence{Configured: o.configured},
+		At:          time.Now().UTC(),
+	}}, nil
+}
+
+type memoryIntentDeriver struct{}
+
+func (memoryIntentDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{
+		Name:             memoryIntentDeriverName,
+		Description:      "Derives memory mutation activation when storage and explicit memory intent are present.",
+		ObservationKinds: []string{ObservationMemoryStore, memoryChannelMessageKind},
+	}
+}
+
+func (memoryIntentDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	var configured bool
+	var intent bool
+	var ids []string
+	var scope string
+	for _, observation := range req.Observations {
+		switch observation.Kind {
+		case ObservationMemoryStore:
+			if memoryStoreConfigured(observation.Content) {
+				configured = true
+				ids = appendMemoryObservationID(ids, observation.ID)
+			}
+		case memoryChannelMessageKind:
+			if memoryMutationIntent(observation.Content) {
+				intent = true
+				ids = appendMemoryObservationID(ids, observation.ID)
+				if scope == "" {
+					scope = observation.Scope
+				}
+			}
+		}
+	}
+	if !configured || !intent {
+		return nil, nil
+	}
+	return []coreenvironment.Signal{{
+		Kind:           SignalMemoryMutationRequest,
+		Target:         MutationSet,
+		Scope:          scope,
+		Environment:    coreenvironment.Ref{Name: Name},
+		Confidence:     1,
+		ObservationIDs: ids,
+		Metadata:       map[string]string{"capability": MutationSet},
+	}}, nil
+}
+
+func memoryStoreConfigured(content any) bool {
+	switch typed := content.(type) {
+	case MemoryStoreEvidence:
+		return typed.Configured
+	case *MemoryStoreEvidence:
+		return typed != nil && typed.Configured
+	case map[string]any:
+		configured, _ := typed["configured"].(bool)
+		return configured
+	default:
+		return false
+	}
+}
+
+func memoryMutationIntent(content any) bool {
+	text := strings.ToLower(strings.TrimSpace(fmt.Sprint(content)))
+	if text == "" {
+		return false
+	}
+	for _, phrase := range []string{
+		"remember this",
+		"remember that",
+		"memorize this",
+		"store this memory",
+		"save this memory",
+		"forget this memory",
+		"forget that memory",
+		"delete this memory",
+		"organize memories",
+		"clean up memories",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return strings.Contains(text, "memory") &&
+		(strings.Contains(text, "memorize") ||
+			strings.Contains(text, "remember") ||
+			strings.Contains(text, "forget") ||
+			strings.Contains(text, "organize"))
+}
+
+func appendMemoryObservationID(ids []string, id string) []string {
+	if strings.TrimSpace(id) == "" {
+		return ids
+	}
+	return append(ids, id)
 }
 
 func DataSourceSpec() coredata.SourceSpec {

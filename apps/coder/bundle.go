@@ -25,8 +25,10 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/integrations/web"
 	"github.com/fluxplane/agentruntime/plugins/languages/golang"
 	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
+	"github.com/fluxplane/agentruntime/plugins/native/browser"
 	"github.com/fluxplane/agentruntime/plugins/native/code"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
+	"github.com/fluxplane/agentruntime/plugins/native/image"
 	"github.com/fluxplane/agentruntime/plugins/native/memory"
 	"github.com/fluxplane/agentruntime/plugins/native/project"
 	"github.com/fluxplane/agentruntime/plugins/native/task"
@@ -162,6 +164,8 @@ func Bundle() resource.ContributionBundle {
 		},
 	})
 	bundle.Reactions = append(bundle.Reactions, coderLanguageActivationReactions()...)
+	bundle.Reactions = append(bundle.Reactions, coderEndpointActivationReactions()...)
+	bundle.Reactions = append(bundle.Reactions, coderIntentActivationReactions()...)
 	if len(bundle.Apps) > 0 {
 		bundle.Apps[0].Sources = append(bundle.Apps[0].Sources, coreapp.SourceSpec{
 			Location:  ".agents",
@@ -212,11 +216,11 @@ func codeReviewerAgentSpec() agent.Spec {
 func coderSystemPrompt() string {
 	return `You are coder. Help with coding tasks using concise, concrete steps.
 
-Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec.
+Prefer native project, filesystem, git, browser, web_search, and web_request operations over shell_exec. Prefer Go language, markdown, and code_execute operations when they are available in the current turn.
 Use web_search for general web discovery, datasource_search with entities=["web.search_result"] for configured web_search datasource queries, and web_request only for fetching known URLs.
-Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation.
-Use loki_test/loki_labels/loki_query/loki_recent_logs for Loki logs; use mysql_query with endpoint_ref for discovered MySQL endpoints; use discovery_status/discovery_discover/discovery_providers/endpoint_list/endpoint_get for endpoint discovery introspection and manual refresh.
-Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks.
+Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks. When Go tools are available, use go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation.
+When observability or endpoint tools are available, use loki_test/loki_labels/loki_query/loki_recent_logs for Loki logs, mysql_query with endpoint_ref for discovered MySQL endpoints, and discovery_status/discovery_discover/discovery_providers/endpoint_list/endpoint_get for endpoint discovery introspection and manual refresh.
+When markdown tools are available, use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks.
 When the user asks you to create a task for immediate execution, create or update the task to status=ready, call task_run for that task, and report whether it started, is already running, is not ready, or is waiting for capacity.
 Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion.
 Use shell_exec only when no native operation fits. Ask before destructive actions.`
@@ -271,6 +275,83 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: golang.ToolchainSet,
+		}},
+	}}
+}
+
+func coderEndpointActivationReactions() []corereaction.Rule {
+	return []corereaction.Rule{{
+		Name: "coder.endpoint.loki.available",
+		When: corereaction.Matcher{
+			Signal: discovery.SignalEndpointAvailable,
+			Target: loki.Name,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: loki.Name,
+		}, {
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: discovery.Name,
+		}, {
+			Kind:       corereaction.ActionEnableDatasource,
+			Datasource: coredatasource.Ref{Name: loki.Name},
+		}},
+	}, {
+		Name: "coder.endpoint.mysql.available",
+		When: corereaction.Matcher{
+			Signal: discovery.SignalEndpointAvailable,
+			Target: mysql.Name,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: mysql.Name,
+		}, {
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: discovery.Name,
+		}},
+	}}
+}
+
+func coderIntentActivationReactions() []corereaction.Rule {
+	return []corereaction.Rule{{
+		Name: "coder.capability.browser.ready_requested",
+		When: corereaction.Matcher{
+			Signal: browser.SignalBrowserReadyRequested,
+			Target: browser.Name,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: browser.Name,
+		}},
+	}, {
+		Name: "coder.capability.image.generation.ready_requested",
+		When: corereaction.Matcher{
+			Signal: image.SignalImageReadyRequested,
+			Target: image.GenerationSet,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: image.GenerationSet,
+		}},
+	}, {
+		Name: "coder.capability.image.understanding.ready_requested",
+		When: corereaction.Matcher{
+			Signal: image.SignalImageReadyRequested,
+			Target: image.UnderstandingSet,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: image.UnderstandingSet,
+		}},
+	}, {
+		Name: "coder.capability.memory_mutation.ready_requested",
+		When: corereaction.Matcher{
+			Signal: memory.SignalMemoryMutationRequest,
+			Target: memory.MutationSet,
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: memory.MutationSet,
 		}},
 	}}
 }

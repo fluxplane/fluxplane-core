@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Reduced coder's always-on default tool surface by moving Go, Markdown, and
+  Docker-backed code execution tools behind existing evidence/reaction
+  activation, and by gating Loki/MySQL endpoint tools behind endpoint
+  availability evidence, browser/image tools behind availability plus turn
+  intent, and memory mutation tools behind explicit memory intent while keeping
+  those operations composed for reactive enablement.
 - Reorganized first-party plugin packages from the flat `plugins/*plugin`
   layout into categorized `bundles`, `native`, `languages`, `integrations`,
   `support`, `internal`, and `examples` directories with suffix-free package
@@ -36,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a `go-refactor` developer CLI under the future Go language plugin tree
   for moving Go package directories, renaming package clauses, and rewriting
   internal imports during package layout migrations.
+- Added initial `core/evidence` and `runtime/evidence` alias packages with a
+  typed assertion subject vocabulary for the observation/signal naming
+  migration.
 - Added Kubernetes app deploy RBAC generation for apps that declare the
   Kubernetes plugin, including a dedicated ServiceAccount and read-only access
   to configured namespaces.

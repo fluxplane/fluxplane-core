@@ -6,6 +6,7 @@ import (
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/runtime/skill"
@@ -15,6 +16,7 @@ import (
 // application.
 type ReactionAction struct {
 	Rule           string
+	Signal         coreenvironment.Signal
 	Action         corereaction.Action
 	IdempotencyKey string
 }
@@ -141,6 +143,11 @@ func ApplyReactionActions(actions []ReactionAction, cfg Config) ReactionApplyRes
 				Action:         planned.Action.Kind,
 				IdempotencyKey: planned.IdempotencyKey,
 				Target:         reactionActionTarget(planned.Action),
+				Signal:         planned.Signal.Kind,
+				SignalTarget:   planned.Signal.Target,
+				SignalScope:    planned.Signal.Scope,
+				SignalSource:   planned.Signal.Source,
+				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}

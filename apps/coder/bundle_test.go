@@ -24,6 +24,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/integrations/web"
 	"github.com/fluxplane/agentruntime/plugins/languages/golang"
 	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
+	"github.com/fluxplane/agentruntime/plugins/native/browser"
 	"github.com/fluxplane/agentruntime/plugins/native/code"
 	"github.com/fluxplane/agentruntime/plugins/native/datasource"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
@@ -110,10 +111,52 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasOperation(composition.AgentSpecs[0], "project_task_run") {
 		t.Fatalf("coder agent operations missing project_task_run")
 	}
-	for _, name := range []string{memory.MemorizeOp, memory.RetrieveOp, memory.ForgetOp, memory.OrganizeOp} {
-		if !agentHasOperation(composition.AgentSpecs[0], name) {
-			t.Fatalf("coder agent operations missing %s", name)
+	for _, name := range []string{
+		"code_execute",
+		golang.ProjectOp,
+		golang.OutlineOp,
+		golang.TestOp,
+		markdown.OutlineOp,
+		discovery.StatusOp,
+		discovery.EndpointListOp,
+		loki.QueryOp,
+		mysql.QueryOp,
+		browser.OpenOp,
+		image.GenerateOp,
+		memory.MemorizeOp,
+		memory.ForgetOp,
+		memory.OrganizeOp,
+	} {
+		if agentHasOperation(composition.AgentSpecs[0], name) {
+			t.Fatalf("coder agent default operations include gated %s", name)
 		}
+		if _, err := composition.OperationCatalog.Resolve(name, resource.ResourceID{}); err != nil {
+			t.Fatalf("operation catalog missing gated %s: %v", name, err)
+		}
+	}
+	for _, tc := range []struct {
+		set string
+		op  string
+	}{
+		{set: code.Name, op: "code_execute"},
+		{set: golang.ParserSet, op: golang.OutlineOp},
+		{set: golang.ToolchainSet, op: golang.TestOp},
+		{set: markdown.Name, op: markdown.OutlineOp},
+		{set: discovery.Name, op: discovery.EndpointListOp},
+		{set: loki.Name, op: loki.QueryOp},
+		{set: mysql.Name, op: mysql.QueryOp},
+		{set: browser.Name, op: browser.OpenOp},
+		{set: image.Name, op: image.GenerateOp},
+		{set: image.GenerationSet, op: image.GenerateOp},
+		{set: image.UnderstandingSet, op: image.UnderstandOp},
+		{set: memory.MutationSet, op: memory.MemorizeOp},
+	} {
+		if !operationSetsContain(composition.OperationSets, tc.set, tc.op) {
+			t.Fatalf("operation sets missing %s -> %s: %#v", tc.set, tc.op, composition.OperationSets)
+		}
+	}
+	if !agentHasOperation(composition.AgentSpecs[0], memory.RetrieveOp) {
+		t.Fatalf("coder agent operations missing %s", memory.RetrieveOp)
 	}
 	if !agentHasDatasource(composition.AgentSpecs[0], "web_search") {
 		t.Fatalf("coder agent datasources = %#v, want web_search", composition.AgentSpecs[0].Datasources)
@@ -224,6 +267,48 @@ func TestExpandOperationsUsesExplicitFeaturesAndOperationSets(t *testing.T) {
 	}
 }
 
+func TestDefaultCoderOperationsGateReactiveToolGroups(t *testing.T) {
+	ops := fullCapabilityOperationNames()
+	if got, want := len(ops), 56; got != want {
+		t.Fatalf("default operation count = %d, want measured reduced surface %d: %#v", got, want, ops)
+	}
+	for _, name := range []string{
+		"code_execute",
+		golang.ProjectOp,
+		golang.OutlineOp,
+		golang.TestOp,
+		markdown.OutlineOp,
+		discovery.StatusOp,
+		discovery.EndpointListOp,
+		loki.QueryOp,
+		mysql.QueryOp,
+		browser.OpenOp,
+		image.GenerateOp,
+		memory.MemorizeOp,
+		memory.ForgetOp,
+		memory.OrganizeOp,
+	} {
+		if containsName(ops, name) {
+			t.Fatalf("default operations include gated %s: %#v", name, ops)
+		}
+	}
+	for _, name := range []string{
+		project.InventoryOp,
+		project.DocsOp,
+		"file_read",
+		"file_edit",
+		"git_status",
+		"shell_exec",
+		web.SearchOp,
+		task.TaskRunOp,
+		memory.RetrieveOp,
+	} {
+		if !containsName(ops, name) {
+			t.Fatalf("default operations missing baseline %s: %#v", name, ops)
+		}
+	}
+}
+
 func TestBundleContributesLanguageActivationReactions(t *testing.T) {
 	bundle := Bundle()
 	if !hasReaction(bundle.Reactions, "coder.language.go.parser", "golang.parser") {
@@ -237,6 +322,30 @@ func TestBundleContributesLanguageActivationReactions(t *testing.T) {
 	}
 	if !hasReaction(bundle.Reactions, "coder.toolchain.go.available", "golang.toolchain") {
 		t.Fatalf("reactions = %#v, want Go toolchain operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.endpoint.loki.available", loki.Name) {
+		t.Fatalf("reactions = %#v, want Loki endpoint operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.endpoint.loki.available", discovery.Name) {
+		t.Fatalf("reactions = %#v, want Loki endpoint reaction to enable discovery operation set", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.endpoint.mysql.available", mysql.Name) {
+		t.Fatalf("reactions = %#v, want MySQL endpoint operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.endpoint.mysql.available", discovery.Name) {
+		t.Fatalf("reactions = %#v, want MySQL endpoint reaction to enable discovery operation set", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.capability.browser.ready_requested", browser.Name) {
+		t.Fatalf("reactions = %#v, want browser intent operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.capability.image.generation.ready_requested", image.GenerationSet) {
+		t.Fatalf("reactions = %#v, want image generation intent operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.capability.image.understanding.ready_requested", image.UnderstandingSet) {
+		t.Fatalf("reactions = %#v, want image understanding intent operation-set reaction", bundle.Reactions)
+	}
+	if !hasReaction(bundle.Reactions, "coder.capability.memory_mutation.ready_requested", memory.MutationSet) {
+		t.Fatalf("reactions = %#v, want memory mutation operation-set reaction", bundle.Reactions)
 	}
 }
 
@@ -258,6 +367,20 @@ func agentHasOperation(spec agent.Spec, name string) bool {
 	for _, ref := range spec.Operations {
 		if ref.Name == operation.Name(name) {
 			return true
+		}
+	}
+	return false
+}
+
+func operationSetsContain(sets []operation.Set, setName, operationName string) bool {
+	for _, set := range sets {
+		if set.Name != setName {
+			continue
+		}
+		for _, ref := range set.Operations {
+			if ref.Name == operation.Name(operationName) {
+				return true
+			}
 		}
 	}
 	return false

@@ -3,13 +3,17 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
+	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
@@ -21,6 +25,9 @@ const (
 	ProvidersOp    = "discovery_providers"
 	EndpointListOp = "endpoint_list"
 	EndpointGetOp  = "endpoint_get"
+
+	ObservationEndpointRegistry = "endpoint.registry"
+	SignalEndpointAvailable     = "endpoint.available"
 )
 
 type Plugin struct {
@@ -32,6 +39,8 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
+var _ pluginhost.ObserverContributor = Plugin{}
+var _ pluginhost.SignalDeriverContributor = Plugin{}
 
 func New() Plugin { return Plugin{} }
 
@@ -51,7 +60,31 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Discovery status and endpoint introspection.", Operations: operationRefs(specs)}},
 		Operations:    specs,
+		Observers: []coreenvironment.ObserverSpec{{
+			Name:            "endpoint.registry",
+			Description:     "Observes non-secret endpoint registry summaries for activation.",
+			Environment:     coreenvironment.Ref{Name: "endpoint"},
+			Phase:           coreenvironment.PhaseTurn,
+			ObservableKinds: []string{ObservationEndpointRegistry},
+			Dynamic:         true,
+		}},
+		SignalDerivers: []coreenvironment.SignalDeriverSpec{{
+			Name:             "endpoint.signals",
+			Description:      "Derives endpoint availability signals from endpoint registry observations.",
+			ObservationKinds: []string{ObservationEndpointRegistry},
+			Signals: []coreenvironment.SignalTemplate{
+				{Kind: SignalEndpointAvailable},
+			},
+		}},
 	}, nil
+}
+
+func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]runtimeenvironment.Observer, error) {
+	return []runtimeenvironment.Observer{endpointRegistryObserver{endpoints: p.endpoints}}, nil
+}
+
+func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
+	return []runtimeenvironment.SignalDeriver{endpointSignalDeriver{}}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
@@ -139,6 +172,138 @@ type EndpointGetInput struct {
 
 type EndpointGetOutput struct {
 	Endpoint EndpointSummary `json:"endpoint"`
+}
+
+type EndpointRegistryEvidence struct {
+	Endpoints []EndpointSummary `json:"endpoints,omitempty"`
+}
+
+type endpointRegistryObserver struct {
+	endpoints *runtimeendpoint.Registry
+}
+
+func (o endpointRegistryObserver) Spec() coreenvironment.ObserverSpec {
+	return coreenvironment.ObserverSpec{
+		Name:            "endpoint.registry",
+		Description:     "Observes non-secret endpoint registry summaries for activation.",
+		Environment:     coreenvironment.Ref{Name: "endpoint"},
+		Phase:           coreenvironment.PhaseTurn,
+		ObservableKinds: []string{ObservationEndpointRegistry},
+		Dynamic:         true,
+	}
+}
+
+func (o endpointRegistryObserver) Observe(_ context.Context, _ runtimeenvironment.ObservationRequest) ([]coreenvironment.Observation, error) {
+	if o.endpoints == nil {
+		return nil, nil
+	}
+	records := o.endpoints.List("")
+	if len(records) == 0 {
+		return nil, nil
+	}
+	evidence := EndpointRegistryEvidence{Endpoints: make([]EndpointSummary, 0, len(records))}
+	for _, record := range records {
+		summary := endpointSummary(record)
+		if summary.Product == "" {
+			continue
+		}
+		evidence.Endpoints = append(evidence.Endpoints, summary)
+	}
+	if len(evidence.Endpoints) == 0 {
+		return nil, nil
+	}
+	return []coreenvironment.Observation{{
+		ID:          "endpoint:registry",
+		Environment: coreenvironment.Ref{Name: "endpoint"},
+		Kind:        ObservationEndpointRegistry,
+		Scope:       "runtime",
+		Content:     evidence,
+		At:          time.Now().UTC(),
+	}}, nil
+}
+
+type endpointSignalDeriver struct{}
+
+func (endpointSignalDeriver) Spec() coreenvironment.SignalDeriverSpec {
+	return coreenvironment.SignalDeriverSpec{
+		Name:             "endpoint.signals",
+		Description:      "Derives endpoint availability signals from endpoint registry observations.",
+		ObservationKinds: []string{ObservationEndpointRegistry},
+	}
+}
+
+func (endpointSignalDeriver) Derive(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]coreenvironment.Signal, error) {
+	var out []coreenvironment.Signal
+	for _, observation := range req.Observations {
+		if observation.Kind != ObservationEndpointRegistry {
+			continue
+		}
+		evidence, ok := endpointEvidenceFromObservation(observation.Content)
+		if !ok {
+			continue
+		}
+		for _, endpoint := range evidence.Endpoints {
+			if !endpointAvailableForActivation(endpoint) {
+				continue
+			}
+			out = append(out, coreenvironment.Signal{
+				Kind:           SignalEndpointAvailable,
+				Target:         endpoint.Product,
+				Scope:          observation.Scope,
+				Environment:    observation.Environment,
+				Confidence:     1,
+				ObservationIDs: observationIDs(observation.ID),
+				Metadata: map[string]string{
+					"endpoint_ref": string(endpoint.Ref),
+					"source":       endpoint.Source.Kind,
+				},
+			})
+		}
+	}
+	return out, nil
+}
+
+func endpointAvailableForActivation(endpoint EndpointSummary) bool {
+	if strings.TrimSpace(endpoint.Product) == "" {
+		return false
+	}
+	status := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		endpoint.Metadata["readiness"],
+		endpoint.Metadata["probe_status"],
+		endpoint.Metadata["availability"],
+		endpoint.Metadata["status"],
+	)))
+	switch status {
+	case "configured", "probed", "ready", "reachable", "available", "ok":
+		return true
+	case "unprobed", "candidate", "failed", "unavailable":
+		return false
+	}
+	// Explicit endpoint records do not have a discovery provider owner. Those are
+	// intentional configuration and count as availability. Provider-owned records
+	// need readiness metadata before they can activate product tools.
+	return strings.TrimSpace(endpoint.Metadata["provider"]) == ""
+}
+
+func endpointEvidenceFromObservation(content any) (EndpointRegistryEvidence, bool) {
+	switch typed := content.(type) {
+	case EndpointRegistryEvidence:
+		return typed, true
+	case *EndpointRegistryEvidence:
+		if typed == nil {
+			return EndpointRegistryEvidence{}, false
+		}
+		return *typed, true
+	default:
+		return EndpointRegistryEvidence{}, false
+	}
+}
+
+func observationIDs(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{id}
 }
 
 func (p Plugin) status(_ operation.Context, _ StatusInput) (StatusOutput, error) {

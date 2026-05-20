@@ -19,8 +19,13 @@ func TestPluginContributesImageOperationsAndActionToolSet(t *testing.T) {
 	if len(bundle.Operations) != 3 {
 		t.Fatalf("operations len = %d, want 3", len(bundle.Operations))
 	}
-	if len(bundle.OperationSets) != 1 || bundle.OperationSets[0].Name != Name {
-		t.Fatalf("operation sets = %#v, want image", bundle.OperationSets)
+	if len(bundle.OperationSets) != 3 {
+		t.Fatalf("operation sets = %#v, want image sets", bundle.OperationSets)
+	}
+	if !imageOperationSetContains(bundle.OperationSets, Name, GenerateOp) ||
+		!imageOperationSetContains(bundle.OperationSets, GenerationSet, GenerateOp) ||
+		!imageOperationSetContains(bundle.OperationSets, UnderstandingSet, UnderstandOp) {
+		t.Fatalf("operation sets = %#v, want full and capability-specific image sets", bundle.OperationSets)
 	}
 	if len(bundle.ToolSets) != 1 || bundle.ToolSets[0].Action == nil {
 		t.Fatalf("tool sets = %#v, want action tool set", bundle.ToolSets)
@@ -33,6 +38,20 @@ func TestPluginContributesImageOperationsAndActionToolSet(t *testing.T) {
 	if strings.Contains(schema, `"oneOf"`) || !strings.Contains(schema, `"action"`) || !strings.Contains(schema, `"generate"`) {
 		t.Fatalf("schema = %s, want provider-safe action object schema", schema)
 	}
+}
+
+func imageOperationSetContains(sets []operation.Set, setName, operationName string) bool {
+	for _, set := range sets {
+		if set.Name != setName {
+			continue
+		}
+		for _, ref := range set.Operations {
+			if ref.Name == operation.Name(operationName) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func TestProvidersOperationReportsMissingAndKeylessProviders(t *testing.T) {

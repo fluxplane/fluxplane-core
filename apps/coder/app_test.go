@@ -23,6 +23,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -41,6 +42,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
 	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
 	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/native/browser"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
 	"github.com/fluxplane/agentruntime/plugins/native/identity"
 	"github.com/fluxplane/agentruntime/plugins/native/image"
@@ -48,6 +50,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/native/skills"
 	"github.com/fluxplane/agentruntime/plugins/native/task"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -1309,6 +1312,338 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 		t.Fatalf("Wait: %v", err)
 	}
 	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
+	assertRequestTools(t, request, memory.RetrieveOp)
+	assertRequestToolsAbsent(t, request, "go_outline", "markdown_outline", "loki_query", "mysql_query", "endpoint_list", browser.OpenOp, image.Name, image.GenerateOp, memory.MemorizeOp, memory.ForgetOp, memory.OrganizeOp)
+}
+
+func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/app\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "go-evidence-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", "go_outline", "go_project")
+}
+
+func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if _, err := composition.Endpoints.Put(runtimeendpoint.Record{Spec: coreendpoint.Spec{Name: "loki-dev", URL: "http://loki:3100", Product: loki.Name}}); err != nil {
+		t.Fatalf("put endpoint: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "endpoint-evidence-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", "loki_query", "loki_recent_logs", discovery.EndpointListOp, discovery.DiscoverOp)
+	assertRequestToolsAbsent(t, request, "mysql_query")
+}
+
+func TestCoderSessionActivatesBrowserToolsFromAvailabilityAndIntent(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true, Browser: fakeBrowserManager{}})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "browser-evidence-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("open https://example.com in a browser and inspect the rendered UI"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
+}
+
+func TestCoderSessionDoesNotActivateBrowserToolsFromAvailabilityAlone(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true, Browser: fakeBrowserManager{}})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "browser-availability-only-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestToolsAbsent(t, request, browser.OpenOp, browser.ReadOp, browser.ScreenshotOp)
+}
+
+func TestCoderSessionActivatesImageToolsFromProviderAvailabilityAndIntent(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "image-evidence-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("generate an image of the architecture diagram"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "project_inventory", image.GenerateOp, image.ProvidersOp)
+	assertRequestToolsAbsent(t, request, image.UnderstandOp)
+}
+
+func TestCoderSessionDoesNotActivateImageUnderstandingFromGenerationProvider(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "image-understand-unconfigured-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("describe this image in detail"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestToolsAbsent(t, request, image.GenerateOp, image.UnderstandOp, image.ProvidersOp)
+}
+
+func TestCoderSessionActivatesMemoryMutationToolsFromIntent(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	composition, err := app.Compose(app.Config{
+		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "memory-intent-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("remember this preference for later"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, memory.RetrieveOp, memory.MemorizeOp, memory.ForgetOp, memory.OrganizeOp)
 }
 
 func TestCoderLaunchProjectsCoreToolsToModel(t *testing.T) {
@@ -1430,6 +1765,81 @@ func assertRequestTools(t *testing.T, request llmagent.Request, want ...string) 
 			t.Fatalf("model request tools missing %q: tools=%#v agent=%q agent_ops=%d", name, names, request.Agent.Name, len(request.Agent.Operations))
 		}
 	}
+}
+
+func assertRequestToolsAbsent(t *testing.T, request llmagent.Request, unwanted ...string) {
+	t.Helper()
+	names := map[string]bool{}
+	for _, spec := range request.Tools {
+		names[string(spec.Name)] = true
+	}
+	for _, name := range unwanted {
+		if names[name] {
+			t.Fatalf("model request tools include %q: tools=%#v agent=%q agent_ops=%d", name, names, request.Agent.Name, len(request.Agent.Operations))
+		}
+	}
+}
+
+type fakeBrowserManager struct{}
+
+func (fakeBrowserManager) Open(context.Context, system.BrowserOpenRequest) (system.BrowserOpenResult, error) {
+	return system.BrowserOpenResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Navigate(context.Context, system.BrowserSessionRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Click(context.Context, system.BrowserSelectorRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Type(context.Context, system.BrowserTypeRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Select(context.Context, system.BrowserSelectRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Read(context.Context, system.BrowserReadRequest) (system.BrowserReadResult, error) {
+	return system.BrowserReadResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example", Text: "Example"}, nil
+}
+
+func (fakeBrowserManager) Screenshot(context.Context, system.BrowserSessionRequest) (system.BrowserArtifact, error) {
+	return system.BrowserArtifact{SessionID: "browser-test", Path: "screenshot.png", MediaType: "image/png"}, nil
+}
+
+func (fakeBrowserManager) Evaluate(context.Context, system.BrowserEvaluateRequest) (system.BrowserEvaluateResult, error) {
+	return system.BrowserEvaluateResult{SessionID: "browser-test", Value: true}, nil
+}
+
+func (fakeBrowserManager) Wait(context.Context, system.BrowserWaitRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Scroll(context.Context, system.BrowserScrollRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Hover(context.Context, system.BrowserSelectorRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Back(context.Context, system.BrowserSessionRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) Forward(context.Context, system.BrowserSessionRequest) (system.BrowserPageResult, error) {
+	return system.BrowserPageResult{SessionID: "browser-test", URL: "https://example.com", Title: "Example"}, nil
+}
+
+func (fakeBrowserManager) PDF(context.Context, system.BrowserSessionRequest) (system.BrowserArtifact, error) {
+	return system.BrowserArtifact{SessionID: "browser-test", Path: "page.pdf", MediaType: "application/pdf"}, nil
+}
+
+func (fakeBrowserManager) Close(context.Context, system.BrowserSessionRequest) error {
+	return nil
 }
 
 func TestBundleAppliesModelOverride(t *testing.T) {

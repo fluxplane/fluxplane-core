@@ -2208,6 +2208,9 @@ func TestReplayReactionEventsRestoresActiveState(t *testing.T) {
 				Action:         corereaction.ActionEnableContext,
 				Target:         "kubernetes.context",
 				IdempotencyKey: "context-key",
+				Signal:         "integration.available",
+				SignalTarget:   "kubernetes",
+				ObservationIDs: []string{"kubernetes:context"},
 			},
 		},
 	}}); err != nil {
@@ -2250,6 +2253,9 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 				Action:         corereaction.ActionEnableContext,
 				Target:         "kubernetes.context",
 				IdempotencyKey: "context-key",
+				Signal:         "integration.available",
+				SignalTarget:   "kubernetes",
+				ObservationIDs: []string{"kubernetes:context"},
 			},
 		},
 	}}); err != nil {
@@ -2284,7 +2290,7 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	if !ok {
 		t.Fatalf("output = %#v, want rendered env explain output", result.Output)
 	}
-	if !strings.Contains(rendered.Text, "Observers") || !strings.Contains(rendered.Text, "- kubernetes.context") || !strings.Contains(rendered.Text, "applied reactions: 1") {
+	if !strings.Contains(rendered.Text, "Observers") || !strings.Contains(rendered.Text, "- kubernetes.context") || !strings.Contains(rendered.Text, "applied reactions: 1") || !strings.Contains(rendered.Text, "signal=integration.available:kubernetes") {
 		t.Fatalf("rendered text = %q, want readable env explain summary", rendered.Text)
 	}
 	data, ok := rendered.Data.(envExplainData)
@@ -2302,6 +2308,9 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	}
 	if data.AppliedReactions != 1 || len(data.Active.ContextProviders) != 1 || data.Active.ContextProviders[0] != "kubernetes.context" {
 		t.Fatalf("active = %#v applied=%d, want active context provider", data.Active, data.AppliedReactions)
+	}
+	if len(data.Applied) != 1 || data.Applied[0].Signal != "integration.available" || data.Applied[0].SignalTarget != "kubernetes" || len(data.Applied[0].ObservationIDs) != 1 {
+		t.Fatalf("applied = %#v, want causal signal and observation IDs", data.Applied)
 	}
 }
 
