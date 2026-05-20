@@ -1244,7 +1244,6 @@ type AccessDoc struct {
 type agentDoc struct {
 	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string   `json:"name" yaml:"name"`
-	Extends     []string `json:"extends,omitempty" yaml:"extends,omitempty"`
 	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
 	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
@@ -1322,12 +1321,6 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 				StopCondition:    raw.Turns.Continuation.StopCondition.Spec(),
 			},
 		},
-	}
-	for _, name := range raw.Extends {
-		name = strings.TrimSpace(name)
-		if name != "" {
-			spec.Extends = append(spec.Extends, agent.Ref{Name: agent.Name(name)})
-		}
 	}
 	for _, name := range raw.Operations {
 		name = strings.TrimSpace(name)
