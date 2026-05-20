@@ -100,6 +100,34 @@ func TestShellHeaderKeepsTitleReadableInNarrowGhosttyLayout(t *testing.T) {
 	}
 }
 
+func TestShellHeaderRendersCompactTabBar(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.CWD = "/workspace/main"
+	if _, err := m.shell.NewTab(context.Background(), "/workspace/other"); err != nil {
+		t.Fatalf("NewTab() error = %v", err)
+	}
+	active := m.shell.ActiveTab()
+	if active == nil {
+		t.Fatal("active tab after NewTab is nil")
+	}
+	active.InputMode = InputModeShell
+	active.CWD = "/workspace/other"
+
+	header := m.renderHeader(120)
+	for _, want := range []string{"coder shell", "tabs", "1:?", "2:$", "other"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("header missing compact tab item %q:\n%s", want, header)
+		}
+	}
+	if strings.Contains(header, " coder shell ") {
+		t.Fatalf("header title still has padded label:\n%s", header)
+	}
+}
+
 func TestShellPromptSeparatesInputFromFooter(t *testing.T) {
 	m := viewportTestModel()
 	tab := m.shell.ActiveTab()
@@ -125,7 +153,7 @@ func TestShellPromptSeparatesInputFromFooter(t *testing.T) {
 	}
 }
 
-func TestShellPromptShowsEmptyInputPlaceholder(t *testing.T) {
+func TestShellPromptOmitsEmptyInputPlaceholder(t *testing.T) {
 	m := viewportTestModel()
 	tab := m.shell.ActiveTab()
 	if tab == nil {
@@ -134,14 +162,14 @@ func TestShellPromptShowsEmptyInputPlaceholder(t *testing.T) {
 
 	tab.InputMode = InputModeAsk
 	askPrompt := m.renderPrompt(100)
-	if !strings.Contains(askPrompt, "Ask the agent...") {
-		t.Fatalf("ask prompt missing placeholder:\n%s", askPrompt)
+	if strings.Contains(askPrompt, "Ask the agent...") {
+		t.Fatalf("ask prompt includes removed placeholder:\n%s", askPrompt)
 	}
 
 	tab.InputMode = InputModeShell
 	shellPrompt := m.renderPrompt(100)
-	if !strings.Contains(shellPrompt, "Run a shell command...") {
-		t.Fatalf("shell prompt missing placeholder:\n%s", shellPrompt)
+	if strings.Contains(shellPrompt, "Run a shell command...") {
+		t.Fatalf("shell prompt includes removed placeholder:\n%s", shellPrompt)
 	}
 }
 
@@ -395,6 +423,81 @@ func TestShellSlashCommandCompletionInsertsMultiSegmentCommand(t *testing.T) {
 	}
 }
 
+func TestShellCompletionPickerEnterAcceptsSelection(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.InputBuffer = "/env"
+	refreshMentionSync(&m)
+	found := false
+	for i, result := range m.mention.Results {
+		if result.Label == "/env explain" {
+			m.mention.Index = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("results = %#v, missing /env explain", m.mention.Results)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.mention.Open {
+		t.Fatalf("completion remains open after enter accept: %#v", m.mention)
+	}
+	if tab.InputBuffer != "/env explain " {
+		t.Fatalf("input = %q, want /env explain ", tab.InputBuffer)
+	}
+}
+
+func TestShellCompletionPickerBoundsVisibleRows(t *testing.T) {
+	m := viewportTestModel()
+	m.mention = MentionState{Open: true, Kind: completionMention, Results: make([]ResourceSearchResult, 14), Index: 10}
+	for i := range m.mention.Results {
+		m.mention.Results[i] = ResourceSearchResult{Kind: ResourceFile, Label: fmt.Sprintf("file-%02d", i)}
+	}
+
+	picker := m.renderMentionPicker(80)
+	for _, want := range []string{"… 6 earlier", "file-10", "… 0"} {
+		if want == "… 0" {
+			continue
+		}
+		if !strings.Contains(picker, want) {
+			t.Fatalf("picker missing bounded row marker %q:\n%s", want, picker)
+		}
+	}
+	if strings.Contains(picker, "file-00") {
+		t.Fatalf("picker rendered unbounded off-screen row:\n%s", picker)
+	}
+}
+
+func TestShellTimelineRendersCompactToolStatus(t *testing.T) {
+	started := renderTimelineLine("op: filesystem.read {\"path\":\"README.md\"}", 100)
+	completed := renderTimelineLine("op-done: filesystem.read status=ok", 100)
+	process := renderTimelineLine("proc: proc-1", 100)
+	for _, tt := range []struct {
+		name string
+		line string
+		want []string
+	}{
+		{name: "started", line: started, want: []string{"run", "filesystem.read", "README.md"}},
+		{name: "completed", line: completed, want: []string{"done", "filesystem.read", "status=ok"}},
+		{name: "process", line: process, want: []string{"proc", "proc-1"}},
+	} {
+		for _, want := range tt.want {
+			if !strings.Contains(tt.line, want) {
+				t.Fatalf("%s tool line missing %q: %q", tt.name, want, tt.line)
+			}
+		}
+	}
+	for _, forbidden := range []string{"● filesystem.read", "process proc-1"} {
+		if strings.Contains(started+completed+process, forbidden) {
+			t.Fatalf("tool display still contains old chrome %q", forbidden)
+		}
+	}
+}
 func TestShellSlashOptionCompletionInsertsFlag(t *testing.T) {
 	m := viewportTestModel()
 	tab := m.shell.ActiveTab()

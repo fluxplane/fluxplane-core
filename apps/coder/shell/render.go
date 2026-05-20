@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	pageStyle = lipgloss.NewStyle()
+	pageStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#F8F8F2")).Background(lipgloss.Color("#272822"))
 
 	monokaiForeground = lipgloss.Color("#F8F8F2")
 	monokaiBackground = lipgloss.Color("#272822")
@@ -31,34 +31,41 @@ var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(monokaiBackground).
-			Background(monokaiPink).
-			Padding(0, 1)
+			Background(monokaiPink)
 
-	subtleStyle = lipgloss.NewStyle().Foreground(monokaiMuted)
-	mutedStyle  = lipgloss.NewStyle().Foreground(monokaiComment)
-	valueStyle  = lipgloss.NewStyle().Foreground(monokaiForeground)
-	accentStyle = lipgloss.NewStyle().Foreground(monokaiPurple).Bold(true)
-	askStyle    = lipgloss.NewStyle().Foreground(monokaiCyan).Bold(true)
-	okStyle     = lipgloss.NewStyle().Foreground(monokaiGreen)
-	warnStyle   = lipgloss.NewStyle().Foreground(monokaiOrange)
+	subtleStyle      = lipgloss.NewStyle().Foreground(monokaiMuted)
+	mutedStyle       = lipgloss.NewStyle().Foreground(monokaiComment)
+	valueStyle       = lipgloss.NewStyle().Foreground(monokaiForeground)
+	accentStyle      = lipgloss.NewStyle().Foreground(monokaiPurple).Bold(true)
+	askStyle         = lipgloss.NewStyle().Foreground(monokaiCyan).Bold(true)
+	okStyle          = lipgloss.NewStyle().Foreground(monokaiGreen)
+	warnStyle        = lipgloss.NewStyle().Foreground(monokaiOrange)
+	runningToolStyle = lipgloss.NewStyle().Foreground(monokaiCyan).Bold(true)
 
 	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(monokaiSurface).
-			Padding(0, 1)
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(monokaiSurface)
 
-	chipStyle = lipgloss.NewStyle().
-			Foreground(monokaiYellow).
-			Padding(0, 1)
+	chipStyle = lipgloss.NewStyle().Foreground(monokaiYellow)
+
+	inactiveTabStyle = lipgloss.NewStyle().
+				Foreground(monokaiMuted).
+				Background(monokaiSurface)
+	activeTabStyle = lipgloss.NewStyle().
+			Foreground(monokaiBackground).
+			Background(monokaiGreen).
+			Bold(true)
+	selectedRowStyle = lipgloss.NewStyle().
+				Foreground(monokaiForeground).
+				Background(monokaiSurface)
 
 	promptBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(monokaiSurface).
-			Padding(0, 1)
+			BorderForeground(monokaiSurface)
 	promptStyle = lipgloss.NewStyle().Foreground(monokaiGreen).Bold(true)
 	inputStyle  = lipgloss.NewStyle().Foreground(monokaiForeground)
 	cursorStyle = lipgloss.NewStyle().Foreground(monokaiBackground).Background(monokaiYellow)
-	footerStyle = lipgloss.NewStyle().Foreground(monokaiMuted).Padding(0, 1)
+	footerStyle = lipgloss.NewStyle().Foreground(monokaiMuted)
 )
 
 func (m model) View() tea.View {
@@ -84,7 +91,7 @@ func (m model) renderHeader(width int) string {
 	if project == "" {
 		project = "workspace"
 	}
-	title := titleStyle.Render(" coder shell ")
+	title := titleStyle.Render("coder shell")
 	rightParts := []string{}
 	if model := m.modelSummary(); model != "" {
 		rightParts = append(rightParts, metaItem("model", model))
@@ -105,7 +112,12 @@ func (m model) renderHeader(width int) string {
 			projectParts = append(projectParts, mutedStyle.Render(truncateStyled(module, moduleWidth)))
 		}
 	}
-	lines = append(lines, fitParts(width, projectParts, mutedStyle.Render("  ")))
+	projectLine := fitParts(width, projectParts, mutedStyle.Render("  "))
+	if tabBar := m.renderTabBar(width - lipgloss.Width(projectLine) - 1); tabBar != "" {
+		lines = append(lines, alignLine(projectLine, tabBar, width))
+	} else {
+		lines = append(lines, projectLine)
+	}
 
 	if locationLine := m.renderLocationLine(width); locationLine != "" {
 		lines = append(lines, locationLine)
@@ -166,6 +178,53 @@ func (m model) tabSummary() string {
 		return ""
 	}
 	return fmt.Sprintf("%d/%d", m.shell.ActiveIndex()+1, len(m.shell.tabs))
+}
+
+func (m model) renderTabBar(width int) string {
+	if m.shell == nil || len(m.shell.tabs) == 0 || width < 10 {
+		return ""
+	}
+	active := m.shell.ActiveIndex()
+	parts := make([]string, 0, len(m.shell.tabs))
+	for i, tab := range m.shell.tabs {
+		parts = append(parts, m.renderTabChip(i, tab, i == active))
+	}
+	prefix := subtleStyle.Render("tabs ")
+	line := prefix + strings.Join(parts, " ")
+	if lipgloss.Width(line) <= width {
+		return line
+	}
+	if active >= 0 && active < len(parts) {
+		hidden := len(parts) - 1
+		line = prefix + parts[active]
+		if hidden > 0 {
+			line += " " + mutedStyle.Render(fmt.Sprintf("+%d", hidden))
+		}
+		if lipgloss.Width(line) <= width {
+			return line
+		}
+	}
+	return subtleStyle.Render("tabs ") + valueStyle.Render(m.tabSummary())
+}
+
+func (m model) renderTabChip(index int, tab TabSession, active bool) string {
+	mode := "?"
+	if tab.InputMode == InputModeShell {
+		mode = "$"
+	}
+	label := fmt.Sprintf("%d:%s", index+1, mode)
+	if active {
+		if cwd := shortPath(tab.CWD); cwd != "" && cwd != "." {
+			label += " " + cwd
+		}
+	}
+	if m.activeRuns[tab.ID] != "" {
+		label += " ●"
+	}
+	if active {
+		return activeTabStyle.Render(" " + label + " ")
+	}
+	return inactiveTabStyle.Render(" " + label + " ")
 }
 
 type observedFact struct {
@@ -385,6 +444,10 @@ func (m model) renderMentionPicker(width int) string {
 	if !m.mention.Open {
 		return ""
 	}
+	innerWidth := width - 2
+	if innerWidth < 1 {
+		innerWidth = width
+	}
 	header := "@ resources"
 	switch m.mention.Kind {
 	case completionCommand:
@@ -397,7 +460,7 @@ func (m model) renderMentionPicker(width int) string {
 		headerLine += " " + valueStyle.Render(query)
 	}
 	if summary := mentionPickerSummary(m.mention); summary != "" {
-		headerLine = alignLine(headerLine, subtleStyle.Render(summary), width-4)
+		headerLine = alignLine(headerLine, subtleStyle.Render(summary), innerWidth)
 	}
 	lines := []string{headerLine}
 	if m.mention.Loading {
@@ -405,7 +468,12 @@ func (m model) renderMentionPicker(width int) string {
 	} else if len(m.mention.Results) == 0 {
 		lines = append(lines, mutedStyle.Render("no results"))
 	}
-	for i, result := range m.mention.Results {
+	start, end := visibleMentionRange(m.mention, 8)
+	if start > 0 {
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("… %d earlier", start)))
+	}
+	for i := start; i < end; i++ {
+		result := m.mention.Results[i]
 		prefix := "  "
 		style := valueStyle
 		if i == m.mention.Index {
@@ -424,15 +492,52 @@ func (m model) renderMentionPicker(width int) string {
 		if m.mention.Kind == completionCommand || m.mention.Kind == completionOption {
 			kindPrefix = ""
 		}
-		lines = append(lines, prefix+kindPrefix+style.Render(icon+result.Label)+detail)
+		row := prefix + kindPrefix + style.Render(icon+result.Label) + detail
+		if i == m.mention.Index {
+			row = selectedRowStyle.Width(innerWidth).Render(row)
+		}
+		lines = append(lines, row)
+	}
+	if end < len(m.mention.Results) {
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("… %d more", len(m.mention.Results)-end)))
 	}
 	if result, ok := m.mention.activeResult(); ok {
 		if detail := firstNonEmptyString(result.Description, result.Detail, result.URI); detail != "" {
-			lines = append(lines, subtleStyle.Render("info ")+valueStyle.Render(truncateStyled(detail, width-8)))
+			lines = append(lines, subtleStyle.Render("info ")+valueStyle.Render(truncateStyled(detail, innerWidth-5)))
 		}
 	}
-	lines = append(lines, mutedStyle.Render("tab accept · ↑↓ select · esc close"))
+	lines = append(lines, mutedStyle.Render("tab accept · enter accept · ↑↓ select · esc close"))
 	return panelStyle.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func visibleMentionRange(state MentionState, limit int) (int, int) {
+	count := len(state.Results)
+	if count == 0 {
+		return 0, 0
+	}
+	if limit <= 0 || count <= limit {
+		return 0, count
+	}
+	index := state.Index
+	if index < 0 {
+		index = 0
+	}
+	if index >= count {
+		index = count - 1
+	}
+	start := index - limit/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + limit
+	if end > count {
+		end = count
+		start = end - limit
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start, end
 }
 
 func mentionPickerSummary(state MentionState) string {
@@ -487,11 +592,11 @@ func renderTimelineLineWithCache(line string, width int, markdownCache map[timel
 	case strings.HasPrefix(line, "thinking:"):
 		return renderTimelineMarkdownCached("… ", subtleStyle, strings.TrimSpace(strings.TrimPrefix(line, "thinking:")), width, markdownCache)
 	case strings.HasPrefix(line, "op:"):
-		return accentStyle.Render("● ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "op:")))
+		return renderToolLine("run", "⚙ ", runningToolStyle, strings.TrimSpace(strings.TrimPrefix(line, "op:")))
 	case strings.HasPrefix(line, "op-done:"):
-		return okStyle.Render("✓ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "op-done:")))
+		return renderToolLine("done", "✓ ", okStyle, strings.TrimSpace(strings.TrimPrefix(line, "op-done:")))
 	case strings.HasPrefix(line, "proc:"):
-		return subtleStyle.Render("process ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "proc:")))
+		return renderToolLine("proc", "⏵ ", subtleStyle, strings.TrimSpace(strings.TrimPrefix(line, "proc:")))
 	case strings.HasPrefix(line, "proc-out:"):
 		return subtleStyle.Render("│ ") + valueStyle.Render(strings.TrimSpace(strings.TrimPrefix(line, "proc-out:")))
 	case strings.HasPrefix(line, "raw:"):
@@ -517,6 +622,34 @@ func renderTimelineLineWithCache(line string, width int, markdownCache map[timel
 	default:
 		return subtleStyle.Render("· ") + valueStyle.Render(line)
 	}
+}
+
+func renderToolLine(label, marker string, markerStyle lipgloss.Style, summary string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return markerStyle.Render(marker) + subtleStyle.Render(label)
+	}
+	name, detail := splitToolSummary(summary)
+	left := markerStyle.Render(marker) + subtleStyle.Render(label+" ") + accentStyle.Render(name)
+	if detail == "" {
+		return left
+	}
+	return left + subtleStyle.Render(" ┊ ") + valueStyle.Render(detail)
+}
+
+func splitToolSummary(summary string) (string, string) {
+	fields := strings.Fields(summary)
+	if len(fields) == 0 {
+		return "tool", ""
+	}
+	if len(fields) >= 3 && fields[0] == "tool" && fields[1] == "call" {
+		return fields[2], strings.Join(fields[3:], " ")
+	}
+	name := fields[0]
+	if len(fields) == 1 {
+		return name, ""
+	}
+	return name, strings.TrimSpace(strings.TrimPrefix(summary, name))
 }
 
 func renderTimelineMarkdownCached(marker string, markerStyle lipgloss.Style, text string, width int, cache map[timelineCacheKey]string) string {
@@ -602,19 +735,12 @@ func (m model) renderPrompt(width int) string {
 		if tab.InputMode == InputModeAsk {
 			marker = "🤖 "
 		}
-		input = renderInputWithCursor(tab, promptPlaceholder(mode))
+		input = renderInputWithCursor(tab)
 	}
 	prompt := promptStyle.Render(marker) + input
 	box := promptBoxStyle.Width(width).Render(prompt)
 	footer := footerStyle.Width(width).Render(m.promptFooter(mode, width, editing))
 	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
-}
-
-func promptPlaceholder(mode InputMode) string {
-	if mode == InputModeAsk {
-		return "Ask the agent..."
-	}
-	return "Run a shell command..."
 }
 
 func (m model) promptFooter(mode InputMode, width int, editing bool) string {
@@ -640,18 +766,14 @@ func (m model) promptFooter(mode InputMode, width int, editing bool) string {
 	return subtleStyle.Render(usage)
 }
 
-func renderInputWithCursor(tab *TabSession, placeholder string) string {
+func renderInputWithCursor(tab *TabSession) string {
 	if tab == nil {
 		return cursorStyle.Render(" ")
 	}
 	runes := []rune(tab.InputBuffer)
 	cursor := tab.inputCursor()
 	if len(runes) == 0 {
-		placeholder = strings.TrimSpace(placeholder)
-		if placeholder == "" {
-			return cursorStyle.Render(" ")
-		}
-		return mutedStyle.Render(placeholder) + cursorStyle.Render(" ")
+		return cursorStyle.Render(" ")
 	}
 	if cursor >= len(runes) {
 		return inputStyle.Render(tab.InputBuffer) + cursorStyle.Render(" ")

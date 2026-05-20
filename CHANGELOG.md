@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added coder shell line-editing affordances for word jumps, word deletion,
   delete-under-cursor, kill-to-end, visible edit shortcuts, and quieter empty
   submits.
+- Refined coder shell UI with lower-padding Monokai styling, removed empty
+  input placeholders, added a compact tab strip, bounded completion selector
+  rows with enter-to-accept, and clearer tool/process execution status lines.
 - Expanded `/env/explain` to show current observations, derived assertions, and
   matching reaction actions in addition to configured observers and active
   session state.

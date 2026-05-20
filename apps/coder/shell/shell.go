@@ -451,6 +451,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.shell.DeleteInputPreviousWord()
 			return m, m.queueMentionRefresh()
 		case key.Code == tea.KeyEnter || key.Code == tea.KeyReturn:
+			if m.acceptMentionSelection() {
+				m.syncTimelineViewport(true)
+				return m, nil
+			}
 			m.clearMention()
 			if cmd := m.submitActiveInputAsync(); cmd != nil {
 				m.syncTimelineViewport(true)
@@ -477,43 +481,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Code == tea.KeyTab:
-			if result, ok := m.mention.activeResult(); ok {
-				tab := m.shell.ActiveTab()
-				if tab != nil {
-					switch m.mention.Kind {
-					case completionCommand:
-						tab.InputBuffer = replaceCommandFragment(tab.InputBuffer, result)
-						tab.InputCursor = len([]rune(tab.InputBuffer))
-					case completionOption:
-						tab.InputBuffer = replaceOptionFragment(tab.InputBuffer, result)
-						tab.InputCursor = len([]rune(tab.InputBuffer))
-					default:
-						tab.InputBuffer = replaceMentionFragment(tab.InputBuffer, result)
-						tab.InputCursor = len([]rune(tab.InputBuffer))
-						tab.Mentions = append(tab.Mentions, ResourceMention{
-							Kind:       result.Kind,
-							ID:         result.ID,
-							Label:      result.Label,
-							URI:        result.URI,
-							InsertText: result.InsertText,
-							Metadata:   result.Metadata,
-						})
-						tab.Transcript = append(tab.Transcript, TranscriptEvent{
-							ID:        newEventID("mention"),
-							SessionID: tab.ID,
-							Time:      time.Now(),
-							Kind:      EventResourceMentioned,
-							Summary:   string(result.Kind) + ": " + result.Label,
-						})
-					}
-				}
-				m.clearMention()
+			if m.acceptMentionSelection() {
 				m.syncTimelineViewport(true)
 			}
 			return m, nil
 		}
 	}
 	return m, nil
+}
+
+func (m *model) acceptMentionSelection() bool {
+	if m == nil || m.shell == nil {
+		return false
+	}
+	result, ok := m.mention.activeResult()
+	if !ok {
+		return false
+	}
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		m.clearMention()
+		return false
+	}
+	switch m.mention.Kind {
+	case completionCommand:
+		tab.InputBuffer = replaceCommandFragment(tab.InputBuffer, result)
+		tab.InputCursor = len([]rune(tab.InputBuffer))
+	case completionOption:
+		tab.InputBuffer = replaceOptionFragment(tab.InputBuffer, result)
+		tab.InputCursor = len([]rune(tab.InputBuffer))
+	default:
+		tab.InputBuffer = replaceMentionFragment(tab.InputBuffer, result)
+		tab.InputCursor = len([]rune(tab.InputBuffer))
+		tab.Mentions = append(tab.Mentions, ResourceMention{
+			Kind:       result.Kind,
+			ID:         result.ID,
+			Label:      result.Label,
+			URI:        result.URI,
+			InsertText: result.InsertText,
+			Metadata:   result.Metadata,
+		})
+		tab.Transcript = append(tab.Transcript, TranscriptEvent{
+			ID:        newEventID("mention"),
+			SessionID: tab.ID,
+			Time:      time.Now(),
+			Kind:      EventResourceMentioned,
+			Summary:   string(result.Kind) + ": " + result.Label,
+		})
+	}
+	m.clearMention()
+	return true
 }
 
 func (m *model) submitActiveInputAsync() tea.Cmd {
@@ -542,6 +559,7 @@ func (m *model) submitActiveInputAsync() tea.Cmd {
 	m.activeRunKinds[submission.sessionID] = submission.start.Kind
 	m.activeRunKeys[submission.sessionID] = submission.runKey
 	m.activeCancels[submission.sessionID] = cancel
+
 	if streaming, ok := client.(StreamingShellClient); ok {
 		streamHandle, err := submission.stream(runCtx, streaming)
 		if err == nil {
