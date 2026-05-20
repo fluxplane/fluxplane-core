@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a sanitized `kubernetes.cluster` datasource entity for discovering
+  configured Kubernetes contexts and cluster targets without exposing kubeconfig
+  credentials.
+- Exposed the existing `file_delete` filesystem operation to coder's projected
+  tool surface alongside `file_create` and `file_edit` by treating plain delete
+  effects as approval-free medium-risk operations while keeping destructive and
+  irreversible effects approval-gated.
+
 
 - Enabled the GitLab plugin by default in the embedded coder app so GitLab
   datasource access and merge request operations are available automatically.
@@ -238,6 +246,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added coder shell slash-command completion backed by the session command
   dispatcher's available command specs, including built-in command flags.
 
+- Added per-tab coder shell input history that restores both submitted text and
+  input mode when navigating with Up/Down.
+
+### Removed
+
+- Removed the unused declarative agent agency profile from agent specs, SDK
+  builders, app bundles, and distribution describe output.
+
 ### Fixed
 - Batched datasource field-index and data-store writes during corpus indexing
   and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.
@@ -250,6 +266,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shell_info` operations no longer panic when resolving available shells.
 
 - Filtered leaked mouse scroll escape packets from coder shell prompt input.
+
+- Kept coder shell slash commands routed through command dispatch even when the
+  prompt is in agent/ask mode.
+
+- Prevented unhandled Alt-modified key events from writing modifier text into
+  the coder shell prompt.
+
+- Stripped leaked terminal modifier artifacts such as `+alt` from coder shell
+  prompt input when terminals emit them as literal text during mouse bursts.
+
+- Upgraded the coder shell TUI to Bubble Tea v2 event handling so printable
+  input is accepted through `Key.Text` while mouse wheel events are routed as
+  mouse messages instead of prompt text.
+
+- Added cursor-aware coder shell prompt editing with Home/End and left/right
+  navigation, and limited `!`/`?` mode-switch markers to the cursor-at-start
+  position so recalled history can be retargeted without editing the text.
 
 - Fixed prompt-target slash commands so they project the same model-visible tools
   as normal session input before re-entering the input execution path.

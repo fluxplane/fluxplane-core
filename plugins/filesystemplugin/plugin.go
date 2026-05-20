@@ -125,7 +125,7 @@ func specs() []operation.Spec {
 		spec[fileReadInput, operation.Rendered](FileReadOp, "Read a bounded workspace file with optional line ranges.", operation.EffectFilesystem, operation.EffectReadExternal),
 		spec[fileCreateInput, operation.Rendered](FileCreateOp, "Create or overwrite a workspace file, creating parent directories.", operation.EffectFilesystem, operation.EffectCreate, operation.EffectWriteExternal),
 		fileEditSpec(),
-		spec[pathInput, operation.Rendered](FileDeleteOp, "Delete one workspace file or empty directory.", operation.EffectFilesystem, operation.EffectDelete, operation.EffectWriteExternal, operation.EffectDestructive),
+		spec[pathInput, operation.Rendered](FileDeleteOp, "Delete one workspace file or empty directory.", operation.EffectFilesystem, operation.EffectDelete, operation.EffectWriteExternal),
 		spec[pathInput, operation.Rendered](FileStatOp, "Stat one workspace path.", operation.EffectFilesystem, operation.EffectReadExternal),
 		spec[copyMoveInput, operation.Rendered](FileCopyOp, "Copy one workspace file to another path.", operation.EffectFilesystem, operation.EffectCreate, operation.EffectWriteExternal),
 		spec[copyMoveInput, operation.Rendered](FileMoveOp, "Move one workspace file to another path.", operation.EffectFilesystem, operation.EffectUpdate, operation.EffectWriteExternal),
@@ -137,11 +137,11 @@ func specs() []operation.Spec {
 func spec[I, O any](name, description string, effects ...operation.Effect) operation.Spec {
 	risk := operation.RiskLow
 	for _, effect := range effects {
-		if effect == operation.EffectDelete || effect == operation.EffectDestructive {
+		if effect == operation.EffectDestructive || effect == operation.EffectIrreversible {
 			risk = operation.RiskHigh
 			break
 		}
-		if effect == operation.EffectWriteExternal {
+		if effect == operation.EffectWriteExternal || effect == operation.EffectDelete {
 			risk = operation.RiskMedium
 		}
 	}

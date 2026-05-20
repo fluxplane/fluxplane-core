@@ -376,8 +376,7 @@ func requiresApproval(semantics operation.Semantics) bool {
 	return semantics.Risk == operation.RiskHigh ||
 		semantics.Risk == operation.RiskCritical ||
 		semantics.Effects.Has(operation.EffectDestructive) ||
-		semantics.Effects.Has(operation.EffectIrreversible) ||
-		semantics.Effects.Has(operation.EffectDelete)
+		semantics.Effects.Has(operation.EffectIrreversible)
 }
 
 func riskAllowed(actual, max operation.RiskLevel) bool {
