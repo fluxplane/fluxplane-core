@@ -2,6 +2,7 @@ package kubernetesplugin
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"os"
@@ -171,7 +172,13 @@ func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
 		response: system.HTTPResponse{StatusCode: http.StatusOK, Body: []byte("ok")},
 	}
 	plugin := New(fakeSystem{MemorySystem: systemtest.NewMemory(), network: network})
-	client, err := plugin.httpClientForRestConfig(&rest.Config{Host: "https://cluster.example", BearerToken: "token"})
+	client, err := plugin.httpClientForRestConfig(&rest.Config{
+		Host:        "https://cluster.example",
+		BearerToken: "token",
+		TLSClientConfig: rest.TLSClientConfig{
+			ServerName: "kubernetes.example",
+		},
+	})
 	if err != nil {
 		t.Fatalf("httpClientForRestConfig: %v", err)
 	}
@@ -193,6 +200,15 @@ func TestKubernetesRestHTTPClientUsesSystemNetworkBoundary(t *testing.T) {
 	}
 	if req.Headers["Authorization"] != "Bearer token" {
 		t.Fatalf("authorization header = %q", req.Headers["Authorization"])
+	}
+	if req.TLSConfig == nil {
+		t.Fatalf("TLS config was not forwarded to system network")
+	}
+	if req.TLSConfig.ServerName != "kubernetes.example" {
+		t.Fatalf("TLS server name = %q, want kubernetes.example", req.TLSConfig.ServerName)
+	}
+	if req.TLSConfig.MinVersion < tls.VersionTLS12 {
+		t.Fatalf("TLS min version = %d, want at least TLS 1.2", req.TLSConfig.MinVersion)
 	}
 }
 

@@ -40,11 +40,13 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/confluenceplugin"
 	"github.com/fluxplane/agentruntime/plugins/connectorplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
+	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
@@ -408,6 +410,9 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
+	if composition.Discoverer != nil {
+		composition.Discoverer.Start(ctx)
+	}
 	localCaller := localUserCaller()
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
@@ -526,6 +531,7 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	return []pluginhost.Plugin{
 		workspaceplugin.New(hostSystem),
+		discoveryplugin.New(),
 		identityplugin.New(),
 		codingplugin.New(hostSystem),
 		openaiplugin.New(),
@@ -534,6 +540,7 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 		imageplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
 		confluenceplugin.New(hostSystem),
+		lokiplugin.New(hostSystem),
 		memoryplugin.New(),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),

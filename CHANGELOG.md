@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a first-slice Loki plugin with endpoint discovery, connection testing,
+  bounded LogQL query operations, recent-log helpers, and Loki datasource
+  entities.
+- Added shared endpoint discovery registries, Kubernetes-backed Loki endpoint
+  providers, and global discovery/endpoint introspection operations.
 - Added automatic semantic datasource context injection for allowed indexed
   datasource entities, including a datasource-facing memory bridge for semantic
   indexing and retrieval.
@@ -266,6 +271,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builders, app bundles, and distribution describe output.
 
 ### Fixed
+- Preserved kubeconfig TLS settings when Kubernetes datasource/discovery
+  requests pass through the runtime network boundary, avoiding spurious x509
+  failures against clusters with custom CAs.
+
 - Kept manual/background task scheduler worker registrations fresh while
   long-running worker steps execute so peer schedulers do not interrupt active
   tasks as expired workers.
@@ -277,6 +286,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retried OpenRouter GPT-5.5 Responses streams that fail before emitting model
   output and fall back to a non-streaming Responses call while preserving
   provider error details.
+- Persisted operation tool results before follow-up model turns so interrupted
+  Slack continuations do not replay assistant tool calls without matching tool
+  outputs.
 
 - Defaulted omitted memory operation access scopes to the current user, falling
   back to the current thread, so separate coder processes share local user

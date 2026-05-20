@@ -18,11 +18,13 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/awsplugin"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
+	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
+	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
@@ -174,6 +176,7 @@ func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		workspaceplugin.New(hostSystem),
+		discoveryplugin.New(),
 		identityplugin.New(),
 		codingplugin.New(hostSystem),
 		taskplugin.New(),
@@ -183,6 +186,7 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		dockerplugin.New(hostSystem),
 		gitlabplugin.New(hostSystem),
 		kubernetesplugin.New(hostSystem),
+		lokiplugin.New(hostSystem),
 		memoryplugin.New(),
 	}
 }

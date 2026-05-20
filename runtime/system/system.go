@@ -1041,6 +1041,7 @@ type HTTPRequest struct {
 	Timeout   time.Duration
 	MaxBytes  int
 	UserAgent string
+	TLSConfig *tls.Config
 }
 
 // HTTPResponse is the neutral response shape returned by Network.
@@ -1103,7 +1104,7 @@ func (n *HostNetwork) DoHTTP(ctx context.Context, req HTTPRequest) (HTTPResponse
 	retry := httptransport.DefaultRetryConfig()
 	retry.RetryNonIdempotent = false
 	client := &http.Client{
-		Transport: httptransport.NewDefaultTransportWithRetry(PublicNetworkTransport(n.allowPrivate), retry),
+		Transport: httptransport.NewDefaultTransportWithRetry(PublicNetworkTransportWithTLS(n.allowPrivate, req.TLSConfig), retry),
 		CheckRedirect: func(redirectReq *http.Request, _ []*http.Request) error {
 			return ValidatePublicURL(redirectReq.URL, n.allowPrivate)
 		},
@@ -1157,6 +1158,12 @@ func ValidatePublicURL(parsed *url.URL, allowPrivate bool) error {
 
 // PublicNetworkTransport returns a guarded HTTP transport.
 func PublicNetworkTransport(allowPrivate bool) http.RoundTripper {
+	return PublicNetworkTransportWithTLS(allowPrivate, nil)
+}
+
+// PublicNetworkTransportWithTLS returns a guarded HTTP transport with optional
+// caller-provided TLS settings.
+func PublicNetworkTransportWithTLS(allowPrivate bool, cfg *tls.Config) http.RoundTripper {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -1170,8 +1177,19 @@ func PublicNetworkTransport(allowPrivate bool) http.RoundTripper {
 			}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		},
-		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSClientConfig: secureTLSConfig(cfg),
 	}
+}
+
+func secureTLSConfig(cfg *tls.Config) *tls.Config {
+	if cfg == nil {
+		return &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	out := cfg.Clone()
+	if out.MinVersion == 0 || out.MinVersion < tls.VersionTLS12 {
+		out.MinVersion = tls.VersionTLS12
+	}
+	return out
 }
 
 func resolvePublicIP(ctx context.Context, host string, allowPrivate bool) (net.IP, error) {

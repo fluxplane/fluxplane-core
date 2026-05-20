@@ -18,12 +18,14 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codeplugin"
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
+	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
 	"github.com/fluxplane/agentruntime/plugins/dockerplugin"
 	"github.com/fluxplane/agentruntime/plugins/gitlabplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
+	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
@@ -41,11 +43,17 @@ func TestBundleComposes(t *testing.T) {
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, kubernetesplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", kubernetesplugin.Name)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, discoveryplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", discoveryplugin.Name)
+	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, dockerplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", dockerplugin.Name)
 	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlabplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", gitlabplugin.Name)
+	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, lokiplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", lokiplugin.Name)
 	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, memoryplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", memoryplugin.Name)
@@ -53,18 +61,24 @@ func TestBundleComposes(t *testing.T) {
 	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), discoveryplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", discoveryplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), dockerplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", dockerplugin.Name)
 	}
 	if !pluginListContains(localPlugins(sys), gitlabplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", gitlabplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), lokiplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", lokiplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), memoryplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", memoryplugin.Name)
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), memoryplugin.New()},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), memoryplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -75,8 +89,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 102 {
-		t.Fatalf("operation specs len = %d, want 102", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 111 {
+		t.Fatalf("operation specs len = %d, want 111", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)

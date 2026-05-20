@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -140,6 +141,7 @@ var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.SignalDeriverContributor = Plugin{}
+var _ pluginhost.DiscoveryProviderContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys}
@@ -192,6 +194,10 @@ func (p Plugin) EnvironmentObservers(context.Context, pluginhost.Context) ([]run
 
 func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvironment.SignalDeriver, error) {
 	return []runtimeenvironment.SignalDeriver{kubernetesSignalDeriver{}}, nil
+}
+
+func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]runtimediscovery.Provider, error) {
+	return []runtimediscovery.Provider{kubernetesEndpointDiscoveryProvider{plugin: p}}, nil
 }
 
 func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {
@@ -517,7 +523,16 @@ func (p Plugin) httpClientForRestConfig(cfg *rest.Config) (*http.Client, error) 
 	if p.system == nil || p.system.Network() == nil {
 		return client, nil
 	}
-	boundaryTransport := system.NewRoundTripper(p.system.Network(), system.WithHTTPClientTimeout(30*time.Second), system.WithHTTPClientMaxBytes(10*1024*1024))
+	tlsConfig, err := rest.TLSConfigFor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	boundaryTransport := system.NewRoundTripper(
+		p.system.Network(),
+		system.WithHTTPClientTimeout(30*time.Second),
+		system.WithHTTPClientMaxBytes(10*1024*1024),
+		system.WithHTTPClientTLSConfig(tlsConfig),
+	)
 	wrappedTransport, err := rest.HTTPWrappersForConfig(cfg, boundaryTransport)
 	if err != nil {
 		return nil, err

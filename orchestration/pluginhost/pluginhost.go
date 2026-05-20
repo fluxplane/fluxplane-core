@@ -15,6 +15,8 @@ import (
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
+	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 )
 
@@ -27,10 +29,13 @@ type Manifest struct {
 
 // Context is passed to a plugin when resolving contributions.
 type Context struct {
-	Ref        resource.PluginRef `json:"ref"`
-	Config     any                `json:"-"`
-	EventStore event.Store        `json:"-"`
-	DataStore  coredata.Store     `json:"-"`
+	Ref        resource.PluginRef         `json:"ref"`
+	Config     any                        `json:"-"`
+	EventStore event.Store                `json:"-"`
+	DataStore  coredata.Store             `json:"-"`
+	Discovery  *runtimediscovery.Registry `json:"-"`
+	Discoverer *runtimediscovery.Runner   `json:"-"`
+	Endpoints  *runtimeendpoint.Registry  `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -93,6 +98,12 @@ type DatasourceProviderContributor interface {
 	DatasourceProviders(context.Context, Context) ([]coredatasource.Provider, error)
 }
 
+// DiscoveryProviderContributor is implemented by plugins that make endpoint
+// candidate discovery providers available to other plugins.
+type DiscoveryProviderContributor interface {
+	DiscoveryProviders(context.Context, Context) ([]runtimediscovery.Provider, error)
+}
+
 // AuthMethodContributor is implemented by plugins that declare supported
 // authentication methods without carrying credential values.
 type AuthMethodContributor interface {
@@ -132,6 +143,12 @@ type ConnectorProviderContribution struct {
 type DatasourceProviderContribution struct {
 	Source   resource.SourceRef
 	Provider coredatasource.Provider
+}
+
+// DiscoveryProviderContribution is one endpoint discovery provider.
+type DiscoveryProviderContribution struct {
+	Source   resource.SourceRef
+	Provider runtimediscovery.Provider
 }
 
 // ContextProviderContribution is one executable context provider contribution.
@@ -184,6 +201,7 @@ type Resolution struct {
 	Channels            []ChannelContribution
 	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
+	DiscoveryProviders  []DiscoveryProviderContribution
 	AuthMethods         []AuthMethodContribution
 	ExternalIdentities  []ExternalIdentityContribution
 }
@@ -193,6 +211,9 @@ type Host struct {
 	plugins    map[string]Plugin
 	eventStore event.Store
 	dataStore  coredata.Store
+	discovery  *runtimediscovery.Registry
+	discoverer *runtimediscovery.Runner
+	endpoints  *runtimeendpoint.Registry
 }
 
 // New returns a plugin host.
@@ -217,6 +238,27 @@ func (h *Host) SetEventStore(store event.Store) {
 func (h *Host) SetDataStore(store coredata.Store) {
 	if h != nil {
 		h.dataStore = store
+	}
+}
+
+// SetDiscoveryRegistry configures the shared endpoint discovery registry.
+func (h *Host) SetDiscoveryRegistry(registry *runtimediscovery.Registry) {
+	if h != nil {
+		h.discovery = registry
+	}
+}
+
+// SetDiscoveryRunner configures the shared endpoint discovery runner.
+func (h *Host) SetDiscoveryRunner(runner *runtimediscovery.Runner) {
+	if h != nil {
+		h.discoverer = runner
+	}
+}
+
+// SetEndpointRegistry configures the shared endpoint registry.
+func (h *Host) SetEndpointRegistry(registry *runtimeendpoint.Registry) {
+	if h != nil {
+		h.endpoints = registry
 	}
 }
 
@@ -251,6 +293,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	h.ensureSharedRegistries()
 	var out Resolution
 	for _, ref := range refs {
 		if ref.Name == "" {
@@ -260,7 +303,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		if !ok {
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", pluginLabel(ref))
 		}
-		pluginCtx := Context{Ref: ref, EventStore: h.eventStore, DataStore: h.dataStore}
+		pluginCtx := Context{Ref: ref, EventStore: h.eventStore, DataStore: h.dataStore, Discovery: h.discovery, Discoverer: h.discoverer, Endpoints: h.endpoints}
 		pluginCtx, err := PrepareContext(ctx, plugin, pluginCtx)
 		if err != nil {
 			return Resolution{}, fmt.Errorf("pluginhost: %w", err)
@@ -388,6 +431,26 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				})
 			}
 		}
+		if contributor, ok := resolvedPlugin.(DiscoveryProviderContributor); ok {
+			providers, err := contributor.DiscoveryProviders(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q discovery providers: %w", pluginLabel(ref), err)
+			}
+			for _, provider := range providers {
+				if provider == nil {
+					continue
+				}
+				out.DiscoveryProviders = append(out.DiscoveryProviders, DiscoveryProviderContribution{
+					Source:   source,
+					Provider: provider,
+				})
+				if h.discovery != nil {
+					if err := h.discovery.Register(provider); err != nil {
+						return Resolution{}, fmt.Errorf("pluginhost: plugin %q discovery provider: %w", pluginLabel(ref), err)
+					}
+				}
+			}
+		}
 		if contributor, ok := resolvedPlugin.(AuthMethodContributor); ok {
 			methods, err := contributor.AuthMethods(ctx, pluginCtx)
 			if err != nil {
@@ -420,6 +483,18 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		}
 	}
 	return out, nil
+}
+
+func (h *Host) ensureSharedRegistries() {
+	if h.discovery == nil {
+		h.discovery = runtimediscovery.NewRegistry()
+	}
+	if h.endpoints == nil {
+		h.endpoints = runtimeendpoint.NewRegistry(0)
+	}
+	if h.discoverer == nil {
+		h.discoverer = runtimediscovery.NewRunner(h.discovery, h.endpoints)
+	}
 }
 
 func pluginSource(ref resource.PluginRef) resource.SourceRef {

@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,8 +18,9 @@ const (
 type HTTPClientOption func(*httpClientConfig)
 
 type httpClientConfig struct {
-	timeout  time.Duration
-	maxBytes int
+	timeout   time.Duration
+	maxBytes  int
+	tlsConfig *tls.Config
 }
 
 func defaultHTTPClientConfig() httpClientConfig {
@@ -44,6 +46,16 @@ func WithHTTPClientMaxBytes(maxBytes int) HTTPClientOption {
 	return func(cfg *httpClientConfig) {
 		if maxBytes > 0 {
 			cfg.maxBytes = maxBytes
+		}
+	}
+}
+
+// WithHTTPClientTLSConfig sets the TLS configuration forwarded to the System
+// network boundary.
+func WithHTTPClientTLSConfig(tlsConfig *tls.Config) HTTPClientOption {
+	return func(cfg *httpClientConfig) {
+		if tlsConfig != nil {
+			cfg.tlsConfig = secureTLSConfig(tlsConfig)
 		}
 	}
 }
@@ -102,6 +114,7 @@ func (t networkRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		Timeout:   timeout,
 		MaxBytes:  t.cfg.maxBytes,
 		UserAgent: req.UserAgent(),
+		TLSConfig: t.cfg.tlsConfig,
 	})
 	if err != nil {
 		return nil, err

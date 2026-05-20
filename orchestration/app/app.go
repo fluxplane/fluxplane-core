@@ -21,6 +21,8 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
+	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
 	"github.com/fluxplane/agentruntime/runtime/eventstore"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
@@ -69,6 +71,9 @@ type Composition struct {
 	EventRegistry     *event.Registry
 	EventStore        event.Store
 	DataStore         coredata.Store
+	Discovery         *runtimediscovery.Registry
+	Discoverer        *runtimediscovery.Runner
+	Endpoints         *runtimeendpoint.Registry
 	Bundles           []resource.ContributionBundle
 	Diagnostics       []resource.Diagnostic
 }
@@ -81,7 +86,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginSignalDerivers, pluginReactions, pluginExternalIdentities, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
+	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginSignalDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -186,6 +191,9 @@ func Compose(cfg Config) (Composition, error) {
 		EventRegistry:        eventRegistry,
 		EventStore:           cfg.EventStore,
 		DataStore:            cfg.DataStore,
+		Discovery:            discoveryRegistry,
+		Discoverer:           discoverer,
+		Endpoints:            endpointRegistry,
 		Bundles:              bundles,
 		Diagnostics:          diagnostics,
 	}, nil
@@ -495,7 +503,7 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeenvironment.Observer, []runtimeenvironment.SignalDeriver, []reactionRuleBinding, []identity.ExternalResolver, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeenvironment.Observer, []runtimeenvironment.SignalDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
@@ -508,10 +516,16 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, err
+		return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, nil, nil, nil, diagnostics, err
 	}
+	discoveryRegistry := runtimediscovery.NewRegistry()
+	endpointRegistry := runtimeendpoint.NewRegistry(0)
+	discoverer := runtimediscovery.NewRunner(discoveryRegistry, endpointRegistry)
 	host.SetEventStore(eventStore)
 	host.SetDataStore(dataStore)
+	host.SetDiscoveryRegistry(discoveryRegistry)
+	host.SetEndpointRegistry(endpointRegistry)
+	host.SetDiscoveryRunner(discoverer)
 	for _, bundle := range bundles {
 		if len(bundle.Plugins) == 0 {
 			continue
@@ -519,7 +533,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, err
+			return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
@@ -542,7 +556,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 			externalIdentities = append(externalIdentities, resolver.Resolver)
 		}
 	}
-	return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, diagnostics, nil
+	return out, operations, contextProviders, datasourceProviders, observers, signalDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, diagnostics, nil
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {

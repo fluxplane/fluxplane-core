@@ -603,6 +603,30 @@ func TestHostNetworkRetriesIdempotentRequests(t *testing.T) {
 	}
 }
 
+func TestHostNetworkUsesRequestTLSConfig(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	transport, ok := server.Client().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("test client transport = %T, want *http.Transport", server.Client().Transport)
+	}
+	network := &HostNetwork{allowPrivate: true}
+	resp, err := network.DoHTTP(context.Background(), HTTPRequest{
+		URL:       server.URL,
+		Method:    http.MethodGet,
+		TLSConfig: transport.TLSClientConfig,
+	})
+	if err != nil {
+		t.Fatalf("DoHTTP: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
 func TestAuthorizedSystemEnforcesWorkspaceActions(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {

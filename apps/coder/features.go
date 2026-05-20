@@ -2,7 +2,9 @@ package coder
 
 import (
 	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/agentruntime/plugins/discoveryplugin"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
+	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
@@ -93,6 +95,8 @@ func FullLocalCodingFeature() FeatureSpec {
 			"file_read", "file_create", "file_edit", "file_delete", "file_stat", "file_copy", "file_move",
 			"glob", "grep",
 			"web_search", "web_request",
+			discoveryplugin.StatusOp, discoveryplugin.DiscoverOp, discoveryplugin.ProvidersOp, discoveryplugin.EndpointListOp, discoveryplugin.EndpointGetOp,
+			lokiplugin.TestOp, lokiplugin.LabelsOp, lokiplugin.QueryOp, lokiplugin.RecentLogsOp,
 			"datasource_search", "datasource_list", "datasource_get", "datasource_batch_get",
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
 			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",

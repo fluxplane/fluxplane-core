@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"strings"
@@ -57,6 +58,18 @@ func TestNewRoundTripperRoutesThroughNetwork(t *testing.T) {
 	}
 	if got := network.request.MaxBytes; got != 42 {
 		t.Fatalf("max bytes = %d, want 42", got)
+	}
+	tlsConfig := &tls.Config{ServerName: "example.com", MinVersion: tls.VersionTLS13}
+	resp2, err := NewRoundTripper(network, WithHTTPClientTLSConfig(tlsConfig)).RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip with TLS config: %v", err)
+	}
+	_ = resp2.Body.Close()
+	if network.request.TLSConfig == nil {
+		t.Fatalf("TLSConfig was not forwarded")
+	}
+	if network.request.TLSConfig.ServerName != "example.com" {
+		t.Fatalf("server name = %q, want example.com", network.request.TLSConfig.ServerName)
 	}
 	if resp.StatusCode != 201 {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
