@@ -160,15 +160,11 @@ func (c *DirectChannelClient) SubmitAskStream(ctx context.Context, sessionID str
 func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string, req SlashRequest) ([]TranscriptEvent, error) {
 	line := strings.TrimSpace(req.Line)
 	start := TranscriptEvent{ID: newEventID("slash"), SessionID: sessionID, Time: time.Now(), Kind: EventSlashSubmitted, Summary: line, Data: map[string]string{"cwd": req.CWD}}
-	invocation, err := parseSlashInvocation(line)
-	if err != nil {
-		return []TranscriptEvent{start}, err
-	}
 	handle, err := c.sessionHandle(sessionID)
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommandLine(line))
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -182,15 +178,11 @@ func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string,
 
 func (c *DirectChannelClient) SubmitSlashStream(ctx context.Context, sessionID string, req SlashRequest) (ShellRunStream, error) {
 	line := strings.TrimSpace(req.Line)
-	invocation, err := parseSlashInvocation(line)
-	if err != nil {
-		return ShellRunStream{}, err
-	}
 	handle, err := c.sessionHandle(sessionID)
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommand(invocation))
+	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommandLine(line))
 	if err != nil {
 		return ShellRunStream{}, err
 	}
@@ -563,17 +555,6 @@ func outputText(value any) string {
 		return rendered.ModelText()
 	}
 	return fmt.Sprint(value)
-}
-
-func parseSlashInvocation(line string) (command.Invocation, error) {
-	invocation, ok, err := command.ParseSlash(line)
-	if err != nil {
-		return command.Invocation{}, err
-	}
-	if !ok {
-		return command.Invocation{}, fmt.Errorf("slash command is empty")
-	}
-	return invocation, nil
 }
 
 func splitShellFields(line string) ([]string, error) {

@@ -353,6 +353,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Trust:        r.submission.Trust,
 			Kind:         channel.InboundCommand,
 			Command:      r.submission.Command,
+			CommandLine:  r.submission.CommandLine,
 		})
 		if err != nil {
 			r.fail(info, err)

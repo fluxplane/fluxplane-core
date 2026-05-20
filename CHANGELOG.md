@@ -260,6 +260,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builders, app bundles, and distribution describe output.
 
 ### Fixed
+- Fixed raw slash-command submissions so `coder --input '/task ...'`, terminal
+  one-shot turns, and coder shell `/task ...` input route through the session
+  command dispatcher and authorize the task helper session agent.
+
 - Defaulted omitted memory operation access scopes to the current user, falling
   back to the current thread, so separate coder processes share local user
   memory without reopening unscoped cross-scope reads.

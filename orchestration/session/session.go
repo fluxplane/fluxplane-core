@@ -1526,26 +1526,85 @@ func sortedNameBoolMapKeys[K ~string](values map[K]bool) []string {
 func (s Session) materializeContext(ctx context.Context, in innerTurnInput, pending []coreconversation.Item, observations []environment.Observation, active sessionenv.ActiveState) (corecontext.BuildResult, []coreconversation.Item, error) {
 	providers := s.contextProviders(active)
 	if len(providers) == 0 {
-		return corecontext.BuildResult{}, append([]coreconversation.Item(nil), pending...), nil
+		return corecontext.BuildResult{}, oneShotUserContextPending(in.Inbound, pending, corecontext.RenderTurn), nil
 	}
 	records, err := s.contextRenderRecords(ctx, in.LocalContextRecords)
 	if err != nil {
 		return corecontext.BuildResult{}, nil, err
 	}
 	renderCtx := s.contextProviderContext(in.BaseContext, observations, active)
+	reason := contextRenderReason(pending, observations)
 	result, err := sessionenv.BuildContext(providers, records, renderCtx, corecontext.BuildRequest{
-		ThreadID:     string(s.Thread.ID),
-		BranchID:     string(s.Thread.BranchID),
-		TurnID:       in.ConversationTurnID,
-		Reason:       contextRenderReason(pending, observations),
-		Scope:        contextRequestScope(in.Inbound),
-		Observations: append([]environment.Observation(nil), observations...),
-		Previous:     records,
+		ThreadID:      string(s.Thread.ID),
+		BranchID:      string(s.Thread.BranchID),
+		TurnID:        in.ConversationTurnID,
+		Reason:        reason,
+		InputText:     inboundInputText(in.Inbound),
+		RecentContext: recentContextExcerpt(derefItems(in.LocalTranscript), pending),
+		Scope:         contextRequestScope(in.Inbound),
+		Observations:  append([]environment.Observation(nil), observations...),
+		Previous:      records,
 	})
 	if err != nil {
 		return corecontext.BuildResult{}, nil, err
 	}
-	return result, contextPendingItems(in.ProviderIdentity, pending, result), nil
+	projected := contextPendingItems(in.ProviderIdentity, pending, result)
+	projected = oneShotUserContextPending(in.Inbound, projected, reason)
+	return result, projected, nil
+}
+
+const inboundUserContextMetadataKey = "user_context"
+
+func oneShotUserContextPending(inbound channel.Inbound, pending []coreconversation.Item, reason corecontext.RenderReason) []coreconversation.Item {
+	out := append([]coreconversation.Item(nil), pending...)
+	if reason != corecontext.RenderTurn || inbound.Message == nil || len(out) == 0 {
+		return out
+	}
+	raw, ok := inbound.Message.Metadata[inboundUserContextMetadataKey]
+	if !ok {
+		return out
+	}
+	text := strings.TrimSpace(contextValueText(raw))
+	if text == "" {
+		return out
+	}
+	return addUserContextDiff(coreconversation.ProviderIdentity{}, out, text)
+}
+
+func inboundInputText(inbound channel.Inbound) string {
+	if inbound.Message == nil {
+		return ""
+	}
+	return strings.TrimSpace(contextValueText(inbound.Message.Content))
+}
+
+func recentContextExcerpt(local, pending []coreconversation.Item) string {
+	items := append(append([]coreconversation.Item(nil), local...), pending...)
+	if len(items) == 0 {
+		return ""
+	}
+	const maxItems = 6
+	const maxChars = 1200
+	if len(items) > maxItems {
+		items = items[len(items)-maxItems:]
+	}
+	var parts []string
+	for _, item := range items {
+		text := strings.TrimSpace(contextValueText(item.Content))
+		if text == "" {
+			continue
+		}
+		role := strings.TrimSpace(item.Role)
+		if role == "" {
+			role = string(item.Kind)
+		}
+		parts = append(parts, role+": "+text)
+	}
+	out := strings.TrimSpace(strings.Join(parts, "\n"))
+	if len(out) > maxChars {
+		return out[len(out)-maxChars:]
+	}
+	return out
 }
 
 func contextRequestScope(inbound channel.Inbound) map[string]string {
@@ -2925,8 +2984,15 @@ func (s Session) ExecuteInboundCommand(ctx context.Context, inbound channel.Inbo
 	if err := inbound.Validate(); err != nil {
 		return commandFailed("invalid_command_inbound", err.Error(), nil)
 	}
-	if inbound.Kind != channel.InboundCommand || inbound.Command == nil {
+	if inbound.Kind != channel.InboundCommand {
 		return commandFailed("invalid_command_inbound", "inbound envelope does not contain a command", nil)
+	}
+	if inbound.Command == nil {
+		parsed, err := s.parseCommandLine(inbound.CommandLine)
+		if err != nil {
+			return commandFailed("invalid_command_line", err.Error(), map[string]any{"line": inbound.CommandLine})
+		}
+		inbound.Command = &parsed
 	}
 	resolved, ok, err := s.resolveCommand(inbound.Command.Path)
 	if err != nil {
@@ -4032,6 +4098,53 @@ func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver,
 	}
 	spec := resolved.Binding.Spec
 	return sessioncontrol.TargetsSession(spec) || sessioncontrol.TargetsPrompt(spec), nil
+}
+
+// ParseCommandLine parses a raw slash command line using session command
+// resolution rules.
+func ParseCommandLine(line string, registry *command.Registry, catalog CommandCatalog) (command.Invocation, error) {
+	invocation, ok, err := command.ParseSlash(line)
+	if err != nil {
+		return command.Invocation{}, err
+	}
+	if !ok {
+		return command.Invocation{}, fmt.Errorf("command line is not a slash command")
+	}
+	return preferResolvableCommand(invocation, AvailableCommandSpecs(registry, catalog)), nil
+}
+
+func (s Session) parseCommandLine(line string) (command.Invocation, error) {
+	return ParseCommandLine(line, s.Commands, s.CommandCatalog)
+}
+
+func preferResolvableCommand(invocation command.Invocation, specs []command.Spec) command.Invocation {
+	if len(specs) == 0 || len(invocation.Path) <= 1 || knownCommandPath(invocation.Path, specs) {
+		return invocation
+	}
+	for n := len(invocation.Path) - 1; n >= 1; n-- {
+		prefix := append(command.Path(nil), invocation.Path[:n]...)
+		if !knownCommandPath(prefix, specs) {
+			continue
+		}
+		remainder := append([]string(nil), invocation.Path[n:]...)
+		invocation.Path = prefix
+		invocation.Args = append(remainder, invocation.Args...)
+		return invocation
+	}
+	return invocation
+}
+
+func knownCommandPath(path command.Path, specs []command.Spec) bool {
+	key := path.String()
+	if key == "" {
+		return false
+	}
+	for _, spec := range specs {
+		if spec.Path.String() == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {

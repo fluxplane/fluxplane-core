@@ -133,8 +133,10 @@ func TestBundleComposes(t *testing.T) {
 			t.Fatalf("delegation allowed profiles = %#v, missing %s", session.Delegation.AllowedProfiles, name)
 		}
 	}
-	if !sessionAllowsAgent(session, "code-reviewer") {
-		t.Fatalf("delegation allowed agents = %#v, missing code-reviewer", session.Delegation.AllowedAgents)
+	for _, name := range []string{taskplugin.WorkerAgent, taskplugin.ExplorerAgent, taskplugin.ReviewerAgent, taskplugin.TaskAgent, taskplugin.PlanAgent, "code-reviewer"} {
+		if !sessionAllowsAgent(session, name) {
+			t.Fatalf("delegation allowed agents = %#v, missing %s", session.Delegation.AllowedAgents, name)
+		}
 	}
 	if !hasSessionSpec(composition.SessionSpecs, "code-reviewer", "code-reviewer") {
 		t.Fatalf("session specs = %#v, missing code-reviewer session", composition.SessionSpecs)

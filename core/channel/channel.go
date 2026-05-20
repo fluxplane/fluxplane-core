@@ -2,6 +2,7 @@ package channel
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -104,6 +105,7 @@ type Inbound struct {
 	Kind          InboundKind          `json:"kind"`
 	Message       *Message             `json:"message,omitempty"`
 	Command       *command.Invocation  `json:"command,omitempty"`
+	CommandLine   string               `json:"command_line,omitempty"`
 	Operation     *OperationInvocation `json:"operation,omitempty"`
 	Event         event.Event          `json:"event,omitempty"`
 	CorrelationID string               `json:"correlation_id,omitempty"`
@@ -119,11 +121,16 @@ func (i Inbound) Validate() error {
 		}
 		return rejectInboundExtras(i, "message")
 	case InboundCommand:
-		if i.Command == nil {
+		if i.Command == nil && strings.TrimSpace(i.CommandLine) == "" {
 			return fmt.Errorf("channel: inbound command payload is nil")
 		}
-		if err := i.Command.Validate(); err != nil {
-			return err
+		if i.Command != nil && strings.TrimSpace(i.CommandLine) != "" {
+			return fmt.Errorf("channel: inbound command cannot carry both invocation and command line")
+		}
+		if i.Command != nil {
+			if err := i.Command.Validate(); err != nil {
+				return err
+			}
 		}
 		return rejectInboundExtras(i, "command")
 	case InboundOperation:
@@ -197,6 +204,9 @@ func rejectInboundExtras(inbound Inbound, expected string) error {
 	}
 	if expected != "command" && inbound.Command != nil {
 		return fmt.Errorf("channel: inbound %s cannot also carry command", expected)
+	}
+	if expected != "command" && strings.TrimSpace(inbound.CommandLine) != "" {
+		return fmt.Errorf("channel: inbound %s cannot also carry command line", expected)
 	}
 	if expected != "operation" && inbound.Operation != nil {
 		return fmt.Errorf("channel: inbound %s cannot also carry operation", expected)

@@ -201,20 +201,6 @@ func TestTranscriptEventsForRunEventMapsOperationLifecycle(t *testing.T) {
 	}
 }
 
-func TestParseSlashInvocation(t *testing.T) {
-	inv, err := parseSlashInvocation("/env explain --fresh")
-	if err != nil {
-		t.Fatalf("parseSlashInvocation() error = %v", err)
-	}
-	if inv.Path.String() != "/env/explain" {
-		t.Fatalf("path = %q", inv.Path.String())
-	}
-	input, ok := inv.Input.(map[string]any)
-	if !ok || input["fresh"] != true {
-		t.Fatalf("input = %#v, want fresh flag", inv.Input)
-	}
-}
-
 func TestShellOperationInvocationTargetsShellExecOperation(t *testing.T) {
 	inv, err := shellOperationInvocation("go test ./apps/coder", "/workspace")
 	if err != nil {

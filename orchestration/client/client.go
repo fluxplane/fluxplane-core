@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
@@ -120,15 +121,16 @@ func (i OperationInvocation) Validate() error {
 
 // Submission is the neutral shape for anything sent to a session.
 type Submission struct {
-	ID        RunID                `json:"id,omitempty"`
-	Kind      SubmissionKind       `json:"kind"`
-	Input     *Input               `json:"input,omitempty"`
-	Command   *command.Invocation  `json:"command,omitempty"`
-	Operation *OperationInvocation `json:"operation,omitempty"`
-	Event     event.Event          `json:"event,omitempty"`
-	Signal    *Signal              `json:"signal,omitempty"`
-	Caller    policy.Caller        `json:"caller,omitempty"`
-	Trust     policy.Trust         `json:"trust,omitempty"`
+	ID          RunID                `json:"id,omitempty"`
+	Kind        SubmissionKind       `json:"kind"`
+	Input       *Input               `json:"input,omitempty"`
+	Command     *command.Invocation  `json:"command,omitempty"`
+	CommandLine string               `json:"command_line,omitempty"`
+	Operation   *OperationInvocation `json:"operation,omitempty"`
+	Event       event.Event          `json:"event,omitempty"`
+	Signal      *Signal              `json:"signal,omitempty"`
+	Caller      policy.Caller        `json:"caller,omitempty"`
+	Trust       policy.Trust         `json:"trust,omitempty"`
 	// TrustDowngrade requests a lower trust level on remote transports that
 	// explicitly allow trust simulation. It must never raise authority.
 	TrustDowngrade *TrustDowngrade `json:"trust_downgrade,omitempty"`
@@ -165,6 +167,15 @@ func (s Submission) WithCommand(invocation command.Invocation) Submission {
 	s.clearPayload()
 	s.Kind = SubmissionCommand
 	s.Command = &invocation
+	return s
+}
+
+// WithCommandLine configures the submission as a raw slash command line.
+// The session command dispatcher owns parsing and catalog-based resolution.
+func (s Submission) WithCommandLine(line string) Submission {
+	s.clearPayload()
+	s.Kind = SubmissionCommand
+	s.CommandLine = line
 	return s
 }
 
@@ -265,11 +276,16 @@ func (s Submission) Validate() error {
 		}
 		return rejectSubmissionExtras(s, "input")
 	case SubmissionCommand:
-		if s.Command == nil {
+		if s.Command == nil && strings.TrimSpace(s.CommandLine) == "" {
 			return fmt.Errorf("client: command submission payload is nil")
 		}
-		if err := s.Command.Validate(); err != nil {
-			return err
+		if s.Command != nil && strings.TrimSpace(s.CommandLine) != "" {
+			return fmt.Errorf("client: command submission cannot carry both invocation and command line")
+		}
+		if s.Command != nil {
+			if err := s.Command.Validate(); err != nil {
+				return err
+			}
 		}
 		return rejectSubmissionExtras(s, "command")
 	case SubmissionOperation:
@@ -304,6 +320,9 @@ func rejectSubmissionExtras(submission Submission, expected string) error {
 	}
 	if expected != "command" && submission.Command != nil {
 		return fmt.Errorf("client: %s submission cannot also carry command", expected)
+	}
+	if expected != "command" && strings.TrimSpace(submission.CommandLine) != "" {
+		return fmt.Errorf("client: %s submission cannot also carry command line", expected)
 	}
 	if expected != "operation" && submission.Operation != nil {
 		return fmt.Errorf("client: %s submission cannot also carry operation", expected)

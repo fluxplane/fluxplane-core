@@ -107,6 +107,7 @@ type remoteSubmission struct {
 	Kind           clientapi.SubmissionKind       `json:"kind"`
 	Input          *clientapi.Input               `json:"input,omitempty"`
 	Command        *command.Invocation            `json:"command,omitempty"`
+	CommandLine    string                         `json:"command_line,omitempty"`
 	Operation      *clientapi.OperationInvocation `json:"operation,omitempty"`
 	TrustDowngrade *clientapi.TrustDowngrade      `json:"trust_downgrade,omitempty"`
 	Metadata       map[string]any                 `json:"metadata,omitempty"`
@@ -168,6 +169,7 @@ func (s *Server) normalizeRemoteSubmission(remote remoteSubmission) (clientapi.S
 		Kind:           remote.Kind,
 		Input:          remote.Input,
 		Command:        remote.Command,
+		CommandLine:    remote.CommandLine,
 		Operation:      remote.Operation,
 		TrustDowngrade: remote.TrustDowngrade,
 		Metadata:       remote.Metadata,

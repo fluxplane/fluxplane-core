@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
+	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/sdk"
 )
@@ -85,8 +86,8 @@ func Bundle() resource.ContributionBundle {
 			Agent:       agent.Ref{Name: AgentName},
 			Metadata:    map[string]string{"app": AppName},
 			Delegation: coresession.DelegationPolicy{
-				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}, {Name: "task-planner"}, {Name: "code-reviewer"}},
-				AllowedAgents:   []agent.Ref{{Name: "code-reviewer"}},
+				AllowedProfiles: defaultDelegationProfiles(),
+				AllowedAgents:   defaultDelegationAgents(),
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations:      operationRefs(delegationOperations),
@@ -339,6 +340,38 @@ func embeddedResourceBundle() resource.ContributionBundle {
 		}
 	}
 	return bundle
+}
+
+func defaultDelegationProfiles() []coresession.Ref {
+	names := []coresession.Name{
+		taskplugin.WorkerSession,
+		taskplugin.ExplorerSession,
+		taskplugin.ReviewerSession,
+		taskplugin.TaskSession,
+		taskplugin.PlanSession,
+		"code-reviewer",
+	}
+	out := make([]coresession.Ref, 0, len(names))
+	for _, name := range names {
+		out = append(out, coresession.Ref{Name: name})
+	}
+	return out
+}
+
+func defaultDelegationAgents() []agent.Ref {
+	names := []agent.Name{
+		taskplugin.WorkerAgent,
+		taskplugin.ExplorerAgent,
+		taskplugin.ReviewerAgent,
+		taskplugin.TaskAgent,
+		taskplugin.PlanAgent,
+		"code-reviewer",
+	}
+	out := make([]agent.Ref, 0, len(names))
+	for _, name := range names {
+		out = append(out, agent.Ref{Name: name})
+	}
+	return out
 }
 
 func operationRefs(names []string) []operation.Ref {

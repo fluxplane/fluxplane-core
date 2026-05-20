@@ -506,9 +506,21 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	})
 	profile, _, _ := s.profileForInfo(info)
 	agentRuntime := s.agent
-	targetsSession, err := session.CommandTargetsSession(inbound.Command.Path, s.resolver, s.commandCatalog, s.commands)
-	if err != nil {
-		targetsSession = false
+	var commandPath command.Path
+	if inbound.Command != nil {
+		commandPath = inbound.Command.Path
+	} else if parsed, err := session.ParseCommandLine(inbound.CommandLine, s.commands, s.commandCatalog); err == nil {
+		inbound.Command = &parsed
+		inbound.CommandLine = ""
+		commandPath = parsed.Path
+	}
+	targetsSession := false
+	if len(commandPath) > 0 {
+		var err error
+		targetsSession, err = session.CommandTargetsSession(commandPath, s.resolver, s.commandCatalog, s.commands)
+		if err != nil {
+			targetsSession = false
+		}
 	}
 	if targetsSession {
 		var err error
@@ -746,6 +758,7 @@ func submissionForInbound(kind normalizedSubmissionKind, runID clientapi.RunID, 
 	case normalizedSubmissionCommand:
 		submission.Kind = clientapi.SubmissionCommand
 		submission.Command = inbound.Command
+		submission.CommandLine = inbound.CommandLine
 	case normalizedSubmissionOperation:
 		submission.Kind = clientapi.SubmissionOperation
 		if inbound.Operation != nil {

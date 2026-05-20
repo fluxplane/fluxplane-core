@@ -41,10 +41,8 @@ type turnRenderResult struct {
 // RunTurn submits prompt to a session, treating slash-prefixed prompts as
 // command invocations and all other prompts as conversational input.
 func RunTurn(ctx context.Context, session clientapi.SessionHandle, prompt string, opts TurnOptions, tracker *usage.Tracker) error {
-	if invocation, ok, err := command.ParseSlash(prompt); err != nil {
-		return err
-	} else if ok {
-		return runCommandTurn(ctx, session, invocation, opts, tracker)
+	if strings.HasPrefix(strings.TrimSpace(prompt), "/") {
+		return runCommandLineTurn(ctx, session, prompt, opts, tracker)
 	}
 	return runInputTurn(ctx, session, prompt, opts, tracker)
 }
@@ -58,7 +56,7 @@ func RunGoalTurn(ctx context.Context, session clientapi.SessionHandle, goal stri
 			"max": maxContinuations,
 		},
 	}
-	return runCommandTurn(ctx, session, invocation, opts, tracker)
+	return runStructuredCommandTurn(ctx, session, invocation, opts, tracker)
 }
 
 func runInputTurn(ctx context.Context, session clientapi.SessionHandle, prompt string, opts TurnOptions, tracker *usage.Tracker) error {
@@ -85,9 +83,33 @@ func runInputTurn(ctx context.Context, session clientapi.SessionHandle, prompt s
 	}
 	return ResultError(result)
 }
-
-func runCommandTurn(ctx context.Context, session clientapi.SessionHandle, invocation command.Invocation, opts TurnOptions, tracker *usage.Tracker) error {
+func runStructuredCommandTurn(ctx context.Context, session clientapi.SessionHandle, invocation command.Invocation, opts TurnOptions, tracker *usage.Tracker) error {
 	run, err := session.Submit(ctx, clientapi.NewSubmission().WithCommand(invocation))
+	if err != nil {
+		return err
+	}
+	eventsDone := renderTurnEvents(run.Events(), tracker, opts)
+	result, err := run.Wait(ctx)
+	eventResult := turnRenderResult{}
+	if eventsDone != nil {
+		eventResult = <-eventsDone
+	}
+	if !eventResult.Streamed {
+		renderOutbound(opts.Out, result)
+	}
+	if len(eventResult.ActiveTasks) > 0 {
+		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
+		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
+	}
+	renderUsage(opts.Err, opts.Usage, tracker)
+	if err != nil {
+		return err
+	}
+	return ResultError(result)
+}
+
+func runCommandLineTurn(ctx context.Context, session clientapi.SessionHandle, line string, opts TurnOptions, tracker *usage.Tracker) error {
+	run, err := session.Submit(ctx, clientapi.NewSubmission().WithCommandLine(line))
 	if err != nil {
 		return err
 	}

@@ -100,6 +100,29 @@ sawOutbound:
 	}
 }
 
+func TestHandleInboundCommandLineParsesBeforeRouting(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+
+	result, err := service.HandleInbound(ctx, channel.Inbound{
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-command-line"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		CommandLine:  `/echo "hello"`,
+	})
+	if err != nil {
+		t.Fatalf("HandleInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusOK {
+		t.Fatalf("status = %s, error = %+v", result.Command.Status, result.Command.Error)
+	}
+	if result.Command.Spec.Path.String() != "/echo" {
+		t.Fatalf("command path = %q, want /echo", result.Command.Spec.Path.String())
+	}
+}
+
 func TestCommandOutboundUsesRenderedTextWithoutStructuredData(t *testing.T) {
 	result := session.CommandResult{
 		Status: session.CommandStatusOK,

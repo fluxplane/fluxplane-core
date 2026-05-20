@@ -81,6 +81,27 @@ func TestSubmissionBuilderWithCommand(t *testing.T) {
 	}
 }
 
+func TestSubmissionBuilderWithCommandLine(t *testing.T) {
+	submission := NewSubmission().WithCommandLine(`/task "verify"`)
+	if submission.Kind != SubmissionCommand {
+		t.Fatalf("kind = %q, want command", submission.Kind)
+	}
+	if submission.Command != nil || submission.CommandLine != `/task "verify"` {
+		t.Fatalf("submission = %#v, want raw command line", submission)
+	}
+	if err := submission.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestSubmissionValidateRejectsCommandAndCommandLine(t *testing.T) {
+	submission := NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}})
+	submission.CommandLine = "/echo"
+	if err := submission.Validate(); err == nil {
+		t.Fatal("Validate succeeded, want error")
+	}
+}
+
 func TestSubmissionBuilderWithOperation(t *testing.T) {
 	submission := NewSubmission().WithOperation(operation.Ref{Name: "echo"}, "hello")
 	if submission.Kind != SubmissionOperation {

@@ -92,6 +92,43 @@ func TestExecuteInboundCommandDispatchesOperation(t *testing.T) {
 	}
 }
 
+func TestParseCommandLinePrefersResolvableCommand(t *testing.T) {
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{Path: command.Path{"task"}}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+
+	inv, err := (Session{Commands: commands}).parseCommandLine(`/task "verify"`)
+	if err != nil {
+		t.Fatalf("parseCommandLine() error = %v", err)
+	}
+	if inv.Path.String() != "/task" {
+		t.Fatalf("path = %q, want /task", inv.Path.String())
+	}
+	if len(inv.Args) != 1 || inv.Args[0] != "verify" {
+		t.Fatalf("args = %#v, want verify", inv.Args)
+	}
+}
+
+func TestParseCommandLineKeepsResolvableNestedCommand(t *testing.T) {
+	commands := command.NewRegistry()
+	if err := commands.Register(command.Spec{Path: command.Path{"env", "explain"}}, command.Spec{Path: command.Path{"env"}}); err != nil {
+		t.Fatalf("register command: %v", err)
+	}
+
+	inv, err := (Session{Commands: commands}).parseCommandLine("/env explain --fresh")
+	if err != nil {
+		t.Fatalf("parseCommandLine() error = %v", err)
+	}
+	if inv.Path.String() != "/env/explain" {
+		t.Fatalf("path = %q, want /env/explain", inv.Path.String())
+	}
+	input, ok := inv.Input.(map[string]any)
+	if !ok || input["fresh"] != true {
+		t.Fatalf("input = %#v, want fresh flag", inv.Input)
+	}
+}
+
 func TestExecuteInboundOperationDispatchesOperation(t *testing.T) {
 	opRef := operation.Ref{Name: "echo"}
 	ops := operation.NewRegistry()
