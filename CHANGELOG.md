@@ -260,6 +260,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builders, app bundles, and distribution describe output.
 
 ### Fixed
+- Kept manual/background task scheduler worker registrations fresh while
+  long-running worker steps execute so peer schedulers do not interrupt active
+  tasks as expired workers.
+
 - Fixed raw slash-command submissions so `coder --input '/task ...'`, terminal
   one-shot turns, and coder shell `/task ...` input route through the session
   command dispatcher and authorize the task helper session agent.

@@ -325,6 +325,10 @@ func (s *Scheduler) submitTask(ctx context.Context, taskID coretask.ID) (SubmitR
 		return result, nil
 	}
 	runCtx := s.runContext(ctx)
+	if err := s.registerWorker(runCtx); err != nil {
+		s.release(taskID)
+		return SubmitResult{}, err
+	}
 	go func() {
 		defer s.release(taskID)
 		if err := s.RunTask(runCtx, taskID); err != nil && !errors.Is(err, context.Canceled) {
@@ -561,20 +565,35 @@ func workerRegistrationExpired(workerID string, workers []coretask.WorkerStatus,
 }
 
 func (s *Scheduler) runWorkerStep(ctx context.Context, req StepRunRequest) (StepRunResult, error) {
-	if req.Task.ID == "" || req.ExecutionID == "" || s.leaseHeartbeat <= 0 {
+	if req.Task.ID == "" || req.ExecutionID == "" {
 		return s.worker.RunStep(ctx, req)
 	}
 	heartbeatCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(s.leaseHeartbeat)
-		defer ticker.Stop()
+		workerInterval := s.reconcileInterval
+		if workerInterval <= 0 {
+			workerInterval = defaultReconcileInterval
+		}
+		workerTicker := time.NewTicker(workerInterval)
+		defer workerTicker.Stop()
+		var leaseTicker *time.Ticker
+		var leaseC <-chan time.Time
+		if s.leaseHeartbeat > 0 {
+			leaseTicker = time.NewTicker(s.leaseHeartbeat)
+			leaseC = leaseTicker.C
+			defer leaseTicker.Stop()
+		}
 		for {
 			select {
 			case <-heartbeatCtx.Done():
 				return
-			case <-ticker.C:
+			case <-workerTicker.C:
+				if err := s.registerWorker(heartbeatCtx); err != nil && !errors.Is(err, context.Canceled) {
+					s.recordError("task_worker_register_failed", err)
+				}
+			case <-leaseC:
 				if err := s.renewExecutionLease(heartbeatCtx, req.Task.ID, req.ExecutionID); err != nil && !errors.Is(err, context.Canceled) {
 					s.recordError("task_lease_renew_failed", err)
 				}
@@ -745,6 +764,9 @@ func retryStepEvents(taskID coretask.ID, execID coretask.ExecutionID, exec coret
 
 // RunTask claims and runs one ready task synchronously.
 func (s *Scheduler) RunTask(ctx context.Context, taskID coretask.ID) error {
+	if err := s.registerWorker(ctx); err != nil {
+		return err
+	}
 	claimed, err := s.claim(ctx, taskID)
 	if err != nil {
 		return err

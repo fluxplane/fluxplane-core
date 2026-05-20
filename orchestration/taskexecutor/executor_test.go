@@ -576,6 +576,101 @@ func TestSchedulerDoesNotRecoverActiveWorkerRegistrationBeforeExecutionLeaseExpi
 	}
 }
 
+func TestManualTaskKeepsWorkerRegistrationFreshDuringLongRun(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Manual long run", Status: coretask.StatusReady}
+	createTask(t, store, task)
+	stale := time.Now().Add(-time.Hour)
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
+		WorkerID:       "manual-worker",
+		RegisteredAt:   stale,
+		LeaseExpiresAt: stale,
+		Capacity:       1,
+		MaxParallel:    1,
+	}); err != nil {
+		t.Fatalf("RegisterWorker stale: %v", err)
+	}
+	worker := &blockingWorker{started: make(chan struct{}), block: make(chan struct{})}
+	manual, err := New(Config{
+		Store:             store,
+		Worker:            worker,
+		WorkerID:          "manual-worker",
+		ReconcileInterval: 5 * time.Millisecond,
+		LeaseDuration:     time.Hour,
+		LeaseHeartbeat:    time.Hour,
+		Now:               time.Now,
+		NewID:             func(prefix string) string { return prefix + "manual" },
+	})
+	if err != nil {
+		t.Fatalf("New manual scheduler: %v", err)
+	}
+	result, err := manual.SubmitTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("SubmitTask: %v", err)
+	}
+	if !result.Started || !result.Running {
+		t.Fatalf("submit result = %#v, want started running", result)
+	}
+	select {
+	case <-worker.started:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start")
+	}
+
+	// Wait longer than the worker registration lease (2*reconcile interval),
+	// then prove the manual worker has refreshed its registration before another
+	// scheduler attempts recovery.
+	time.Sleep(25 * time.Millisecond)
+	deadline := time.Now().Add(time.Second)
+	for {
+		workers, err := store.ListWorkers(ctx)
+		if err != nil {
+			t.Fatalf("ListWorkers: %v", err)
+		}
+		fresh := false
+		for _, status := range workers {
+			if status.WorkerID == "manual-worker" && status.LeaseExpiresAt.After(time.Now()) {
+				fresh = true
+				break
+			}
+		}
+		if fresh {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("manual worker registration was not refreshed: %#v", workers)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	observer, err := New(Config{
+		Store:             store,
+		Worker:            &recordingWorker{},
+		WorkerID:          "observer-worker",
+		ReconcileInterval: 5 * time.Millisecond,
+		LeaseDuration:     time.Hour,
+		LeaseHeartbeat:    time.Hour,
+		Now:               time.Now,
+		NewID:             func(prefix string) string { return prefix + "observer" },
+	})
+	if err != nil {
+		t.Fatalf("New observer scheduler: %v", err)
+	}
+	if err := observer.Tick(ctx); err != nil {
+		t.Fatalf("Tick observer: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project after observer tick: %v", err)
+	}
+	if state.Task.Status != coretask.StatusRunning {
+		t.Fatalf("task status after observer tick = %s, want running; diagnostics = %#v", state.Task.Status, state.Task.Diagnostics)
+	}
+
+	close(worker.block)
+	waitForTaskStatus(t, store, task.ID, coretask.StatusCompleted)
+}
+
 func TestSchedulerStatusReportsDurableLeases(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
