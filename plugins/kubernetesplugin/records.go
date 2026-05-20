@@ -1,14 +1,130 @@
 package kubernetesplugin
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 )
+
+type clusterRecord struct {
+	Context        string `json:"context,omitempty"`
+	Cluster        string `json:"cluster,omitempty"`
+	Server         string `json:"server,omitempty"`
+	Namespace      string `json:"namespace,omitempty"`
+	CurrentContext bool   `json:"current_context,omitempty"`
+	InCluster      bool   `json:"in_cluster,omitempty"`
+}
+
+func (a *kubernetesAccessor) clusterRecords(ctx context.Context) ([]coredatasource.Record, error) {
+	records, err := a.kubeconfigClusterRecords(ctx)
+	if err == nil {
+		return records, nil
+	}
+	if a.plugin.cfg.InCluster {
+		cfg, inClusterErr := rest.InClusterConfig()
+		if inClusterErr != nil {
+			return nil, inClusterErr
+		}
+		return []coredatasource.Record{a.clusterRecord(clusterRecord{Context: "in-cluster", Cluster: "in-cluster", Server: cfg.Host, InCluster: true})}, nil
+	}
+	return nil, err
+}
+
+func (a *kubernetesAccessor) kubeconfigClusterRecords(ctx context.Context) ([]coredatasource.Record, error) {
+	path, err := a.plugin.kubeconfigPath(ctx)
+	if err != nil {
+		return nil, err
+	}
+	config, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
+	contexts := make([]string, 0, len(config.Contexts))
+	for contextName := range config.Contexts {
+		contexts = append(contexts, contextName)
+	}
+	sort.Strings(contexts)
+	records := make([]coredatasource.Record, 0, len(contexts))
+	for _, contextName := range contexts {
+		ctxSpec := config.Contexts[contextName]
+		if ctxSpec == nil {
+			continue
+		}
+		clusterName := ctxSpec.Cluster
+		cluster := config.Clusters[clusterName]
+		server := ""
+		if cluster != nil {
+			server = cluster.Server
+		}
+		records = append(records, a.clusterRecord(clusterRecord{
+			Context:        contextName,
+			Cluster:        clusterName,
+			Server:         server,
+			Namespace:      ctxSpec.Namespace,
+			CurrentContext: contextName == effectiveCurrentContext(config.CurrentContext, a.plugin.cfg.Context),
+		}))
+	}
+	return records, nil
+}
+
+func (a *kubernetesAccessor) clusterRecord(cluster clusterRecord) coredatasource.Record {
+	id := cluster.Context
+	if id == "" {
+		id = cluster.Cluster
+	}
+	return coredatasource.Record{
+		ID:         id,
+		Datasource: a.spec.Name,
+		Entity:     ClusterEntity,
+		Title:      id,
+		Content: strings.TrimSpace(strings.Join([]string{
+			cluster.Context,
+			cluster.Cluster,
+			cluster.Server,
+			cluster.Namespace,
+			boolLabel("current-context", cluster.CurrentContext),
+			boolLabel("in-cluster", cluster.InCluster),
+		}, " ")),
+		Metadata: cleanMetadata(map[string]string{
+			"context":         cluster.Context,
+			"cluster":         cluster.Cluster,
+			"server":          cluster.Server,
+			"namespace":       cluster.Namespace,
+			"current_context": boolString(cluster.CurrentContext),
+			"in_cluster":      boolString(cluster.InCluster),
+		}),
+		Raw: cluster,
+	}
+}
+
+func effectiveCurrentContext(kubeconfigCurrent, override string) string {
+	if override = strings.TrimSpace(override); override != "" {
+		return override
+	}
+	return kubeconfigCurrent
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return ""
+}
+
+func boolLabel(label string, value bool) string {
+	if value {
+		return label
+	}
+	return ""
+}
 
 func (a *kubernetesAccessor) namespaceRecord(namespace corev1.Namespace) coredatasource.Record {
 	return coredatasource.Record{

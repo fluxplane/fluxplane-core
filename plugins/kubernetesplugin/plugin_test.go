@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -342,6 +344,174 @@ func TestKubernetesAccessorListsServices(t *testing.T) {
 	if len(result.Records) != 1 || result.Records[0].ID != "default/web" {
 		t.Fatalf("records = %#v, want default/web", result.Records)
 	}
+}
+
+func TestKubernetesAccessorListsAndGetsKubeconfigClusters(t *testing.T) {
+	ctx := context.Background()
+	kubeconfig := writeKubeconfig(t, `
+apiVersion: v1
+kind: Config
+current-context: dev
+clusters:
+- name: dev-cluster
+  cluster:
+    server: https://dev.example
+    certificate-authority-data: c2VjcmV0LWNhLWRhdGE=
+- name: prod-cluster
+  cluster:
+    server: https://prod.example
+contexts:
+- name: dev
+  context:
+    cluster: dev-cluster
+    namespace: dev-ns
+    user: dev-user
+- name: prod
+  context:
+    cluster: prod-cluster
+    namespace: prod-ns
+    user: prod-user
+users:
+- name: dev-user
+  user:
+    token: hidden-token
+- name: prod-user
+  user:
+    client-certificate-data: c2VjcmV0LWNlcnQtZGF0YQ==
+    client-key-data: c2VjcmV0LWtleS1kYXRh
+`)
+	accessor := openKubernetesAccessor(t, Plugin{cfg: NormalizeConfig(Config{Kubeconfig: kubeconfig})}, []coredatasource.EntityType{ClusterEntity})
+
+	result, err := accessor.(coredatasource.Lister).List(ctx, coredatasource.ListRequest{Entity: ClusterEntity})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("records = %d, want 2: %#v", len(result.Records), result.Records)
+	}
+	dev := result.Records[0]
+	if dev.ID != "dev" || dev.Metadata["cluster"] != "dev-cluster" || dev.Metadata["server"] != "https://dev.example" || dev.Metadata["namespace"] != "dev-ns" || dev.Metadata["current_context"] != "true" {
+		t.Fatalf("dev record = %#v", dev)
+	}
+	prod, err := accessor.(coredatasource.Getter).Get(ctx, coredatasource.GetRequest{Entity: ClusterEntity, ID: "prod-cluster"})
+	if err != nil {
+		t.Fatalf("Get by cluster name: %v", err)
+	}
+	if prod.ID != "prod" || prod.Metadata["context"] != "prod" {
+		t.Fatalf("prod record = %#v", prod)
+	}
+}
+
+func TestKubernetesClusterRecordsDoNotLeakKubeconfigSecrets(t *testing.T) {
+	ctx := context.Background()
+	kubeconfig := writeKubeconfig(t, `
+apiVersion: v1
+kind: Config
+current-context: dev
+clusters:
+- name: dev-cluster
+  cluster:
+    server: https://dev.example
+    certificate-authority-data: c2VjcmV0LWNhLWRhdGE=
+contexts:
+- name: dev
+  context:
+    cluster: dev-cluster
+    namespace: dev-ns
+    user: dev-user
+users:
+- name: dev-user
+  user:
+    token: secret-token
+    client-certificate-data: c2VjcmV0LWNlcnQtZGF0YQ==
+    client-key-data: c2VjcmV0LWtleS1kYXRh
+    auth-provider:
+      name: oidc
+      config:
+        id-token: secret-id-token
+    exec:
+      command: secret-command
+      args: [secret-arg]
+`)
+	accessor := openKubernetesAccessor(t, Plugin{cfg: NormalizeConfig(Config{Kubeconfig: kubeconfig})}, []coredatasource.EntityType{ClusterEntity})
+	result, err := accessor.(coredatasource.Lister).List(ctx, coredatasource.ListRequest{Entity: ClusterEntity})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	serialized := strings.Join([]string{result.Records[0].ID, result.Records[0].Title, result.Records[0].Content, metadataText(result.Records[0].Metadata)}, " ")
+	for _, secret := range []string{"c2VjcmV0LWNhLWRhdGE=", "secret-token", "c2VjcmV0LWNlcnQtZGF0YQ==", "c2VjcmV0LWtleS1kYXRh", "secret-id-token", "secret-command", "secret-arg"} {
+		if strings.Contains(serialized, secret) {
+			t.Fatalf("cluster record leaked %q in %q", secret, serialized)
+		}
+	}
+	if _, ok := result.Records[0].Raw.(clusterRecord); !ok {
+		t.Fatalf("raw = %T, want sanitized clusterRecord", result.Records[0].Raw)
+	}
+}
+
+func TestKubernetesClusterSearchAndEntitySelection(t *testing.T) {
+	ctx := context.Background()
+	kubeconfig := writeKubeconfig(t, `
+apiVersion: v1
+kind: Config
+current-context: dev
+clusters:
+- name: dev-cluster
+  cluster:
+    server: https://dev.example
+- name: prod-cluster
+  cluster:
+    server: https://prod.example
+contexts:
+- name: dev
+  context:
+    cluster: dev-cluster
+- name: prod
+  context:
+    cluster: prod-cluster
+`)
+	plugin := Plugin{cfg: NormalizeConfig(Config{Kubeconfig: kubeconfig})}
+	accessor := openKubernetesAccessor(t, plugin, []coredatasource.EntityType{ClusterEntity})
+	search, err := accessor.(coredatasource.Searcher).Search(ctx, coredatasource.SearchRequest{Entity: ClusterEntity, Query: "prod"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(search.Records) != 1 || search.Records[0].ID != "prod" {
+		t.Fatalf("search records = %#v, want prod", search.Records)
+	}
+	_, err = accessor.(coredatasource.Lister).List(ctx, coredatasource.ListRequest{Entity: PodEntity})
+	if err == nil || !strings.Contains(err.Error(), "does not expose") {
+		t.Fatalf("List pod error = %v, want does not expose", err)
+	}
+}
+
+func openKubernetesAccessor(t *testing.T, plugin Plugin, entities []coredatasource.EntityType) coredatasource.Accessor {
+	t.Helper()
+	plugin.ref = resource.PluginRef{Name: Name}
+	provider := kubernetesDatasourceProvider{plugin: plugin}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{Name: coredatasource.Name(Name), Kind: Name, Entities: entities})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return accessor
+}
+
+func writeKubeconfig(t *testing.T, content string) string {
+	t.Helper()
+	path := t.TempDir() + "/config"
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(content)+"\n"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	return path
+}
+
+func metadataText(metadata map[string]string) string {
+	parts := make([]string, 0, len(metadata))
+	for key, value := range metadata {
+		parts = append(parts, key+"="+value)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " ")
 }
 
 func TestKubernetesRecordsRedactEnvVarValuesFromRawPodsAndContainers(t *testing.T) {

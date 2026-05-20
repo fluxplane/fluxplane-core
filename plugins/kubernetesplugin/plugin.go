@@ -34,6 +34,7 @@ const (
 
 	PortForwardOp = "k8s_port_forward"
 
+	ClusterEntity    coredatasource.EntityType = "kubernetes.cluster"
 	NamespaceEntity  coredatasource.EntityType = "kubernetes.namespace"
 	PodEntity        coredatasource.EntityType = "kubernetes.pod"
 	ServiceEntity    coredatasource.EntityType = "kubernetes.service"
@@ -203,6 +204,7 @@ func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {
 		Kind:        Name,
 		Description: "Live Kubernetes cluster inventory.",
 		Entities: []coredata.EntitySpec{
+			{Type: coredata.EntityType(ClusterEntity), Description: "Configured Kubernetes cluster/context target."},
 			{Type: coredata.EntityType(NamespaceEntity), Description: "Kubernetes namespace."},
 			{Type: coredata.EntityType(PodEntity), Description: "Kubernetes pod."},
 			{Type: coredata.EntityType(ServiceEntity), Description: "Kubernetes service."},
@@ -327,11 +329,22 @@ func (a *kubernetesAccessor) List(ctx context.Context, req coredatasource.ListRe
 	if !runtimedatasource.HasEntity(a.entities, entity) {
 		return coredatasource.ListResult{}, fmt.Errorf("datasource %q does not expose entity %q", a.spec.Name, entity)
 	}
+	limit := normalizedLimit(req.Limit)
+	switch entity {
+	case ClusterEntity:
+		records, err := a.clusterRecords(ctx)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		if len(records) > limit {
+			records = records[:limit]
+		}
+		return runtimedatasource.ListResult(a.spec.Name, entity, records, len(records), ""), nil
+	}
 	client, err := a.plugin.clientset(ctx)
 	if err != nil {
 		return coredatasource.ListResult{}, err
 	}
-	limit := normalizedLimit(req.Limit)
 	opts := metav1.ListOptions{Limit: int64(limit), Continue: req.Cursor, LabelSelector: strings.TrimSpace(req.Filters["label_selector"])}
 	switch entity {
 	case NamespaceEntity:
@@ -401,6 +414,19 @@ func (a *kubernetesAccessor) Search(ctx context.Context, req coredatasource.Sear
 }
 
 func (a *kubernetesAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
+	if req.Entity == ClusterEntity {
+		records, err := a.clusterRecords(ctx)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		id := strings.TrimSpace(req.ID)
+		for _, record := range records {
+			if record.ID == id || record.Metadata["context"] == id || record.Metadata["cluster"] == id {
+				return record, nil
+			}
+		}
+		return coredatasource.Record{}, fmt.Errorf("kubernetes cluster %q not found", id)
+	}
 	client, err := a.plugin.clientset(ctx)
 	if err != nil {
 		return coredatasource.Record{}, err
@@ -519,24 +545,9 @@ func (p Plugin) restConfigFromKubeconfig(ctx context.Context) (*rest.Config, str
 		cfg, err := rest.InClusterConfig()
 		return cfg, "", err
 	}
-	path := p.cfg.Kubeconfig
-	if path == "" && p.cfg.KubeconfigEnv != "" {
-		path, _, _ = lookupEnv(ctx, p.system, p.cfg.KubeconfigEnv)
-	}
-	if path == "" {
-		path, _, _ = lookupEnv(ctx, p.system, "KUBECONFIG")
-	}
-	if path == "" {
-		home, _, _ := lookupEnv(ctx, p.system, "HOME")
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
-		if home != "" {
-			path = filepath.Join(home, ".kube", "config")
-		}
-	}
-	if path == "" {
-		return nil, "", fmt.Errorf("kubernetes kubeconfig path not found")
+	path, err := p.kubeconfigPath(ctx)
+	if err != nil {
+		return nil, "", err
 	}
 	if _, err := os.Stat(path); err != nil {
 		return nil, "", err
@@ -556,6 +567,29 @@ func (p Plugin) restConfigFromKubeconfig(ctx context.Context) (*rest.Config, str
 	}
 	namespace, _, _ := clientConfig.Namespace()
 	return cfg, namespace, nil
+}
+
+func (p Plugin) kubeconfigPath(ctx context.Context) (string, error) {
+	path := p.cfg.Kubeconfig
+	if path == "" && p.cfg.KubeconfigEnv != "" {
+		path, _, _ = lookupEnv(ctx, p.system, p.cfg.KubeconfigEnv)
+	}
+	if path == "" {
+		path, _, _ = lookupEnv(ctx, p.system, "KUBECONFIG")
+	}
+	if path == "" {
+		home, _, _ := lookupEnv(ctx, p.system, "HOME")
+		if home == "" {
+			home, _ = os.UserHomeDir()
+		}
+		if home != "" {
+			path = filepath.Join(home, ".kube", "config")
+		}
+	}
+	if path == "" {
+		return "", fmt.Errorf("kubernetes kubeconfig path not found")
+	}
+	return path, nil
 }
 
 func defaultNamespace(ctx context.Context, cfg Config) (string, error) {
@@ -582,6 +616,7 @@ func lookupEnv(ctx context.Context, sys system.System, key string) (string, bool
 func entitySpecs() []coredatasource.EntitySpec {
 	capabilities := []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityList, coredatasource.EntityCapabilityGet}
 	return []coredatasource.EntitySpec{
+		{Type: ClusterEntity, Description: "Configured Kubernetes cluster/context target.", Capabilities: capabilities},
 		{Type: NamespaceEntity, Description: "Kubernetes namespace.", Capabilities: capabilities},
 		{Type: PodEntity, Description: "Kubernetes pod.", Capabilities: capabilities},
 		{Type: ServiceEntity, Description: "Kubernetes service.", Capabilities: capabilities},
