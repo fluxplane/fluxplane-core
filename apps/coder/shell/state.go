@@ -115,6 +115,7 @@ func (s *ShellObject) NewTab(ctx context.Context, cwd string) (*TabSession, erro
 		Label:        fmt.Sprintf("%d", len(s.tabs)+1),
 		CWD:          strings.TrimSpace(info.CWD),
 		InputMode:    InputModeShell,
+		InputCursor:  -1,
 		historyIndex: -1,
 		Transcript: []TranscriptEvent{
 			transcriptConnectionEvent(info.ID, s.connection),
@@ -141,8 +142,8 @@ func (s *ShellObject) AppendInput(text string) {
 	if tab := s.ActiveTab(); tab != nil {
 		cleaned, pending := sanitizeInputText(tab.inputEscapeRemainder + text)
 		tab.inputEscapeRemainder = pending
-		tab.InputBuffer += cleaned
 		if cleaned != "" {
+			tab.insertInput(cleaned)
 			tab.resetHistoryNavigation()
 		}
 	}
@@ -310,14 +311,19 @@ func isPotentialLeakedMousePrefix(text string) bool {
 	}
 }
 
-// BackspaceInput removes one rune from the active tab input buffer.
+// BackspaceInput removes one rune before the active tab input cursor.
 func (s *ShellObject) BackspaceInput() {
 	tab := s.ActiveTab()
 	if tab == nil || tab.InputBuffer == "" {
 		return
 	}
 	runes := []rune(tab.InputBuffer)
-	tab.InputBuffer = string(runes[:len(runes)-1])
+	cursor := tab.inputCursor()
+	if cursor <= 0 {
+		return
+	}
+	tab.InputBuffer = string(append(runes[:cursor-1], runes[cursor:]...))
+	tab.InputCursor = cursor - 1
 	tab.resetHistoryNavigation()
 }
 
@@ -325,7 +331,42 @@ func (s *ShellObject) BackspaceInput() {
 func (s *ShellObject) ClearInput() {
 	if tab := s.ActiveTab(); tab != nil {
 		tab.InputBuffer = ""
+		tab.InputCursor = 0
 		tab.resetHistoryNavigation()
+	}
+}
+
+// MoveInputCursorStart moves the active tab input cursor to the start.
+func (s *ShellObject) MoveInputCursorStart() {
+	if tab := s.ActiveTab(); tab != nil {
+		tab.InputCursor = 0
+	}
+}
+
+// MoveInputCursorEnd moves the active tab input cursor to the end.
+func (s *ShellObject) MoveInputCursorEnd() {
+	if tab := s.ActiveTab(); tab != nil {
+		tab.InputCursor = len([]rune(tab.InputBuffer))
+	}
+}
+
+// MoveInputCursorLeft moves the active tab input cursor left by one rune.
+func (s *ShellObject) MoveInputCursorLeft() {
+	if tab := s.ActiveTab(); tab != nil {
+		cursor := tab.inputCursor()
+		if cursor > 0 {
+			tab.InputCursor = cursor - 1
+		}
+	}
+}
+
+// MoveInputCursorRight moves the active tab input cursor right by one rune.
+func (s *ShellObject) MoveInputCursorRight() {
+	if tab := s.ActiveTab(); tab != nil {
+		cursor := tab.inputCursor()
+		if cursor < len([]rune(tab.InputBuffer)) {
+			tab.InputCursor = cursor + 1
+		}
 	}
 }
 
@@ -346,12 +387,14 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 			Summary:   "",
 		})
 		tab.InputBuffer = ""
+		tab.InputCursor = 0
 		return nil
 	}
 	if tab.ID == disconnectedSessionID {
 		err := fmt.Errorf("shell session is not connected: %s", lastSessionError(tab.Transcript))
 		tab.Transcript = append(tab.Transcript, errorEvent(tab.ID, err))
 		tab.InputBuffer = ""
+		tab.InputCursor = 0
 		tab.resetHistoryNavigation()
 		return err
 	}
@@ -375,6 +418,7 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 			Data:      map[string]string{"target": intent.Arg},
 		})
 		tab.InputBuffer = ""
+		tab.InputCursor = 0
 		return nil
 	}
 
@@ -395,6 +439,7 @@ func (s *ShellObject) SubmitActiveInput(ctx context.Context) error {
 	}
 	tab.Transcript = append(tab.Transcript, events...)
 	tab.InputBuffer = ""
+	tab.InputCursor = 0
 	return nil
 }
 func lastSessionError(events []TranscriptEvent) string {
@@ -448,6 +493,7 @@ func (s *ShellObject) NextInputHistory() bool {
 		return true
 	}
 	tab.InputBuffer = tab.historyDraft
+	tab.InputCursor = len([]rune(tab.InputBuffer))
 	tab.InputMode = tab.historyDraftMode
 	tab.resetHistoryNavigation()
 	return true
@@ -492,6 +538,7 @@ type TabSession struct {
 	CWD                  string
 	InputMode            InputMode
 	InputBuffer          string
+	InputCursor          int
 	inputEscapeRemainder string
 	InputHistory         []InputHistoryEntry
 	historyIndex         int
@@ -541,6 +588,7 @@ func (t *TabSession) applyHistoryEntry() {
 	}
 	entry := t.InputHistory[t.historyIndex]
 	t.InputBuffer = entry.Text
+	t.InputCursor = len([]rune(t.InputBuffer))
 	if entry.Mode != "" {
 		t.InputMode = entry.Mode
 	}
@@ -553,6 +601,32 @@ func (t *TabSession) resetHistoryNavigation() {
 	t.historyIndex = -1
 	t.historyDraft = ""
 	t.historyDraftMode = ""
+}
+
+func (t *TabSession) inputCursor() int {
+	if t == nil {
+		return 0
+	}
+	length := len([]rune(t.InputBuffer))
+	if t.InputCursor < 0 || t.InputCursor > length {
+		return length
+	}
+	return t.InputCursor
+}
+
+func (t *TabSession) insertInput(text string) {
+	if t == nil || text == "" {
+		return
+	}
+	runes := []rune(t.InputBuffer)
+	insert := []rune(text)
+	cursor := t.inputCursor()
+	out := make([]rune, 0, len(runes)+len(insert))
+	out = append(out, runes[:cursor]...)
+	out = append(out, insert...)
+	out = append(out, runes[cursor:]...)
+	t.InputBuffer = string(out)
+	t.InputCursor = cursor + len(insert)
 }
 
 // ProcessSummary is a session-scoped process row for rendering.

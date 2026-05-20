@@ -92,6 +92,28 @@ func TestAppendInputDoesNotStripModifierWordsInsideText(t *testing.T) {
 	}
 }
 
+func TestShellObjectEditsInputAtCursor(t *testing.T) {
+	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: NewFakeClient(), CWD: "/workspace"})
+	if err != nil {
+		t.Fatalf("NewShellObject() error = %v", err)
+	}
+	shell.AppendInput("echo ok")
+	shell.MoveInputCursorStart()
+	shell.AppendInput("?")
+	if got := shell.ActiveTab().InputBuffer; got != "?echo ok" {
+		t.Fatalf("InputBuffer after start insert = %q, want ?echo ok", got)
+	}
+	if got := shell.ActiveTab().InputCursor; got != 1 {
+		t.Fatalf("InputCursor after start insert = %d, want 1", got)
+	}
+	shell.MoveInputCursorEnd()
+	shell.AppendInput("!")
+	shell.BackspaceInput()
+	if got := shell.ActiveTab().InputBuffer; got != "?echo ok" {
+		t.Fatalf("InputBuffer after end backspace = %q, want ?echo ok", got)
+	}
+}
+
 func TestShellObjectCreatesSessionScopedTabs(t *testing.T) {
 	client := NewFakeClient()
 	shell, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: "/workspace"})

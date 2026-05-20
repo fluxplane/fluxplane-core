@@ -68,8 +68,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 97 {
-		t.Fatalf("operation specs len = %d, want 97", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 98 {
+		t.Fatalf("operation specs len = %d, want 98", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -97,6 +97,9 @@ func TestBundleComposes(t *testing.T) {
 	if !hasDatasourceSpec(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.Name) {
 		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, kubernetesplugin.Name)
 	}
+	if !datasourceSpecHasEntity(composition.DatasourceSpecs, kubernetesplugin.Name, kubernetesplugin.ClusterEntity) {
+		t.Fatalf("kubernetes datasource spec missing %s: %#v", kubernetesplugin.ClusterEntity, composition.DatasourceSpecs)
+	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, gitlabplugin.Name, gitlabplugin.Name) {
 		t.Fatalf("datasource specs = %#v, want %s", composition.DatasourceSpecs, gitlabplugin.Name)
 	}
@@ -113,10 +116,16 @@ func TestBundleComposes(t *testing.T) {
 	if len(session.Delegation.Operations) == 0 {
 		t.Fatal("delegation operations len = 0, want child operation caps")
 	}
-	for _, name := range []string{taskplugin.WorkerSession, taskplugin.ExplorerSession, taskplugin.ReviewerSession, taskplugin.TaskSession, taskplugin.PlanSession} {
+	for _, name := range []string{taskplugin.WorkerSession, taskplugin.ExplorerSession, taskplugin.ReviewerSession, taskplugin.TaskSession, taskplugin.PlanSession, "code-reviewer"} {
 		if !sessionAllowsProfile(session, name) {
 			t.Fatalf("delegation allowed profiles = %#v, missing %s", session.Delegation.AllowedProfiles, name)
 		}
+	}
+	if !sessionAllowsAgent(session, "code-reviewer") {
+		t.Fatalf("delegation allowed agents = %#v, missing code-reviewer", session.Delegation.AllowedAgents)
+	}
+	if !hasSessionSpec(composition.SessionSpecs, "code-reviewer", "code-reviewer") {
+		t.Fatalf("session specs = %#v, missing code-reviewer session", composition.SessionSpecs)
 	}
 	for _, name := range []string{"project_task_run", "task_create", "task_modify", "task_get", "task_list", "task_list_artifacts", "task_get_artifact", "task_read_artifact", "task_validate", "review_request", "task_run", "task_scheduler_status", "task_scheduler_set_enabled", "go_info", "go_env", "go_version", "go_doc", "go_list", "go_test", "go_fmt", "go_vet", "go_build", "go_install", "go_callers", "go_callees"} {
 		if !operationRefsContain(session.Delegation.Operations, name) {
@@ -292,6 +301,20 @@ func hasDatasourceSpec(specs []coredatasource.Spec, name, kind string) bool {
 	return false
 }
 
+func datasourceSpecHasEntity(specs []coredatasource.Spec, name string, entity coredatasource.EntityType) bool {
+	for _, spec := range specs {
+		if spec.Name != coredatasource.Name(name) {
+			continue
+		}
+		for _, candidate := range spec.Entities {
+			if candidate == entity {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func operationRefsContain(refs []operation.Ref, name string) bool {
 	for _, ref := range refs {
 		if ref.Name == operation.Name(name) {
@@ -304,6 +327,24 @@ func operationRefsContain(refs []operation.Ref, name string) bool {
 func sessionAllowsProfile(spec coresession.Spec, name string) bool {
 	for _, ref := range spec.Delegation.AllowedProfiles {
 		if string(ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionAllowsAgent(spec coresession.Spec, name string) bool {
+	for _, ref := range spec.Delegation.AllowedAgents {
+		if string(ref.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSessionSpec(specs []coresession.Spec, name, agentName string) bool {
+	for _, spec := range specs {
+		if string(spec.Name) == name && string(spec.Agent.Name) == agentName {
 			return true
 		}
 	}

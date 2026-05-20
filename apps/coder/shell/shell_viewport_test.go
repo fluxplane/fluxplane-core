@@ -359,6 +359,40 @@ func TestShellHistoryNavigationRestoresInputMode(t *testing.T) {
 	}
 }
 
+func TestShellHomeAllowsModeSwitchForRecalledHistory(t *testing.T) {
+	m := viewportTestModel()
+	tab := m.shell.ActiveTab()
+	if tab == nil {
+		t.Fatal("active tab is nil")
+	}
+	tab.recordHistory("go test ./apps/coder/shell", InputModeShell)
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	if tab.InputCursor != len([]rune(tab.InputBuffer)) {
+		t.Fatalf("history cursor = %d, want end of %q", tab.InputCursor, tab.InputBuffer)
+	}
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyHome}))
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "?", Code: '?'}))
+	if tab.InputMode != InputModeAsk {
+		t.Fatalf("mode after leading ? = %q, want ask", tab.InputMode)
+	}
+	if tab.InputBuffer != "go test ./apps/coder/shell" {
+		t.Fatalf("input after leading ? = %q, want recalled text unchanged", tab.InputBuffer)
+	}
+	if tab.InputCursor != 0 {
+		t.Fatalf("cursor after leading ? = %d, want 0", tab.InputCursor)
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnd}))
+	m = updateModel(t, m, tea.KeyPressMsg(tea.Key{Text: "!", Code: '!'}))
+	if tab.InputBuffer != "go test ./apps/coder/shell!" {
+		t.Fatalf("input after end ! = %q, want literal suffix", tab.InputBuffer)
+	}
+	if tab.InputMode != InputModeAsk {
+		t.Fatalf("mode after end ! = %q, want ask unchanged", tab.InputMode)
+	}
+}
+
 func TestShellIgnoresUnhandledAltModifiedRunes(t *testing.T) {
 	m := viewportTestModel()
 	tab := m.shell.ActiveTab()

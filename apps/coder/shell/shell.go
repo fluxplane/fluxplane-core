@@ -411,10 +411,11 @@ func newModel(status shellStatus, client ShellClient, connection string) model {
 	state, err := NewShellObject(context.Background(), ShellObjectOptions{Client: client, CWD: status.cwd, Connection: connection})
 	if err != nil {
 		state = &ShellObject{client: client, tabs: []TabSession{{
-			ID:        disconnectedSessionID,
-			Label:     "1",
-			CWD:       status.cwd,
-			InputMode: InputModeShell,
+			ID:          disconnectedSessionID,
+			Label:       "1",
+			CWD:         status.cwd,
+			InputMode:   InputModeShell,
+			InputCursor: -1,
 			Transcript: []TranscriptEvent{
 				transcriptConnectionEvent(disconnectedSessionID, connection),
 				{
@@ -488,15 +489,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.timeline.PageDown()
 			m.timelinePinned = m.timeline.AtBottom()
 			return m, nil
-		case key.Code == tea.KeyHome:
+		case key.Code == tea.KeyHome && key.Mod.Contains(tea.ModCtrl):
 			m.syncTimelineViewport(false)
 			m.timeline.GotoTop()
 			m.timelinePinned = false
 			return m, nil
-		case key.Code == tea.KeyEnd:
+		case key.Code == tea.KeyEnd && key.Mod.Contains(tea.ModCtrl):
 			m.syncTimelineViewport(false)
 			m.timeline.GotoBottom()
 			m.timelinePinned = true
+			return m, nil
+		case key.Code == tea.KeyHome || msg.Keystroke() == "ctrl+a":
+			m.shell.MoveInputCursorStart()
+			m.mention = MentionState{}
+			return m, nil
+		case key.Code == tea.KeyEnd || msg.Keystroke() == "ctrl+e":
+			m.shell.MoveInputCursorEnd()
+			m.refreshMention()
+			return m, nil
+		case key.Code == tea.KeyLeft:
+			m.shell.MoveInputCursorLeft()
+			m.mention = MentionState{}
+			return m, nil
+		case key.Code == tea.KeyRight:
+			m.shell.MoveInputCursorRight()
+			m.refreshMention()
 			return m, nil
 		case msg.Keystroke() == "ctrl+u":
 			m.syncTimelineViewport(false)
@@ -521,13 +538,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Text != "":
 			value := key.Text
-			if tab != nil && tab.InputBuffer == "" && value == "!" && tab.InputMode == InputModeAsk {
+			if tab != nil && tab.inputCursor() == 0 && value == "!" && tab.InputMode == InputModeAsk {
 				tab.InputMode = InputModeShell
 				tab.resetHistoryNavigation()
 				m.mention = MentionState{}
 				return m, nil
 			}
-			if tab != nil && tab.InputBuffer == "" && value == "?" && tab.InputMode == InputModeShell {
+			if tab != nil && tab.inputCursor() == 0 && value == "?" && tab.InputMode == InputModeShell {
 				tab.InputMode = InputModeAsk
 				tab.resetHistoryNavigation()
 				m.mention = MentionState{}
@@ -588,10 +605,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switch m.mention.Kind {
 					case completionCommand:
 						tab.InputBuffer = replaceCommandFragment(tab.InputBuffer, result)
+						tab.InputCursor = len([]rune(tab.InputBuffer))
 					case completionOption:
 						tab.InputBuffer = replaceOptionFragment(tab.InputBuffer, result)
+						tab.InputCursor = len([]rune(tab.InputBuffer))
 					default:
 						tab.InputBuffer = replaceMentionFragment(tab.InputBuffer, result)
+						tab.InputCursor = len([]rune(tab.InputBuffer))
 						tab.Mentions = append(tab.Mentions, ResourceMention{
 							Kind:       result.Kind,
 							ID:         result.ID,
@@ -1072,6 +1092,7 @@ var (
 			Padding(0, 1)
 	promptStyle = lipgloss.NewStyle().Foreground(monokaiGreen).Bold(true)
 	inputStyle  = lipgloss.NewStyle().Foreground(monokaiForeground)
+	cursorStyle = lipgloss.NewStyle().Foreground(monokaiBackground).Background(monokaiYellow)
 	footerStyle = lipgloss.NewStyle().Foreground(monokaiMuted).Padding(0, 1)
 )
 
@@ -1662,15 +1683,33 @@ func (m model) renderPrompt(width int) string {
 	input := ""
 	marker := "❯ "
 	if tab != nil {
-		input = tab.InputBuffer
 		if tab.InputMode == InputModeAsk {
 			marker = "🤖 "
 		}
+		input = renderInputWithCursor(tab)
 	}
-	prompt := promptStyle.Render(marker) + inputStyle.Render(input)
+	prompt := promptStyle.Render(marker) + input
 	box := promptBoxStyle.Width(width).Render(prompt)
 	footer := footerStyle.Width(width).Align(lipgloss.Right).Render(m.usage.summary())
 	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
+}
+
+func renderInputWithCursor(tab *TabSession) string {
+	if tab == nil {
+		return cursorStyle.Render(" ")
+	}
+	runes := []rune(tab.InputBuffer)
+	cursor := tab.inputCursor()
+	if len(runes) == 0 {
+		return cursorStyle.Render(" ")
+	}
+	if cursor >= len(runes) {
+		return inputStyle.Render(tab.InputBuffer) + cursorStyle.Render(" ")
+	}
+	before := string(runes[:cursor])
+	current := string(runes[cursor])
+	after := string(runes[cursor+1:])
+	return inputStyle.Render(before) + cursorStyle.Render(current) + inputStyle.Render(after)
 }
 
 func shortPath(path string) string {

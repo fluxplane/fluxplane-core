@@ -54,31 +54,9 @@ func Bundle() resource.ContributionBundle {
 	embedded := embeddedResourceBundle()
 	operations := fullCapabilityOperationNames()
 	delegationOperations := defaultDelegationOperationNames()
-	agentSpec := sdk.BuildAgent(AgentName).
-		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
-		WithSystem("You are coder. Help with coding tasks using concise, concrete steps. " +
-			"Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec. " +
-			"Use web_search for general web discovery, datasource_search with entities=[\"web.search_result\"] for configured web_search datasource queries, and web_request only for fetching known URLs. " +
-			"Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation. " +
-			"Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks. " +
-			"When the user asks you to create a task for immediate execution, create or update the task to status=ready, call task_run for that task, and report whether it started, is already running, is not ready, or is waiting for capacity. " +
-			"Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion. " +
-			"Use shell_exec only when no native operation fits. Ask before destructive actions.").
-		AsLLMAgent(DefaultModel).
-		WithMaxOutputTokens(4096).
-		WithMaxSteps(50).
-		WithAgency(agent.AgencyProfile{
-			Autonomy: agent.AutonomyGoalDriven,
-			Reactive: true,
-			Social:   true,
-			Stateful: true,
-		}).
-		WithOperations(operations...).
-		WithDatasource("web_search").
-		WithDatasource(kubernetesplugin.Name).
-		WithDatasource(gitlabplugin.Name).
-		Build()
-	agentSpec.Skills = append(agentSpec.Skills, skill.Ref{Name: "coder"})
+
+	baseAgentSpec := coderAgentSpec(operations)
+	codeReviewerAgentSpec := codeReviewerAgentSpec()
 
 	bundle := sdk.NewApp(AppName).
 		WithSource(resource.SourceRef{
@@ -96,18 +74,26 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: DockerPlugin}).
 		WithPlugin(resource.PluginRef{Name: GitLabPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
-		WithDefaultAgent(agentSpec).
+		WithDefaultAgent(baseAgentSpec).
+		WithAgent(codeReviewerAgentSpec).
 		WithDefaultSession(coresession.Spec{
 			Name:        SessionName,
 			Description: "Default local coding session.",
 			Agent:       agent.Ref{Name: AgentName},
 			Metadata:    map[string]string{"app": AppName},
 			Delegation: coresession.DelegationPolicy{
-				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}, {Name: "task-planner"}},
+				AllowedProfiles: []coresession.Ref{{Name: "worker"}, {Name: "explorer"}, {Name: "reviewer"}, {Name: "task"}, {Name: "task-planner"}, {Name: "code-reviewer"}},
+				AllowedAgents:   []agent.Ref{{Name: "code-reviewer"}},
 				MaxParallel:     4,
 				DefaultTimeout:  "10m",
 				Operations:      operationRefs(delegationOperations),
 			},
+		}).
+		WithSession(coresession.Spec{
+			Name:        "code-reviewer",
+			Description: "Delegated code review session.",
+			Agent:       agent.Ref{Name: "code-reviewer"},
+			Metadata:    map[string]string{"app": AppName},
 		}).
 		Build()
 	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
@@ -121,6 +107,7 @@ func Bundle() resource.ContributionBundle {
 		Description: "Default live Kubernetes cluster datasource.",
 		Kind:        kubernetesplugin.Name,
 		Entities: []coredatasource.EntityType{
+			kubernetesplugin.ClusterEntity,
 			kubernetesplugin.NamespaceEntity,
 			kubernetesplugin.PodEntity,
 			kubernetesplugin.ServiceEntity,
@@ -163,6 +150,59 @@ func Bundle() resource.ContributionBundle {
 	bundle.Append(embedded)
 	bundle.Commands = append(bundle.Commands, shellExecCommandSpec())
 	return bundle
+}
+
+func coderAgentSpec(operations []string) agent.Spec {
+	spec := sdk.BuildAgent(AgentName).
+		WithDescription("A compact local coding assistant with filesystem, web, browser, git, shell, background process, code execution, and clarification tools.").
+		WithSystem(coderSystemPrompt()).
+		AsLLMAgent(DefaultModel).
+		WithMaxOutputTokens(4096).
+		WithMaxSteps(50).
+		WithAgency(agent.AgencyProfile{
+			Autonomy: agent.AutonomyGoalDriven,
+			Reactive: true,
+			Social:   true,
+			Stateful: true,
+		}).
+		WithOperations(operations...).
+		WithDatasource("web_search").
+		WithDatasource(kubernetesplugin.Name).
+		WithDatasource(gitlabplugin.Name).
+		Build()
+	spec.Skills = append(spec.Skills, skill.Ref{Name: "coder"})
+	return spec
+}
+
+func codeReviewerAgentSpec() agent.Spec {
+	return sdk.BuildAgent("code-reviewer").
+		WithDescription("A focused code review assistant for inspecting patches and repository changes.").
+		WithSystem(codeReviewerSystemPrompt()).
+		AsLLMAgent(DefaultModel).
+		WithMaxOutputTokens(4096).
+		WithMaxSteps(25).
+		Build()
+}
+
+func coderSystemPrompt() string {
+	return `You are coder. Help with coding tasks using concise, concrete steps.
+
+Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec.
+Use web_search for general web discovery, datasource_search with entities=["web.search_result"] for configured web_search datasource queries, and web_request only for fetching known URLs.
+Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation.
+Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks.
+When the user asks you to create a task for immediate execution, create or update the task to status=ready, call task_run for that task, and report whether it started, is already running, is not ready, or is waiting for capacity.
+Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion.
+Use shell_exec only when no native operation fits. Ask before destructive actions.`
+}
+
+func codeReviewerSystemPrompt() string {
+	return `You are reviewer. Review code changes with concise, actionable findings.
+
+Prioritize correctness, safety, tests, maintainability, and repository architecture rules.
+Inspect diffs and relevant surrounding code before making claims.
+Report findings by severity with file and line references when available.
+Avoid broad style commentary unless it affects behavior, maintainability, or project conventions.`
 }
 
 func coderLanguageActivationReactions() []corereaction.Rule {
