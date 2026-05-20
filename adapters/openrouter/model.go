@@ -65,6 +65,7 @@ func New(cfg Config) (*openaiadapter.Model, error) {
 	}
 	options := []option.RequestOption{
 		option.WithHeader("X-Title", title),
+		option.WithMiddleware(responsesReliabilityMiddleware()),
 		option.WithMiddleware(errorBodyMiddleware()),
 	}
 	if referer := strings.TrimSpace(cfg.HTTPReferer); referer != "" {

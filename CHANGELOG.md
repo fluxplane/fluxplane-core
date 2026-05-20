@@ -274,6 +274,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one-shot turns, and coder shell `/task ...` input route through the session
   command dispatcher and authorize the task helper session agent.
 
+- Retried OpenRouter GPT-5.5 Responses streams that fail before emitting model
+  output and fall back to a non-streaming Responses call while preserving
+  provider error details.
+
 - Defaulted omitted memory operation access scopes to the current user, falling
   back to the current thread, so separate coder processes share local user
   memory without reopening unscoped cross-scope reads.
