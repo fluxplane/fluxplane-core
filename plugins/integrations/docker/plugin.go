@@ -124,6 +124,7 @@ func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 			out = append(out, coreenvironment.Signal{
 				Kind:           SignalConfigured,
 				Target:         Name,
+				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -135,6 +136,7 @@ func (dockerSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 			out = append(out, coreenvironment.Signal{
 				Kind:           SignalAvailable,
 				Target:         Name,
+				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,
@@ -152,8 +154,8 @@ func signalDeriverSpec() coreenvironment.SignalDeriverSpec {
 		Description:      "Derives Docker integration configured/available signals from Docker status observations.",
 		ObservationKinds: []string{ObservationStatus},
 		Signals: []coreenvironment.SignalTemplate{
-			{Kind: SignalConfigured, Target: Name},
-			{Kind: SignalAvailable, Target: Name},
+			{Kind: SignalConfigured, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name}},
+			{Kind: SignalAvailable, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectIntegration, Name: Name}},
 		},
 	}
 }

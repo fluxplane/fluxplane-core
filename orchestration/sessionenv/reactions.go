@@ -139,15 +139,18 @@ func ApplyReactionActions(actions []ReactionAction, cfg Config) ReactionApplyRes
 		if planned.IdempotencyKey != "" {
 			result.AppliedKeys = append(result.AppliedKeys, planned.IdempotencyKey)
 			emitRuntimeEvent(cfg, corereaction.ActionApplied{
-				Rule:           planned.Rule,
-				Action:         planned.Action.Kind,
-				IdempotencyKey: planned.IdempotencyKey,
-				Target:         reactionActionTarget(planned.Action),
-				Signal:         planned.Signal.Kind,
-				SignalTarget:   planned.Signal.Target,
-				SignalScope:    planned.Signal.Scope,
-				SignalSource:   planned.Signal.Source,
-				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:              planned.Rule,
+				Action:            planned.Action.Kind,
+				IdempotencyKey:    planned.IdempotencyKey,
+				Target:            reactionActionTarget(planned.Action),
+				Signal:            planned.Signal.Kind,
+				SignalTarget:      planned.Signal.Target,
+				SignalSubjectKind: string(planned.Signal.Subject.Kind),
+				SignalSubjectName: planned.Signal.Subject.Name,
+				SignalSubjectID:   planned.Signal.Subject.ID,
+				SignalScope:       planned.Signal.Scope,
+				SignalSource:      planned.Signal.Source,
+				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}

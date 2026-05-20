@@ -835,15 +835,18 @@ func (s Session) applyReactionOperations(ctx context.Context, runID string, acti
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:           planned.Rule,
-				Action:         planned.Action.Kind,
-				IdempotencyKey: planned.IdempotencyKey,
-				Target:         ref.String(),
-				Signal:         planned.Signal.Kind,
-				SignalTarget:   planned.Signal.Target,
-				SignalScope:    planned.Signal.Scope,
-				SignalSource:   planned.Signal.Source,
-				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:              planned.Rule,
+				Action:            planned.Action.Kind,
+				IdempotencyKey:    planned.IdempotencyKey,
+				Target:            ref.String(),
+				Signal:            planned.Signal.Kind,
+				SignalTarget:      planned.Signal.Target,
+				SignalSubjectKind: string(planned.Signal.Subject.Kind),
+				SignalSubjectName: planned.Signal.Subject.Name,
+				SignalSubjectID:   planned.Signal.Subject.ID,
+				SignalScope:       planned.Signal.Scope,
+				SignalSource:      planned.Signal.Source,
+				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -890,15 +893,18 @@ func (s Session) applyReactionCommands(ctx context.Context, inbound channel.Inbo
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:           planned.Rule,
-				Action:         planned.Action.Kind,
-				IdempotencyKey: planned.IdempotencyKey,
-				Target:         planned.Action.Command.Path.String(),
-				Signal:         planned.Signal.Kind,
-				SignalTarget:   planned.Signal.Target,
-				SignalScope:    planned.Signal.Scope,
-				SignalSource:   planned.Signal.Source,
-				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:              planned.Rule,
+				Action:            planned.Action.Kind,
+				IdempotencyKey:    planned.IdempotencyKey,
+				Target:            planned.Action.Command.Path.String(),
+				Signal:            planned.Signal.Kind,
+				SignalTarget:      planned.Signal.Target,
+				SignalSubjectKind: string(planned.Signal.Subject.Kind),
+				SignalSubjectName: planned.Signal.Subject.Name,
+				SignalSubjectID:   planned.Signal.Subject.ID,
+				SignalScope:       planned.Signal.Scope,
+				SignalSource:      planned.Signal.Source,
+				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -960,15 +966,18 @@ func (s Session) applyReactionWorkflows(ctx context.Context, runID string, actio
 		if planned.IdempotencyKey != "" {
 			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
 			emitReactionEvent(sink, corereaction.ActionApplied{
-				Rule:           planned.Rule,
-				Action:         planned.Action.Kind,
-				IdempotencyKey: planned.IdempotencyKey,
-				Target:         string(workflowName),
-				Signal:         planned.Signal.Kind,
-				SignalTarget:   planned.Signal.Target,
-				SignalScope:    planned.Signal.Scope,
-				SignalSource:   planned.Signal.Source,
-				ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
+				Rule:              planned.Rule,
+				Action:            planned.Action.Kind,
+				IdempotencyKey:    planned.IdempotencyKey,
+				Target:            string(workflowName),
+				Signal:            planned.Signal.Kind,
+				SignalTarget:      planned.Signal.Target,
+				SignalSubjectKind: string(planned.Signal.Subject.Kind),
+				SignalSubjectName: planned.Signal.Subject.Name,
+				SignalSubjectID:   planned.Signal.Subject.ID,
+				SignalScope:       planned.Signal.Scope,
+				SignalSource:      planned.Signal.Source,
+				ObservationIDs:    append([]string(nil), planned.Signal.ObservationIDs...),
 			})
 		}
 	}
@@ -1254,6 +1263,7 @@ type envExplainObservation struct {
 type envExplainAssertion struct {
 	Kind           string            `json:"kind,omitempty"`
 	Target         string            `json:"target,omitempty"`
+	Subject        envExplainSubject `json:"subject,omitempty"`
 	Scope          string            `json:"scope,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	Environment    string            `json:"environment,omitempty"`
@@ -1262,15 +1272,22 @@ type envExplainAssertion struct {
 	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
+type envExplainSubject struct {
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name,omitempty"`
+	ID   string `json:"id,omitempty"`
+}
+
 type envExplainReactionMatch struct {
-	Rule           string   `json:"rule,omitempty"`
-	Action         string   `json:"action,omitempty"`
-	Target         string   `json:"target,omitempty"`
-	Signal         string   `json:"signal,omitempty"`
-	SignalTarget   string   `json:"signal_target,omitempty"`
-	ObservationIDs []string `json:"observation_ids,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	Reason         string   `json:"reason,omitempty"`
+	Rule           string            `json:"rule,omitempty"`
+	Action         string            `json:"action,omitempty"`
+	Target         string            `json:"target,omitempty"`
+	Signal         string            `json:"signal,omitempty"`
+	SignalTarget   string            `json:"signal_target,omitempty"`
+	SignalSubject  envExplainSubject `json:"signal_subject,omitempty"`
+	ObservationIDs []string          `json:"observation_ids,omitempty"`
+	Status         string            `json:"status,omitempty"`
+	Reason         string            `json:"reason,omitempty"`
 }
 
 type envExplainActive struct {
@@ -1280,14 +1297,15 @@ type envExplainActive struct {
 }
 
 type envExplainApplied struct {
-	Rule           string   `json:"rule,omitempty"`
-	Action         string   `json:"action,omitempty"`
-	Target         string   `json:"target,omitempty"`
-	Signal         string   `json:"signal,omitempty"`
-	SignalTarget   string   `json:"signal_target,omitempty"`
-	SignalScope    string   `json:"signal_scope,omitempty"`
-	SignalSource   string   `json:"signal_source,omitempty"`
-	ObservationIDs []string `json:"observation_ids,omitempty"`
+	Rule           string            `json:"rule,omitempty"`
+	Action         string            `json:"action,omitempty"`
+	Target         string            `json:"target,omitempty"`
+	Signal         string            `json:"signal,omitempty"`
+	SignalTarget   string            `json:"signal_target,omitempty"`
+	SignalSubject  envExplainSubject `json:"signal_subject,omitempty"`
+	SignalScope    string            `json:"signal_scope,omitempty"`
+	SignalSource   string            `json:"signal_source,omitempty"`
+	ObservationIDs []string          `json:"observation_ids,omitempty"`
 }
 
 func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
@@ -1432,6 +1450,9 @@ func writeEnvExplainAssertions(b *strings.Builder, assertions []envExplainAssert
 		if assertion.Target != "" {
 			parts = append(parts, "target="+assertion.Target)
 		}
+		if subject := renderEnvExplainSubject(assertion.Subject); subject != "" {
+			parts = append(parts, "subject="+subject)
+		}
 		if assertion.Environment != "" {
 			parts = append(parts, "env="+assertion.Environment)
 		}
@@ -1474,6 +1495,9 @@ func writeEnvExplainMatching(b *strings.Builder, matches []envExplainReactionMat
 				signal += ":" + match.SignalTarget
 			}
 			parts = append(parts, "signal="+signal)
+		}
+		if subject := renderEnvExplainSubject(match.SignalSubject); subject != "" {
+			parts = append(parts, "subject="+subject)
 		}
 		if len(match.ObservationIDs) > 0 {
 			parts = append(parts, "observations="+strings.Join(match.ObservationIDs, ","))
@@ -1519,6 +1543,9 @@ func writeEnvExplainApplied(b *strings.Builder, applied []envExplainApplied) {
 			}
 			parts = append(parts, "signal="+signal)
 		}
+		if subject := renderEnvExplainSubject(item.SignalSubject); subject != "" {
+			parts = append(parts, "subject="+subject)
+		}
 		if len(item.ObservationIDs) > 0 {
 			parts = append(parts, "observations="+strings.Join(item.ObservationIDs, ","))
 		}
@@ -1541,11 +1568,16 @@ func explainAppliedReactions(in []corereaction.ActionApplied) []envExplainApplie
 	out := make([]envExplainApplied, 0, len(in))
 	for _, applied := range in {
 		out = append(out, envExplainApplied{
-			Rule:           applied.Rule,
-			Action:         string(applied.Action),
-			Target:         applied.Target,
-			Signal:         applied.Signal,
-			SignalTarget:   applied.SignalTarget,
+			Rule:         applied.Rule,
+			Action:       string(applied.Action),
+			Target:       applied.Target,
+			Signal:       applied.Signal,
+			SignalTarget: applied.SignalTarget,
+			SignalSubject: envExplainSubject{
+				Kind: strings.TrimSpace(applied.SignalSubjectKind),
+				Name: strings.TrimSpace(applied.SignalSubjectName),
+				ID:   strings.TrimSpace(applied.SignalSubjectID),
+			},
 			SignalScope:    applied.SignalScope,
 			SignalSource:   applied.SignalSource,
 			ObservationIDs: append([]string(nil), applied.ObservationIDs...),
@@ -1585,6 +1617,7 @@ func explainAssertions(in []environment.Signal) []envExplainAssertion {
 		out = append(out, envExplainAssertion{
 			Kind:           kind,
 			Target:         strings.TrimSpace(assertion.Target),
+			Subject:        explainSubject(assertion.Subject),
 			Scope:          strings.TrimSpace(assertion.Scope),
 			Source:         strings.TrimSpace(assertion.Source),
 			Environment:    strings.TrimSpace(string(assertion.Environment.Name)),
@@ -1596,6 +1629,28 @@ func explainAssertions(in []environment.Signal) []envExplainAssertion {
 	return out
 }
 
+func explainSubject(subject environment.Subject) envExplainSubject {
+	return envExplainSubject{
+		Kind: strings.TrimSpace(string(subject.Kind)),
+		Name: strings.TrimSpace(subject.Name),
+		ID:   strings.TrimSpace(subject.ID),
+	}
+}
+
+func renderEnvExplainSubject(subject envExplainSubject) string {
+	parts := []string{}
+	if subject.Kind != "" {
+		parts = append(parts, subject.Kind)
+	}
+	if subject.Name != "" {
+		parts = append(parts, subject.Name)
+	}
+	if subject.ID != "" {
+		parts = append(parts, subject.ID)
+	}
+	return strings.Join(parts, "/")
+}
+
 func explainReactionMatches(plan runtimereaction.Result) []envExplainReactionMatch {
 	out := make([]envExplainReactionMatch, 0, len(plan.Planned)+len(plan.Skipped))
 	for _, planned := range plan.Planned {
@@ -1605,6 +1660,7 @@ func explainReactionMatches(plan runtimereaction.Result) []envExplainReactionMat
 			Target:         envExplainReactionActionTarget(planned.Action),
 			Signal:         planned.Signal.Kind,
 			SignalTarget:   planned.Signal.Target,
+			SignalSubject:  explainSubject(planned.Signal.Subject),
 			ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
 			Status:         "planned",
 		})
@@ -1616,6 +1672,7 @@ func explainReactionMatches(plan runtimereaction.Result) []envExplainReactionMat
 			Target:         envExplainReactionActionTarget(skipped.Action),
 			Signal:         skipped.Signal.Kind,
 			SignalTarget:   skipped.Signal.Target,
+			SignalSubject:  explainSubject(skipped.Signal.Subject),
 			ObservationIDs: append([]string(nil), skipped.Signal.ObservationIDs...),
 			Status:         "skipped",
 			Reason:         skipped.Reason,
@@ -4655,6 +4712,9 @@ func reactionAppliedPayload(payload any) (corereaction.ActionApplied, bool) {
 		out.Target, _ = typed["target"].(string)
 		out.Signal, _ = typed["signal"].(string)
 		out.SignalTarget, _ = typed["signal_target"].(string)
+		out.SignalSubjectKind, _ = typed["signal_subject_kind"].(string)
+		out.SignalSubjectName, _ = typed["signal_subject_name"].(string)
+		out.SignalSubjectID, _ = typed["signal_subject_id"].(string)
 		out.SignalScope, _ = typed["signal_scope"].(string)
 		out.SignalSource, _ = typed["signal_source"].(string)
 		out.ObservationIDs = stringSliceFromAny(typed["observation_ids"])

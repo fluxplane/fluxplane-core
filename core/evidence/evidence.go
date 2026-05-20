@@ -4,25 +4,20 @@ package evidence
 
 import coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 
-// SubjectKind identifies the kind of entity an assertion is about.
-type SubjectKind string
-
 const (
-	SubjectLanguage    SubjectKind = "language"
-	SubjectToolchain   SubjectKind = "toolchain"
-	SubjectIntegration SubjectKind = "integration"
-	SubjectEndpoint    SubjectKind = "endpoint"
-	SubjectCapability  SubjectKind = "capability"
-	SubjectProvider    SubjectKind = "provider"
+	SubjectLanguage    = coreenvironment.SubjectLanguage
+	SubjectToolchain   = coreenvironment.SubjectToolchain
+	SubjectIntegration = coreenvironment.SubjectIntegration
+	SubjectEndpoint    = coreenvironment.SubjectEndpoint
+	SubjectCapability  = coreenvironment.SubjectCapability
+	SubjectProvider    = coreenvironment.SubjectProvider
 )
 
-// Subject gives assertions a structured target vocabulary. The existing
-// environment.Signal.Target field remains the transport shape during migration.
-type Subject struct {
-	Kind SubjectKind `json:"kind,omitempty"`
-	Name string      `json:"name,omitempty"`
-	ID   string      `json:"id,omitempty"`
-}
+// SubjectKind identifies the kind of entity an assertion is about.
+type SubjectKind = coreenvironment.SubjectKind
+
+// Subject gives assertions a structured target vocabulary.
+type Subject = coreenvironment.Subject
 
 // Ref identifies an evidence environment.
 type Ref = coreenvironment.Ref

@@ -276,6 +276,7 @@ func (projectSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sig
 				out = append(out, coreenvironment.Signal{
 					Kind:           SignalLanguageDetected,
 					Target:         string(signal.Language),
+					Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectLanguage, Name: string(signal.Language)},
 					Scope:          observation.Scope,
 					Environment:    observation.Environment,
 					Confidence:     confidence,
@@ -286,6 +287,7 @@ func (projectSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sig
 				out = append(out, coreenvironment.Signal{
 					Kind:           SignalProjectToolchainHint,
 					Target:         signal.Toolchain,
+					Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectToolchain, Name: signal.Toolchain},
 					Scope:          observation.Scope,
 					Environment:    observation.Environment,
 					Confidence:     confidence,
@@ -296,6 +298,7 @@ func (projectSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Sig
 				out = append(out, coreenvironment.Signal{
 					Kind:           SignalProjectManifest,
 					Target:         signal.Path,
+					Subject:        coreenvironment.Subject{Kind: "manifest", Name: signal.Path},
 					Scope:          observation.Scope,
 					Environment:    observation.Environment,
 					Confidence:     confidence,

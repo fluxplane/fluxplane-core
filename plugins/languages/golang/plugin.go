@@ -438,6 +438,7 @@ func (goToolchainSignalDeriver) Derive(_ context.Context, req runtimeenvironment
 		signal := coreenvironment.Signal{
 			Kind:           SignalToolchainAvailable,
 			Target:         status.ID,
+			Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectToolchain, Name: status.ID},
 			Scope:          observation.Scope,
 			Environment:    observation.Environment,
 			Confidence:     1,

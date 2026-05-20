@@ -10,6 +10,7 @@ import (
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/invocation"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -239,8 +240,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.language.go.parser",
 		When: corereaction.Matcher{
-			Signal: project.SignalLanguageDetected,
-			Target: "go",
+			Signal:  project.SignalLanguageDetected,
+			Target:  "go",
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "go"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -249,8 +251,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.language.markdown",
 		When: corereaction.Matcher{
-			Signal: project.SignalLanguageDetected,
-			Target: "markdown",
+			Signal:  project.SignalLanguageDetected,
+			Target:  "markdown",
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectLanguage, Name: "markdown"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -259,8 +262,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.integration.docker.available",
 		When: corereaction.Matcher{
-			Signal: docker.SignalAvailable,
-			Target: docker.Name,
+			Signal:  docker.SignalAvailable,
+			Target:  docker.Name,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: docker.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -269,8 +273,9 @@ func coderLanguageActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.toolchain.go.available",
 		When: corereaction.Matcher{
-			Signal: golang.SignalToolchainAvailable,
-			Target: "go",
+			Signal:  golang.SignalToolchainAvailable,
+			Target:  "go",
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectToolchain, Name: "go"},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -283,8 +288,9 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.endpoint.loki.available",
 		When: corereaction.Matcher{
-			Signal: discovery.SignalEndpointAvailable,
-			Target: loki.Name,
+			Signal:  discovery.SignalEndpointAvailable,
+			Target:  loki.Name,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: loki.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -299,8 +305,9 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.endpoint.mysql.available",
 		When: corereaction.Matcher{
-			Signal: discovery.SignalEndpointAvailable,
-			Target: mysql.Name,
+			Signal:  discovery.SignalEndpointAvailable,
+			Target:  mysql.Name,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectEndpoint, Name: mysql.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -316,8 +323,9 @@ func coderIntentActivationReactions() []corereaction.Rule {
 	return []corereaction.Rule{{
 		Name: "coder.capability.browser.ready_requested",
 		When: corereaction.Matcher{
-			Signal: browser.SignalBrowserReadyRequested,
-			Target: browser.Name,
+			Signal:  browser.SignalBrowserReadyRequested,
+			Target:  browser.Name,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: browser.Name},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -326,8 +334,9 @@ func coderIntentActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.capability.image.generation.ready_requested",
 		When: corereaction.Matcher{
-			Signal: image.SignalImageReadyRequested,
-			Target: image.GenerationSet,
+			Signal:  image.SignalImageReadyRequested,
+			Target:  image.GenerationSet,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.GenerationSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -336,8 +345,9 @@ func coderIntentActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.capability.image.understanding.ready_requested",
 		When: corereaction.Matcher{
-			Signal: image.SignalImageReadyRequested,
-			Target: image.UnderstandingSet,
+			Signal:  image.SignalImageReadyRequested,
+			Target:  image.UnderstandingSet,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: image.UnderstandingSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,
@@ -346,8 +356,9 @@ func coderIntentActivationReactions() []corereaction.Rule {
 	}, {
 		Name: "coder.capability.memory_mutation.ready_requested",
 		When: corereaction.Matcher{
-			Signal: memory.SignalMemoryMutationRequest,
-			Target: memory.MutationSet,
+			Signal:  memory.SignalMemoryMutationRequest,
+			Target:  memory.MutationSet,
+			Subject: coreevidence.Subject{Kind: coreevidence.SubjectCapability, Name: memory.MutationSet},
 		},
 		Actions: []corereaction.Action{{
 			Kind:         corereaction.ActionEnableOperationSet,

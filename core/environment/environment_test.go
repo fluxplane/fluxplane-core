@@ -6,12 +6,13 @@ func TestSignalActivationKeyUsesStableMatchingFields(t *testing.T) {
 	signal := Signal{
 		Kind:       " language.detected ",
 		Target:     " go ",
+		Subject:    Subject{Kind: SubjectLanguage, Name: " go "},
 		Scope:      " workspace:/repo ",
 		Source:     " project.inventory ",
 		Confidence: 1,
 		Metadata:   map[string]string{"ignored": "for-key"},
 	}
-	if got, want := signal.ActivationKey(), "language.detected\x1fgo\x1fworkspace:/repo\x1fproject.inventory"; got != want {
+	if got, want := signal.ActivationKey(), "language.detected\x1fgo\x1flanguage\x1fgo\x1f\x1fworkspace:/repo\x1fproject.inventory"; got != want {
 		t.Fatalf("ActivationKey = %q, want %q", got, want)
 	}
 }
@@ -20,6 +21,7 @@ func TestSignalFingerprintChangesWhenContentChanges(t *testing.T) {
 	base := Signal{
 		Kind:           "toolchain.available",
 		Target:         "go",
+		Subject:        Subject{Kind: SubjectToolchain, Name: "go"},
 		Scope:          "workspace:/repo",
 		Source:         "toolchain.status",
 		ObservationIDs: []string{"toolchain:go"},
@@ -29,6 +31,11 @@ func TestSignalFingerprintChangesWhenContentChanges(t *testing.T) {
 	changed.Metadata = map[string]string{"version": "go1.25"}
 	if base.Fingerprint() == changed.Fingerprint() {
 		t.Fatal("Fingerprint did not change after metadata changed")
+	}
+	changedSubject := base
+	changedSubject.Subject = Subject{Kind: SubjectToolchain, Name: "node"}
+	if base.Fingerprint() == changedSubject.Fingerprint() {
+		t.Fatal("Fingerprint did not change after subject changed")
 	}
 }
 

@@ -122,10 +122,17 @@ type signalDeriverFile struct {
 }
 
 type signalTemplateFile struct {
-	Kind   string `yaml:"kind"`
-	Target string `yaml:"target"`
-	Scope  string `yaml:"scope"`
-	Source string `yaml:"source"`
+	Kind    string      `yaml:"kind"`
+	Target  string      `yaml:"target"`
+	Subject subjectFile `yaml:"subject"`
+	Scope   string      `yaml:"scope"`
+	Source  string      `yaml:"source"`
+}
+
+type subjectFile struct {
+	Kind coreenvironment.SubjectKind `yaml:"kind"`
+	Name string                      `yaml:"name"`
+	ID   string                      `yaml:"id"`
 }
 
 type reactionFile struct {
@@ -138,11 +145,12 @@ type reactionFile struct {
 }
 
 type matcherFile struct {
-	Signal string            `yaml:"signal"`
-	Target string            `yaml:"target"`
-	Scope  string            `yaml:"scope"`
-	Source string            `yaml:"source"`
-	Meta   map[string]string `yaml:"meta"`
+	Signal  string            `yaml:"signal"`
+	Target  string            `yaml:"target"`
+	Subject subjectFile       `yaml:"subject"`
+	Scope   string            `yaml:"scope"`
+	Source  string            `yaml:"source"`
+	Meta    map[string]string `yaml:"meta"`
 }
 
 type reactionActionFile struct {
@@ -475,10 +483,11 @@ func (f signalDeriverFile) Spec() coreenvironment.SignalDeriverSpec {
 
 func (f signalTemplateFile) Template() coreenvironment.SignalTemplate {
 	return coreenvironment.SignalTemplate{
-		Kind:   strings.TrimSpace(f.Kind),
-		Target: strings.TrimSpace(f.Target),
-		Scope:  strings.TrimSpace(f.Scope),
-		Source: strings.TrimSpace(f.Source),
+		Kind:    strings.TrimSpace(f.Kind),
+		Target:  strings.TrimSpace(f.Target),
+		Subject: f.Subject.Subject(),
+		Scope:   strings.TrimSpace(f.Scope),
+		Source:  strings.TrimSpace(f.Source),
 	}
 }
 
@@ -499,11 +508,20 @@ func (f reactionFile) Rule() corereaction.Rule {
 
 func (f matcherFile) Matcher() corereaction.Matcher {
 	return corereaction.Matcher{
-		Signal: strings.TrimSpace(f.Signal),
-		Target: strings.TrimSpace(f.Target),
-		Scope:  strings.TrimSpace(f.Scope),
-		Source: strings.TrimSpace(f.Source),
-		Meta:   cloneStringMap(f.Meta),
+		Signal:  strings.TrimSpace(f.Signal),
+		Target:  strings.TrimSpace(f.Target),
+		Subject: f.Subject.Subject(),
+		Scope:   strings.TrimSpace(f.Scope),
+		Source:  strings.TrimSpace(f.Source),
+		Meta:    cloneStringMap(f.Meta),
+	}
+}
+
+func (f subjectFile) Subject() coreenvironment.Subject {
+	return coreenvironment.Subject{
+		Kind: f.Kind,
+		Name: strings.TrimSpace(f.Name),
+		ID:   strings.TrimSpace(f.ID),
 	}
 }
 

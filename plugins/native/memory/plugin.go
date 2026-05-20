@@ -81,7 +81,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Description:      "Derives memory mutation activation when storage and explicit memory intent are present.",
 			ObservationKinds: []string{ObservationMemoryStore, memoryChannelMessageKind},
 			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalMemoryMutationRequest, Target: MutationSet},
+				{Kind: SignalMemoryMutationRequest, Target: MutationSet, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: MutationSet}},
 			},
 		}},
 	}, nil
@@ -212,6 +212,7 @@ func (memoryIntentDeriver) Derive(_ context.Context, req runtimeenvironment.Sign
 	return []coreenvironment.Signal{{
 		Kind:           SignalMemoryMutationRequest,
 		Target:         MutationSet,
+		Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: MutationSet},
 		Scope:          scope,
 		Environment:    coreenvironment.Ref{Name: Name},
 		Confidence:     1,

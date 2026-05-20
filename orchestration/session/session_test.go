@@ -2282,6 +2282,7 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 			return []environment.Signal{{
 				Kind:           "integration.available",
 				Target:         "kubernetes",
+				Subject:        environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"},
 				Environment:    environment.Ref{Name: "kubernetes"},
 				ObservationIDs: []string{"kubernetes:context"},
 			}}, nil
@@ -2294,7 +2295,7 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 		SignalDerivers:       []runtimeenvironment.SignalDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "kubernetes-context",
-			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes"},
+			When: corereaction.Matcher{Signal: "integration.available", Target: "kubernetes", Subject: environment.Subject{Kind: environment.SubjectIntegration, Name: "kubernetes"}},
 			Actions: []corereaction.Action{{
 				Kind:            corereaction.ActionEnableContext,
 				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
@@ -2340,10 +2341,10 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	if len(data.Observations) != 1 || data.Observations[0].Kind != "kubernetes.context" || !strings.Contains(data.Observations[0].Content, "latest") {
 		t.Fatalf("observations = %#v, want bounded Kubernetes context evidence", data.Observations)
 	}
-	if len(data.Assertions) != 1 || data.Assertions[0].Kind != "integration.available" || data.Assertions[0].Target != "kubernetes" {
+	if len(data.Assertions) != 1 || data.Assertions[0].Kind != "integration.available" || data.Assertions[0].Target != "kubernetes" || data.Assertions[0].Subject.Kind != "integration" {
 		t.Fatalf("assertions = %#v, want Kubernetes availability assertion", data.Assertions)
 	}
-	if len(data.Matching) != 1 || data.Matching[0].Rule != "kubernetes-context" || data.Matching[0].Status != "planned" {
+	if len(data.Matching) != 1 || data.Matching[0].Rule != "kubernetes-context" || data.Matching[0].Status != "planned" || data.Matching[0].SignalSubject.Kind != "integration" {
 		t.Fatalf("matching = %#v, want planned Kubernetes context reaction", data.Matching)
 	}
 	if data.AppliedReactions != 1 || len(data.Active.ContextProviders) != 1 || data.Active.ContextProviders[0] != "kubernetes.context" {

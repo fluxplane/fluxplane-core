@@ -12,6 +12,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -40,11 +41,17 @@ observations:
       signals:
         - kind: integration.available
           target: kubernetes
+          subject:
+            kind: integration
+            name: kubernetes
 reactions:
   - name: kubernetes-available
     when:
       signal: integration.available
       target: kubernetes
+      subject:
+        kind: integration
+        name: kubernetes
     actions:
       - kind: activate_skill
         skill:
@@ -84,8 +91,14 @@ reactions:
 	if len(cfg.Observations.SignalDerivers) != 1 || cfg.Observations.SignalDerivers[0].Name != "kubernetes.signals" {
 		t.Fatalf("signal derivers = %#v, want kubernetes.signals", cfg.Observations.SignalDerivers)
 	}
+	if got := cfg.Observations.SignalDerivers[0].Signals[0].Subject; got.Kind != coreenvironment.SubjectIntegration || got.Name != "kubernetes" {
+		t.Fatalf("signal subject = %#v, want integration/kubernetes", got)
+	}
 	if len(cfg.Reactions) != 1 || cfg.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v, want kubernetes-available", cfg.Reactions)
+	}
+	if got := cfg.Reactions[0].When.Subject; got.Kind != coreenvironment.SubjectIntegration || got.Name != "kubernetes" {
+		t.Fatalf("reaction subject = %#v, want integration/kubernetes", got)
 	}
 	if got := cfg.Reactions[0].Actions[1].ContextProvider.Name; got != "kubernetes.context" {
 		t.Fatalf("context provider reaction target = %q, want kubernetes.context", got)

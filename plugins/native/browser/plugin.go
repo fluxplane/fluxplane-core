@@ -78,7 +78,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Description:      "Derives browser activation when runtime availability and turn intent are both present.",
 			ObservationKinds: []string{ObservationBrowserRuntime, browserChannelMessageKind},
 			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalBrowserReadyRequested, Target: Name},
+				{Kind: SignalBrowserReadyRequested, Target: Name, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: Name}},
 			},
 		}},
 	}, nil
@@ -241,6 +241,7 @@ func (browserIntentDeriver) Derive(_ context.Context, req runtimeenvironment.Sig
 	return []coreenvironment.Signal{{
 		Kind:           SignalBrowserReadyRequested,
 		Target:         Name,
+		Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: Name},
 		Scope:          scope,
 		Environment:    coreenvironment.Ref{Name: Name},
 		Confidence:     1,

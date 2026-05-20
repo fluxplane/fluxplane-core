@@ -23,7 +23,7 @@ const (
 	ModeEveryTurn Mode = "every_turn"
 )
 
-// Rule maps a normalized environment signal to one or more inert actions.
+// Rule maps a normalized evidence assertion to one or more inert actions.
 type Rule struct {
 	Name        string            `json:"name"`
 	Mode        Mode              `json:"mode,omitempty"`
@@ -55,20 +55,22 @@ func (r Rule) Validate() error {
 	return nil
 }
 
-// Matcher selects environment signals. Empty fields are wildcards, but at
+// Matcher selects evidence assertions. Empty fields are wildcards, but at
 // least one matching field must be set.
 type Matcher struct {
-	Signal string            `json:"signal,omitempty"`
-	Target string            `json:"target,omitempty"`
-	Scope  string            `json:"scope,omitempty"`
-	Source string            `json:"source,omitempty"`
-	Meta   map[string]string `json:"meta,omitempty"`
+	Signal  string              `json:"signal,omitempty"`
+	Target  string              `json:"target,omitempty"`
+	Subject environment.Subject `json:"subject,omitempty"`
+	Scope   string              `json:"scope,omitempty"`
+	Source  string              `json:"source,omitempty"`
+	Meta    map[string]string   `json:"meta,omitempty"`
 }
 
 // Validate checks that the matcher is not an accidental match-all rule.
 func (m Matcher) Validate() error {
 	if strings.TrimSpace(m.Signal) == "" &&
 		strings.TrimSpace(m.Target) == "" &&
+		m.Subject.IsZero() &&
 		strings.TrimSpace(m.Scope) == "" &&
 		strings.TrimSpace(m.Source) == "" &&
 		len(m.Meta) == 0 {
@@ -77,12 +79,15 @@ func (m Matcher) Validate() error {
 	return nil
 }
 
-// Matches reports whether a signal satisfies the matcher.
+// Matches reports whether an assertion satisfies the matcher.
 func (m Matcher) Matches(signal environment.Signal) bool {
 	if strings.TrimSpace(m.Signal) != "" && strings.TrimSpace(m.Signal) != strings.TrimSpace(signal.Kind) {
 		return false
 	}
 	if strings.TrimSpace(m.Target) != "" && strings.TrimSpace(m.Target) != strings.TrimSpace(signal.Target) {
+		return false
+	}
+	if !subjectMatches(m.Subject, signal.Subject) {
 		return false
 	}
 	if strings.TrimSpace(m.Scope) != "" && strings.TrimSpace(m.Scope) != strings.TrimSpace(signal.Scope) {
@@ -95,6 +100,22 @@ func (m Matcher) Matches(signal environment.Signal) bool {
 		if signal.Metadata == nil || signal.Metadata[key] != value {
 			return false
 		}
+	}
+	return true
+}
+
+func subjectMatches(matcher, signal environment.Subject) bool {
+	if matcher.IsZero() {
+		return true
+	}
+	if strings.TrimSpace(string(matcher.Kind)) != "" && strings.TrimSpace(string(matcher.Kind)) != strings.TrimSpace(string(signal.Kind)) {
+		return false
+	}
+	if strings.TrimSpace(matcher.Name) != "" && strings.TrimSpace(matcher.Name) != strings.TrimSpace(signal.Name) {
+		return false
+	}
+	if strings.TrimSpace(matcher.ID) != "" && strings.TrimSpace(matcher.ID) != strings.TrimSpace(signal.ID) {
+		return false
 	}
 	return true
 }

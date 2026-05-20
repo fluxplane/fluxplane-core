@@ -128,8 +128,8 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Description:      "Derives image activation when provider availability and turn intent are both present.",
 			ObservationKinds: []string{ObservationImageProviders, imageChannelMessageKind},
 			Signals: []coreenvironment.SignalTemplate{
-				{Kind: SignalImageReadyRequested, Target: GenerationSet},
-				{Kind: SignalImageReadyRequested, Target: UnderstandingSet},
+				{Kind: SignalImageReadyRequested, Target: GenerationSet, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: GenerationSet}},
+				{Kind: SignalImageReadyRequested, Target: UnderstandingSet, Subject: coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: UnderstandingSet}},
 			},
 		}},
 	}, nil
@@ -244,6 +244,7 @@ func imageReadySignal(target, mode, scope string, ids []string) coreenvironment.
 	return coreenvironment.Signal{
 		Kind:           SignalImageReadyRequested,
 		Target:         target,
+		Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectCapability, Name: target},
 		Scope:          scope,
 		Environment:    coreenvironment.Ref{Name: Name},
 		Confidence:     1,

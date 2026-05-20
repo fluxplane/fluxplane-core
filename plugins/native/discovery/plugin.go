@@ -249,6 +249,7 @@ func (endpointSignalDeriver) Derive(_ context.Context, req runtimeenvironment.Si
 			out = append(out, coreenvironment.Signal{
 				Kind:           SignalEndpointAvailable,
 				Target:         endpoint.Product,
+				Subject:        coreenvironment.Subject{Kind: coreenvironment.SubjectEndpoint, Name: endpoint.Product, ID: string(endpoint.Ref)},
 				Scope:          observation.Scope,
 				Environment:    observation.Environment,
 				Confidence:     1,

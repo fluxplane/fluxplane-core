@@ -89,10 +89,38 @@ type SignalDeriverSpec struct {
 
 // SignalTemplate describes a signal shape produced by a deriver.
 type SignalTemplate struct {
-	Kind   string `json:"kind"`
-	Target string `json:"target,omitempty"`
-	Scope  string `json:"scope,omitempty"`
-	Source string `json:"source,omitempty"`
+	Kind    string  `json:"kind"`
+	Target  string  `json:"target,omitempty"`
+	Subject Subject `json:"subject,omitempty"`
+	Scope   string  `json:"scope,omitempty"`
+	Source  string  `json:"source,omitempty"`
+}
+
+// SubjectKind identifies the kind of entity a signal/assertion is about.
+type SubjectKind string
+
+const (
+	SubjectLanguage    SubjectKind = "language"
+	SubjectToolchain   SubjectKind = "toolchain"
+	SubjectIntegration SubjectKind = "integration"
+	SubjectEndpoint    SubjectKind = "endpoint"
+	SubjectCapability  SubjectKind = "capability"
+	SubjectProvider    SubjectKind = "provider"
+)
+
+// Subject gives signals/assertions a structured target vocabulary. Target is
+// retained during migration for existing matchers and serialized configs.
+type Subject struct {
+	Kind SubjectKind `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name string      `json:"name,omitempty" yaml:"name,omitempty"`
+	ID   string      `json:"id,omitempty" yaml:"id,omitempty"`
+}
+
+// IsZero reports whether the subject has no matching identity.
+func (s Subject) IsZero() bool {
+	return strings.TrimSpace(string(s.Kind)) == "" &&
+		strings.TrimSpace(s.Name) == "" &&
+		strings.TrimSpace(s.ID) == ""
 }
 
 // Effect declares one operation that is meaningful at this environment
@@ -132,6 +160,7 @@ type Observation struct {
 type Signal struct {
 	Kind           string            `json:"kind"`
 	Target         string            `json:"target,omitempty"`
+	Subject        Subject           `json:"subject,omitempty"`
 	Scope          string            `json:"scope,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	Environment    Ref               `json:"environment,omitempty"`
@@ -146,6 +175,9 @@ func (s Signal) ActivationKey() string {
 	parts := []string{
 		strings.TrimSpace(s.Kind),
 		strings.TrimSpace(s.Target),
+		strings.TrimSpace(string(s.Subject.Kind)),
+		strings.TrimSpace(s.Subject.Name),
+		strings.TrimSpace(s.Subject.ID),
 		strings.TrimSpace(s.Scope),
 		strings.TrimSpace(s.Source),
 	}
@@ -156,6 +188,7 @@ func (s Signal) ActivationKey() string {
 func (s Signal) IsZero() bool {
 	return strings.TrimSpace(s.Kind) == "" &&
 		strings.TrimSpace(s.Target) == "" &&
+		s.Subject.IsZero() &&
 		strings.TrimSpace(s.Scope) == "" &&
 		strings.TrimSpace(s.Source) == ""
 }
@@ -166,6 +199,7 @@ func (s Signal) Fingerprint() string {
 	payload := struct {
 		Kind           string            `json:"kind,omitempty"`
 		Target         string            `json:"target,omitempty"`
+		Subject        Subject           `json:"subject,omitempty"`
 		Scope          string            `json:"scope,omitempty"`
 		Source         string            `json:"source,omitempty"`
 		Environment    Ref               `json:"environment,omitempty"`
@@ -175,6 +209,7 @@ func (s Signal) Fingerprint() string {
 	}{
 		Kind:           strings.TrimSpace(s.Kind),
 		Target:         strings.TrimSpace(s.Target),
+		Subject:        normalizedSubject(s.Subject),
 		Scope:          strings.TrimSpace(s.Scope),
 		Source:         strings.TrimSpace(s.Source),
 		Environment:    s.Environment,
@@ -189,6 +224,14 @@ func (s Signal) Fingerprint() string {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func normalizedSubject(subject Subject) Subject {
+	return Subject{
+		Kind: SubjectKind(strings.TrimSpace(string(subject.Kind))),
+		Name: strings.TrimSpace(subject.Name),
+		ID:   strings.TrimSpace(subject.ID),
+	}
 }
 
 func cloneSignalMetadata(in map[string]string) map[string]string {

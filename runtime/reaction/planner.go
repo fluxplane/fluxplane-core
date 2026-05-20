@@ -3,14 +3,14 @@ package reaction
 import (
 	"strconv"
 
-	"github.com/fluxplane/agentruntime/core/environment"
+	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 )
 
 // Request describes one pure reaction planning pass.
 type Request struct {
 	Rules       []corereaction.Rule
-	Signals     []environment.Signal
+	Signals     []coreevidence.Assertion
 	Previous    map[string]string
 	AppliedKeys map[string]bool
 }
@@ -26,7 +26,7 @@ type Result struct {
 // PlannedAction is an action selected by a matching rule.
 type PlannedAction struct {
 	Rule           string
-	Signal         environment.Signal
+	Signal         coreevidence.Assertion
 	Action         corereaction.Action
 	ActionIndex    int
 	IdempotencyKey string
@@ -35,7 +35,7 @@ type PlannedAction struct {
 // SkippedAction is a matching action suppressed by previous application state.
 type SkippedAction struct {
 	Rule           string
-	Signal         environment.Signal
+	Signal         coreevidence.Assertion
 	Action         corereaction.Action
 	ActionIndex    int
 	IdempotencyKey string
@@ -48,7 +48,7 @@ type Diagnostic struct {
 	Message string
 }
 
-// Plan evaluates reaction rules against the current signal set.
+// Plan evaluates reaction rules against the current assertion set.
 func Plan(req Request) Result {
 	signals := uniqueSignals(req.Signals)
 	current := SignalFingerprints(signals)
@@ -92,8 +92,8 @@ func Plan(req Request) Result {
 	return result
 }
 
-// SignalFingerprints returns the current key -> fingerprint state for signals.
-func SignalFingerprints(signals []environment.Signal) map[string]string {
+// SignalFingerprints returns the current key -> fingerprint state for assertions.
+func SignalFingerprints(signals []coreevidence.Assertion) map[string]string {
 	out := map[string]string{}
 	for _, signal := range uniqueSignals(signals) {
 		if signal.IsZero() {
@@ -109,7 +109,7 @@ func SignalFingerprints(signals []environment.Signal) map[string]string {
 
 // IdempotencyKey returns the stable action key used to suppress repeated
 // applications of the same rule/action for the same signal fingerprint.
-func IdempotencyKey(rule corereaction.Rule, signal environment.Signal, index int, action corereaction.Action) string {
+func IdempotencyKey(rule corereaction.Rule, signal coreevidence.Assertion, index int, action corereaction.Action) string {
 	key := rule.Name + "\x1f" + signal.ActivationKey() + "\x1f" + signal.Fingerprint() + "\x1f" + strconv.Itoa(index)
 	if action.IdempotencyFragment != "" {
 		key += "\x1f" + action.IdempotencyFragment
@@ -117,7 +117,7 @@ func IdempotencyKey(rule corereaction.Rule, signal environment.Signal, index int
 	return key
 }
 
-func shouldFire(rule corereaction.Rule, signal environment.Signal, previous map[string]string) bool {
+func shouldFire(rule corereaction.Rule, signal coreevidence.Assertion, previous map[string]string) bool {
 	if rule.Mode == corereaction.ModeEveryTurn {
 		return true
 	}
@@ -127,9 +127,9 @@ func shouldFire(rule corereaction.Rule, signal environment.Signal, previous map[
 	return previous[signal.ActivationKey()] != signal.Fingerprint()
 }
 
-func uniqueSignals(signals []environment.Signal) []environment.Signal {
+func uniqueSignals(signals []coreevidence.Assertion) []coreevidence.Assertion {
 	seen := map[string]int{}
-	var out []environment.Signal
+	var out []coreevidence.Assertion
 	for _, signal := range signals {
 		if signal.IsZero() {
 			continue
