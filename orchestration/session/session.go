@@ -1233,9 +1233,44 @@ type envExplainData struct {
 	Observers        []environment.ObserverSpec      `json:"observers,omitempty"`
 	SignalDerivers   []environment.SignalDeriverSpec `json:"signal_derivers,omitempty"`
 	ReactionRules    []string                        `json:"reaction_rules,omitempty"`
+	Observations     []envExplainObservation         `json:"observations,omitempty"`
+	Assertions       []envExplainAssertion           `json:"assertions,omitempty"`
+	Matching         []envExplainReactionMatch       `json:"matching,omitempty"`
 	Active           envExplainActive                `json:"active,omitempty"`
 	Applied          []envExplainApplied             `json:"applied,omitempty"`
 	AppliedReactions int                             `json:"applied_reactions,omitempty"`
+}
+
+type envExplainObservation struct {
+	ID          string         `json:"id,omitempty"`
+	Kind        string         `json:"kind,omitempty"`
+	Source      string         `json:"source,omitempty"`
+	Scope       string         `json:"scope,omitempty"`
+	Environment string         `json:"environment,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+type envExplainAssertion struct {
+	Kind           string            `json:"kind,omitempty"`
+	Target         string            `json:"target,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	Environment    string            `json:"environment,omitempty"`
+	Confidence     float64           `json:"confidence,omitempty"`
+	ObservationIDs []string          `json:"observation_ids,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+type envExplainReactionMatch struct {
+	Rule           string   `json:"rule,omitempty"`
+	Action         string   `json:"action,omitempty"`
+	Target         string   `json:"target,omitempty"`
+	Signal         string   `json:"signal,omitempty"`
+	SignalTarget   string   `json:"signal_target,omitempty"`
+	ObservationIDs []string `json:"observation_ids,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Reason         string   `json:"reason,omitempty"`
 }
 
 type envExplainActive struct {
@@ -1260,10 +1295,21 @@ func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.I
 	if err != nil {
 		return commandFailed("reaction_replay_failed", err.Error(), nil)
 	}
+	observations := append([]environment.Observation(nil), s.StartupObservations...)
+	assertions := append([]environment.Signal(nil), s.StartupSignals...)
+	observations, assertions = s.prepareEnvironmentPhase(ctx, environment.PhaseTurn, observations, assertions)
+	plan := runtimereaction.Plan(runtimereaction.Request{
+		Rules:       s.ReactionRules,
+		Signals:     assertions,
+		AppliedKeys: state.AppliedKeys,
+	})
 	data := envExplainData{
 		Observers:        environmentObserverSpecs(s.EnvironmentObservers),
 		SignalDerivers:   signalDeriverSpecs(s.SignalDerivers),
 		ReactionRules:    reactionRuleNames(s.ReactionRules),
+		Observations:     explainObservations(observations),
+		Assertions:       explainAssertions(assertions),
+		Matching:         explainReactionMatches(plan),
 		Active:           explainActiveState(state.Active),
 		Applied:          explainAppliedReactions(state.Applied),
 		AppliedReactions: len(state.AppliedKeys),
@@ -1280,6 +1326,9 @@ func renderEnvExplain(data envExplainData) string {
 	writeEnvExplainObservers(&b, data.Observers)
 	writeEnvExplainDerivers(&b, data.SignalDerivers)
 	writeEnvExplainRules(&b, data.ReactionRules)
+	writeEnvExplainObservations(&b, data.Observations)
+	writeEnvExplainAssertions(&b, data.Assertions)
+	writeEnvExplainMatching(&b, data.Matching)
 	writeEnvExplainActive(&b, data.Active, data.AppliedReactions)
 	writeEnvExplainApplied(&b, data.Applied)
 	return strings.TrimRight(b.String(), "\n")
@@ -1342,6 +1391,94 @@ func writeEnvExplainRules(b *strings.Builder, rules []string) {
 		b.WriteString("  - ")
 		b.WriteString(rule)
 		b.WriteByte('\n')
+	}
+}
+
+func writeEnvExplainObservations(b *strings.Builder, observations []envExplainObservation) {
+	b.WriteString("\nObservations\n")
+	if len(observations) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, observation := range observations {
+		parts := []string{}
+		if observation.ID != "" {
+			parts = append(parts, "id="+observation.ID)
+		}
+		if observation.Environment != "" {
+			parts = append(parts, "env="+observation.Environment)
+		}
+		if observation.Scope != "" {
+			parts = append(parts, "scope="+observation.Scope)
+		}
+		if observation.Source != "" {
+			parts = append(parts, "source="+observation.Source)
+		}
+		if observation.Content != "" {
+			parts = append(parts, "content="+observation.Content)
+		}
+		writeEnvExplainLine(b, observation.Kind, parts)
+	}
+}
+
+func writeEnvExplainAssertions(b *strings.Builder, assertions []envExplainAssertion) {
+	b.WriteString("\nAssertions\n")
+	if len(assertions) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, assertion := range assertions {
+		parts := []string{}
+		if assertion.Target != "" {
+			parts = append(parts, "target="+assertion.Target)
+		}
+		if assertion.Environment != "" {
+			parts = append(parts, "env="+assertion.Environment)
+		}
+		if assertion.Scope != "" {
+			parts = append(parts, "scope="+assertion.Scope)
+		}
+		if assertion.Source != "" {
+			parts = append(parts, "source="+assertion.Source)
+		}
+		if len(assertion.ObservationIDs) > 0 {
+			parts = append(parts, "observations="+strings.Join(assertion.ObservationIDs, ","))
+		}
+		writeEnvExplainLine(b, assertion.Kind, parts)
+	}
+}
+
+func writeEnvExplainMatching(b *strings.Builder, matches []envExplainReactionMatch) {
+	b.WriteString("\nMatching Reactions\n")
+	if len(matches) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, match := range matches {
+		parts := []string{}
+		if match.Status != "" {
+			parts = append(parts, "status="+match.Status)
+		}
+		if match.Reason != "" {
+			parts = append(parts, "reason="+match.Reason)
+		}
+		if match.Action != "" {
+			parts = append(parts, "action="+match.Action)
+		}
+		if match.Target != "" {
+			parts = append(parts, "target="+match.Target)
+		}
+		if match.Signal != "" {
+			signal := match.Signal
+			if match.SignalTarget != "" {
+				signal += ":" + match.SignalTarget
+			}
+			parts = append(parts, "signal="+signal)
+		}
+		if len(match.ObservationIDs) > 0 {
+			parts = append(parts, "observations="+strings.Join(match.ObservationIDs, ","))
+		}
+		writeEnvExplainLine(b, match.Rule, parts)
 	}
 }
 
@@ -1413,6 +1550,148 @@ func explainAppliedReactions(in []corereaction.ActionApplied) []envExplainApplie
 			SignalSource:   applied.SignalSource,
 			ObservationIDs: append([]string(nil), applied.ObservationIDs...),
 		})
+	}
+	return out
+}
+
+func explainObservations(in []environment.Observation) []envExplainObservation {
+	out := make([]envExplainObservation, 0, len(in))
+	for _, observation := range in {
+		kind := strings.TrimSpace(observation.Kind)
+		if kind == "" {
+			continue
+		}
+		item := envExplainObservation{
+			ID:          strings.TrimSpace(observation.ID),
+			Kind:        kind,
+			Source:      strings.TrimSpace(observation.Source),
+			Scope:       strings.TrimSpace(observation.Scope),
+			Environment: strings.TrimSpace(string(observation.Environment.Name)),
+			Content:     summarizeEnvExplainContent(observation.Content),
+			Metadata:    cloneObservationMetadata(observation.Metadata),
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func explainAssertions(in []environment.Signal) []envExplainAssertion {
+	out := make([]envExplainAssertion, 0, len(in))
+	for _, assertion := range in {
+		kind := strings.TrimSpace(assertion.Kind)
+		if kind == "" {
+			continue
+		}
+		out = append(out, envExplainAssertion{
+			Kind:           kind,
+			Target:         strings.TrimSpace(assertion.Target),
+			Scope:          strings.TrimSpace(assertion.Scope),
+			Source:         strings.TrimSpace(assertion.Source),
+			Environment:    strings.TrimSpace(string(assertion.Environment.Name)),
+			Confidence:     assertion.Confidence,
+			ObservationIDs: append([]string(nil), assertion.ObservationIDs...),
+			Metadata:       cloneEnvExplainSignalMetadata(assertion.Metadata),
+		})
+	}
+	return out
+}
+
+func explainReactionMatches(plan runtimereaction.Result) []envExplainReactionMatch {
+	out := make([]envExplainReactionMatch, 0, len(plan.Planned)+len(plan.Skipped))
+	for _, planned := range plan.Planned {
+		out = append(out, envExplainReactionMatch{
+			Rule:           planned.Rule,
+			Action:         string(planned.Action.Kind),
+			Target:         envExplainReactionActionTarget(planned.Action),
+			Signal:         planned.Signal.Kind,
+			SignalTarget:   planned.Signal.Target,
+			ObservationIDs: append([]string(nil), planned.Signal.ObservationIDs...),
+			Status:         "planned",
+		})
+	}
+	for _, skipped := range plan.Skipped {
+		out = append(out, envExplainReactionMatch{
+			Rule:           skipped.Rule,
+			Action:         string(skipped.Action.Kind),
+			Target:         envExplainReactionActionTarget(skipped.Action),
+			Signal:         skipped.Signal.Kind,
+			SignalTarget:   skipped.Signal.Target,
+			ObservationIDs: append([]string(nil), skipped.Signal.ObservationIDs...),
+			Status:         "skipped",
+			Reason:         skipped.Reason,
+		})
+	}
+	return out
+}
+
+func envExplainReactionActionTarget(action corereaction.Action) string {
+	switch action.Kind {
+	case corereaction.ActionActivateSkill:
+		return string(action.Skill.Name)
+	case corereaction.ActionActivateReference:
+		if action.Reference.Path == "" {
+			return string(action.Reference.Skill.Name)
+		}
+		return string(action.Reference.Skill.Name) + ":" + action.Reference.Path
+	case corereaction.ActionEnableOperationSet:
+		return action.OperationSet
+	case corereaction.ActionEnableDatasource:
+		return string(action.Datasource.Name)
+	case corereaction.ActionEnableContext:
+		return string(action.ContextProvider.Name)
+	case corereaction.ActionRunWorkflow:
+		return string(action.Workflow.Name)
+	case corereaction.ActionRunOperation:
+		return action.Operation.Operation.String()
+	case corereaction.ActionRunCommand:
+		return action.Command.Path.String()
+	default:
+		return ""
+	}
+}
+
+func summarizeEnvExplainContent(content any) string {
+	if content == nil {
+		return ""
+	}
+	switch typed := content.(type) {
+	case string:
+		return trimEnvExplainContent(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return trimEnvExplainContent(fmt.Sprint(typed))
+		}
+		return trimEnvExplainContent(string(data))
+	}
+}
+
+func trimEnvExplainContent(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 160 {
+		return value
+	}
+	return value[:157] + "..."
+}
+
+func cloneObservationMetadata(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneEnvExplainSignalMetadata(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }

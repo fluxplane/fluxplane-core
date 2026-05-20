@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Expanded `/env/explain` to show current observations, derived assertions, and
+  matching reaction actions in addition to configured observers and active
+  session state.
 - Reduced coder's always-on default tool surface by moving Go, Markdown, and
   Docker-backed code execution tools behind existing evidence/reaction
   activation, and by gating Loki/MySQL endpoint tools behind endpoint

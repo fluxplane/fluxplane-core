@@ -2261,8 +2261,32 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	}}); err != nil {
 		t.Fatalf("append reaction event: %v", err)
 	}
-	observer := &scriptedEnvironmentObserver{spec: environment.ObserverSpec{Name: "kubernetes.context", Phase: environment.PhaseTurn}}
-	deriver := &scriptedSignalDeriver{spec: environment.SignalDeriverSpec{Name: "kubernetes.signals"}}
+	observer := &scriptedEnvironmentObserver{
+		spec: environment.ObserverSpec{Name: "kubernetes.context", Phase: environment.PhaseTurn, ObservableKinds: []string{"kubernetes.context"}},
+		observe: func(context.Context, runtimeenvironment.ObservationRequest) ([]environment.Observation, error) {
+			return []environment.Observation{{
+				ID:          "kubernetes:context",
+				Environment: environment.Ref{Name: "kubernetes"},
+				Kind:        "kubernetes.context",
+				Scope:       "workspace",
+				Content:     map[string]string{"context": "dev", "namespace": "latest"},
+			}}, nil
+		},
+	}
+	deriver := &scriptedSignalDeriver{
+		spec: environment.SignalDeriverSpec{Name: "kubernetes.signals", ObservationKinds: []string{"kubernetes.context"}},
+		derive: func(_ context.Context, req runtimeenvironment.SignalDeriveRequest) ([]environment.Signal, error) {
+			if len(req.Observations) == 0 {
+				return nil, nil
+			}
+			return []environment.Signal{{
+				Kind:           "integration.available",
+				Target:         "kubernetes",
+				Environment:    environment.Ref{Name: "kubernetes"},
+				ObservationIDs: []string{"kubernetes:context"},
+			}}, nil
+		},
+	}
 	result := (Session{
 		ThreadStore:          threadStore,
 		Thread:               thread,
@@ -2290,7 +2314,14 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	if !ok {
 		t.Fatalf("output = %#v, want rendered env explain output", result.Output)
 	}
-	if !strings.Contains(rendered.Text, "Observers") || !strings.Contains(rendered.Text, "- kubernetes.context") || !strings.Contains(rendered.Text, "applied reactions: 1") || !strings.Contains(rendered.Text, "signal=integration.available:kubernetes") {
+	if !strings.Contains(rendered.Text, "Observers") ||
+		!strings.Contains(rendered.Text, "Observations") ||
+		!strings.Contains(rendered.Text, "Assertions") ||
+		!strings.Contains(rendered.Text, "Matching Reactions") ||
+		!strings.Contains(rendered.Text, "- kubernetes.context") ||
+		!strings.Contains(rendered.Text, "integration.available") ||
+		!strings.Contains(rendered.Text, "applied reactions: 1") ||
+		!strings.Contains(rendered.Text, "signal=integration.available:kubernetes") {
 		t.Fatalf("rendered text = %q, want readable env explain summary", rendered.Text)
 	}
 	data, ok := rendered.Data.(envExplainData)
@@ -2305,6 +2336,15 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	}
 	if len(data.ReactionRules) != 1 || data.ReactionRules[0] != "kubernetes-context" {
 		t.Fatalf("reaction rules = %#v, want kubernetes-context", data.ReactionRules)
+	}
+	if len(data.Observations) != 1 || data.Observations[0].Kind != "kubernetes.context" || !strings.Contains(data.Observations[0].Content, "latest") {
+		t.Fatalf("observations = %#v, want bounded Kubernetes context evidence", data.Observations)
+	}
+	if len(data.Assertions) != 1 || data.Assertions[0].Kind != "integration.available" || data.Assertions[0].Target != "kubernetes" {
+		t.Fatalf("assertions = %#v, want Kubernetes availability assertion", data.Assertions)
+	}
+	if len(data.Matching) != 1 || data.Matching[0].Rule != "kubernetes-context" || data.Matching[0].Status != "planned" {
+		t.Fatalf("matching = %#v, want planned Kubernetes context reaction", data.Matching)
 	}
 	if data.AppliedReactions != 1 || len(data.Active.ContextProviders) != 1 || data.Active.ContextProviders[0] != "kubernetes.context" {
 		t.Fatalf("active = %#v applied=%d, want active context provider", data.Active, data.AppliedReactions)
