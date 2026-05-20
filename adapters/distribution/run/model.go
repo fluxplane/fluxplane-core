@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/cmdrisk"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
+	"github.com/fluxplane/agentruntime/adapters/llm/modelcatalog"
+	"github.com/fluxplane/agentruntime/adapters/system/cmdrisk"
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"

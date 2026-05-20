@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/adapters/directchannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/direct"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -209,7 +209,7 @@ func New(cfg Config) (*Service, error) {
 		Security:             cfg.Security,
 		SecurityTrace:        cfg.SecurityTrace,
 	})
-	client, err := directchannel.New(directchannel.Config{
+	client, err := direct.New(direct.Config{
 		Service: service,
 		Channel: cfg.Channel,
 		Caller:  cfg.Caller,

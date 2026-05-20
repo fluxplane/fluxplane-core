@@ -17,7 +17,7 @@ flowchart LR
   Request --> Envelope[runtime/operation.SafetyEnvelope]
   Envelope --> ACL[ACL and scope checks]
   Envelope --> Secrets[secret guard]
-  Envelope --> Risk[adapters/cmdrisk]
+  Envelope --> Risk[adapters/system/cmdrisk]
   Envelope --> Approval[approval gate]
   Envelope --> Sandbox[sandbox check]
   Sandbox --> Handler[operation implementation]
@@ -60,8 +60,9 @@ safety retrofitted later. Every such operation must enter through
 - audit events;
 - environment boundaries.
 
-The first-party coder host wires `adapters/cmdrisk` for shell and structured
-network intent assessment and keeps operation-local checks as defense in depth.
+The first-party coder host wires `adapters/system/cmdrisk` for shell and
+structured network intent assessment and keeps operation-local checks as defense
+in depth.
 Do not add a new shell, filesystem, network, browser, code execution, or
 connector path that bypasses the safety envelope.
 
@@ -113,11 +114,11 @@ flowchart LR
   Process -.future.-> Docker[Docker/bubblewrap/Firecracker]
 ```
 
-`adapters/cmdrisk` wraps `github.com/codewandler/cmdrisk`. It evaluates shell,
-git, code-execution, and other process intents through command assessment,
-evaluates structured network fetches through intent assessment, maps decisions
-into operation risk levels, and emits `cmdrisk.assessed` events for debug and
-audit streams.
+`adapters/system/cmdrisk` wraps `github.com/codewandler/cmdrisk`. It evaluates
+shell, git, code-execution, and other process intents through command
+assessment, evaluates structured network fetches through intent assessment,
+maps decisions into operation risk levels, and emits `cmdrisk.assessed` events
+for debug and audit streams.
 
 Approval is a separate post-authorization gate. When a policy is active,
 approval requests require `approval.grant` on the requested resource, or on the

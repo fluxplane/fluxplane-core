@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
+	"github.com/fluxplane/agentruntime/adapters/llm/openai"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
@@ -253,7 +253,7 @@ func checkResult(result agentruntime.Result) error {
 
 func newClient(ctx context.Context, cfg config) (agentruntime.ChannelClient, error) {
 	if cfg.remoteURL != "" {
-		return httpssechannel.NewClient(httpssechannel.ClientConfig{BaseURL: cfg.remoteURL})
+		return httpsse.NewClient(httpsse.ClientConfig{BaseURL: cfg.remoteURL})
 	}
 	return newRuntime(ctx, cfg)
 }
@@ -263,7 +263,7 @@ func serve(ctx context.Context, cfg config) error {
 	if err != nil {
 		return err
 	}
-	server, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: service})
+	server, err := httpsse.NewServer(httpsse.ServerConfig{Client: service})
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 			system += " When a user asks for synthetic runtime data, call the synthetic_lookup tool first. After the tool result arrives, answer from that result and do not call the tool again."
 			tools = append(tools, syntheticLookupTool(synthetic.Spec()))
 		}
-		openAIModel, err := openaiadapter.New(openaiadapter.Config{
+		openAIModel, err := openai.New(openai.Config{
 			Model:             dev.openAIModel,
 			ParallelToolCalls: true,
 			Redactor:          debugRedactor(dev.debug),

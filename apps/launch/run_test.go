@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
-	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
+	embedaxon "github.com/fluxplane/agentruntime/adapters/embeddings/axon"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"

@@ -11,8 +11,8 @@ import (
 
 	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/adapters/modelview"
-	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	"github.com/fluxplane/agentruntime/adapters/llm/modelview"
+	"github.com/fluxplane/agentruntime/adapters/ui/terminal"
 	"github.com/fluxplane/agentruntime/core/channel"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -169,7 +169,7 @@ func runGoal(ctx context.Context, dist distribution.Distribution, opts RunOption
 	defer func() { _ = session.Close(ctx) }()
 	turnOpts := terminalOptions(opts)
 	turnOpts.WaitForBackgroundTasks = true
-	return terminalui.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, turnOpts, usage.NewTracker())
+	return terminal.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, turnOpts, usage.NewTracker())
 }
 
 func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
@@ -186,7 +186,7 @@ func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOpt
 	}
 	turnOpts := terminalOptions(opts)
 	turnOpts.WaitForBackgroundTasks = true
-	return terminalui.RunTurn(ctx, session, opts.Input, turnOpts, usage.NewTracker())
+	return terminal.RunTurn(ctx, session, opts.Input, turnOpts, usage.NewTracker())
 }
 
 func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
@@ -200,7 +200,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		name = dist.Spec.Name
 	}
 	tracker := usage.NewTracker()
-	uiState := terminalui.UIState{}
+	uiState := terminal.UIState{}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
 	_, _ = fmt.Fprintf(errOut, "coder %s repl. Type /exit or /quit to stop.\n", name)
@@ -217,7 +217,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 		case "/exit", "/quit":
 			return nil
 		}
-		if handled, err := terminalui.HandleUICommand(prompt, &uiState, errOut); handled {
+		if handled, err := terminal.HandleUICommand(prompt, &uiState, errOut); handled {
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 			}
@@ -236,7 +236,7 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 				continue
 			}
 		}
-		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
+		if err := terminal.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
@@ -294,12 +294,12 @@ func cloneWorkspaceRoots(roots []distribution.WorkspaceRoot) []distribution.Work
 	return out
 }
 
-func terminalOptions(opts RunOptions, states ...terminalui.UIState) terminalui.TurnOptions {
-	var state terminalui.UIState
+func terminalOptions(opts RunOptions, states ...terminal.UIState) terminal.TurnOptions {
+	var state terminal.UIState
 	if len(states) > 0 {
 		state = states[0]
 	}
-	return terminalui.TurnOptions{
+	return terminal.TurnOptions{
 		Debug:     opts.Debug,
 		Usage:     opts.Usage,
 		Reasoning: state.Reasoning,

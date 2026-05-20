@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layout into categorized `bundles`, `native`, `languages`, `integrations`,
   `support`, `internal`, and `examples` directories with suffix-free package
   names.
+- Reorganized first-party adapter packages from a flat `adapters/*` layout into
+  domain directories for LLMs, resources, channels, control, storage, system,
+  auth, content, embeddings, and terminal UI.
 - Refactored distribution deploy internals into Docker, Docker Compose, and
   Kubernetes boundaries, with native Docker Engine and Kubernetes client paths
   for image, local stack, and manifest deployment operations.

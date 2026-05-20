@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	embedaxon "github.com/fluxplane/agentruntime/adapters/embed/axon"
+	embedaxon "github.com/fluxplane/agentruntime/adapters/embeddings/axon"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"

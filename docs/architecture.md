@@ -356,7 +356,7 @@ cmd/coder
      -> adapters/distribution/remote.NewCommand
         -> adapters/distribution/remote.Run
            -> adapters/distribution/remote.ResolveTarget
-           -> adapters/httpssechannel.Client
+           -> adapters/channels/httpsse.Client
               -> remote daemon channel HTTP/SSE
                  -> orchestration/harness
                     -> orchestration/session
@@ -373,12 +373,12 @@ cmd/coder
   -> apps/coder
      -> apps/launch.NewServeCommand
         -> apps/launch.Serve
-           -> adapters/appconfig
+           -> adapters/resources/appconfig
            -> plugins selected by the app
            -> orchestration/app.Compose
            -> orchestration/daemon
-           -> adapters/httpcontrol
-           -> adapters/httpssechannel.Server
+           -> adapters/control/http
+           -> adapters/channels/httpsse.Server
 ```
 
 Daemon serve is app assembly plus protocol hosting. The channel HTTP/SSE

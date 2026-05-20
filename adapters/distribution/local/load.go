@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/agentdir"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
+	"github.com/fluxplane/agentruntime/adapters/resources/agentdir"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"

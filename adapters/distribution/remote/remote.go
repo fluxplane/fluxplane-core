@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
-	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
+	"github.com/fluxplane/agentruntime/adapters/ui/terminal"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -121,11 +121,11 @@ func Run(ctx context.Context, opts Options) error {
 	if strings.TrimSpace(opts.Input) != "" {
 		turnOpts := terminalOptions(opts)
 		turnOpts.WaitForBackgroundTasks = true
-		return terminalui.RunTurn(ctx, session, opts.Input, turnOpts, tracker)
+		return terminal.RunTurn(ctx, session, opts.Input, turnOpts, tracker)
 	}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
-	uiState := terminalui.UIState{}
+	uiState := terminal.UIState{}
 	_, _ = fmt.Fprintln(errOut, "remote session. Type /exit or /quit to stop.")
 	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
@@ -140,13 +140,13 @@ func Run(ctx context.Context, opts Options) error {
 		case "/exit", "/quit":
 			return nil
 		}
-		if handled, err := terminalui.HandleUICommand(prompt, &uiState, errOut); handled {
+		if handled, err := terminal.HandleUICommand(prompt, &uiState, errOut); handled {
 			if err != nil {
 				_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 			}
 			continue
 		}
-		if err := terminalui.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
+		if err := terminal.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
@@ -158,7 +158,7 @@ func OpenSession(ctx context.Context, opts Options) (clientapi.SessionHandle, er
 	if err != nil {
 		return nil, err
 	}
-	client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
+	client, err := httpsse.NewClient(httpsse.ClientConfig{
 		BaseURL:     target.BaseURL,
 		UnixSocket:  target.Socket,
 		BearerToken: target.BearerToken,
@@ -347,12 +347,12 @@ func ResolveSocketPath(raw string) string {
 	return distserve.ResolveSocketPath(raw)
 }
 
-func terminalOptions(opts Options, states ...terminalui.UIState) terminalui.TurnOptions {
-	var state terminalui.UIState
+func terminalOptions(opts Options, states ...terminal.UIState) terminal.TurnOptions {
+	var state terminal.UIState
 	if len(states) > 0 {
 		state = states[0]
 	}
-	return terminalui.TurnOptions{
+	return terminal.TurnOptions{
 		Debug:     opts.Debug,
 		Usage:     opts.Usage,
 		Reasoning: state.Reasoning,

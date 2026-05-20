@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/agent"
@@ -131,7 +131,7 @@ func waitForLaunchServeReady(t *testing.T, socketPath string, errCh <-chan error
 		case <-deadline:
 			t.Fatalf("Serve did not become ready; last error: %v", lastErr)
 		case <-tick.C:
-			client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
+			client, err := httpsse.NewClient(httpsse.ClientConfig{
 				BaseURL:    "http://unix",
 				UnixSocket: socketPath,
 				Events:     targetEventRegistry(),

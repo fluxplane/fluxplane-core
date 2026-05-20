@@ -12,11 +12,11 @@ import (
 	"time"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
+	controlhttp "github.com/fluxplane/agentruntime/adapters/control/http"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
-	"github.com/fluxplane/agentruntime/adapters/httpcontrol"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
@@ -167,9 +167,9 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	return nil
 }
 
-func listenerAuthority(listener orchestrationdistribution.Listener, caller policy.Caller, trust policy.Trust) httpssechannel.Authority {
+func listenerAuthority(listener orchestrationdistribution.Listener, caller policy.Caller, trust policy.Trust) httpsse.Authority {
 	mode := strings.ToLower(strings.TrimSpace(distserve.AuthString(listener.Auth, "mode")))
-	authority := httpssechannel.Authority{Caller: caller, Trust: trust}
+	authority := httpsse.Authority{Caller: caller, Trust: trust}
 	switch mode {
 	case "", "local_socket":
 		authority.AllowTrustDowngrade = !distserve.AddrIsTCP(listener.Addr)
@@ -297,13 +297,13 @@ func startServeListeners(ctx context.Context, listeners []orchestrationdistribut
 			return fmt.Errorf("serve: unsupported listener type %q", listenerDoc.Type)
 		}
 		mux := http.NewServeMux()
-		controlServer, err := httpcontrol.NewServer(httpcontrol.ServerConfig{Host: host})
+		controlServer, err := controlhttp.NewServer(controlhttp.ServerConfig{Host: host})
 		if err != nil {
 			return err
 		}
 		mux.Handle("/control/", http.StripPrefix("/control", controlServer))
 		if needsDirect[listenerDoc.Name] {
-			channelServer, err := httpssechannel.NewServer(httpssechannel.ServerConfig{
+			channelServer, err := httpsse.NewServer(httpsse.ServerConfig{
 				Client:    client,
 				Authority: listenerAuthority(listenerDoc, caller, trust),
 			})
@@ -350,7 +350,7 @@ func startHealthListener(ctx context.Context, addr string, host *daemon.Host) er
 	if addr == "" {
 		return nil
 	}
-	controlServer, err := httpcontrol.NewServer(httpcontrol.ServerConfig{Host: host})
+	controlServer, err := controlhttp.NewServer(controlhttp.ServerConfig{Host: host})
 	if err != nil {
 		return err
 	}

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/command"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -622,12 +622,12 @@ func newRemoteDirectChannelClient(endpoint string) (ShellClient, error) {
 	if endpoint == "" {
 		endpoint = defaultDirectEndpoint
 	}
-	cfg := httpssechannel.ClientConfig{BaseURL: endpoint}
+	cfg := httpsse.ClientConfig{BaseURL: endpoint}
 	if parsed, err := url.Parse(endpoint); err == nil && strings.EqualFold(parsed.Scheme, "unix") {
 		cfg.BaseURL = "http://unix"
 		cfg.UnixSocket = parsed.Path
 	}
-	client, err := httpssechannel.NewClient(cfg)
+	client, err := httpsse.NewClient(cfg)
 	if err != nil {
 		return nil, err
 	}

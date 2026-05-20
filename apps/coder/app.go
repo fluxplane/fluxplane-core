@@ -7,7 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
-	"github.com/fluxplane/agentruntime/adapters/resourcediscovery"
+	resourcediscovery "github.com/fluxplane/agentruntime/adapters/resources/discovery"
 	"github.com/fluxplane/agentruntime/apps/evaluator"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/channel"

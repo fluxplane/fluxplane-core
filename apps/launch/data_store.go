@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	datasqlstore "github.com/fluxplane/agentruntime/adapters/datastore/sqlstore"
+	datasqlstore "github.com/fluxplane/agentruntime/adapters/storage/data/sqlstore"
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	runtimedata "github.com/fluxplane/agentruntime/runtime/data"

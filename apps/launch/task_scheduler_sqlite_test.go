@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/sqleventstore"
+	"github.com/fluxplane/agentruntime/adapters/storage/event/sqlite"
 	coretask "github.com/fluxplane/agentruntime/core/task"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
 	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
@@ -21,12 +21,12 @@ func TestSQLiteBackedSchedulersClaimTaskOnce(t *testing.T) {
 		t.Fatalf("event registry: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "events.sqlite")
-	eventsA, err := sqleventstore.Open(path, registry)
+	eventsA, err := sqlite.Open(path, registry)
 	if err != nil {
 		t.Fatalf("open events A: %v", err)
 	}
 	defer func() { _ = eventsA.Close() }()
-	eventsB, err := sqleventstore.Open(path, registry)
+	eventsB, err := sqlite.Open(path, registry)
 	if err != nil {
 		t.Fatalf("open events B: %v", err)
 	}

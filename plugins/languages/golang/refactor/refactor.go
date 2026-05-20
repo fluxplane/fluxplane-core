@@ -436,6 +436,9 @@ func allGoFiles(sys FileSystem) ([]string, error) {
 			return err
 		}
 		if entry.IsDir() {
+			if name != "." && strings.HasPrefix(entry.Name(), ".") {
+				return fs.SkipDir
+			}
 			switch entry.Name() {
 			case ".git", "vendor":
 				return fs.SkipDir

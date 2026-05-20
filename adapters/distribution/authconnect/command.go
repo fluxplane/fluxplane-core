@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/agentruntime/adapters/auth/oauth2flow"
 	connectcli "github.com/fluxplane/agentruntime/adapters/connectors/cli"
-	"github.com/fluxplane/agentruntime/adapters/oauth2flow"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"

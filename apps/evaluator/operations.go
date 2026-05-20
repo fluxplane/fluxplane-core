@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -120,7 +120,7 @@ func targetSubmit(ctx operation.Context, in TargetSubmitInput) operation.Result 
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client, err := httpssechannel.NewClient(httpssechannel.ClientConfig{
+	client, err := httpsse.NewClient(httpsse.ClientConfig{
 		BaseURL:     baseURL,
 		UnixSocket:  strings.TrimSpace(in.UnixSocket),
 		BearerToken: strings.TrimSpace(in.BearerToken),

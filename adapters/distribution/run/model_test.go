@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
+	"github.com/fluxplane/agentruntime/adapters/llm/modelcatalog"
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 )

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 )
 
 func TestListenerRequiresTCPAuthAndEnforcesBearer(t *testing.T) {

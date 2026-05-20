@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/htmlconvert"
+	"github.com/fluxplane/agentruntime/adapters/content/htmlconvert"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"

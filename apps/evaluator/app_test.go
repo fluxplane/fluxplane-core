@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/httpssechannel"
+	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
 	"github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coreevent "github.com/fluxplane/agentruntime/core/event"
@@ -69,7 +69,7 @@ func TestTargetSubmitOperationUsesHTTPSSERemoteClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New runtime: %v", err)
 	}
-	handler, err := httpssechannel.NewServer(httpssechannel.ServerConfig{Client: service})
+	handler, err := httpsse.NewServer(httpsse.ServerConfig{Client: service})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

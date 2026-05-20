@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/natseventstore"
-	"github.com/fluxplane/agentruntime/adapters/sqleventstore"
+	"github.com/fluxplane/agentruntime/adapters/storage/event/nats"
+	"github.com/fluxplane/agentruntime/adapters/storage/event/sqlite"
 	"github.com/fluxplane/agentruntime/core/event"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -39,7 +39,7 @@ func openSQLiteThreadStore(registry *event.Registry) (corethread.Store, event.St
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	events, err := sqleventstore.Open(path, registry)
+	events, err := sqlite.Open(path, registry)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("launch: open event store %s: %w", path, err)
 	}
@@ -63,7 +63,7 @@ func openNATSThreadStore(registry *event.Registry, cfg distribution.EventStoreCo
 	if dsn == "" {
 		return nil, nil, nil, fmt.Errorf("launch: event store nats dsn is empty; set runtime.events.store.dsn or %s", dsnEnv)
 	}
-	events, err := natseventstore.Open(context.Background(), natseventstore.Config{
+	events, err := nats.Open(context.Background(), nats.Config{
 		URL:          dsn,
 		Stream:       strings.TrimSpace(cfg.Stream),
 		Subject:      strings.TrimSpace(cfg.Subject),

@@ -5,7 +5,7 @@ import (
 	"context"
 	"embed"
 
-	"github.com/fluxplane/agentruntime/adapters/agentdir"
+	"github.com/fluxplane/agentruntime/adapters/resources/agentdir"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/command"

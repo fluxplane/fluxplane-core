@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/codewandler/modeldb"
-	"github.com/fluxplane/agentruntime/adapters/anthropic"
-	"github.com/fluxplane/agentruntime/adapters/claudecode"
-	"github.com/fluxplane/agentruntime/adapters/codex"
-	"github.com/fluxplane/agentruntime/adapters/minimax"
-	"github.com/fluxplane/agentruntime/adapters/modelcatalog"
-	openaiadapter "github.com/fluxplane/agentruntime/adapters/openai"
-	"github.com/fluxplane/agentruntime/adapters/openrouter"
+	"github.com/fluxplane/agentruntime/adapters/llm/anthropic"
+	"github.com/fluxplane/agentruntime/adapters/llm/claudecode"
+	"github.com/fluxplane/agentruntime/adapters/llm/codex"
+	"github.com/fluxplane/agentruntime/adapters/llm/minimax"
+	"github.com/fluxplane/agentruntime/adapters/llm/modelcatalog"
+	"github.com/fluxplane/agentruntime/adapters/llm/openai"
+	"github.com/fluxplane/agentruntime/adapters/llm/openrouter"
 	"github.com/fluxplane/agentruntime/core/agent"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -466,9 +466,9 @@ func rebindProviderSpec(spec corellm.ProviderSpec, name, displayName string) cor
 }
 
 func newOpenAIModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
-	return openaiadapter.New(openaiadapter.Config{
+	return openai.New(openai.Config{
 		Model:             string(modelSpec.Ref.Name),
-		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
+		Runtime:           openai.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
 		ReasoningEffort:   opts.Reasoning.Effort,
 		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),
@@ -480,7 +480,7 @@ func newOpenAIModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Mo
 func newCodexModel(modelSpec corellm.ModelSpec, opts ModelOptions) (llmagent.Model, error) {
 	return codex.New(codex.Config{
 		Model:             string(modelSpec.Ref.Name),
-		Runtime:           openaiadapter.DefaultResponsesRuntimeConfig(),
+		Runtime:           openai.DefaultResponsesRuntimeConfig(),
 		Pricing:           modelSpec.Pricing,
 		ReasoningEffort:   opts.Reasoning.Effort,
 		ReasoningSummary:  firstNonEmptyString(opts.Reasoning.Summary, "auto"),

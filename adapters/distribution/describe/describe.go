@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/fluxplane/agentruntime/adapters/resourceview"
+	"github.com/fluxplane/agentruntime/adapters/resources/resourceview"
 	"github.com/fluxplane/agentruntime/core/agent"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"

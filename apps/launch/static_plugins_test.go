@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/adapters/resourceview"
+	"github.com/fluxplane/agentruntime/adapters/resources/resourceview"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"

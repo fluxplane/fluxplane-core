@@ -13,9 +13,9 @@ import (
 	"testing"
 
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/appconfig"
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
+	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	coreagent "github.com/fluxplane/agentruntime/core/agent"
 	"github.com/fluxplane/agentruntime/core/channel"

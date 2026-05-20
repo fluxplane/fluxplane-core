@@ -14,10 +14,10 @@ import (
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/browsercdp"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/adapters/terminalui"
+	"github.com/fluxplane/agentruntime/adapters/system/browsercdp"
+	"github.com/fluxplane/agentruntime/adapters/ui/terminal"
 	coreapp "github.com/fluxplane/agentruntime/core/app"
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredata "github.com/fluxplane/agentruntime/core/data"
@@ -260,7 +260,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	runtimeSystem := system.WithAuthorization(hostSystem, system.AuthorizationConfig{TraceAllows: opts.Debug})
-	hostSystem.SetClarifier(terminalui.Prompter{In: os.Stdin, Out: os.Stderr})
+	hostSystem.SetClarifier(terminal.Prompter{In: os.Stdin, Out: os.Stderr})
 	browser, err := browsercdp.New(browsercdp.Config{Workspace: runtimeSystem.Workspace(), Headless: browserHeadless()})
 	if err == nil {
 		hostSystem.SetBrowser(browser)
@@ -382,7 +382,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, dataStore, dataSources, datasourceIndexFromBundles(bundles), opts.Debug)
 		startDatasourceIndexEmbedWorker(ctx, warmupDone, index, opts.Debug)
 	}
-	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
+	approval := operationruntime.ApprovalGate(terminal.Approver{In: os.Stdin, Out: os.Stderr})
 	if opts.Yolo {
 		approval = operationruntime.AutoApprover{}
 	}
