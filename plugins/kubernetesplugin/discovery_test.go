@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corediscovery "github.com/fluxplane/agentruntime/core/discovery"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,6 +122,66 @@ func TestDiscoverEndpointCandidatesScansAllNamespacesAndEnv(t *testing.T) {
 	redis := assertCandidate(t, candidates, "kubernetes.deployment.env", "jobs", "worker", "redis")
 	if redis.URL != "redis://redis.jobs.svc:6379/0" {
 		t.Fatalf("redis URL = %q, want sanitized URL without credentials", redis.URL)
+	}
+}
+
+func TestDiscoverEndpointCandidatesAttachesKubernetesSecretAuthRef(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "backend-abc", Namespace: "latest", Labels: map[string]string{"app": "backend"}},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name: "backend",
+				Env: []corev1.EnvVar{{
+					Name: "MYSQL_DSN",
+					ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "backend-db"},
+						Key:                  "dsn",
+					}},
+				}},
+			}}},
+		},
+	)
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{Product: "mysql", Namespaces: []string{"latest"}})
+	if err != nil {
+		t.Fatalf("DiscoverEndpointCandidates() error = %v", err)
+	}
+	mysql := assertCandidate(t, candidates, "kubernetes.pod.env", "latest", "backend-abc", "mysql")
+	if mysql.URL != "" {
+		t.Fatalf("secret-backed candidate URL = %q, want no secret material in endpoint URL", mysql.URL)
+	}
+	if want := coresecret.Kubernetes("latest", "backend-db", "dsn").ResourceName(); mysql.AuthRef != want {
+		t.Fatalf("AuthRef = %q, want %q", mysql.AuthRef, want)
+	}
+}
+
+func TestDiscoverEndpointCandidatesDatabaseProductIncludesMySQLService(t *testing.T) {
+	client := fake.NewSimpleClientset(&corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "mysql", Namespace: "latest"},
+		Spec:       corev1.ServiceSpec{ClusterIP: "10.0.3.5", Ports: []corev1.ServicePort{{Name: "mysql", Port: 3306}}},
+	})
+	candidates, err := DiscoverEndpointCandidates(context.Background(), NewWithClient(nil, client), EndpointDiscoveryOptions{Product: "database", Namespaces: []string{"latest"}})
+	if err != nil {
+		t.Fatalf("DiscoverEndpointCandidates() error = %v", err)
+	}
+	mysql := assertCandidate(t, candidates, "kubernetes.service", "latest", "mysql", "mysql")
+	if mysql.URL != "mysql://mysql.latest.svc:3306" {
+		t.Fatalf("mysql service URL = %q, want mysql scheme", mysql.URL)
+	}
+}
+
+func TestKubernetesSecretResolverResolvesSecretKey(t *testing.T) {
+	client := fake.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "backend-db", Namespace: "latest"},
+		Data:       map[string][]byte{"dsn": []byte("mysql://user:pass@mysql.latest.svc:3306/app")},
+	})
+	plugin := NewWithClient(nil, client)
+	plugin.cfg = Config{Namespaces: []string{"latest"}}
+	material, ok, err := (kubernetesSecretResolver{plugin: plugin}).ResolveSecret(context.Background(), coresecret.Kubernetes("latest", "backend-db", "dsn"))
+	if err != nil {
+		t.Fatalf("ResolveSecret() error = %v", err)
+	}
+	if !ok || material.Value != "mysql://user:pass@mysql.latest.svc:3306/app" {
+		t.Fatalf("ResolveSecret() = %#v, %v; want dsn", material, ok)
 	}
 }
 

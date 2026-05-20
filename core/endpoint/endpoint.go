@@ -35,6 +35,7 @@ type Resolved struct {
 	Ref        Ref               `json:"ref,omitempty"`
 	URL        string            `json:"url"`
 	HeadersRef string            `json:"headers_ref,omitempty"`
+	AuthRef    string            `json:"auth_ref,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
 	ExpiresAt  string            `json:"expires_at,omitempty"`
 	Source     SourceRef         `json:"source,omitempty"`

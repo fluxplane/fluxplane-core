@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added a MySQL query plugin for discovered endpoints, with Kubernetes
+  Secret-backed credential resolution and read-only SQL execution.
 - Added a first-slice Loki plugin with endpoint discovery, connection testing,
   bounded LogQL query operations, recent-log helpers, and Loki datasource
   entities.

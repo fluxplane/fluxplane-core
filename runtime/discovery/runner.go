@@ -324,6 +324,7 @@ func endpointRecordFromCandidate(provider, product string, candidate corediscove
 			URL:         candidate.URL,
 			Product:     resolvedProduct,
 			Protocol:    protocol,
+			AuthRef:     candidate.AuthRef,
 			Labels:      candidate.Labels,
 			Annotations: candidate.Annotations,
 		},

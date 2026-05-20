@@ -13,6 +13,7 @@ import (
 
 	corediscovery "github.com/fluxplane/agentruntime/core/discovery"
 	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -128,8 +129,10 @@ func serviceEndpointCandidates(product string, service corev1.Service) []coredis
 	}
 	var out []corediscovery.Candidate
 	for _, port := range service.Spec.Ports {
-		url := fmt.Sprintf("http://%s.%s.svc:%d", service.Name, service.Namespace, port.Port)
-		candidate := scoredEndpointCandidate(product, url, "http", service.Name+"."+service.Namespace+".svc", int(port.Port), port.Name, service.Labels, service.Annotations, coreendpoint.SourceRef{
+		productHint, _, _ := detectEndpointProduct(service.Name, port.Name, int(port.Port), service.Labels)
+		scheme := schemeForEndpointProduct(productHint)
+		url := fmt.Sprintf("%s://%s.%s.svc:%d", scheme, service.Name, service.Namespace, port.Port)
+		candidate := scoredEndpointCandidate(product, url, scheme, service.Name+"."+service.Namespace+".svc", int(port.Port), port.Name, service.Labels, service.Annotations, coreendpoint.SourceRef{
 			Kind:      "kubernetes.service",
 			Name:      service.Name,
 			Namespace: service.Namespace,
@@ -144,8 +147,8 @@ func serviceEndpointCandidates(product string, service corev1.Service) []coredis
 			out = append(out, candidate)
 		}
 		if service.Spec.ClusterIP != "" && service.Spec.ClusterIP != corev1.ClusterIPNone {
-			ipURL := fmt.Sprintf("http://%s:%d", service.Spec.ClusterIP, port.Port)
-			ipCandidate := scoredEndpointCandidate(product, ipURL, "http", service.Spec.ClusterIP, int(port.Port), port.Name, service.Labels, service.Annotations, candidate.Source)
+			ipURL := fmt.Sprintf("%s://%s:%d", scheme, service.Spec.ClusterIP, port.Port)
+			ipCandidate := scoredEndpointCandidate(product, ipURL, scheme, service.Spec.ClusterIP, int(port.Port), port.Name, service.Labels, service.Annotations, candidate.Source)
 			if includeCandidate(product, ipCandidate) {
 				ipCandidate.Reasons = append(ipCandidate.Reasons, "cluster_ip")
 				out = append(out, ipCandidate)
@@ -297,10 +300,15 @@ func envRefEndpointCandidates(product, workloadKind, namespace, workloadName, ui
 		source.Attributes["env_source"] = ref.Source
 		source.Attributes["env_ref"] = ref.Ref
 		source.Attributes["env_key"] = ref.Key
+		authRef := ""
+		if ref.Source == "secret" {
+			authRef = coresecret.Kubernetes(namespace, ref.Ref, ref.Key).ResourceName()
+		}
 		out = append(out, corediscovery.Candidate{
 			ID:          endpointCandidateID(source, ref.Source+"|"+ref.Ref+"|"+ref.Key),
 			ProductHint: productHint,
 			Protocol:    productHint,
+			AuthRef:     authRef,
 			Labels:      cloneStringMap(labels),
 			Annotations: cloneStringMap(annotations),
 			Source:      source,
@@ -345,6 +353,15 @@ func envEndpointCandidate(product, workloadKind, namespace, workloadName, uid, c
 		Reasons:     []string{"workload_env"},
 		Score:       45,
 	}, true
+}
+
+func schemeForEndpointProduct(product string) string {
+	switch product {
+	case "mysql", "postgres", "redis", "mongodb":
+		return product
+	default:
+		return "http"
+	}
 }
 
 func envSource(workloadKind, namespace, workloadName, uid, container, envName string) coreendpoint.SourceRef {
@@ -486,7 +503,7 @@ func scoredEndpointCandidate(product, endpointURL, scheme, host string, port int
 		Port:        port,
 		PortName:    portName,
 		ProductHint: productHint,
-		Protocol:    "http",
+		Protocol:    scheme,
 		Labels:      cloneStringMap(labels),
 		Annotations: cloneStringMap(annotations),
 		Source:      source,
@@ -497,7 +514,7 @@ func scoredEndpointCandidate(product, endpointURL, scheme, host string, port int
 
 func endpointProductScore(product, name, portName string, port int, labels map[string]string) (string, float64, []string) {
 	hint, baseScore, reasons := detectEndpointProduct(name, portName, port, labels)
-	if product != "" && hint != product {
+	if product != "" && !productMatches(product, hint) {
 		return hint, 0, reasons
 	}
 	return hint, baseScore, reasons

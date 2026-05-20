@@ -67,6 +67,9 @@ func (r *Registry) Put(record Record) (coreendpoint.Ref, error) {
 	if strings.TrimSpace(record.Resolved.URL) == "" {
 		record.Resolved.URL = record.Spec.URL
 	}
+	if strings.TrimSpace(record.Resolved.AuthRef) == "" {
+		record.Resolved.AuthRef = record.Spec.AuthRef
+	}
 	if record.Resolved.Source.Kind == "" {
 		record.Resolved.Source = record.Source
 	}
@@ -139,6 +142,9 @@ func (r *Registry) putWithChange(record Record, summary *ChangeSummary) (coreend
 	record.Resolved.Ref = ref
 	if strings.TrimSpace(record.Resolved.URL) == "" {
 		record.Resolved.URL = record.Spec.URL
+	}
+	if strings.TrimSpace(record.Resolved.AuthRef) == "" {
+		record.Resolved.AuthRef = record.Spec.AuthRef
 	}
 	if record.Resolved.Source.Kind == "" {
 		record.Resolved.Source = record.Source

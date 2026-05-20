@@ -22,6 +22,7 @@ type Candidate struct {
 	PortName    string             `json:"port_name,omitempty"`
 	ProductHint string             `json:"product_hint,omitempty"`
 	Protocol    string             `json:"protocol,omitempty"`
+	AuthRef     string             `json:"auth_ref,omitempty"`
 	Labels      map[string]string  `json:"labels,omitempty"`
 	Annotations map[string]string  `json:"annotations,omitempty"`
 	Source      endpoint.SourceRef `json:"source"`

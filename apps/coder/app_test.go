@@ -44,6 +44,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
@@ -1058,6 +1059,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 			gitlabplugin.New(sys),
 			kubernetesplugin.New(sys),
 			lokiplugin.New(sys),
+			mysqlplugin.New(),
 			memoryplugin.New(),
 		},
 	})
@@ -1144,6 +1146,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 			gitlabplugin.New(sys),
 			kubernetesplugin.New(sys),
 			lokiplugin.New(sys),
+			mysqlplugin.New(),
 			memoryplugin.New(),
 		},
 	})
@@ -1204,7 +1207,7 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), memoryplugin.New()},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), mysqlplugin.New(), memoryplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1276,7 +1279,7 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), memoryplugin.New()},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), mysqlplugin.New(), memoryplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)

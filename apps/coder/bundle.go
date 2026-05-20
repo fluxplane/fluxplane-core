@@ -26,6 +26,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
@@ -44,6 +45,7 @@ const (
 	ImagePlugin      = "image"
 	KubernetesPlugin = "kubernetes"
 	LokiPlugin       = lokiplugin.Name
+	MySQLPlugin      = mysqlplugin.Name
 	DockerPlugin     = "docker"
 	MemoryPlugin     = memoryplugin.Name
 	GitLabPlugin     = "gitlab"
@@ -83,6 +85,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: GitLabPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
 		WithPlugin(resource.PluginRef{Name: LokiPlugin}).
+		WithPlugin(resource.PluginRef{Name: MySQLPlugin}).
 		WithPlugin(resource.PluginRef{Name: MemoryPlugin}).
 		WithDefaultAgent(baseAgentSpec).
 		WithAgent(codeReviewerAgentSpec).
@@ -212,7 +215,7 @@ func coderSystemPrompt() string {
 Prefer native project, Go language, filesystem, git, browser, web_search, web_request, and code_execute operations over shell_exec.
 Use web_search for general web discovery, datasource_search with entities=["web.search_result"] for configured web_search datasource queries, and web_request only for fetching known URLs.
 Use project_inventory/project_docs/project_tasks/project_task_run for workspace structure and discovered project tasks, go_info/go_env/go_version/go_doc/go_list/go_test/go_fmt/go_vet/go_build/go_install for Go toolchain work, and go_project/go_packages/go_outline/go_symbol/go_definition/go_symbol_info/go_references/go_imports/go_implementations/go_callers/go_callees for Go code navigation.
-Use loki_test/loki_labels/loki_query/loki_recent_logs for Loki logs; use discovery_status/discovery_discover/discovery_providers/endpoint_list/endpoint_get for endpoint discovery introspection and manual refresh.
+Use loki_test/loki_labels/loki_query/loki_recent_logs for Loki logs; use mysql_query with endpoint_ref for discovered MySQL endpoints; use discovery_status/discovery_discover/discovery_providers/endpoint_list/endpoint_get for endpoint discovery introspection and manual refresh.
 Use markdown_outline/markdown_links/markdown_diagnostics for markdown documentation structure and local link checks.
 When the user asks you to create a task for immediate execution, create or update the task to status=ready, call task_run for that task, and report whether it started, is already running, is not ready, or is waiting for capacity.
 Use file_create for new files, file_edit for edits to existing files, and file_delete for deletion.

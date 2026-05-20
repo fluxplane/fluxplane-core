@@ -10,8 +10,9 @@ import (
 type Scheme string
 
 const (
-	SchemeEnv    Scheme = "env"
-	SchemePlugin Scheme = "plugin"
+	SchemeEnv        Scheme = "env"
+	SchemePlugin     Scheme = "plugin"
+	SchemeKubernetes Scheme = "kubernetes"
 )
 
 // Kind identifies the material shape stored or resolved for a secret.
@@ -69,6 +70,8 @@ func (r Ref) ResourceName() string {
 			parts = append(parts, r.Name)
 		}
 		return strings.Join(nonEmpty(parts), "/")
+	case SchemeKubernetes:
+		return strings.Trim(strings.Join(nonEmpty([]string{"kubernetes", r.Plugin, r.Instance, r.Name}), "/"), "/")
 	default:
 		return strings.Trim(strings.Join(nonEmpty([]string{string(r.Scheme), r.Plugin, r.Instance, r.Name}), "/"), "/")
 	}
@@ -82,6 +85,57 @@ func Env(name string) Ref {
 // Plugin returns a plugin-scoped secret ref.
 func Plugin(plugin, instance, name string) Ref {
 	return Ref{Scheme: SchemePlugin, Plugin: plugin, Instance: instance, Name: name}.Normalize()
+}
+
+// Kubernetes returns a Kubernetes Secret key ref. Plugin stores namespace,
+// Instance stores secret name, and Name stores key.
+func Kubernetes(namespace, secretName, key string) Ref {
+	return Ref{Scheme: SchemeKubernetes, Plugin: namespace, Instance: secretName, Name: key}.Normalize()
+}
+
+// ParseRef parses a canonical secret resource name into a Ref.
+func ParseRef(value string) Ref {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(value), "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return Ref{}
+	}
+	switch Scheme(parts[0]) {
+	case SchemeEnv:
+		if len(parts) >= 2 {
+			return Env(strings.Join(parts[1:], "/"))
+		}
+		return Ref{Scheme: SchemeEnv}
+	case SchemePlugin:
+		ref := Ref{Scheme: SchemePlugin}
+		if len(parts) >= 2 {
+			ref.Plugin = parts[1]
+		}
+		if len(parts) >= 3 {
+			ref.Instance = parts[2]
+		}
+		if len(parts) >= 4 {
+			ref.Name = strings.Join(parts[3:], "/")
+		}
+		return ref.Normalize()
+	case SchemeKubernetes:
+		ref := Ref{Scheme: SchemeKubernetes}
+		if len(parts) >= 2 {
+			ref.Plugin = parts[1]
+		}
+		if len(parts) >= 3 {
+			ref.Instance = parts[2]
+		}
+		if len(parts) >= 4 {
+			ref.Name = strings.Join(parts[3:], "/")
+		}
+		return ref.Normalize()
+	default:
+		ref := Ref{Scheme: Scheme(parts[0])}
+		if len(parts) >= 2 {
+			ref.Name = strings.Join(parts[1:], "/")
+		}
+		return ref.Normalize()
+	}
 }
 
 // Material is secret material available only to trusted runtime code.

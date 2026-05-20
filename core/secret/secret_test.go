@@ -12,6 +12,16 @@ func TestRefResourceName(t *testing.T) {
 	if got := Plugin("gitlab", "company-a", "personal_access_token").ResourceName(); got != "plugin/gitlab/company-a/personal_access_token" {
 		t.Fatalf("plugin resource = %q", got)
 	}
+	if got := Kubernetes("latest", "backend-db", "dsn").ResourceName(); got != "kubernetes/latest/backend-db/dsn" {
+		t.Fatalf("kubernetes resource = %q", got)
+	}
+}
+
+func TestParseRef(t *testing.T) {
+	ref := ParseRef("kubernetes/latest/backend-db/dsn")
+	if ref.Scheme != SchemeKubernetes || ref.Plugin != "latest" || ref.Instance != "backend-db" || ref.Name != "dsn" {
+		t.Fatalf("ParseRef kubernetes = %#v", ref)
+	}
 }
 
 func TestAuthRequestSecretRef(t *testing.T) {

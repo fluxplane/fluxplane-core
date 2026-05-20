@@ -28,6 +28,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
@@ -55,6 +56,9 @@ func TestBundleComposes(t *testing.T) {
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, lokiplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", lokiplugin.Name)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, mysqlplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", mysqlplugin.Name)
+	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, memoryplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", memoryplugin.Name)
 	}
@@ -73,12 +77,15 @@ func TestBundleComposes(t *testing.T) {
 	if !pluginListContains(localPlugins(sys), lokiplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", lokiplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), mysqlplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", mysqlplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), memoryplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", memoryplugin.Name)
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), memoryplugin.New()},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), discoveryplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), lokiplugin.New(sys), mysqlplugin.New(), memoryplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -89,8 +96,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 111 {
-		t.Fatalf("operation specs len = %d, want 111", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 112 {
+		t.Fatalf("operation specs len = %d, want 112", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)

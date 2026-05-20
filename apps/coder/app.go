@@ -26,6 +26,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
@@ -187,6 +188,7 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		gitlabplugin.New(hostSystem),
 		kubernetesplugin.New(hostSystem),
 		lokiplugin.New(hostSystem),
+		mysqlplugin.New(),
 		memoryplugin.New(),
 	}
 }

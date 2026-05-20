@@ -46,8 +46,10 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
+	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
@@ -540,7 +542,9 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 		imageplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
 		confluenceplugin.New(hostSystem),
+		kubernetesplugin.New(hostSystem),
 		lokiplugin.New(hostSystem),
+		mysqlplugin.New(),
 		memoryplugin.New(),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),

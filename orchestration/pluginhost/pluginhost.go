@@ -18,6 +18,7 @@ import (
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 )
 
 // Manifest describes one plugin implementation.
@@ -36,6 +37,7 @@ type Context struct {
 	Discovery  *runtimediscovery.Registry `json:"-"`
 	Discoverer *runtimediscovery.Runner   `json:"-"`
 	Endpoints  *runtimeendpoint.Registry  `json:"-"`
+	Secrets    runtimesecret.Resolver     `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -104,6 +106,12 @@ type DiscoveryProviderContributor interface {
 	DiscoveryProviders(context.Context, Context) ([]runtimediscovery.Provider, error)
 }
 
+// SecretResolverContributor is implemented by plugins that can resolve
+// non-model-visible credential material for trusted operation code.
+type SecretResolverContributor interface {
+	SecretResolvers(context.Context, Context) ([]runtimesecret.Resolver, error)
+}
+
 // AuthMethodContributor is implemented by plugins that declare supported
 // authentication methods without carrying credential values.
 type AuthMethodContributor interface {
@@ -149,6 +157,12 @@ type DatasourceProviderContribution struct {
 type DiscoveryProviderContribution struct {
 	Source   resource.SourceRef
 	Provider runtimediscovery.Provider
+}
+
+// SecretResolverContribution is one credential resolver contribution.
+type SecretResolverContribution struct {
+	Source   resource.SourceRef
+	Resolver runtimesecret.Resolver
 }
 
 // ContextProviderContribution is one executable context provider contribution.
@@ -202,6 +216,7 @@ type Resolution struct {
 	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
 	DiscoveryProviders  []DiscoveryProviderContribution
+	SecretResolvers     []SecretResolverContribution
 	AuthMethods         []AuthMethodContribution
 	ExternalIdentities  []ExternalIdentityContribution
 }
@@ -214,6 +229,7 @@ type Host struct {
 	discovery  *runtimediscovery.Registry
 	discoverer *runtimediscovery.Runner
 	endpoints  *runtimeendpoint.Registry
+	secrets    *runtimesecret.Registry
 }
 
 // New returns a plugin host.
@@ -262,6 +278,13 @@ func (h *Host) SetEndpointRegistry(registry *runtimeendpoint.Registry) {
 	}
 }
 
+// SetSecretRegistry configures the shared secret resolver registry.
+func (h *Host) SetSecretRegistry(registry *runtimesecret.Registry) {
+	if h != nil {
+		h.secrets = registry
+	}
+}
+
 // Register adds a plugin implementation.
 func (h *Host) Register(plugin Plugin) error {
 	if h == nil {
@@ -303,7 +326,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		if !ok {
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", pluginLabel(ref))
 		}
-		pluginCtx := Context{Ref: ref, EventStore: h.eventStore, DataStore: h.dataStore, Discovery: h.discovery, Discoverer: h.discoverer, Endpoints: h.endpoints}
+		pluginCtx := Context{Ref: ref, EventStore: h.eventStore, DataStore: h.dataStore, Discovery: h.discovery, Discoverer: h.discoverer, Endpoints: h.endpoints, Secrets: h.secrets}
 		pluginCtx, err := PrepareContext(ctx, plugin, pluginCtx)
 		if err != nil {
 			return Resolution{}, fmt.Errorf("pluginhost: %w", err)
@@ -451,6 +474,24 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				}
 			}
 		}
+		if contributor, ok := resolvedPlugin.(SecretResolverContributor); ok {
+			resolvers, err := contributor.SecretResolvers(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q secret resolvers: %w", pluginLabel(ref), err)
+			}
+			for _, resolver := range resolvers {
+				if resolver == nil {
+					continue
+				}
+				out.SecretResolvers = append(out.SecretResolvers, SecretResolverContribution{
+					Source:   source,
+					Resolver: resolver,
+				})
+				if h.secrets != nil {
+					h.secrets.Register(resolver)
+				}
+			}
+		}
 		if contributor, ok := resolvedPlugin.(AuthMethodContributor); ok {
 			methods, err := contributor.AuthMethods(ctx, pluginCtx)
 			if err != nil {
@@ -494,6 +535,9 @@ func (h *Host) ensureSharedRegistries() {
 	}
 	if h.discoverer == nil {
 		h.discoverer = runtimediscovery.NewRunner(h.discovery, h.endpoints)
+	}
+	if h.secrets == nil {
+		h.secrets = runtimesecret.NewRegistry()
 	}
 }
 

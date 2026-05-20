@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/lokiplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
 	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
+	"github.com/fluxplane/agentruntime/plugins/mysqlplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
@@ -97,6 +98,7 @@ func FullLocalCodingFeature() FeatureSpec {
 			"web_search", "web_request",
 			discoveryplugin.StatusOp, discoveryplugin.DiscoverOp, discoveryplugin.ProvidersOp, discoveryplugin.EndpointListOp, discoveryplugin.EndpointGetOp,
 			lokiplugin.TestOp, lokiplugin.LabelsOp, lokiplugin.QueryOp, lokiplugin.RecentLogsOp,
+			mysqlplugin.QueryOp,
 			"datasource_search", "datasource_list", "datasource_get", "datasource_batch_get",
 			"browser_open", "browser_navigate", "browser_click", "browser_type", "browser_select",
 			"browser_read", "browser_screenshot", "browser_evaluate", "browser_wait", "browser_scroll",

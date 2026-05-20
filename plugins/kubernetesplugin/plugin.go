@@ -27,6 +27,7 @@ import (
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
 	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
 	runtimeenvironment "github.com/fluxplane/agentruntime/runtime/environment"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -142,6 +143,7 @@ var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ObserverContributor = Plugin{}
 var _ pluginhost.SignalDeriverContributor = Plugin{}
 var _ pluginhost.DiscoveryProviderContributor = Plugin{}
+var _ pluginhost.SecretResolverContributor = Plugin{}
 
 func New(sys system.System) Plugin {
 	return Plugin{system: sys}
@@ -198,6 +200,10 @@ func (Plugin) SignalDerivers(context.Context, pluginhost.Context) ([]runtimeenvi
 
 func (p Plugin) DiscoveryProviders(context.Context, pluginhost.Context) ([]runtimediscovery.Provider, error) {
 	return []runtimediscovery.Provider{kubernetesEndpointDiscoveryProvider{plugin: p}}, nil
+}
+
+func (p Plugin) SecretResolvers(context.Context, pluginhost.Context) ([]runtimesecret.Resolver, error) {
+	return []runtimesecret.Resolver{kubernetesSecretResolver{plugin: p}}, nil
 }
 
 func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {
