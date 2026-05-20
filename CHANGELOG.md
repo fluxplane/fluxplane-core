@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added automatic semantic datasource context injection for allowed indexed
   datasource entities, including a datasource-facing memory bridge for semantic
   indexing and retrieval.
+- Added deterministic Slack conversation/thread resumption and bounded raw
+  Slack history context injection for first bot entry into an existing Slack
+  thread or channel window.
 - Added first-slice structured memory support with core memory contracts,
   hybrid event/data-store projection, scoped memory operations, and an opt-in
   memory plugin.

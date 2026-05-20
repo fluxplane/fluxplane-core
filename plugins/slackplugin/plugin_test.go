@@ -16,6 +16,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	coretask "github.com/fluxplane/agentruntime/core/task"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/user"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -411,6 +412,79 @@ func TestHandleInboundSubmitsSlackCallerAndTrust(t *testing.T) {
 	}
 	if content.SlackContext.AudienceTrust != "" {
 		t.Fatalf("audience trust = %q, want empty for direct admin conversation", content.SlackContext.AudienceTrust)
+	}
+}
+
+func TestHandleInboundUsesStableSlackConversationAndThreadID(t *testing.T) {
+	session := &capturingSession{}
+	client := capturingClient{session: session}
+	ch, err := NewChannel(ChannelConfig{
+		Name:       "slack-main",
+		Session:    coresession.Ref{Name: "slack-main"},
+		BotToken:   "xoxb-test",
+		AppToken:   "xapp-test",
+		Access:     AccessPolicy{Mode: "open"},
+		API:        slack.New("xoxb-test"),
+		SocketMode: socketModeTestClient(),
+		Dispatcher: NewDispatcher(),
+	})
+	if err != nil {
+		t.Fatalf("NewChannel: %v", err)
+	}
+
+	msg := inboundMessage{Text: "hello", UserID: "U1", ChannelID: "C1", TS: "222.333", ThreadTS: "111.222", TeamID: "T1", Kind: "mention"}
+	if err := ch.handleInbound(context.Background(), client, msg); err != nil {
+		t.Fatalf("handleInbound: %v", err)
+	}
+
+	if session.open.Conversation.ID != "slack:T1:C1:111.222" {
+		t.Fatalf("conversation = %q, want stable Slack conversation id", session.open.Conversation.ID)
+	}
+	if session.open.ThreadID == "" || session.open.ThreadID != slackThreadID(session.open.Conversation.ID) {
+		t.Fatalf("thread id = %q, want deterministic derived id", session.open.ThreadID)
+	}
+}
+
+func TestFirstEntrySlackContextInjectedFromThreadReplies(t *testing.T) {
+	server := slackHistoryServer(t, map[string]string{
+		"/conversations.replies": `{
+			"ok": true,
+			"messages": [
+				{"type":"message","user":"U1","text":"original context","ts":"111.222"},
+				{"type":"message","user":"Ubot","text":"bot response","ts":"112.000"},
+				{"type":"message","user":"U2","text":"follow-up clue","ts":"113.000"},
+				{"type":"message","user":"U1","text":"<@Ubot> current prompt","ts":"222.333"}
+			]
+		}`,
+	})
+	defer server.Close()
+	session := &capturingSession{info: clientapi.SessionInfo{Thread: corethread.Ref{ID: "thread-new"}}}
+	client := capturingClient{session: session}
+	ch, err := NewChannel(ChannelConfig{
+		Name:       "slack-main",
+		Session:    coresession.Ref{Name: "slack-main"},
+		BotToken:   "xoxb-test",
+		AppToken:   "xapp-test",
+		BotUserID:  "Ubot",
+		Access:     AccessPolicy{Mode: "open"},
+		API:        slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/")),
+		SocketMode: socketModeTestClient(),
+		Dispatcher: NewDispatcher(),
+	})
+	if err != nil {
+		t.Fatalf("NewChannel: %v", err)
+	}
+
+	err = ch.handleInbound(context.Background(), client, inboundMessage{Text: "current prompt", UserID: "U1", ChannelID: "C1", TS: "222.333", ThreadTS: "111.222", TeamID: "T1", Kind: "mention"})
+	if err != nil {
+		t.Fatalf("handleInbound: %v", err)
+	}
+	contextText, _ := session.submission.Input.Metadata["user_context"].(string)
+	if !strings.Contains(contextText, "original context") || !strings.Contains(contextText, "follow-up clue") {
+		t.Fatalf("user_context = %q, want prior human messages", contextText)
+	}
+	if strings.Contains(contextText, "bot response") || strings.Contains(contextText, "current prompt") {
+		t.Fatalf("user_context = %q, want bot and triggering prompt filtered", contextText)
 	}
 }
 
@@ -851,7 +925,10 @@ type capturingClient struct {
 	session *capturingSession
 }
 
-func (c capturingClient) Open(context.Context, clientapi.OpenRequest) (clientapi.SessionHandle, error) {
+func (c capturingClient) Open(_ context.Context, req clientapi.OpenRequest) (clientapi.SessionHandle, error) {
+	if c.session != nil {
+		c.session.open = req
+	}
 	return c.session, nil
 }
 
@@ -864,11 +941,18 @@ func (c capturingClient) ListSessions(context.Context, clientapi.ListSessionsReq
 }
 
 type capturingSession struct {
+	open         clientapi.OpenRequest
+	info         clientapi.SessionInfo
 	submission   clientapi.Submission
 	eventOptions clientapi.EventOptions
 }
 
-func (s *capturingSession) Info() clientapi.SessionInfo { return clientapi.SessionInfo{} }
+func (s *capturingSession) Info() clientapi.SessionInfo {
+	if s.info.Thread.ID == "" && !s.info.Resumed {
+		return clientapi.SessionInfo{Resumed: true}
+	}
+	return s.info
+}
 
 func (s *capturingSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
 	s.submission = submission
@@ -918,6 +1002,23 @@ func (r capturingRun) Wait(context.Context) (clientapi.Result, error) {
 
 func socketModeTestClient() *socketmode.Client {
 	return socketmode.New(slack.New("xoxb-test"))
+}
+
+func slackHistoryServer(t *testing.T, responses map[string]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := responses[r.URL.Path]
+		if !ok {
+			if strings.HasPrefix(r.URL.Path, "/assistant.") || strings.HasPrefix(r.URL.Path, "/chat.") {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok": true}`))
+				return
+			}
+			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
 }
 
 func slackDatasourceServer(t *testing.T) *httptest.Server {

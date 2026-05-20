@@ -2,8 +2,11 @@ package slackplugin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +14,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/channel"
 	"github.com/fluxplane/agentruntime/core/policy"
 	coresession "github.com/fluxplane/agentruntime/core/session"
+	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -52,6 +56,11 @@ type poster interface {
 
 type searcher interface {
 	SearchMessagesContext(context.Context, string, slack.SearchParameters) (*slack.SearchMessages, error)
+}
+
+type conversationHistorian interface {
+	GetConversationRepliesContext(context.Context, *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error)
+	GetConversationHistoryContext(context.Context, *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
 }
 
 func NewDispatcher() *Dispatcher {
@@ -390,10 +399,11 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	}
 	started := time.Now()
 	slog.Info("slack channel handling message", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "user", msg.UserID)
-	conversationID := msg.ChannelID + ":" + msg.ThreadTS
+	conversationID := slackConversationID(msg)
 	session, err := client.Open(ctx, clientapi.OpenRequest{
 		Session:      c.session,
 		Conversation: channel.ConversationRef{ID: conversationID},
+		ThreadID:     slackThreadID(conversationID),
 		Metadata: map[string]string{
 			"slack_channel_id": msg.ChannelID,
 			"slack_thread_ts":  msg.ThreadTS,
@@ -413,10 +423,16 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	observer := newRunObserver(c, target)
 	turnCtx := ContextWithRunObserver(ContextWithTarget(ctx, target), observer)
 	trust := c.access.TrustFor(msg)
+	input := clientapi.Input{
+		Content: slackInputContent(msg, c.access.AudienceTrustFor(msg), c.access.Sharing),
+	}
+	if !session.Info().Resumed {
+		if excerpt := c.firstEntryContext(turnCtx, msg); excerpt != "" {
+			input.Metadata = map[string]any{"user_context": excerpt}
+		}
+	}
 	run, err := session.Submit(turnCtx, clientapi.NewSubmission().
-		WithInput(clientapi.Input{
-			Content: slackInputContent(msg, c.access.AudienceTrustFor(msg), c.access.Sharing),
-		}).
+		WithInput(input).
 		WithCaller(slackCaller(c.name, msg)).
 		WithTrust(slackPolicyTrust(trust)))
 	if err != nil {
@@ -476,6 +492,100 @@ func (c *SlackChannel) handleInbound(ctx context.Context, client clientapi.Chann
 	}
 	slog.Info("slack channel reply posted", "channel", c.name, "kind", msg.Kind, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "duration", time.Since(started))
 	return err
+}
+
+func slackConversationID(msg inboundMessage) string {
+	return "slack:" + msg.TeamID + ":" + msg.ChannelID + ":" + msg.ThreadTS
+}
+
+func slackThreadID(conversationID string) corethread.ID {
+	sum := sha256.Sum256([]byte(conversationID))
+	return corethread.ID("slack_" + hex.EncodeToString(sum[:16]))
+}
+
+const (
+	slackContextMaxMessages = 12
+	slackContextMaxChars    = 2400
+)
+
+func (c *SlackChannel) firstEntryContext(ctx context.Context, msg inboundMessage) string {
+	if c == nil || c.api == nil {
+		return ""
+	}
+	history := conversationHistorian(c.api)
+	var messages []slack.Message
+	var err error
+	if msg.ThreadTS != "" && msg.ThreadTS != msg.TS {
+		messages, _, _, err = history.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{
+			ChannelID: msg.ChannelID,
+			Timestamp: msg.ThreadTS,
+			Latest:    msg.TS,
+			Inclusive: true,
+			Limit:     slackContextMaxMessages + 4,
+		})
+	} else {
+		resp, historyErr := history.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+			ChannelID: msg.ChannelID,
+			Latest:    msg.TS,
+			Inclusive: true,
+			Limit:     slackContextMaxMessages + 4,
+		})
+		err = historyErr
+		if resp != nil {
+			messages = resp.Messages
+		}
+	}
+	if err != nil {
+		slog.Debug("slack channel prior context unavailable", "channel", c.name, "slack_channel", msg.ChannelID, "thread_ts", msg.ThreadTS, "error", err)
+		return ""
+	}
+	return renderSlackHistoryContext(msg, c.botUserID, messages)
+}
+
+func renderSlackHistoryContext(trigger inboundMessage, botUserID string, messages []slack.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	sort.SliceStable(messages, func(i, j int) bool { return messages[i].Timestamp < messages[j].Timestamp })
+	var lines []string
+	for _, message := range messages {
+		if skipSlackHistoryMessage(trigger, botUserID, message) {
+			continue
+		}
+		text := strings.TrimSpace(stripBotMention(message.Text, botUserID))
+		if text == "" {
+			continue
+		}
+		userID := strings.TrimSpace(message.User)
+		if userID == "" {
+			userID = "unknown"
+		}
+		lines = append(lines, userID+" ["+message.Timestamp+"]: "+text)
+		if len(lines) >= slackContextMaxMessages {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	out := "Prior Slack context:\n" + strings.Join(lines, "\n")
+	if len(out) <= slackContextMaxChars {
+		return out
+	}
+	return out[:slackContextMaxChars]
+}
+
+func skipSlackHistoryMessage(trigger inboundMessage, botUserID string, message slack.Message) bool {
+	if message.Timestamp == trigger.TS {
+		return true
+	}
+	if message.BotID != "" || (botUserID != "" && message.User == botUserID) {
+		return true
+	}
+	if message.SubType != "" {
+		return true
+	}
+	return strings.TrimSpace(message.Text) == ""
 }
 
 func slackCaller(channelName string, msg inboundMessage) policy.Caller {
