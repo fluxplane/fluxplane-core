@@ -69,13 +69,15 @@ func (m *Materializer) Build(ctx stdcontext.Context, req corecontext.BuildReques
 		name := spec.Name
 		prev, hasPrevious := previous[name]
 		providerReq := corecontext.Request{
-			ThreadID:     req.ThreadID,
-			BranchID:     req.BranchID,
-			TurnID:       req.TurnID,
-			Reason:       req.Reason,
-			Scope:        cloneStringMap(req.Scope),
-			Observations: append([]coreenvironment.Observation(nil), req.Observations...),
-			BudgetTokens: req.BudgetTokens,
+			ThreadID:      req.ThreadID,
+			BranchID:      req.BranchID,
+			TurnID:        req.TurnID,
+			Reason:        req.Reason,
+			InputText:     req.InputText,
+			RecentContext: req.RecentContext,
+			Scope:         cloneStringMap(req.Scope),
+			Observations:  append([]coreenvironment.Observation(nil), req.Observations...),
+			BudgetTokens:  req.BudgetTokens,
 		}
 		if hasPrevious {
 			copied := cloneRecord(prev)

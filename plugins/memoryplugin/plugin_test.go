@@ -2,9 +2,11 @@ package memoryplugin
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	corememory "github.com/fluxplane/agentruntime/core/memory"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -179,6 +181,73 @@ func TestPluginContributesDataSourceAndEventTypes(t *testing.T) {
 	}
 	if len(bundle.DataSources) != 1 || bundle.DataSources[0].Name != MemoryDataSource {
 		t.Fatalf("data sources = %#v, want memory source", bundle.DataSources)
+	}
+	if len(bundle.Datasources) != 1 || bundle.Datasources[0].Name != coredatasource.Name(Name) {
+		t.Fatalf("datasources = %#v, want memory datasource", bundle.Datasources)
+	}
+	if !bundle.Datasources[0].Semantic.Enabled || !bundle.Datasources[0].Index.Enabled {
+		t.Fatalf("datasource = %#v, want semantic index enabled", bundle.Datasources[0])
+	}
+}
+
+func TestMemoryDatasourceSearchGetAndCorpusAreScoped(t *testing.T) {
+	ctxA := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-a"}},
+	})
+	ctxB := policy.ContextWithAuthorization(context.Background(), policy.AuthorizationContext{
+		Subjects: []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "user-b"}},
+	})
+	events := eventstore.NewMemoryStore()
+	data := runtimedata.NewMemoryStore()
+	ops, err := New().Operations(ctxA, pluginhost.Context{EventStore: events, DataStore: data})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	memorize := operationsByName(ops)[MemorizeOp].Run(operation.NewContext(ctxA, nil), corememory.MemorizeRequest{
+		ID:          "mem-a",
+		Kind:        corememory.KindFact,
+		Visibility:  corememory.VisibilityPrivateUser,
+		Subjects:    []corememory.Subject{{Kind: corememory.SubjectUser, ID: "user-a", Name: "Ada"}},
+		AccessScope: coredata.Scope{UserID: user.ID("user-a")},
+		Title:       "Deploy preference",
+		Content:     "Use staged deploys on Fridays.",
+		Tags:        []string{"deploy", "friday"},
+	})
+	if memorize.Status != operation.StatusOK {
+		t.Fatalf("memorize = %#v, want ok", memorize)
+	}
+	providers, err := New().DatasourceProviders(ctxA, pluginhost.Context{EventStore: events, DataStore: data})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(ctxA, DatasourceSpec())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	search, err := accessor.(coredatasource.Searcher).Search(ctxA, coredatasource.SearchRequest{Entity: memoryItemDatasourceEntity, Query: "Fridays", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(search.Records) != 1 || search.Records[0].ID != "mem-a" {
+		t.Fatalf("search records = %#v, want scoped memory", search.Records)
+	}
+	if _, err := accessor.(coredatasource.Getter).Get(ctxB, coredatasource.GetRequest{Entity: memoryItemDatasourceEntity, ID: "mem-a"}); err == nil {
+		t.Fatal("Get from another user succeeded, want scoped miss")
+	}
+	corpus, err := accessor.(coredatasource.CorpusProvider).Corpus(ctxA, coredatasource.CorpusRequest{Entity: memoryItemDatasourceEntity})
+	if err != nil {
+		t.Fatalf("Corpus: %v", err)
+	}
+	if len(corpus.Documents) != 1 {
+		t.Fatalf("corpus = %#v, want one document", corpus)
+	}
+	doc := corpus.Documents[0]
+	if doc.Title != "Deploy preference" || !strings.Contains(doc.Body, "staged deploys") {
+		t.Fatalf("doc = %#v, want memory title/content", doc)
+	}
+	if doc.Metadata["tags"] != "deploy,friday" || doc.Metadata["subject.name"] != "Ada" {
+		t.Fatalf("metadata = %#v, want tags and subject metadata", doc.Metadata)
 	}
 }
 

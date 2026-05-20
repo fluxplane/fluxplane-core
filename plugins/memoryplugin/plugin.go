@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	corememory "github.com/fluxplane/agentruntime/core/memory"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -32,6 +33,7 @@ type Plugin struct{}
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
+var _ pluginhost.DatasourceProviderContributor = Plugin{}
 
 func New() Plugin { return Plugin{} }
 
@@ -49,6 +51,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 		}},
 		Operations:  specs,
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
+		Datasources: []coredatasource.Spec{DatasourceSpec()},
 	}, nil
 }
 
@@ -93,6 +96,14 @@ func (Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation
 	}, nil
 }
 
+func (Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
+	store, err := runtimememory.NewStore(ctx.EventStore, ctx.DataStore)
+	if err != nil {
+		return nil, err
+	}
+	return []coredatasource.Provider{memoryDatasourceProvider{store: store}}, nil
+}
+
 func DataSourceSpec() coredata.SourceSpec {
 	return coredata.SourceSpec{
 		Name:        MemoryDataSource,
@@ -125,6 +136,204 @@ func DataSourceSpec() coredata.SourceSpec {
 			QueryHints:  []coredata.QueryHint{coredata.QueryGet, coredata.QueryList, coredata.QuerySearch},
 		}},
 	}
+}
+
+func DatasourceSpec() coredatasource.Spec {
+	return coredatasource.Spec{
+		Name:        coredatasource.Name(Name),
+		Kind:        Name,
+		Description: "Scoped structured memories available through datasource search and retrieval.",
+		Entities:    []coredatasource.EntityType{memoryItemDatasourceEntity},
+		Index:       coredatasource.IndexSpec{Enabled: true},
+		Semantic: coredatasource.SemanticSpec{
+			Enabled: true,
+			Entities: map[coredatasource.EntityType]coredatasource.EntitySemantic{
+				memoryItemDatasourceEntity: {
+					Corpus: coredatasource.CorpusSpec{
+						TitleFields:    []string{"title"},
+						BodyFields:     []string{"content"},
+						MetadataFields: []string{"kind", "tag", "subject.kind", "subject.id", "subject.name"},
+					},
+				},
+			},
+		},
+	}
+}
+
+const memoryItemDatasourceEntity coredatasource.EntityType = coredatasource.EntityType(corememory.ItemEntity)
+
+type memoryDatasourceProvider struct {
+	store *runtimememory.Store
+}
+
+func (p memoryDatasourceProvider) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{memoryDatasourceEntitySpec()}
+}
+
+func (p memoryDatasourceProvider) Open(_ context.Context, spec coredatasource.Spec) (coredatasource.Accessor, error) {
+	if p.store == nil {
+		return nil, fmt.Errorf("memory: store is nil")
+	}
+	if spec.Kind != "" && spec.Kind != Name {
+		return nil, fmt.Errorf("memory: unsupported datasource kind %q", spec.Kind)
+	}
+	return memoryDatasourceAccessor{spec: spec, store: p.store}, nil
+}
+
+type memoryDatasourceAccessor struct {
+	spec  coredatasource.Spec
+	store *runtimememory.Store
+}
+
+func (a memoryDatasourceAccessor) Spec() coredatasource.Spec {
+	if a.spec.Name == "" {
+		return DatasourceSpec()
+	}
+	return a.spec
+}
+
+func (a memoryDatasourceAccessor) Entities() []coredatasource.EntitySpec {
+	return []coredatasource.EntitySpec{memoryDatasourceEntitySpec()}
+}
+
+func (a memoryDatasourceAccessor) Search(ctx context.Context, req coredatasource.SearchRequest) (coredatasource.SearchResult, error) {
+	scope, err := authorizedAccessScope(ctx, coredata.Scope{})
+	if err != nil {
+		return coredatasource.SearchResult{}, err
+	}
+	result, err := a.store.Retrieve(ctx, corememory.RetrieveRequest{
+		AccessScope: scope,
+		Text:        strings.TrimSpace(req.Query),
+		Limit:       req.Limit,
+	})
+	if err != nil {
+		return coredatasource.SearchResult{}, err
+	}
+	return coredatasource.SearchResult{Datasource: a.Spec().Name, Entity: memoryItemDatasourceEntity, Records: datasourceRecordsFromMemories(a.Spec().Name, result.Memories), Total: len(result.Memories)}, nil
+}
+
+func (a memoryDatasourceAccessor) Get(ctx context.Context, req coredatasource.GetRequest) (coredatasource.Record, error) {
+	scope, err := authorizedAccessScope(ctx, coredata.Scope{})
+	if err != nil {
+		return coredatasource.Record{}, err
+	}
+	result, err := a.store.Retrieve(ctx, corememory.RetrieveRequest{
+		AccessScope: scope,
+		IDs:         []corememory.ID{corememory.ID(strings.TrimSpace(req.ID))},
+		Limit:       1,
+	})
+	if err != nil {
+		return coredatasource.Record{}, err
+	}
+	if len(result.Memories) == 0 {
+		return coredatasource.Record{}, coredatasource.ErrNotFound
+	}
+	return datasourceRecordFromMemory(a.Spec().Name, result.Memories[0]), nil
+}
+
+func (a memoryDatasourceAccessor) Corpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	scope, err := authorizedAccessScope(ctx, coredata.Scope{})
+	if err != nil || accessScopeEmpty(scope) {
+		return coredatasource.CorpusPage{Complete: true}, nil
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+	result, err := a.store.Retrieve(ctx, corememory.RetrieveRequest{
+		AccessScope: scope,
+		Limit:       limit,
+		Cursor:      strings.TrimSpace(req.Cursor),
+	})
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	docs := make([]coredatasource.CorpusDocument, 0, len(result.Memories))
+	for _, memory := range result.Memories {
+		docs = append(docs, corpusDocumentFromMemory(a.Spec().Name, memory))
+	}
+	return coredatasource.CorpusPage{Documents: docs, NextCursor: result.NextCursor, Complete: result.Complete}, nil
+}
+
+func memoryDatasourceEntitySpec() coredatasource.EntitySpec {
+	return coredatasource.EntitySpec{
+		Type:        memoryItemDatasourceEntity,
+		Description: "One structured memory item.",
+		Capabilities: []coredatasource.EntityCapability{
+			coredatasource.EntityCapabilitySearch,
+			coredatasource.EntityCapabilityGet,
+			coredatasource.EntityCapabilityIndex,
+			coredatasource.EntityCapabilitySemanticSearch,
+		},
+		Fields: []coredatasource.FieldSpec{
+			{Name: "kind", Type: coredatasource.FieldString, Filterable: true, Searchable: true, Corpus: true},
+			{Name: "status", Type: coredatasource.FieldString, Filterable: true},
+			{Name: "visibility", Type: coredatasource.FieldString, Filterable: true},
+			{Name: "tag", Type: coredatasource.FieldString, Filterable: true, Searchable: true, Corpus: true},
+			{Name: "subject.kind", Type: coredatasource.FieldString, Filterable: true, Corpus: true},
+			{Name: "subject.id", Type: coredatasource.FieldString, Filterable: true, Searchable: true, Corpus: true},
+			{Name: "subject.name", Type: coredatasource.FieldString, Searchable: true, Corpus: true},
+		},
+	}
+}
+
+func datasourceRecordsFromMemories(datasource coredatasource.Name, memories []corememory.Memory) []coredatasource.Record {
+	out := make([]coredatasource.Record, 0, len(memories))
+	for _, memory := range memories {
+		out = append(out, datasourceRecordFromMemory(datasource, memory))
+	}
+	return out
+}
+
+func datasourceRecordFromMemory(datasource coredatasource.Name, memory corememory.Memory) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         string(memory.ID),
+		Datasource: datasource,
+		Entity:     memoryItemDatasourceEntity,
+		Title:      memory.Title,
+		Content:    memory.Content,
+		Metadata:   memoryDatasourceMetadata(memory),
+		Raw:        memory,
+	}
+}
+
+func corpusDocumentFromMemory(datasource coredatasource.Name, memory corememory.Memory) coredatasource.CorpusDocument {
+	return coredatasource.CorpusDocument{
+		Ref: coredatasource.RecordRef{
+			Datasource: datasource,
+			Entity:     memoryItemDatasourceEntity,
+			ID:         string(memory.ID),
+		},
+		Title:     memory.Title,
+		Body:      memory.Content,
+		Metadata:  memoryDatasourceMetadata(memory),
+		UpdatedAt: memory.Provenance.UpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"),
+	}
+}
+
+func memoryDatasourceMetadata(memory corememory.Memory) map[string]string {
+	metadata := map[string]string{
+		"kind":       string(memory.Kind),
+		"status":     string(memory.Status),
+		"visibility": string(memory.Visibility),
+		"tags":       strings.Join(memory.Tags, ","),
+	}
+	var subjectKinds, subjectIDs, subjectNames []string
+	for _, subject := range memory.Subjects {
+		if subject.Kind != "" {
+			subjectKinds = append(subjectKinds, string(subject.Kind))
+		}
+		if subject.ID != "" {
+			subjectIDs = append(subjectIDs, subject.ID)
+		}
+		if subject.Name != "" {
+			subjectNames = append(subjectNames, subject.Name)
+		}
+	}
+	metadata["subject.kind"] = strings.Join(subjectKinds, ",")
+	metadata["subject.id"] = strings.Join(subjectIDs, ",")
+	metadata["subject.name"] = strings.Join(subjectNames, ",")
+	return metadata
 }
 
 func operationRefs(specs []operation.Spec) []operation.Ref {

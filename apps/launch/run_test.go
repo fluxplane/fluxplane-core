@@ -130,8 +130,8 @@ func TestLaunchMemoryOnlyPluginGetsStores(t *testing.T) {
 	if !hasOperationSpec(runtime, memoryplugin.MemorizeOp) {
 		t.Fatalf("expected memory operation %s", memoryplugin.MemorizeOp)
 	}
-	if hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
-		t.Fatal("did not expect datasource plugin for memory-only launch")
+	if !hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
+		t.Fatal("expected datasource plugin for memory-only launch")
 	}
 }
 
@@ -545,7 +545,7 @@ func TestDatasourceIndexWarmupBuildsIndexedDatasources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("semantic.New: %v", err)
 	}
-	done := startDatasourceIndexWarmup(ctx, registry, index, nil, nil, coreapp.DatasourceIndexSpec{})
+	done := startDatasourceIndexWarmup(ctx, registry, index, nil, nil, coreapp.DatasourceIndexSpec{}, false)
 	warmup := <-done
 	if warmup.Err != nil {
 		t.Fatalf("warmup error: %v", warmup.Err)

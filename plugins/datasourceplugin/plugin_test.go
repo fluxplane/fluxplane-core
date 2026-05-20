@@ -830,6 +830,133 @@ func TestCatalogProviderListsRelations(t *testing.T) {
 	}
 }
 
+func TestSemanticContextProviderReturnsNoBlockWithoutBuiltIndex(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	registry := semanticContextRegistry(t)
+	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"docs"}})
+
+	blocks, err := (semanticContextProvider{registry: registry, index: index}).Build(ctx, corecontext.Request{InputText: "deploy"})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 0 {
+		t.Fatalf("blocks = %#v, want none for empty semantic index", blocks)
+	}
+}
+
+func TestSemanticContextProviderSearchesAllowedSemanticEntities(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	doc := coredatasource.CorpusDocument{
+		Ref:   coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "runbook.md"},
+		Title: "Deploy Runbook",
+		Body:  "Restart workers after deploying the queue consumer.",
+		URL:   "file://runbook.md",
+	}
+	if _, err := index.Update(context.Background(), doc); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	registry := semanticContextRegistry(t)
+	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"docs"}})
+
+	blocks, err := (semanticContextProvider{registry: registry, index: index}).Build(ctx, corecontext.Request{InputText: "queue deploy", RecentContext: "workers are stuck"})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v, want one semantic context block", blocks)
+	}
+	content := blocks[0].Content
+	for _, want := range []string{"docs/file.document runbook.md", "Deploy Runbook"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("content = %q, missing %q", content, want)
+		}
+	}
+	if !strings.Contains(blocks[0].Metadata["hits"], `"datasource":"docs"`) {
+		t.Fatalf("metadata = %#v, want stable hit data", blocks[0].Metadata)
+	}
+}
+
+func TestSemanticContextProviderPreservesDatasourceEntityPairs(t *testing.T) {
+	index, err := semantic.New(semantic.HashEmbedder{}, semantic.NewJSONStore(""), semantic.Config{})
+	if err != nil {
+		t.Fatalf("semantic.New: %v", err)
+	}
+	docs := []coredatasource.CorpusDocument{
+		{Ref: coredatasource.RecordRef{Datasource: "docs", Entity: "file.document", ID: "runbook.md"}, Title: "Runbook", Body: "ordinary file"},
+		{Ref: coredatasource.RecordRef{Datasource: "issues", Entity: "issue.ticket", ID: "DEV-1"}, Title: "Ticket", Body: "ordinary ticket"},
+		{Ref: coredatasource.RecordRef{Datasource: "docs", Entity: "issue.ticket", ID: "rogue"}, Title: "Rogue Cross Pair", Body: "needle needle needle"},
+	}
+	for _, doc := range docs {
+		if _, err := index.Update(context.Background(), doc); err != nil {
+			t.Fatalf("Update %s/%s/%s: %v", doc.Ref.Datasource, doc.Ref.Entity, doc.Ref.ID, err)
+		}
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "docs", Kind: "memory", Entities: []coredatasource.EntityType{"file.document"}},
+			entity: coredatasource.EntitySpec{
+				Type:         "file.document",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySemanticSearch},
+			},
+		},
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "issues", Kind: "memory", Entities: []coredatasource.EntityType{"issue.ticket"}},
+			entity: coredatasource.EntitySpec{
+				Type:         "issue.ticket",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySemanticSearch},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"docs", "issues"}})
+
+	blocks, err := (semanticContextProvider{registry: registry, index: index}).Build(ctx, corecontext.Request{InputText: "needle"})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) == 0 {
+		return
+	}
+	if strings.Contains(blocks[0].Metadata["hits"], `"datasource":"docs","entity":"issue.ticket"`) {
+		t.Fatalf("metadata = %#v, contains unselected datasource/entity cross-pair", blocks[0].Metadata)
+	}
+}
+
+func semanticContextRegistry(t *testing.T) *coredatasource.Registry {
+	t.Helper()
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "docs", Kind: "memory", Entities: []coredatasource.EntityType{"file.document"}},
+			entity: coredatasource.EntitySpec{
+				Type: "file.document",
+				Capabilities: []coredatasource.EntityCapability{
+					coredatasource.EntityCapabilitySearch,
+					coredatasource.EntityCapabilitySemanticSearch,
+				},
+			},
+		},
+		memoryAccessor{
+			spec: coredatasource.Spec{Name: "private", Kind: "memory", Entities: []coredatasource.EntityType{"file.document"}},
+			entity: coredatasource.EntitySpec{
+				Type:         "file.document",
+				Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySemanticSearch},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	return registry
+}
+
 func gitlabDataRecord(entity, id, title string, fields map[string][]string) coredata.Record {
 	metadata := map[string]string{}
 	for key, values := range fields {
@@ -1130,6 +1257,46 @@ func TestRelationUsesDataStoreBeforeAccessor(t *testing.T) {
 	out := result.Output.(operation.Rendered).Data.(relationOutput)
 	if len(out.Result.Records) != 1 || out.Result.Records[0].ID != "engineering/platform" {
 		t.Fatalf("relation result = %#v, want data-store group", out.Result)
+	}
+}
+
+func TestSearchAndGetBypassDataStoreForScopedMemoryDatasource(t *testing.T) {
+	store := runtimedata.NewMemoryStore()
+	if err := store.UpsertRecords(context.Background(), coredata.Record{
+		Ref:     coredata.Ref{Source: "memory", Entity: "memory.item", View: "memory.item", ID: "mem-private"},
+		Title:   "private memory",
+		Content: "must not leak through unscoped datasource cache",
+	}); err != nil {
+		t.Fatalf("UpsertRecords: %v", err)
+	}
+	accessor := &countingAccessor{memoryAccessor: memoryAccessor{
+		spec: coredatasource.Spec{Name: "memory", Entities: []coredatasource.EntityType{"memory.item"}, Kind: "memory"},
+		entity: coredatasource.EntitySpec{
+			Type:         "memory.item",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch, coredatasource.EntityCapabilityGet},
+		},
+	}}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{accessor}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"memory"}}), nil)
+
+	search := NewWithDataStore(registry, store).search(ctx, searchInput{Query: "private memory", Entities: []string{"memory.item"}})
+	if search.Status != operation.StatusOK {
+		t.Fatalf("search = %#v, want ok from accessor", search)
+	}
+	if accessor.searches != 1 {
+		t.Fatalf("searches = %d, want accessor search", accessor.searches)
+	}
+	out := search.Output.(operation.Rendered).Data.(searchOutput)
+	if len(out.Results) != 1 || len(out.Results[0].Records) != 0 {
+		t.Fatalf("search results = %#v, want no unscoped memory cache records", out.Results)
+	}
+
+	get := NewWithDataStore(registry, store).get(ctx, getInput{Datasource: "memory", Entity: "memory.item", ID: "mem-private"})
+	if get.Status != operation.StatusFailed || accessor.gets != 1 {
+		t.Fatalf("get = %#v gets=%d, want accessor miss without datastore shortcut", get, accessor.gets)
 	}
 }
 

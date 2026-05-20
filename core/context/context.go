@@ -90,14 +90,16 @@ func (s ProviderSpec) Validate() error {
 
 // Request describes one context-building request.
 type Request struct {
-	ThreadID     string                    `json:"thread_id,omitempty"`
-	BranchID     string                    `json:"branch_id,omitempty"`
-	TurnID       string                    `json:"turn_id,omitempty"`
-	Reason       RenderReason              `json:"reason,omitempty"`
-	Scope        map[string]string         `json:"scope,omitempty"`
-	Observations []environment.Observation `json:"observations,omitempty"`
-	BudgetTokens int                       `json:"budget_tokens,omitempty"`
-	Previous     *ProviderRenderRecord     `json:"previous,omitempty"`
+	ThreadID      string                    `json:"thread_id,omitempty"`
+	BranchID      string                    `json:"branch_id,omitempty"`
+	TurnID        string                    `json:"turn_id,omitempty"`
+	Reason        RenderReason              `json:"reason,omitempty"`
+	InputText     string                    `json:"input_text,omitempty"`
+	RecentContext string                    `json:"recent_context,omitempty"`
+	Scope         map[string]string         `json:"scope,omitempty"`
+	Observations  []environment.Observation `json:"observations,omitempty"`
+	BudgetTokens  int                       `json:"budget_tokens,omitempty"`
+	Previous      *ProviderRenderRecord     `json:"previous,omitempty"`
 }
 
 // Block is one structured context contribution.
@@ -165,14 +167,16 @@ type ProviderDiff struct {
 
 // BuildRequest describes one materialization request.
 type BuildRequest struct {
-	ThreadID     string                                `json:"thread_id,omitempty"`
-	BranchID     string                                `json:"branch_id,omitempty"`
-	TurnID       string                                `json:"turn_id,omitempty"`
-	Reason       RenderReason                          `json:"reason,omitempty"`
-	Scope        map[string]string                     `json:"scope,omitempty"`
-	Observations []environment.Observation             `json:"observations,omitempty"`
-	BudgetTokens int                                   `json:"budget_tokens,omitempty"`
-	Previous     map[ProviderName]ProviderRenderRecord `json:"previous,omitempty"`
+	ThreadID      string                                `json:"thread_id,omitempty"`
+	BranchID      string                                `json:"branch_id,omitempty"`
+	TurnID        string                                `json:"turn_id,omitempty"`
+	Reason        RenderReason                          `json:"reason,omitempty"`
+	InputText     string                                `json:"input_text,omitempty"`
+	RecentContext string                                `json:"recent_context,omitempty"`
+	Scope         map[string]string                     `json:"scope,omitempty"`
+	Observations  []environment.Observation             `json:"observations,omitempty"`
+	BudgetTokens  int                                   `json:"budget_tokens,omitempty"`
+	Previous      map[ProviderName]ProviderRenderRecord `json:"previous,omitempty"`
 }
 
 // BuildResult is the context delta and next committed render state.

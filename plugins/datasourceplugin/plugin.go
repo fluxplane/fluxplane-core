@@ -25,23 +25,25 @@ import (
 )
 
 const (
-	Name                = "datasource"
-	SearchOperation     = "datasource_search"
-	ListOperation       = "datasource_list"
-	GetOperation        = "datasource_get"
-	RelationOperation   = "datasource_relation"
-	BatchGetOperation   = "datasource_batch_get"
-	ContextProvider     = "datasource.catalog"
-	DetectedProvider    = "datasource.detected"
-	defaultSearchLimit  = 10
-	maxParallelSearches = 4
-	maxDetectedRefs     = 20
+	Name                    = "datasource"
+	SearchOperation         = "datasource_search"
+	ListOperation           = "datasource_list"
+	GetOperation            = "datasource_get"
+	RelationOperation       = "datasource_relation"
+	BatchGetOperation       = "datasource_batch_get"
+	ContextProvider         = "datasource.catalog"
+	DetectedProvider        = "datasource.detected"
+	SemanticContextProvider = "datasource.semantic_context"
+	defaultSearchLimit      = 10
+	maxParallelSearches     = 4
+	maxDetectedRefs         = 20
 )
 
 type Plugin struct {
-	registry    *coredatasource.Registry
-	dataStore   coredata.Store
-	dataSources []coredata.SourceSpec
+	registry      *coredatasource.Registry
+	semanticIndex *semantic.Index
+	dataStore     coredata.Store
+	dataSources   []coredata.SourceSpec
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -52,12 +54,16 @@ func New(registry *coredatasource.Registry) Plugin {
 	return Plugin{registry: registry}
 }
 
-func NewWithSemantic(registry *coredatasource.Registry, _ *semantic.Index) Plugin {
-	return Plugin{registry: registry}
+func NewWithSemantic(registry *coredatasource.Registry, index *semantic.Index) Plugin {
+	return Plugin{registry: registry, semanticIndex: index}
 }
 
 func NewWithDataStore(registry *coredatasource.Registry, store coredata.Store, sources ...coredata.SourceSpec) Plugin {
 	return Plugin{registry: registry, dataStore: store, dataSources: append([]coredata.SourceSpec(nil), sources...)}
+}
+
+func NewWithSemanticAndDataStore(registry *coredatasource.Registry, index *semantic.Index, store coredata.Store, sources ...coredata.SourceSpec) Plugin {
+	return Plugin{registry: registry, semanticIndex: index, dataStore: store, dataSources: append([]coredata.SourceSpec(nil), sources...)}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -66,7 +72,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
-		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec()},
+		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), semanticContextSpec()},
 		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
 	}, nil
 }
@@ -92,7 +98,11 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 }
 
 func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecontext.Provider, error) {
-	return []corecontext.Provider{catalogProvider{registry: p.registry, dataSources: p.dataSources}, detectedProvider{registry: p.registry}}, nil
+	return []corecontext.Provider{
+		catalogProvider{registry: p.registry, dataSources: p.dataSources},
+		detectedProvider{registry: p.registry},
+		semanticContextProvider{registry: p.registry, index: p.semanticIndex},
+	}, nil
 }
 
 func contextSpec() corecontext.ProviderSpec {
@@ -108,6 +118,16 @@ func detectedContextSpec() corecontext.ProviderSpec {
 		Name:        DetectedProvider,
 		Description: "Lists local datasource references detected in the current turn.",
 		Kinds:       []corecontext.BlockKind{corecontext.BlockText, corecontext.BlockData},
+	}
+}
+
+func semanticContextSpec() corecontext.ProviderSpec {
+	return corecontext.ProviderSpec{
+		Name:             SemanticContextProvider,
+		Description:      "Automatically searches semantic datasource indexes for context relevant to the current turn.",
+		Kinds:            []corecontext.BlockKind{corecontext.BlockText, corecontext.BlockData},
+		DefaultPlacement: corecontext.PlacementUser,
+		Annotations:      map[string]string{corecontext.AnnotationAutoContext: "true"},
 	}
 }
 
@@ -290,7 +310,7 @@ func (p Plugin) list(ctx operation.Context, input listInput) operation.Result {
 	if entitySpec, ok := accessorEntity(accessor, entity); ok && !entitySupports(accessor, entitySpec, coredatasource.EntityCapabilityList) {
 		return operation.Failed("datasource_list_unsupported", fmt.Sprintf("datasource %q entity %q does not support list", name, entity), nil)
 	}
-	if p.dataStore != nil {
+	if p.dataStore != nil && dataStoreShortcutAllowed(name, entity) {
 		result, ok, err := p.listDataStore(ctx, name, entity, input.Limit, strings.TrimSpace(input.Cursor), datasourceDefaultFilters(entity, input.Filters))
 		if err != nil {
 			return operation.Failed("datasource_list_failed", err.Error(), nil)
@@ -351,7 +371,7 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			spec := job.target.Accessor.Spec()
-			if p.dataStore != nil && mode != "provider" && mode != "live" {
+			if p.dataStore != nil && dataStoreShortcutAllowed(spec.Name, job.target.Entity.Type) && mode != "provider" && mode != "live" {
 				result, ok, err := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, datasourceDefaultFilters(job.target.Entity.Type, filters))
 				if err != nil {
 					results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
@@ -412,7 +432,7 @@ func (p Plugin) get(ctx operation.Context, input getInput) operation.Result {
 	if entitySpec, ok := accessorEntity(accessor, entity); ok && !entitySupports(accessor, entitySpec, coredatasource.EntityCapabilityGet) {
 		return operation.Failed("datasource_get_unsupported", fmt.Sprintf("datasource %q entity %q does not support get", name, entity), nil)
 	}
-	if p.dataStore != nil {
+	if p.dataStore != nil && dataStoreShortcutAllowed(name, entity) {
 		record, ok, err := p.getDataStore(ctx, name, entity, strings.TrimSpace(input.ID))
 		if err != nil {
 			return operation.Failed("datasource_get_failed", err.Error(), nil)
@@ -465,7 +485,7 @@ func (p Plugin) relation(ctx operation.Context, input relationInput) operation.R
 	if ok && !entityHasRelation(entitySpec, relation) {
 		return operation.Failed("datasource_relation_unsupported", fmt.Sprintf("datasource %q entity %q does not expose relation %q", name, entity, relation), nil)
 	}
-	if p.dataStore != nil {
+	if p.dataStore != nil && dataStoreShortcutAllowed(name, entity) {
 		result, ok, err := p.relationDataStore(ctx, name, entity, id, relation, input.Limit, strings.TrimSpace(input.Cursor), entitySpec)
 		if err != nil {
 			return operation.Failed("datasource_relation_failed", err.Error(), nil)
@@ -516,7 +536,7 @@ func (p Plugin) batchGet(ctx operation.Context, input batchGetInput) operation.R
 			"entity":     entity,
 		})
 	}
-	if p.dataStore != nil {
+	if p.dataStore != nil && dataStoreShortcutAllowed(name, entity) {
 		result, ok, err := p.batchGetDataStore(ctx, name, entity, ids)
 		if err != nil {
 			return operation.Failed("datasource_batch_get_failed", err.Error(), nil)
@@ -569,6 +589,10 @@ func (p Plugin) searchDataStore(ctx context.Context, datasource coredatasource.N
 	}
 	records := runtimedata.RecordsToDatasourceRecords(preferMaterializedRecords(result.Records))
 	return coredatasource.SearchResult{Datasource: datasource, Entity: entity, Records: records, Total: len(records)}, true, nil
+}
+
+func dataStoreShortcutAllowed(datasource coredatasource.Name, entity coredatasource.EntityType) bool {
+	return datasource != coredatasource.Name("memory") && entity != coredatasource.EntityType("memory.item")
 }
 
 func datasourceDefaultFilters(entity coredatasource.EntityType, filters map[string]string) map[string]string {
@@ -1603,6 +1627,174 @@ func renderCatalogLine(entry catalogDatasource) string {
 	return prefix + ": " + strings.Join(entities, "; ")
 }
 
+type semanticContextProvider struct {
+	registry *coredatasource.Registry
+	index    *semantic.Index
+}
+
+func (p semanticContextProvider) Spec() corecontext.ProviderSpec {
+	return semanticContextSpec()
+}
+
+func (p semanticContextProvider) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
+	if p.registry == nil || p.index == nil {
+		return nil, nil
+	}
+	query := semanticContextQuery(req)
+	if query == "" {
+		return nil, nil
+	}
+	targets := p.semanticTargets(ctx)
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	var hits []semantic.Hit
+	for _, target := range targets {
+		if !p.semanticBuilt(ctx, target) {
+			continue
+		}
+		result, err := p.index.Search(ctx, semantic.SearchRequest{
+			Query:       query,
+			Datasources: []coredatasource.Name{target.Datasource},
+			Entities:    []coredatasource.EntityType{target.Entity},
+			Limit:       6,
+		})
+		if err != nil {
+			continue
+		}
+		hits = append(hits, result.Hits...)
+	}
+	if len(hits) == 0 {
+		return nil, nil
+	}
+	hits = topSemanticHits(hits, 6)
+	renderedHits := semanticContextHits(hits)
+	if len(renderedHits) == 0 {
+		return nil, nil
+	}
+	data, _ := json.Marshal(renderedHits)
+	return []corecontext.Block{{
+		ID:        SemanticContextProvider,
+		Provider:  SemanticContextProvider,
+		Kind:      corecontext.BlockText,
+		Title:     "Relevant Datasource Context",
+		Content:   renderSemanticContextHits(renderedHits),
+		MediaType: "text/plain",
+		Freshness: corecontext.FreshnessDynamic,
+		Metadata: map[string]string{
+			"hits": string(data),
+		},
+	}}, nil
+}
+
+type semanticContextTarget struct {
+	Datasource coredatasource.Name
+	Entity     coredatasource.EntityType
+}
+
+func (p semanticContextProvider) semanticTargets(ctx context.Context) []semanticContextTarget {
+	allowedNames, err := allowedSet(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []semanticContextTarget
+	for _, accessor := range p.registry.All() {
+		spec := accessor.Spec()
+		if !allowedNames[spec.Name] {
+			continue
+		}
+		for _, entity := range accessor.Entities() {
+			if entity.Type == "" || !entitySupports(accessor, entity, coredatasource.EntityCapabilitySemanticSearch) {
+				continue
+			}
+			out = append(out, semanticContextTarget{Datasource: spec.Name, Entity: entity.Type})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Datasource == out[j].Datasource {
+			return out[i].Entity < out[j].Entity
+		}
+		return out[i].Datasource < out[j].Datasource
+	})
+	return out
+}
+
+func (p semanticContextProvider) semanticBuilt(ctx context.Context, target semanticContextTarget) bool {
+	status, err := p.index.Status(ctx, semantic.StatusRequest{Datasource: target.Datasource, Entity: target.Entity})
+	if err != nil {
+		return false
+	}
+	for _, doc := range status.Documents {
+		if doc.Status == semantic.QueueStatusIndexed {
+			return true
+		}
+	}
+	return false
+}
+
+func semanticContextQuery(req corecontext.Request) string {
+	parts := []string{strings.TrimSpace(req.InputText), strings.TrimSpace(req.RecentContext)}
+	return strings.TrimSpace(strings.Join(cleaned(parts), "\n\n"))
+}
+
+type semanticContextHit struct {
+	Datasource string  `json:"datasource"`
+	Entity     string  `json:"entity"`
+	ID         string  `json:"id"`
+	Title      string  `json:"title,omitempty"`
+	Snippet    string  `json:"snippet,omitempty"`
+	URL        string  `json:"url,omitempty"`
+	Score      float64 `json:"score,omitempty"`
+}
+
+func semanticContextHits(hits []semantic.Hit) []semanticContextHit {
+	out := make([]semanticContextHit, 0, len(hits))
+	for _, hit := range hits {
+		if hit.Ref.Datasource == "" || hit.Ref.Entity == "" || strings.TrimSpace(hit.Ref.ID) == "" {
+			continue
+		}
+		out = append(out, semanticContextHit{
+			Datasource: string(hit.Ref.Datasource),
+			Entity:     string(hit.Ref.Entity),
+			ID:         hit.Ref.ID,
+			Title:      strings.TrimSpace(hit.Title),
+			Snippet:    limitText(hit.Snippet, 420),
+			URL:        strings.TrimSpace(hit.URL),
+			Score:      hit.Score,
+		})
+	}
+	return out
+}
+
+func renderSemanticContextHits(hits []semanticContextHit) string {
+	lines := []string{"Relevant datasource context:"}
+	for _, hit := range hits {
+		label := hit.Datasource + "/" + hit.Entity + " " + hit.ID
+		if hit.Title != "" {
+			label += " - " + hit.Title
+		}
+		if hit.URL != "" {
+			label += " (" + hit.URL + ")"
+		}
+		if hit.Score != 0 {
+			label += fmt.Sprintf(" score=%.3f", hit.Score)
+		}
+		lines = append(lines, "- "+label)
+		if hit.Snippet != "" {
+			lines = append(lines, "  "+hit.Snippet)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func limitText(value string, max int) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	return strings.TrimSpace(value[:max]) + "..."
+}
+
 type detectedProvider struct {
 	registry *coredatasource.Registry
 }
@@ -1675,6 +1867,14 @@ func detectionText(value any) string {
 		}
 		return string(data)
 	}
+}
+
+func topSemanticHits(hits []semantic.Hit, limit int) []semantic.Hit {
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	if limit > 0 && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits
 }
 
 func observationStringMetadata(values map[string]any) map[string]string {

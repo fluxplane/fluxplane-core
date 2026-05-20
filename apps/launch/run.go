@@ -342,7 +342,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memoryplugin.Name)
-	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles)
+	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memoryplugin.Name)
 	if needsDataStore {
 		var closeData func() error
 		dataStore, closeData, err = openDataStore(ctx, opts.Launch.Data)
@@ -371,11 +371,11 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			closeRuntime()
 			return Runtime{}, err
 		}
-		plugins = append(plugins, datasourceplugin.NewWithDataStore(registry, dataStore, dataSources...))
+		plugins = append(plugins, datasourceplugin.NewWithSemanticAndDataStore(registry, index, dataStore, dataSources...))
 		ensurePluginRef(bundles, datasourceplugin.Name)
 		ensureDatasourceCatalogAccess(bundles)
-		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, dataStore, dataSources, datasourceIndexFromBundles(bundles))
-		startDatasourceIndexEmbedWorker(ctx, warmupDone, index)
+		warmupDone := startDatasourceIndexWarmup(ctx, registry, index, dataStore, dataSources, datasourceIndexFromBundles(bundles), opts.Debug)
+		startDatasourceIndexEmbedWorker(ctx, warmupDone, index, opts.Debug)
 	}
 	approval := operationruntime.ApprovalGate(terminalui.Approver{In: os.Stdin, Out: os.Stderr})
 	if opts.Yolo {
@@ -890,20 +890,26 @@ type datasourceIndexWarmupResult struct {
 	Err    error
 }
 
-func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, dataStore coredata.Store, dataSources []coredata.SourceSpec, cfg coreapp.DatasourceIndexSpec) <-chan datasourceIndexWarmupResult {
+func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Registry, index *semantic.Index, dataStore coredata.Store, dataSources []coredata.SourceSpec, cfg coreapp.DatasourceIndexSpec, verbose bool) <-chan datasourceIndexWarmupResult {
 	done := make(chan datasourceIndexWarmupResult, 1)
 	if registry == nil {
-		slog.Info("datasource index warmup skipped", "reason", "registry_missing")
+		if verbose {
+			slog.Info("datasource index warmup skipped", "reason", "registry_missing")
+		}
 		close(done)
 		return done
 	}
 	if index == nil && dataStore == nil {
-		slog.Info("datasource index warmup skipped", "reason", "store_missing")
+		if verbose {
+			slog.Info("datasource index warmup skipped", "reason", "store_missing")
+		}
 		close(done)
 		return done
 	}
 	if !registryHasIndexedDatasource(registry) {
-		slog.Info("datasource index warmup skipped", "reason", "no_indexed_datasources")
+		if verbose {
+			slog.Info("datasource index warmup skipped", "reason", "no_indexed_datasources")
+		}
 		close(done)
 		return done
 	}
@@ -911,12 +917,16 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 		defer close(done)
 		concurrency, freshness, err := DatasourceIndexBuildConfig(cfg, 0, "")
 		if err != nil {
-			slog.Warn("datasource index warmup config failed", "error", err)
+			if verbose {
+				slog.Warn("datasource index warmup config failed", "error", err)
+			}
 			done <- datasourceIndexWarmupResult{Err: err}
 			return
 		}
 		jobs := indexedDatasourceJobLabels(registry)
-		slog.Info("datasource index warmup scheduled", "concurrency", concurrency, "freshness", freshness, "jobs", jobs, "job_count", len(jobs))
+		if verbose {
+			slog.Info("datasource index warmup scheduled", "concurrency", concurrency, "freshness", freshness, "jobs", jobs, "job_count", len(jobs))
+		}
 		result, err := datasourceindex.Build(ctx, datasourceindex.Request{
 			Registry:    registry,
 			Index:       index,
@@ -925,9 +935,9 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 			IndexedOnly: true,
 			Concurrency: concurrency,
 			Freshness:   freshness,
-			Progress:    datasourceIndexSlogProgress,
+			Progress:    datasourceIndexProgressLogger(verbose),
 		})
-		if err != nil {
+		if err != nil && verbose {
 			slog.Warn("datasource index warmup failed", "error", err)
 		}
 		done <- datasourceIndexWarmupResult{Result: result, Err: err}
@@ -935,7 +945,7 @@ func startDatasourceIndexWarmup(ctx context.Context, registry *coredatasource.Re
 	return done
 }
 
-func startDatasourceIndexEmbedWorker(ctx context.Context, warmupDone <-chan datasourceIndexWarmupResult, index *semantic.Index) {
+func startDatasourceIndexEmbedWorker(ctx context.Context, warmupDone <-chan datasourceIndexWarmupResult, index *semantic.Index, verbose bool) {
 	if index == nil {
 		return
 	}
@@ -952,15 +962,31 @@ func startDatasourceIndexEmbedWorker(ctx context.Context, warmupDone <-chan data
 		if ctx.Err() != nil {
 			return
 		}
-		embedResult, err := index.ProcessQueue(ctx, semantic.ProcessQueueRequest{Progress: datasourceIndexEmbedSlogProgress})
+		embedResult, err := index.ProcessQueue(ctx, semantic.ProcessQueueRequest{Progress: datasourceIndexEmbedProgressLogger(verbose)})
 		if err != nil {
-			slog.Warn("datasource semantic embed warmup failed", "error", err)
+			if verbose {
+				slog.Warn("datasource semantic embed warmup failed", "error", err)
+			}
 			return
 		}
-		if embedResult.Queued > 0 || embedResult.Failed > 0 {
+		if verbose && (embedResult.Queued > 0 || embedResult.Failed > 0) {
 			slog.Info("datasource semantic embed warmup summary", "queued", embedResult.Queued, "embedded", embedResult.Embedded, "skipped", embedResult.Skipped, "failed", embedResult.Failed)
 		}
 	}()
+}
+
+func datasourceIndexProgressLogger(verbose bool) datasourceindex.ProgressReporter {
+	if !verbose {
+		return nil
+	}
+	return datasourceIndexSlogProgress
+}
+
+func datasourceIndexEmbedProgressLogger(verbose bool) semantic.QueueProgressReporter {
+	if !verbose {
+		return nil
+	}
+	return datasourceIndexEmbedSlogProgress
 }
 
 func datasourceIndexSlogProgress(event datasourceindex.ProgressEvent) {
