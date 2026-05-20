@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corecontext "github.com/fluxplane/agentruntime/core/context"
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -29,6 +30,7 @@ type Context struct {
 	Ref        resource.PluginRef `json:"ref"`
 	Config     any                `json:"-"`
 	EventStore event.Store        `json:"-"`
+	DataStore  coredata.Store     `json:"-"`
 }
 
 // Plugin contributes resources during app composition.
@@ -190,6 +192,7 @@ type Resolution struct {
 type Host struct {
 	plugins    map[string]Plugin
 	eventStore event.Store
+	dataStore  coredata.Store
 }
 
 // New returns a plugin host.
@@ -207,6 +210,13 @@ func New(plugins ...Plugin) (*Host, error) {
 func (h *Host) SetEventStore(store event.Store) {
 	if h != nil {
 		h.eventStore = store
+	}
+}
+
+// SetDataStore configures the data store passed to plugin contexts.
+func (h *Host) SetDataStore(store coredata.Store) {
+	if h != nil {
+		h.dataStore = store
 	}
 }
 
@@ -250,7 +260,7 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 		if !ok {
 			return Resolution{}, fmt.Errorf("pluginhost: plugin %q is not registered", pluginLabel(ref))
 		}
-		pluginCtx := Context{Ref: ref, EventStore: h.eventStore}
+		pluginCtx := Context{Ref: ref, EventStore: h.eventStore, DataStore: h.dataStore}
 		pluginCtx, err := PrepareContext(ctx, plugin, pluginCtx)
 		if err != nil {
 			return Resolution{}, fmt.Errorf("pluginhost: %w", err)

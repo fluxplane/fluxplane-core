@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/webplugin"
 	"github.com/fluxplane/agentruntime/sdk"
@@ -39,6 +40,7 @@ const (
 	ImagePlugin      = "image"
 	KubernetesPlugin = "kubernetes"
 	DockerPlugin     = "docker"
+	MemoryPlugin     = memoryplugin.Name
 	GitLabPlugin     = "gitlab"
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
@@ -74,6 +76,7 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: DockerPlugin}).
 		WithPlugin(resource.PluginRef{Name: GitLabPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
+		WithPlugin(resource.PluginRef{Name: MemoryPlugin}).
 		WithDefaultAgent(baseAgentSpec).
 		WithAgent(codeReviewerAgentSpec).
 		WithDefaultSession(coresession.Spec{

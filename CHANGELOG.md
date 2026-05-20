@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added first-slice structured memory support with core memory contracts,
+  hybrid event/data-store projection, scoped memory operations, and an opt-in
+  memory plugin.
+- Enabled the memory plugin by default in the embedded coder app so the main
+  `coder` agent has structured memory operations available.
 - Added a sanitized `kubernetes.cluster` datasource entity for discovering
   configured Kubernetes contexts and cluster targets without exposing kubeconfig
   credentials.
@@ -255,6 +260,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builders, app bundles, and distribution describe output.
 
 ### Fixed
+- Defaulted omitted memory operation access scopes to the current user, falling
+  back to the current thread, so separate coder processes share local user
+  memory without reopening unscoped cross-scope reads.
+
 - Batched datasource field-index and data-store writes during corpus indexing
   and added a SQLite mirror scan index to reduce GitLab mirror/index runtime.
 

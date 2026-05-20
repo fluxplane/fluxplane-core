@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	"github.com/fluxplane/agentruntime/plugins/workspaceplugin"
@@ -182,6 +183,7 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		dockerplugin.New(hostSystem),
 		gitlabplugin.New(hostSystem),
 		kubernetesplugin.New(hostSystem),
+		memoryplugin.New(),
 	}
 }
 

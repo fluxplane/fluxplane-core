@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	coredata "github.com/fluxplane/agentruntime/core/data"
+	"github.com/fluxplane/agentruntime/core/thread"
 )
 
 func TestMemoryStoreQueriesEmbeddedRelationSummaries(t *testing.T) {
@@ -92,6 +93,19 @@ func TestMemoryStoreScopesRecords(t *testing.T) {
 	}
 	if !ok || got.Title != "B" {
 		t.Fatalf("GetRecord scoped duplicate = %#v ok=%v, want B", got, ok)
+	}
+	if err := store.UpsertRecords(ctx,
+		coredata.Record{Ref: coredata.Ref{Source: "memory", Entity: "memory.item", ID: "thread-shared"}, Scope: coredata.Scope{ThreadID: thread.ID("thread-a")}, Title: "Thread A"},
+		coredata.Record{Ref: coredata.Ref{Source: "memory", Entity: "memory.item", ID: "thread-shared"}, Scope: coredata.Scope{ThreadID: thread.ID("thread-b")}, Title: "Thread B"},
+	); err != nil {
+		t.Fatalf("UpsertRecords thread scoped duplicate refs: %v", err)
+	}
+	got, ok, err = store.GetRecord(ctx, coredata.Scope{ThreadID: thread.ID("thread-b")}, coredata.Ref{Source: "memory", Entity: "memory.item", ID: "thread-shared"})
+	if err != nil {
+		t.Fatalf("GetRecord thread scoped duplicate: %v", err)
+	}
+	if !ok || got.Title != "Thread B" {
+		t.Fatalf("GetRecord thread scoped duplicate = %#v ok=%v, want Thread B", got, ok)
 	}
 }
 

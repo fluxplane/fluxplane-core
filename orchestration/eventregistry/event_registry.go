@@ -7,6 +7,7 @@ import (
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/event"
+	corememory "github.com/fluxplane/agentruntime/core/memory"
 	"github.com/fluxplane/agentruntime/core/operation"
 	corereaction "github.com/fluxplane/agentruntime/core/reaction"
 	coresession "github.com/fluxplane/agentruntime/core/session"
@@ -40,6 +41,9 @@ func New(cfg Config) (*event.Registry, error) {
 	}
 	if err := coretask.RegisterEvents(registry); err != nil {
 		return nil, fmt.Errorf("app: register task events: %w", err)
+	}
+	if err := corememory.RegisterEvents(registry); err != nil {
+		return nil, fmt.Errorf("app: register memory events: %w", err)
 	}
 	for _, sample := range defaultEventTypes() {
 		if err := registerEventType(registry, sample); err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/core/workspace"
 )
@@ -35,6 +36,7 @@ type Scope struct {
 	UserID      user.ID           `json:"user_id,omitempty"`
 	AgentID     string            `json:"agent_id,omitempty"`
 	SessionID   string            `json:"session_id,omitempty"`
+	ThreadID    thread.ID         `json:"thread_id,omitempty"`
 	ChannelID   string            `json:"channel_id,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -57,6 +59,9 @@ func (s Scope) Matches(selector Scope) bool {
 		return false
 	}
 	if selector.SessionID != "" && s.SessionID != selector.SessionID {
+		return false
+	}
+	if selector.ThreadID != "" && s.ThreadID != selector.ThreadID {
 		return false
 	}
 	if selector.ChannelID != "" && s.ChannelID != selector.ChannelID {

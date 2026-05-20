@@ -26,6 +26,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/codingplugin"
 	"github.com/fluxplane/agentruntime/plugins/datasourceplugin"
 	"github.com/fluxplane/agentruntime/plugins/eventcatalog"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/slackplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
@@ -109,6 +110,28 @@ func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
 	}
 	if hasOperationSpec(runtime, "shell_exec") {
 		t.Fatal("did not expect coding shell operation without coding plugin ref")
+	}
+}
+
+func TestLaunchMemoryOnlyPluginGetsStores(t *testing.T) {
+	withStateDir(t)
+	runtime, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: memoryplugin.Name}},
+		}},
+		AllowPrivateNetwork: true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+
+	if !hasOperationSpec(runtime, memoryplugin.MemorizeOp) {
+		t.Fatalf("expected memory operation %s", memoryplugin.MemorizeOp)
+	}
+	if hasOperationSpec(runtime, datasourceplugin.SearchOperation) {
+		t.Fatal("did not expect datasource plugin for memory-only launch")
 	}
 }
 

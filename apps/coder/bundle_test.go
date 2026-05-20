@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/kubernetesplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
@@ -46,6 +47,9 @@ func TestBundleComposes(t *testing.T) {
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlabplugin.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", gitlabplugin.Name)
 	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, memoryplugin.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", memoryplugin.Name)
+	}
 	if !pluginListContains(localPlugins(sys), kubernetesplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", kubernetesplugin.Name)
 	}
@@ -55,9 +59,12 @@ func TestBundleComposes(t *testing.T) {
 	if !pluginListContains(localPlugins(sys), gitlabplugin.Name) {
 		t.Fatalf("coder local plugins missing %s", gitlabplugin.Name)
 	}
+	if !pluginListContains(localPlugins(sys), memoryplugin.Name) {
+		t.Fatalf("coder local plugins missing %s", memoryplugin.Name)
+	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys)},
+		Plugins: []pluginhost.Plugin{identityplugin.New(), codingplugin.New(sys), taskplugin.New(), skillplugin.New(), imageplugin.New(sys), dockerplugin.New(sys), gitlabplugin.New(sys), kubernetesplugin.New(sys), memoryplugin.New()},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -68,8 +75,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 98 {
-		t.Fatalf("operation specs len = %d, want 98", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 102 {
+		t.Fatalf("operation specs len = %d, want 102", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], webplugin.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", webplugin.SearchOp)
@@ -81,6 +88,11 @@ func TestBundleComposes(t *testing.T) {
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], "project_task_run") {
 		t.Fatalf("coder agent operations missing project_task_run")
+	}
+	for _, name := range []string{memoryplugin.MemorizeOp, memoryplugin.RetrieveOp, memoryplugin.ForgetOp, memoryplugin.OrganizeOp} {
+		if !agentHasOperation(composition.AgentSpecs[0], name) {
+			t.Fatalf("coder agent operations missing %s", name)
+		}
 	}
 	if !agentHasDatasource(composition.AgentSpecs[0], "web_search") {
 		t.Fatalf("coder agent datasources = %#v, want web_search", composition.AgentSpecs[0].Datasources)

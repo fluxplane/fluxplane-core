@@ -4,6 +4,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/plugins/golangplugin"
 	"github.com/fluxplane/agentruntime/plugins/markdownplugin"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/projectplugin"
 	"github.com/fluxplane/agentruntime/plugins/taskplugin"
 	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
@@ -104,6 +105,7 @@ func FullLocalCodingFeature() FeatureSpec {
 			taskplugin.TaskValidateOp, taskplugin.ReviewRequestOp,
 			taskplugin.TaskRunOp, taskplugin.TaskSchedulerStatusOp, taskplugin.TaskSchedulerSetEnabledOp,
 			"skill",
+			memoryplugin.MemorizeOp, memoryplugin.RetrieveOp, memoryplugin.ForgetOp, memoryplugin.OrganizeOp,
 			"image_generate", "image_understand", "image_providers",
 		},
 	}

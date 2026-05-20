@@ -12,6 +12,7 @@ import (
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/resource"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
@@ -76,6 +77,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	var index *semantic.Index
 	var dataStore coredata.Store
 	var closeDataStore func() error
+	var eventStore event.Store
 	var closeThreadStore func()
 	closeFn := func() error {
 		if closeDataStore != nil {
@@ -106,11 +108,12 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err
 		}
-		threadStore, _, closeStore, err := openLocalThreadStore(eventRegistry)
+		threadStore, openedEventStore, closeStore, err := openLocalThreadStore(eventRegistry)
 		if err != nil {
 			_ = closeFn()
 			return DatasourceIndexRuntime{}, err
 		}
+		eventStore = openedEventStore
 		closeThreadStore = closeStore
 		plugins = appendPluginIfMissing(plugins, sessionhistoryplugin.New(threadStore))
 	}
@@ -125,13 +128,13 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return DatasourceIndexRuntime{}, err
 	}
 	dataSources := datasourceDataSources(bundles)
-	pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins)
+	pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins, eventStore, dataStore)
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err
 	}
 	dataSources = append(dataSources, pluginDataSources...)
-	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+	registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 	if err != nil {
 		_ = closeFn()
 		return DatasourceIndexRuntime{}, err

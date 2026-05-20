@@ -421,6 +421,7 @@ func scopeKey(scope coredata.Scope) string {
 		string(scope.UserID),
 		scope.AgentID,
 		scope.SessionID,
+		string(scope.ThreadID),
 		scope.ChannelID,
 		strings.Join(annotations, "\x1f"),
 	}, "\x1e")

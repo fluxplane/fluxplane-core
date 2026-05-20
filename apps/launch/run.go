@@ -45,6 +45,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/identityplugin"
 	"github.com/fluxplane/agentruntime/plugins/imageplugin"
 	"github.com/fluxplane/agentruntime/plugins/jiraplugin"
+	"github.com/fluxplane/agentruntime/plugins/memoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/openaiplugin"
 	"github.com/fluxplane/agentruntime/plugins/sessionhistoryplugin"
 	"github.com/fluxplane/agentruntime/plugins/skillplugin"
@@ -267,6 +268,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		return Runtime{}, err
 	}
 	var semanticIndex interface{ Close() error }
+	var dataStore coredata.Store
 	var closeDataStore func() error
 	var closeThreadStore func()
 	var stopTaskScheduler context.CancelFunc
@@ -339,13 +341,18 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		closeRuntime()
 		return Runtime{}, err
 	}
-	if opts.Dev || hasAnyDatasource(bundles) {
-		dataStore, closeStore, err := openDataStore(ctx, opts.Launch.Data)
+	needsDataStore := opts.Dev || hasAnyDatasource(bundles) || bundleHasPlugin(bundles, memoryplugin.Name)
+	needsDatasourceRuntime := opts.Dev || hasAnyDatasource(bundles)
+	if needsDataStore {
+		var closeData func() error
+		dataStore, closeData, err = openDataStore(ctx, opts.Launch.Data)
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
-		closeDataStore = closeStore
+		closeDataStore = closeData
+	}
+	if needsDatasourceRuntime {
 		index, err := newSemanticIndex(root, bundles, "", "", "")
 		if err != nil {
 			closeRuntime()
@@ -353,13 +360,13 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		semanticIndex = index
 		dataSources := datasourceDataSources(bundles)
-		pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins)
+		pluginDataSources, err := resolvedPluginDataSources(ctx, bundles, plugins, eventStore, dataStore)
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
 		}
 		dataSources = append(dataSources, pluginDataSources...)
-		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
+		registry, err := datasourceRegistryWithOptions(ctx, bundles, plugins, root, eventStore, dataStore, datasourceplugin.RegistryOptions{SemanticIndex: index, DataSources: dataSources})
 		if err != nil {
 			closeRuntime()
 			return Runtime{}, err
@@ -385,6 +392,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Plugins:          plugins,
 		BundleTransforms: bundleTransforms,
 		EventStore:       eventStore,
+		DataStore:        dataStore,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:                   localSandbox{Root: root},
 			ACL:                       localACL{},
@@ -526,6 +534,7 @@ func availablePlugins(hostSystem system.System, dispatcher *slackplugin.Dispatch
 		imageplugin.New(hostSystem),
 		jiraplugin.New(hostSystem),
 		confluenceplugin.New(hostSystem),
+		memoryplugin.New(),
 		taskplugin.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skillplugin.New(),
 		textplugin.New(),
@@ -761,14 +770,16 @@ func resolveConnectorsPath(path string) (string, error) {
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {
-	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, datasourceplugin.RegistryOptions{})
+	return datasourceRegistryWithOptions(ctx, bundles, plugins, root, nil, nil, datasourceplugin.RegistryOptions{})
 }
 
-func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, opts datasourceplugin.RegistryOptions) (*coredatasource.Registry, error) {
+func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string, eventStore event.Store, dataStore coredata.Store, opts datasourceplugin.RegistryOptions) (*coredatasource.Registry, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err
 	}
+	host.SetEventStore(eventStore)
+	host.SetDataStore(dataStore)
 	resolved, err := host.Resolve(ctx, pluginRefs(bundles)...)
 	if err != nil {
 		return nil, err
@@ -783,11 +794,13 @@ func datasourceRegistryWithOptions(ctx context.Context, bundles []resource.Contr
 	return datasourceplugin.BuildRegistryWithOptions(ctx, specs, providers, opts)
 }
 
-func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]coredata.SourceSpec, error) {
+func resolvedPluginDataSources(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]coredata.SourceSpec, error) {
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		return nil, err
 	}
+	host.SetEventStore(eventStore)
+	host.SetDataStore(dataStore)
 	resolved, err := host.Resolve(ctx, pluginRefs(bundles)...)
 	if err != nil {
 		return nil, err
