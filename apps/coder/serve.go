@@ -20,6 +20,7 @@ type serveOptions struct {
 	runtime        launch.LocalRuntimeFlags
 	workspaceRoots []string
 	envFiles       []string
+	allowAuthEnv   bool
 	workspace      distribution.WorkspaceConfig
 }
 
@@ -80,6 +81,7 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 				Debug:               opts.runtime.Debug,
 				Yolo:                opts.runtime.Yolo,
 				Dev:                 opts.runtime.Dev,
+				AllowPluginAuthEnv:  opts.allowAuthEnv,
 			}); err != nil {
 				return err
 			}
@@ -94,6 +96,7 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 	launch.BindModelFlags(cmd.Flags(), &opts.model, launch.ModelFlags{Model: DefaultModel})
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
+	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow plugin auth methods to resolve credentials from the process environment")
 	return cmd
 }
 

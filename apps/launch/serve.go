@@ -34,21 +34,22 @@ import (
 )
 
 type Options struct {
-	AppDir         string
-	Debug          bool
-	Yolo           bool
-	Dev            bool
-	AuthPath       string
-	Provider       string
-	Model          string
-	Thinking       string
-	ThinkingSet    bool
-	Effort         string
-	EffortSet      bool
-	EnvFiles       []string
-	HealthAddr     string
-	ToolProjection agentruntime.ToolProjectionConfig
-	ModelResolver  agentfactory.ModelResolver
+	AppDir             string
+	Debug              bool
+	Yolo               bool
+	Dev                bool
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Thinking           string
+	ThinkingSet        bool
+	Effort             string
+	EffortSet          bool
+	EnvFiles           []string
+	HealthAddr         string
+	ToolProjection     agentruntime.ToolProjectionConfig
+	ModelResolver      agentfactory.ModelResolver
 }
 
 type ServeDistributionOptions struct {
@@ -57,6 +58,7 @@ type ServeDistributionOptions struct {
 	Bundles             []resource.ContributionBundle
 	Launch              orchestrationdistribution.LaunchConfig
 	AuthPath            string
+	AllowPluginAuthEnv  bool
 	Provider            string
 	Model               string
 	Thinking            string
@@ -89,6 +91,7 @@ func Serve(ctx context.Context, opts Options) error {
 		Bundles:             loaded.Distribution.Bundles,
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
+		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv,
 		Provider:            opts.Provider,
 		Model:               opts.Model,
 		Thinking:            opts.Thinking,
@@ -113,6 +116,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		Bundles:             opts.Bundles,
 		Launch:              opts.Launch,
 		AuthPath:            opts.AuthPath,
+		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv,
 		Provider:            opts.Provider,
 		Model:               opts.Model,
 		Thinking:            opts.Thinking,
@@ -131,7 +135,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		return err
 	}
 	defer runtime.Close()
-	channels, err := serveChannels(ctx, opts.Launch.Channels, opts.Bundles, Options{AuthPath: opts.AuthPath, Debug: opts.Debug}, runtime.Dispatcher, runtime.System)
+	channels, err := serveChannels(ctx, opts.Launch.Channels, opts.Bundles, Options{AuthPath: opts.AuthPath, AllowPluginAuthEnv: opts.AllowPluginAuthEnv, Debug: opts.Debug}, runtime.Dispatcher, runtime.System)
 	if err != nil {
 		return err
 	}
@@ -200,6 +204,7 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
 	store := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
+	resolver := nativeAuthResolver(sys, store, opts.AllowPluginAuthEnv)
 	for _, doc := range docs {
 		switch doc.Type {
 		case "direct":
@@ -207,7 +212,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 		case "slack":
 			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
-			session, err := slack.Resolve(ctx, sys, store, ref, cfg)
+			session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, cfg)
 			if err != nil {
 				slog.Warn("slack channel skipped because auth is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "error", err)
 				continue

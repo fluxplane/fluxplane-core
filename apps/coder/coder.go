@@ -17,21 +17,22 @@ import (
 
 // Config configures a reusable coder product instance.
 type Config struct {
-	WorkspaceRoots []string
-	EnvFiles       []string
-	Workspace      distribution.WorkspaceConfig
-	AuthPath       string
-	Provider       string
-	Model          string
-	Thinking       string
-	ThinkingSet    bool
-	Effort         string
-	EffortSet      bool
-	Debug          bool
-	Yolo           bool
-	Dev            bool
-	MaxToolRisk    operation.RiskLevel
-	Bundles        []resource.ContributionBundle
+	WorkspaceRoots     []string
+	EnvFiles           []string
+	Workspace          distribution.WorkspaceConfig
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Thinking           string
+	ThinkingSet        bool
+	Effort             string
+	EffortSet          bool
+	Debug              bool
+	Yolo               bool
+	Dev                bool
+	MaxToolRisk        operation.RiskLevel
+	Bundles            []resource.ContributionBundle
 }
 
 // Coder is the reusable coder product assembly. Presentation layers such as
@@ -50,21 +51,22 @@ type ChannelClientResult struct {
 
 // ChannelClientOptions configures a local in-process shell/channel client.
 type ChannelClientOptions struct {
-	Path           string
-	WorkspaceRoots []string
-	EnvFiles       []string
-	Workspace      distribution.WorkspaceConfig
-	AuthPath       string
-	Provider       string
-	Model          string
-	Thinking       string
-	ThinkingSet    bool
-	Effort         string
-	EffortSet      bool
-	Debug          bool
-	Yolo           bool
-	Dev            bool
-	MaxToolRisk    operation.RiskLevel
+	Path               string
+	WorkspaceRoots     []string
+	EnvFiles           []string
+	Workspace          distribution.WorkspaceConfig
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Thinking           string
+	ThinkingSet        bool
+	Effort             string
+	EffortSet          bool
+	Debug              bool
+	Yolo               bool
+	Dev                bool
+	MaxToolRisk        operation.RiskLevel
 }
 
 // NewCoder creates a reusable coder product instance.
@@ -150,6 +152,7 @@ func (c *Coder) ChannelClient(ctx context.Context, opts ChannelClientOptions) (C
 		Yolo:                opts.Yolo || c.config.Yolo,
 		Dev:                 opts.Dev || c.config.Dev,
 		AuthPath:            firstNonEmpty(opts.AuthPath, c.config.AuthPath),
+		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv || c.config.AllowPluginAuthEnv,
 	})
 	if err != nil {
 		return ChannelClientResult{}, err

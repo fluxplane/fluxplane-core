@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allowed coder's auth-test plugin registry to reach private/VPN network
   targets so GitLab, Jira, and Confluence connection tests work against
   intranet hosts.
+- Scoped `coder auth` to the plugins declared by the active coder app resources,
+  reusing pluginhost auth target resolution instead of a hard-coded first-party
+  auth plugin list.
+- Added wildcard operation selectors and auth-evidence-gated coder integration
+  activation for GitLab, Jira, Confluence, and Slack datasource/tool surfaces.
+- Gated process-environment plugin auth behind `--allow-plugin-auth-env` for
+  local coder/app launches and generated app containers.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.

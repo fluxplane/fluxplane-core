@@ -10,6 +10,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/agent"
 	corecontext "github.com/fluxplane/agentruntime/core/context"
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/event"
 	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
 	"github.com/fluxplane/agentruntime/core/operation"
@@ -183,6 +184,37 @@ func TestAgentStepPassesObservationsToContextProviders(t *testing.T) {
 	}
 	if !hasContextBlock(got.Context, "detect", "detected") {
 		t.Fatalf("context = %#v, want provider block", got.Context)
+	}
+}
+
+func TestAgentContextProviderPreservesExistingDatasourceAccess(t *testing.T) {
+	var got coredatasource.AccessPolicy
+	provider := contextProviderFunc{
+		spec: corecontext.ProviderSpec{Name: "datasources"},
+		build: func(ctx context.Context, _ corecontext.Request) ([]corecontext.Block, error) {
+			got, _ = coredatasource.AccessPolicyFromContext(ctx)
+			return []corecontext.Block{{ID: "datasources", Provider: "datasources", Kind: corecontext.BlockText, Content: "ok"}}, nil
+		},
+	}
+	runtime, err := New(agent.Spec{
+		Name:        "main",
+		Datasources: []coredatasource.Ref{{Name: "web_search"}, {Name: "jira"}},
+	}, ModelFunc(func(_ context.Context, _ Request) (Response, error) {
+		return MessageResponse("ok"), nil
+	}), WithContextProviders(provider))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	base := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"gitlab", "jira"},
+	})
+	result := runtime.Step(testAgentContext{Context: base}, agent.StepInput{})
+	if result.Status != agent.StatusOK {
+		t.Fatalf("status = %q, want ok", result.Status)
+	}
+	want := []coredatasource.Name{"gitlab", "jira", "web_search"}
+	if !datasourceNamesEqual(got.Datasources, want) {
+		t.Fatalf("datasources = %#v, want %#v", got.Datasources, want)
 	}
 }
 
@@ -469,18 +501,37 @@ func TestNewRejectsUnsupportedDriverKind(t *testing.T) {
 }
 
 type testAgentContext struct {
+	context.Context
 	events event.Sink
 }
 
 func (c testAgentContext) Deadline() (deadline time.Time, ok bool) {
+	if c.Context != nil {
+		return c.Context.Deadline()
+	}
 	return time.Time{}, false
 }
 
-func (c testAgentContext) Done() <-chan struct{} { return nil }
+func (c testAgentContext) Done() <-chan struct{} {
+	if c.Context != nil {
+		return c.Context.Done()
+	}
+	return nil
+}
 
-func (c testAgentContext) Err() error { return nil }
+func (c testAgentContext) Err() error {
+	if c.Context != nil {
+		return c.Context.Err()
+	}
+	return nil
+}
 
-func (c testAgentContext) Value(any) any { return nil }
+func (c testAgentContext) Value(key any) any {
+	if c.Context != nil {
+		return c.Context.Value(key)
+	}
+	return nil
+}
 
 func (c testAgentContext) Events() event.Sink {
 	if c.events == nil {
@@ -498,6 +549,18 @@ func (p contextProviderFunc) Spec() corecontext.ProviderSpec { return p.spec }
 
 func (p contextProviderFunc) Build(ctx context.Context, req corecontext.Request) ([]corecontext.Block, error) {
 	return p.build(ctx, req)
+}
+
+func datasourceNamesEqual(left, right []coredatasource.Name) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func hasContextBlock(blocks []corecontext.Block, provider corecontext.ProviderName, content string) bool {

@@ -31,10 +31,10 @@ func FilterTools(spec agent.Spec, tools []tool.Spec) []tool.Spec {
 			allowedCommands[ref.Name] = struct{}{}
 		}
 	}
-	allowedOperations := map[operation.Name]struct{}{}
+	allowedOperations := make([]operation.Ref, 0, len(spec.Operations))
 	for _, ref := range spec.Operations {
 		if ref.Name != "" {
-			allowedOperations[ref.Name] = struct{}{}
+			allowedOperations = append(allowedOperations, ref)
 		}
 	}
 	out := make([]tool.Spec, 0, len(tools))
@@ -93,7 +93,7 @@ func ApplySessionProfile(spec agent.Spec, profile coresession.Spec) agent.Spec {
 	return spec
 }
 
-func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[string]struct{}, operations map[operation.Name]struct{}) bool {
+func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[string]struct{}, operations []operation.Ref) bool {
 	if _, ok := tools[string(projected.Name)]; ok {
 		return true
 	}
@@ -102,21 +102,21 @@ func toolAllowed(projected tool.Spec, tools map[string]struct{}, commands map[st
 			return true
 		}
 	}
-	if _, ok := operations[projected.Target.Operation.Name]; ok {
+	if operationAllowed(projected.Target.Operation, operations) {
 		return true
 	}
 	if dispatchAllowedByOperations(projected.Dispatch, operations) {
 		return true
 	}
-	for ref := range operations {
-		if refMatches(string(ref), projected.Annotations["operation_id"]) {
+	for _, ref := range operations {
+		if refMatches(string(ref.Name), projected.Annotations["operation_id"]) {
 			return true
 		}
 	}
 	return false
 }
 
-func dispatchAllowedByOperations(dispatch *tool.Dispatch, operations map[operation.Name]struct{}) bool {
+func dispatchAllowedByOperations(dispatch *tool.Dispatch, operations []operation.Ref) bool {
 	if dispatch == nil || len(dispatch.Cases) == 0 || len(operations) == 0 {
 		return false
 	}
@@ -124,11 +124,20 @@ func dispatchAllowedByOperations(dispatch *tool.Dispatch, operations map[operati
 		if candidate.Target.Kind != invocation.TargetOperation || candidate.Target.Operation.Name == "" {
 			return false
 		}
-		if _, ok := operations[candidate.Target.Operation.Name]; !ok {
+		if !operationAllowed(candidate.Target.Operation, operations) {
 			return false
 		}
 	}
 	return true
+}
+
+func operationAllowed(candidate operation.Ref, selectors []operation.Ref) bool {
+	for _, selector := range selectors {
+		if selector.Matches(candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func narrowAgentContext(base []corecontext.ProviderRef, caps []corecontext.ProviderRef) []corecontext.ProviderRef {
@@ -194,19 +203,32 @@ func narrowAgentOperations(base []operation.Ref, caps []operation.Ref) []operati
 	if base == nil {
 		return append([]operation.Ref(nil), caps...)
 	}
-	allowed := map[operation.Name]struct{}{}
-	for _, ref := range caps {
-		if ref.Name != "" {
-			allowed[ref.Name] = struct{}{}
-		}
-	}
 	out := make([]operation.Ref, 0, len(base))
-	for _, ref := range base {
-		if _, ok := allowed[ref.Name]; ok {
-			out = append(out, ref)
+	for _, baseRef := range base {
+		for _, capRef := range caps {
+			if narrowed, ok := intersectOperationRefs(baseRef, capRef); ok {
+				out = append(out, narrowed)
+				break
+			}
 		}
 	}
 	return out
+}
+
+func intersectOperationRefs(base, cap operation.Ref) (operation.Ref, bool) {
+	if base.Name == "" || cap.Name == "" {
+		return operation.Ref{}, false
+	}
+	if base.Matches(cap) {
+		return cap, true
+	}
+	if cap.Matches(base) {
+		return base, true
+	}
+	if operation.HasSelectorMeta(base) && operation.HasSelectorMeta(cap) && base.Name == cap.Name && base.Version == cap.Version {
+		return base, true
+	}
+	return operation.Ref{}, false
 }
 
 func commandPathRef(path command.Path) string {

@@ -27,30 +27,30 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	coreskill "github.com/fluxplane/agentruntime/core/skill"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/orchestration/session"
 	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
 	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
-	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
 	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
-	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
 	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
-	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	"github.com/fluxplane/agentruntime/plugins/native/browser"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
-	"github.com/fluxplane/agentruntime/plugins/native/identity"
 	"github.com/fluxplane/agentruntime/plugins/native/image"
 	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	"github.com/fluxplane/agentruntime/plugins/native/skills"
-	"github.com/fluxplane/agentruntime/plugins/native/task"
 	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/agentruntime/runtime/authstatus"
 	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -139,6 +139,40 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	if !hasDescribe {
 		t.Fatalf("coder command missing describe subcommand")
+	}
+}
+
+func TestAuthStatusUsesCoderScopedPlugins(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"auth", "--auth-path", t.TempDir(), "status", "--no-test"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{"confluence", "gitlab", "jira", "slack"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("auth status output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "openai") {
+		t.Fatalf("auth status output includes launch-global openai plugin:\n%s", got)
+	}
+}
+
+func TestCoderAuthTargetRegistryUsesDeclaredPluginRefs(t *testing.T) {
+	targets, err := coderAuthTargetRegistry(startupResources{
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: GitLabPlugin}},
+		}},
+	})(context.Background())
+	if err != nil {
+		t.Fatalf("coderAuthTargetRegistry: %v", err)
+	}
+	if len(targets) != 1 || targets[0].Ref.Name != GitLabPlugin {
+		t.Fatalf("targets = %#v, want only gitlab", targets)
 	}
 }
 
@@ -407,7 +441,7 @@ func TestAppRunHelpIncludesLaunchFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage", "--yolo", "--connectors-path", "--workspace-root"} {
+	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage", "--yolo", "--connectors-path", "--allow-plugin-auth-env", "--workspace-root"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -566,7 +600,7 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose|kubernetes", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path", "--provider", "--model", "--effort"} {
+	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose|kubernetes", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -594,7 +628,7 @@ func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"deploy [path]", "--target", "docker-compose|kubernetes", "--image", "--base-image", "--connectors-path", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach", "--namespace", "--registry-mode", "--registry"} {
+	for _, want := range []string{"deploy [path]", "--target", "docker-compose|kubernetes", "--image", "--base-image", "--connectors-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach", "--namespace", "--registry-mode", "--registry"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -1057,20 +1091,7 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{
-			identity.New(),
-			discovery.New(),
-			coding.New(sys),
-			task.New(),
-			skills.New(),
-			image.New(sys),
-			docker.New(sys),
-			gitlab.New(sys),
-			kubernetes.New(sys),
-			loki.New(sys),
-			mysql.New(),
-			memory.New(),
-		},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1144,20 +1165,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 				}},
 			},
 		},
-		Plugins: []pluginhost.Plugin{
-			identity.New(),
-			discovery.New(),
-			coding.New(sys),
-			task.New(),
-			skills.New(),
-			image.New(sys),
-			docker.New(sys),
-			gitlab.New(sys),
-			kubernetes.New(sys),
-			loki.New(sys),
-			mysql.New(),
-			memory.New(),
-		},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1216,7 +1224,7 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1288,7 +1296,7 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1319,7 +1327,79 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	}
 	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
 	assertRequestTools(t, request, memory.RetrieveOp, memory.MemorizeOp, memory.ForgetOp, memory.OrganizeOp, image.GenerateOp, image.ProvidersOp)
-	assertRequestToolsAbsent(t, request, "go_outline", "markdown_outline", "loki_query", "mysql_query", "endpoint_list", browser.OpenOp, image.Name, image.UnderstandOp)
+	assertRequestToolsAbsent(t, request, "go_outline", "markdown_outline", "loki_query", "mysql_query", "endpoint_list", "gitlab_mr", "jira_issue_search", "channel_send", browser.OpenOp, image.Name, image.UnderstandOp)
+}
+
+func TestCoderSessionActivatesIntegrationToolsFromAuthEvidence(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	sys, err := system.NewHost(system.Config{Root: root, AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	authObserver := authstatus.NewObserver([]authstatus.Target{
+		{
+			Ref: resource.PluginRef{Name: gitlab.Name},
+			Methods: []coresecret.AuthMethodSpec{{
+				Name:   "personal_access_token",
+				Method: coresecret.AuthMethodEnv,
+				Kind:   coresecret.KindAPIKey,
+				Env:    coresecret.EnvSpec{Name: "GITLAB_TOKEN"},
+			}},
+		},
+		{
+			Ref: resource.PluginRef{Name: jira.Name},
+			Methods: []coresecret.AuthMethodSpec{{
+				Name:   "api_token",
+				Method: coresecret.AuthMethodEnv,
+				Kind:   coresecret.KindAPIKey,
+				Env:    coresecret.EnvSpec{Name: "JIRA_TOKEN"},
+			}},
+		},
+	}, runtimesecret.EnvResolver{Environment: testEnvironment{values: map[string]string{
+		"GITLAB_TOKEN": "gitlab-token",
+		"JIRA_TOKEN":   "jira-token",
+	}}})
+	composition, err := app.Compose(app.Config{
+		Bundles:              []agentruntime.ResourceBundle{Bundle()},
+		Plugins:              localPlugins(sys),
+		EnvironmentObservers: []runtimeevidence.Observer{authObserver},
+		AssertionDerivers:    []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+		LLMModel:       model,
+		Channel:        channel.Ref{Name: "local"},
+		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
+		Trust:          policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}},
+		ToolProjection: ToolProjectionConfig(),
+	})
+	if err != nil {
+		t.Fatalf("NewFromComposition: %v", err)
+	}
+	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "integration-auth-tool-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "gitlab_mr", "gitlab_commit", "jira_issue_search")
+	assertRequestToolsAbsent(t, request, "channel_send", "slack_report_progress")
 }
 
 func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
@@ -1339,7 +1419,7 @@ func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1385,7 +1465,7 @@ func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1435,7 +1515,7 @@ func TestCoderSessionActivatesBrowserToolsFromAvailability(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1481,7 +1561,7 @@ func TestCoderSessionDoesNotActivateBrowserToolsWithoutAvailability(t *testing.T
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1527,7 +1607,7 @@ func TestCoderSessionActivatesImageToolsFromProviderAvailability(t *testing.T) {
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1574,7 +1654,7 @@ func TestCoderSessionDoesNotActivateImageUnderstandingWithoutProvider(t *testing
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1621,7 +1701,7 @@ func TestCoderSessionActivatesMemoryMutationToolsFromStorageAvailability(t *test
 	})
 	composition, err := app.Compose(app.Config{
 		Bundles: []agentruntime.ResourceBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -1691,6 +1771,177 @@ func TestCoderLaunchProjectsCoreToolsToModel(t *testing.T) {
 		t.Fatalf("Wait: %v", err)
 	}
 	assertRequestTools(t, request, "project_inventory", "file_read", "shell_exec")
+}
+
+func TestCoderLaunchActivatesIntegrationToolsAndDatasourcesFromAuthPath(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	authPath := t.TempDir()
+	store := runtimesecret.NewFileStore(authPath)
+	for _, secret := range []runtimesecret.StoredSecret{
+		{Ref: coresecret.Plugin(gitlab.Name, gitlab.Name, "token"), Kind: coresecret.KindAPIKey, Value: "gitlab-token"},
+		{Ref: coresecret.Plugin(gitlab.Name, gitlab.Name, "url"), Kind: coresecret.KindAPIKey, Value: "https://gitlab.example.invalid"},
+		{Ref: coresecret.Plugin(jira.Name, jira.Name, "email"), Kind: coresecret.KindBasic, Value: "bot@example.invalid"},
+		{Ref: coresecret.Plugin(jira.Name, jira.Name, "token"), Kind: coresecret.KindBasic, Value: "jira-token"},
+		{Ref: coresecret.Plugin(jira.Name, jira.Name, "site_url"), Kind: coresecret.KindBasic, Value: "https://example.atlassian.invalid"},
+		{Ref: coresecret.Plugin(confluence.Name, confluence.Name, "email"), Kind: coresecret.KindBasic, Value: "bot@example.invalid"},
+		{Ref: coresecret.Plugin(confluence.Name, confluence.Name, "token"), Kind: coresecret.KindBasic, Value: "confluence-token"},
+		{Ref: coresecret.Plugin(confluence.Name, confluence.Name, "site_url"), Kind: coresecret.KindBasic, Value: "https://example.atlassian.invalid"},
+		{Ref: slack.BotTokenSecretRef(resource.PluginRef{Name: slack.Name}), Kind: coresecret.KindBearerToken, Value: "slack-bot-token"},
+	} {
+		if err := store.SaveSecret(ctx, secret); err != nil {
+			t.Fatalf("SaveSecret(%s): %v", secret.Ref.ResourceName(), err)
+		}
+	}
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	runtime, err := launch.Launch(ctx, launch.RuntimeOptions{
+		Root:                root,
+		Spec:                Distribution().Spec,
+		Bundles:             []resource.ContributionBundle{Bundle()},
+		Plugins:             localPlugins,
+		ToolProjection:      ToolProjectionConfig(),
+		ModelResolver:       agentfactory.ModelResolverFunc(func(context.Context, coreagent.Spec) (llmagent.Model, error) { return model, nil }),
+		AllowPrivateNetwork: true,
+		Yolo:                true,
+		AuthPath:            authPath,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "launch-integration-auth-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "gitlab_mr", "gitlab_commit", "jira_issue_search")
+	assertRequestToolsAbsent(t, request, slack.ChannelSendOp, slack.ReportProgressOp)
+	text := requestText(request)
+	for _, want := range []string{"gitlab", "jira", "confluence", "slack"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("request text missing datasource %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestCoderLaunchActivatesIntegrationToolsAndDatasourcesFromProcessAuthEnv(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GITLAB_TOKEN", "gitlab-token")
+	t.Setenv("GITLAB_URL", "https://gitlab.example.invalid")
+	t.Setenv("JIRA_EMAIL", "bot@example.invalid")
+	t.Setenv("JIRA_API_TOKEN", "jira-token")
+	t.Setenv("CONFLUENCE_EMAIL", "bot@example.invalid")
+	t.Setenv("CONFLUENCE_API_TOKEN", "confluence-token")
+	t.Setenv("ATLASSIAN_CLOUD_ID", "cloud-1")
+	t.Setenv("SLACK_BOT_TOKEN", "slack-bot-token")
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	runtime, err := launch.Launch(ctx, launch.RuntimeOptions{
+		Root:                root,
+		Spec:                Distribution().Spec,
+		Bundles:             []resource.ContributionBundle{Bundle()},
+		Plugins:             localPlugins,
+		ToolProjection:      ToolProjectionConfig(),
+		ModelResolver:       agentfactory.ModelResolverFunc(func(context.Context, coreagent.Spec) (llmagent.Model, error) { return model, nil }),
+		AllowPrivateNetwork: true,
+		Yolo:                true,
+		AuthPath:            filepath.Join(t.TempDir(), "missing-auth-store"),
+		AllowPluginAuthEnv:  true,
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "launch-integration-auth-env-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestTools(t, request, "gitlab_mr", "gitlab_commit", "jira_issue_search")
+	assertRequestToolsAbsent(t, request, slack.ChannelSendOp, slack.ReportProgressOp)
+	text := requestText(request)
+	for _, want := range []string{"gitlab", "jira", "confluence", "slack"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("request text missing datasource %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestCoderLaunchDoesNotActivateIntegrationToolsFromProcessAuthEnvByDefault(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GITLAB_TOKEN", "gitlab-token")
+	t.Setenv("GITLAB_URL", "https://gitlab.example.invalid")
+	t.Setenv("JIRA_EMAIL", "bot@example.invalid")
+	t.Setenv("JIRA_API_TOKEN", "jira-token")
+	t.Setenv("CONFLUENCE_EMAIL", "bot@example.invalid")
+	t.Setenv("CONFLUENCE_API_TOKEN", "confluence-token")
+	t.Setenv("ATLASSIAN_CLOUD_ID", "cloud-1")
+	t.Setenv("SLACK_BOT_TOKEN", "slack-bot-token")
+	var request llmagent.Request
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		request = req
+		return llmagent.MessageResponse("ok"), nil
+	})
+	runtime, err := launch.Launch(ctx, launch.RuntimeOptions{
+		Root:                root,
+		Spec:                Distribution().Spec,
+		Bundles:             []resource.ContributionBundle{Bundle()},
+		Plugins:             localPlugins,
+		ToolProjection:      ToolProjectionConfig(),
+		ModelResolver:       agentfactory.ModelResolverFunc(func(context.Context, coreagent.Spec) (llmagent.Model, error) { return model, nil }),
+		AllowPrivateNetwork: true,
+		Yolo:                true,
+		AuthPath:            filepath.Join(t.TempDir(), "missing-auth-store"),
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	defer runtime.Close()
+	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+		Session:      agentruntime.SessionRef{Name: SessionName},
+		Conversation: channel.ConversationRef{ID: "launch-integration-auth-env-default-projection-test"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	assertRequestToolsAbsent(t, request, "gitlab_mr", "gitlab_commit", "jira_issue_search", slack.ChannelSendOp, slack.ReportProgressOp)
 }
 
 func TestCoderStartupLaunchProjectsCoreToolsToModel(t *testing.T) {
@@ -1869,6 +2120,15 @@ func TestDefaultModel(t *testing.T) {
 	if DefaultModel != "gpt-5.5" {
 		t.Fatalf("DefaultModel = %q, want gpt-5.5", DefaultModel)
 	}
+}
+
+type testEnvironment struct {
+	values map[string]string
+}
+
+func (e testEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := e.values[key]
+	return value, ok, nil
 }
 
 func chdir(t *testing.T, dir string) {

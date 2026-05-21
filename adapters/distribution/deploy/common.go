@@ -97,9 +97,10 @@ func (execRunner) Run(ctx context.Context, dir, name string, args []string, stdo
 }
 
 type appRuntimeOptions struct {
-	Provider string
-	Model    string
-	Effort   string
+	Provider           string
+	Model              string
+	Effort             string
+	AllowPluginAuthEnv bool
 }
 
 func (opts appRuntimeOptions) withDefaults() appRuntimeOptions {
@@ -132,9 +133,10 @@ func resolveAppRuntime(loaded distribution.Loaded, opts appRuntimeOptions) appRu
 		}
 	}
 	return appRuntimeOptions{
-		Provider: provider,
-		Model:    model,
-		Effort:   firstNonEmpty(effort, DefaultAppEffort),
+		Provider:           provider,
+		Model:              model,
+		Effort:             firstNonEmpty(effort, DefaultAppEffort),
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	}.withDefaults()
 }
 
@@ -238,7 +240,7 @@ func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeO
 		healthAddr = defaultHealthAddr
 	}
 	appRuntime = appRuntime.withDefaults()
-	return []string{
+	command := []string{
 		"app", "serve", "/app",
 		"--connectors-path", connectorsPath,
 		"--health-addr", healthAddr,
@@ -246,6 +248,10 @@ func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeO
 		"--model", appRuntime.Model,
 		"--effort", appRuntime.Effort,
 	}
+	if appRuntime.AllowPluginAuthEnv {
+		command = append(command, "--allow-plugin-auth-env")
+	}
+	return command
 }
 
 func appHealthcheckCommand() []string {

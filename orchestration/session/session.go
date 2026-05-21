@@ -3208,9 +3208,63 @@ func (s Session) activeOperationSetTools(active sessionenv.ActiveState) []tool.S
 			continue
 		}
 		for _, ref := range set.Operations {
-			projected, ok := s.operationTool(ref)
-			if ok && !toolProjected(out, projected) {
-				out = append(out, projected)
+			for _, projected := range s.operationTools(ref) {
+				if !toolProjected(out, projected) {
+					out = append(out, projected)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func (s Session) operationTools(ref operation.Ref) []tool.Spec {
+	if !operation.HasSelectorMeta(ref) {
+		projected, ok := s.operationTool(ref)
+		if !ok {
+			return nil
+		}
+		return []tool.Spec{projected}
+	}
+	var out []tool.Spec
+	seen := map[operation.Name]bool{}
+	for _, op := range s.matchingOperations(ref) {
+		if op == nil {
+			continue
+		}
+		spec := op.Spec()
+		if seen[spec.Ref.Name] {
+			continue
+		}
+		seen[spec.Ref.Name] = true
+		out = append(out, operationToolFromSpec(spec))
+	}
+	return out
+}
+
+func (s Session) matchingOperations(selector operation.Ref) []operation.Operation {
+	var out []operation.Operation
+	if len(s.OperationCatalog) > 0 {
+		keys := make([]string, 0, len(s.OperationCatalog))
+		for key := range s.OperationCatalog {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			op := s.OperationCatalog[key].Operation
+			if op != nil && selector.Matches(op.Spec().Ref) {
+				out = append(out, op)
+			}
+		}
+	}
+	if s.Operations != nil {
+		ops := s.Operations.All()
+		sort.Slice(ops, func(i, j int) bool {
+			return ops[i].Spec().Ref.String() < ops[j].Spec().Ref.String()
+		})
+		for _, op := range ops {
+			if op != nil && selector.Matches(op.Spec().Ref) {
+				out = append(out, op)
 			}
 		}
 	}
@@ -3222,7 +3276,10 @@ func (s Session) operationTool(ref operation.Ref) (tool.Spec, bool) {
 	if !ok || op == nil {
 		return tool.Spec{}, false
 	}
-	spec := op.Spec()
+	return operationToolFromSpec(op.Spec()), true
+}
+
+func operationToolFromSpec(spec operation.Spec) tool.Spec {
 	return tool.Spec{
 		Name:        tool.Name(spec.Ref.Name),
 		Description: spec.Description,
@@ -3236,7 +3293,7 @@ func (s Session) operationTool(ref operation.Ref) (tool.Spec, bool) {
 		Annotations: map[string]string{
 			"projection": "reaction_operation_set",
 		},
-	}, true
+	}
 }
 
 func (s Session) resolveOperation(ref operation.Ref) (operation.Operation, bool) {

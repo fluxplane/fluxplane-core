@@ -27,7 +27,6 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -79,12 +78,14 @@ type LocalRuntimeConfig struct {
 	AllowPrivateNetwork bool
 	Launch              distribution.LaunchConfig
 	AuthPath            string
+	AllowPluginAuthEnv  bool
 	Dev                 bool
 }
 
 type AttachOptions struct {
-	AuthPath string
-	Dev      bool
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Dev                bool
 }
 
 // RuntimeOptions describes the surface-neutral local launch inputs shared by
@@ -95,6 +96,7 @@ type RuntimeOptions struct {
 	Bundles             []resource.ContributionBundle
 	Launch              distribution.LaunchConfig
 	AuthPath            string
+	AllowPluginAuthEnv  bool
 	Provider            string
 	Model               string
 	Thinking            string
@@ -139,6 +141,7 @@ func AttachLocalRuntimeWithOptions(loaded distribution.Loaded, opts AttachOption
 		AllowPrivateNetwork: true,
 		Launch:              loaded.Launch,
 		AuthPath:            opts.AuthPath,
+		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv,
 		Dev:                 opts.Dev,
 	})
 	return loaded
@@ -171,6 +174,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Bundles:             cfg.Bundles,
 		Launch:              mergeLaunchConfig(cfg.Launch, req.Launch),
 		AuthPath:            cfg.AuthPath,
+		AllowPluginAuthEnv:  cfg.AllowPluginAuthEnv || req.AllowPluginAuthEnv,
 		Provider:            req.Provider,
 		Model:               req.Model,
 		Thinking:            req.Thinking,
@@ -334,7 +338,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
-	available := availablePlugins(runtimeSystem, dispatcher, taskScheduler, opts.AuthPath)
+	available := availablePlugins(runtimeSystem, dispatcher, taskScheduler, opts.AuthPath, opts.AllowPluginAuthEnv)
 	if opts.Plugins != nil {
 		available = opts.Plugins(runtimeSystem)
 	}
@@ -393,8 +397,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
-	identityResolver := launchIdentityResolver(ctx, runtimeSystem, opts.AuthPath, opts.Launch.Channels, bundles)
-	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, runtimeSystem, opts.AuthPath)
+	identityResolver := launchIdentityResolver(ctx, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv, opts.Launch.Channels, bundles)
+	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
@@ -429,7 +433,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	localCaller := localUserCaller()
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	toolProjection := firstToolProjection(opts.ToolProjection, defaultToolProjection())
-	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, opts.AuthPath))
+	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv))
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -562,13 +566,13 @@ func mergeToolProjectionMaxRisk(cfg agentruntime.ToolProjectionConfig, risk oper
 	return cfg
 }
 
-func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, authPath string) map[string]map[string]bool {
+func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, authPath string, allowPluginAuthEnv bool) map[string]map[string]bool {
 	refs := gitLabPluginRefs(bundles)
 	if len(refs) == 0 {
 		return nil
 	}
 	allowed := map[string]bool{}
-	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)))
+	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)), allowPluginAuthEnv)
 	for _, ref := range refs {
 		cfg, err := gitlabConfigForRef(ref)
 		if err != nil {
@@ -621,16 +625,16 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 	return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 }
 
-func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string) []pluginhost.Plugin {
+func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
 	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	nativeResolver := nativeAuthResolver(hostSystem, nativeStore)
+	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, allowPluginAuthEnv)
 	return []pluginhost.Plugin{
 		workspace.New(hostSystem),
 		discovery.New(),
 		identity.New(),
 		coding.New(hostSystem),
 		openai.New(),
-		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
+		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		gitlab.NewWithResolver(hostSystem, nativeResolver),
 		image.New(hostSystem),
 		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
@@ -647,10 +651,13 @@ func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, ta
 	}
 }
 
-func nativeAuthResolver(sys system.System, store runtimesecret.FileStore) runtimesecret.Resolver {
+func nativeAuthResolver(sys system.System, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
 	resolver := runtimesecret.ChainResolver{store}
 	if sys != nil && sys.Environment() != nil {
 		resolver = append(resolver, runtimesecret.EnvResolver{Environment: sys.Environment()})
+	}
+	if allowProcessEnvironment {
+		resolver = append(resolver, runtimesecret.EnvResolver{Environment: processAuthEnvironment{}})
 	}
 	return resolver
 }
@@ -699,15 +706,16 @@ func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []plug
 	return append(plugins, plugin)
 }
 
-func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
+func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, allowPluginAuthEnv bool, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
 	store := runtimesecret.NewFileStore(nativeAuthPath(authPath))
+	resolver := nativeAuthResolver(sys, store, allowPluginAuthEnv)
 	var resolvers []orchestrationidentity.Resolver
 	for _, doc := range channels {
 		if doc.Type != "slack" {
 			continue
 		}
 		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
-		session, err := slack.Resolve(ctx, sys, store, ref, slackConfigForInstance(bundles, ref.InstanceName()))
+		session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
 		}
@@ -769,7 +777,7 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	return plugins, nil
 }
 
-func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, sys system.System, authPath string) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
+func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, sys system.System, authPath string, allowPluginAuthEnv bool) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
 	targets, err := authTargets(ctx, bundles, plugins)
 	if err != nil {
 		return nil, nil, err
@@ -777,62 +785,20 @@ func authEnvironmentContributions(ctx context.Context, bundles []resource.Contri
 	if len(targets) == 0 {
 		return nil, nil, nil
 	}
-	var env runtimesecret.Resolver
-	if sys != nil && sys.Environment() != nil {
-		env = runtimesecret.EnvResolver{Environment: sys.Environment()}
-	}
-	resolver := runtimesecret.ChainResolver{
-		runtimesecret.NewFileStore(nativeAuthPath(authPath)),
-		env,
-	}
+	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)), allowPluginAuthEnv)
 	return []runtimeevidence.Observer{authstatus.NewObserver(targets, resolver)}, []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()}, nil
 }
 
 func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]authstatus.Target, error) {
-	byName := map[string]pluginhost.Plugin{}
-	for _, plugin := range plugins {
-		if plugin == nil {
-			continue
-		}
-		byName[strings.TrimSpace(plugin.Manifest().Name)] = plugin
-	}
-	refs := pluginRefs(bundles)
-	out := make([]authstatus.Target, 0, len(refs))
-	for _, ref := range refs {
-		plugin := byName[ref.Name]
-		if plugin == nil {
-			continue
-		}
-		methods, err := authMethodsForRef(ctx, plugin, ref)
-		if err != nil {
-			return nil, err
-		}
-		if len(methods) == 0 {
-			continue
-		}
-		out = append(out, authstatus.Target{Ref: ref, Methods: methods})
-	}
-	return out, nil
-}
-
-func authMethodsForRef(ctx context.Context, plugin pluginhost.Plugin, ref resource.PluginRef) ([]coresecret.AuthMethodSpec, error) {
-	pluginCtx := pluginhost.Context{Ref: ref}
-	var err error
-	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+	targets, err := pluginhost.ResolveAuthTargets(ctx, pluginRefs(bundles), plugins)
 	if err != nil {
 		return nil, err
 	}
-	if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
-		plugin, err = factory.Instantiate(ctx, pluginCtx)
-		if err != nil {
-			return nil, err
-		}
+	out := make([]authstatus.Target, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, authstatus.Target{Ref: target.Ref, Methods: target.Methods})
 	}
-	contributor, ok := plugin.(pluginhost.AuthMethodContributor)
-	if !ok {
-		return nil, nil
-	}
-	return contributor.AuthMethods(ctx, pluginCtx)
+	return out, nil
 }
 
 func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connector.Instance, error) {

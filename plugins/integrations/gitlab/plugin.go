@@ -22,6 +22,7 @@ import (
 
 const (
 	Name           = "gitlab"
+	OperationSet   = Name
 	defaultBaseURL = "https://gitlab.com"
 
 	accessTokenPurpose           = "access_token"
@@ -156,7 +157,12 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations:  p.operationSpecs(),
+		Operations: p.operationSpecs(),
+		OperationSets: []operation.Set{{
+			Name:        OperationSet,
+			Description: "GitLab repository, merge request, CI, branch, tag, and commit operations.",
+			Operations:  []operation.Ref{{Name: operation.Name(Name + "_*")}},
+		}},
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }

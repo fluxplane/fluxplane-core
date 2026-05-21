@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
@@ -69,7 +70,9 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 }
 
 func (p Plugin) Contributions(_ context.Context, _ pluginhost.Context) (resource.ContributionBundle, error) {
-	return resource.ContributionBundle{}, nil
+	return resource.ContributionBundle{
+		DataSources: []coredata.SourceSpec{DataSourceSpec()},
+	}, nil
 }
 
 func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {

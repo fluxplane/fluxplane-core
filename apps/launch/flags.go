@@ -96,8 +96,9 @@ func ToolProjectionConfigFromRuntime(o LocalRuntimeFlags) agentruntime.ToolProje
 // LaunchEnvironmentFlags captures local launch environment flags shared by app
 // run and serve commands.
 type LaunchEnvironmentFlags struct {
-	AuthPath string
-	EnvFiles []string
+	AuthPath           string
+	EnvFiles           []string
+	AllowPluginAuthEnv bool
 }
 
 // BindLaunchEnvironmentFlags binds connector credential and env-file flags.
@@ -110,6 +111,7 @@ func BindLaunchEnvironmentFlags(flags *pflag.FlagSet, opts *LaunchEnvironmentFla
 	}
 	flags.StringVar(&opts.AuthPath, "connectors-path", opts.AuthPath, "connector credential store path")
 	flags.StringArrayVar(&opts.EnvFiles, "env-file", opts.EnvFiles, "root workspace env file or glob to load; may be repeated")
+	flags.BoolVar(&opts.AllowPluginAuthEnv, "allow-plugin-auth-env", opts.AllowPluginAuthEnv, "allow plugin auth methods to resolve credentials from the process environment")
 }
 
 func firstNonEmptyFlagHelp(values ...string) string {

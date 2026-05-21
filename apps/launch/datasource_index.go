@@ -145,7 +145,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
 	dispatcher := slack.NewDispatcher()
 	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	nativeResolver := nativeAuthResolver(hostSystem, nativeStore)
+	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, false)
 	return []pluginhost.Plugin{
 		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
 		gitlab.New(hostSystem),

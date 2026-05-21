@@ -33,6 +33,7 @@ type RunOptions struct {
 	Dev                 bool
 	MaxToolRisk         string
 	AuthPath            string
+	AllowPluginAuthEnv  bool
 	WorkspaceRoots      []string
 	EnvFiles            []string
 	Loader              launch.Loader
@@ -75,6 +76,7 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 		Dev:                 opts.Dev,
 		MaxToolRisk:         opts.MaxToolRisk,
 		AuthPath:            opts.AuthPath,
+		AllowPluginAuthEnv:  opts.AllowPluginAuthEnv,
 		Workspace:           workspace,
 		In:                  opts.In,
 		Out:                 opts.Out,
@@ -134,6 +136,7 @@ func (a *App) newAppRunCommand() *cobra.Command {
 			opts.Dev = runtimeFlags.Dev
 			opts.MaxToolRisk = runtimeFlags.AllowMaxToolRisk
 			opts.AuthPath = environmentFlags.AuthPath
+			opts.AllowPluginAuthEnv = environmentFlags.AllowPluginAuthEnv
 			opts.EnvFiles = environmentFlags.EnvFiles
 			opts.GoalSet = cmd.Flags().Changed("goal")
 			opts.MaxContinuationsSet = cmd.Flags().Changed("max-continuations")

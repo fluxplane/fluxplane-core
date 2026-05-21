@@ -25,10 +25,11 @@ import (
 
 // CommandOptions configures distribution command defaults.
 type CommandOptions struct {
-	WorkspaceRoots []string
-	EnvFiles       []string
-	Workspace      distribution.WorkspaceConfig
-	PromptHandler  PromptHandler
+	WorkspaceRoots          []string
+	EnvFiles                []string
+	Workspace               distribution.WorkspaceConfig
+	PromptHandler           PromptHandler
+	EnablePluginAuthEnvFlag bool
 }
 
 // PromptHandler handles distribution-specific terminal prompts before the
@@ -80,6 +81,7 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 				Usage:               opts.usage,
 				Yolo:                opts.yolo,
 				Dev:                 opts.dev,
+				AllowPluginAuthEnv:  opts.allowPluginAuthEnv,
 				MaxToolRisk:         maxToolRisk,
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
@@ -103,6 +105,9 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
+	if cfg.EnablePluginAuthEnvFlag {
+		cmd.Flags().BoolVar(&opts.allowPluginAuthEnv, "allow-plugin-auth-env", false, "allow plugin auth methods to resolve credentials from the process environment")
+	}
 	cmd.Flags().StringVar(&opts.allowMaxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
@@ -112,21 +117,22 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 }
 
 type options struct {
-	provider         string
-	model            string
-	thinking         string
-	effort           string
-	input            string
-	goal             string
-	maxContinuations int
-	debug            bool
-	usage            bool
-	yolo             bool
-	dev              bool
-	allowMaxToolRisk string
-	workspaceRoots   []string
-	envFiles         []string
-	workspace        distribution.WorkspaceConfig
+	provider           string
+	model              string
+	thinking           string
+	effort             string
+	input              string
+	goal               string
+	maxContinuations   int
+	debug              bool
+	usage              bool
+	yolo               bool
+	dev                bool
+	allowPluginAuthEnv bool
+	allowMaxToolRisk   string
+	workspaceRoots     []string
+	envFiles           []string
+	workspace          distribution.WorkspaceConfig
 }
 
 // RunOptions configures a distribution REPL or one-shot run.
@@ -148,6 +154,7 @@ type RunOptions struct {
 	Usage               bool
 	Yolo                bool
 	Dev                 bool
+	AllowPluginAuthEnv  bool
 	MaxToolRisk         operation.RiskLevel
 	WorkspaceRoots      []string
 	EnvFiles            []string
@@ -267,19 +274,20 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 	workspace.Roots = append(workspace.Roots, roots...)
 	workspace.EnvFiles = append(workspace.EnvFiles, trimStrings(opts.EnvFiles)...)
 	return dist.Runtime.OpenSession(ctx, distribution.OpenRequest{
-		Launch:       distribution.LaunchConfig{Workspace: workspace},
-		Session:      coresession.Ref{Name: coresession.Name(strings.TrimSpace(opts.Session))},
-		Conversation: channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
-		Provider:     opts.Provider,
-		Model:        opts.Model,
-		Thinking:     opts.Thinking,
-		ThinkingSet:  opts.ThinkingSet,
-		Effort:       opts.Effort,
-		EffortSet:    opts.EffortSet,
-		Debug:        opts.Debug,
-		Yolo:         opts.Yolo,
-		Dev:          opts.Dev,
-		MaxToolRisk:  opts.MaxToolRisk,
+		Launch:             distribution.LaunchConfig{Workspace: workspace},
+		Session:            coresession.Ref{Name: coresession.Name(strings.TrimSpace(opts.Session))},
+		Conversation:       channel.ConversationRef{ID: strings.TrimSpace(opts.Conversation)},
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Thinking:           opts.Thinking,
+		ThinkingSet:        opts.ThinkingSet,
+		Effort:             opts.Effort,
+		EffortSet:          opts.EffortSet,
+		Debug:              opts.Debug,
+		Yolo:               opts.Yolo,
+		Dev:                opts.Dev,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		MaxToolRisk:        opts.MaxToolRisk,
 	})
 }
 

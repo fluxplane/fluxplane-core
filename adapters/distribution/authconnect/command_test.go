@@ -48,16 +48,16 @@ func TestCollectFieldsUsesEnvironmentForSensitiveField(t *testing.T) {
 func TestRunStoredWritesSetupFieldsToNativeSecretStore(t *testing.T) {
 	dir := t.TempDir()
 	out := bytes.Buffer{}
-	ref := resource.PluginRef{Name: "slack", Instance: "main"}
+	ref := resource.PluginRef{Name: "chat", Instance: "main"}
 	err := runStored(context.Background(), options{
 		authPath: dir,
-		fields:   []string{"bot_token=slack-bot-token", "app_token=slack-app-token"},
+		fields:   []string{"bot_token=chat-bot-token", "app_token=chat-app-token"},
 		out:      &out,
 	}, ref, coresecret.AuthMethodSpec{
 		Name:   "token",
 		Method: coresecret.AuthMethodStored,
 		Kind:   coresecret.KindBearerToken,
-		Secret: coresecret.Plugin("slack", "main", "bot_token"),
+		Secret: coresecret.Plugin("chat", "main", "bot_token"),
 		SetupFields: []coresecret.SetupFieldSpec{
 			{Name: "bot_token", RequiredGroup: "api_token", Sensitive: true},
 			{Name: "user_token", RequiredGroup: "api_token", Sensitive: true},
@@ -68,22 +68,22 @@ func TestRunStoredWritesSetupFieldsToNativeSecretStore(t *testing.T) {
 		t.Fatalf("runStored: %v", err)
 	}
 	store := runtimesecret.NewFileStore(dir)
-	bot, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("slack", "main", "bot_token"))
-	if err != nil || !ok || bot.Value != "slack-bot-token" {
+	bot, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("chat", "main", "bot_token"))
+	if err != nil || !ok || bot.Value != "chat-bot-token" {
 		t.Fatalf("bot secret = %#v ok=%v err=%v", bot, ok, err)
 	}
-	app, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("slack", "main", "app_token"))
-	if err != nil || !ok || app.Value != "slack-app-token" {
+	app, ok, err := store.LoadSecret(context.Background(), coresecret.Plugin("chat", "main", "app_token"))
+	if err != nil || !ok || app.Value != "chat-app-token" {
 		t.Fatalf("app secret = %#v ok=%v err=%v", app, ok, err)
 	}
-	if !strings.Contains(out.String(), "Connected slack instance main") {
+	if !strings.Contains(out.String(), "Connected chat instance main") {
 		t.Fatalf("output = %q", out.String())
 	}
 }
 
 func TestCollectFieldsAcceptsRequiredGroupAlternative(t *testing.T) {
 	fields, err := collectFields(options{
-		fields: []string{"user_token=slack-user-token"},
+		fields: []string{"user_token=chat-user-token"},
 		in:     strings.NewReader(""),
 		out:    bytes.NewBuffer(nil),
 	}, []coresecret.SetupFieldSpec{
@@ -93,31 +93,54 @@ func TestCollectFieldsAcceptsRequiredGroupAlternative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collectFields: %v", err)
 	}
-	if fields["user_token"] != "slack-user-token" {
+	if fields["user_token"] != "chat-user-token" {
 		t.Fatalf("user_token = %q", fields["user_token"])
 	}
 }
 
 func TestTargetsForMappedMethodAndInstance(t *testing.T) {
-	plugins := map[string]pluginhost.Plugin{"jira": fakePlugin{name: "jira"}, "slack": fakePlugin{name: "slack"}}
+	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{
+		{Name: "issues", Instance: "company-a"},
+		{Name: "chat", Instance: "team-chat"},
+	}, []pluginhost.Plugin{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
+	if err != nil {
+		t.Fatalf("ResolveAuthTargets: %v", err)
+	}
 	targets, err := targetsFor(options{
-		plugins:   []string{"slack,jira"},
-		methods:   []string{"slack=token", "jira=oauth2"},
-		instances: []string{"slack=team-chat", "jira=company-a"},
-	}, plugins, false)
+		plugins:   []string{"chat,issues"},
+		methods:   []string{"chat=token", "issues=oauth2"},
+		instances: []string{"chat=team-chat", "issues=company-a"},
+	}, authTargets, false)
 	if err != nil {
 		t.Fatalf("targetsFor: %v", err)
 	}
-	if len(targets) != 2 || targets[0].plugin != "jira" || targets[0].instance != "company-a" || targets[0].method != "oauth2" || targets[1].plugin != "slack" || targets[1].instance != "team-chat" || targets[1].method != "token" {
+	if len(targets) != 2 || targets[0].ref().Name != "chat" || targets[0].ref().InstanceName() != "team-chat" || targets[0].method != "token" || targets[1].ref().Name != "issues" || targets[1].ref().InstanceName() != "company-a" || targets[1].method != "oauth2" {
 		t.Fatalf("targets = %#v", targets)
 	}
 }
 
 func TestTargetsForRejectsBareMethodWithMultiplePlugins(t *testing.T) {
-	plugins := map[string]pluginhost.Plugin{"jira": fakePlugin{name: "jira"}, "slack": fakePlugin{name: "slack"}}
-	_, err := targetsFor(options{plugins: []string{"slack,jira"}, methods: []string{"oauth2"}}, plugins, false)
+	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{
+		{Name: "issues"},
+		{Name: "chat"},
+	}, []pluginhost.Plugin{fakePlugin{name: "issues"}, fakePlugin{name: "chat"}})
+	if err != nil {
+		t.Fatalf("ResolveAuthTargets: %v", err)
+	}
+	_, err = targetsFor(options{plugins: []string{"chat,issues"}, methods: []string{"oauth2"}}, authTargets, false)
 	if err == nil || !strings.Contains(err.Error(), "bare --method") {
 		t.Fatalf("targetsFor error = %v, want bare method error", err)
+	}
+}
+
+func TestTargetsForRejectsUndeclaredInstance(t *testing.T) {
+	authTargets, err := pluginhost.ResolveAuthTargets(context.Background(), []resource.PluginRef{{Name: "chat", Instance: "team-chat"}}, []pluginhost.Plugin{fakePlugin{name: "chat"}})
+	if err != nil {
+		t.Fatalf("ResolveAuthTargets: %v", err)
+	}
+	_, err = targetsFor(options{plugins: []string{"chat"}, instances: []string{"chat=other"}}, authTargets, false)
+	if err == nil || !strings.Contains(err.Error(), `instance "other" is not declared`) {
+		t.Fatalf("targetsFor error = %v, want undeclared instance", err)
 	}
 }
 
@@ -125,26 +148,24 @@ func TestRunStatusSummarizesPluginReadiness(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   coresecret.Plugin("slack", "team-chat", "user_token"),
+		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
 		Kind:  coresecret.KindBearerToken,
-		Value: "slack-user-token",
+		Value: "chat-user-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	out := bytes.Buffer{}
 	err := runStatus(context.Background(), options{
 		authPath:  dir,
-		plugins:   []string{"slack"},
-		instances: []string{"slack=team-chat"},
-		methods:   []string{"slack=token"},
+		plugins:   []string{"chat"},
+		instances: []string{"chat=team-chat"},
+		methods:   []string{"chat=token"},
 		out:       &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{fakePlugin{name: "slack"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "chat", Instance: "team-chat"}}, fakePlugin{name: "chat"}))
 	if err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
-	if got := out.String(); !strings.Contains(got, "slack/team-chat [token] ✓") || strings.Contains(got, "set:") {
+	if got := out.String(); !strings.Contains(got, "chat/team-chat [token] ✓") || strings.Contains(got, "set:") {
 		t.Fatalf("status output = %q", got)
 	}
 }
@@ -153,7 +174,7 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   coresecret.Plugin("slack", "team-chat", "user_token"),
+		Ref:   coresecret.Plugin("chat", "team-chat", "user_token"),
 		Kind:  coresecret.KindBearerToken,
 		Value: "sensitive-test-token",
 	}); err != nil {
@@ -162,13 +183,11 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 	out := bytes.Buffer{}
 	err := runStatus(context.Background(), options{
 		authPath:  dir,
-		plugins:   []string{"slack"},
-		instances: []string{"slack=team-chat"},
-		methods:   []string{"slack=token"},
+		plugins:   []string{"chat"},
+		instances: []string{"chat=team-chat"},
+		methods:   []string{"chat=token"},
 		out:       &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{fakePlugin{name: "slack"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "chat", Instance: "team-chat"}}, fakePlugin{name: "chat"}))
 	if err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
@@ -179,18 +198,18 @@ func TestRunStatusPrintsResolvedFieldsAndRedactsSensitiveValues(t *testing.T) {
 }
 
 func TestPrintResolvedFieldsShowsEnvSourceAndResolvedValue(t *testing.T) {
-	t.Setenv("ATLASSIAN_EMAIL", "user@example.invalid")
+	t.Setenv("SERVICE_EMAIL", "user@example.invalid")
 	out := bytes.Buffer{}
-	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), runtimesecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "jira", Instance: "jira"}, coresecret.AuthMethodSpec{
+	newStatusRenderer(&out).printResolvedFields(&out, context.Background(), runtimesecret.EnvResolver{Environment: osEnvironment{}}, resource.PluginRef{Name: "issues", Instance: "issues"}, coresecret.AuthMethodSpec{
 		Name:   "token",
 		Method: coresecret.AuthMethodEnv,
 		SetupFields: []coresecret.SetupFieldSpec{{
 			Name: "email_env",
-			Env:  coresecret.EnvSpec{Aliases: []string{"ATLASSIAN_EMAIL"}},
+			Env:  coresecret.EnvSpec{Aliases: []string{"SERVICE_EMAIL"}},
 		}},
 	})
 	got := out.String()
-	if !strings.Contains(got, "email_env    ATLASSIAN_EMAIL") || !strings.Contains(got, "email        user@example.invalid") {
+	if !strings.Contains(got, "email_env    SERVICE_EMAIL") || !strings.Contains(got, "email        user@example.invalid") {
 		t.Fatalf("fields output = %q", got)
 	}
 }
@@ -199,20 +218,18 @@ func TestRunStatusRunsConnectivityByDefault(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   coresecret.Plugin("slack", "slack", "bot_token"),
+		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
 		Kind:  coresecret.KindBearerToken,
-		Value: "slack-bot-token",
+		Value: "chat-bot-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	out := bytes.Buffer{}
 	err := runStatusWithOptions(context.Background(), options{
 		authPath: dir,
-		plugins:  []string{"slack"},
+		plugins:  []string{"chat"},
 		out:      &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{fakePlugin{name: "slack"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "chat"}}, fakePlugin{name: "chat"}))
 	if err != nil {
 		t.Fatalf("runStatusWithOptions: %v", err)
 	}
@@ -225,21 +242,19 @@ func TestRunStatusNoTestSkipsConnectivity(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   coresecret.Plugin("slack", "slack", "bot_token"),
+		Ref:   coresecret.Plugin("chat", "chat", "bot_token"),
 		Kind:  coresecret.KindBearerToken,
-		Value: "slack-bot-token",
+		Value: "chat-bot-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	out := bytes.Buffer{}
 	err := runStatusWithOptions(context.Background(), options{
 		authPath: dir,
-		plugins:  []string{"slack"},
+		plugins:  []string{"chat"},
 		noTest:   true,
 		out:      &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{fakePlugin{name: "slack"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "chat"}}, fakePlugin{name: "chat"}))
 	if err != nil {
 		t.Fatalf("runStatusWithOptions: %v", err)
 	}
@@ -252,16 +267,14 @@ func TestRunStatusDoesNotListMissingOptionalMethods(t *testing.T) {
 	out := bytes.Buffer{}
 	err := runStatus(context.Background(), options{
 		authPath: t.TempDir(),
-		plugins:  []string{"slack"},
+		plugins:  []string{"chat"},
 		out:      &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{fakePlugin{name: "slack"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "chat"}}, fakePlugin{name: "chat"}))
 	if err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
 	got := out.String()
-	if strings.Contains(got, "oauth2") || strings.Contains(got, "missing") || !strings.Contains(got, "slack [-] -") {
+	if strings.Contains(got, "oauth2") || strings.Contains(got, "missing") || !strings.Contains(got, "chat [-] -") {
 		t.Fatalf("status output = %q", got)
 	}
 }
@@ -270,8 +283,8 @@ func TestRunStatusShowsPartialRequiredFields(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	for _, secret := range []runtimesecret.StoredSecret{
-		{Ref: coresecret.Plugin("jira", "jira", "email"), Kind: coresecret.KindBasic, Value: "user@example.invalid"},
-		{Ref: coresecret.Plugin("jira", "jira", "token"), Kind: coresecret.KindBasic, Value: "api-token"},
+		{Ref: coresecret.Plugin("issues", "issues", "email"), Kind: coresecret.KindBasic, Value: "user@example.invalid"},
+		{Ref: coresecret.Plugin("issues", "issues", "token"), Kind: coresecret.KindBasic, Value: "api-token"},
 	} {
 		if err := store.SaveSecret(context.Background(), secret); err != nil {
 			t.Fatalf("SaveSecret: %v", err)
@@ -280,16 +293,14 @@ func TestRunStatusShowsPartialRequiredFields(t *testing.T) {
 	out := bytes.Buffer{}
 	err := runStatus(context.Background(), options{
 		authPath: dir,
-		plugins:  []string{"jira"},
+		plugins:  []string{"issues"},
 		out:      &out,
-	}, CommandOptions{NativeRegistry: func(context.Context) ([]pluginhost.Plugin, error) {
-		return []pluginhost.Plugin{partialAuthPlugin{name: "jira"}}, nil
-	}})
+	}, testCommandOptions([]resource.PluginRef{{Name: "issues"}}, partialAuthPlugin{name: "issues"}))
 	if err != nil {
 		t.Fatalf("runStatus: %v", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "jira [token] -") || !strings.Contains(got, "missing  site_url or base_url") || strings.Contains(got, "set:") {
+	if !strings.Contains(got, "issues [token] -") || !strings.Contains(got, "missing  site_url or base_url") || strings.Contains(got, "set:") {
 		t.Fatalf("status output = %q", got)
 	}
 }
@@ -298,7 +309,7 @@ func TestSelectMethodUsesMethodNameNotKind(t *testing.T) {
 	methods := []coresecret.AuthMethodSpec{{
 		Name:        "token",
 		Method:      coresecret.AuthMethodStored,
-		DisplayName: "Slack token",
+		DisplayName: "Chat token",
 	}}
 	if _, err := selectMethod(methods, "token", strings.NewReader(""), bytes.NewBuffer(nil)); err != nil {
 		t.Fatalf("selectMethod token: %v", err)
@@ -310,7 +321,7 @@ func TestSelectMethodUsesMethodNameNotKind(t *testing.T) {
 
 func TestSelectMethodPrefersExactNameOverFriendlyAlias(t *testing.T) {
 	methods := []coresecret.AuthMethodSpec{
-		{Name: "api_token", Method: coresecret.AuthMethodStored, DisplayName: "Atlassian API token"},
+		{Name: "api_token", Method: coresecret.AuthMethodStored, DisplayName: "Service API token"},
 		{Name: "token", Method: coresecret.AuthMethodEnv, DisplayName: "Legacy token"},
 	}
 	method, err := selectMethod(methods, "token", strings.NewReader(""), bytes.NewBuffer(nil))
@@ -324,15 +335,15 @@ func TestSelectMethodPrefersExactNameOverFriendlyAlias(t *testing.T) {
 
 func TestPrintNativeInfoShowsMethodName(t *testing.T) {
 	out := bytes.Buffer{}
-	printNativeInfo(&out, resource.PluginRef{Name: "slack", Instance: "main"}, []coresecret.AuthMethodSpec{{
+	printNativeInfo(&out, resource.PluginRef{Name: "chat", Instance: "main"}, []coresecret.AuthMethodSpec{{
 		Name:        "token",
 		Method:      coresecret.AuthMethodStored,
-		DisplayName: "Slack token",
-		Description: "Slack token credentials.",
+		DisplayName: "Chat token",
+		Description: "Chat token credentials.",
 		Metadata:    map[string]string{"auth_scheme": "Bearer"},
 	}})
 	got := out.String()
-	if !strings.Contains(got, "token - Slack token (stored)") || !strings.Contains(got, "auth_scheme=Bearer") || !strings.Contains(got, "Slack token credentials.") {
+	if !strings.Contains(got, "token - Chat token (stored)") || !strings.Contains(got, "auth_scheme=Bearer") || !strings.Contains(got, "Chat token credentials.") {
 		t.Fatalf("info output = %q", got)
 	}
 }
@@ -350,6 +361,12 @@ func TestNewCommandExposesAuthSubcommands(t *testing.T) {
 	if child, _, err := cmd.Find([]string{"test"}); err == nil && child != nil && child.Name() == "test" {
 		t.Fatalf("unexpected auth test subcommand")
 	}
+}
+
+func testCommandOptions(refs []resource.PluginRef, plugins ...pluginhost.Plugin) CommandOptions {
+	return CommandOptions{TargetRegistry: func(ctx context.Context) ([]pluginhost.AuthTarget, error) {
+		return pluginhost.ResolveAuthTargets(ctx, refs, plugins)
+	}}
 }
 
 type partialAuthPlugin struct {

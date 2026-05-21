@@ -72,6 +72,33 @@ name: assistant
 	}
 }
 
+func TestBuildAppIncludesPluginAuthEnvFlagWhenRequested(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  name: sample
+---
+kind: agent
+name: assistant
+`)
+	result, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:             app,
+		Targets:            []string{"dockerfile"},
+		AllowPluginAuthEnv: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	dockerfile, err := os.ReadFile(result.Dockerfile)
+	if err != nil {
+		t.Fatalf("ReadFile Dockerfile: %v", err)
+	}
+	if !strings.Contains(string(dockerfile), `"--allow-plugin-auth-env"`) {
+		t.Fatalf("Dockerfile missing --allow-plugin-auth-env:\n%s", dockerfile)
+	}
+}
+
 func TestBuildAppDryRunWritesNothing(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app

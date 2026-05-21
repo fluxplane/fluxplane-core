@@ -66,6 +66,7 @@ type appBuildOptions struct {
 	force          bool
 	baseImage      string
 	connectorsPath string
+	allowAuthEnv   bool
 	provider       string
 	model          string
 	effort         string
@@ -94,6 +95,7 @@ func newAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing generated artifacts")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
+	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
 	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
 	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
@@ -109,23 +111,24 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 		return err
 	}
 	_, err := distdeploy.BuildApp(ctx, distdeploy.AppBuildOptions{
-		AppDir:         appDir,
-		OutDir:         opts.outDir,
-		Targets:        targets,
-		Image:          opts.image,
-		Tags:           opts.tags,
-		Platforms:      opts.platforms,
-		Push:           opts.push,
-		DryRun:         opts.dryRun,
-		Force:          opts.force,
-		BaseImage:      opts.baseImage,
-		ConnectorsPath: opts.connectorsPath,
-		Provider:       opts.provider,
-		Model:          opts.model,
-		Effort:         opts.effort,
-		Out:            out,
-		Err:            errOut,
-		Runner:         opts.runner,
+		AppDir:             appDir,
+		OutDir:             opts.outDir,
+		Targets:            targets,
+		Image:              opts.image,
+		Tags:               opts.tags,
+		Platforms:          opts.platforms,
+		Push:               opts.push,
+		DryRun:             opts.dryRun,
+		Force:              opts.force,
+		BaseImage:          opts.baseImage,
+		ConnectorsPath:     opts.connectorsPath,
+		AllowPluginAuthEnv: opts.allowAuthEnv,
+		Provider:           opts.provider,
+		Model:              opts.model,
+		Effort:             opts.effort,
+		Out:                out,
+		Err:                errOut,
+		Runner:             opts.runner,
 	})
 	return err
 }
@@ -136,6 +139,7 @@ type appDeployOptions struct {
 	imagePullPolicy string
 	baseImage       string
 	connectorsPath  string
+	allowAuthEnv    bool
 	dryRun          bool
 	force           bool
 	detach          bool
@@ -170,6 +174,7 @@ func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	cmd.Flags().StringVar(&opts.imagePullPolicy, "image-pull-policy", "", "Kubernetes app image pull policy: Always|IfNotPresent|Never")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
 	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
+	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker commands without running them")
 	cmd.Flags().BoolVar(&opts.force, "force", opts.force, "overwrite generated app artifacts before deploying")
 	cmd.Flags().BoolVarP(&opts.detach, "detach", "d", false, "run docker compose up in detached mode")
@@ -196,40 +201,42 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	}
 	if target == "kubernetes" {
 		_, err := distdeploy.DeployKubernetes(ctx, distdeploy.KubernetesOptions{
-			AppDir:          appDir,
-			Image:           opts.image,
-			ImagePullPolicy: opts.imagePullPolicy,
-			BaseImage:       opts.baseImage,
-			ConnectorsPath:  opts.connectorsPath,
-			Provider:        opts.provider,
-			Model:           opts.model,
-			Effort:          opts.effort,
-			Namespace:       opts.namespace,
-			NodeSelectors:   opts.nodeSelectors,
-			RegistryMode:    opts.registryMode,
-			Registry:        opts.registry,
-			DryRun:          opts.dryRun,
-			Force:           opts.force,
-			Out:             out,
-			Err:             errOut,
-			Runner:          opts.runner,
+			AppDir:             appDir,
+			Image:              opts.image,
+			ImagePullPolicy:    opts.imagePullPolicy,
+			BaseImage:          opts.baseImage,
+			ConnectorsPath:     opts.connectorsPath,
+			AllowPluginAuthEnv: opts.allowAuthEnv,
+			Provider:           opts.provider,
+			Model:              opts.model,
+			Effort:             opts.effort,
+			Namespace:          opts.namespace,
+			NodeSelectors:      opts.nodeSelectors,
+			RegistryMode:       opts.registryMode,
+			Registry:           opts.registry,
+			DryRun:             opts.dryRun,
+			Force:              opts.force,
+			Out:                out,
+			Err:                errOut,
+			Runner:             opts.runner,
 		})
 		return err
 	}
 	_, err := distdeploy.DeployDockerCompose(ctx, distdeploy.ComposeDeployOptions{
-		AppDir:         appDir,
-		Image:          opts.image,
-		BaseImage:      opts.baseImage,
-		ConnectorsPath: opts.connectorsPath,
-		Provider:       opts.provider,
-		Model:          opts.model,
-		Effort:         opts.effort,
-		DryRun:         opts.dryRun,
-		Force:          opts.force,
-		Detach:         opts.detach,
-		Out:            out,
-		Err:            errOut,
-		Runner:         opts.runner,
+		AppDir:             appDir,
+		Image:              opts.image,
+		BaseImage:          opts.baseImage,
+		ConnectorsPath:     opts.connectorsPath,
+		AllowPluginAuthEnv: opts.allowAuthEnv,
+		Provider:           opts.provider,
+		Model:              opts.model,
+		Effort:             opts.effort,
+		DryRun:             opts.dryRun,
+		Force:              opts.force,
+		Detach:             opts.detach,
+		Out:                out,
+		Err:                errOut,
+		Runner:             opts.runner,
 	})
 	return err
 }

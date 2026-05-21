@@ -34,6 +34,7 @@ type RunPathOptions struct {
 	Dev                 bool
 	MaxToolRisk         string
 	AuthPath            string
+	AllowPluginAuthEnv  bool
 	WorkspaceRoots      []string
 	EnvFiles            []string
 	Workspace           distribution.WorkspaceConfig
@@ -69,7 +70,11 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		}
 		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
 	}
-	loaded = AttachLocalRuntimeWithOptions(loaded, AttachOptions{AuthPath: opts.AuthPath, Dev: opts.Dev})
+	loaded = AttachLocalRuntimeWithOptions(loaded, AttachOptions{
+		AuthPath:           opts.AuthPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Dev:                opts.Dev,
+	})
 	return distcli.Run(ctx, loaded.Distribution, distcli.RunOptions{
 		Session:             opts.Session,
 		Conversation:        opts.Conversation,
@@ -115,6 +120,7 @@ type runCommandOptions struct {
 	dev              bool
 	maxToolRisk      string
 	authPath         string
+	allowAuthEnv     bool
 	workspaceRoots   []string
 	envFiles         []string
 }
@@ -160,6 +166,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Dev:                 opts.dev,
 				MaxToolRisk:         opts.maxToolRisk,
 				AuthPath:            opts.authPath,
+				AllowPluginAuthEnv:  opts.allowAuthEnv,
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
 				In:                  cmd.InOrStdin(),
@@ -183,6 +190,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
 	cmd.Flags().StringVar(&opts.maxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
+	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow plugin auth methods to resolve credentials from the process environment")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")
 	return cmd

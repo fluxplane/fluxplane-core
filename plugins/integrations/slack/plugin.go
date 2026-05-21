@@ -20,6 +20,7 @@ import (
 
 const (
 	Name             = "slack"
+	OperationSet     = Name + ".channel"
 	ChannelSendOp    = "channel_send"
 	ReportProgressOp = "slack_report_progress"
 )
@@ -30,6 +31,7 @@ type Plugin struct {
 	pluginhost.Configurable[Config]
 	system        system.System
 	store         runtimesecret.FileStore
+	secrets       runtimesecret.Resolver
 	ref           resource.PluginRef
 	cfg           Config
 	dispatcher    *Dispatcher
@@ -48,6 +50,10 @@ func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
 }
 
 func NewWithDispatcher(sys system.System, dispatcher *Dispatcher, stores ...runtimesecret.FileStore) Plugin {
+	return NewWithResolver(sys, dispatcher, nil, stores...)
+}
+
+func NewWithResolver(sys system.System, dispatcher *Dispatcher, resolver runtimesecret.Resolver, stores ...runtimesecret.FileStore) Plugin {
 	if dispatcher == nil {
 		dispatcher = NewDispatcher()
 	}
@@ -55,7 +61,10 @@ func NewWithDispatcher(sys system.System, dispatcher *Dispatcher, stores ...runt
 	if len(stores) > 0 {
 		store = stores[0]
 	}
-	return Plugin{system: sys, store: store, dispatcher: dispatcher}
+	if resolver == nil {
+		resolver = store
+	}
+	return Plugin{system: sys, store: store, secrets: resolver, dispatcher: dispatcher}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -78,7 +87,15 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations:  []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
+		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
+		OperationSets: []operation.Set{{
+			Name:        OperationSet,
+			Description: "Slack active-channel reply and progress operations.",
+			Operations: []operation.Ref{
+				{Name: ChannelSendOp},
+				{Name: "slack_*"},
+			},
+		}},
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }
@@ -176,6 +193,9 @@ func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 }
 
 func (p Plugin) session(ctx context.Context) (Session, error) {
+	if p.secrets != nil {
+		return ResolveWithResolver(ctx, p.system, p.secrets, p.ref, p.cfg)
+	}
 	return Resolve(ctx, p.system, p.store, p.ref, p.cfg)
 }
 

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
@@ -22,7 +23,10 @@ import (
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
-const Name = "jira"
+const (
+	Name         = "jira"
+	OperationSet = Name
+)
 
 const defaultPageSize = 50
 
@@ -71,7 +75,15 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
-	return resource.ContributionBundle{Operations: []operation.Spec{p.issueSearchSpec()}}, nil
+	return resource.ContributionBundle{
+		Operations: []operation.Spec{p.issueSearchSpec()},
+		OperationSets: []operation.Set{{
+			Name:        OperationSet,
+			Description: "Jira issue operations.",
+			Operations:  []operation.Ref{{Name: operation.Name(p.operationName("*"))}},
+		}},
+		DataSources: []coredata.SourceSpec{DataSourceSpec()},
+	}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {

@@ -24,13 +24,13 @@ import (
 	"golang.org/x/term"
 )
 
-// PluginRegistry supplies plugins whose auth methods should be exposed by the
-// auth command.
-type PluginRegistry func(context.Context) ([]pluginhost.Plugin, error)
+// TargetRegistry supplies app-scoped plugin auth targets exposed by the auth
+// command.
+type TargetRegistry func(context.Context) ([]pluginhost.AuthTarget, error)
 
 // CommandOptions configures the shared auth command.
 type CommandOptions struct {
-	NativeRegistry PluginRegistry
+	TargetRegistry TargetRegistry
 }
 
 type options struct {
@@ -45,13 +45,11 @@ type options struct {
 }
 
 type target struct {
-	plugin   string
-	instance string
-	method   string
+	auth   pluginhost.AuthTarget
+	method string
 }
 
 type statusPlan struct {
-	Plugin          pluginhost.Plugin
 	Target          target
 	Methods         []coresecret.AuthMethodSpec
 	Status          authstatus.Status
@@ -125,21 +123,17 @@ func newConnectCommand(opts *options, cfg CommandOptions) *cobra.Command {
 }
 
 func runInfo(ctx context.Context, opts options, cfg CommandOptions) error {
-	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
+	authTargets, err := registryTargets(ctx, cfg.TargetRegistry)
 	if err != nil {
 		return err
 	}
-	targets, err := targetsFor(opts, plugins, true)
+	targets, err := targetsFor(opts, authTargets, true)
 	if err != nil {
 		return err
 	}
 	out := writerOr(opts.out, os.Stdout)
 	for _, target := range targets {
-		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
-		if err != nil {
-			return err
-		}
-		printNativeInfo(out, target.ref(), methods)
+		printNativeInfo(out, target.ref(), target.auth.Methods)
 	}
 	return nil
 }
@@ -150,11 +144,11 @@ func runStatus(ctx context.Context, opts options, cfg CommandOptions) error {
 }
 
 func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions) error {
-	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
+	authTargets, err := registryTargets(ctx, cfg.TargetRegistry)
 	if err != nil {
 		return err
 	}
-	targets, err := targetsFor(opts, plugins, true)
+	targets, err := targetsFor(opts, authTargets, true)
 	if err != nil {
 		return err
 	}
@@ -162,7 +156,7 @@ func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions)
 		runtimesecret.NewFileStore(opts.authPath),
 		runtimesecret.EnvResolver{Environment: osEnvironment{}},
 	}
-	plans, maxLabel, err := statusPlans(ctx, plugins, targets, resolver)
+	plans, maxLabel, err := statusPlans(ctx, targets, resolver)
 	if err != nil {
 		return err
 	}
@@ -192,21 +186,17 @@ func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions)
 }
 
 func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
-	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
+	authTargets, err := registryTargets(ctx, cfg.TargetRegistry)
 	if err != nil {
 		return err
 	}
-	targets, err := targetsFor(opts, plugins, false)
+	targets, err := targetsFor(opts, authTargets, false)
 	if err != nil {
 		return err
 	}
 	out := writerOr(opts.out, os.Stdout)
 	for _, target := range targets {
-		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
-		if err != nil {
-			return err
-		}
-		method, err := selectMethod(methods, target.method, readerOr(opts.in, os.Stdin), out)
+		method, err := selectMethod(target.auth.Methods, target.method, readerOr(opts.in, os.Stdin), out)
 		if err != nil {
 			return err
 		}
@@ -216,13 +206,13 @@ func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
 				return err
 			}
 		case coresecret.AuthMethodEnv:
-			printEnvInstructions(out, target.plugin, method)
+			printEnvInstructions(out, target.ref().Name, method)
 		case coresecret.AuthMethodStored:
 			if err := runStored(ctx, opts, target.ref(), method); err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("auth connect %s: auth method %q is not supported by this command", target.plugin, method.Method)
+			return fmt.Errorf("auth connect %s: auth method %q is not supported by this command", target.ref().Name, method.Method)
 		}
 	}
 	return nil
@@ -347,26 +337,6 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 	return nil
 }
 
-func methodsFor(ctx context.Context, plugin pluginhost.Plugin, ref resource.PluginRef) ([]coresecret.AuthMethodSpec, error) {
-	pluginCtx := pluginhost.Context{Ref: ref}
-	var err error
-	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
-	if err != nil {
-		return nil, err
-	}
-	if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
-		plugin, err = factory.Instantiate(ctx, pluginCtx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	contributor, ok := plugin.(pluginhost.AuthMethodContributor)
-	if !ok {
-		return nil, fmt.Errorf("auth %s: plugin does not declare auth methods", ref.Name)
-	}
-	return contributor.AuthMethods(ctx, pluginCtx)
-}
-
 func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.Reader, out io.Writer) (coresecret.AuthMethodSpec, error) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	for _, method := range methods {
@@ -423,16 +393,11 @@ func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]cor
 	return []coresecret.AuthMethodSpec{method}, nil
 }
 
-func statusPlans(ctx context.Context, plugins map[string]pluginhost.Plugin, targets []target, resolver runtimesecret.Resolver) ([]statusPlan, int, error) {
+func statusPlans(ctx context.Context, targets []target, resolver runtimesecret.Resolver) ([]statusPlan, int, error) {
 	plans := make([]statusPlan, 0, len(targets))
 	maxLabel := 0
 	for _, target := range targets {
-		plugin := plugins[target.plugin]
-		methods, err := methodsFor(ctx, plugin, target.ref())
-		if err != nil {
-			return nil, 0, err
-		}
-		methods, err = filterMethods(methods, target.method)
+		methods, err := filterMethods(target.auth.Methods, target.method)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -446,7 +411,6 @@ func statusPlans(ctx context.Context, plugins map[string]pluginhost.Plugin, targ
 			requestedMethod = strings.TrimSpace(status.MethodID)
 		}
 		plans = append(plans, statusPlan{
-			Plugin:          plugin,
 			Target:          target,
 			Methods:         methods,
 			Status:          status,
@@ -458,33 +422,15 @@ func statusPlans(ctx context.Context, plugins map[string]pluginhost.Plugin, targ
 }
 
 func runConnectivityTest(ctx context.Context, out io.Writer, resolver runtimesecret.Resolver, plan statusPlan, renderer statusRenderer) error {
-	tester, ok := plan.Plugin.(pluginhost.AuthTestContributor)
+	tester, ok := plan.Target.auth.Plugin.(pluginhost.AuthTestContributor)
 	if !ok {
 		renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
 		return nil
 	}
-	plugin := plan.Plugin
-	pluginCtx := pluginhost.Context{Ref: plan.Target.ref()}
-	var err error
-	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
-	if err != nil {
-		return err
-	}
-	if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
-		plugin, err = factory.Instantiate(ctx, pluginCtx)
-		if err != nil {
-			return err
-		}
-		tester, ok = plugin.(pluginhost.AuthTestContributor)
-		if !ok {
-			renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
-			return nil
-		}
-	}
 	reports := make(chan pluginhost.AuthTestReport)
 	runErr := make(chan error, 1)
 	go func() {
-		runErr <- tester.TestConnection(ctx, pluginCtx, pluginhost.AuthTestRequest{Ref: plan.Target.ref(), Method: plan.RequestedMethod, Secrets: resolver}, reports)
+		runErr <- tester.TestConnection(ctx, plan.Target.auth.Context, pluginhost.AuthTestRequest{Ref: plan.Target.ref(), Method: plan.RequestedMethod, Secrets: resolver}, reports)
 		close(reports)
 	}()
 	for report := range reports {
@@ -919,36 +865,9 @@ func missingRequiredFields(fields []authstatus.FieldStatus, specs []coresecret.S
 	return missing
 }
 
-func pluginMap(ctx context.Context, registry PluginRegistry) (map[string]pluginhost.Plugin, error) {
-	plugins, err := nativePlugins(ctx, registry)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]pluginhost.Plugin{}
-	for _, plugin := range plugins {
-		if plugin == nil {
-			continue
-		}
-		name := strings.TrimSpace(plugin.Manifest().Name)
-		if name == "" {
-			continue
-		}
-		if _, ok := plugin.(pluginhost.AuthMethodContributor); ok {
-			out[name] = plugin
-		}
-	}
-	return out, nil
-}
-
-func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll bool) ([]target, error) {
+func targetsFor(opts options, authTargets []pluginhost.AuthTarget, defaultAll bool) ([]target, error) {
 	names := splitValues(opts.plugins)
-	if len(names) == 0 && defaultAll {
-		for name := range plugins {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-	}
-	if len(names) == 0 {
+	if len(names) == 0 && !defaultAll {
 		return nil, fmt.Errorf("auth: at least one --plugin is required")
 	}
 	methods, methodBare, err := mappedValues(opts.methods)
@@ -965,6 +884,23 @@ func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll b
 	if len(instanceBare) > 0 && len(names) != 1 {
 		return nil, fmt.Errorf("auth: bare --instance is only valid with one --plugin")
 	}
+	byPlugin := map[string][]pluginhost.AuthTarget{}
+	for _, authTarget := range authTargets {
+		name := strings.TrimSpace(authTarget.Ref.Name)
+		if name != "" {
+			byPlugin[name] = append(byPlugin[name], authTarget)
+		}
+	}
+	if len(names) == 0 && defaultAll {
+		names = make([]string, 0, len(byPlugin))
+		for name := range byPlugin {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("auth: at least one --plugin is required")
+	}
 	var out []target
 	seen := map[string]bool{}
 	for _, name := range names {
@@ -972,14 +908,11 @@ func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll b
 		if name == "" {
 			continue
 		}
-		if _, ok := plugins[name]; !ok {
+		candidates := byPlugin[name]
+		if len(candidates) == 0 {
 			return nil, fmt.Errorf("auth: unknown plugin %q", name)
 		}
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		instance := name
+		instance := ""
 		if value := strings.TrimSpace(instances[name]); value != "" {
 			instance = value
 		} else if len(instanceBare) > 0 {
@@ -989,24 +922,39 @@ func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll b
 		if method == "" && len(methodBare) > 0 {
 			method = methodBare[len(methodBare)-1]
 		}
-		out = append(out, target{plugin: name, instance: instance, method: method})
+		for _, candidate := range candidates {
+			if instance != "" && candidate.Ref.InstanceName() != instance {
+				continue
+			}
+			key := candidate.Ref.Key()
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, target{auth: candidate, method: method})
+		}
+		if instance != "" && !seen[resource.PluginRef{Name: name, Instance: instance}.Key()] {
+			return nil, fmt.Errorf("auth: plugin %q instance %q is not declared", name, instance)
+		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].plugin < out[j].plugin })
+	sort.Slice(out, func(i, j int) bool { return out[i].auth.Ref.Key() < out[j].auth.Ref.Key() })
 	return out, nil
 }
 
 func (t target) ref() resource.PluginRef {
-	return resource.PluginRef{Name: t.plugin, Instance: t.instance}
+	return t.auth.Ref
 }
 
 func (t target) label() string {
-	if strings.TrimSpace(t.instance) == "" || strings.TrimSpace(t.instance) == strings.TrimSpace(t.plugin) {
-		return strings.TrimSpace(t.plugin)
+	ref := t.ref()
+	instance := ref.InstanceName()
+	if strings.TrimSpace(instance) == "" || strings.TrimSpace(instance) == strings.TrimSpace(ref.Name) {
+		return strings.TrimSpace(ref.Name)
 	}
-	return strings.TrimSpace(t.plugin) + "/" + strings.TrimSpace(t.instance)
+	return strings.TrimSpace(ref.Name) + "/" + strings.TrimSpace(instance)
 }
 
-func nativePlugins(ctx context.Context, registry PluginRegistry) ([]pluginhost.Plugin, error) {
+func registryTargets(ctx context.Context, registry TargetRegistry) ([]pluginhost.AuthTarget, error) {
 	if registry == nil {
 		return nil, nil
 	}

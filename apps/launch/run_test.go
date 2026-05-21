@@ -381,7 +381,7 @@ func TestDatasourceRegistryOpensNativeGitLabDatasource(t *testing.T) {
 	if !bundleHasPlugin([]resource.ContributionBundle{file.Bundle}, "gitlab") {
 		t.Fatalf("decoded plugins = %#v, want gitlab", file.Bundle.Plugins)
 	}
-	plugins := availablePlugins(sys, nil, nil, "")
+	plugins := availablePlugins(sys, nil, nil, "", false)
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		t.Fatalf("pluginhost.New: %v", err)

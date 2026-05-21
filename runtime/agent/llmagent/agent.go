@@ -288,9 +288,18 @@ func (a *Agent) withDatasourceAccess(ctx context.Context) context.Context {
 	if a == nil {
 		return ctx
 	}
-	names := make([]coredatasource.Name, 0, len(a.spec.Datasources))
+	existing, _ := coredatasource.AccessPolicyFromContext(ctx)
+	names := make([]coredatasource.Name, 0, len(existing.Datasources)+len(a.spec.Datasources))
+	seen := map[coredatasource.Name]bool{}
+	for _, name := range existing.Datasources {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
 	for _, ref := range a.spec.Datasources {
-		if ref.Name != "" {
+		if ref.Name != "" && !seen[ref.Name] {
+			seen[ref.Name] = true
 			names = append(names, ref.Name)
 		}
 	}

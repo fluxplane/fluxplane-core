@@ -151,6 +151,55 @@ func TestFilterToolsAllowsDispatchToolWhenAllCasesTargetAllowedOperations(t *tes
 	}
 }
 
+func TestFilterToolsAllowsOperationWildcardSelectors(t *testing.T) {
+	tools := []tool.Spec{{
+		Name: "gitlab_mr",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "gitlab_mr"},
+		},
+	}, {
+		Name: "jira_issue_search",
+		Target: invocation.Target{
+			Kind:      invocation.TargetOperation,
+			Operation: operation.Ref{Name: "jira_issue_search"},
+		},
+	}}
+	spec := agent.Spec{
+		Name:       "main",
+		Operations: []operation.Ref{{Name: "gitlab_*"}},
+	}
+
+	filtered := agentconfig.FilterTools(spec, tools)
+
+	if len(filtered) != 1 || filtered[0].Name != "gitlab_mr" {
+		t.Fatalf("filtered tools = %#v, want only gitlab tool", filtered)
+	}
+}
+
+func TestFilterToolsAllowsDispatchToolWithWildcardSelector(t *testing.T) {
+	gitlabTool := tool.Spec{
+		Name: "gitlab",
+		Dispatch: &tool.Dispatch{
+			ActionField: "action",
+			Cases: []tool.DispatchCase{
+				{Action: "mr", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "gitlab_mr"}}},
+				{Action: "commit", Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{Name: "gitlab_commit"}}},
+			},
+		},
+	}
+	spec := agent.Spec{
+		Name:       "main",
+		Operations: []operation.Ref{{Name: "gitlab_*"}},
+	}
+
+	filtered := agentconfig.FilterTools(spec, []tool.Spec{gitlabTool})
+
+	if len(filtered) != 1 || filtered[0].Name != "gitlab" {
+		t.Fatalf("filtered tools = %#v, want gitlab dispatch tool", filtered)
+	}
+}
+
 func TestFilterToolsRejectsDispatchToolWhenAnyCaseIsNotAllowed(t *testing.T) {
 	imageTool := tool.Spec{
 		Name: "image",

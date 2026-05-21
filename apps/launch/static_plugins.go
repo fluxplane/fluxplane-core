@@ -132,7 +132,7 @@ func availableStaticPlugins(opts StaticPluginOptions) []pluginhost.Plugin {
 	if opts.Plugins != nil {
 		return opts.Plugins(nil)
 	}
-	plugins := availablePlugins(nil, nil, nil, "")
+	plugins := availablePlugins(nil, nil, nil, "", false)
 	if hasAnyDatasource(opts.Bundles) {
 		plugins = append(plugins, datasource.New(nil))
 	}

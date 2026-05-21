@@ -165,22 +165,23 @@ func dockerStackLabels(stack string) map[string]string {
 
 // DockerBuildOptions configures a generated Docker image build.
 type DockerBuildOptions struct {
-	AppDir         string
-	TempDir        string
-	Tags           []string
-	Platforms      []string
-	Push           bool
-	DryRun         bool
-	KeepContext    bool
-	BaseImage      string
-	ConnectorsPath string
-	Provider       string
-	Model          string
-	Effort         string
-	Out            io.Writer
-	Err            io.Writer
-	Runner         CommandRunner
-	dockerClient   DockerClient
+	AppDir             string
+	TempDir            string
+	Tags               []string
+	Platforms          []string
+	Push               bool
+	DryRun             bool
+	KeepContext        bool
+	BaseImage          string
+	ConnectorsPath     string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Effort             string
+	Out                io.Writer
+	Err                io.Writer
+	Runner             CommandRunner
+	dockerClient       DockerClient
 }
 
 // DockerBuildResult describes the resolved image build.
@@ -250,9 +251,10 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		return DockerBuildResult{}, err
 	}
 	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
-		Provider: opts.Provider,
-		Model:    opts.Model,
-		Effort:   opts.Effort,
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Effort:             opts.Effort,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
 	spec := loaded.Distribution.Spec
 	if spec.Build.Docker == nil {

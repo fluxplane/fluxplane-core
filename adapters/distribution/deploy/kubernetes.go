@@ -104,27 +104,28 @@ func kubernetesObjectResource(obj *unstructured.Unstructured) (schema.GroupVersi
 
 // KubernetesOptions configures kubectl-manifest deployment.
 type KubernetesOptions struct {
-	AppDir           string
-	TempDir          string
-	Image            string
-	ImagePullPolicy  string
-	BaseImage        string
-	ConnectorsPath   string
-	Provider         string
-	Model            string
-	Effort           string
-	Namespace        string
-	NodeSelectors    []string
-	RegistryMode     string
-	Registry         string
-	DryRun           bool
-	Force            bool
-	Out              io.Writer
-	Err              io.Writer
-	Runner           CommandRunner
-	PortForwarder    PortForwarder
-	dockerClient     DockerClient
-	kubernetesClient KubernetesClient
+	AppDir             string
+	TempDir            string
+	Image              string
+	ImagePullPolicy    string
+	BaseImage          string
+	ConnectorsPath     string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Effort             string
+	Namespace          string
+	NodeSelectors      []string
+	RegistryMode       string
+	Registry           string
+	DryRun             bool
+	Force              bool
+	Out                io.Writer
+	Err                io.Writer
+	Runner             CommandRunner
+	PortForwarder      PortForwarder
+	dockerClient       DockerClient
+	kubernetesClient   KubernetesClient
 }
 
 // KubernetesResult describes generated Kubernetes deployment artifacts.
@@ -251,9 +252,10 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	}
 	refs := kubernetesImageRefs(namespace, name, sourceImage, registryMode, opts.Registry)
 	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
-		Provider: opts.Provider,
-		Model:    opts.Model,
-		Effort:   opts.Effort,
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Effort:             opts.Effort,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
 
 	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
@@ -269,20 +271,21 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		return KubernetesResult{}, err
 	}
 	app, err := BuildApp(ctx, AppBuildOptions{
-		AppDir:         loaded.Root,
-		Targets:        []string{"dockerfile", "docker-image"},
-		Image:          sourceImage,
-		DryRun:         opts.DryRun,
-		Force:          opts.Force,
-		BaseImage:      baseImage,
-		ConnectorsPath: opts.ConnectorsPath,
-		Provider:       opts.Provider,
-		Model:          opts.Model,
-		Effort:         opts.Effort,
-		Out:            out,
-		Err:            errOut,
-		Runner:         opts.Runner,
-		dockerClient:   opts.dockerClient,
+		AppDir:             loaded.Root,
+		Targets:            []string{"dockerfile", "docker-image"},
+		Image:              sourceImage,
+		DryRun:             opts.DryRun,
+		Force:              opts.Force,
+		BaseImage:          baseImage,
+		ConnectorsPath:     opts.ConnectorsPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Effort:             opts.Effort,
+		Out:                out,
+		Err:                errOut,
+		Runner:             opts.Runner,
+		dockerClient:       opts.dockerClient,
 	})
 	if err != nil {
 		return KubernetesResult{}, err

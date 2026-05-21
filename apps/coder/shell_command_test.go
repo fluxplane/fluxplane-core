@@ -23,7 +23,7 @@ func TestShellCommandUsesLocalDirectClientByDefault(t *testing.T) {
 		t.Fatalf("--connect default = %q, want direct", flag.DefValue)
 	}
 	help := cmd.UsageString()
-	for _, want := range []string{"--provider", "--model", "--thinking", "--effort", "--debug", "--yolo", "--dev", "--connectors-path", "--env-file", "--workspace-root"} {
+	for _, want := range []string{"--provider", "--model", "--thinking", "--effort", "--debug", "--yolo", "--dev", "--connectors-path", "--allow-plugin-auth-env", "--env-file", "--workspace-root"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help missing %q:\n%s", want, help)
 		}

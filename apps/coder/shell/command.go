@@ -19,20 +19,21 @@ type CommandOptions struct {
 
 // ClientFactoryRequest describes one local direct shell client request.
 type ClientFactoryRequest struct {
-	Path           string
-	WorkspaceRoots []string
-	EnvFiles       []string
-	AuthPath       string
-	Provider       string
-	Model          string
-	Thinking       string
-	ThinkingSet    bool
-	Effort         string
-	EffortSet      bool
-	Debug          bool
-	Yolo           bool
-	Dev            bool
-	MaxToolRisk    operation.RiskLevel
+	Path               string
+	WorkspaceRoots     []string
+	EnvFiles           []string
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Thinking           string
+	ThinkingSet        bool
+	Effort             string
+	EffortSet          bool
+	Debug              bool
+	Yolo               bool
+	Dev                bool
+	MaxToolRisk        operation.RiskLevel
 }
 
 // ClientFactoryResult carries the local direct channel client and static
@@ -96,20 +97,21 @@ the agent, type ! at the start of an empty prompt to switch to shell mode, use
 			var cleanup func()
 			if commandOpts.ClientFactory != nil && strings.TrimSpace(opts.Connect) == "direct" {
 				result, err := commandOpts.ClientFactory(cmd.Context(), ClientFactoryRequest{
-					Path:           path,
-					WorkspaceRoots: append([]string(nil), workspaceRoots...),
-					EnvFiles:       append([]string(nil), environmentFlags.EnvFiles...),
-					AuthPath:       environmentFlags.AuthPath,
-					Provider:       modelFlags.Provider,
-					Model:          modelFlags.Model,
-					Thinking:       modelFlags.Thinking,
-					ThinkingSet:    modelFlags.ThinkingSet,
-					Effort:         modelFlags.Effort,
-					EffortSet:      modelFlags.EffortSet,
-					Debug:          runtimeFlags.Debug,
-					Yolo:           runtimeFlags.Yolo,
-					Dev:            runtimeFlags.Dev,
-					MaxToolRisk:    runtimeFlags.ToolProjectionMaxRisk(),
+					Path:               path,
+					WorkspaceRoots:     append([]string(nil), workspaceRoots...),
+					EnvFiles:           append([]string(nil), environmentFlags.EnvFiles...),
+					AuthPath:           environmentFlags.AuthPath,
+					AllowPluginAuthEnv: environmentFlags.AllowPluginAuthEnv,
+					Provider:           modelFlags.Provider,
+					Model:              modelFlags.Model,
+					Thinking:           modelFlags.Thinking,
+					ThinkingSet:        modelFlags.ThinkingSet,
+					Effort:             modelFlags.Effort,
+					EffortSet:          modelFlags.EffortSet,
+					Debug:              runtimeFlags.Debug,
+					Yolo:               runtimeFlags.Yolo,
+					Dev:                runtimeFlags.Dev,
+					MaxToolRisk:        runtimeFlags.ToolProjectionMaxRisk(),
 				})
 				if err != nil {
 					return err
@@ -151,6 +153,7 @@ func changedLocalOnlyShellFlag(changed func(string) bool) string {
 		"yolo",
 		"dev",
 		"connectors-path",
+		"allow-plugin-auth-env",
 		"env-file",
 		"workspace-root",
 	} {

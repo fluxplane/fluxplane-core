@@ -18,11 +18,14 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
 	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
 	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
 	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
 	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
 	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	"github.com/fluxplane/agentruntime/plugins/integrations/web"
 	"github.com/fluxplane/agentruntime/plugins/languages/golang"
 	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
@@ -53,6 +56,9 @@ const (
 	DockerPlugin     = "docker"
 	MemoryPlugin     = memory.Name
 	GitLabPlugin     = "gitlab"
+	JiraPlugin       = jira.Name
+	ConfluencePlugin = confluence.Name
+	SlackPlugin      = slack.Name
 	DefaultModel     = "gpt-5.5"
 	DefaultNamespace = "apps/coder"
 	ReflectCommand   = "reflect"
@@ -87,6 +93,9 @@ func Bundle() resource.ContributionBundle {
 		WithPlugin(resource.PluginRef{Name: ImagePlugin}).
 		WithPlugin(resource.PluginRef{Name: DockerPlugin}).
 		WithPlugin(resource.PluginRef{Name: GitLabPlugin}).
+		WithPlugin(resource.PluginRef{Name: JiraPlugin}).
+		WithPlugin(resource.PluginRef{Name: ConfluencePlugin}).
+		WithPlugin(resource.PluginRef{Name: SlackPlugin}).
 		WithPlugin(resource.PluginRef{Name: KubernetesPlugin}).
 		WithPlugin(resource.PluginRef{Name: LokiPlugin}).
 		WithPlugin(resource.PluginRef{Name: MySQLPlugin}).
@@ -152,6 +161,35 @@ func Bundle() resource.ContributionBundle {
 			gitlab.UserEntity,
 			gitlab.GroupEntity,
 			gitlab.MembershipEntity,
+		},
+	})
+	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
+		Name:        jira.Name,
+		Description: "Default live Jira datasource.",
+		Kind:        jira.Name,
+		Entities: []coredatasource.EntityType{
+			jira.IssueEntity,
+			jira.ProjectEntity,
+		},
+	})
+	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
+		Name:        confluence.Name,
+		Description: "Default live Confluence datasource.",
+		Kind:        confluence.Name,
+		Entities: []coredatasource.EntityType{
+			confluence.PageEntity,
+			confluence.SpaceEntity,
+		},
+	})
+	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
+		Name:        slack.Name,
+		Description: "Default live Slack datasource.",
+		Kind:        slack.Name,
+		Entities: []coredatasource.EntityType{
+			slack.UserEntity,
+			slack.ChannelEntity,
+			slack.MessageEntity,
+			slack.ThreadMessageEntity,
 		},
 	})
 	bundle.Datasources = append(bundle.Datasources, coredatasource.Spec{
@@ -322,18 +360,34 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 }
 
 func coderAuthActivationReactions() []corereaction.Rule {
-	return []corereaction.Rule{{
-		Name: "coder.integration.gitlab.authenticated",
+	return []corereaction.Rule{
+		authenticatedIntegrationRule(gitlab.Name, []corereaction.Action{
+			{Kind: corereaction.ActionEnableOperationSet, OperationSet: gitlab.OperationSet},
+			{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: gitlab.Name}},
+		}),
+		authenticatedIntegrationRule(jira.Name, []corereaction.Action{
+			{Kind: corereaction.ActionEnableOperationSet, OperationSet: jira.OperationSet},
+			{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: jira.Name}},
+		}),
+		authenticatedIntegrationRule(confluence.Name, []corereaction.Action{
+			{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: confluence.Name}},
+		}),
+		authenticatedIntegrationRule(slack.Name, []corereaction.Action{
+			{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: slack.Name}},
+		}),
+	}
+}
+
+func authenticatedIntegrationRule(name string, actions []corereaction.Action) corereaction.Rule {
+	return corereaction.Rule{
+		Name: "coder.integration." + name + ".authenticated",
 		When: corereaction.Matcher{
 			Assertion: authstatus.AssertionAuthenticated,
-			Target:    gitlab.Name,
-			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: gitlab.Name},
+			Target:    name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: name},
 		},
-		Actions: []corereaction.Action{{
-			Kind:       corereaction.ActionEnableDatasource,
-			Datasource: coredatasource.Ref{Name: gitlab.Name},
-		}},
-	}}
+		Actions: actions,
+	}
 }
 
 func coderIntentActivationReactions() []corereaction.Rule {

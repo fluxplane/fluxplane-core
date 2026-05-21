@@ -18,11 +18,14 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
 	"github.com/fluxplane/agentruntime/plugins/integrations/aws"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
 	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
 	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
 	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
 	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
 	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
 	"github.com/fluxplane/agentruntime/plugins/native/identity"
 	"github.com/fluxplane/agentruntime/plugins/native/image"
@@ -62,13 +65,14 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	startup := loadStartupResources(context.Background())
 	startup.Bundles = append(startup.Bundles, cloneContributionBundles(opts.Bundles)...)
 	cmd := distcli.NewCommandWithOptions(distributionFromStartup(startup), distcli.CommandOptions{
-		WorkspaceRoots: opts.WorkspaceRoots,
-		EnvFiles:       opts.EnvFiles,
-		Workspace:      opts.Workspace,
-		PromptHandler:  newRunPromptHandler(nil),
+		WorkspaceRoots:          opts.WorkspaceRoots,
+		EnvFiles:                opts.EnvFiles,
+		Workspace:               opts.Workspace,
+		PromptHandler:           newRunPromptHandler(nil),
+		EnablePluginAuthEnvFlag: true,
 	})
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
-		NativeRegistry: launch.AuthPluginRegistry,
+		TargetRegistry: coderAuthTargetRegistry(startup),
 	}))
 	cmd.AddCommand(newAppCommandWithOptions(appCommandOptions{runCommand: opts.AppRunCommand}))
 	cmd.AddCommand(newBuildCommand())
@@ -191,13 +195,42 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		skills.New(),
 		image.New(hostSystem),
 		aws.New(hostSystem),
+		slack.New(hostSystem),
 		docker.New(hostSystem),
 		gitlab.New(hostSystem),
+		jira.New(hostSystem),
+		confluence.New(hostSystem),
 		kubernetes.New(hostSystem),
 		loki.New(hostSystem),
 		mysql.New(),
 		memory.New(),
 	}
+}
+
+func coderAuthTargetRegistry(startup startupResources) authconnect.TargetRegistry {
+	bundles := cloneContributionBundles(startup.Bundles)
+	return func(ctx context.Context) ([]pluginhost.AuthTarget, error) {
+		hostSystem, err := system.NewHost(system.Config{AllowPrivateNetwork: true})
+		if err != nil {
+			return nil, err
+		}
+		return pluginhost.ResolveAuthTargets(ctx, declaredPluginRefs(bundles), localPlugins(hostSystem))
+	}
+}
+
+func declaredPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
+	seen := map[string]bool{}
+	var out []resource.PluginRef
+	for _, bundle := range bundles {
+		for _, ref := range bundle.Plugins {
+			if ref.Name == "" || seen[ref.Key()] {
+				continue
+			}
+			seen[ref.Key()] = true
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 // BundleWithModel returns Bundle with a provider/model override applied.

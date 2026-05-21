@@ -2739,6 +2739,62 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 	}
 }
 
+func TestExecuteInboundInputExpandsWildcardOperationSetTools(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	for _, name := range []operation.Name{"gitlab_mr", "gitlab_commit", "jira_issue_search"} {
+		name := name
+		if err := ops.Register(operation.New(operation.Spec{
+			Ref:         operation.Ref{Name: name},
+			Description: "test operation",
+		}, func(operation.Context, operation.Value) operation.Result {
+			return operation.OK(nil)
+		})); err != nil {
+			t.Fatalf("register operation: %v", err)
+		}
+	}
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "integration.authenticated", Target: "gitlab", Source: "auth"}}, nil
+		},
+	}
+	agentRuntime := &toolCaptureAgent{
+		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
+	}
+	result := (Session{
+		Agent:      agentRuntime,
+		Operations: ops,
+		OperationSets: []operation.Set{{
+			Name:       "gitlab-tools",
+			Operations: []operation.Ref{{Name: "gitlab_*"}},
+		}},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "gitlab-tools",
+			When: corereaction.Matcher{Assertion: "integration.authenticated", Target: "gitlab"},
+			Actions: []corereaction.Action{{
+				Kind:         corereaction.ActionEnableOperationSet,
+				OperationSet: "gitlab-tools",
+			}},
+		}},
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-active-wildcard-opset",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "hello"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	got := map[tool.Name]bool{}
+	for _, projected := range agentRuntime.tools {
+		got[projected.Name] = true
+	}
+	if !got["gitlab_mr"] || !got["gitlab_commit"] || got["jira_issue_search"] {
+		t.Fatalf("tools = %#v, want only gitlab wildcard matches", agentRuntime.tools)
+	}
+}
+
 func TestExecuteInboundInputMaterializesActiveContextProvider(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())

@@ -19,20 +19,21 @@ func newShellCommandWithStartup(startup startupResources, defaults serveCommandO
 	return codershell.NewCommandWithOptions(codershell.CommandOptions{
 		ClientFactory: func(ctx context.Context, req codershell.ClientFactoryRequest) (codershell.ClientFactoryResult, error) {
 			result, err := instance.ChannelClient(ctx, ChannelClientOptions{
-				Path:           req.Path,
-				WorkspaceRoots: req.WorkspaceRoots,
-				EnvFiles:       req.EnvFiles,
-				AuthPath:       req.AuthPath,
-				Provider:       req.Provider,
-				Model:          req.Model,
-				Thinking:       req.Thinking,
-				ThinkingSet:    req.ThinkingSet,
-				Effort:         req.Effort,
-				EffortSet:      req.EffortSet,
-				Debug:          req.Debug,
-				Yolo:           req.Yolo,
-				Dev:            req.Dev,
-				MaxToolRisk:    req.MaxToolRisk,
+				Path:               req.Path,
+				WorkspaceRoots:     req.WorkspaceRoots,
+				EnvFiles:           req.EnvFiles,
+				AuthPath:           req.AuthPath,
+				AllowPluginAuthEnv: req.AllowPluginAuthEnv,
+				Provider:           req.Provider,
+				Model:              req.Model,
+				Thinking:           req.Thinking,
+				ThinkingSet:        req.ThinkingSet,
+				Effort:             req.Effort,
+				EffortSet:          req.EffortSet,
+				Debug:              req.Debug,
+				Yolo:               req.Yolo,
+				Dev:                req.Dev,
+				MaxToolRisk:        req.MaxToolRisk,
 			})
 			if err != nil {
 				return codershell.ClientFactoryResult{}, err

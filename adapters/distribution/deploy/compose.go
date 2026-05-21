@@ -43,21 +43,22 @@ type ComposeResult struct {
 
 // ComposeDeployOptions configures local Docker Compose deployment.
 type ComposeDeployOptions struct {
-	AppDir         string
-	TempDir        string
-	Image          string
-	BaseImage      string
-	ConnectorsPath string
-	Provider       string
-	Model          string
-	Effort         string
-	DryRun         bool
-	Force          bool
-	Detach         bool
-	Out            io.Writer
-	Err            io.Writer
-	Runner         CommandRunner
-	dockerClient   DockerClient
+	AppDir             string
+	TempDir            string
+	Image              string
+	BaseImage          string
+	ConnectorsPath     string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Effort             string
+	DryRun             bool
+	Force              bool
+	Detach             bool
+	Out                io.Writer
+	Err                io.Writer
+	Runner             CommandRunner
+	dockerClient       DockerClient
 }
 
 // ComposeDeployResult describes the local Docker Compose deployment steps.
@@ -120,20 +121,21 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		return ComposeDeployResult{}, err
 	}
 	app, err := BuildApp(ctx, AppBuildOptions{
-		AppDir:         opts.AppDir,
-		Targets:        []string{"dockerfile", "docker-compose", "docker-image"},
-		Image:          opts.Image,
-		DryRun:         opts.DryRun,
-		Force:          opts.Force,
-		BaseImage:      baseImage,
-		ConnectorsPath: opts.ConnectorsPath,
-		Provider:       opts.Provider,
-		Model:          opts.Model,
-		Effort:         opts.Effort,
-		Out:            out,
-		Err:            errOut,
-		Runner:         opts.Runner,
-		dockerClient:   opts.dockerClient,
+		AppDir:             opts.AppDir,
+		Targets:            []string{"dockerfile", "docker-compose", "docker-image"},
+		Image:              opts.Image,
+		DryRun:             opts.DryRun,
+		Force:              opts.Force,
+		BaseImage:          baseImage,
+		ConnectorsPath:     opts.ConnectorsPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Effort:             opts.Effort,
+		Out:                out,
+		Err:                errOut,
+		Runner:             opts.Runner,
+		dockerClient:       opts.dockerClient,
 	})
 	if err != nil {
 		return ComposeDeployResult{}, err
@@ -158,7 +160,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		}
 		return result, nil
 	}
-	stack, err := dockerComposeStackFor(ctx, app.AppDir, firstTag(app.Tags), opts.ConnectorsPath, opts.Provider, opts.Model, opts.Effort)
+	stack, err := dockerComposeStackFor(ctx, app.AppDir, firstTag(app.Tags), opts.ConnectorsPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
 	if err != nil {
 		return ComposeDeployResult{}, err
 	}
@@ -213,7 +215,7 @@ func UndeployDockerCompose(ctx context.Context, opts ComposeUndeployOptions) (Co
 		}
 		return result, nil
 	}
-	stack, err := dockerComposeStackFor(ctx, loaded.Root, "", "", "", "", "")
+	stack, err := dockerComposeStackFor(ctx, loaded.Root, "", "", "", "", "", false)
 	if err != nil {
 		return ComposeUndeployResult{}, err
 	}
@@ -263,7 +265,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	return ComposeResult{}, errors.New("distribution deploy: docker-compose generation currently requires --dry-run")
 }
 
-func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, provider, model, effort string) (dockerComposeStack, error) {
+func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, provider, model, effort string, allowPluginAuthEnv bool) (dockerComposeStack, error) {
 	loaded, err := distlocal.Load(ctx, appDir)
 	if err != nil {
 		return dockerComposeStack{}, err
@@ -280,9 +282,10 @@ func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, p
 		Image:          image,
 		ConnectorsPath: firstNonEmpty(strings.TrimSpace(connectorsPath), defaultConnectorsPath),
 		AppRuntime: resolveAppRuntime(loaded, appRuntimeOptions{
-			Provider: provider,
-			Model:    model,
-			Effort:   effort,
+			Provider:           provider,
+			Model:              model,
+			Effort:             effort,
+			AllowPluginAuthEnv: allowPluginAuthEnv,
 		}),
 		Launch: loaded.Launch,
 	}, nil

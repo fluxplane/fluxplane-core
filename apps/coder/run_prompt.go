@@ -78,6 +78,7 @@ func appRunOptionsFromInvocation(inv command.Invocation, inherited distcli.RunOp
 		Usage:               inputBool(values, "usage", inherited.Usage),
 		Yolo:                inputBool(values, "yolo", inherited.Yolo),
 		Dev:                 inputBool(values, "dev", inherited.Dev),
+		AllowPluginAuthEnv:  inherited.AllowPluginAuthEnv,
 		WorkspaceRoots:      append([]string(nil), inherited.WorkspaceRoots...),
 		EnvFiles:            append([]string(nil), inherited.EnvFiles...),
 		Workspace:           inherited.Workspace,

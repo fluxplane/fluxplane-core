@@ -15,12 +15,14 @@ import (
 	"github.com/fluxplane/agentruntime/core/skill"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
+	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
 	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
 	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
 	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
 	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
 	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
+	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
 	"github.com/fluxplane/agentruntime/plugins/integrations/web"
 	"github.com/fluxplane/agentruntime/plugins/languages/golang"
 	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
@@ -28,11 +30,9 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/native/code"
 	"github.com/fluxplane/agentruntime/plugins/native/datasource"
 	"github.com/fluxplane/agentruntime/plugins/native/discovery"
-	"github.com/fluxplane/agentruntime/plugins/native/identity"
 	"github.com/fluxplane/agentruntime/plugins/native/image"
 	"github.com/fluxplane/agentruntime/plugins/native/memory"
 	"github.com/fluxplane/agentruntime/plugins/native/project"
-	"github.com/fluxplane/agentruntime/plugins/native/skills"
 	"github.com/fluxplane/agentruntime/plugins/native/task"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
@@ -53,6 +53,15 @@ func TestBundleComposes(t *testing.T) {
 	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, gitlab.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", gitlab.Name)
+	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, jira.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", jira.Name)
+	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, confluence.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", confluence.Name)
+	}
+	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, slack.Name) {
+		t.Fatalf("coder bundle plugin refs missing %s", slack.Name)
 	}
 	if !bundleHasPluginRef([]resource.ContributionBundle{Bundle()}, loki.Name) {
 		t.Fatalf("coder bundle plugin refs missing %s", loki.Name)
@@ -75,6 +84,15 @@ func TestBundleComposes(t *testing.T) {
 	if !pluginListContains(localPlugins(sys), gitlab.Name) {
 		t.Fatalf("coder local plugins missing %s", gitlab.Name)
 	}
+	if !pluginListContains(localPlugins(sys), jira.Name) {
+		t.Fatalf("coder local plugins missing %s", jira.Name)
+	}
+	if !pluginListContains(localPlugins(sys), confluence.Name) {
+		t.Fatalf("coder local plugins missing %s", confluence.Name)
+	}
+	if !pluginListContains(localPlugins(sys), slack.Name) {
+		t.Fatalf("coder local plugins missing %s", slack.Name)
+	}
 	if !pluginListContains(localPlugins(sys), loki.Name) {
 		t.Fatalf("coder local plugins missing %s", loki.Name)
 	}
@@ -86,7 +104,7 @@ func TestBundleComposes(t *testing.T) {
 	}
 	composition, err := app.Compose(app.Config{
 		Bundles: []resource.ContributionBundle{Bundle()},
-		Plugins: []pluginhost.Plugin{identity.New(), discovery.New(), coding.New(sys), task.New(), skills.New(), image.New(sys), docker.New(sys), gitlab.New(sys), kubernetes.New(sys), loki.New(sys), mysql.New(), memory.New()},
+		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
@@ -97,8 +115,8 @@ func TestBundleComposes(t *testing.T) {
 	if got := composition.AgentSpecs[0].Turns.MaxSteps; got != 50 {
 		t.Fatalf("max steps = %d, want 50", got)
 	}
-	if len(composition.OperationSpecs) != 117 {
-		t.Fatalf("operation specs len = %d, want 117", len(composition.OperationSpecs))
+	if len(composition.OperationSpecs) != 120 {
+		t.Fatalf("operation specs len = %d, want 120", len(composition.OperationSpecs))
 	}
 	if !agentHasOperation(composition.AgentSpecs[0], web.SearchOp) {
 		t.Fatalf("coder agent operations missing %s", web.SearchOp)

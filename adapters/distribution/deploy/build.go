@@ -14,24 +14,25 @@ import (
 
 // AppBuildOptions configures app-local build artifact generation.
 type AppBuildOptions struct {
-	AppDir         string
-	OutDir         string
-	Targets        []string
-	Tags           []string
-	Image          string
-	Platforms      []string
-	Push           bool
-	DryRun         bool
-	Force          bool
-	BaseImage      string
-	ConnectorsPath string
-	Provider       string
-	Model          string
-	Effort         string
-	Out            io.Writer
-	Err            io.Writer
-	Runner         CommandRunner
-	dockerClient   DockerClient
+	AppDir             string
+	OutDir             string
+	Targets            []string
+	Tags               []string
+	Image              string
+	Platforms          []string
+	Push               bool
+	DryRun             bool
+	Force              bool
+	BaseImage          string
+	ConnectorsPath     string
+	AllowPluginAuthEnv bool
+	Provider           string
+	Model              string
+	Effort             string
+	Out                io.Writer
+	Err                io.Writer
+	Runner             CommandRunner
+	dockerClient       DockerClient
 }
 
 // AppBuildResult describes generated app-local artifacts.
@@ -78,9 +79,10 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		connectorsPath = defaultConnectorsPath
 	}
 	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
-		Provider: opts.Provider,
-		Model:    opts.Model,
-		Effort:   opts.Effort,
+		Provider:           opts.Provider,
+		Model:              opts.Model,
+		Effort:             opts.Effort,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
 	baseImage := strings.TrimSpace(opts.BaseImage)
 	if baseImage == "" {
