@@ -1,4 +1,5 @@
 .agents/architecture/
+.agents/runs/
 **/.agents/index/
 /bin/
 /.cache/

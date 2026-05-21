@@ -120,8 +120,8 @@ const (
 type ImportQuery struct {
 	Language     language.LanguageID `json:"language,omitempty" jsonschema:"description=Language id. Defaults to the provider language."`
 	Path         string              `json:"path,omitempty" jsonschema:"description=Workspace-relative Go file, package directory, module, or project path."`
-	PackageID    string              `json:"package_id,omitempty" jsonschema:"description=Optional package id returned by go_packages."`
-	ImportPath   string              `json:"import_path,omitempty" jsonschema:"description=Optional import path filter, primarily for reverse import lookup."`
+	PackageID    string              `json:"package_id,omitempty" jsonschema:"description=Optional source package id returned by go_packages. Direct lookups return imports from this package; reverse lookups derive the target import path from it when import_path is empty."`
+	ImportPath   string              `json:"import_path,omitempty" jsonschema:"description=Optional target import path filter. Reverse lookups use this as the target; direct lookups limit returned edges to this imported path when set."`
 	Direction    ImportDirection     `json:"direction,omitempty" jsonschema:"description=Import relationship direction. Defaults to both.,enum=direct,enum=reverse,enum=both"`
 	IncludeTests *bool               `json:"include_tests,omitempty" jsonschema:"description=Include _test.go files. Defaults to true."`
 	MaxResults   int                 `json:"max_results,omitempty" jsonschema:"description=Maximum import edges returned."`

@@ -201,6 +201,30 @@ func Good() {}
 		if !strings.Contains(packageIDImports.Text, "pkg/service/service.go") || strings.Contains(packageIDImports.Text, "pkg/service/child/child.go") {
 			t.Fatalf("package_id imports text = %q, want exact package only", packageIDImports.Text)
 		}
+		packageIDImportResult := importResultFromRendered(t, packageIDImports)
+		if got, want := len(packageIDImportResult.DirectImports), 5; got != want {
+			t.Fatalf("package_id direct imports = %d, want %d; text = %q", got, want, packageIDImports.Text)
+		}
+		packageIDImportPaths := map[string]bool{}
+		for _, imp := range packageIDImportResult.DirectImports {
+			if imp.PackageID != "go:package:pkg/service:service" {
+				t.Fatalf("package_id direct import PackageID = %q, want source package id", imp.PackageID)
+			}
+			if strings.HasPrefix(imp.SourcePath, "pkg/service/child/") {
+				t.Fatalf("package_id direct import source = %q, want exact source package only", imp.SourcePath)
+			}
+			packageIDImportPaths[imp.Path] = true
+		}
+		for _, want := range []string{"context", "example.com/ext/lib", "example.com/app/pkg/model", "fmt", "strings"} {
+			if !packageIDImportPaths[want] {
+				t.Fatalf("package_id direct import paths = %#v, want %q", packageIDImportPaths, want)
+			}
+		}
+		packageIDTargetImports := runGoOp(t, sys, ImportsOp, map[string]any{"package_id": "go:package:pkg/service:service", "direction": "direct", "import_path": "example.com/app/pkg/model", "include_tests": false})
+		packageIDTargetImportResult := importResultFromRendered(t, packageIDTargetImports)
+		if got := packageIDTargetImportResult.DirectImports; len(got) != 1 || got[0].Path != "example.com/app/pkg/model" {
+			t.Fatalf("package_id target-filtered direct imports = %#v, want only model import", got)
+		}
 		reverseImports := runGoOp(t, sys, ImportsOp, map[string]any{"path": ".", "direction": "reverse", "import_path": "example.com/app/pkg/service", "include_tests": false})
 		if !strings.Contains(reverseImports.Text, "Reverse target: example.com/app/pkg/service") || !strings.Contains(reverseImports.Text, "pkg/consumer/consumer.go") || strings.Contains(reverseImports.Text, "vendor") {
 			t.Fatalf("reverse imports text = %q, want consumer importer and no vendor", reverseImports.Text)
@@ -1260,6 +1284,19 @@ func runGoOp(t *testing.T, sys system.System, name string, input map[string]any)
 		t.Fatalf("%s output = %#v, want Rendered", name, result.Output)
 	}
 	return rendered
+}
+
+func importResultFromRendered(t *testing.T, rendered operation.Rendered) golang.ImportResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	imports, ok := data["imports"].(golang.ImportResult)
+	if !ok {
+		t.Fatalf("imports data = %#v, want golang.ImportResult", data["imports"])
+	}
+	return imports
 }
 
 func implementationResultFromRendered(t *testing.T, rendered operation.Rendered) golang.ImplementationResult {

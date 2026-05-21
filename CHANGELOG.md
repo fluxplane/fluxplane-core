@@ -61,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that may be owned by another app or registry mode.
 
 ### Added
+- Added `scripts/coder-self-improve.sh` for local coder self-improvement
+  batches that run isolated goal/reflection sessions, capture debug JSONL,
+  score reports, and distill findings into a plan.
 - Added a `go-refactor` developer CLI under the future Go language plugin tree
   for moving Go package directories, renaming package clauses, and rewriting
   internal imports during package layout migrations.

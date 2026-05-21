@@ -47,7 +47,14 @@ func (p Plugin) goImports() operationruntime.TypedResultHandler[golang.ImportQue
 			if err != nil {
 				return operation.Failed("go_imports_failed", err.Error(), nil)
 			}
-			imports, diagnostics := p.collectImportEdges(ctx, files, req.MaxBytes, max, "")
+			imports, diagnostics := p.collectImportEdges(
+				ctx,
+				files,
+				req.MaxBytes,
+				max,
+				"",
+				strings.TrimSpace(req.ImportPath),
+			)
 			result.DirectImports = imports
 			result.Diagnostics = append(result.Diagnostics, diagnostics...)
 		}
@@ -212,7 +219,7 @@ func filterFilesByPackageID(ctx context.Context, p Plugin, files []string, packa
 	return out
 }
 
-func (p Plugin) collectImportEdges(ctx context.Context, files []string, maxBytesValue int, limit int, modulePath string) ([]language.Import, []language.Diagnostic) {
+func (p Plugin) collectImportEdges(ctx context.Context, files []string, maxBytesValue int, limit int, modulePath string, targetImportPath string) ([]language.Import, []language.Diagnostic) {
 	var imports []language.Import
 	var diagnostics []language.Diagnostic
 	for _, file := range files {
@@ -222,6 +229,9 @@ func (p Plugin) collectImportEdges(ctx context.Context, files []string, maxBytes
 			continue
 		}
 		for _, imp := range parsed.imports {
+			if targetImportPath != "" && imp.Path != targetImportPath {
+				continue
+			}
 			if len(imports) >= limit {
 				diagnostics = append(diagnostics, language.Diagnostic{Severity: "info", Code: "max_results", Message: "import results reached max_results limit"})
 				return imports, diagnostics
