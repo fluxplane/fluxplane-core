@@ -2,6 +2,7 @@ package confluence
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/plugins/internal/atlassian"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 )
 
@@ -43,17 +45,20 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
 	}
-	if len(methods) != 2 {
-		t.Fatalf("methods len = %d, want 2", len(methods))
+	if len(methods) != 3 {
+		t.Fatalf("methods len = %d, want 3", len(methods))
 	}
 	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != coresecret.AuthMethodEnv {
 		t.Fatalf("token method = %#v", methods[0])
 	}
-	if methods[1].Name != atlassian.OAuth2Method || methods[1].Secret.ResourceName() != "plugin/confluence/main/oauth2_token" {
-		t.Fatalf("oauth method = %#v", methods[1])
+	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != coresecret.AuthMethodStored {
+		t.Fatalf("api token method = %#v", methods[1])
 	}
-	if !contains(methods[1].OAuth2.Scopes, "read:page:confluence") || !contains(methods[1].OAuth2.Scopes, "read:space:confluence") {
-		t.Fatalf("oauth scopes = %#v", methods[1].OAuth2.Scopes)
+	if methods[2].Name != atlassian.OAuth2Method || methods[2].Secret.ResourceName() != "plugin/confluence/main/oauth2_token" {
+		t.Fatalf("oauth method = %#v", methods[2])
+	}
+	if !contains(methods[2].OAuth2.Scopes, "read:page:confluence") || !contains(methods[2].OAuth2.Scopes, "read:space:confluence") {
+		t.Fatalf("oauth scopes = %#v", methods[2].OAuth2.Scopes)
 	}
 }
 
@@ -80,12 +85,9 @@ func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","space":{"id":42,"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello &amp; welcome</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{"next":"/wiki/rest/api/content?start=1"}}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"CONFLUENCE_TOKEN": "confluence-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"CONFLUENCE_TOKEN": "confluence-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
-	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://company.atlassian.net", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://example.atlassian.invalid", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
@@ -115,8 +117,66 @@ func TestPageListUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 	if len(result.Records) != 1 || result.Records[0].Content != "Hello & welcome" {
 		t.Fatalf("records = %#v", result.Records)
 	}
-	if result.Records[0].URL != "https://company.atlassian.net/wiki/spaces/ENG/pages/123/Runbook" {
+	if result.Records[0].URL != "https://example.atlassian.invalid/wiki/spaces/ENG/pages/123/Runbook" {
 		t.Fatalf("record url = %q", result.Records[0].URL)
+	}
+}
+
+func TestPageListUsesAtlassianBasicAPITokenAuth(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"results":[],"_links":{}}`),
+	}}
+	plugin := newTestPlugin(t, network, map[string]string{
+		"CONFLUENCE_API_TOKEN": "confluence-api-token",
+		"CONFLUENCE_EMAIL":     "user@example.invalid",
+	})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassian.Config{SiteURL: "https://example.atlassian.invalid", Auth: atlassian.AuthConfig{Method: atlassian.APITokenMethod}}
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{Name: "confluence", Kind: Name})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := accessor.(coredatasource.Lister).List(context.Background(), coredatasource.ListRequest{Entity: PageEntity, Limit: 3}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://example.atlassian.invalid/wiki/api/v2/pages") {
+		t.Fatalf("request URL = %q", network.request.URL)
+	}
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("user@example.invalid:confluence-api-token"))
+	if got := network.request.Headers["Authorization"]; got != want {
+		t.Fatalf("authorization = %q, want basic API token auth", got)
+	}
+}
+
+func TestConnectionReportsCurrentConfluenceUser(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"accountId":"abc-123","displayName":"Timo Friedl","publicName":"Timo"}`),
+	}}
+	plugin := newTestPlugin(t, network, map[string]string{
+		"ATLASSIAN_API_TOKEN": "api-token",
+		"ATLASSIAN_EMAIL":     "user@example.invalid",
+	})
+	plugin.cfg = atlassian.Config{SiteURL: "https://example.atlassian.invalid"}
+	ref := resource.PluginRef{Name: Name, Instance: "main"}
+	reports := make(chan pluginhost.AuthTestReport, 1)
+	if err := plugin.TestConnection(context.Background(), pluginhost.Context{Ref: ref}, pluginhost.AuthTestRequest{Ref: ref, Method: atlassian.APITokenMethod}, reports); err != nil {
+		t.Fatalf("TestConnection: %v", err)
+	}
+	close(reports)
+	report := <-reports
+	if report.Check != "current_user" || report.Status != "ok" || report.Message != "Timo Friedl" || report.Details["account_id"] != "abc-123" {
+		t.Fatalf("report = %#v", report)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://example.atlassian.invalid/wiki/rest/api/user/current") {
+		t.Fatalf("request URL = %q", network.request.URL)
 	}
 }
 
@@ -125,7 +185,7 @@ func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
 		{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
-			Body:       []byte(`[{"id":"cloud-1","url":"https://company.atlassian.net","name":"Company"}]`),
+			Body:       []byte(`[{"id":"cloud-1","url":"https://example.atlassian.invalid","name":"Company"}]`),
 		},
 		{
 			StatusCode: 200,
@@ -133,10 +193,7 @@ func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
 			Body:       []byte(`{"results":[{"id":"123","title":"Runbook","status":"current","space":{"id":42,"key":"ENG"},"version":{"number":7},"body":{"storage":{"value":"<p>Hello</p>"}},"_links":{"webui":"/wiki/spaces/ENG/pages/123/Runbook"}}],"_links":{}}`),
 		},
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"CONFLUENCE_TOKEN": "confluence-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"CONFLUENCE_TOKEN": "confluence-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
 	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
@@ -151,7 +208,7 @@ func TestPageListUsesDiscoveredSiteURLForCanonicalLinks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(result.Records) != 1 || result.Records[0].URL != "https://company.atlassian.net/wiki/spaces/ENG/pages/123/Runbook" {
+	if len(result.Records) != 1 || result.Records[0].URL != "https://example.atlassian.invalid/wiki/spaces/ENG/pages/123/Runbook" {
 		t.Fatalf("records = %#v, want discovered canonical URL", result.Records)
 	}
 	if len(network.requests) != 2 || network.requests[0].URL != "https://api.atlassian.com/oauth/token/accessible-resources" {
@@ -165,12 +222,9 @@ func TestSpaceGetUsesConfluenceV1BaseAndTokenAuth(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","type":"global","status":"current","description":{"plain":{"value":"Team docs"}},"_links":{"webui":"/wiki/spaces/ENG"}}]}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"CONFLUENCE_TOKEN": "confluence-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"CONFLUENCE_TOKEN": "confluence-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
-	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://company.atlassian.net", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://example.atlassian.invalid", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
@@ -199,10 +253,7 @@ func TestSpaceGetSupportsDetectedSpaceKeys(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"results":[{"id":42,"key":"ENG","name":"Engineering","description":{"plain":{"value":"Team docs"}}}],"_links":{}}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"CONFLUENCE_TOKEN": "confluence-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"CONFLUENCE_TOKEN": "confluence-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
 	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
@@ -252,6 +303,16 @@ func (s fakeSystem) Process() system.ProcessManager  { return nil }
 func (s fakeSystem) Browser() system.BrowserManager  { return nil }
 func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
+
+func newTestPlugin(t *testing.T, network system.Network, env map[string]string) Plugin {
+	t.Helper()
+	store := runtimesecret.NewFileStore(t.TempDir())
+	resolver := runtimesecret.ChainResolver{
+		store,
+		runtimesecret.EnvResolver{Environment: fakeEnvironment{values: env}},
+	}
+	return NewWithResolver(fakeSystem{network: network}, store, resolver)
+}
 
 type recordingNetwork struct {
 	request  system.HTTPRequest

@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Replaced coder's top-level `connect` auth setup command with the reusable
-  `auth connect`, `auth info`, `auth status`, and `auth test` command group for
-  native plugin credentials.
+  `auth connect`, `auth info`, and `auth status` command group for native
+  plugin credentials.
 - Made Slack daemon channel API token selection configurable, defaulting to bot
   token with user-token fallback while keeping Socket Mode app tokens required.
 - Renamed Slack's stored auth method to `token`, keeping `bot_token`,
@@ -18,8 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Collapsed `coder auth status` into per-plugin readiness with non-secret field
   presence for the selected method, and added auth readiness evidence for
   integration activation.
-- Changed `coder auth test` to run non-interactive live connection checks for
-  connected auth instead of prompting for a method.
+- Changed `coder auth status` to run non-interactive live connection checks by
+  default, with `--no-test` for readiness-only output.
+- Added first-class Atlassian `api_token` auth for Jira and Confluence with
+  email/token setup fields and live current-user auth tests, while preserving
+  legacy bearer `token` auth for existing service-account manifests.
+- Moved Jira and Confluence environment-backed auth resolution out of the
+  integrations so they consume injected secret resolvers instead of reading the
+  runtime system environment directly.
+- Made Atlassian API-token readiness require `site_url` or `base_url` for Basic
+  auth while still reporting `ATLASSIAN_CLOUD_ID` and product-specific cloud ID
+  env aliases as metadata.
+- Added non-secret auth method metadata and documented the difference between
+  Atlassian scoped access tokens, Basic API tokens, and OAuth2 token flows.
+- Allowed coder's auth-test plugin registry to reach private/VPN network
+  targets so GitLab, Jira, and Confluence connection tests work against
+  intranet hosts.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.

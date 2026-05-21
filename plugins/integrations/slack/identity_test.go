@@ -15,7 +15,7 @@ import (
 )
 
 func TestSlackIdentityResolverResolvesEmail(t *testing.T) {
-	api := slack.New("xoxb-test", slack.OptionAPIURL(slackUserInfoServer(t, "timo@company.org").URL+"/"))
+	api := slack.New("slack-bot-token", slack.OptionAPIURL(slackUserInfoServer(t, "timo@company.org").URL+"/"))
 	resolver := NewIdentityResolver(IdentityResolverConfig{ChannelName: "main", API: api})
 	result, err := resolver.ResolveIdentity(context.Background(), identity.Request{Inbound: channel.Inbound{
 		Caller: policy.Caller{
@@ -50,8 +50,8 @@ func TestSlackIdentityResolverPrefersUserTokenForEmail(t *testing.T) {
 	defer server.Close()
 	resolver := NewIdentityResolver(IdentityResolverConfig{
 		ChannelName: "main",
-		UserAPI:     slack.New("xoxp-user", slack.OptionAPIURL(server.URL+"/")),
-		API:         slack.New("xoxb-bot", slack.OptionAPIURL(server.URL+"/")),
+		UserAPI:     slack.New("slack-user-token", slack.OptionAPIURL(server.URL+"/")),
+		API:         slack.New("slack-bot-token", slack.OptionAPIURL(server.URL+"/")),
 	})
 	result, err := resolver.ResolveIdentity(context.Background(), identity.Request{Inbound: channel.Inbound{
 		Caller: policy.Caller{
@@ -70,7 +70,7 @@ func TestSlackIdentityResolverPrefersUserTokenForEmail(t *testing.T) {
 }
 
 func TestSlackIdentityResolverUsesProfileEmailFallback(t *testing.T) {
-	api := slack.New("xoxb-test", slack.OptionAPIURL(slackProfileEmailServer(t).URL+"/"))
+	api := slack.New("slack-bot-token", slack.OptionAPIURL(slackProfileEmailServer(t).URL+"/"))
 	resolver := NewIdentityResolver(IdentityResolverConfig{ChannelName: "main", API: api})
 	result, err := resolver.ResolveIdentity(context.Background(), identity.Request{Inbound: channel.Inbound{
 		Caller: policy.Caller{
@@ -95,7 +95,7 @@ func TestSlackIdentityResolverIgnoresOtherSlackChannel(t *testing.T) {
 		t.Fatal("users.info should not be called for another channel")
 	}))
 	defer server.Close()
-	api := slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/"))
+	api := slack.New("slack-bot-token", slack.OptionAPIURL(server.URL+"/"))
 	resolver := NewIdentityResolver(IdentityResolverConfig{ChannelName: "main", API: api})
 	result, err := resolver.ResolveIdentity(context.Background(), identity.Request{Inbound: channel.Inbound{
 		Caller: policy.Caller{
@@ -143,9 +143,9 @@ func slackUserInfoTokenServer(t *testing.T) *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch token := r.Form.Get("token"); token {
-		case "xoxp-user":
+		case "slack-user-token":
 			_, _ = w.Write([]byte(`{"ok":true,"user":{"id":"U123","name":"timo","real_name":"Timo","profile":{"email":"timo@company.org","display_name":"Timo"}}}`))
-		case "xoxb-bot":
+		case "slack-bot-token":
 			_, _ = w.Write([]byte(`{"ok":true,"user":{"id":"U123","name":"timo","real_name":"Timo","profile":{"display_name":"Timo"}}}`))
 		default:
 			t.Fatalf("unexpected token %q after %d calls", token, calls)

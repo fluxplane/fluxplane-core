@@ -18,10 +18,10 @@ func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.BotTokenSecretRef(ref), Value: "slack-bot-token"}); err != nil {
 		t.Fatalf("Save bot token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 
@@ -44,10 +44,10 @@ func TestServeChannelsAllowsNativeSlackUserTokenInstance(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "xoxp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
 		t.Fatalf("Save user token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 
@@ -70,10 +70,10 @@ func TestServeChannelsHonorsSlackChannelTokenPreference(t *testing.T) {
 	dir := t.TempDir()
 	store := runtimesecret.NewFileStore(dir)
 	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "xoxp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "slack-user-token"}); err != nil {
 		t.Fatalf("Save user token: %v", err)
 	}
-	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "slack-app-token"}); err != nil {
 		t.Fatalf("Save app token: %v", err)
 	}
 

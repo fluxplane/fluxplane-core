@@ -31,20 +31,23 @@ import (
 
 // Config describes app composition input.
 type Config struct {
-	Context           context.Context
-	Agent             agent.Agent
-	Operations        []operation.Operation
-	ContextProviders  []corecontext.Provider
-	EventStore        event.Store
-	DataStore         coredata.Store
-	EventTypes        []event.Event
-	Plugins           []pluginhost.Plugin
-	Bundles           []resource.ContributionBundle
-	BundleTransforms  []BundleTransform
-	OperationExecutor operationruntime.Executor
-	Security          policy.AuthorizationPolicy
-	IdentityResolver  identity.Resolver
-	ExternalIdentity  identity.ExternalResolver
+	Context              context.Context
+	Agent                agent.Agent
+	Operations           []operation.Operation
+	ContextProviders     []corecontext.Provider
+	EventStore           event.Store
+	DataStore            coredata.Store
+	EventTypes           []event.Event
+	Plugins              []pluginhost.Plugin
+	Bundles              []resource.ContributionBundle
+	BundleTransforms     []BundleTransform
+	EnvironmentObservers []runtimeevidence.Observer
+	AssertionDerivers    []runtimeevidence.AssertionDeriver
+	ReactionRules        []corereaction.Rule
+	OperationExecutor    operationruntime.Executor
+	Security             policy.AuthorizationPolicy
+	IdentityResolver     identity.Resolver
+	ExternalIdentity     identity.ExternalResolver
 }
 
 // BundleTransform mutates or augments resource bundles after plugin
@@ -106,13 +109,18 @@ func Compose(cfg Config) (Composition, error) {
 		diagnostics = append(diagnostics, reactionDiagnostic)
 		return Composition{Diagnostics: diagnostics}, err
 	}
-	reactions := append(bundleReactions, pluginReactions...)
+	reactions := append(append([]reactionRuleBinding(nil), bundleReactions...), pluginReactions...)
+	for _, rule := range cfg.ReactionRules {
+		reactions = append(reactions, reactionRuleBinding{Rule: rule})
+	}
 	baselineObservers := []runtimeevidence.Observer{runtimeevidence.BaselineObserver()}
 	environmentObservers := append([]runtimeevidence.Observer(nil), baselineObservers...)
+	environmentObservers = append(environmentObservers, cfg.EnvironmentObservers...)
 	environmentObservers = append(environmentObservers, pluginObservers...)
 	environmentObservers = applyObserverOverrides(environmentObservers, observerOverrideSpecs(cfg.Bundles))
 	configuredAssertionDerivers := runtimeevidence.TemplateAssertionDerivers(templateAssertionDeriverSpecs(bundles, pluginAssertionDerivers))
 	assertionDerivers := append(configuredAssertionDerivers, pluginAssertionDerivers...)
+	assertionDerivers = append(assertionDerivers, cfg.AssertionDerivers...)
 	environmentDiagnostics := validateEnvironmentContributions(bundles, environmentObservers, assertionDerivers)
 	diagnostics = append(diagnostics, environmentDiagnostics...)
 	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendEventTypesFromBundles(cfg.EventTypes, bundles)})

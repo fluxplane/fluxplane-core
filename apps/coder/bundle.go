@@ -33,6 +33,7 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/native/memory"
 	"github.com/fluxplane/agentruntime/plugins/native/project"
 	"github.com/fluxplane/agentruntime/plugins/native/task"
+	"github.com/fluxplane/agentruntime/runtime/authstatus"
 	"github.com/fluxplane/agentruntime/sdk"
 )
 
@@ -166,6 +167,7 @@ func Bundle() resource.ContributionBundle {
 	})
 	bundle.Reactions = append(bundle.Reactions, coderLanguageActivationReactions()...)
 	bundle.Reactions = append(bundle.Reactions, coderEndpointActivationReactions()...)
+	bundle.Reactions = append(bundle.Reactions, coderAuthActivationReactions()...)
 	bundle.Reactions = append(bundle.Reactions, coderIntentActivationReactions()...)
 	if len(bundle.Apps) > 0 {
 		bundle.Apps[0].Sources = append(bundle.Apps[0].Sources, coreapp.SourceSpec{
@@ -197,7 +199,6 @@ func coderAgentSpec(operations []string) agent.Spec {
 		WithOperations(operations...).
 		WithDatasource("web_search").
 		WithDatasource(kubernetes.Name).
-		WithDatasource(gitlab.Name).
 		WithDatasource(loki.Name).
 		Build()
 	spec.Skills = append(spec.Skills, skill.Ref{Name: "coder"})
@@ -316,6 +317,21 @@ func coderEndpointActivationReactions() []corereaction.Rule {
 		}, {
 			Kind:         corereaction.ActionEnableOperationSet,
 			OperationSet: discovery.Name,
+		}},
+	}}
+}
+
+func coderAuthActivationReactions() []corereaction.Rule {
+	return []corereaction.Rule{{
+		Name: "coder.integration.gitlab.authenticated",
+		When: corereaction.Matcher{
+			Assertion: authstatus.AssertionAuthenticated,
+			Target:    gitlab.Name,
+			Subject:   coreevidence.Subject{Kind: coreevidence.SubjectIntegration, Name: gitlab.Name},
+		},
+		Actions: []corereaction.Action{{
+			Kind:       corereaction.ActionEnableDatasource,
+			Datasource: coredatasource.Ref{Name: gitlab.Name},
 		}},
 	}}
 }

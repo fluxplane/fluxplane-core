@@ -12,6 +12,7 @@ import (
 	coreoperation "github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	coreuser "github.com/fluxplane/agentruntime/core/user"
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -170,17 +171,29 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 		t.Fatalf("methods len = %d, want 2", len(methods))
 	}
 	method := methods[0]
-	if method.Name != personalAccessTokenMethod || method.Method != "env" || method.Kind != "api_key" {
+	if method.Name != personalAccessTokenMethod || method.Method != coresecret.AuthMethodStored || method.Kind != coresecret.KindAPIKey {
 		t.Fatalf("method = %#v", method)
+	}
+	if method.Secret.ResourceName() != "plugin/gitlab/company-a/token" {
+		t.Fatalf("token secret = %#v", method.Secret)
 	}
 	if method.Env.Name != gitlabPersonalAccessTokenEnv {
 		t.Fatalf("env name = %q", method.Env.Name)
 	}
-	if len(method.Env.Aliases) != 4 || method.Env.Aliases[0] != gitlabAccessTokenEnv || method.Env.Aliases[1] != gitlabPersonalAccessTokenEnv || method.Env.Aliases[2] != gitlabPersonalTokenEnv || method.Env.Aliases[3] != gitlabTokenEnv {
-		t.Fatalf("env aliases = %#v", method.Env.Aliases)
+	if len(method.Env.Aliases) != 0 {
+		t.Fatalf("env aliases = %#v, want none for configured env", method.Env.Aliases)
 	}
 	if method.Header.Name != "Private-Token" {
 		t.Fatalf("header = %#v", method.Header)
+	}
+	if len(method.SetupFields) != 2 {
+		t.Fatalf("setup fields = %#v, want token and url", method.SetupFields)
+	}
+	if method.SetupFields[0].Name != gitlabTokenField || !method.SetupFields[0].Required || !method.SetupFields[0].Sensitive || method.SetupFields[0].Env.Name != gitlabPersonalAccessTokenEnv {
+		t.Fatalf("token field = %#v", method.SetupFields[0])
+	}
+	if method.SetupFields[1].Name != gitlabURLField || !method.SetupFields[1].Required || method.SetupFields[1].Sensitive || method.SetupFields[1].Env.Name != gitlabURLEnv {
+		t.Fatalf("url field = %#v", method.SetupFields[1])
 	}
 	oauth := methods[1]
 	if oauth.Name != oauth2Method || oauth.Method != "oauth2" || oauth.Kind != "oauth2_token" {
@@ -191,6 +204,44 @@ func TestPluginDeclaresAuthMethods(t *testing.T) {
 	}
 	if oauth.OAuth2.TokenURL != defaultBaseURL+"/oauth/token" || len(oauth.OAuth2.Scopes) != 1 || oauth.OAuth2.Scopes[0] != "api" {
 		t.Fatalf("oauth2 = %#v", oauth.OAuth2)
+	}
+}
+
+func TestConnectionReportsCurrentGitLabUser(t *testing.T) {
+	ref := resource.PluginRef{Name: Name, Instance: "company-a"}
+	var calls []string
+	plugin := New(fakeSystem{
+		env: fakeEnvironment{values: map[string]string{gitlabPersonalAccessTokenEnv: "secret-token", gitlabURLEnv: "https://gitlab.example"}},
+	})
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return fakeGitLabClient{
+			currentUser: &gitlab.User{
+				ID:       42,
+				Username: "tfriedl",
+				Name:     "Timo Friedl",
+				State:    "active",
+				WebURL:   "https://gitlab.example/tfriedl",
+			},
+			calls: &calls,
+		}, nil
+	}
+	reports := make(chan pluginhost.AuthTestReport, 1)
+	if err := plugin.TestConnection(context.Background(), pluginhost.Context{Ref: ref}, pluginhost.AuthTestRequest{Ref: ref, Method: personalAccessTokenMethod}, reports); err != nil {
+		t.Fatalf("TestConnection: %v", err)
+	}
+	close(reports)
+	report := <-reports
+	if report.Plugin != Name || report.Instance != "company-a" || report.Method != personalAccessTokenMethod {
+		t.Fatalf("report target = %#v", report)
+	}
+	if report.Check != "current_user" || report.Status != "ok" || report.Message != "tfriedl" {
+		t.Fatalf("report result = %#v", report)
+	}
+	if report.Details["id"] != "42" || report.Details["username"] != "tfriedl" || report.Details["state"] != "active" {
+		t.Fatalf("report details = %#v", report.Details)
+	}
+	if strings.Join(calls, ",") != "current_user" {
+		t.Fatalf("calls = %#v, want current_user", calls)
 	}
 }
 
@@ -283,6 +334,31 @@ func TestOfficialClientProbesAliasesWhenTokenEnvUnset(t *testing.T) {
 	}
 	if got := headerValue(network.request.Headers, "Private-Token"); got != "fallback-token" {
 		t.Fatalf("private token header = %q, want fallback-token", got)
+	}
+}
+
+func TestOfficialClientUsesGitLabURLEnv(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`[]`),
+	}}
+	client, err := newOfficialClient(context.Background(), fakeSystem{
+		network: network,
+		env: fakeEnvironment{values: map[string]string{
+			gitlabTokenEnv: "fallback-token",
+			gitlabURLEnv:   "gitlab.example",
+		}},
+	}, resource.PluginRef{Name: Name, Instance: "company-a"}, Config{})
+	if err != nil {
+		t.Fatalf("newOfficialClient: %v", err)
+	}
+	query := "runtime"
+	if _, err := client.ListProjects(context.Background(), &gitlab.ListProjectsOptions{Search: &query}); err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://gitlab.example/api/v4/projects") {
+		t.Fatalf("request URL = %q", network.request.URL)
 	}
 }
 
@@ -2159,6 +2235,7 @@ type fakeGitLabClient struct {
 	users                  []*gitlab.User
 	usersByPublicEmail     map[string][]*gitlab.User
 	userPublicEmailQueries *[]string
+	currentUser            *gitlab.User
 	projectUsers           []*gitlab.ProjectUser
 	projectGroups          []*gitlab.ProjectGroup
 	projectMembers         []*gitlab.ProjectMember
@@ -2265,6 +2342,11 @@ func (c fakeGitLabClient) GetUser(context.Context, int64, *gitlab.GetUserOptions
 		return nil, nil
 	}
 	return c.users[0], nil
+}
+
+func (c fakeGitLabClient) CurrentUser(context.Context) (*gitlab.User, error) {
+	c.record("current_user")
+	return c.currentUser, nil
 }
 
 func (c fakeGitLabClient) GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error) {

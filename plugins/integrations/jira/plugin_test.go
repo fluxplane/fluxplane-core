@@ -80,14 +80,17 @@ func TestPluginDeclaresOAuthAndTokenAuthMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
 	}
-	if len(methods) != 2 {
-		t.Fatalf("methods len = %d, want 2", len(methods))
+	if len(methods) != 3 {
+		t.Fatalf("methods len = %d, want 3", len(methods))
 	}
 	if methods[0].Name != atlassian.TokenMethod || methods[0].Method != coresecret.AuthMethodEnv {
 		t.Fatalf("token method = %#v", methods[0])
 	}
-	if methods[1].Name != atlassian.OAuth2Method || methods[1].Secret.ResourceName() != "plugin/jira/main/oauth2_token" {
-		t.Fatalf("oauth method = %#v", methods[1])
+	if methods[1].Name != atlassian.APITokenMethod || methods[1].Method != coresecret.AuthMethodStored {
+		t.Fatalf("api token method = %#v", methods[1])
+	}
+	if methods[2].Name != atlassian.OAuth2Method || methods[2].Secret.ResourceName() != "plugin/jira/main/oauth2_token" {
+		t.Fatalf("oauth method = %#v", methods[2])
 	}
 }
 
@@ -137,10 +140,7 @@ func TestIssueSearchUsesNativeHTTPAndTokenAuth(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[{"id":"100","key":"DEV-381","self":"https://api.example/issue/100","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}],"total":1}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
 	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
@@ -168,12 +168,9 @@ func TestIssueSearchUsesAtlassianServiceAccountAPITokenAuth(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[],"total":0}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"JIRA_API_TOKEN": "jira-api-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_API_TOKEN": "jira-api-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
-	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod, TokenEnv: "JIRA_API_TOKEN"}}
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
@@ -196,15 +193,12 @@ func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"issues":[],"total":0}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env: fakeEnvironment{values: map[string]string{
-			"JIRA_API_TOKEN": "jira-api-token",
-			"JIRA_EMAIL":     "user@example.com",
-		}},
+	plugin := newTestPlugin(t, network, map[string]string{
+		"JIRA_API_TOKEN": "jira-api-token",
+		"JIRA_EMAIL":     "user@example.invalid",
 	})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
-	plugin.cfg = atlassian.Config{SiteURL: "https://company.atlassian.net", Auth: atlassian.AuthConfig{Method: "basic"}}
+	plugin.cfg = atlassian.Config{SiteURL: "https://example.atlassian.invalid", Auth: atlassian.AuthConfig{Method: atlassian.APITokenMethod}}
 	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
@@ -213,12 +207,38 @@ func TestIssueSearchUsesAtlassianBasicAPITokenAuth(t *testing.T) {
 	if result.Status != coreoperation.StatusOK {
 		t.Fatalf("status = %s error = %#v", result.Status, result.Error)
 	}
-	if !strings.HasPrefix(network.request.URL, "https://company.atlassian.net/rest/api/3/search/jql") {
+	if !strings.HasPrefix(network.request.URL, "https://example.atlassian.invalid/rest/api/3/search/jql") {
 		t.Fatalf("request URL = %q", network.request.URL)
 	}
-	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("user@example.com:jira-api-token"))
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("user@example.invalid:jira-api-token"))
 	if got := network.request.Headers["Authorization"]; got != want {
 		t.Fatalf("authorization = %q, want basic API token auth", got)
+	}
+}
+
+func TestConnectionReportsCurrentJiraUser(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"accountId":"abc-123","displayName":"Timo Friedl","emailAddress":"user@example.invalid"}`),
+	}}
+	plugin := newTestPlugin(t, network, map[string]string{
+		"ATLASSIAN_API_TOKEN": "api-token",
+		"ATLASSIAN_EMAIL":     "user@example.invalid",
+	})
+	plugin.cfg = atlassian.Config{SiteURL: "https://example.atlassian.invalid"}
+	ref := resource.PluginRef{Name: Name, Instance: "main"}
+	reports := make(chan pluginhost.AuthTestReport, 1)
+	if err := plugin.TestConnection(context.Background(), pluginhost.Context{Ref: ref}, pluginhost.AuthTestRequest{Ref: ref, Method: atlassian.APITokenMethod}, reports); err != nil {
+		t.Fatalf("TestConnection: %v", err)
+	}
+	close(reports)
+	report := <-reports
+	if report.Check != "current_user" || report.Status != "ok" || report.Message != "Timo Friedl" || report.Details["account_id"] != "abc-123" {
+		t.Fatalf("report = %#v", report)
+	}
+	if !strings.HasPrefix(network.request.URL, "https://example.atlassian.invalid/rest/api/3/myself") {
+		t.Fatalf("request URL = %q", network.request.URL)
 	}
 }
 
@@ -227,7 +247,7 @@ func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
 		{
 			StatusCode: 200,
 			Headers:    map[string][]string{"Content-Type": {"application/json"}},
-			Body:       []byte(`[{"id":"cloud-1","url":"https://company.atlassian.net","name":"Company"}]`),
+			Body:       []byte(`[{"id":"cloud-1","url":"https://example.atlassian.invalid","name":"Company"}]`),
 		},
 		{
 			StatusCode: 200,
@@ -235,10 +255,7 @@ func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
 			Body:       []byte(`{"id":"48997","key":"DEV-380","self":"https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}`),
 		},
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
 	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
@@ -253,7 +270,7 @@ func TestIssueGetUsesDiscoveredCanonicalWebURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if record.URL != "https://company.atlassian.net/browse/DEV-380" {
+	if record.URL != "https://example.atlassian.invalid/browse/DEV-380" {
 		t.Fatalf("record url = %q, want canonical Jira web URL", record.URL)
 	}
 	if record.Metadata["api_url"] != "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997" {
@@ -277,10 +294,7 @@ func TestIssueGetLeavesURLBlankWhenSiteDiscoveryDoesNotMatch(t *testing.T) {
 			Body:       []byte(`{"id":"48997","key":"DEV-380","self":"https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/48997","fields":{"summary":"Native Jira","status":{"name":"Open"},"description":"Useful"}}`),
 		},
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
 	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
@@ -309,12 +323,9 @@ func TestProjectGetUsesCanonicalWebURL(t *testing.T) {
 		Headers:    map[string][]string{"Content-Type": {"application/json"}},
 		Body:       []byte(`{"id":"10000","key":"DEV","name":"Development","projectTypeKey":"software","self":"https://api.example/rest/api/3/project/10000"}`),
 	}}
-	plugin := New(fakeSystem{
-		network: network,
-		env:     fakeEnvironment{values: map[string]string{"JIRA_TOKEN": "jira-token"}},
-	})
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
 	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
-	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://company.atlassian.net", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", SiteURL: "https://example.atlassian.invalid", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
 	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {
 		t.Fatalf("DatasourceProviders: %v", err)
@@ -327,7 +338,7 @@ func TestProjectGetUsesCanonicalWebURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if record.URL != "https://company.atlassian.net/browse/DEV" {
+	if record.URL != "https://example.atlassian.invalid/browse/DEV" {
 		t.Fatalf("record url = %q, want canonical Jira project URL", record.URL)
 	}
 	if record.Metadata["api_url"] != "https://api.example/rest/api/3/project/10000" {
@@ -379,6 +390,16 @@ func (s fakeSystem) Process() system.ProcessManager  { return nil }
 func (s fakeSystem) Browser() system.BrowserManager  { return nil }
 func (s fakeSystem) Clarifier() system.Clarifier     { return nil }
 func (s fakeSystem) Environment() system.Environment { return s.env }
+
+func newTestPlugin(t *testing.T, network system.Network, env map[string]string) Plugin {
+	t.Helper()
+	store := runtimesecret.NewFileStore(t.TempDir())
+	resolver := runtimesecret.ChainResolver{
+		store,
+		runtimesecret.EnvResolver{Environment: fakeEnvironment{values: env}},
+	}
+	return NewWithResolver(fakeSystem{network: network}, store, resolver)
+}
 
 type recordingNetwork struct {
 	request  system.HTTPRequest

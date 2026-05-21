@@ -28,10 +28,11 @@ const defaultPageSize = 50
 
 type Plugin struct {
 	pluginhost.Configurable[atlassian.Config]
-	system system.System
-	store  runtimesecret.FileStore
-	ref    resource.PluginRef
-	cfg    atlassian.Config
+	system   system.System
+	store    runtimesecret.FileStore
+	resolver runtimesecret.Resolver
+	ref      resource.PluginRef
+	cfg      atlassian.Config
 }
 
 var _ pluginhost.Plugin = Plugin{}
@@ -39,13 +40,21 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
+var _ pluginhost.AuthTestContributor = Plugin{}
 
 func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
 	store := runtimesecret.NewFileStore(atlassian.DefaultAuthStorePath)
 	if len(stores) > 0 {
 		store = stores[0]
 	}
-	return Plugin{system: sys, store: store}
+	return NewWithResolver(sys, store, store)
+}
+
+func NewWithResolver(sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver) Plugin {
+	if resolver == nil {
+		resolver = store
+	}
+	return Plugin{system: sys, store: store, resolver: resolver}
 }
 
 func (Plugin) Manifest() pluginhost.Manifest {
@@ -57,7 +66,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	if err != nil {
 		return nil, err
 	}
-	return Plugin{system: p.system, store: p.store, ref: ctx.Ref, cfg: atlassian.NormalizeConfig(cfg)}, nil
+	return Plugin{system: p.system, store: p.store, resolver: p.resolver, ref: ctx.Ref, cfg: atlassian.NormalizeConfig(cfg)}, nil
 }
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
@@ -78,6 +87,56 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) (
 func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]coresecret.AuthMethodSpec, error) {
 	p = p.withRef(ctx.Ref)
 	return atlassian.AuthMethods(Name, p.ref, AtlassianProduct(), p.cfg), nil
+}
+
+func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
+	ref := req.Ref
+	if ref.Name == "" {
+		ref = pluginCtx.Ref
+	}
+	p = p.withRef(ref)
+	cfg := p.cfg
+	if method := strings.TrimSpace(req.Method); method != "" {
+		cfg.Auth.Method = method
+	}
+	resolver := req.Secrets
+	if resolver == nil {
+		resolver = p.resolver
+	}
+	session, err := atlassian.ResolveWithResolver(ctx, p.system, p.store, resolver, Name, p.ref, AtlassianProduct(), cfg)
+	method := firstNonEmpty(session.Method, cfg.Auth.Method)
+	if err != nil {
+		reports <- p.authTestReport(method, "current_user", "failed", err.Error(), nil)
+		return nil
+	}
+	var out struct {
+		AccountID    string `json:"accountId"`
+		DisplayName  string `json:"displayName"`
+		EmailAddress string `json:"emailAddress"`
+	}
+	if _, err := atlassian.DoJSON(ctx, p.system, session, http.MethodGet, "/myself", nil, &out); err != nil {
+		reports <- p.authTestReport(method, "current_user", "failed", err.Error(), nil)
+		return nil
+	}
+	message := firstNonEmpty(out.DisplayName, out.EmailAddress, out.AccountID)
+	reports <- p.authTestReport(method, "current_user", "ok", message, map[string]string{
+		"account_id": out.AccountID,
+		"display":    out.DisplayName,
+		"email":      out.EmailAddress,
+	})
+	return nil
+}
+
+func (p Plugin) authTestReport(method, check, status, message string, details map[string]string) pluginhost.AuthTestReport {
+	return pluginhost.AuthTestReport{
+		Plugin:   Name,
+		Instance: p.ref.InstanceName(),
+		Method:   strings.TrimSpace(method),
+		Check:    strings.TrimSpace(check),
+		Status:   strings.TrimSpace(status),
+		Message:  strings.TrimSpace(message),
+		Details:  details,
+	}
 }
 
 func AtlassianProduct() atlassian.Product {
@@ -101,7 +160,7 @@ func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 }
 
 func (p Plugin) session(ctx context.Context) (atlassian.Session, error) {
-	return atlassian.Resolve(ctx, p.system, p.store, Name, p.ref, AtlassianProduct(), p.cfg)
+	return atlassian.ResolveWithResolver(ctx, p.system, p.store, p.resolver, Name, p.ref, AtlassianProduct(), p.cfg)
 }
 
 func (p Plugin) operationName(suffix string) string {

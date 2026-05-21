@@ -640,7 +640,7 @@ func saveSlackBotToken(t *testing.T, authPath string, ref resource.PluginRef) {
 	store := runtimesecret.NewFileStore(authPath)
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
 		Ref:   slack.BotTokenSecretRef(ref),
-		Value: "xoxb-test",
+		Value: "slack-bot-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}

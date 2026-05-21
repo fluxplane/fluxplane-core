@@ -170,16 +170,17 @@ func (r AuthRequest) SecretRef() Ref {
 // AuthMethodSpec describes a way a plugin can authenticate without carrying
 // credentials.
 type AuthMethodSpec struct {
-	Name        string           `json:"name" yaml:"name"`
-	Method      AuthMethodKind   `json:"method" yaml:"method"`
-	Kind        Kind             `json:"kind" yaml:"kind"`
-	DisplayName string           `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Description string           `json:"description,omitempty" yaml:"description,omitempty"`
-	Secret      Ref              `json:"secret,omitempty" yaml:"secret,omitempty"`
-	Env         EnvSpec          `json:"env,omitempty" yaml:"env,omitempty"`
-	Header      HeaderSpec       `json:"header,omitempty" yaml:"header,omitempty"`
-	OAuth2      OAuth2Spec       `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
-	SetupFields []SetupFieldSpec `json:"setup_fields,omitempty" yaml:"setup_fields,omitempty"`
+	Name        string            `json:"name" yaml:"name"`
+	Method      AuthMethodKind    `json:"method" yaml:"method"`
+	Kind        Kind              `json:"kind" yaml:"kind"`
+	DisplayName string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Secret      Ref               `json:"secret,omitempty" yaml:"secret,omitempty"`
+	Env         EnvSpec           `json:"env,omitempty" yaml:"env,omitempty"`
+	Header      HeaderSpec        `json:"header,omitempty" yaml:"header,omitempty"`
+	OAuth2      OAuth2Spec        `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
+	SetupFields []SetupFieldSpec  `json:"setup_fields,omitempty" yaml:"setup_fields,omitempty"`
 }
 
 // EnvSpec describes an environment-variable backed auth method. Name is the

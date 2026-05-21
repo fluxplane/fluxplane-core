@@ -101,7 +101,7 @@ func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]corese
 	return AuthMethods(p.ref, p.cfg), nil
 }
 
-func (p Plugin) AuthTest(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest) (pluginhost.AuthTestResult, error) {
+func (p Plugin) TestConnection(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest, reports chan<- pluginhost.AuthTestReport) error {
 	ref := req.Ref
 	if ref.Name == "" {
 		ref = pluginCtx.Ref
@@ -112,35 +112,54 @@ func (p Plugin) AuthTest(ctx context.Context, pluginCtx pluginhost.Context, req 
 		cfg.Auth.Method = method
 	}
 	session, err := ResolveWithResolver(ctx, p.system, req.Secrets, p.ref, cfg)
-	result := pluginhost.AuthTestResult{
+	if err != nil {
+		reports <- p.authTestReport(session.Method, "connection", "failed", err.Error(), nil)
+		return nil
+	}
+	method := firstNonEmpty(session.Method, cfg.Auth.Method)
+	p.testSlackAPIToken(ctx, reports, method, BotTokenPurpose, session.BotToken, session.AppToken)
+	p.testSlackAPIToken(ctx, reports, method, UserTokenPurpose, session.UserToken, session.AppToken)
+	if strings.TrimSpace(session.AppToken) != "" {
+		reports <- p.authTestReport(method, AppTokenPurpose, "present", "", nil)
+	}
+	return nil
+}
+
+func (p Plugin) testSlackAPIToken(ctx context.Context, reports chan<- pluginhost.AuthTestReport, method, check, token, appToken string) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return
+	}
+	resp, err := p.newClient(token, appToken).AuthTestContext(ctx)
+	if err != nil {
+		reports <- p.authTestReport(method, check, "failed", err.Error(), nil)
+		return
+	}
+	message := strings.TrimSpace(resp.Team)
+	if user := strings.TrimSpace(resp.UserID); user != "" {
+		if message != "" {
+			message += ", "
+		}
+		message += "user " + user
+	}
+	reports <- p.authTestReport(method, check, "ok", message, map[string]string{
+		"team":    strings.TrimSpace(resp.Team),
+		"team_id": strings.TrimSpace(resp.TeamID),
+		"user_id": strings.TrimSpace(resp.UserID),
+		"bot_id":  strings.TrimSpace(resp.BotID),
+	})
+}
+
+func (p Plugin) authTestReport(method, check, status, message string, details map[string]string) pluginhost.AuthTestReport {
+	return pluginhost.AuthTestReport{
 		Plugin:   Name,
 		Instance: p.ref.InstanceName(),
-		Method:   firstNonEmpty(session.Method, cfg.Auth.Method),
-		Status:   "failed",
+		Method:   strings.TrimSpace(method),
+		Check:    strings.TrimSpace(check),
+		Status:   strings.TrimSpace(status),
+		Message:  strings.TrimSpace(message),
+		Details:  details,
 	}
-	if err != nil {
-		result.Message = err.Error()
-		return result, nil
-	}
-	token := firstNonEmpty(session.UserToken, session.BotToken)
-	if token == "" {
-		result.Message = "slack token is not configured"
-		return result, nil
-	}
-	resp, err := p.newClient(token, session.AppToken).AuthTestContext(ctx)
-	if err != nil {
-		result.Message = err.Error()
-		return result, nil
-	}
-	result.Status = "ok"
-	result.Message = "Slack auth test succeeded"
-	result.Details = map[string]string{
-		"team":              strings.TrimSpace(resp.Team),
-		"team_id":           strings.TrimSpace(resp.TeamID),
-		"user_id":           strings.TrimSpace(resp.UserID),
-		"app_token_present": fmt.Sprintf("%t", session.AppToken != ""),
-	}
-	return result, nil
 }
 
 func (p Plugin) withRef(ref resource.PluginRef) Plugin {

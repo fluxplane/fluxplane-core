@@ -207,10 +207,12 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
 			session, err := slack.Resolve(ctx, sys, store, ref, cfg)
 			if err != nil {
-				return nil, err
+				slog.Warn("slack channel skipped because auth is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "error", err)
+				continue
 			}
 			if session.AppToken == "" {
-				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run coder auth connect --plugin slack --instance %s --method %s --field app_token=<value>", doc.Name, ref.InstanceName(), slack.TokenMethod)
+				slog.Warn("slack channel skipped because app_token is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "hint", fmt.Sprintf("run coder auth connect --plugin slack --instance %s --method %s --field app_token=<value>", ref.InstanceName(), slack.TokenMethod))
+				continue
 			}
 			sessionName := doc.Session
 			if sessionName == "" {

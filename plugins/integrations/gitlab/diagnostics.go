@@ -146,7 +146,7 @@ func diagnosticClient(ctx context.Context, sys system.System, ref resource.Plugi
 		return runtimesecret.Resolution{}, nil, err
 	}
 	options := []gitlab.ClientOptionFunc{
-		gitlab.WithBaseURL(cfg.baseURL()),
+		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
 		gitlab.WithHTTPClient(system.NewHTTPClient(sys.Network())),
 		gitlab.WithoutRetries(),
 	}
@@ -164,7 +164,7 @@ func diagnosticClient(ctx context.Context, sys system.System, ref resource.Plugi
 	if err != nil {
 		return runtimesecret.Resolution{}, nil, err
 	}
-	return auth, client, nil
+	return auth.Resolution, client, nil
 }
 
 func checkCurrentUser(ctx context.Context, client *gitlab.Client) UserCheck {

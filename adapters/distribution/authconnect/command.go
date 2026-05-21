@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/agentruntime/runtime/authstatus"
 	"github.com/fluxplane/agentruntime/runtime/oauth2client"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ type options struct {
 	methods   []string
 	instances []string
 	fields    []string
+	noTest    bool
 	in        io.Reader
 	out       io.Writer
 }
@@ -46,6 +48,15 @@ type target struct {
 	plugin   string
 	instance string
 	method   string
+}
+
+type statusPlan struct {
+	Plugin          pluginhost.Plugin
+	Target          target
+	Methods         []coresecret.AuthMethodSpec
+	Status          authstatus.Status
+	Label           string
+	RequestedMethod string
 }
 
 // NewCommand builds an auth command shared by first-party distributions.
@@ -64,7 +75,6 @@ func NewCommand(cfg CommandOptions) *cobra.Command {
 	cmd.AddCommand(newInfoCommand(&opts, cfg))
 	cmd.AddCommand(newStatusCommand(&opts, cfg))
 	cmd.AddCommand(newConnectCommand(&opts, cfg))
-	cmd.AddCommand(newTestCommand(&opts, cfg))
 	return cmd
 }
 
@@ -83,17 +93,19 @@ func newInfoCommand(opts *options, cfg CommandOptions) *cobra.Command {
 }
 
 func newStatusCommand(opts *options, cfg CommandOptions) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show stored auth readiness",
+		Short: "Show auth readiness and live connectivity",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			o := *opts
 			o.in = cmd.InOrStdin()
 			o.out = cmd.OutOrStdout()
-			return runStatus(cmd.Context(), o, cfg)
+			return runStatusWithOptions(cmd.Context(), o, cfg)
 		},
 	}
+	cmd.Flags().BoolVar(&opts.noTest, "no-test", false, "skip live connectivity checks")
+	return cmd
 }
 
 func newConnectCommand(opts *options, cfg CommandOptions) *cobra.Command {
@@ -110,20 +122,6 @@ func newConnectCommand(opts *options, cfg CommandOptions) *cobra.Command {
 	}
 	cmd.Flags().StringArrayVarP(&opts.fields, "field", "f", nil, "setup/auth field value (key=value, repeatable)")
 	return cmd
-}
-
-func newTestCommand(opts *options, cfg CommandOptions) *cobra.Command {
-	return &cobra.Command{
-		Use:   "test",
-		Short: "Test plugin auth connectivity",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := *opts
-			o.in = cmd.InOrStdin()
-			o.out = cmd.OutOrStdout()
-			return runTest(cmd.Context(), o, cfg)
-		},
-	}
 }
 
 func runInfo(ctx context.Context, opts options, cfg CommandOptions) error {
@@ -147,6 +145,11 @@ func runInfo(ctx context.Context, opts options, cfg CommandOptions) error {
 }
 
 func runStatus(ctx context.Context, opts options, cfg CommandOptions) error {
+	opts.noTest = true
+	return runStatusWithOptions(ctx, opts, cfg)
+}
+
+func runStatusWithOptions(ctx context.Context, opts options, cfg CommandOptions) error {
 	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
 	if err != nil {
 		return err
@@ -155,25 +158,34 @@ func runStatus(ctx context.Context, opts options, cfg CommandOptions) error {
 	if err != nil {
 		return err
 	}
+	resolver := runtimesecret.ChainResolver{
+		runtimesecret.NewFileStore(opts.authPath),
+		runtimesecret.EnvResolver{Environment: osEnvironment{}},
+	}
+	plans, maxLabel, err := statusPlans(ctx, plugins, targets, resolver)
+	if err != nil {
+		return err
+	}
 	out := writerOr(opts.out, os.Stdout)
-	store := runtimesecret.NewFileStore(opts.authPath)
-	now := time.Now().UTC()
-	for _, target := range targets {
-		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
-		if err != nil {
-			return err
-		}
-		methods, err = filterMethods(methods, target.method)
-		if err != nil {
-			return err
-		}
-		for _, method := range methods {
-			status := methodStatus(ctx, store, target.ref(), method, now)
-			_, _ = fmt.Fprintf(out, "%s/%s %s: %s", target.plugin, target.instance, method.Name, status.Status)
-			if status.Message != "" {
-				_, _ = fmt.Fprintf(out, " (%s)", status.Message)
-			}
+	renderer := newStatusRenderer(out)
+	renderer.printStoreInfo(out, opts.authPath)
+	for i, plan := range plans {
+		if i > 0 {
 			_, _ = fmt.Fprintln(out)
+		}
+		method := selectedMethod(plan.Methods, plan.Status)
+		renderer.printStatusRow(out, maxLabel, plan.Label, plan.Status)
+		renderer.printResolvedFields(out, ctx, resolver, plan.Target.ref(), method)
+		renderer.printMissingFields(out, plan.Status.Fields, method.SetupFields)
+		if opts.noTest {
+			continue
+		}
+		if !plan.Status.Connected {
+			continue
+		}
+		renderer.printSection(out, "checks")
+		if err := runConnectivityTest(ctx, out, resolver, plan, renderer); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -212,62 +224,6 @@ func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
 		default:
 			return fmt.Errorf("auth connect %s: auth method %q is not supported by this command", target.plugin, method.Method)
 		}
-	}
-	return nil
-}
-
-func runTest(ctx context.Context, opts options, cfg CommandOptions) error {
-	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
-	if err != nil {
-		return err
-	}
-	targets, err := targetsFor(opts, plugins, false)
-	if err != nil {
-		return err
-	}
-	out := writerOr(opts.out, os.Stdout)
-	resolver := runtimesecret.ChainResolver{
-		runtimesecret.NewFileStore(opts.authPath),
-		runtimesecret.EnvResolver{Environment: osEnvironment{}},
-	}
-	for _, target := range targets {
-		plugin := plugins[target.plugin]
-		methods, err := methodsFor(ctx, plugin, target.ref())
-		if err != nil {
-			return err
-		}
-		method, err := selectMethod(methods, target.method, readerOr(opts.in, os.Stdin), out)
-		if err != nil {
-			return err
-		}
-		tester, ok := plugin.(pluginhost.AuthTestContributor)
-		if !ok {
-			return fmt.Errorf("auth test %s: plugin does not support auth testing", target.plugin)
-		}
-		pluginCtx := pluginhost.Context{Ref: target.ref()}
-		pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
-		if err != nil {
-			return err
-		}
-		if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
-			plugin, err = factory.Instantiate(ctx, pluginCtx)
-			if err != nil {
-				return err
-			}
-			tester, ok = plugin.(pluginhost.AuthTestContributor)
-			if !ok {
-				return fmt.Errorf("auth test %s: plugin does not support auth testing", target.plugin)
-			}
-		}
-		result, err := tester.AuthTest(ctx, pluginCtx, pluginhost.AuthTestRequest{Ref: target.ref(), Method: method.Name, Secrets: resolver})
-		if err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(out, "%s/%s %s: %s", target.plugin, target.instance, method.Name, result.Status)
-		if result.Message != "" {
-			_, _ = fmt.Fprintf(out, " (%s)", result.Message)
-		}
-		_, _ = fmt.Fprintln(out)
 	}
 	return nil
 }
@@ -419,6 +375,12 @@ func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.R
 			return method, nil
 		}
 	}
+	for _, method := range methods {
+		friendly := strings.ToLower(strings.TrimSpace(authstatus.FriendlyMethodName(method)))
+		if requested != "" && requested == friendly {
+			return method, nil
+		}
+	}
 	if requested != "" {
 		return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", requested)
 	}
@@ -459,6 +421,89 @@ func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]cor
 		return nil, err
 	}
 	return []coresecret.AuthMethodSpec{method}, nil
+}
+
+func statusPlans(ctx context.Context, plugins map[string]pluginhost.Plugin, targets []target, resolver runtimesecret.Resolver) ([]statusPlan, int, error) {
+	plans := make([]statusPlan, 0, len(targets))
+	maxLabel := 0
+	for _, target := range targets {
+		plugin := plugins[target.plugin]
+		methods, err := methodsFor(ctx, plugin, target.ref())
+		if err != nil {
+			return nil, 0, err
+		}
+		methods, err = filterMethods(methods, target.method)
+		if err != nil {
+			return nil, 0, err
+		}
+		status := authstatus.Evaluate(ctx, resolver, authstatus.Target{Ref: target.ref(), Methods: methods})
+		label := target.label()
+		if len(label) > maxLabel {
+			maxLabel = len(label)
+		}
+		requestedMethod := strings.TrimSpace(target.method)
+		if requestedMethod == "" {
+			requestedMethod = strings.TrimSpace(status.MethodID)
+		}
+		plans = append(plans, statusPlan{
+			Plugin:          plugin,
+			Target:          target,
+			Methods:         methods,
+			Status:          status,
+			Label:           label,
+			RequestedMethod: requestedMethod,
+		})
+	}
+	return plans, maxLabel, nil
+}
+
+func runConnectivityTest(ctx context.Context, out io.Writer, resolver runtimesecret.Resolver, plan statusPlan, renderer statusRenderer) error {
+	tester, ok := plan.Plugin.(pluginhost.AuthTestContributor)
+	if !ok {
+		renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
+		return nil
+	}
+	plugin := plan.Plugin
+	pluginCtx := pluginhost.Context{Ref: plan.Target.ref()}
+	var err error
+	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+	if err != nil {
+		return err
+	}
+	if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
+		plugin, err = factory.Instantiate(ctx, pluginCtx)
+		if err != nil {
+			return err
+		}
+		tester, ok = plugin.(pluginhost.AuthTestContributor)
+		if !ok {
+			renderer.printTestReport(out, pluginhost.AuthTestReport{Method: plan.RequestedMethod, Check: "connection", Status: "skipped", Message: "plugin does not support auth testing"})
+			return nil
+		}
+	}
+	reports := make(chan pluginhost.AuthTestReport)
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- tester.TestConnection(ctx, pluginCtx, pluginhost.AuthTestRequest{Ref: plan.Target.ref(), Method: plan.RequestedMethod, Secrets: resolver}, reports)
+		close(reports)
+	}()
+	for report := range reports {
+		renderer.printTestReport(out, report)
+	}
+	return <-runErr
+}
+
+func selectedMethod(methods []coresecret.AuthMethodSpec, status authstatus.Status) coresecret.AuthMethodSpec {
+	id := strings.TrimSpace(status.MethodID)
+	for _, method := range methods {
+		if strings.TrimSpace(method.Name) == id {
+			return method
+		}
+	}
+	if len(methods) == 1 {
+		return methods[0]
+	}
+	return coresecret.AuthMethodSpec{}
 }
 
 func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]string, error) {
@@ -543,6 +588,12 @@ func printNativeInfo(out io.Writer, ref resource.PluginRef, methods []coresecret
 			label = name + " - " + label
 		}
 		_, _ = fmt.Fprintf(out, "  %s (%s)\n", firstNonEmpty(label, name), method.Method)
+		for _, line := range methodMetadataLines(method.Metadata) {
+			_, _ = fmt.Fprintf(out, "    %s\n", line)
+		}
+		if strings.TrimSpace(method.Description) != "" {
+			_, _ = fmt.Fprintf(out, "    %s\n", strings.TrimSpace(method.Description))
+		}
 		for _, field := range method.SetupFields {
 			req := ""
 			if field.Required {
@@ -561,6 +612,24 @@ func printNativeInfo(out io.Writer, ref resource.PluginRef, methods []coresecret
 	}
 }
 
+func methodMetadataLines(metadata map[string]string) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(metadata[key]) != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, strings.TrimSpace(key)+"="+strings.TrimSpace(metadata[key]))
+	}
+	return lines
+}
+
 func printEnvInstructions(out io.Writer, provider string, method coresecret.AuthMethodSpec) {
 	envs := append([]string{method.Env.Name}, method.Env.Aliases...)
 	envs = nonEmpty(envs)
@@ -569,6 +638,289 @@ func printEnvInstructions(out io.Writer, provider string, method coresecret.Auth
 		return
 	}
 	_, _ = fmt.Fprintf(out, "%s token auth resolves an environment variable at runtime. Set one of: %s\n", provider, strings.Join(envs, ", "))
+}
+
+type statusRenderer struct {
+	color bool
+}
+
+func newStatusRenderer(out io.Writer) statusRenderer {
+	file, ok := out.(*os.File)
+	color := ok && term.IsTerminal(int(file.Fd())) && strings.TrimSpace(os.Getenv("NO_COLOR")) == "" && strings.TrimSpace(os.Getenv("TERM")) != "dumb"
+	return statusRenderer{color: color}
+}
+
+func (r statusRenderer) printStoreInfo(out io.Writer, authPath string) {
+	store := runtimesecret.NewFileStore(authPath)
+	_, _ = fmt.Fprintln(out, r.bold("Auth"))
+	_, _ = fmt.Fprintf(out, "  %-8s %-11s %s\n", r.muted("Store"), "file", store.Dir)
+	_, _ = fmt.Fprintf(out, "  %-8s %s\n", r.muted("Sources"), "file store, environment")
+	_, _ = fmt.Fprintln(out)
+}
+
+func (r statusRenderer) printStatusRow(out io.Writer, maxLabel int, label string, status authstatus.Status) {
+	marker := r.muted("-")
+	if status.Connected {
+		marker = r.green("✓")
+	}
+	method := strings.TrimSpace(status.Method)
+	if method == "" {
+		method = "-"
+	}
+	_, _ = fmt.Fprintf(out, "%s %s %s\n", strings.TrimSpace(label), r.muted("["+method+"]"), marker)
+}
+
+func (r statusRenderer) printSection(out io.Writer, label string) {
+	_, _ = fmt.Fprintf(out, "  %s\n", r.muted(strings.TrimSpace(label)))
+}
+
+func (r statusRenderer) printResolvedFields(out io.Writer, ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) {
+	if strings.TrimSpace(method.Name) == "" {
+		return
+	}
+	fields := resolvedFieldValues(ctx, resolver, ref, method)
+	if len(fields) == 0 {
+		return
+	}
+	printed := false
+	for _, field := range fields {
+		if !field.Set {
+			continue
+		}
+		if !printed {
+			r.printSection(out, "fields")
+			printed = true
+		}
+		if envTargetName(field) != "" && field.SourceEnv && strings.TrimSpace(field.Source) != "" {
+			_, _ = fmt.Fprintf(out, "    %-12s %s\n", field.Name, field.Source)
+			value := field.Value
+			if field.Sensitive {
+				value = r.red(r.bold(redact(value)))
+			}
+			_, _ = fmt.Fprintf(out, "    %-12s %s\n", envTargetName(field), value)
+			continue
+		}
+		value := field.Value
+		if field.Sensitive {
+			value = r.red(r.bold(redact(value)))
+		}
+		_, _ = fmt.Fprintf(out, "    %-12s %s\n", field.Name, value)
+	}
+}
+
+func (r statusRenderer) printMissingFields(out io.Writer, fields []authstatus.FieldStatus, specs []coresecret.SetupFieldSpec) {
+	missing := missingRequiredFields(fields, specs)
+	if len(missing) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  %-8s %s\n", r.muted("missing"), strings.Join(missing, ", "))
+}
+
+func (r statusRenderer) printTestReport(out io.Writer, report pluginhost.AuthTestReport) {
+	check := strings.TrimSpace(report.Check)
+	if check == "" {
+		check = strings.TrimSpace(report.Method)
+	}
+	if check == "" {
+		check = "connection"
+	}
+	status := strings.TrimSpace(report.Status)
+	statusCell := status
+	switch strings.ToLower(status) {
+	case "ok", "passed", "success":
+		statusCell = r.green(status)
+	case "failed", "error":
+		statusCell = r.red(status)
+	case "skipped":
+		statusCell = r.muted(status)
+	}
+	_, _ = fmt.Fprintf(out, "    %-12s %s", check, statusCell)
+	if strings.TrimSpace(report.Message) != "" {
+		_, _ = fmt.Fprintf(out, " (%s)", strings.TrimSpace(report.Message))
+	}
+	_, _ = fmt.Fprintln(out)
+}
+
+func (r statusRenderer) green(value string) string {
+	return r.ansi(value, "32")
+}
+
+func (r statusRenderer) yellow(value string) string {
+	return r.ansi(value, "33")
+}
+
+func (r statusRenderer) red(value string) string {
+	return r.ansi(value, "31")
+}
+
+func (r statusRenderer) muted(value string) string {
+	return r.ansi(value, "2")
+}
+
+func (r statusRenderer) bold(value string) string {
+	return r.ansi(value, "1")
+}
+
+func (r statusRenderer) ansi(value, code string) string {
+	if !r.color || strings.TrimSpace(value) == "" {
+		return value
+	}
+	return "\x1b[" + code + "m" + value + "\x1b[0m"
+}
+
+type resolvedField struct {
+	Name      string
+	Value     string
+	Source    string
+	SourceEnv bool
+	Set       bool
+	Sensitive bool
+}
+
+func resolvedFieldValues(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec) []resolvedField {
+	var out []resolvedField
+	if resolver == nil {
+		return out
+	}
+	for _, spec := range method.SetupFields {
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			continue
+		}
+		value, source, sourceEnv, set := resolveDisplayField(ctx, resolver, ref, method, spec)
+		out = append(out, resolvedField{Name: name, Value: value, Source: source, SourceEnv: sourceEnv, Set: set, Sensitive: spec.Sensitive || sensitiveFieldName(name)})
+	}
+	if len(method.SetupFields) == 0 {
+		for _, candidate := range refsForDisplayMethod(method) {
+			material, ok, err := resolver.ResolveSecret(ctx, candidate)
+			if err == nil && ok && strings.TrimSpace(material.Value) != "" {
+				out = append(out, resolvedField{Name: displayRefName(candidate), Value: material.Value, Set: true, Sensitive: true})
+				break
+			}
+		}
+	}
+	return out
+}
+
+func resolveDisplayField(ctx context.Context, resolver runtimesecret.Resolver, ref resource.PluginRef, method coresecret.AuthMethodSpec, spec coresecret.SetupFieldSpec) (string, string, bool, bool) {
+	name := strings.TrimSpace(spec.Name)
+	refs := []coresecret.Ref{coresecret.Plugin(ref.Name, ref.InstanceName(), name)}
+	refs = append(refs, envRefs(spec.Env)...)
+	for _, candidate := range refs {
+		material, ok, err := resolver.ResolveSecret(ctx, candidate)
+		if err == nil && ok && strings.TrimSpace(material.Value) != "" {
+			candidate = candidate.Normalize()
+			return strings.TrimSpace(material.Value), displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+		}
+	}
+	if method.Method != coresecret.AuthMethodEnv || name != strings.TrimSpace(method.Name) {
+		return "", "", false, false
+	}
+	for _, candidate := range envRefs(method.Env) {
+		material, ok, err := resolver.ResolveSecret(ctx, candidate)
+		if err == nil && ok && strings.TrimSpace(material.Value) != "" {
+			candidate = candidate.Normalize()
+			return strings.TrimSpace(material.Value), displayRefName(candidate), candidate.Scheme == coresecret.SchemeEnv, true
+		}
+	}
+	return "", "", false, false
+}
+
+func refsForDisplayMethod(method coresecret.AuthMethodSpec) []coresecret.Ref {
+	switch method.Method {
+	case coresecret.AuthMethodEnv:
+		return envRefs(method.Env)
+	case coresecret.AuthMethodOAuth2, coresecret.AuthMethodStored:
+		ref := method.Secret.Normalize()
+		if ref.ResourceName() == "" {
+			return nil
+		}
+		return []coresecret.Ref{ref}
+	default:
+		return nil
+	}
+}
+
+func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
+	names := append([]string{spec.Name}, spec.Aliases...)
+	refs := make([]coresecret.Ref, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		refs = append(refs, coresecret.Env(name))
+	}
+	return refs
+}
+
+func displayRefName(ref coresecret.Ref) string {
+	ref = ref.Normalize()
+	if ref.Name != "" {
+		return ref.Name
+	}
+	return ref.ResourceName()
+}
+
+func redact(value string) string {
+	return "<redacted>"
+}
+
+func sensitiveFieldName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return strings.Contains(name, "token") || strings.Contains(name, "secret") || strings.Contains(name, "password") || strings.Contains(name, "key")
+}
+
+func envTargetName(field resolvedField) string {
+	name := strings.TrimSpace(field.Name)
+	base := strings.TrimSuffix(name, "_env")
+	if base == name || base == "" {
+		return ""
+	}
+	return base
+}
+
+func missingRequiredFields(fields []authstatus.FieldStatus, specs []coresecret.SetupFieldSpec) []string {
+	if len(fields) == 0 || len(specs) == 0 {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, field := range fields {
+		name := strings.TrimSpace(field.Name)
+		if name != "" {
+			set[name] = field.Set
+		}
+	}
+	missing := make([]string, 0)
+	groupFields := map[string][]string{}
+	groupSet := map[string]bool{}
+	for _, spec := range specs {
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			continue
+		}
+		if spec.Required && !set[name] {
+			missing = append(missing, name)
+		}
+		if group := strings.TrimSpace(spec.RequiredGroup); group != "" {
+			groupFields[group] = append(groupFields[group], name)
+			groupSet[group] = groupSet[group] || set[name]
+		}
+	}
+	groups := make([]string, 0, len(groupFields))
+	for group := range groupFields {
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
+	for _, group := range groups {
+		if groupSet[group] {
+			continue
+		}
+		missing = append(missing, strings.Join(groupFields[group], " or "))
+	}
+	return missing
 }
 
 type authStatus struct {
@@ -739,6 +1091,13 @@ func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll b
 
 func (t target) ref() resource.PluginRef {
 	return resource.PluginRef{Name: t.plugin, Instance: t.instance}
+}
+
+func (t target) label() string {
+	if strings.TrimSpace(t.instance) == "" || strings.TrimSpace(t.instance) == strings.TrimSpace(t.plugin) {
+		return strings.TrimSpace(t.plugin)
+	}
+	return strings.TrimSpace(t.plugin) + "/" + strings.TrimSpace(t.instance)
 }
 
 func nativePlugins(ctx context.Context, registry PluginRegistry) ([]pluginhost.Plugin, error) {

@@ -121,7 +121,7 @@ type AuthMethodContributor interface {
 // AuthTestContributor is implemented by plugins that can perform a live
 // credential connectivity check for host-level auth test commands.
 type AuthTestContributor interface {
-	AuthTest(context.Context, Context, AuthTestRequest) (AuthTestResult, error)
+	TestConnection(context.Context, Context, AuthTestRequest, chan<- AuthTestReport) error
 }
 
 // ExternalIdentityContributor is implemented by plugins that can link a
@@ -210,11 +210,12 @@ type AuthTestRequest struct {
 	Secrets runtimesecret.Resolver
 }
 
-// AuthTestResult describes the outcome of one live credential check.
-type AuthTestResult struct {
+// AuthTestReport describes the outcome of one live credential check.
+type AuthTestReport struct {
 	Plugin   string            `json:"plugin"`
 	Instance string            `json:"instance,omitempty"`
 	Method   string            `json:"method,omitempty"`
+	Check    string            `json:"check,omitempty"`
 	Status   string            `json:"status"`
 	Message  string            `json:"message,omitempty"`
 	Details  map[string]string `json:"details,omitempty"`

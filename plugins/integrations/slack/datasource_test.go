@@ -37,7 +37,7 @@ func TestListChannelsSkipsConversationTypesMissingScope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	channels, err := listChannels(context.Background(), slack.New("xoxb-test", slack.OptionAPIURL(server.URL+"/")), 20)
+	channels, err := listChannels(context.Background(), slack.New("slack-bot-token", slack.OptionAPIURL(server.URL+"/")), 20)
 	if err != nil {
 		t.Fatalf("listChannels: %v", err)
 	}

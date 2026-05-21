@@ -27,6 +27,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/policy"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
 	"github.com/fluxplane/agentruntime/orchestration/app"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -59,7 +60,9 @@ import (
 	"github.com/fluxplane/agentruntime/plugins/native/workspace"
 	"github.com/fluxplane/agentruntime/plugins/support/connector"
 	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
+	"github.com/fluxplane/agentruntime/runtime/authstatus"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
 	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
@@ -391,13 +394,20 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
 	identityResolver := launchIdentityResolver(ctx, runtimeSystem, opts.AuthPath, opts.Launch.Channels, bundles)
+	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, runtimeSystem, opts.AuthPath)
+	if err != nil {
+		closeRuntime()
+		return Runtime{}, err
+	}
 	composition, err := app.Compose(app.Config{
-		Context:          ctx,
-		Bundles:          bundles,
-		Plugins:          plugins,
-		BundleTransforms: bundleTransforms,
-		EventStore:       eventStore,
-		DataStore:        dataStore,
+		Context:              ctx,
+		Bundles:              bundles,
+		Plugins:              plugins,
+		BundleTransforms:     bundleTransforms,
+		EnvironmentObservers: authObservers,
+		AssertionDerivers:    authDerivers,
+		EventStore:           eventStore,
+		DataStore:            dataStore,
 		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyEnvelope{
 			Sandbox:                   localSandbox{Root: root},
 			ACL:                       localACL{},
@@ -531,18 +541,19 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 }
 
 func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string) []pluginhost.Plugin {
-	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
+	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
+	nativeResolver := nativeAuthResolver(hostSystem, nativeStore)
 	return []pluginhost.Plugin{
 		workspace.New(hostSystem),
 		discovery.New(),
 		identity.New(),
 		coding.New(hostSystem),
 		openai.New(),
-		slack.NewWithDispatcher(hostSystem, dispatcher, slackStore),
+		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
 		gitlab.New(hostSystem),
 		image.New(hostSystem),
-		jira.New(hostSystem),
-		confluence.New(hostSystem),
+		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
+		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		kubernetes.New(hostSystem),
 		loki.New(hostSystem),
 		mysql.New(),
@@ -555,15 +566,27 @@ func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, ta
 	}
 }
 
+func nativeAuthResolver(sys system.System, store runtimesecret.FileStore) runtimesecret.Resolver {
+	resolver := runtimesecret.ChainResolver{store}
+	if sys != nil && sys.Environment() != nil {
+		resolver = append(resolver, runtimesecret.EnvResolver{Environment: sys.Environment()})
+	}
+	return resolver
+}
+
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
 // for distribution-level connect commands.
 func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
+	hostSystem, err := system.NewHost(system.Config{AllowPrivateNetwork: true})
+	if err != nil {
+		return nil, err
+	}
 	return []pluginhost.Plugin{
 		openai.New(),
 		slack.New(nil),
-		gitlab.New(nil),
-		jira.New(nil),
-		confluence.New(nil),
+		gitlab.New(hostSystem),
+		jira.New(hostSystem),
+		confluence.New(hostSystem),
 	}, nil
 }
 
@@ -663,6 +686,72 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 		plugins = append(plugins, plugin)
 	}
 	return plugins, nil
+}
+
+func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, sys system.System, authPath string) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
+	targets, err := authTargets(ctx, bundles, plugins)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil, nil
+	}
+	var env runtimesecret.Resolver
+	if sys != nil && sys.Environment() != nil {
+		env = runtimesecret.EnvResolver{Environment: sys.Environment()}
+	}
+	resolver := runtimesecret.ChainResolver{
+		runtimesecret.NewFileStore(nativeAuthPath(authPath)),
+		env,
+	}
+	return []runtimeevidence.Observer{authstatus.NewObserver(targets, resolver)}, []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()}, nil
+}
+
+func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]authstatus.Target, error) {
+	byName := map[string]pluginhost.Plugin{}
+	for _, plugin := range plugins {
+		if plugin == nil {
+			continue
+		}
+		byName[strings.TrimSpace(plugin.Manifest().Name)] = plugin
+	}
+	refs := pluginRefs(bundles)
+	out := make([]authstatus.Target, 0, len(refs))
+	for _, ref := range refs {
+		plugin := byName[ref.Name]
+		if plugin == nil {
+			continue
+		}
+		methods, err := authMethodsForRef(ctx, plugin, ref)
+		if err != nil {
+			return nil, err
+		}
+		if len(methods) == 0 {
+			continue
+		}
+		out = append(out, authstatus.Target{Ref: ref, Methods: methods})
+	}
+	return out, nil
+}
+
+func authMethodsForRef(ctx context.Context, plugin pluginhost.Plugin, ref resource.PluginRef) ([]coresecret.AuthMethodSpec, error) {
+	pluginCtx := pluginhost.Context{Ref: ref}
+	var err error
+	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+	if err != nil {
+		return nil, err
+	}
+	if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
+		plugin, err = factory.Instantiate(ctx, pluginCtx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	contributor, ok := plugin.(pluginhost.AuthMethodContributor)
+	if !ok {
+		return nil, nil
+	}
+	return contributor.AuthMethods(ctx, pluginCtx)
 }
 
 func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connector.Instance, error) {

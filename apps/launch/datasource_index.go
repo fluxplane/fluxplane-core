@@ -144,12 +144,13 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 
 func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
 	dispatcher := slack.NewDispatcher()
-	slackStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
+	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
+	nativeResolver := nativeAuthResolver(hostSystem, nativeStore)
 	return []pluginhost.Plugin{
-		slack.NewWithDispatcher(hostSystem, dispatcher, slackStore),
+		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
 		gitlab.New(hostSystem),
-		jira.New(hostSystem),
-		confluence.New(hostSystem),
+		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
+		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		task.New(),
 		skills.New(),
 		text.New(),

@@ -164,8 +164,8 @@ func TestBundleComposes(t *testing.T) {
 	if !agentHasDatasource(composition.AgentSpecs[0], kubernetes.Name) {
 		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, kubernetes.Name)
 	}
-	if !agentHasDatasource(composition.AgentSpecs[0], gitlab.Name) {
-		t.Fatalf("coder agent datasources = %#v, want %s", composition.AgentSpecs[0].Datasources, gitlab.Name)
+	if agentHasDatasource(composition.AgentSpecs[0], gitlab.Name) {
+		t.Fatalf("coder agent datasources = %#v, want %s activated by auth evidence", composition.AgentSpecs[0].Datasources, gitlab.Name)
 	}
 	if !hasDatasourceSpec(composition.DatasourceSpecs, "web_search", "web_search") {
 		t.Fatalf("datasource specs = %#v, want web_search", composition.DatasourceSpecs)

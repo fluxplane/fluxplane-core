@@ -27,6 +27,12 @@ const (
 
 	AccessTokenPurpose = "access_token"
 
+	apiTokenField = "token"
+	apiEmailField = "email"
+	cloudIDField  = "cloud_id"
+	siteURLField  = "site_url"
+	baseURLField  = "base_url"
+
 	atlassianAuthorizeURL = "https://auth.atlassian.com/authorize"
 	atlassianTokenURL     = "https://auth.atlassian.com/oauth/token"
 	accessibleResources   = "https://api.atlassian.com/oauth/token/accessible-resources"
@@ -93,8 +99,11 @@ func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg
 	cfg = NormalizeConfig(cfg)
 	method := cfg.Auth.Method
 	var out []coresecret.AuthMethodSpec
-	if method == "" || method == TokenMethod || method == "bearer" || method == "env" || isAPITokenMethod(method) {
+	if method == "" || method == TokenMethod || method == "bearer" || method == "env" {
 		out = append(out, tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv))
+	}
+	if method == "" || isAPITokenMethod(method) {
+		out = append(out, apiTokenAuthMethod(pluginName, ref, product, cfg))
 	}
 	if method == "" || method == OAuth2Method {
 		out = append(out, oauth2AuthMethod(pluginName, ref, product))
@@ -103,19 +112,44 @@ func AuthMethods(pluginName string, ref resource.PluginRef, product Product, cfg
 }
 
 func Resolve(ctx context.Context, sys system.System, store runtimesecret.FileStore, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+	return resolve(ctx, sys, store, store, pluginName, ref, product, cfg)
+}
+
+func ResolveWithResolver(ctx context.Context, sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+	if resolver == nil {
+		resolver = store
+	}
+	return resolve(ctx, sys, store, resolver, pluginName, ref, product, cfg)
+}
+
+func resolve(ctx context.Context, sys system.System, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	cfg = NormalizeConfig(cfg)
 	if sys == nil {
 		return Session{}, fmt.Errorf("atlassianplugin: system is nil")
 	}
 	method := cfg.Auth.Method
 	switch method {
-	case "", OAuth2Method:
+	case "":
+		if session, ok, err := resolveAPIToken(ctx, store, resolver, pluginName, ref, product, cfg, false); err != nil || ok {
+			return session, err
+		}
+		if session, ok, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, false); err != nil || ok {
+			return session, err
+		}
+		if session, ok, err := resolveOAuth(ctx, sys, store, pluginName, ref, product, cfg); err != nil || ok {
+			return session, err
+		}
+		return Session{}, fmt.Errorf("atlassianplugin: auth token is not configured; set api token fields or one of %s", strings.Join(TokenEnvAliases(product), ", "))
+	case OAuth2Method:
 		if session, ok, err := resolveOAuth(ctx, sys, store, pluginName, ref, product, cfg); err != nil || ok || method == OAuth2Method {
 			return session, err
 		}
-		return resolveToken(ctx, sys, pluginName, ref, product, cfg)
-	case TokenMethod, "bearer", "env", APITokenMethod, "api-token", "basic":
-		return resolveToken(ctx, sys, pluginName, ref, product, cfg)
+		return Session{}, fmt.Errorf("atlassianplugin: oauth2 auth secret is not configured for instance %s", ref.InstanceName())
+	case TokenMethod, "bearer", "env":
+		return resolveTokenWithResolver(ctx, sys, resolver, pluginName, ref, product, cfg)
+	case APITokenMethod, "api-token", "basic":
+		session, _, err := resolveAPIToken(ctx, store, resolver, pluginName, ref, product, cfg, true)
+		return session, err
 	default:
 		return Session{}, fmt.Errorf("atlassianplugin: unsupported auth method %q", method)
 	}
@@ -304,10 +338,19 @@ func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.Fi
 }
 
 func resolveToken(ctx context.Context, sys system.System, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	if sys.Environment() == nil {
-		return Session{}, fmt.Errorf("atlassianplugin: system environment is nil")
+	return resolveTokenWithResolver(ctx, sys, nil, pluginName, ref, product, cfg)
+}
+
+func resolveTokenWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
+	session, _, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, true)
+	return session, err
+}
+
+func resolveBearerToken(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+	if resolver == nil {
+		return Session{}, false, fmt.Errorf("atlassianplugin: secret resolver is nil")
 	}
-	broker := runtimesecret.NewBroker(runtimesecret.EnvResolver{Environment: sys.Environment(), Kind: coresecret.KindBearerToken})
+	broker := runtimesecret.NewBroker(resolver)
 	methods := []coresecret.AuthMethodSpec{tokenAuthMethod(product, cfg.Auth.TokenEnv, cfg.Auth.EmailEnv)}
 	resolution, ok, err := broker.UseAvailable(ctx, coresecret.AuthRequest{
 		Plugin:   pluginName,
@@ -316,45 +359,100 @@ func resolveToken(ctx context.Context, sys system.System, pluginName string, ref
 		Methods:  methods,
 	})
 	if err != nil {
-		return Session{}, fmt.Errorf("atlassianplugin: use token auth secret: %w", err)
+		return Session{}, false, fmt.Errorf("atlassianplugin: use token auth secret: %w", err)
 	}
 	if !ok || strings.TrimSpace(resolution.Material.Value) == "" {
-		if cfg.Auth.TokenEnv == "" {
-			return Session{}, fmt.Errorf("atlassianplugin: auth token is not configured; set auth.token_env to one of %s", strings.Join(TokenEnvAliases(product), ", "))
+		if !required {
+			return Session{}, false, nil
 		}
-		return Session{}, fmt.Errorf("atlassianplugin: auth token is not configured; set %s", cfg.Auth.TokenEnv)
+		if cfg.Auth.TokenEnv == "" {
+			return Session{}, false, fmt.Errorf("atlassianplugin: auth token is not configured; set auth.token_env to one of %s", strings.Join(BearerTokenEnvAliases(product), ", "))
+		}
+		return Session{}, false, fmt.Errorf("atlassianplugin: auth token is not configured; set %s", cfg.Auth.TokenEnv)
 	}
 	token := strings.TrimSpace(resolution.Material.Value)
-	if shouldUseBasicTokenAuth(cfg) {
-		email, err := resolveAPIEmail(ctx, sys, product, cfg)
-		if err != nil {
-			return Session{}, err
-		}
-		baseURL := firstNonEmpty(cfg.BaseURL, SiteBaseURL(product, cfg.SiteURL))
-		if baseURL == "" {
-			return Session{}, fmt.Errorf("atlassianplugin: site_url or base_url is required for %s API token auth", product.DisplayName)
-		}
-		return Session{
-			Token:         token,
-			Authorization: basicAuthorization(email, token),
-			CloudID:       cfg.CloudID,
-			SiteURL:       cfg.SiteURL,
-			BaseURL:       strings.TrimRight(baseURL, "/"),
-			Method:        "basic",
-		}, nil
+	cloudID, siteURL, baseURL, err := resolveSiteLocatorFields(ctx, resolver, pluginName, ref, methods[0], cfg)
+	if err != nil {
+		return Session{}, false, err
 	}
+	sessionCfg := cfg
+	sessionCfg.CloudID = cloudID
+	sessionCfg.SiteURL = siteURL
+	sessionCfg.BaseURL = baseURL
 	session := Session{
 		Token:   token,
-		CloudID: cfg.CloudID,
-		SiteURL: cfg.SiteURL,
-		BaseURL: firstNonEmpty(cfg.BaseURL, BaseURL(product, cfg.CloudID)),
+		CloudID: cloudID,
+		SiteURL: siteURL,
+		BaseURL: bearerBaseURLFromConfig(product, sessionCfg),
 		Method:  TokenMethod,
 	}
-	if session.BaseURL == "" || strings.Contains(session.BaseURL, "//rest/") {
-		return Session{}, fmt.Errorf("atlassianplugin: cloud_id or base_url is required for %s token auth", product.DisplayName)
+	if session.BaseURL == "" {
+		return Session{}, true, fmt.Errorf("atlassianplugin: cloud_id or base_url is required for %s token auth", product.DisplayName)
 	}
 	session = discoverTokenSiteURL(ctx, sys, product, session)
-	return session, nil
+	return session, true, nil
+}
+
+func resolveAPIToken(ctx context.Context, store runtimesecret.FileStore, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config, required bool) (Session, bool, error) {
+	method := apiTokenAuthMethod(pluginName, ref, product, cfg)
+	if resolver == nil {
+		resolver = store
+	}
+	broker := runtimesecret.NewBroker(resolver)
+	if _, _, err := broker.Use(ctx, coresecret.AuthRequest{Plugin: pluginName, Instance: ref.InstanceName(), Purpose: AccessTokenPurpose}.SecretRef()); err != nil {
+		return Session{}, false, fmt.Errorf("atlassianplugin: use api token auth secret: %w", err)
+	}
+	token, ok, err := resolveSetupField(ctx, resolver, pluginName, ref, method, apiTokenField)
+	if err != nil {
+		return Session{}, false, err
+	}
+	email := strings.TrimSpace(cfg.Auth.Email)
+	if email == "" {
+		email, ok, err = resolveSetupField(ctx, resolver, pluginName, ref, method, apiEmailField)
+		if err != nil {
+			return Session{}, false, err
+		}
+		if !ok {
+			email = ""
+		}
+	}
+	token = strings.TrimSpace(token)
+	email = strings.TrimSpace(email)
+	cloudID, siteURL, baseURL, err := resolveSiteLocatorFields(ctx, resolver, pluginName, ref, method, cfg)
+	if err != nil {
+		return Session{}, false, err
+	}
+	if token == "" || email == "" {
+		if !required {
+			return Session{}, false, nil
+		}
+		if token == "" && email == "" {
+			return Session{}, false, fmt.Errorf("atlassianplugin: api token auth is not configured; set fields %q and %q", apiEmailField, apiTokenField)
+		}
+		if token == "" {
+			return Session{}, false, fmt.Errorf("atlassianplugin: api token is not configured; set field %q or one of %s", apiTokenField, strings.Join(TokenEnvAliases(product), ", "))
+		}
+		return Session{}, false, fmt.Errorf("atlassianplugin: account email is not configured; set field %q, auth.email, auth.email_env, or one of %s", apiEmailField, strings.Join(EmailEnvAliases(product), ", "))
+	}
+	sessionCfg := cfg
+	sessionCfg.CloudID = cloudID
+	sessionCfg.SiteURL = siteURL
+	sessionCfg.BaseURL = baseURL
+	baseURL = apiTokenBaseURLFromConfig(product, sessionCfg)
+	if baseURL == "" {
+		if !required {
+			return Session{}, false, nil
+		}
+		return Session{}, true, fmt.Errorf("atlassianplugin: site_url or base_url is required for %s API token auth", product.DisplayName)
+	}
+	return Session{
+		Token:         token,
+		Authorization: basicAuthorization(email, token),
+		CloudID:       cloudID,
+		SiteURL:       siteURL,
+		BaseURL:       strings.TrimRight(baseURL, "/"),
+		Method:        APITokenMethod,
+	}, true, nil
 }
 
 func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.AuthMethodSpec {
@@ -362,14 +460,28 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 		Name:        TokenMethod,
 		Method:      coresecret.AuthMethodEnv,
 		Kind:        coresecret.KindBearerToken,
-		DisplayName: product.DisplayName + " token",
-		Description: product.DisplayName + " bearer token or Atlassian API token resolved from a configured environment variable or known aliases.",
+		DisplayName: product.DisplayName + " scoped access token",
+		Description: product.DisplayName + " scoped Atlassian access token resolved from an environment variable and sent to the Atlassian cloud gateway.",
+		Metadata: map[string]string{
+			"auth_scheme": "Bearer",
+			"endpoint":    "api.atlassian.com/ex/{product}/{cloud_id}",
+			"token_type":  "Atlassian scoped API/access token",
+		},
 		Env: coresecret.EnvSpec{
 			Name:    strings.TrimSpace(tokenEnv),
-			Aliases: TokenEnvAliases(product),
+			Aliases: bearerTokenEnvAliases(tokenEnv, product),
 		},
 		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
 		SetupFields: []coresecret.SetupFieldSpec{
+			{
+				Name:        TokenMethod,
+				DisplayName: "Scoped access token",
+				Sensitive:   true,
+				Env: coresecret.EnvSpec{
+					Name:    strings.TrimSpace(tokenEnv),
+					Aliases: bearerTokenEnvAliases(tokenEnv, product),
+				},
+			},
 			{
 				Name:        "email_env",
 				DisplayName: "Email env",
@@ -377,6 +489,99 @@ func tokenAuthMethod(product Product, tokenEnv, emailEnv string) coresecret.Auth
 				Env: coresecret.EnvSpec{
 					Name:    strings.TrimSpace(emailEnv),
 					Aliases: EmailEnvAliases(product),
+				},
+			},
+			{
+				Name:          cloudIDField,
+				DisplayName:   "Cloud ID",
+				Description:   "Atlassian cloud/site ID for the cloud gateway.",
+				RequiredGroup: "site_locator",
+				Env: coresecret.EnvSpec{
+					Aliases: CloudIDEnvAliases(product),
+				},
+			},
+			{
+				Name:          baseURLField,
+				DisplayName:   "Base URL",
+				Description:   "Full REST API base URL override.",
+				RequiredGroup: "site_locator",
+				Env: coresecret.EnvSpec{
+					Aliases: BaseURLEnvAliases(product),
+				},
+			},
+			{
+				Name:        siteURLField,
+				DisplayName: "Site URL",
+				Description: "Optional Atlassian site URL used for human-facing links.",
+				Env: coresecret.EnvSpec{
+					Aliases: SiteURLEnvAliases(product),
+				},
+			},
+		},
+	}
+}
+
+func apiTokenAuthMethod(pluginName string, ref resource.PluginRef, product Product, cfg Config) coresecret.AuthMethodSpec {
+	tokenEnv := coresecret.EnvSpec{Aliases: TokenEnvAliases(product)}
+	if name := strings.TrimSpace(cfg.Auth.TokenEnv); name != "" {
+		tokenEnv = coresecret.EnvSpec{Name: name}
+	}
+	emailEnv := coresecret.EnvSpec{Aliases: EmailEnvAliases(product)}
+	if name := strings.TrimSpace(cfg.Auth.EmailEnv); name != "" {
+		emailEnv = coresecret.EnvSpec{Name: name}
+	}
+	locatorRequired := apiTokenBaseURLFromConfig(product, cfg) == ""
+	return coresecret.AuthMethodSpec{
+		Name:        APITokenMethod,
+		Method:      coresecret.AuthMethodStored,
+		Kind:        coresecret.KindBasic,
+		DisplayName: product.DisplayName + " Basic API token",
+		Description: product.DisplayName + " account email plus Atlassian API token sent as Basic auth to the site REST endpoint.",
+		Metadata: map[string]string{
+			"auth_scheme": "Basic",
+			"endpoint":    "site_url or base_url",
+			"token_type":  "Atlassian account API token",
+		},
+		Secret: coresecret.Plugin(pluginName, ref.InstanceName(), apiTokenField),
+		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Basic"},
+		SetupFields: []coresecret.SetupFieldSpec{
+			{
+				Name:        apiEmailField,
+				DisplayName: "Atlassian email",
+				Required:    strings.TrimSpace(cfg.Auth.Email) == "",
+				Env:         emailEnv,
+			},
+			{
+				Name:        apiTokenField,
+				DisplayName: "Atlassian API token",
+				Required:    true,
+				Sensitive:   true,
+				Env:         tokenEnv,
+			},
+			{
+				Name:        cloudIDField,
+				DisplayName: "Cloud ID",
+				Description: "Atlassian cloud/site ID.",
+				Env: coresecret.EnvSpec{
+					Aliases: CloudIDEnvAliases(product),
+				},
+			},
+			{
+				Name:          siteURLField,
+				DisplayName:   "Site URL",
+				Description:   "Atlassian site URL.",
+				RequiredGroup: requiredGroup(locatorRequired, "site_locator"),
+				Env: coresecret.EnvSpec{
+					Aliases: SiteURLEnvAliases(product),
+				},
+			},
+			{
+				Name:          baseURLField,
+				DisplayName:   "Base URL",
+				Description:   "Full Atlassian REST API base URL.",
+				RequiredGroup: requiredGroup(locatorRequired, "site_locator"),
+				Env: coresecret.EnvSpec{
+					Aliases: BaseURLEnvAliases(product),
 				},
 			},
 		},
@@ -390,8 +595,13 @@ func oauth2AuthMethod(pluginName string, ref resource.PluginRef, product Product
 		Kind:        coresecret.KindOAuth2Token,
 		DisplayName: product.DisplayName + " OAuth2",
 		Description: product.DisplayName + " Atlassian OAuth2 authorization-code credentials stored for this plugin instance.",
-		Secret:      oauthSecretRef(pluginName, ref),
-		Header:      coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
+		Metadata: map[string]string{
+			"auth_scheme": "Bearer",
+			"endpoint":    "api.atlassian.com/ex/{product}/{cloud_id}",
+			"token_type":  "OAuth2 access token",
+		},
+		Secret: oauthSecretRef(pluginName, ref),
+		Header: coresecret.HeaderSpec{Name: "Authorization", Scheme: "Bearer"},
 		OAuth2: coresecret.OAuth2Spec{
 			AuthorizeURL: atlassianAuthorizeURL,
 			TokenURL:     atlassianTokenURL,
@@ -457,7 +667,22 @@ func TokenEnvAliases(product Product) []string {
 	if prefix == "" {
 		prefix = "ATLASSIAN"
 	}
-	return []string{prefix + "_TOKEN", prefix + "_ACCESS_TOKEN", prefix + "_API_TOKEN", "ATLASSIAN_TOKEN", "ATLASSIAN_ACCESS_TOKEN", "ATLASSIAN_API_TOKEN"}
+	return []string{prefix + "_API_TOKEN", prefix + "_TOKEN", prefix + "_ACCESS_TOKEN", "ATLASSIAN_API_TOKEN", "ATLASSIAN_TOKEN", "ATLASSIAN_ACCESS_TOKEN"}
+}
+
+func BearerTokenEnvAliases(product Product) []string {
+	prefix := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(product.Name), "-", "_"))
+	if prefix == "" {
+		prefix = "ATLASSIAN"
+	}
+	return []string{prefix + "_TOKEN", prefix + "_ACCESS_TOKEN", "ATLASSIAN_TOKEN", "ATLASSIAN_ACCESS_TOKEN"}
+}
+
+func bearerTokenEnvAliases(tokenEnv string, product Product) []string {
+	if strings.TrimSpace(tokenEnv) != "" {
+		return nil
+	}
+	return BearerTokenEnvAliases(product)
 }
 
 func EmailEnvAliases(product Product) []string {
@@ -498,6 +723,14 @@ func SiteURLEnvAliases(product Product) []string {
 		prefix = "ATLASSIAN"
 	}
 	return []string{prefix + "_SITE_URL", "ATLASSIAN_SITE_URL"}
+}
+
+func BaseURLEnvAliases(product Product) []string {
+	prefix := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(product.Name), "-", "_"))
+	if prefix == "" {
+		prefix = "ATLASSIAN"
+	}
+	return []string{prefix + "_BASE_URL", "ATLASSIAN_BASE_URL"}
 }
 
 func discoverTokenSiteURL(ctx context.Context, sys system.System, product Product, session Session) Session {
@@ -636,36 +869,115 @@ func isAPITokenMethod(method string) bool {
 	}
 }
 
-func shouldUseBasicTokenAuth(cfg Config) bool {
-	return strings.EqualFold(strings.TrimSpace(cfg.Auth.Method), "basic")
+func resolveSetupField(ctx context.Context, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, name string) (string, bool, error) {
+	field, ok := setupField(method.SetupFields, name)
+	if !ok {
+		return "", false, nil
+	}
+	refs := []coresecret.Ref{coresecret.Plugin(pluginName, ref.InstanceName(), name)}
+	refs = append(refs, envRefs(field.Env)...)
+	for _, candidate := range refs {
+		material, found, err := resolver.ResolveSecret(ctx, candidate)
+		if err != nil || found {
+			return strings.TrimSpace(material.Value), found, err
+		}
+	}
+	return "", false, nil
 }
 
-func resolveAPIEmail(ctx context.Context, sys system.System, product Product, cfg Config) (string, error) {
-	if email := strings.TrimSpace(cfg.Auth.Email); email != "" {
-		return email, nil
-	}
-	if sys.Environment() == nil {
-		return "", fmt.Errorf("atlassianplugin: system environment is nil")
-	}
-	names := []string{}
-	if name := strings.TrimSpace(cfg.Auth.EmailEnv); name != "" {
-		names = append(names, name)
-	} else {
-		names = EmailEnvAliases(product)
-	}
-	for _, name := range names {
-		value, ok, err := sys.Environment().Lookup(ctx, name)
+func resolveSiteLocatorFields(ctx context.Context, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, method coresecret.AuthMethodSpec, cfg Config) (string, string, string, error) {
+	cloudID := strings.TrimSpace(cfg.CloudID)
+	siteURL := strings.TrimRight(strings.TrimSpace(cfg.SiteURL), "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if cloudID == "" {
+		value, _, err := resolveSetupField(ctx, resolver, pluginName, ref, method, cloudIDField)
 		if err != nil {
-			return "", err
+			return "", "", "", err
 		}
-		if ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value), nil
+		cloudID = strings.TrimSpace(value)
+	}
+	if siteURL == "" {
+		value, _, err := resolveSetupField(ctx, resolver, pluginName, ref, method, siteURLField)
+		if err != nil {
+			return "", "", "", err
+		}
+		siteURL = strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	if baseURL == "" {
+		value, _, err := resolveSetupField(ctx, resolver, pluginName, ref, method, baseURLField)
+		if err != nil {
+			return "", "", "", err
+		}
+		baseURL = strings.TrimRight(strings.TrimSpace(value), "/")
+	}
+	return cloudID, siteURL, baseURL, nil
+}
+
+func requiredGroup(required bool, group string) string {
+	if !required {
+		return ""
+	}
+	return strings.TrimSpace(group)
+}
+
+func baseURLFromConfig(product Product, cfg Config) string {
+	if baseURL := firstNonEmpty(cfg.BaseURL); baseURL != "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	if siteURL := SiteBaseURL(product, cfg.SiteURL); siteURL != "" {
+		return strings.TrimRight(siteURL, "/")
+	}
+	if cloudID := strings.TrimSpace(cfg.CloudID); cloudID != "" {
+		return strings.TrimRight(BaseURL(product, cloudID), "/")
+	}
+	return ""
+}
+
+func apiTokenBaseURLFromConfig(product Product, cfg Config) string {
+	if baseURL := firstNonEmpty(cfg.BaseURL); baseURL != "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	if siteURL := SiteBaseURL(product, cfg.SiteURL); siteURL != "" {
+		return strings.TrimRight(siteURL, "/")
+	}
+	return ""
+}
+
+func bearerBaseURLFromConfig(product Product, cfg Config) string {
+	if baseURL := firstNonEmpty(cfg.BaseURL); baseURL != "" {
+		return strings.TrimRight(baseURL, "/")
+	}
+	if cloudID := strings.TrimSpace(cfg.CloudID); cloudID != "" {
+		return strings.TrimRight(BaseURL(product, cloudID), "/")
+	}
+	if siteURL := SiteBaseURL(product, cfg.SiteURL); siteURL != "" {
+		return strings.TrimRight(siteURL, "/")
+	}
+	return ""
+}
+
+func setupField(fields []coresecret.SetupFieldSpec, name string) (coresecret.SetupFieldSpec, bool) {
+	for _, field := range fields {
+		if strings.EqualFold(strings.TrimSpace(field.Name), strings.TrimSpace(name)) {
+			return field, true
 		}
 	}
-	if cfg.Auth.EmailEnv != "" {
-		return "", fmt.Errorf("atlassianplugin: account email is not configured; set %s", cfg.Auth.EmailEnv)
+	return coresecret.SetupFieldSpec{}, false
+}
+
+func envRefs(spec coresecret.EnvSpec) []coresecret.Ref {
+	names := append([]string{spec.Name}, spec.Aliases...)
+	refs := make([]coresecret.Ref, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		refs = append(refs, coresecret.Env(name))
 	}
-	return "", fmt.Errorf("atlassianplugin: account email is not configured; set auth.email, auth.email_env, or one of %s", strings.Join(EmailEnvAliases(product), ", "))
+	return refs
 }
 
 func basicAuthorization(email, token string) string {

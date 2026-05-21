@@ -333,13 +333,13 @@ plugins:
   - kind: jira
     config:
       cloud_id: your-atlassian-cloud-id
-      site_url: https://company.atlassian.net
+      site_url: https://example.atlassian.invalid
       auth:
         method: oauth2
   - kind: confluence
     config:
       cloud_id: your-atlassian-cloud-id
-      site_url: https://company.atlassian.net
+      site_url: https://example.atlassian.invalid
       auth:
         method: oauth2
   - kind: web
@@ -355,6 +355,10 @@ plugins:
 Credentials live outside the app manifest. Manage native plugin
 credentials with the auth commands. Native Slack uses stored bot-token
 credentials from `coder auth connect --plugin slack --instance slack-main --method token`;
+`coder auth status` reports one readiness line per plugin/instance and shows
+which setup fields are present for the selected method without printing secret
+values. By default it also runs live connection checks for connected auth;
+pass `--no-test` for readiness-only output.
 Slack daemon channels also require an app token for Socket Mode. Slack channel
 API calls use `auth.channel_token: auto` by default, which prefers the bot token
 and falls back to the user token; set `auth.channel_token` to `bot_token` or
@@ -376,6 +380,9 @@ that instance. When it is omitted, the resolver probes the advertised aliases:
 authorizes `secret.use` on the logical plugin secret before an env resolver
 reads any variable. The actual token is never part of the app manifest or model
 context.
+
+See [Atlassian Auth](plugins/atlassian.md) for the difference between scoped access
+tokens, Basic API tokens, OAuth2, and domain-verification caveats.
 
 `instance` lets the same plugin type be declared more than once. The runtime
 resolves each declaration independently, so `gitlab/company-a` and
