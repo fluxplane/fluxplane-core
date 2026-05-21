@@ -612,9 +612,9 @@ For Go toolchain wrappers:
 Run at minimum:
 
 ```bash
-env GOCACHE=/tmp/go-cache go test ./plugins/golangplugin ./plugins/codingplugin ./apps/coder
+go test ./plugins/golangplugin ./plugins/codingplugin ./apps/coder
 go test ./plugins/markdownplugin
-env -u TAVILY_API_KEY GOCACHE=/tmp/go-cache task verify
+env -u TAVILY_API_KEY task verify
 ```
 
 ## Rollout
