@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/event"
 	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
+	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -467,6 +468,38 @@ func TestDatasourceIndexRuntimeSlackDatasourceUsesAuthPath(t *testing.T) {
 	defer func() { _ = runtime.Close() }()
 
 	assertSlackDatasourceLoadedToken(t, runtime.Registry)
+}
+
+func TestDatasourceIndexRuntimePassesProcessAuthEnvToPluginFactory(t *testing.T) {
+	withStateDir(t)
+	ctx := context.Background()
+	t.Setenv("DATASOURCE_INDEX_TEST_SECRET", "from-process")
+	var resolved bool
+
+	runtime, err := NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
+		Root:               t.TempDir(),
+		Provider:           "hash",
+		AllowPluginAuthEnv: true,
+		PluginFactory: func(factoryCtx PluginFactoryContext) []pluginhost.Plugin {
+			material, ok, err := factoryCtx.NativeAuthResolver.ResolveSecret(ctx, coresecret.Ref{
+				Scheme: coresecret.SchemeEnv,
+				Name:   "DATASOURCE_INDEX_TEST_SECRET",
+			})
+			if err != nil {
+				t.Fatalf("ResolveSecret: %v", err)
+			}
+			resolved = ok && material.Value == "from-process"
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewDatasourceIndexRuntime: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
+	if !resolved {
+		t.Fatal("expected datasource index plugin factory to receive process auth env resolver")
+	}
 }
 
 func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {

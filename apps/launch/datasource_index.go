@@ -35,15 +35,17 @@ import (
 
 // DatasourceIndexOptions configures local datasource indexing assembly.
 type DatasourceIndexOptions struct {
-	Root      string
-	Spec      coredistribution.Spec
-	Bundles   []resource.ContributionBundle
-	Launch    distribution.LaunchConfig
-	AuthPath  string
-	StorePath string
-	Provider  string
-	Model     string
-	Dev       bool
+	Root               string
+	Spec               coredistribution.Spec
+	Bundles            []resource.ContributionBundle
+	Launch             distribution.LaunchConfig
+	AuthPath           string
+	AllowPluginAuthEnv bool
+	StorePath          string
+	Provider           string
+	Model              string
+	Dev                bool
+	PluginFactory      func(PluginFactoryContext) []pluginhost.Plugin
 }
 
 // DatasourceIndexRuntime contains the assembled registry and datasource index.
@@ -98,7 +100,20 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		}
 		return nil
 	}
-	plugins := datasourceIndexPlugins(hostSystem, opts.AuthPath)
+	dispatcher := slack.NewDispatcher()
+	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
+	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, opts.AllowPluginAuthEnv)
+	plugins := datasourceIndexPlugins(hostSystem, dispatcher, nativeStore, nativeResolver)
+	if opts.PluginFactory != nil {
+		for _, plugin := range opts.PluginFactory(PluginFactoryContext{
+			System:             hostSystem,
+			Dispatcher:         dispatcher,
+			NativeAuthStore:    nativeStore,
+			NativeAuthResolver: nativeResolver,
+		}) {
+			plugins = replacePlugin(plugins, plugin)
+		}
+	}
 	bundles := cloneBundles(opts.Bundles)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
@@ -142,13 +157,10 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	return DatasourceIndexRuntime{Registry: registry, Index: index, Data: dataStore, Sources: dataSources, Config: datasourceIndexFromBundles(bundles), Close: closeFn}, nil
 }
 
-func datasourceIndexPlugins(hostSystem system.System, authPath string) []pluginhost.Plugin {
-	dispatcher := slack.NewDispatcher()
-	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, false)
+func datasourceIndexPlugins(hostSystem system.System, dispatcher *slack.Dispatcher, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
-		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
-		gitlab.New(hostSystem),
+		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
+		gitlab.NewWithResolver(hostSystem, nativeResolver),
 		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		task.New(),

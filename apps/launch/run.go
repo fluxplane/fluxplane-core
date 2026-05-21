@@ -609,6 +609,18 @@ func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.Contribu
 	return map[string]map[string]bool{gitlab.Name: allowed}
 }
 
+func gitLabPluginRefs(bundles []resource.ContributionBundle) []resource.PluginRef {
+	var refs []resource.PluginRef
+	for _, bundle := range bundles {
+		for _, ref := range bundle.Plugins {
+			if strings.EqualFold(strings.TrimSpace(ref.Name), gitlab.Name) {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs
+}
+
 func gitlabConfigForRef(ref resource.PluginRef) (gitlab.Config, error) {
 	return pluginhost.DecodeConfig[gitlab.Config](ref.Config)
 }

@@ -10,7 +10,7 @@ import (
 	coredata "github.com/fluxplane/agentruntime/core/data"
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
-	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
+	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
 	"github.com/spf13/cobra"
 )
@@ -30,76 +30,42 @@ type datasourceIndexOptions struct {
 	provider       string
 	model          string
 	dev            bool
+	allowAuthEnv   bool
+	pluginFactory  func(PluginFactoryContext) []pluginhost.Plugin
 }
 
-type datasourceGitLabCheckOptions struct {
-	datasource   string
-	mergeRequest string
-	output       string
-	envFiles     []string
-	hostEnv      bool
-	storePath    string
-	provider     string
-	model        string
+// DatasourceCommandOptions configures the datasource management command.
+type DatasourceCommandOptions struct {
+	PluginFactory func(PluginFactoryContext) []pluginhost.Plugin
 }
 
 func NewDatasourceCommand() *cobra.Command {
+	return NewDatasourceCommandWithOptions(DatasourceCommandOptions{})
+}
+
+func NewDatasourceCommandWithOptions(opts DatasourceCommandOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "datasource",
 		Short: "Manage configured datasources",
 	}
-	cmd.AddCommand(newDatasourceIndexCommand())
-	cmd.AddCommand(newDatasourceGitLabCommand())
+	cmd.AddCommand(newDatasourceIndexCommand(opts))
 	return cmd
 }
 
-func newDatasourceIndexCommand() *cobra.Command {
+func newDatasourceIndexCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "index",
 		Short: "Manage datasource indexes",
 	}
-	cmd.AddCommand(newDatasourceIndexBuildCommand())
-	cmd.AddCommand(newDatasourceIndexEmbedCommand())
-	cmd.AddCommand(newDatasourceIndexStatusCommand())
-	cmd.AddCommand(newDatasourceIndexClearCommand())
+	cmd.AddCommand(newDatasourceIndexBuildCommand(commandOpts))
+	cmd.AddCommand(newDatasourceIndexEmbedCommand(commandOpts))
+	cmd.AddCommand(newDatasourceIndexStatusCommand(commandOpts))
+	cmd.AddCommand(newDatasourceIndexClearCommand(commandOpts))
 	return cmd
 }
 
-func newDatasourceGitLabCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "gitlab",
-		Short: "Diagnose GitLab datasource access",
-	}
-	cmd.AddCommand(newDatasourceGitLabCheckCommand())
-	return cmd
-}
-
-func newDatasourceGitLabCheckCommand() *cobra.Command {
-	opts := datasourceGitLabCheckOptions{
-		datasource: gitlab.Name,
-		envFiles:   []string{".env"},
-	}
-	cmd := &cobra.Command{
-		Use:   "check [app-dir]",
-		Short: "Check GitLab datasource credentials, MR diff access, and index status",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDatasourceGitLabCheck(cmd.Context(), opts, optionalAppDir(args), cmd.OutOrStdout())
-		},
-	}
-	cmd.Flags().StringVar(&opts.datasource, "datasource", opts.datasource, "GitLab datasource name to select")
-	cmd.Flags().StringVar(&opts.mergeRequest, "mr", "", "merge request URL or project!iid to check")
-	cmd.Flags().StringVar(&opts.output, "output", "text", "output format: text or json")
-	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
-	cmd.Flags().BoolVar(&opts.hostEnv, "host-env", false, "allow host environment values to override env-file values")
-	cmd.Flags().StringVar(&opts.storePath, "store", "", "datasource index store path")
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "embedding provider: axon, hash, or openai")
-	cmd.Flags().StringVar(&opts.model, "model", "", "embedding model id")
-	return cmd
-}
-
-func newDatasourceIndexBuildCommand() *cobra.Command {
-	var opts datasourceIndexOptions
+func newDatasourceIndexBuildCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
 	cmd := &cobra.Command{
 		Use:   "build [app-dir]",
 		Short: "Build or update the datasource index",
@@ -119,8 +85,8 @@ func newDatasourceIndexBuildCommand() *cobra.Command {
 	return cmd
 }
 
-func newDatasourceIndexEmbedCommand() *cobra.Command {
-	var opts datasourceIndexOptions
+func newDatasourceIndexEmbedCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
 	cmd := &cobra.Command{
 		Use:   "embed [app-dir]",
 		Short: "Embed queued datasource semantic corpus",
@@ -134,8 +100,8 @@ func newDatasourceIndexEmbedCommand() *cobra.Command {
 	return cmd
 }
 
-func newDatasourceIndexStatusCommand() *cobra.Command {
-	var opts datasourceIndexOptions
+func newDatasourceIndexStatusCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
 	cmd := &cobra.Command{
 		Use:   "status [app-dir]",
 		Short: "Show datasource index status",
@@ -148,8 +114,8 @@ func newDatasourceIndexStatusCommand() *cobra.Command {
 	return cmd
 }
 
-func newDatasourceIndexClearCommand() *cobra.Command {
-	var opts datasourceIndexOptions
+func newDatasourceIndexClearCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
 	cmd := &cobra.Command{
 		Use:   "clear [app-dir]",
 		Short: "Remove datasource index entries",
@@ -170,6 +136,7 @@ func addDatasourceIndexFlags(cmd *cobra.Command, opts *datasourceIndexOptions) {
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "embedding provider: axon, hash, or openai")
 	cmd.Flags().StringVar(&opts.model, "model", "", "embedding model id")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer datasources such as session history")
+	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow plugin auth methods to resolve credentials from the process environment")
 }
 
 func runDatasourceIndexBuild(ctx context.Context, opts datasourceIndexOptions, appDir string, out io.Writer) error {
@@ -398,15 +365,17 @@ func datasourceIndexRuntime(ctx context.Context, opts datasourceIndexOptions, ap
 		return DatasourceIndexRuntime{}, err
 	}
 	return NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
-		Root:      loaded.Root,
-		Spec:      loaded.Distribution.Spec,
-		Bundles:   loaded.Distribution.Bundles,
-		Launch:    loaded.Launch,
-		AuthPath:  opts.connectorsPath,
-		StorePath: opts.storePath,
-		Provider:  opts.provider,
-		Model:     opts.model,
-		Dev:       opts.dev,
+		Root:               loaded.Root,
+		Spec:               loaded.Distribution.Spec,
+		Bundles:            loaded.Distribution.Bundles,
+		Launch:             loaded.Launch,
+		AuthPath:           opts.connectorsPath,
+		AllowPluginAuthEnv: opts.allowAuthEnv,
+		StorePath:          opts.storePath,
+		Provider:           opts.provider,
+		Model:              opts.model,
+		Dev:                opts.dev,
+		PluginFactory:      opts.pluginFactory,
 	})
 }
 

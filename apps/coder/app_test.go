@@ -410,6 +410,20 @@ func TestDatasourceCommandHasIndexActions(t *testing.T) {
 	}
 }
 
+func TestDatasourceIndexBuildHasPluginAuthEnvFlag(t *testing.T) {
+	cmd := NewCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"datasource", "index", "build", "--help"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if help := out.String(); !strings.Contains(help, "--allow-plugin-auth-env") {
+		t.Fatalf("help = %q, want allow-plugin-auth-env flag", help)
+	}
+}
+
 func TestAppInitCreatesMinimalManifest(t *testing.T) {
 	dir := t.TempDir()
 	cmd := newAppCommand()

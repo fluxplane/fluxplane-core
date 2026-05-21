@@ -77,7 +77,9 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	}))
 	cmd.AddCommand(newAppCommandWithOptions(appCommandOptions{runCommand: opts.AppRunCommand}))
 	cmd.AddCommand(newBuildCommand())
-	cmd.AddCommand(launch.NewDatasourceCommand())
+	cmd.AddCommand(launch.NewDatasourceCommandWithOptions(launch.DatasourceCommandOptions{
+		PluginFactory: localPluginsWithAuth,
+	}))
 	cmd.AddCommand(newDiscoverCommand(startup))
 	cmd.AddCommand(evaluator.NewCommand())
 	cmd.AddCommand(newAgentCommand())

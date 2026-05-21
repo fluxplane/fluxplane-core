@@ -51,9 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   activation for GitLab, Jira, Confluence, and Slack datasource/tool surfaces.
 - Gated process-environment plugin auth behind `--allow-plugin-auth-env` for
   local coder/app launches and generated app containers.
+- Extended `--allow-plugin-auth-env` and resolver-aware integration plugin
+  assembly to `coder datasource index` commands so authenticated datasource
+  indexing sees the same declared integrations as the coder runtime.
 - Added `coder --allow-private-network` so the built-in coder runtime can
   explicitly opt into private/VPN network targets without changing the default
   network boundary.
+- Removed the GitLab-specific `coder datasource gitlab check` diagnostic
+  command; generic datasource tooling remains under `coder datasource index`.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.
@@ -352,10 +357,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed generated Kubernetes manifests to default to `.deploy/kubernetes.yaml`
   and automatically ignore `.deploy/`, keeping rendered Secret values out of
   normal app-root files.
-
-- Added `coder datasource gitlab check` to diagnose GitLab datasource auth,
-  token metadata, merge-request diff access, and local index expectations from
-  an app directory.
 
 - Added Atlassian API-token env support for native Jira and Confluence auth,
   including `JIRA_API_TOKEN`/`CONFLUENCE_API_TOKEN` aliases for scoped
