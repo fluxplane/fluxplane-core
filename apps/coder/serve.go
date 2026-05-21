@@ -43,6 +43,9 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 		Short: "Serve coder over a local Unix socket",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := opts.runtime.Validate(); err != nil {
+				return err
+			}
 			modelSelection := run.ResolveModelSelection("openai", opts.model.Model)
 			roots, err := distribution.ParseWorkspaceRoots(opts.workspaceRoots)
 			if err != nil {
@@ -65,7 +68,7 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 				Bundles:        startup.Bundles,
 				Launch:         launchConfig,
 				Plugins:        localPlugins,
-				ToolProjection: ToolProjectionConfig(),
+				ToolProjection: mergeCoderToolProjection(ToolProjectionConfig(), opts.runtime.ToolProjectionMaxRisk()),
 				ModelResolver: run.ModelResolver{
 					Provider:        modelSelection.Provider,
 					Model:           modelSelection.Model,

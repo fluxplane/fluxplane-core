@@ -137,6 +137,23 @@ func CheckAccess(ctx context.Context, sys system.System, ref resource.PluginRef,
 	return out, nil
 }
 
+// TokenScopes resolves the current GitLab token and returns the scopes reported by GitLab.
+func TokenScopes(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) ([]string, bool, error) {
+	cfg = normalizeConfig(cfg)
+	_, client, err := diagnosticClientWithResolver(ctx, sys, resolver, ref, cfg)
+	if err != nil {
+		return nil, false, err
+	}
+	token := checkCurrentToken(ctx, client)
+	if !token.OK {
+		if token.Error != "" {
+			return nil, false, errors.New(token.Error)
+		}
+		return nil, false, nil
+	}
+	return append([]string(nil), token.Scopes...), true, nil
+}
+
 func diagnosticClient(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (runtimesecret.Resolution, *gitlab.Client, error) {
 	if sys == nil {
 		return runtimesecret.Resolution{}, nil, fmt.Errorf("gitlabplugin: system is nil")
@@ -145,12 +162,31 @@ func diagnosticClient(ctx context.Context, sys system.System, ref resource.Plugi
 	if err != nil {
 		return runtimesecret.Resolution{}, nil, err
 	}
+	return diagnosticClientFromAuth(sys, cfg, auth)
+}
+
+func diagnosticClientWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (runtimesecret.Resolution, *gitlab.Client, error) {
+	if sys == nil {
+		return runtimesecret.Resolution{}, nil, fmt.Errorf("gitlabplugin: system is nil")
+	}
+	if resolver == nil {
+		return diagnosticClient(ctx, sys, ref, cfg)
+	}
+	auth, err := authFromResolver(ctx, resolver, ref, cfg)
+	if err != nil {
+		return runtimesecret.Resolution{}, nil, err
+	}
+	return diagnosticClientFromAuth(sys, cfg, auth)
+}
+
+func diagnosticClientFromAuth(sys system.System, cfg Config, auth resolvedGitLabAuth) (runtimesecret.Resolution, *gitlab.Client, error) {
 	options := []gitlab.ClientOptionFunc{
 		gitlab.WithBaseURL(firstNonEmpty(auth.BaseURL, cfg.baseURL())),
 		gitlab.WithHTTPClient(system.NewHTTPClient(sys.Network())),
 		gitlab.WithoutRetries(),
 	}
 	var client *gitlab.Client
+	var err error
 	switch auth.Material.Kind {
 	case coresecret.KindAPIKey:
 		client, err = gitlab.NewClient(auth.Material.Value, options...)

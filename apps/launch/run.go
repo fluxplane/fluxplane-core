@@ -177,11 +177,11 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		ThinkingSet:         req.ThinkingSet,
 		Effort:              req.Effort,
 		EffortSet:           req.EffortSet,
+		ToolProjection:      mergeToolProjectionMaxRisk(cfg.ToolProjection, req.MaxToolRisk),
 		Debug:               req.Debug,
 		Yolo:                req.Yolo,
 		Dev:                 cfg.Dev || req.Dev,
 		Plugins:             cfg.Plugins,
-		ToolProjection:      cfg.ToolProjection,
 		ModelResolver:       cfg.ModelResolver,
 		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
 	})
@@ -428,6 +428,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	localCaller := localUserCaller()
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
+	toolProjection := firstToolProjection(opts.ToolProjection, defaultToolProjection())
+	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, opts.AuthPath))
 	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -445,16 +447,12 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 			ModelAliases:    composition.LLMModelAliases,
 		}),
 		LLMStreamPolicy: distrun.DebugStreamPolicy(opts.Debug),
-		ToolProjection: firstToolProjection(opts.ToolProjection, agentruntime.ToolProjectionConfig{
-			AllowSideEffects:      true,
-			MaxRisk:               operation.RiskMedium,
-			IncludeBareOperations: true,
-		}),
-		Channel:       channel.Ref{Name: "local"},
-		Caller:        localCaller,
-		Trust:         localTrust,
-		Security:      composition.Security,
-		SecurityTrace: opts.Debug,
+		ToolProjection:  toolProjection,
+		Channel:         channel.Ref{Name: "local"},
+		Caller:          localCaller,
+		Trust:           localTrust,
+		Security:        composition.Security,
+		SecurityTrace:   opts.Debug,
 	})
 	if err != nil {
 		closeRuntime()
@@ -476,6 +474,15 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		Trust:       localTrust,
 		Close:       closeRuntime,
 	}, nil
+}
+
+func defaultToolProjection() agentruntime.ToolProjectionConfig {
+	return agentruntime.ToolProjectionConfig{
+		AllowSideEffects:        true,
+		AllowApprovalRequired:   true,
+		IncludeBareOperations:   true,
+		PreferCommandProjection: true,
+	}
 }
 
 func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) system.WorkspaceConfig {
@@ -506,14 +513,88 @@ func browserHeadless() bool {
 
 func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agentruntime.ToolProjectionConfig {
 	if value.AllowSideEffects ||
-		value.MaxRisk != "" ||
+		value.AllowApprovalRequired ||
 		value.IncludeBareOperations ||
 		value.PreferCommandProjection ||
+		len(value.NamedPluginInstances) > 0 ||
 		len(value.Commands) > 0 ||
 		len(value.Operations) > 0 {
 		return value
 	}
+	if value.MaxRisk != "" {
+		fallback.MaxRisk = value.MaxRisk
+		return fallback
+	}
 	return fallback
+}
+
+func mergeNamedPluginInstances(base, extra map[string]map[string]bool) map[string]map[string]bool {
+	if len(extra) == 0 {
+		return base
+	}
+	out := map[string]map[string]bool{}
+	for kind, instances := range base {
+		out[kind] = map[string]bool{}
+		for instance, enabled := range instances {
+			out[kind][instance] = enabled
+		}
+	}
+	for kind, instances := range extra {
+		if out[kind] == nil {
+			out[kind] = map[string]bool{}
+			for instance, enabled := range instances {
+				out[kind][instance] = enabled
+			}
+			continue
+		}
+		for instance, enabled := range out[kind] {
+			out[kind][instance] = enabled && instances[instance]
+		}
+	}
+	return out
+}
+
+func mergeToolProjectionMaxRisk(cfg agentruntime.ToolProjectionConfig, risk operation.RiskLevel) agentruntime.ToolProjectionConfig {
+	if risk != "" {
+		cfg = firstToolProjection(cfg, defaultToolProjection())
+		cfg.MaxRisk = risk
+	}
+	return cfg
+}
+
+func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, authPath string) map[string]map[string]bool {
+	refs := gitLabPluginRefs(bundles)
+	if len(refs) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{}
+	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)))
+	for _, ref := range refs {
+		cfg, err := gitlabConfigForRef(ref)
+		if err != nil {
+			continue
+		}
+		scopes, ok, err := gitlab.TokenScopes(ctx, sys, resolver, ref, cfg)
+		if err != nil || !ok || !stringIn(scopes, "api") {
+			allowed[ref.InstanceName()] = false
+			continue
+		}
+		allowed[ref.InstanceName()] = true
+	}
+	return map[string]map[string]bool{gitlab.Name: allowed}
+}
+
+func gitlabConfigForRef(ref resource.PluginRef) (gitlab.Config, error) {
+	return pluginhost.DecodeConfig[gitlab.Config](ref.Config)
+}
+
+func stringIn(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func nativeAuthPath(path string) string {
@@ -550,7 +631,7 @@ func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, ta
 		coding.New(hostSystem),
 		openai.New(),
 		slack.NewWithDispatcher(hostSystem, dispatcher, nativeStore),
-		gitlab.New(hostSystem),
+		gitlab.NewWithResolver(hostSystem, nativeResolver),
 		image.New(hostSystem),
 		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),

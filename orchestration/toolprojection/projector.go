@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resourceaddr"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 var invalidToolName = regexp.MustCompile(`[^A-Za-z0-9_]+`)
@@ -30,6 +31,7 @@ type Config struct {
 	MaxRisk                 operation.RiskLevel
 	IncludeBareOperations   bool
 	PreferCommandProjection bool
+	NamedPluginInstances    map[string]map[string]bool
 }
 
 // Result is the projected model-facing tool set plus skipped-resource reasons.
@@ -51,9 +53,6 @@ type Diagnostic struct {
 func Project(cfg Config) Result {
 	if cfg.Trust.Kind == "" {
 		cfg.Trust.Kind = policy.TrustInvocation
-	}
-	if cfg.MaxRisk == "" {
-		cfg.MaxRisk = operation.RiskLow
 	}
 	out := Result{}
 	usedNames := map[string]int{}
@@ -261,7 +260,11 @@ func projectCommand(cfg Config, binding session.CommandBinding) (tool.Spec, bool
 }
 
 func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, bool, string) {
-	spec := binding.Operation.Spec()
+	op := filteredNamedPluginOperation(cfg, binding.Operation)
+	if op == nil {
+		return tool.Spec{}, false, "named_plugin_instance_unavailable"
+	}
+	spec := op.Spec()
 	if ok, reason := safeToProject(cfg, spec.Semantics); !ok {
 		return tool.Spec{}, false, reason
 	}
@@ -284,6 +287,36 @@ func projectOperation(cfg Config, binding session.OperationBinding) (tool.Spec, 
 			"operation_id": binding.ID.Address(),
 		},
 	}, true, ""
+}
+
+func filteredNamedPluginOperation(cfg Config, op operation.Operation) operation.Operation {
+	provider, ok := op.(operationruntime.NamedInstanceProvider)
+	if !ok || len(cfg.NamedPluginInstances) == 0 {
+		return op
+	}
+	allowed, ok := cfg.NamedPluginInstances[provider.NamedPluginKind()]
+	if !ok {
+		return op
+	}
+	return operationruntime.FilterNamedInstances(op, allowed)
+}
+
+// FilterOperationCatalog applies projection-level operation filters to the
+// executable catalog used by dispatch.
+func FilterOperationCatalog(cfg Config, catalog session.OperationCatalog) session.OperationCatalog {
+	if len(catalog) == 0 || len(cfg.NamedPluginInstances) == 0 {
+		return catalog
+	}
+	out := make(session.OperationCatalog, len(catalog))
+	for id, binding := range catalog {
+		op := filteredNamedPluginOperation(cfg, binding.Operation)
+		if op == nil {
+			continue
+		}
+		binding.Operation = op
+		out[id] = binding
+	}
+	return out
 }
 
 func authorizedToProject(cfg Config, spec operation.Spec) (bool, string) {
@@ -314,7 +347,7 @@ func safeToProject(cfg Config, semantics operation.Semantics) (bool, string) {
 	if !cfg.AllowSideEffects && !semantics.ReadOnly() {
 		return false, "side_effecting_operation"
 	}
-	if !riskAllowed(semantics.Risk, cfg.MaxRisk) {
+	if cfg.MaxRisk != "" && !riskAllowed(semantics.Risk, cfg.MaxRisk) {
 		return false, "risk_too_high"
 	}
 	if requiresApproval(semantics) && !cfg.AllowApprovalRequired {

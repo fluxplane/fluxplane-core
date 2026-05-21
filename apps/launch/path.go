@@ -9,6 +9,7 @@ import (
 	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
 	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,7 @@ type RunPathOptions struct {
 	Usage               bool
 	Yolo                bool
 	Dev                 bool
+	MaxToolRisk         string
 	AuthPath            string
 	WorkspaceRoots      []string
 	EnvFiles            []string
@@ -57,6 +59,10 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 	if loaded.Distribution.Runtime == nil {
 		return fmt.Errorf("run: distribution %q has no runtime", loaded.Distribution.Spec.Name)
 	}
+	maxToolRisk, err := operation.ParseRiskLevel(opts.MaxToolRisk)
+	if err != nil {
+		return fmt.Errorf("invalid --allow-max-tool-risk: %w", err)
+	}
 	if strings.TrimSpace(opts.Session) == "" && loaded.Distribution.Spec.DefaultSession.Name == "" {
 		if loaded.Manifest == "" {
 			return fmt.Errorf("run: %s is not initialized; run \"coder app init %s\" to create a minimal local app manifest", loaded.Root, path)
@@ -82,6 +88,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 		Usage:               opts.Usage,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
+		MaxToolRisk:         maxToolRisk,
 		WorkspaceRoots:      opts.WorkspaceRoots,
 		EnvFiles:            opts.EnvFiles,
 		Workspace:           opts.Workspace,
@@ -106,6 +113,7 @@ type runCommandOptions struct {
 	usage            bool
 	yolo             bool
 	dev              bool
+	maxToolRisk      string
 	authPath         string
 	workspaceRoots   []string
 	envFiles         []string
@@ -124,6 +132,9 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
 				return err
+			}
+			if _, err := operation.ParseRiskLevel(opts.maxToolRisk); err != nil {
+				return fmt.Errorf("invalid --allow-max-tool-risk: %w", err)
 			}
 			path := "."
 			if len(args) > 0 {
@@ -147,6 +158,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				Usage:               opts.usage,
 				Yolo:                opts.yolo,
 				Dev:                 opts.dev,
+				MaxToolRisk:         opts.maxToolRisk,
 				AuthPath:            opts.authPath,
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
@@ -169,6 +181,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
+	cmd.Flags().StringVar(&opts.maxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
 	cmd.Flags().StringVar(&opts.authPath, "connectors-path", "~/.connectors", "connector credential store path")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", nil, "root workspace env file or glob to load; may be repeated")

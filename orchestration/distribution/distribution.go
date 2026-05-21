@@ -8,6 +8,7 @@ import (
 
 	"github.com/fluxplane/agentruntime/core/channel"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -197,6 +198,7 @@ type OpenRequest struct {
 	ThinkingSet  bool
 	Effort       string
 	EffortSet    bool
+	MaxToolRisk  operation.RiskLevel
 	Debug        bool
 	Yolo         bool
 	Dev          bool

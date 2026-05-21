@@ -337,10 +337,6 @@ func resolveOAuth(ctx context.Context, sys system.System, store runtimesecret.Fi
 	return session, true, nil
 }
 
-func resolveToken(ctx context.Context, sys system.System, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
-	return resolveTokenWithResolver(ctx, sys, nil, pluginName, ref, product, cfg)
-}
-
 func resolveTokenWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, pluginName string, ref resource.PluginRef, product Product, cfg Config) (Session, error) {
 	session, _, err := resolveBearerToken(ctx, sys, resolver, pluginName, ref, product, cfg, true)
 	return session, err
@@ -402,12 +398,13 @@ func resolveAPIToken(ctx context.Context, store runtimesecret.FileStore, resolve
 	if _, _, err := broker.Use(ctx, coresecret.AuthRequest{Plugin: pluginName, Instance: ref.InstanceName(), Purpose: AccessTokenPurpose}.SecretRef()); err != nil {
 		return Session{}, false, fmt.Errorf("atlassianplugin: use api token auth secret: %w", err)
 	}
-	token, ok, err := resolveSetupField(ctx, resolver, pluginName, ref, method, apiTokenField)
+	token, _, err := resolveSetupField(ctx, resolver, pluginName, ref, method, apiTokenField)
 	if err != nil {
 		return Session{}, false, err
 	}
 	email := strings.TrimSpace(cfg.Auth.Email)
 	if email == "" {
+		var ok bool
 		email, ok, err = resolveSetupField(ctx, resolver, pluginName, ref, method, apiEmailField)
 		if err != nil {
 			return Session{}, false, err
@@ -918,19 +915,6 @@ func requiredGroup(required bool, group string) string {
 		return ""
 	}
 	return strings.TrimSpace(group)
-}
-
-func baseURLFromConfig(product Product, cfg Config) string {
-	if baseURL := firstNonEmpty(cfg.BaseURL); baseURL != "" {
-		return strings.TrimRight(baseURL, "/")
-	}
-	if siteURL := SiteBaseURL(product, cfg.SiteURL); siteURL != "" {
-		return strings.TrimRight(siteURL, "/")
-	}
-	if cloudID := strings.TrimSpace(cfg.CloudID); cloudID != "" {
-		return strings.TrimRight(BaseURL(product, cloudID), "/")
-	}
-	return ""
 }
 
 func apiTokenBaseURLFromConfig(product Product, cfg Config) string {

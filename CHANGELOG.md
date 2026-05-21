@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added GitLab write operations for merge requests, repository files, branches,
+  tags, commits, and project CI/CD variables, with GitLab named-plugin
+  instances projected as a single logical tool that only exposes an `instance`
+  selector when more than one configured instance is available.
+- Removed the default low-risk model tool projection cap; local runtime
+  commands now expose `--allow-max-tool-risk` to opt into a maximum visible tool
+  risk when needed.
+- Gated GitLab write-operation projection on the current token exposing the
+  required `api` scope, hiding those tools when token scopes cannot be
+  confirmed.
 - Replaced coder's top-level `connect` auth setup command with the reusable
   `auth connect`, `auth info`, and `auth status` command group for native
   plugin credentials.

@@ -745,10 +745,6 @@ func (r statusRenderer) green(value string) string {
 	return r.ansi(value, "32")
 }
 
-func (r statusRenderer) yellow(value string) string {
-	return r.ansi(value, "33")
-}
-
 func (r statusRenderer) red(value string) string {
 	return r.ansi(value, "31")
 }
@@ -921,96 +917,6 @@ func missingRequiredFields(fields []authstatus.FieldStatus, specs []coresecret.S
 		missing = append(missing, strings.Join(groupFields[group], " or "))
 	}
 	return missing
-}
-
-type authStatus struct {
-	Status  string
-	Message string
-}
-
-func methodStatus(ctx context.Context, store runtimesecret.FileStore, ref resource.PluginRef, method coresecret.AuthMethodSpec, now time.Time) authStatus {
-	switch method.Method {
-	case coresecret.AuthMethodEnv:
-		if firstEnv(method.Env) != "" {
-			return authStatus{Status: "configured"}
-		}
-		return authStatus{Status: "missing", Message: "environment variable is not set"}
-	case coresecret.AuthMethodOAuth2:
-		return secretStatus(ctx, store, method.Secret, now)
-	case coresecret.AuthMethodStored:
-		if len(method.SetupFields) == 0 {
-			return secretStatus(ctx, store, method.Secret, now)
-		}
-		return setupFieldStatus(ctx, store, ref, method, now)
-	default:
-		return authStatus{Status: "unknown", Message: "unsupported auth method"}
-	}
-}
-
-func setupFieldStatus(ctx context.Context, store runtimesecret.FileStore, ref resource.PluginRef, method coresecret.AuthMethodSpec, now time.Time) authStatus {
-	fields := map[string]bool{}
-	expired := false
-	for _, spec := range method.SetupFields {
-		name := strings.TrimSpace(spec.Name)
-		if name == "" {
-			continue
-		}
-		stored, ok, err := store.LoadSecret(ctx, coresecret.Plugin(ref.Name, ref.InstanceName(), name))
-		if err != nil {
-			return authStatus{Status: "error", Message: err.Error()}
-		}
-		if ok && strings.TrimSpace(stored.Value) != "" {
-			fields[name] = true
-			if !stored.ExpiresAt.IsZero() && !stored.ExpiresAt.After(now) {
-				expired = true
-			}
-		}
-	}
-	if expired {
-		return authStatus{Status: "expired"}
-	}
-	missingRequired := []string{}
-	for _, spec := range method.SetupFields {
-		if spec.Required && !fields[strings.TrimSpace(spec.Name)] {
-			missingRequired = append(missingRequired, strings.TrimSpace(spec.Name))
-		}
-	}
-	for group, names := range requiredGroups(method.SetupFields) {
-		ok := false
-		for _, name := range names {
-			if fields[name] {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			missingRequired = append(missingRequired, group+"("+strings.Join(names, "|")+")")
-		}
-	}
-	if len(missingRequired) > 0 {
-		if len(fields) > 0 {
-			return authStatus{Status: "partial", Message: "missing " + strings.Join(missingRequired, ", ")}
-		}
-		return authStatus{Status: "missing", Message: "missing " + strings.Join(missingRequired, ", ")}
-	}
-	if len(fields) > 0 {
-		return authStatus{Status: "configured"}
-	}
-	return authStatus{Status: "missing"}
-}
-
-func secretStatus(ctx context.Context, store runtimesecret.FileStore, ref coresecret.Ref, now time.Time) authStatus {
-	stored, ok, err := store.LoadSecret(ctx, ref)
-	if err != nil {
-		return authStatus{Status: "error", Message: err.Error()}
-	}
-	if !ok || strings.TrimSpace(stored.Value) == "" {
-		return authStatus{Status: "missing"}
-	}
-	if !stored.ExpiresAt.IsZero() && !stored.ExpiresAt.After(now) {
-		return authStatus{Status: "expired"}
-	}
-	return authStatus{Status: "configured"}
 }
 
 func pluginMap(ctx context.Context, registry PluginRegistry) (map[string]pluginhost.Plugin, error) {

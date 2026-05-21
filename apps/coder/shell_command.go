@@ -32,6 +32,7 @@ func newShellCommandWithStartup(startup startupResources, defaults serveCommandO
 				Debug:          req.Debug,
 				Yolo:           req.Yolo,
 				Dev:            req.Dev,
+				MaxToolRisk:    req.MaxToolRisk,
 			})
 			if err != nil {
 				return codershell.ClientFactoryResult{}, err

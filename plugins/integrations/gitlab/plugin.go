@@ -41,6 +41,7 @@ type Plugin struct {
 	system        system.System
 	ref           resource.PluginRef
 	cfg           Config
+	secrets       runtimesecret.Resolver
 	clientFactory gitlabClientFactory
 }
 
@@ -103,6 +104,18 @@ type gitlabClient interface {
 	RebaseMergeRequest(context.Context, any, int64, *gitlab.RebaseMergeRequestOptions) error
 	RetryPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
 	CancelPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
+	CreateFile(context.Context, any, string, *gitlab.CreateFileOptions) (*gitlab.FileInfo, error)
+	UpdateFile(context.Context, any, string, *gitlab.UpdateFileOptions) (*gitlab.FileInfo, error)
+	DeleteFile(context.Context, any, string, *gitlab.DeleteFileOptions) error
+	CreateBranch(context.Context, any, *gitlab.CreateBranchOptions) (*gitlab.Branch, error)
+	DeleteBranch(context.Context, any, string) error
+	DeleteMergedBranches(context.Context, any) error
+	CreateTag(context.Context, any, *gitlab.CreateTagOptions) (*gitlab.Tag, error)
+	DeleteTag(context.Context, any, string) error
+	CreateCommit(context.Context, any, *gitlab.CreateCommitOptions) (*gitlab.Commit, error)
+	CreateVariable(context.Context, any, *gitlab.CreateProjectVariableOptions) (*gitlab.ProjectVariable, error)
+	UpdateVariable(context.Context, any, string, *gitlab.UpdateProjectVariableOptions) (*gitlab.ProjectVariable, error)
+	RemoveVariable(context.Context, any, string, *gitlab.RemoveProjectVariableOptions) error
 }
 
 type gitlabClientFactory func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error)
@@ -124,6 +137,10 @@ func New(sys system.System) Plugin {
 	return Plugin{system: sys}
 }
 
+func NewWithResolver(sys system.System, resolver runtimesecret.Resolver) Plugin {
+	return Plugin{system: sys, secrets: resolver}
+}
+
 func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "GitLab datasource and merge request operations."}
 }
@@ -133,20 +150,20 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 	if err != nil {
 		return nil, err
 	}
-	return Plugin{system: p.system, ref: ctx.Ref, cfg: normalizeConfig(cfg), clientFactory: p.clientFactory}, nil
+	return Plugin{system: p.system, ref: ctx.Ref, cfg: normalizeConfig(cfg), secrets: p.secrets, clientFactory: p.clientFactory}, nil
 }
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations:  []operation.Spec{p.mrOperationSpec()},
+		Operations:  p.operationSpecs(),
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
 	p = p.withRef(ctx.Ref)
-	return []operation.Operation{p.mrOperation()}, nil
+	return p.operations(), nil
 }
 
 func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
@@ -253,14 +270,6 @@ func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 	return p
 }
 
-func (p Plugin) operationName(suffix string) string {
-	prefix := normalize(p.ref.InstanceName())
-	if prefix == "" {
-		prefix = Name
-	}
-	return prefix + "_" + suffix
-}
-
 func (p Plugin) config() Config {
 	return p.cfg
 }
@@ -271,6 +280,9 @@ func (p Plugin) client(ctx context.Context) (gitlabClient, error) {
 	}
 	factory := p.clientFactory
 	if factory == nil {
+		if p.secrets != nil {
+			return newOfficialClientWithResolver(ctx, p.system, p.secrets, p.ref, p.config())
+		}
 		factory = newOfficialClient
 	}
 	return factory(ctx, p.system, p.ref, p.config())
@@ -485,6 +497,14 @@ func tokenEnvAliases() []string {
 
 func newOfficialClient(ctx context.Context, sys system.System, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
 	auth, err := authFromSecrets(ctx, sys, ref, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newOfficialClientFromAuth(sys, cfg, auth)
+}
+
+func newOfficialClientWithResolver(ctx context.Context, sys system.System, resolver runtimesecret.Resolver, ref resource.PluginRef, cfg Config) (gitlabClient, error) {
+	auth, err := authFromResolver(ctx, resolver, ref, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -906,6 +926,66 @@ func (c officialClient) RetryPipelineBuild(ctx context.Context, id any, pipeline
 func (c officialClient) CancelPipelineBuild(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
 	out, _, err := c.client.Pipelines.CancelPipelineBuild(id, pipeline, gitlab.WithContext(ctx))
 	return out, err
+}
+
+func (c officialClient) CreateFile(ctx context.Context, id any, fileName string, opts *gitlab.CreateFileOptions) (*gitlab.FileInfo, error) {
+	out, _, err := c.client.RepositoryFiles.CreateFile(id, fileName, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) UpdateFile(ctx context.Context, id any, fileName string, opts *gitlab.UpdateFileOptions) (*gitlab.FileInfo, error) {
+	out, _, err := c.client.RepositoryFiles.UpdateFile(id, fileName, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) DeleteFile(ctx context.Context, id any, fileName string, opts *gitlab.DeleteFileOptions) error {
+	_, err := c.client.RepositoryFiles.DeleteFile(id, fileName, opts, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) CreateBranch(ctx context.Context, id any, opts *gitlab.CreateBranchOptions) (*gitlab.Branch, error) {
+	out, _, err := c.client.Branches.CreateBranch(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) DeleteBranch(ctx context.Context, id any, branch string) error {
+	_, err := c.client.Branches.DeleteBranch(id, branch, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) DeleteMergedBranches(ctx context.Context, id any) error {
+	_, err := c.client.Branches.DeleteMergedBranches(id, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) CreateTag(ctx context.Context, id any, opts *gitlab.CreateTagOptions) (*gitlab.Tag, error) {
+	out, _, err := c.client.Tags.CreateTag(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) DeleteTag(ctx context.Context, id any, tag string) error {
+	_, err := c.client.Tags.DeleteTag(id, tag, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) CreateCommit(ctx context.Context, id any, opts *gitlab.CreateCommitOptions) (*gitlab.Commit, error) {
+	out, _, err := c.client.Commits.CreateCommit(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateVariable(ctx context.Context, id any, opts *gitlab.CreateProjectVariableOptions) (*gitlab.ProjectVariable, error) {
+	out, _, err := c.client.ProjectVariables.CreateVariable(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) UpdateVariable(ctx context.Context, id any, key string, opts *gitlab.UpdateProjectVariableOptions) (*gitlab.ProjectVariable, error) {
+	out, _, err := c.client.ProjectVariables.UpdateVariable(id, key, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) RemoveVariable(ctx context.Context, id any, key string, opts *gitlab.RemoveProjectVariableOptions) error {
+	_, err := c.client.ProjectVariables.RemoveVariable(id, key, opts, gitlab.WithContext(ctx))
+	return err
 }
 
 func normalize(value string) string {

@@ -26,14 +26,21 @@ func TestPluginContributesNamedGitLabMROperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	if len(bundle.Operations) != 1 {
-		t.Fatalf("operations len = %d, want 1", len(bundle.Operations))
+	if len(bundle.Operations) != 6 {
+		t.Fatalf("operations len = %d, want 6", len(bundle.Operations))
 	}
-	if got := string(bundle.Operations[0].Ref.Name); got != "company_a_mr" {
-		t.Fatalf("operation name = %q, want company_a_mr", got)
+	var mrSpec *coreoperation.Spec
+	for i := range bundle.Operations {
+		if bundle.Operations[i].Ref.Name == "gitlab_mr" {
+			mrSpec = &bundle.Operations[i]
+			break
+		}
 	}
-	if bundle.Operations[0].Semantics.Risk != coreoperation.RiskHigh {
-		t.Fatalf("operation risk = %s, want high", bundle.Operations[0].Semantics.Risk)
+	if mrSpec == nil {
+		t.Fatalf("gitlab_mr operation not found")
+	}
+	if mrSpec.Semantics.Risk != coreoperation.RiskHigh {
+		t.Fatalf("operation risk = %s, want high", mrSpec.Semantics.Risk)
 	}
 }
 
@@ -262,9 +269,9 @@ func TestPluginMROperationUsesInjectedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Operations: %v", err)
 	}
-	op := findOperation(ops, "company_a_mr")
+	op := findOperation(ops, "gitlab_mr")
 	if op == nil {
-		t.Fatalf("company_a_mr operation not found")
+		t.Fatalf("gitlab_mr operation not found")
 	}
 	result := op.Run(coreoperation.NewContext(context.Background(), nil), map[string]any{"op": "close", "project_id": "12", "merge_request_iid": 7})
 	if result.Status != coreoperation.StatusOK {
@@ -2560,10 +2567,131 @@ func (c fakeGitLabClient) CancelPipelineBuild(context.Context, any, int64) (*git
 	return c.GetPipeline(context.Background(), nil, 0)
 }
 
+func (c fakeGitLabClient) CreateFile(_ context.Context, _ any, fileName string, opts *gitlab.CreateFileOptions) (*gitlab.FileInfo, error) {
+	c.record("create_file")
+	return &gitlab.FileInfo{FilePath: fileName, Branch: createFileBranch(opts)}, nil
+}
+
+func (c fakeGitLabClient) UpdateFile(_ context.Context, _ any, fileName string, opts *gitlab.UpdateFileOptions) (*gitlab.FileInfo, error) {
+	c.record("update_file")
+	return &gitlab.FileInfo{FilePath: fileName, Branch: updateFileBranch(opts)}, nil
+}
+
+func (c fakeGitLabClient) DeleteFile(context.Context, any, string, *gitlab.DeleteFileOptions) error {
+	c.record("delete_file")
+	return nil
+}
+
+func (c fakeGitLabClient) CreateBranch(_ context.Context, _ any, opts *gitlab.CreateBranchOptions) (*gitlab.Branch, error) {
+	c.record("create_branch")
+	if opts == nil {
+		return &gitlab.Branch{}, nil
+	}
+	return &gitlab.Branch{Name: stringValue(opts.Branch)}, nil
+}
+
+func (c fakeGitLabClient) DeleteBranch(context.Context, any, string) error {
+	c.record("delete_branch")
+	return nil
+}
+
+func (c fakeGitLabClient) DeleteMergedBranches(context.Context, any) error {
+	c.record("delete_merged_branches")
+	return nil
+}
+
+func (c fakeGitLabClient) CreateTag(_ context.Context, _ any, opts *gitlab.CreateTagOptions) (*gitlab.Tag, error) {
+	c.record("create_tag")
+	if opts == nil {
+		return &gitlab.Tag{}, nil
+	}
+	return &gitlab.Tag{Name: stringValue(opts.TagName), Target: stringValue(opts.Ref)}, nil
+}
+
+func (c fakeGitLabClient) DeleteTag(context.Context, any, string) error {
+	c.record("delete_tag")
+	return nil
+}
+
+func (c fakeGitLabClient) CreateCommit(context.Context, any, *gitlab.CreateCommitOptions) (*gitlab.Commit, error) {
+	c.record("create_commit")
+	return &gitlab.Commit{ID: "abc123", ShortID: "abc123", Title: "commit", WebURL: "https://gitlab.example/commit/abc123"}, nil
+}
+
+func (c fakeGitLabClient) CreateVariable(_ context.Context, _ any, opts *gitlab.CreateProjectVariableOptions) (*gitlab.ProjectVariable, error) {
+	c.record("create_variable")
+	if opts == nil {
+		return &gitlab.ProjectVariable{}, nil
+	}
+	return &gitlab.ProjectVariable{
+		Key:              stringValue(opts.Key),
+		VariableType:     variableTypeValue(opts.VariableType),
+		EnvironmentScope: stringValue(opts.EnvironmentScope),
+		Masked:           boolValue(opts.Masked),
+		Protected:        boolValue(opts.Protected),
+		Raw:              boolValue(opts.Raw),
+	}, nil
+}
+
+func (c fakeGitLabClient) UpdateVariable(_ context.Context, _ any, key string, opts *gitlab.UpdateProjectVariableOptions) (*gitlab.ProjectVariable, error) {
+	c.record("update_variable")
+	if opts == nil {
+		return &gitlab.ProjectVariable{Key: key}, nil
+	}
+	return &gitlab.ProjectVariable{
+		Key:              key,
+		VariableType:     variableTypeValue(opts.VariableType),
+		EnvironmentScope: stringValue(opts.EnvironmentScope),
+		Masked:           boolValue(opts.Masked),
+		Protected:        boolValue(opts.Protected),
+		Raw:              boolValue(opts.Raw),
+	}, nil
+}
+
+func (c fakeGitLabClient) RemoveVariable(context.Context, any, string, *gitlab.RemoveProjectVariableOptions) error {
+	c.record("remove_variable")
+	return nil
+}
+
 func (c fakeGitLabClient) record(call string) {
 	if c.calls != nil {
 		*c.calls = append(*c.calls, call)
 	}
+}
+
+func createFileBranch(opts *gitlab.CreateFileOptions) string {
+	if opts == nil {
+		return ""
+	}
+	return stringValue(opts.Branch)
+}
+
+func updateFileBranch(opts *gitlab.UpdateFileOptions) string {
+	if opts == nil {
+		return ""
+	}
+	return stringValue(opts.Branch)
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func boolValue(value *bool) bool {
+	if value == nil {
+		return false
+	}
+	return *value
+}
+
+func variableTypeValue(value *gitlab.VariableTypeValue) gitlab.VariableTypeValue {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 type fakeSystem struct {

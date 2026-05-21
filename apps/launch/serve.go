@@ -34,20 +34,21 @@ import (
 )
 
 type Options struct {
-	AppDir        string
-	Debug         bool
-	Yolo          bool
-	Dev           bool
-	AuthPath      string
-	Provider      string
-	Model         string
-	Thinking      string
-	ThinkingSet   bool
-	Effort        string
-	EffortSet     bool
-	EnvFiles      []string
-	HealthAddr    string
-	ModelResolver agentfactory.ModelResolver
+	AppDir         string
+	Debug          bool
+	Yolo           bool
+	Dev            bool
+	AuthPath       string
+	Provider       string
+	Model          string
+	Thinking       string
+	ThinkingSet    bool
+	Effort         string
+	EffortSet      bool
+	EnvFiles       []string
+	HealthAddr     string
+	ToolProjection agentruntime.ToolProjectionConfig
+	ModelResolver  agentfactory.ModelResolver
 }
 
 type ServeDistributionOptions struct {
@@ -98,6 +99,7 @@ func Serve(ctx context.Context, opts Options) error {
 		Debug:               opts.Debug,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
+		ToolProjection:      opts.ToolProjection,
 		ModelResolver:       opts.ModelResolver,
 		AllowPrivateNetwork: true,
 	})

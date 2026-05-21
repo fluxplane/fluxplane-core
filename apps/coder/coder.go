@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/distribution/run"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
 	"github.com/fluxplane/agentruntime/orchestration/distribution"
@@ -29,6 +30,7 @@ type Config struct {
 	Debug          bool
 	Yolo           bool
 	Dev            bool
+	MaxToolRisk    operation.RiskLevel
 	Bundles        []resource.ContributionBundle
 }
 
@@ -62,6 +64,7 @@ type ChannelClientOptions struct {
 	Debug          bool
 	Yolo           bool
 	Dev            bool
+	MaxToolRisk    operation.RiskLevel
 }
 
 // NewCoder creates a reusable coder product instance.
@@ -130,7 +133,7 @@ func (c *Coder) ChannelClient(ctx context.Context, opts ChannelClientOptions) (C
 		Bundles:        c.startup.Bundles,
 		Launch:         distribution.LaunchConfig{Workspace: workspace},
 		Plugins:        localPlugins,
-		ToolProjection: ToolProjectionConfig(),
+		ToolProjection: mergeCoderToolProjection(ToolProjectionConfig(), firstRisk(opts.MaxToolRisk, c.config.MaxToolRisk)),
 		ModelResolver: run.ModelResolver{
 			Provider:        modelSelection.Provider,
 			Model:           modelSelection.Model,
@@ -197,6 +200,15 @@ func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func firstRisk(values ...operation.RiskLevel) operation.RiskLevel {
+	for _, value := range values {
+		if value != "" {
+			return value
 		}
 	}
 	return ""

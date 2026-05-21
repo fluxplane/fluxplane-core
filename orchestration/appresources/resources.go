@@ -13,6 +13,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 // OperationContribution binds a plugin-contributed operation to its source.
@@ -147,7 +148,7 @@ func collectOperations(cfg Config) (session.OperationCatalog, *operation.Registr
 		}
 		operationByName[op.Spec().Ref.Name] = append(operationByName[op.Spec().Ref.Name], op)
 	}
-	for _, op := range cfg.PluginOperations {
+	for _, op := range aggregateNamedPluginOperations(cfg.PluginOperations) {
 		id := resource.DeriveResourceID(op.Source, "operation", string(op.Operation.Spec().Ref.Name))
 		if err := addOperation(catalog, cfg.Index, id, op.Operation); err != nil {
 			return nil, nil, diagnostic(op.Source, err), err
@@ -166,6 +167,66 @@ func collectOperations(cfg Config) (session.OperationCatalog, *operation.Registr
 		}
 	}
 	return catalog, registry, resource.Diagnostic{}, nil
+}
+
+func aggregateNamedPluginOperations(ops []OperationContribution) []OperationContribution {
+	groups := map[string][]OperationContribution{}
+	order := make([]string, 0, len(ops))
+	for _, op := range ops {
+		spec := op.Operation.Spec()
+		kind := strings.TrimSpace(spec.Annotations[operationruntime.AnnotationNamedPluginKind])
+		if kind == "" {
+			key := "\x00" + op.Source.ID + "\x00" + string(spec.Ref.Name)
+			groups[key] = append(groups[key], op)
+			order = append(order, key)
+			continue
+		}
+		key := kind + "\x00" + string(spec.Ref.Name)
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], op)
+	}
+	out := make([]OperationContribution, 0, len(groups))
+	seen := map[string]bool{}
+	for _, key := range order {
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		group := groups[key]
+		if len(group) == 0 {
+			continue
+		}
+		kind := strings.TrimSpace(group[0].Operation.Spec().Annotations[operationruntime.AnnotationNamedPluginKind])
+		if kind == "" {
+			out = append(out, group...)
+			continue
+		}
+		var instances []operationruntime.NamedInstanceBinding
+		for _, contribution := range group {
+			provider, ok := contribution.Operation.(operationruntime.NamedInstanceProvider)
+			if !ok {
+				out = append(out, contribution)
+				continue
+			}
+			instances = append(instances, provider.NamedInstances()...)
+		}
+		aggregated := operationruntime.AggregateNamedInstances(kind, instances)
+		if aggregated == nil {
+			continue
+		}
+		out = append(out, OperationContribution{
+			Source: resource.SourceRef{
+				ID:        "plugin:" + kind,
+				Ecosystem: "embedded",
+				Scope:     resource.ScopeEmbedded,
+				Location:  "plugins/" + kind,
+			},
+			Operation: aggregated,
+		})
+	}
+	return out
 }
 
 func collectSessions(

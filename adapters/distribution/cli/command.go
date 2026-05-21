@@ -15,6 +15,7 @@ import (
 	"github.com/fluxplane/agentruntime/adapters/ui/terminal"
 	"github.com/fluxplane/agentruntime/core/channel"
 	corellm "github.com/fluxplane/agentruntime/core/llm"
+	"github.com/fluxplane/agentruntime/core/operation"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	"github.com/fluxplane/agentruntime/core/usage"
 	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
@@ -59,6 +60,10 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 			if err := distrun.ValidateReasoningFlags(opts.thinking, cmd.Flags().Changed("thinking"), opts.effort, cmd.Flags().Changed("effort")); err != nil {
 				return err
 			}
+			maxToolRisk, err := operation.ParseRiskLevel(opts.allowMaxToolRisk)
+			if err != nil {
+				return fmt.Errorf("invalid --allow-max-tool-risk: %w", err)
+			}
 			return Run(cmd.Context(), dist, RunOptions{
 				Provider:            opts.provider,
 				Model:               opts.model,
@@ -75,6 +80,7 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 				Usage:               opts.usage,
 				Yolo:                opts.yolo,
 				Dev:                 opts.dev,
+				MaxToolRisk:         maxToolRisk,
 				WorkspaceRoots:      opts.workspaceRoots,
 				EnvFiles:            opts.envFiles,
 				Workspace:           opts.workspace,
@@ -97,6 +103,7 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
 	cmd.Flags().BoolVar(&opts.dev, "dev", false, "enable local developer diagnostics and session history datasource")
+	cmd.Flags().StringVar(&opts.allowMaxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
 	cmd.Flags().StringArrayVar(&opts.workspaceRoots, "workspace-root", opts.workspaceRoots, "additional workspace root as PATH or NAME=PATH; may be repeated")
 	cmd.Flags().StringArrayVar(&opts.envFiles, "env-file", opts.envFiles, "root workspace env file or glob to load; may be repeated")
 	cmd.AddCommand(newDescribeCommand(dist))
@@ -116,6 +123,7 @@ type options struct {
 	usage            bool
 	yolo             bool
 	dev              bool
+	allowMaxToolRisk string
 	workspaceRoots   []string
 	envFiles         []string
 	workspace        distribution.WorkspaceConfig
@@ -140,6 +148,7 @@ type RunOptions struct {
 	Usage               bool
 	Yolo                bool
 	Dev                 bool
+	MaxToolRisk         operation.RiskLevel
 	WorkspaceRoots      []string
 	EnvFiles            []string
 	Workspace           distribution.WorkspaceConfig
@@ -270,6 +279,7 @@ func openSession(ctx context.Context, dist distribution.Distribution, opts RunOp
 		Debug:        opts.Debug,
 		Yolo:         opts.Yolo,
 		Dev:          opts.Dev,
+		MaxToolRisk:  opts.MaxToolRisk,
 	})
 }
 

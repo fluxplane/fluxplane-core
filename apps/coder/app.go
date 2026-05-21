@@ -168,10 +168,17 @@ func newDiscoverCommand(startup startupResources) *cobra.Command {
 func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 	return agentruntime.ToolProjectionConfig{
 		AllowSideEffects:        true,
-		MaxRisk:                 operation.RiskMedium,
+		AllowApprovalRequired:   true,
 		IncludeBareOperations:   true,
 		PreferCommandProjection: true,
 	}
+}
+
+func mergeCoderToolProjection(cfg agentruntime.ToolProjectionConfig, maxRisk operation.RiskLevel) agentruntime.ToolProjectionConfig {
+	if maxRisk != "" {
+		cfg.MaxRisk = maxRisk
+	}
+	return cfg
 }
 
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {

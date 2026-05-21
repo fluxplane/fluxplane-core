@@ -37,20 +37,24 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 			if err := opts.model.Validate(); err != nil {
 				return err
 			}
+			if err := opts.runtime.Validate(); err != nil {
+				return err
+			}
 			return runner(cmd.Context(), Options{
-				AppDir:      path,
-				Debug:       opts.runtime.Debug,
-				Yolo:        opts.runtime.Yolo,
-				Dev:         opts.runtime.Dev,
-				AuthPath:    opts.environment.AuthPath,
-				Provider:    opts.model.Provider,
-				Model:       opts.model.Model,
-				Thinking:    opts.model.Thinking,
-				ThinkingSet: opts.model.ThinkingSet,
-				Effort:      opts.model.Effort,
-				EffortSet:   opts.model.EffortSet,
-				EnvFiles:    opts.environment.EnvFiles,
-				HealthAddr:  opts.healthAddr,
+				AppDir:         path,
+				Debug:          opts.runtime.Debug,
+				Yolo:           opts.runtime.Yolo,
+				Dev:            opts.runtime.Dev,
+				AuthPath:       opts.environment.AuthPath,
+				Provider:       opts.model.Provider,
+				Model:          opts.model.Model,
+				Thinking:       opts.model.Thinking,
+				ThinkingSet:    opts.model.ThinkingSet,
+				Effort:         opts.model.Effort,
+				EffortSet:      opts.model.EffortSet,
+				EnvFiles:       opts.environment.EnvFiles,
+				HealthAddr:     opts.healthAddr,
+				ToolProjection: ToolProjectionConfigFromRuntime(opts.runtime),
 			})
 		},
 	}

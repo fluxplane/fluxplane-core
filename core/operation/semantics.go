@@ -1,5 +1,10 @@
 package operation
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Determinism describes whether the same input and same ambient state should
 // produce the same output.
 type Determinism string
@@ -30,6 +35,42 @@ const (
 	RiskHigh     RiskLevel = "high"
 	RiskCritical RiskLevel = "critical"
 )
+
+// ParseRiskLevel parses a textual operation risk level.
+func ParseRiskLevel(value string) (RiskLevel, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return RiskUnknown, nil
+	case string(RiskLow):
+		return RiskLow, nil
+	case string(RiskMedium):
+		return RiskMedium, nil
+	case string(RiskHigh):
+		return RiskHigh, nil
+	case string(RiskCritical):
+		return RiskCritical, nil
+	default:
+		return RiskUnknown, fmt.Errorf("invalid risk level %q: want low, medium, high, or critical", value)
+	}
+}
+
+// UnmarshalText parses a textual operation risk level.
+func (r *RiskLevel) UnmarshalText(text []byte) error {
+	value, err := ParseRiskLevel(string(text))
+	if err != nil {
+		return err
+	}
+	*r = value
+	return nil
+}
+
+// MarshalText returns the textual operation risk level.
+func (r RiskLevel) MarshalText() ([]byte, error) {
+	if _, err := ParseRiskLevel(string(r)); err != nil {
+		return nil, err
+	}
+	return []byte(r), nil
+}
 
 // Effect declares one kind of observable side effect or external dependency.
 type Effect string

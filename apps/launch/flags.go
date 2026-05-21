@@ -1,9 +1,12 @@
 package launch
 
 import (
+	"fmt"
 	"strings"
 
+	agentruntime "github.com/fluxplane/agentruntime"
 	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/spf13/pflag"
 )
 
@@ -47,9 +50,10 @@ func (o ModelFlags) Validate() error {
 // LocalRuntimeFlags captures local runtime behavior flags shared by commands
 // that open or serve local sessions.
 type LocalRuntimeFlags struct {
-	Debug bool
-	Yolo  bool
-	Dev   bool
+	Debug            bool
+	Yolo             bool
+	Dev              bool
+	AllowMaxToolRisk string
 }
 
 // LocalRuntimeFlagHelp customizes local runtime flag descriptions for a command.
@@ -70,6 +74,23 @@ func BindLocalRuntimeFlags(flags *pflag.FlagSet, opts *LocalRuntimeFlags, help L
 	flags.BoolVar(&opts.Debug, "debug", false, debugHelp)
 	flags.BoolVar(&opts.Yolo, "yolo", false, yoloHelp)
 	flags.BoolVar(&opts.Dev, "dev", false, devHelp)
+	flags.StringVar(&opts.AllowMaxToolRisk, "allow-max-tool-risk", "", "maximum model-visible tool risk: low|medium|high|critical; omitted allows all")
+}
+
+func (o LocalRuntimeFlags) Validate() error {
+	if _, err := operation.ParseRiskLevel(o.AllowMaxToolRisk); err != nil {
+		return fmt.Errorf("invalid --allow-max-tool-risk: %w", err)
+	}
+	return nil
+}
+
+func (o LocalRuntimeFlags) ToolProjectionMaxRisk() operation.RiskLevel {
+	risk, _ := operation.ParseRiskLevel(o.AllowMaxToolRisk)
+	return risk
+}
+
+func ToolProjectionConfigFromRuntime(o LocalRuntimeFlags) agentruntime.ToolProjectionConfig {
+	return agentruntime.ToolProjectionConfig{MaxRisk: o.ToolProjectionMaxRisk()}
 }
 
 // LaunchEnvironmentFlags captures local launch environment flags shared by app

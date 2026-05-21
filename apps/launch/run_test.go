@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
 	embedaxon "github.com/fluxplane/agentruntime/adapters/embeddings/axon"
 	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
@@ -15,6 +16,7 @@ import (
 	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
 	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
 	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresession "github.com/fluxplane/agentruntime/core/session"
 	corethread "github.com/fluxplane/agentruntime/core/thread"
@@ -64,6 +66,42 @@ func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
 	}
 	if runtime.Open == nil {
 		t.Fatal("expected local opener")
+	}
+}
+
+func TestMergeToolProjectionMaxRiskPreservesDefaults(t *testing.T) {
+	cfg := mergeToolProjectionMaxRisk(agentruntime.ToolProjectionConfig{}, operation.RiskHigh)
+	if cfg.MaxRisk != operation.RiskHigh {
+		t.Fatalf("max risk = %q, want high", cfg.MaxRisk)
+	}
+	if !cfg.AllowSideEffects || !cfg.AllowApprovalRequired || !cfg.IncludeBareOperations || !cfg.PreferCommandProjection {
+		t.Fatalf("projection defaults not preserved: %#v", cfg)
+	}
+}
+
+func TestFirstToolProjectionTreatsOnlyMaxRiskAsDefaultCap(t *testing.T) {
+	cfg := firstToolProjection(agentruntime.ToolProjectionConfig{MaxRisk: operation.RiskMedium}, defaultToolProjection())
+	if cfg.MaxRisk != operation.RiskMedium {
+		t.Fatalf("max risk = %q, want medium", cfg.MaxRisk)
+	}
+	if !cfg.AllowSideEffects || !cfg.AllowApprovalRequired || !cfg.IncludeBareOperations || !cfg.PreferCommandProjection {
+		t.Fatalf("projection defaults not preserved: %#v", cfg)
+	}
+}
+
+func TestMergeNamedPluginInstancesIntersectsCallerRestrictions(t *testing.T) {
+	got := mergeNamedPluginInstances(
+		map[string]map[string]bool{"gitlab": {"staging": true, "prod": false}},
+		map[string]map[string]bool{"gitlab": {"staging": true, "prod": true, "dev": true}},
+	)
+	if !got["gitlab"]["staging"] {
+		t.Fatalf("staging = false, want true: %#v", got)
+	}
+	if got["gitlab"]["prod"] {
+		t.Fatalf("prod = true, want false: %#v", got)
+	}
+	if got["gitlab"]["dev"] {
+		t.Fatalf("dev = true, want absent/false: %#v", got)
 	}
 }
 

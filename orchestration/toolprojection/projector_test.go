@@ -1,6 +1,7 @@
 package toolprojection
 
 import (
+	"context"
 	"testing"
 
 	"github.com/fluxplane/agentruntime/core/command"
@@ -11,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resourceaddr"
 	"github.com/fluxplane/agentruntime/core/tool"
 	"github.com/fluxplane/agentruntime/orchestration/session"
+	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
 )
 
 func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
@@ -58,6 +60,43 @@ func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {
 	if result.Tools[0].TargetID != resourceaddr.Address(opID.Address()) {
 		t.Fatalf("target id = %s, want %s", result.Tools[0].TargetID, opID.Address())
 	}
+}
+
+func TestFilterOperationCatalogEnforcesNamedPluginInstances(t *testing.T) {
+	opID := resource.ResourceID{Kind: "operation", Origin: "embedded", Name: "gitlab_mr"}
+	catalog := session.OperationCatalog{
+		opID.Address(): {
+			ID: opID,
+			Operation: operationruntime.AggregateNamedInstances("gitlab", []operationruntime.NamedInstanceBinding{
+				{Instance: "staging", Operation: namedProjectionTestOperation("staging")},
+				{Instance: "prod", Operation: namedProjectionTestOperation("prod")},
+			}),
+		},
+	}
+	filtered := FilterOperationCatalog(Config{
+		NamedPluginInstances: map[string]map[string]bool{"gitlab": {"staging": true}},
+	}, catalog)
+
+	binding := filtered[opID.Address()]
+	if binding.Operation == nil {
+		t.Fatal("filtered operation is nil")
+	}
+	if result := binding.Operation.Run(operation.NewContext(context.Background(), nil), map[string]any{"instance": "prod"}); !result.IsError() {
+		t.Fatalf("prod result = %#v, want error", result)
+	}
+	result := binding.Operation.Run(operation.NewContext(context.Background(), nil), map[string]any{"instance": "staging"})
+	if result.IsError() {
+		t.Fatalf("staging result error = %#v", result.Error)
+	}
+	if result.Output != "staging" {
+		t.Fatalf("output = %#v, want staging", result.Output)
+	}
+}
+
+func namedProjectionTestOperation(output string) operation.Operation {
+	return operation.New(operation.Spec{Ref: operation.Ref{Name: "gitlab_mr"}}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(output)
+	})
 }
 
 func TestProjectSkipsHiddenCommandButKeepsBareOperation(t *testing.T) {

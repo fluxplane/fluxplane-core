@@ -8,6 +8,7 @@ import (
 	agentruntime "github.com/fluxplane/agentruntime"
 	"github.com/fluxplane/agentruntime/apps/launch"
 	"github.com/fluxplane/agentruntime/core/command"
+	"github.com/fluxplane/agentruntime/core/operation"
 	"github.com/spf13/cobra"
 )
 
@@ -31,6 +32,7 @@ type ClientFactoryRequest struct {
 	Debug          bool
 	Yolo           bool
 	Dev            bool
+	MaxToolRisk    operation.RiskLevel
 }
 
 // ClientFactoryResult carries the local direct channel client and static
@@ -81,6 +83,9 @@ the agent, type ! at the start of an empty prompt to switch to shell mode, use
 			if err := modelFlags.Validate(); err != nil {
 				return err
 			}
+			if err := runtimeFlags.Validate(); err != nil {
+				return err
+			}
 			opts.Provider = modelFlags.Provider
 			opts.Model = modelFlags.Model
 			if strings.TrimSpace(opts.Connect) != "direct" {
@@ -104,6 +109,7 @@ the agent, type ! at the start of an empty prompt to switch to shell mode, use
 					Debug:          runtimeFlags.Debug,
 					Yolo:           runtimeFlags.Yolo,
 					Dev:            runtimeFlags.Dev,
+					MaxToolRisk:    runtimeFlags.ToolProjectionMaxRisk(),
 				})
 				if err != nil {
 					return err

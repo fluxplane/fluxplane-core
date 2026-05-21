@@ -31,6 +31,7 @@ type RunOptions struct {
 	Usage               bool
 	Yolo                bool
 	Dev                 bool
+	MaxToolRisk         string
 	AuthPath            string
 	WorkspaceRoots      []string
 	EnvFiles            []string
@@ -72,6 +73,7 @@ func (a *App) Run(ctx context.Context, opts RunOptions) error {
 		Usage:               opts.Usage,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
+		MaxToolRisk:         opts.MaxToolRisk,
 		AuthPath:            opts.AuthPath,
 		Workspace:           workspace,
 		In:                  opts.In,
@@ -113,6 +115,9 @@ func (a *App) newAppRunCommand() *cobra.Command {
 			if err := modelFlags.Validate(); err != nil {
 				return err
 			}
+			if err := runtimeFlags.Validate(); err != nil {
+				return err
+			}
 			if len(args) > 0 {
 				opts.Path = args[0]
 			} else {
@@ -127,6 +132,7 @@ func (a *App) newAppRunCommand() *cobra.Command {
 			opts.Debug = runtimeFlags.Debug
 			opts.Yolo = runtimeFlags.Yolo
 			opts.Dev = runtimeFlags.Dev
+			opts.MaxToolRisk = runtimeFlags.AllowMaxToolRisk
 			opts.AuthPath = environmentFlags.AuthPath
 			opts.EnvFiles = environmentFlags.EnvFiles
 			opts.GoalSet = cmd.Flags().Changed("goal")

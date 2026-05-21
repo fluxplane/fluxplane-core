@@ -172,6 +172,7 @@ func New(cfg Config) (*Service, error) {
 			return (operationruntime.AuthorizationGate{}).Authorize(ctx, op, input)
 		})
 	}
+	cfg.OperationCatalog = toolprojection.FilterOperationCatalog(cfg.ToolProjection, cfg.OperationCatalog)
 	stopEvaluator := cfg.StopEvaluator
 	if stopEvaluator == nil {
 		switch {
@@ -310,6 +311,10 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	if !cfg.Security.IsZero() && cfg.ToolProjection.Authorization.Policy.IsZero() {
 		cfg.ToolProjection.Authorization.Policy = cfg.Security
 	}
+	if cfg.OperationCatalog == nil {
+		cfg.OperationCatalog = composition.OperationCatalog
+	}
+	cfg.OperationCatalog = toolprojection.FilterOperationCatalog(cfg.ToolProjection, cfg.OperationCatalog)
 	if cfg.Agent == nil {
 		cfg.Agent = composition.Agent
 	}
@@ -319,7 +324,7 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 			Skills:           composition.SkillCatalog,
 			Resolver:         composition.Resolver,
 			CommandCatalog:   composition.CommandCatalog,
-			OperationCatalog: composition.OperationCatalog,
+			OperationCatalog: cfg.OperationCatalog,
 			ToolSetCatalog:   composition.ToolSetCatalog,
 			ContextProviders: composition.ContextProviderImpls,
 			Model:            cfg.LLMModel,
@@ -339,9 +344,6 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.CommandCatalog == nil {
 		cfg.CommandCatalog = composition.CommandCatalog
-	}
-	if cfg.OperationCatalog == nil {
-		cfg.OperationCatalog = composition.OperationCatalog
 	}
 	if len(cfg.OperationSets) == 0 {
 		cfg.OperationSets = composition.OperationSets
