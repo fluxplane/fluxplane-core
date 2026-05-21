@@ -3,7 +3,6 @@
 **/.agents/index/
 /bin/
 /.cache/
-.gocache
 .gotmp
 
 # Test artifacts

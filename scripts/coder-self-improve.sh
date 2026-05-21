@@ -216,9 +216,10 @@ run_coder_repl() {
   local timeout_value=$8
   local yolo=$9
 
-  mkdir -p "$run_dir/home" "$run_dir/state" "$run_dir/go-build" "$run_dir/tmp"
+  mkdir -p "$run_dir/home" "$run_dir/state" "$run_dir/tmp"
 
-  local gomodcache
+  local gocache gomodcache
+  gocache=$(go env GOCACHE)
   gomodcache=$(go env GOMODCACHE)
 
   local auth_path=${CODEX_AUTH_PATH:-}
@@ -232,7 +233,7 @@ run_coder_repl() {
     "HOME=$run_dir/home"
     "XDG_STATE_HOME=$run_dir/state"
     "TMPDIR=$run_dir/tmp"
-    "GOCACHE=$run_dir/go-build"
+    "GOCACHE=$gocache"
     "GOMODCACHE=$gomodcache"
   )
   if [[ -n "$auth_path" ]]; then

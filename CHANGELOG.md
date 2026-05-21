@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token with user-token fallback while keeping Socket Mode app tokens required.
 - Renamed Slack's stored auth method to `token`, keeping `bot_token`,
   `user_token`, and `app_token` as setup fields.
+- Collapsed `coder auth status` into per-plugin readiness with non-secret field
+  presence for the selected method, and added auth readiness evidence for
+  integration activation.
+- Changed `coder auth test` to run non-interactive live connection checks for
+  connected auth instead of prompting for a method.
+- Clarified agent verification guidance so `task verify` is reserved for
+  explicit requests, commit preparation, or broad changes, with focused package
+  checks preferred during normal iteration.
+- Removed Taskfile-local Go cache and temp-directory overrides so tasks use the
+  normal host Go cache configuration.
+- Updated the coder self-improvement runner to reuse the host Go build cache
+  instead of creating a per-run build cache.
 - Documented strict conversation continuity rules and removed the stale
   provider transcript repair path in favor of fail-fast validation.
 - Batched assistant tool-call transcript writes with their matching tool

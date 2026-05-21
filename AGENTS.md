@@ -33,10 +33,18 @@ Do not put migration decision logs in this file.
 
 ## Verification
 
-Run `task verify` before committing. It is the rewrite-local quality gate
-(format, modules, whitespace, vet, lint, tests, architecture check). See
-[docs/verification.md](docs/verification.md) for hooks, the security scan,
-and architecture report invocations.
+Run focused checks while iterating. Do not run `task verify` after every small
+change or as a routine approval gate; it is expensive and also runs from the
+Git hook path when committing. Run `task verify` only when explicitly requested,
+when preparing a commit, or when the change is broad enough that the full local
+quality gate is justified.
+
+When a narrower command covers the edited area, prefer that instead, for
+example `go test ./runtime/conversation ./orchestration/session` or the
+specific package set touched by the change. `task verify` remains the
+rewrite-local full quality gate (format, modules, whitespace, vet, lint, tests,
+architecture check). See [docs/verification.md](docs/verification.md) for
+hooks, the security scan, and architecture report invocations.
 
 The architecture test in `internal/architecture` is the hard boundary check.
 Zero violations is required.
