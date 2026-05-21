@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated the README branding to use a centered transparent Fluxplane logo
   asset.
+- Added a focused gitleaks allowlist for Kubernetes redaction test fixtures so
+  release pushes keep scanning active without flagging intentional dummy values.
 - Renamed the reusable Go module from `github.com/fluxplane/agentruntime` to
   `github.com/fluxplane/engine` and renamed the root facade package to
   `fluxplane`.

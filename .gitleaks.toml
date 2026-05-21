@@ -1,0 +1,17 @@
+title = "Fluxplane gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Kubernetes kubeconfig redaction test fixtures"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "match"
+paths = [
+  '''plugins/(kubernetesplugin|integrations/kubernetes)/plugin_test\.go''',
+]
+regexes = [
+  '''client-key-data:\s+c2VjcmV0LWtleS1kYXRh''',
+  '''secret-token",\s+"c2VjcmV0LWNlcnQtZGF0YQ==''',
+]
