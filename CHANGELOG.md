@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Recalibrated architecture evaluation around production boundary gates,
   component scores, side-effect diagnostics, test-only dependency reporting,
-  runtime host-IO allowlists, unknown-package diagnostics, and explicit
-  `archreport -fail-on` gates.
+  runtime host-IO allowlists, reviewed composition fan-out, unknown-package
+  diagnostics, and explicit `archreport -fail-on` gates.
 - Improved coder shell responsiveness by batching stream repaints, caching
   transcript rendering incrementally, bounding rendered history, showing
   completion loading state, and passing shell input as raw command text.
@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored distribution deploy internals into Docker, Docker Compose, and
   Kubernetes boundaries, with native Docker Engine and Kubernetes client paths
   for image, local stack, and manifest deployment operations.
+- Moved the `go-refactor` developer CLI into `apps/go-refactor`, leaving the
+  Go language plugin tree to carry reusable refactor logic instead of a host
+  filesystem entrypoint.
 
 ### Fixed
 - Restored coder shell's agentic input mode as the default and kept timeline
@@ -63,14 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so required provider credentials are passed to containers correctly.
 - Kept Kubernetes undeploy from deleting shared namespace registry resources
   that may be owned by another app or registry mode.
+- Routed Kubernetes and Atlassian plugin host access through runtime system
+  boundaries instead of direct environment, filesystem, or default HTTP client
+  fallbacks.
 
 ### Added
 - Added `scripts/coder-self-improve.sh` for local coder self-improvement
   batches that run isolated goal/reflection sessions, capture debug JSONL,
   score reports, and distill findings into a plan.
-- Added a `go-refactor` developer CLI under the future Go language plugin tree
-  for moving Go package directories, renaming package clauses, and rewriting
-  internal imports during package layout migrations.
+- Added a `go-refactor` developer CLI for moving Go package directories,
+  renaming package clauses, and rewriting internal imports during package
+  layout migrations.
 - Added `core/evidence` and `runtime/evidence` packages with typed assertion
   subjects, assertion fingerprints, baseline observation, and template
   assertion-deriver support.

@@ -81,6 +81,7 @@ type ScorePenalty struct {
 	Count     int    `json:"count,omitempty"`
 	Threshold int    `json:"threshold,omitempty"`
 	Penalty   int    `json:"penalty"`
+	Allowed   bool   `json:"allowed,omitempty"`
 	Reason    string `json:"reason"`
 }
 
@@ -271,7 +272,7 @@ func Analyze(pkgs []ListedPackage, cfg Config) Report {
 		}
 	}
 
-	summary, scores := summarize(packageReports, edges, violations, diagnostics, cfg.IncludeTests)
+	summary, scores := summarize(modulePath, packageReports, edges, violations, diagnostics, cfg.IncludeTests)
 	diagnostics = sortDiagnostics(diagnostics)
 	if edges == nil {
 		edges = []Edge{}
@@ -374,7 +375,7 @@ func allowedImport(from, to Layer) (bool, string) {
 	return false, fmt.Sprintf("%s may not import %s", from, to)
 }
 
-func summarize(pkgs []PackageReport, edges []Edge, violations []Violation, diagnostics []Diagnostic, includeTests bool) (Summary, Scores) {
+func summarize(modulePath string, pkgs []PackageReport, edges []Edge, violations []Violation, diagnostics []Diagnostic, includeTests bool) (Summary, Scores) {
 	summary := Summary{
 		PackageCount:      len(pkgs),
 		InternalEdgeCount: len(edges),
@@ -428,6 +429,19 @@ func summarize(pkgs []PackageReport, edges []Edge, violations []Violation, diagn
 		}
 		if pkg.FanOut > 12 {
 			amount := (pkg.FanOut - 12) * 2
+			if reason, ok := reviewedFanOutReason(modulePath, pkg.ImportPath); ok {
+				penalties = append(penalties, ScorePenalty{
+					Kind:      "fan_out",
+					Package:   pkg.ImportPath,
+					Layer:     pkg.Layer,
+					Count:     pkg.FanOut,
+					Threshold: 12,
+					Penalty:   0,
+					Allowed:   true,
+					Reason:    reason,
+				})
+				continue
+			}
 			penalty += amount
 			penalties = append(penalties, ScorePenalty{
 				Kind:      "fan_out",
@@ -444,6 +458,21 @@ func summarize(pkgs []PackageReport, edges []Edge, violations []Violation, diagn
 	summary.Score = scores.Overall
 	summary.ScorePenalties = penalties
 	return summary, scores
+}
+
+func reviewedFanOutReason(modulePath, importPath string) (string, bool) {
+	shortPkg := strings.TrimPrefix(importPath, modulePath+"/")
+	reasons := map[string]string{
+		"core/resource":               "resource owns the inert contribution bundle, index, and resolver hub",
+		"orchestration/app":           "app composition intentionally assembles resource catalogs and runtime registries",
+		"orchestration/eventregistry": "event registry owns explicit decoder registration for core and runtime event payloads",
+		"orchestration/harness":       "channel-facing harness composes session dependencies at the orchestration boundary",
+		"orchestration/pluginhost":    "plugin host owns contribution interfaces for optional capability bundles",
+		"orchestration/session":       "session orchestration composes command, context, operation, evidence, reaction, and persistence flow",
+		"orchestration/sessionenv":    "session environment materializes runtime context and reaction state for session execution",
+	}
+	reason, ok := reasons[shortPkg]
+	return reason, ok
 }
 
 func ensureLayer(stats map[Layer]*LayerSummary, layer Layer) *LayerSummary {

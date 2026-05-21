@@ -47,7 +47,11 @@ func RenderText(report Report) string {
 	if len(report.Summary.ScorePenalties) > 0 {
 		fmt.Fprintln(&out, "\nReview penalties:")
 		for _, penalty := range report.Summary.ScorePenalties {
-			fmt.Fprintf(&out, "  -%-3d %-18s %s\n", penalty.Penalty, penalty.Kind, penaltyLabel(report.ModulePath, penalty))
+			prefix := fmt.Sprintf("-%-3d", penalty.Penalty)
+			if penalty.Allowed {
+				prefix = "ok  "
+			}
+			fmt.Fprintf(&out, "  %s %-18s %s\n", prefix, penalty.Kind, penaltyLabel(report.ModulePath, penalty))
 		}
 	}
 

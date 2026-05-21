@@ -169,7 +169,7 @@ func DoJSON(ctx context.Context, sys system.System, session Session, method, pat
 
 func DiscoverSites(ctx context.Context, client *http.Client, token string) ([]Site, error) {
 	if client == nil {
-		client = http.DefaultClient
+		return nil, fmt.Errorf("atlassianplugin: http client is nil")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accessibleResources, nil)
 	if err != nil {

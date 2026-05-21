@@ -124,6 +124,28 @@ func TestAnalyzeSeparatesTestBoundaryViolations(t *testing.T) {
 	}
 }
 
+func TestAnalyzeTracksReviewedFanOutWithoutCouplingPenalty(t *testing.T) {
+	packages := fanOutPackages("github.com/fluxplane/agentruntime/core/resource")
+	report := architecture.Analyze(packages, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if report.Scores.Coupling != 100 {
+		t.Fatalf("coupling score = %d, want reviewed fan-out excluded", report.Scores.Coupling)
+	}
+	if len(report.Summary.ScorePenalties) != 1 || !report.Summary.ScorePenalties[0].Allowed || report.Summary.ScorePenalties[0].Penalty != 0 {
+		t.Fatalf("score penalties = %#v, want one allowed fan-out note", report.Summary.ScorePenalties)
+	}
+}
+
+func TestAnalyzePenalizesUnreviewedFanOut(t *testing.T) {
+	packages := fanOutPackages("github.com/fluxplane/agentruntime/core/newhub")
+	report := architecture.Analyze(packages, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if report.Scores.Coupling != 98 {
+		t.Fatalf("coupling score = %d, want unreviewed fan-out penalty", report.Scores.Coupling)
+	}
+	if len(report.Summary.ScorePenalties) != 1 || report.Summary.ScorePenalties[0].Allowed || report.Summary.ScorePenalties[0].Penalty != 2 {
+		t.Fatalf("score penalties = %#v, want one unreviewed fan-out penalty", report.Summary.ScorePenalties)
+	}
+}
+
 func TestAnalyzeReportsUnknownPackages(t *testing.T) {
 	report := architecture.Analyze([]architecture.ListedPackage{
 		{ImportPath: "github.com/fluxplane/agentruntime/experimental/foo"},
@@ -198,6 +220,33 @@ func configure() bool {
 	if !hasDiagnostic(report, "plugin_host_effect", "github.com/fluxplane/agentruntime/plugins/test/plugin") {
 		t.Fatalf("diagnostics = %#v, want plugin host effect", report.Diagnostics)
 	}
+}
+
+func fanOutPackages(importPath string) []architecture.ListedPackage {
+	packages := []architecture.ListedPackage{
+		{
+			ImportPath: importPath,
+			Imports: []string{
+				"github.com/fluxplane/agentruntime/core/a",
+				"github.com/fluxplane/agentruntime/core/b",
+				"github.com/fluxplane/agentruntime/core/c",
+				"github.com/fluxplane/agentruntime/core/d",
+				"github.com/fluxplane/agentruntime/core/e",
+				"github.com/fluxplane/agentruntime/core/f",
+				"github.com/fluxplane/agentruntime/core/g",
+				"github.com/fluxplane/agentruntime/core/h",
+				"github.com/fluxplane/agentruntime/core/i",
+				"github.com/fluxplane/agentruntime/core/j",
+				"github.com/fluxplane/agentruntime/core/k",
+				"github.com/fluxplane/agentruntime/core/l",
+				"github.com/fluxplane/agentruntime/core/m",
+			},
+		},
+	}
+	for _, imported := range packages[0].Imports {
+		packages = append(packages, architecture.ListedPackage{ImportPath: imported})
+	}
+	return packages
 }
 
 func hasDiagnostic(report architecture.Report, kind, pkg string) bool {

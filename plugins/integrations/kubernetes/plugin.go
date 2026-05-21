@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -570,9 +569,6 @@ func (p Plugin) restConfigFromKubeconfig(ctx context.Context) (*rest.Config, str
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := os.Stat(path); err != nil {
-		return nil, "", err
-	}
 	rules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: path}
 	overrides := &clientcmd.ConfigOverrides{CurrentContext: p.cfg.Context}
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
@@ -600,9 +596,6 @@ func (p Plugin) kubeconfigPath(ctx context.Context) (string, error) {
 	}
 	if path == "" {
 		home, _, _ := lookupEnv(ctx, p.system, "HOME")
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
 		if home != "" {
 			path = filepath.Join(home, ".kube", "config")
 		}
@@ -616,7 +609,7 @@ func (p Plugin) kubeconfigPath(ctx context.Context) (string, error) {
 func defaultNamespace(ctx context.Context, cfg Config) (string, error) {
 	plugin := Plugin{cfg: NormalizeConfig(cfg)}
 	_, namespace, err := plugin.restConfigFromKubeconfig(ctx)
-	if errors.Is(err, os.ErrNotExist) || err != nil {
+	if err != nil {
 		return "", nil
 	}
 	return namespace, nil
@@ -630,8 +623,7 @@ func lookupEnv(ctx context.Context, sys system.System, key string) (string, bool
 	if sys != nil && sys.Environment() != nil {
 		return sys.Environment().Lookup(ctx, key)
 	}
-	value, ok := os.LookupEnv(key)
-	return value, ok, nil
+	return "", false, errors.ErrUnsupported
 }
 
 func entitySpecs() []coredatasource.EntitySpec {
