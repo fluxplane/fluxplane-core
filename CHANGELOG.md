@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Recalibrated architecture evaluation around production boundary gates,
+  component scores, side-effect diagnostics, test-only dependency reporting,
+  runtime host-IO allowlists, unknown-package diagnostics, and explicit
+  `archreport -fail-on` gates.
 - Improved coder shell responsiveness by batching stream repaints, caching
   transcript rendering incrementally, bounding rendered history, showing
   completion loading state, and passing shell input as raw command text.

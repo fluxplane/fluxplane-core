@@ -20,6 +20,7 @@ func main() {
 	outPath := flag.String("out", "", "write report to file instead of stdout")
 	includeTests := flag.Bool("tests", false, "include test imports")
 	failOnViolation := flag.Bool("fail", false, "exit non-zero when architecture violations exist")
+	failOn := flag.String("fail-on", "", "comma-separated gates that fail: boundary, test-boundary, side-effects, unknown, all")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -60,7 +61,11 @@ func main() {
 		os.Exit(2)
 	}
 
-	if *failOnViolation && len(report.Violations) > 0 {
+	failCategories := *failOn
+	if *failOnViolation && failCategories == "" {
+		failCategories = "boundary"
+	}
+	if architecture.HasFailures(report, failCategories) {
 		os.Exit(1)
 	}
 }

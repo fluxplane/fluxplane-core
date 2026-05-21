@@ -18,7 +18,8 @@ task verify
 - `task vet` (`go vet ./...`)
 - `task lint` (`golangci-lint run ./...`)
 - `task test` (`go test -timeout=30s ./...`)
-- `task arch:check` (architecture import check via `apps/archreport -fail`)
+- `task arch:check` (production architecture import check via
+  `apps/archreport -fail-on boundary`)
 
 Do not run the old repository root CI for rewrite work unless explicitly
 asked.
@@ -38,14 +39,18 @@ whitespace check. The tracked pre-push hook runs the full security scan,
 ## Architecture Reports
 
 The architecture test (`internal/architecture`) is the hard boundary check.
-The report is a review tool for coupling, fan-in/fan-out, and refactoring
-decisions.
+The report is a review tool for boundary health, coupling, fan-in/fan-out,
+side-effect drift, and refactoring decisions. Production boundary violations are
+the hard gate; component scores and diagnostics guide review.
 
 ```bash
 go run ./apps/archreport
 go run ./apps/archreport -format json
 go run ./apps/archreport -format dot
 go run ./apps/archreport -format mermaid
+go run ./apps/archreport -tests
+go run ./apps/archreport -fail-on boundary
+go run ./apps/archreport -fail-on side-effects,unknown
 task arch:render
 ```
 

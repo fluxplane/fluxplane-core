@@ -10,6 +10,16 @@ import (
 func RenderText(report Report) string {
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "Architecture score: %d/100\n", report.Summary.Score)
+	fmt.Fprintf(&out, "Component scores: boundary=%d coupling=%d side_effect=%d coverage=%d",
+		report.Scores.Boundary,
+		report.Scores.Coupling,
+		report.Scores.SideEffect,
+		report.Scores.Coverage,
+	)
+	if report.Scores.TestBoundary > 0 {
+		fmt.Fprintf(&out, " test_boundary=%d", report.Scores.TestBoundary)
+	}
+	fmt.Fprintln(&out)
 	fmt.Fprintf(&out, "Packages: %d  Edges: %d  Violations: %d\n",
 		report.Summary.PackageCount,
 		report.Summary.InternalEdgeCount,
@@ -35,9 +45,16 @@ func RenderText(report Report) string {
 	}
 
 	if len(report.Summary.ScorePenalties) > 0 {
-		fmt.Fprintln(&out, "\nScore penalties:")
+		fmt.Fprintln(&out, "\nReview penalties:")
 		for _, penalty := range report.Summary.ScorePenalties {
 			fmt.Fprintf(&out, "  -%-3d %-18s %s\n", penalty.Penalty, penalty.Kind, penaltyLabel(report.ModulePath, penalty))
+		}
+	}
+
+	if len(report.Diagnostics) > 0 {
+		fmt.Fprintln(&out, "\nDiagnostics:")
+		for _, diagnostic := range report.Diagnostics {
+			fmt.Fprintf(&out, "  %-24s %-7s %s\n", diagnostic.Kind, diagnostic.Severity, diagnosticLabel(report.ModulePath, diagnostic))
 		}
 	}
 
@@ -116,6 +133,32 @@ func penaltyLabel(modulePath string, penalty ScorePenalty) string {
 	}
 	if penalty.Reason != "" {
 		parts = append(parts, penalty.Reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func diagnosticLabel(modulePath string, diagnostic Diagnostic) string {
+	var parts []string
+	if diagnostic.Package != "" {
+		parts = append(parts, short(modulePath, diagnostic.Package))
+	}
+	if diagnostic.Import != "" {
+		parts = append(parts, "import="+short(modulePath, diagnostic.Import))
+	}
+	if diagnostic.Symbol != "" {
+		parts = append(parts, "symbol="+diagnostic.Symbol)
+	}
+	if diagnostic.File != "" {
+		parts = append(parts, "file="+diagnostic.File)
+	}
+	if diagnostic.TestOnly {
+		parts = append(parts, "test")
+	}
+	if diagnostic.Allowed {
+		parts = append(parts, "allowed")
+	}
+	if diagnostic.Reason != "" {
+		parts = append(parts, diagnostic.Reason)
 	}
 	return strings.Join(parts, "; ")
 }

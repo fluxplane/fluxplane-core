@@ -122,12 +122,22 @@ tasks:
   arch:check:
     desc: Fail on architecture import-direction violations.
     cmds:
-      - go run ./apps/archreport -fail
+      - go run ./apps/archreport -fail-on boundary
 
   arch:report:
     desc: Print the architecture report.
     cmds:
       - go run ./apps/archreport
+
+  arch:report:tests:
+    desc: Print the architecture report including test imports.
+    cmds:
+      - go run ./apps/archreport -tests
+
+  arch:check:side-effects:
+    desc: Fail on side-effect and unknown-package architecture diagnostics.
+    cmds:
+      - go run ./apps/archreport -fail-on side-effects,unknown
 
   arch:render:
     desc: Render architecture graph sources into .agents/architecture.

@@ -91,4 +91,129 @@ func TestAnalyzeReportsViolationsAndScore(t *testing.T) {
 	if report.Summary.Score >= 100 {
 		t.Fatalf("score = %d, want penalty", report.Summary.Score)
 	}
+	if report.Scores.Boundary >= 100 {
+		t.Fatalf("boundary score = %d, want penalty", report.Scores.Boundary)
+	}
+}
+
+func TestAnalyzeSeparatesTestBoundaryViolations(t *testing.T) {
+	packages := []architecture.ListedPackage{
+		{
+			ImportPath:  "github.com/fluxplane/agentruntime/core/operation",
+			TestImports: []string{"github.com/fluxplane/agentruntime/runtime/operation"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/runtime/operation",
+		},
+	}
+	report := architecture.Analyze(packages, architecture.Config{
+		ModulePath:   architecture.DefaultModulePath,
+		IncludeTests: true,
+	})
+	if report.Scores.Boundary != 100 {
+		t.Fatalf("boundary score = %d, want 100", report.Scores.Boundary)
+	}
+	if report.Scores.TestBoundary != 90 {
+		t.Fatalf("test boundary score = %d, want 90", report.Scores.TestBoundary)
+	}
+	if architecture.HasFailures(report, "boundary") {
+		t.Fatal("boundary gate failed on test-only violation")
+	}
+	if !architecture.HasFailures(report, "test-boundary") {
+		t.Fatal("test-boundary gate did not fail")
+	}
+}
+
+func TestAnalyzeReportsUnknownPackages(t *testing.T) {
+	report := architecture.Analyze([]architecture.ListedPackage{
+		{ImportPath: "github.com/fluxplane/agentruntime/experimental/foo"},
+	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if !hasDiagnostic(report, "unknown_package", "github.com/fluxplane/agentruntime/experimental/foo") {
+		t.Fatalf("diagnostics = %#v, want unknown package", report.Diagnostics)
+	}
+	if !architecture.HasFailures(report, "unknown") {
+		t.Fatal("unknown gate did not fail")
+	}
+}
+
+func TestAnalyzeReportsInnerLayerHostIO(t *testing.T) {
+	report := architecture.Analyze([]architecture.ListedPackage{
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/core/bad",
+			Imports:    []string{"os"},
+		},
+	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if !hasDiagnostic(report, "inner_host_io", "github.com/fluxplane/agentruntime/core/bad") {
+		t.Fatalf("diagnostics = %#v, want inner host IO", report.Diagnostics)
+	}
+	if !architecture.HasFailures(report, "side-effects") {
+		t.Fatal("side-effects gate did not fail")
+	}
+}
+
+func TestAnalyzeRequiresRuntimeHostIOAllowlist(t *testing.T) {
+	report := architecture.Analyze([]architecture.ListedPackage{
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/runtime/newsideeffect",
+			Imports:    []string{"os"},
+		},
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/runtime/system",
+			Imports:    []string{"os"},
+		},
+	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if !hasDiagnostic(report, "runtime_host_io", "github.com/fluxplane/agentruntime/runtime/newsideeffect") {
+		t.Fatalf("diagnostics = %#v, want runtime host IO", report.Diagnostics)
+	}
+	if !hasAllowedDiagnostic(report, "runtime_host_io", "github.com/fluxplane/agentruntime/runtime/system") {
+		t.Fatalf("diagnostics = %#v, want allowed runtime host IO", report.Diagnostics)
+	}
+	if !architecture.HasFailures(report, "side-effects") {
+		t.Fatal("side-effects gate did not fail")
+	}
+}
+
+func TestAnalyzeScansPluginHostEffects(t *testing.T) {
+	dir := t.TempDir()
+	source := []byte(`package plugin
+
+import "os"
+
+func configure() bool {
+	_, ok := os.LookupEnv("TOKEN")
+	return ok
+}
+`)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.go"), source, 0644); err != nil {
+		t.Fatal(err)
+	}
+	report := architecture.Analyze([]architecture.ListedPackage{
+		{
+			ImportPath: "github.com/fluxplane/agentruntime/plugins/test/plugin",
+			Dir:        dir,
+			GoFiles:    []string{"plugin.go"},
+			Imports:    []string{"os"},
+		},
+	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
+	if !hasDiagnostic(report, "plugin_host_effect", "github.com/fluxplane/agentruntime/plugins/test/plugin") {
+		t.Fatalf("diagnostics = %#v, want plugin host effect", report.Diagnostics)
+	}
+}
+
+func hasDiagnostic(report architecture.Report, kind, pkg string) bool {
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Kind == kind && diagnostic.Package == pkg && !diagnostic.Allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAllowedDiagnostic(report architecture.Report, kind, pkg string) bool {
+	for _, diagnostic := range report.Diagnostics {
+		if diagnostic.Kind == kind && diagnostic.Package == pkg && diagnostic.Allowed {
+			return true
+		}
+	}
+	return false
 }

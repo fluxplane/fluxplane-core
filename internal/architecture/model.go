@@ -24,6 +24,10 @@ const (
 
 type ListedPackage struct {
 	ImportPath   string
+	Dir          string
+	GoFiles      []string
+	TestGoFiles  []string
+	XTestGoFiles []string
 	Imports      []string
 	TestImports  []string
 	XTestImports []string
@@ -35,12 +39,14 @@ type Config struct {
 }
 
 type Report struct {
-	ModulePath string          `json:"module_path"`
-	Summary    Summary         `json:"summary"`
-	Layers     []LayerSummary  `json:"layers"`
-	Packages   []PackageReport `json:"packages"`
-	Edges      []Edge          `json:"edges"`
-	Violations []Violation     `json:"violations"`
+	ModulePath  string          `json:"module_path"`
+	Summary     Summary         `json:"summary"`
+	Scores      Scores          `json:"scores"`
+	Layers      []LayerSummary  `json:"layers"`
+	Packages    []PackageReport `json:"packages"`
+	Edges       []Edge          `json:"edges"`
+	Violations  []Violation     `json:"violations"`
+	Diagnostics []Diagnostic    `json:"diagnostics,omitempty"`
 }
 
 type Summary struct {
@@ -56,6 +62,17 @@ type Summary struct {
 	ScorePenalties      []ScorePenalty `json:"score_penalties,omitempty"`
 }
 
+// Scores separates hard boundary correctness from review-oriented architecture
+// signals so one saturated soft metric does not hide severity.
+type Scores struct {
+	Overall      int `json:"overall"`
+	Boundary     int `json:"boundary"`
+	TestBoundary int `json:"test_boundary,omitempty"`
+	Coupling     int `json:"coupling"`
+	SideEffect   int `json:"side_effect"`
+	Coverage     int `json:"coverage"`
+}
+
 // ScorePenalty explains one contribution to the architecture score penalty.
 type ScorePenalty struct {
 	Kind      string `json:"kind"`
@@ -65,6 +82,20 @@ type ScorePenalty struct {
 	Threshold int    `json:"threshold,omitempty"`
 	Penalty   int    `json:"penalty"`
 	Reason    string `json:"reason"`
+}
+
+// Diagnostic reports a concrete architecture finding outside the legacy
+// production violation list.
+type Diagnostic struct {
+	Kind     string `json:"kind"`
+	Severity string `json:"severity"`
+	Package  string `json:"package,omitempty"`
+	Import   string `json:"import,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	File     string `json:"file,omitempty"`
+	TestOnly bool   `json:"test_only,omitempty"`
+	Allowed  bool   `json:"allowed,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type LayerSummary struct {
@@ -117,10 +148,19 @@ func Analyze(pkgs []ListedPackage, cfg Config) Report {
 	layerStats := map[Layer]*LayerSummary{}
 	var edges []Edge
 	var violations []Violation
+	var diagnostics []Diagnostic
 
 	for _, pkg := range pkgs {
 		fromLayer := layerOf(modulePath, pkg.ImportPath)
 		if fromLayer == "" {
+			if isInModule(modulePath, pkg.ImportPath) && !unknownPackageAllowed(modulePath, pkg.ImportPath) {
+				diagnostics = append(diagnostics, Diagnostic{
+					Kind:     "unknown_package",
+					Severity: "error",
+					Package:  pkg.ImportPath,
+					Reason:   "in-module package is outside the architecture layer model",
+				})
+			}
 			continue
 		}
 		ensureLayer(layerStats, fromLayer).Packages++
@@ -163,18 +203,31 @@ func Analyze(pkgs []ListedPackage, cfg Config) Report {
 				ensureLayer(layerStats, fromLayer).FanOut++
 				ensureLayer(layerStats, toLayer).FanIn++
 				if !allowed {
-					violations = append(violations, Violation{
+					violation := Violation{
 						From:      edge.From,
 						To:        edge.To,
 						FromLayer: edge.FromLayer,
 						ToLayer:   edge.ToLayer,
 						Reason:    edge.Reason,
+					}
+					if !testOnly {
+						violations = append(violations, violation)
+					}
+					diagnostics = append(diagnostics, Diagnostic{
+						Kind:     boundaryDiagnosticKind(testOnly),
+						Severity: boundaryDiagnosticSeverity(testOnly),
+						Package:  pkg.ImportPath,
+						Import:   imported,
+						TestOnly: testOnly,
+						Reason:   edge.Reason,
 					})
 				}
 			}
 		}
 
 		addImports(pkg.Imports, false)
+		diagnostics = append(diagnostics, importDiagnostics(modulePath, pkg, fromLayer)...)
+		diagnostics = append(diagnostics, pluginEffectDiagnostics(modulePath, pkg)...)
 		if cfg.IncludeTests {
 			addImports(pkg.TestImports, true)
 			addImports(pkg.XTestImports, true)
@@ -218,7 +271,8 @@ func Analyze(pkgs []ListedPackage, cfg Config) Report {
 		}
 	}
 
-	summary := summarize(packageReports, edges, violations)
+	summary, scores := summarize(packageReports, edges, violations, diagnostics, cfg.IncludeTests)
+	diagnostics = sortDiagnostics(diagnostics)
 	if edges == nil {
 		edges = []Edge{}
 	}
@@ -226,13 +280,19 @@ func Analyze(pkgs []ListedPackage, cfg Config) Report {
 		violations = []Violation{}
 	}
 	return Report{
-		ModulePath: modulePath,
-		Summary:    summary,
-		Layers:     summaries,
-		Packages:   packageReports,
-		Edges:      edges,
-		Violations: violations,
+		ModulePath:  modulePath,
+		Summary:     summary,
+		Scores:      scores,
+		Layers:      summaries,
+		Packages:    packageReports,
+		Edges:       edges,
+		Violations:  violations,
+		Diagnostics: diagnostics,
 	}
+}
+
+func isInModule(modulePath, importPath string) bool {
+	return importPath == modulePath || strings.HasPrefix(importPath, modulePath+"/")
 }
 
 func layerOf(modulePath, importPath string) Layer {
@@ -314,7 +374,7 @@ func allowedImport(from, to Layer) (bool, string) {
 	return false, fmt.Sprintf("%s may not import %s", from, to)
 }
 
-func summarize(pkgs []PackageReport, edges []Edge, violations []Violation) Summary {
+func summarize(pkgs []PackageReport, edges []Edge, violations []Violation, diagnostics []Diagnostic, includeTests bool) (Summary, Scores) {
 	summary := Summary{
 		PackageCount:      len(pkgs),
 		InternalEdgeCount: len(edges),
@@ -380,12 +440,10 @@ func summarize(pkgs []PackageReport, edges []Edge, violations []Violation) Summa
 			})
 		}
 	}
-	summary.Score = 100 - penalty
-	if summary.Score < 0 {
-		summary.Score = 0
-	}
+	scores := scoreReport(diagnostics, penalty, includeTests)
+	summary.Score = scores.Overall
 	summary.ScorePenalties = penalties
-	return summary
+	return summary, scores
 }
 
 func ensureLayer(stats map[Layer]*LayerSummary, layer Layer) *LayerSummary {
