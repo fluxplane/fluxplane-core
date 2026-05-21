@@ -62,6 +62,14 @@ From a local checkout:
 task install
 ```
 
+For direct nested-module development:
+
+```bash
+cd apps/coder
+go test ./...
+CODER_ROOT=../.. go run ./cmd/coder --help
+```
+
 ### First Run
 
 Open the REPL:

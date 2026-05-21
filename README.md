@@ -75,6 +75,9 @@ coder --provider claudecode --model claude-sonnet-4-6
 See the [coder guide](docs/coder.md) for provider setup, goal mode, debugging,
 usage accounting, and safety expectations.
 
+See [repository split readiness](docs/repository-split.md) for the current
+Engine/Coder module boundaries, publish paths, and local development commands.
+
 ## What you can build
 
 ### Local coding agents

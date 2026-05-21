@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split the coder product into the nested `github.com/fluxplane/coder` module
   under `apps/coder`, moving its entrypoint to `apps/coder/cmd/coder` while
   keeping engine and coder tests/build tasks explicit.
+- Documented Engine/Coder repository extraction readiness and added a
+  coder-module architecture test that blocks imports of engine internals,
+  engine command packages, and the retired in-engine coder package path.
 - Added GitLab write operations for merge requests, repository files, branches,
   tags, commits, and project CI/CD variables, with GitLab named-plugin
   instances projected as a single logical tool that only exposes an `instance`

@@ -285,9 +285,6 @@ trees or distribution bundles.
 Current app concepts include:
 
 ```text
-apps/coder
-  coder product assembly, distribution bundle, and command surface
-
 apps/launch
   local run/serve assembly for distributions
 
@@ -301,6 +298,11 @@ apps/archreport
 `apps` may import plugins, adapters, orchestration, runtime, and core because
 they are assembly points. Reusable domain or runtime concepts should move
 inward once their shape is stable.
+
+The coder product is staged as its own module under `apps/coder` with module
+path `github.com/fluxplane/coder`. It imports public engine APIs and is checked
+separately from the root engine module; see
+[repository-split.md](repository-split.md).
 
 ### `cmd`
 

@@ -140,8 +140,8 @@ assembly/defaults that do not belong in `apps/launch`.
 
 ### Coder Product
 
-- Future module path: `github.com/fluxplane/coder`.
-- Initial location: nested module under `apps/coder`.
+- Module path: `github.com/fluxplane/coder`.
+- Current staging location: nested module under `apps/coder`.
 - Imports the engine through:
 
   ```go
@@ -253,17 +253,19 @@ plugins under `plugins/integrations/*` that declare auth requirements.
   - process env auth present but not allowed: they are not active
   - process env auth present and explicitly allowed: they are active
 
-## Current Repo Observations
+## Initial Repo Observations
 
-- `cmd/coder` is the only product CLI entrypoint today.
-- `apps/coder/app_command.go` owns the current `coder app ...` surface.
-- `apps/launch` already owns reusable app lifecycle operations such as run,
+These were the relevant facts at the start of this plan:
+
+- `cmd/coder` was the only product CLI entrypoint.
+- `apps/coder/app_command.go` owned the previous `coder app ...` surface.
+- `apps/launch` already owned reusable app lifecycle operations such as run,
   serve, init, datasource indexing, deploy/build support, and auth-env
   plumbing.
-- `apps/coder/app.go` already wires coder-scoped auth and datasource commands
+- `apps/coder/app.go` already wired coder-scoped auth and datasource commands
   through product plugin factories.
-- `adapters/resources/appconfig` still discovers `agentsdk.app.yaml`.
-- Public docs still contain many `coder app ...` and `agentsdk.app.yaml`
+- `adapters/resources/appconfig` still discovered `agentsdk.app.yaml`.
+- Public docs still contained many `coder app ...` and `agentsdk.app.yaml`
   references. These should move in the same slices as the command and manifest
   behavior, not as an isolated wording-only cleanup.
 - The local slack-bot app at `<local-slack-bot-app>` is an
@@ -476,7 +478,7 @@ Assertions:
 
 ### 6. Repository extraction readiness
 
-Status: pending, not implemented until explicitly requested.
+Status: complete.
 
 Purpose: prepare for physical repository alignment only after the in-repo module
 boundaries are already clean.
@@ -488,6 +490,8 @@ Deliverables:
 - Decide whether `apps/coder` is extracted to `github.com/fluxplane/coder`.
 - Keep local replace directives only while the nested-module staging setup is
   required.
+- Document the Engine/Coder publication paths and local development commands.
+- Add a coder-module architecture check for public engine imports.
 
 Assertions:
 
@@ -496,6 +500,11 @@ Assertions:
   reach-through.
 - The coder product can build from a clean checkout with documented replace or
   module workspace setup.
+- `docs/repository-split.md` documents the staging replace and future
+  extraction contract.
+- `apps/coder/architecture_test.go` fails if coder imports
+  `github.com/fluxplane/engine/internal/...`, engine command packages, or the
+  old in-engine coder package path.
 
 ## Test Plan
 

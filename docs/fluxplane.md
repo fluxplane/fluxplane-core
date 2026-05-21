@@ -4,6 +4,12 @@
 app lifecycle that previously lived under `coder app ...`; `coder` remains the
 bundled coding-agent product.
 
+Install the generic app CLI from the engine module:
+
+```bash
+go install github.com/fluxplane/engine/cmd/fluxplane@latest
+```
+
 ## Commands
 
 ```bash
