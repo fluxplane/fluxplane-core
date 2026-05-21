@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
 	"github.com/fluxplane/agentruntime/core/event"
@@ -11,12 +12,14 @@ import (
 
 // ProjectionInput describes transcript projection over a thread branch.
 type ProjectionInput struct {
-	Thread     corethread.Snapshot
-	BranchID   corethread.BranchID
-	Provider   coreconversation.ProviderIdentity
-	Pending    []coreconversation.Item
-	Mode       coreconversation.ProjectionMode
-	AllowEmpty bool
+	Thread                corethread.Snapshot
+	BranchID              corethread.BranchID
+	Provider              coreconversation.ProviderIdentity
+	Pending               []coreconversation.Item
+	PendingCommitted      bool
+	PendingCommittedCount int
+	Mode                  coreconversation.ProjectionMode
+	AllowEmpty            bool
 }
 
 // ProjectionResult is the provider transcript slice an adapter should send.
@@ -45,31 +48,38 @@ func Project(input ProjectionInput) (ProjectionResult, error) {
 		return ProjectionResult{}, err
 	}
 	pending := filterCompatible(input.Pending, input.Provider)
+	committedCount := input.PendingCommittedCount
+	if input.PendingCommitted && committedCount == 0 {
+		committedCount = len(pending)
+	}
+	if committedCount < 0 {
+		committedCount = 0
+	}
+	if committedCount > len(pending) {
+		committedCount = len(pending)
+	}
+	uncommittedPending := pending[committedCount:]
+	canonical := append([]coreconversation.Item(nil), items...)
+	canonical = append(canonical, uncommittedPending...)
+	if err := ValidateContinuity(canonical, ValidateOptions{Provider: input.Provider}); err != nil {
+		return ProjectionResult{}, err
+	}
+	newItems := uncommittedPending
 	if input.Mode == coreconversation.ProjectionNativeContinuation && head != nil && head.SupportsPreviousResponseID() {
-		repaired := RepairToolContinuity(append(append([]coreconversation.Item(nil), items...), pending...), ToolContinuityRepairOptions{
-			Provider: input.Provider,
-		})
-		out := append([]coreconversation.Item(nil), repaired.Repairs...)
-		out = append(out, pending...)
+		out := append([]coreconversation.Item(nil), pending...)
 		if len(out) == 0 && !input.AllowEmpty {
 			out = nil
 		}
 		return ProjectionResult{
 			Items:        out,
-			NewItems:     append([]coreconversation.Item(nil), out...),
+			NewItems:     append([]coreconversation.Item(nil), newItems...),
 			Continuation: head,
 			Mode:         coreconversation.ProjectionNativeContinuation,
 		}, nil
 	}
-	repaired := RepairToolContinuity(append(append([]coreconversation.Item(nil), items...), pending...), ToolContinuityRepairOptions{
-		Provider:            input.Provider,
-		RepairOrphanResults: true,
-	})
-	newItems := append([]coreconversation.Item(nil), repaired.Repairs...)
-	newItems = append(newItems, pending...)
 	return ProjectionResult{
-		Items:    repaired.Items,
-		NewItems: newItems,
+		Items:    canonical,
+		NewItems: append([]coreconversation.Item(nil), newItems...),
 		Mode:     coreconversation.ProjectionFullReplay,
 	}, nil
 }
@@ -119,7 +129,7 @@ func replay(snapshot corethread.Snapshot, branchID corethread.BranchID, provider
 			}
 		}
 	}
-	return filterRepairArtifacts(items), head, nil
+	return items, head, nil
 }
 
 func filterCompatible(items []coreconversation.Item, provider coreconversation.ProviderIdentity) []coreconversation.Item {
@@ -132,20 +142,123 @@ func filterCompatible(items []coreconversation.Item, provider coreconversation.P
 	return out
 }
 
-// filterRepairArtifacts drops items that were synthesised by a previous repair
-// pass (identified by a non-empty "repair" metadata key). Repair items are
-// ephemeral scaffolding: the current repair pass regenerates exactly what is
-// needed from the canonical history. Carrying them across turns causes each
-// pass to produce new synthetics on top of old ones, so N retries would embed
-// N layers of synthetic calls instead of one.
-func filterRepairArtifacts(items []coreconversation.Item) []coreconversation.Item {
-	out := make([]coreconversation.Item, 0, len(items))
-	for _, item := range items {
-		if item.Metadata["repair"] == "" {
-			out = append(out, item)
+// ValidateOptions configures strict provider transcript validation.
+type ValidateOptions struct {
+	Provider coreconversation.ProviderIdentity
+}
+
+// ContinuityError describes a malformed provider-visible transcript. Normal
+// projection must return this error instead of synthesizing provider items.
+type ContinuityError struct {
+	Reason string
+	CallID string
+	Index  int
+}
+
+func (e ContinuityError) Error() string {
+	if e.CallID != "" {
+		return fmt.Sprintf("conversation continuity: %s call_id=%q item_index=%d", e.Reason, e.CallID, e.Index)
+	}
+	return fmt.Sprintf("conversation continuity: %s item_index=%d", e.Reason, e.Index)
+}
+
+// ValidateContinuity verifies that provider-visible transcript items are
+// already structurally valid. It deliberately does not repair malformed
+// transcripts; current-version sessions must make invalid states impossible.
+func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) error {
+	open := map[string]int{}
+	seenCalls := map[string]int{}
+	seenResults := map[string]int{}
+	for i, original := range items {
+		item := ensureItemProvider(original, opts.Provider)
+		if item.Metadata["repair"] != "" {
+			return ContinuityError{Reason: "repair artifact is not durable transcript", CallID: item.CallID, Index: i}
+		}
+		switch item.Kind {
+		case coreconversation.ItemOutput:
+			calls := item.ToolCallRefs()
+			if len(open) > 0 && len(calls) == 0 {
+				for callID, index := range open {
+					return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next assistant output opened_at=%d", index), CallID: callID, Index: i}
+				}
+			}
+			for _, call := range calls {
+				callID := strings.TrimSpace(call.CallID)
+				if callID == "" {
+					return ContinuityError{Reason: "assistant tool call missing provider call id", Index: i}
+				}
+				if prior, ok := seenCalls[callID]; ok {
+					return ContinuityError{Reason: fmt.Sprintf("duplicate assistant tool call first_item_index=%d", prior), CallID: callID, Index: i}
+				}
+				seenCalls[callID] = i
+				open[callID] = i
+			}
+		case coreconversation.ItemToolResult:
+			callID := strings.TrimSpace(item.CallID)
+			if callID == "" {
+				return ContinuityError{Reason: "tool result missing provider call id", Index: i}
+			}
+			if _, ok := open[callID]; !ok {
+				return ContinuityError{Reason: "tool result without open assistant tool call", CallID: callID, Index: i}
+			}
+			if prior, ok := seenResults[callID]; ok {
+				return ContinuityError{Reason: fmt.Sprintf("duplicate tool result first_item_index=%d", prior), CallID: callID, Index: i}
+			}
+			seenResults[callID] = i
+			delete(open, callID)
+		default:
+			if len(open) > 0 {
+				for callID, index := range open {
+					return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next transcript item opened_at=%d", index), CallID: callID, Index: i}
+				}
+			}
 		}
 	}
-	return out
+	for callID, index := range open {
+		return ContinuityError{Reason: "assistant tool call left open at transcript end", CallID: callID, Index: index}
+	}
+	return nil
+}
+
+func ensureItemProvider(item coreconversation.Item, provider coreconversation.ProviderIdentity) coreconversation.Item {
+	if item.Provider.Provider == "" {
+		item.Provider = provider
+	}
+	return item
+}
+
+// AppendRecords builds validated provider transcript append records.
+func AppendRecords(turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, handles ...coreconversation.ContinuationHandle) ([]corethread.AppendRecord, error) {
+	var records []corethread.AppendRecord
+	if len(items) > 0 {
+		for i, item := range items {
+			if err := item.Validate(); err != nil {
+				return nil, fmt.Errorf("conversation: item %d: %w", i, err)
+			}
+			if item.Metadata["repair"] != "" {
+				return nil, fmt.Errorf("conversation: item %d: repair artifact cannot be appended", i)
+			}
+		}
+		payload := coreconversation.ItemsAppended{
+			TurnID:   turnID,
+			Provider: provider,
+			Items:    append([]coreconversation.Item(nil), items...),
+		}
+		records = append(records, corethread.AppendRecord{Event: event.Record{
+			Name:    payload.EventName(),
+			Scope:   event.Scope{TurnID: turnID},
+			Payload: payload,
+		}})
+	}
+	for _, handle := range handles {
+		payload := coreconversation.ContinuationStored{TurnID: turnID, Handle: handle}
+		records = append(records, corethread.AppendRecord{Event: event.Record{
+			Name:    payload.EventName(),
+			Scope:   event.Scope{TurnID: turnID},
+			Payload: payload,
+		}})
+	}
+	return records, nil
 }
 
 // AppendCompaction records a provider transcript compaction checkpoint.
@@ -177,35 +290,13 @@ func Append(ctx context.Context, store corethread.Store, ref corethread.Ref, tur
 	if store == nil || ref.ID == "" {
 		return nil
 	}
-	var records []corethread.AppendRecord
-	if len(items) > 0 {
-		for i, item := range items {
-			if err := item.Validate(); err != nil {
-				return fmt.Errorf("conversation: item %d: %w", i, err)
-			}
-		}
-		payload := coreconversation.ItemsAppended{
-			TurnID:   turnID,
-			Provider: provider,
-			Items:    append([]coreconversation.Item(nil), items...),
-		}
-		records = append(records, corethread.AppendRecord{Event: event.Record{
-			Name:    payload.EventName(),
-			Scope:   event.Scope{ThreadID: string(ref.ID), TurnID: turnID},
-			Payload: payload,
-		}})
-	}
-	for _, handle := range handles {
-		payload := coreconversation.ContinuationStored{TurnID: turnID, Handle: handle}
-		records = append(records, corethread.AppendRecord{Event: event.Record{
-			Name:    payload.EventName(),
-			Scope:   event.Scope{ThreadID: string(ref.ID), TurnID: turnID},
-			Payload: payload,
-		}})
+	records, err := AppendRecords(turnID, provider, items, handles...)
+	if err != nil {
+		return err
 	}
 	if len(records) == 0 {
 		return nil
 	}
-	_, err := store.Append(ctx, ref, records...)
+	_, err = store.Append(ctx, ref, records...)
 	return err
 }

@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
@@ -99,7 +100,55 @@ func TestProjectNativeContinuationReturnsOnlyPendingItems(t *testing.T) {
 	}
 }
 
-func TestProjectNativeContinuationRepairsMissingToolResult(t *testing.T) {
+func TestProjectNativeContinuationSendsCommittedPendingWithoutRecordingNewItems(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	handle := coreconversation.ContinuationHandle{
+		Provider:   provider,
+		Mode:       coreconversation.ContinuationPreviousResponseID,
+		Transport:  coreconversation.TransportHTTPSSE,
+		ResponseID: "resp_1",
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider,
+		[]coreconversation.Item{
+			{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"},
+			{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "lookup", Content: "ok"},
+		},
+		handle,
+	); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	pending := []coreconversation.Item{
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "lookup", Content: "ok"},
+		{Provider: provider, Kind: coreconversation.ItemInput, Role: "system", Content: "fresh context"},
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:                snapshot,
+		Provider:              provider,
+		Pending:               pending,
+		PendingCommitted:      true,
+		PendingCommittedCount: 1,
+		Mode:                  coreconversation.ProjectionNativeContinuation,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != 2 || result.Items[0].Kind != coreconversation.ItemToolResult || result.Items[1].Content != "fresh context" {
+		t.Fatalf("items = %#v, want committed tool result plus new context", result.Items)
+	}
+	if len(result.NewItems) != 1 || result.NewItems[0].Content != "fresh context" {
+		t.Fatalf("new items = %#v, want only uncommitted context", result.NewItems)
+	}
+}
+
+func TestProjectNativeContinuationRejectsMissingToolResult(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)
 	ref := createThread(t, ctx, store)
@@ -128,28 +177,21 @@ func TestProjectNativeContinuationRepairsMissingToolResult(t *testing.T) {
 	}
 	pending := []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "what happened"}}
 
-	result, err := Project(ProjectionInput{
+	_, err = Project(ProjectionInput{
 		Thread:   snapshot,
 		Provider: provider,
 		Pending:  pending,
 		Mode:     coreconversation.ProjectionNativeContinuation,
 	})
-	if err != nil {
-		t.Fatalf("Project: %v", err)
+	if err == nil {
+		t.Fatal("Project succeeded, want continuity error")
 	}
-	if len(result.Items) != 2 {
-		t.Fatalf("items len = %d, want repair + pending", len(result.Items))
-	}
-	repair := result.Items[0]
-	if repair.Kind != coreconversation.ItemToolResult || repair.CallID != "call_1" || repair.Metadata["is_error"] != "true" {
-		t.Fatalf("repair item = %#v, want error tool result for call_1", repair)
-	}
-	if len(result.NewItems) != 2 || result.NewItems[0].CallID != "call_1" {
-		t.Fatalf("new items = %#v, want repair recorded before pending", result.NewItems)
+	if !strings.Contains(err.Error(), "left open") || !strings.Contains(err.Error(), "call_1") {
+		t.Fatalf("error = %v, want open call continuity error", err)
 	}
 }
 
-func TestProjectFullReplayRepairsMissingToolResultBeforePendingInput(t *testing.T) {
+func TestProjectFullReplayRejectsMissingToolResultBeforePendingInput(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)
 	ref := createThread(t, ctx, store)
@@ -172,28 +214,21 @@ func TestProjectFullReplayRepairsMissingToolResultBeforePendingInput(t *testing.
 		t.Fatalf("read thread: %v", err)
 	}
 
-	result, err := Project(ProjectionInput{
+	_, err = Project(ProjectionInput{
 		Thread:   snapshot,
 		Provider: provider,
 		Pending:  []coreconversation.Item{{Provider: provider, Kind: coreconversation.ItemInput, Role: "user", Content: "did you write it?"}},
 		Mode:     coreconversation.ProjectionFullReplay,
 	})
-	if err != nil {
-		t.Fatalf("Project: %v", err)
+	if err == nil {
+		t.Fatal("Project succeeded, want continuity error")
 	}
-	if len(result.Items) != 3 {
-		t.Fatalf("items = %#v, want tool call, repair, pending", result.Items)
-	}
-	repair := result.Items[1]
-	if repair.Kind != coreconversation.ItemToolResult || repair.CallID != "toolu_1" || repair.Metadata["repair"] != "missing_tool_result" {
-		t.Fatalf("repair = %#v, want missing tool result repair", repair)
-	}
-	if len(result.NewItems) != 2 || result.NewItems[0].CallID != "toolu_1" {
-		t.Fatalf("new items = %#v, want repair plus pending", result.NewItems)
+	if !strings.Contains(err.Error(), "left open") || !strings.Contains(err.Error(), "toolu_1") {
+		t.Fatalf("error = %v, want open call continuity error", err)
 	}
 }
 
-func TestProjectFullReplayRepairsOrphanToolResult(t *testing.T) {
+func TestProjectFullReplayRejectsOrphanToolResult(t *testing.T) {
 	ctx := context.Background()
 	store := newThreadStore(t)
 	ref := createThread(t, ctx, store)
@@ -211,49 +246,84 @@ func TestProjectFullReplayRepairsOrphanToolResult(t *testing.T) {
 		t.Fatalf("read thread: %v", err)
 	}
 
-	result, err := Project(ProjectionInput{
+	_, err = Project(ProjectionInput{
 		Thread:   snapshot,
 		Provider: provider,
 		Pending:  []coreconversation.Item{pending},
 		Mode:     coreconversation.ProjectionFullReplay,
 	})
-	if err != nil {
-		t.Fatalf("Project: %v", err)
+	if err == nil {
+		t.Fatal("Project succeeded, want continuity error")
 	}
-	if len(result.Items) != 2 {
-		t.Fatalf("items = %#v, want synthetic call plus result", result.Items)
-	}
-	synthetic := result.Items[0]
-	if synthetic.Kind != coreconversation.ItemOutput || synthetic.CallID != "call_1" || synthetic.Metadata["repair"] != "orphan_tool_result" {
-		t.Fatalf("synthetic = %#v, want orphan tool result repair", synthetic)
-	}
-	if len(synthetic.ToolCalls) != 1 || synthetic.ToolCalls[0].CallID != "call_1" {
-		t.Fatalf("tool calls = %#v, want canonical synthetic call", synthetic.ToolCalls)
+	if !strings.Contains(err.Error(), "without open assistant tool call") || !strings.Contains(err.Error(), "call_1") {
+		t.Fatalf("error = %v, want orphan result continuity error", err)
 	}
 }
 
-func TestRepairToolContinuityReportsInvalidAndMissingCalls(t *testing.T) {
+func TestProjectFullReplayAllowsParallelToolCallOutputsBeforeResults(t *testing.T) {
+	ctx := context.Background()
+	store := newThreadStore(t)
+	ref := createThread(t, ctx, store)
 	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
-	result := RepairToolContinuity([]coreconversation.Item{{
+	items := []coreconversation.Item{
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "read"},
+		{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_2", Name: "diff"},
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "call_1", Name: "read", Content: "content"},
+		{Provider: provider, Kind: coreconversation.ItemToolResult, CallID: "call_2", Name: "diff", Content: "diff"},
+	}
+	if err := Append(ctx, store, ref, "turn-1", provider, items); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	snapshot, err := store.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+
+	result, err := Project(ProjectionInput{
+		Thread:   snapshot,
+		Provider: provider,
+		Mode:     coreconversation.ProjectionFullReplay,
+	})
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(result.Items) != len(items) {
+		t.Fatalf("items = %#v, want parallel tool-call group", result.Items)
+	}
+}
+
+func TestValidateContinuityRejectsInvalidAndMissingCalls(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	err := ValidateContinuity([]coreconversation.Item{{
 		Provider: provider,
 		Kind:     coreconversation.ItemOutput,
 		ToolCalls: []coreconversation.ToolCallRef{
 			{Name: "empty_id", Type: "function_call", Input: `{}`},
 			{CallID: "call_3", Name: "missing_result", Type: "function_call", Input: `{}`},
 		},
-	}}, ToolContinuityRepairOptions{Provider: provider})
+	}}, ValidateOptions{Provider: provider})
+	if err == nil {
+		t.Fatal("ValidateContinuity succeeded, want missing provider call id error")
+	}
+	if !strings.Contains(err.Error(), "missing provider call id") {
+		t.Fatalf("error = %v, want missing provider call id", err)
+	}
+}
 
-	if len(result.Diagnostics) != 2 {
-		t.Fatalf("diagnostics = %#v, want invalid + missing", result.Diagnostics)
+func TestAppendRecordsRejectsRepairArtifacts(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	_, err := AppendRecords("turn-1", provider, []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		CallID:   "call_1",
+		Name:     "lookup",
+		Metadata: map[string]string{"repair": "orphan_tool_result"},
+	}})
+	if err == nil {
+		t.Fatal("AppendRecords succeeded, want repair artifact rejection")
 	}
-	if result.Diagnostics[0].Kind != RepairInvalidToolCall || result.Diagnostics[0].ReasonCode != "empty_call_id" {
-		t.Fatalf("first diagnostic = %#v, want empty call id", result.Diagnostics[0])
-	}
-	if result.Diagnostics[1].Kind != RepairMissingToolResult || result.Diagnostics[1].CallID != "call_3" || result.Diagnostics[1].Name != "missing_result" {
-		t.Fatalf("second diagnostic = %#v, want missing call_3", result.Diagnostics[1])
-	}
-	if len(result.Repairs) != 1 || result.Repairs[0].Metadata["source_item_index"] != "0" {
-		t.Fatalf("repairs = %#v, want one missing result repair with source index", result.Repairs)
+	if !strings.Contains(err.Error(), "repair artifact cannot be appended") {
+		t.Fatalf("error = %v, want repair artifact rejection", err)
 	}
 }
 

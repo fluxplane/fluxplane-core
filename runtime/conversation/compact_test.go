@@ -11,27 +11,33 @@ func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) 
 	large := strings.Repeat("diff line\n", 1000)
 	transcript := coreconversation.Transcript{
 		Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses"},
-		Items: []coreconversation.Item{{
-			Kind:    coreconversation.ItemToolResult,
-			CallID:  "call_1",
-			Name:    "file_edit",
-			Content: large,
-			Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
-		}},
-		NewItems: []coreconversation.Item{{
-			Kind:    coreconversation.ItemToolResult,
-			CallID:  "call_1",
-			Name:    "file_edit",
-			Content: large,
-			Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
-		}},
+		Items: []coreconversation.Item{
+			{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_edit"},
+			{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_edit",
+				Content: large,
+				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
+			},
+		},
+		NewItems: []coreconversation.Item{
+			{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_edit"},
+			{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_edit",
+				Content: large,
+				Native:  []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`),
+			},
+		},
 	}
 
 	result := CompactTranscript(transcript, CompactOptions{MaxInputTokens: 2048, SafetyMarginTokens: 1, LargeItemTokens: 128})
 	if !result.Compacted {
 		t.Fatal("result.Compacted = false, want true")
 	}
-	item := result.Transcript.Items[0]
+	item := result.Transcript.Items[1]
 	if item.Native != nil {
 		t.Fatalf("native = %s, want cleared", item.Native)
 	}
@@ -41,7 +47,7 @@ func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) 
 	if item.Metadata["compaction"] != "tool_result_summary" {
 		t.Fatalf("metadata = %#v, want tool_result_summary", item.Metadata)
 	}
-	if result.Transcript.NewItems[0].Native != nil {
+	if result.Transcript.NewItems[1].Native != nil {
 		t.Fatal("new item native was not cleared")
 	}
 }
@@ -51,35 +57,41 @@ func TestCompactTranscriptLeavesLargeInBudgetToolResultUnchanged(t *testing.T) {
 	native := []byte(`{"type":"function_call_output","call_id":"call_1","output":"` + large + `"}`)
 	transcript := coreconversation.Transcript{
 		Provider: coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses"},
-		Items: []coreconversation.Item{{
-			Kind:    coreconversation.ItemToolResult,
-			CallID:  "call_1",
-			Name:    "file_read",
-			Content: large,
-			Native:  native,
-		}},
-		NewItems: []coreconversation.Item{{
-			Kind:    coreconversation.ItemToolResult,
-			CallID:  "call_1",
-			Name:    "file_read",
-			Content: large,
-			Native:  native,
-		}},
+		Items: []coreconversation.Item{
+			{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_read"},
+			{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_read",
+				Content: large,
+				Native:  native,
+			},
+		},
+		NewItems: []coreconversation.Item{
+			{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "file_read"},
+			{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Name:    "file_read",
+				Content: large,
+				Native:  native,
+			},
+		},
 	}
 
 	result := CompactTranscript(transcript, CompactOptions{MaxInputTokens: 128000, SafetyMarginTokens: 1, LargeItemTokens: 128})
 	if result.Compacted {
 		t.Fatal("result.Compacted = true, want false")
 	}
-	item := result.Transcript.Items[0]
+	item := result.Transcript.Items[1]
 	if item.Content != large {
 		t.Fatalf("content changed, got %#v", item.Content)
 	}
 	if string(item.Native) != string(native) {
 		t.Fatalf("native changed, got %s", item.Native)
 	}
-	if result.Transcript.NewItems[0].Content != large {
-		t.Fatalf("new item content changed, got %#v", result.Transcript.NewItems[0].Content)
+	if result.Transcript.NewItems[1].Content != large {
+		t.Fatalf("new item content changed, got %#v", result.Transcript.NewItems[1].Content)
 	}
 }
 

@@ -999,7 +999,324 @@ func TestExecuteInboundInputProjectsProviderTranscriptAcrossToolContinuation(t *
 		t.Fatalf("read thread: %v", err)
 	}
 	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 2 {
-		t.Fatalf("stored events = %#v, want two transcript append events", stored.Events)
+		t.Fatalf("stored events = %#v, want operation batch and final transcript append events", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenTranscriptCommitFails(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-assistant-commit-fails")
+	failingStore := &failAppendThreadStore{
+		Store: threadStore,
+		fail: func(records []corethread.AppendRecord) bool {
+			for _, record := range records {
+				payload, ok := record.Event.Payload.(coreconversation.ItemsAppended)
+				if !ok {
+					continue
+				}
+				for _, item := range payload.Items {
+					if item.Kind == coreconversation.ItemOutput && item.CallID == "call_1" {
+						return true
+					}
+				}
+			}
+			return false
+		},
+	}
+	opRef := operation.Ref{Name: "lookup"}
+	executed := 0
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		executed++
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: failingStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_append_failed" {
+		t.Fatalf("result = %#v, want conversation append failure", result)
+	}
+	if executed != 1 {
+		t.Fatalf("operation executed %d times, want one", executed)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if threadHasToolResultCallID(stored.Events, "call_1") || countEvent(stored.Events, coreconversation.EventItemsAppended) != 0 || countEvent(stored.Events, coresession.EventOperationCompleted) != 0 || countEvent(stored.Events, coresession.EventOperationRequested) != 1 {
+		t.Fatalf("stored events = %#v, want only operation requested without provider transcript or completion", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputDoesNotSplitOperationCompletedFromToolResult(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-terminal-commit-fails")
+	failingStore := &failAppendThreadStore{
+		Store: threadStore,
+		fail: func(records []corethread.AppendRecord) bool {
+			for _, record := range records {
+				if record.Event.Name == coresession.EventOperationCompleted {
+					return true
+				}
+			}
+			return false
+		},
+	}
+	opRef := operation.Ref{Name: "lookup"}
+	executed := 0
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		executed++
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: failingStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_append_failed" {
+		t.Fatalf("result = %#v, want conversation append failure", result)
+	}
+	if executed != 1 {
+		t.Fatalf("operation executed %d times, want one", executed)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coresession.EventOperationCompleted) != 0 || threadHasToolResultCallID(stored.Events, "call_1") {
+		t.Fatalf("stored events = %#v, want neither OperationCompleted nor tool_result", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputDoesNotPartiallyPersistParallelOperationBatch(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-parallel-batch-fails")
+	failingStore := &failAppendThreadStore{
+		Store: threadStore,
+		fail: func(records []corethread.AppendRecord) bool {
+			for _, record := range records {
+				if record.Event.Name == coresession.EventOperationCompleted {
+					return true
+				}
+			}
+			return false
+		},
+	}
+	readRef := operation.Ref{Name: "read"}
+	diffRef := operation.Ref{Name: "diff"}
+	executed := 0
+	ops := operation.NewRegistry()
+	for _, ref := range []operation.Ref{readRef, diffRef} {
+		ref := ref
+		if err := ops.Register(operation.New(operation.Spec{Ref: ref}, func(_ operation.Context, input operation.Value) operation.Result {
+			executed++
+			return operation.OK(map[string]any{"result": input})
+		})); err != nil {
+			t.Fatalf("register operation: %v", err)
+		}
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{
+				{Operation: readRef, Input: "README.md", ProviderCallID: "call_1"},
+				{Operation: diffRef, Input: "README.md", ProviderCallID: "call_2"},
+			},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "read"},
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_2", Name: "diff"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: failingStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "inspect README"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_append_failed" {
+		t.Fatalf("result = %#v, want conversation append failure", result)
+	}
+	if executed != 2 {
+		t.Fatalf("operations executed %d times, want two", executed)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 0 || countEvent(stored.Events, coresession.EventOperationCompleted) != 0 || threadHasToolResultCallID(stored.Events, "call_1") || threadHasToolResultCallID(stored.Events, "call_2") {
+		t.Fatalf("stored events = %#v, want no provider transcript or operation completions", stored.Events)
+	}
+	if countEvent(stored.Events, coresession.EventOperationRequested) != 2 {
+		t.Fatalf("operation requested events = %d, want 2", countEvent(stored.Events, coresession.EventOperationRequested))
+	}
+}
+
+func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenProviderCallIDMismatches(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-provider-call-mismatch")
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_missing"}},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_continuity_failed" {
+		t.Fatalf("result = %#v, want continuity failure", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 0 || countEvent(stored.Events, coresession.EventOperationRequested) != 0 {
+		t.Fatalf("stored events = %#v, want no provider transcript or operation request", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputDoesNotPersistOpenToolCallWhenOperationRequestMissing(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-provider-call-missing-request")
+	opRef := operation.Ref{Name: "lookup"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"found": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"},
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_2", Name: "lookup"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_continuity_failed" {
+		t.Fatalf("result = %#v, want continuity failure", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 0 || countEvent(stored.Events, coresession.EventOperationRequested) != 0 {
+		t.Fatalf("stored events = %#v, want no provider transcript or operation request", stored.Events)
+	}
+}
+
+func TestExecuteInboundInputDoesNotPersistOpenToolCallOnTerminalDecision(t *testing.T) {
+	ctx := context.Background()
+	threadStore, ref := newSessionThread(t, ctx, "thread-terminal-open-tool-call")
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	model := llmagent.ModelFunc(func(_ context.Context, req llmagent.Request) (llmagent.Response, error) {
+		return llmagent.Response{
+			Message: &agent.Message{Content: "done"},
+			Transcript: coreconversation.Transcript{
+				Provider: provider,
+				Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...),
+					coreconversation.Item{Provider: provider, Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"}),
+			},
+		}, nil
+	})
+	runtimeAgent, err := llmagent.New(agent.Spec{Name: "coder", Driver: agent.DriverSpec{Kind: llmagent.DriverKind}, Inference: agent.InferenceSpec{Model: "gpt-test"}}, model)
+	if err != nil {
+		t.Fatalf("new llm agent: %v", err)
+	}
+	s := Session{Agent: runtimeAgent, ThreadStore: threadStore, Thread: ref}
+
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "finish"}})
+	if result.Status != InputStatusFailed || result.Error == nil || result.Error.Code != "conversation_continuity_failed" {
+		t.Fatalf("result = %#v, want continuity failure", result)
+	}
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: ref.ID})
+	if err != nil {
+		t.Fatalf("read thread: %v", err)
+	}
+	if countEvent(stored.Events, coreconversation.EventItemsAppended) != 0 {
+		t.Fatalf("stored events = %#v, want no provider transcript", stored.Events)
+	}
+}
+
+func TestValidateOperationRequestsAllowsDispatchedToolName(t *testing.T) {
+	opRef := operation.Ref{Name: "image_generate"}
+	items := []coreconversation.Item{{
+		Kind:   coreconversation.ItemOutput,
+		CallID: "call_1",
+		Name:   "image",
+		ToolCalls: []coreconversation.ToolCallRef{{
+			CallID: "call_1",
+			Name:   "image",
+		}},
+	}}
+	requests := []agent.OperationRequest{{Operation: opRef, ProviderCallID: "call_1"}}
+
+	if err := (Session{}).validateOperationRequests(items, requests); err != nil {
+		t.Fatalf("validateOperationRequests: %v", err)
 	}
 }
 
@@ -1449,7 +1766,7 @@ func TestExecuteInboundInputToolFollowupContextUsesUpdatedObservations(t *testin
 		if calls == 1 {
 			return llmagent.Response{
 				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
-				Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+				Transcript: coreconversation.Transcript{Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...), coreconversation.Item{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"})},
 			}, nil
 		}
 		return llmagent.Response{
@@ -1675,7 +1992,7 @@ func TestExecuteInboundInputRunsToolFollowupEnvironmentPhase(t *testing.T) {
 		if calls == 1 {
 			return llmagent.Response{
 				Operations: []agent.OperationRequest{{Operation: opRef, Input: "A100", ProviderCallID: "call_1"}},
-				Transcript: coreconversation.Transcript{Items: append([]coreconversation.Item(nil), req.Transcript.NewItems...)},
+				Transcript: coreconversation.Transcript{Items: append(append([]coreconversation.Item(nil), req.Transcript.NewItems...), coreconversation.Item{Kind: coreconversation.ItemOutput, CallID: "call_1", Name: "lookup"})},
 			}, nil
 		}
 		return llmagent.Response{
@@ -3205,7 +3522,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new thread store: %v", err)
 	}
-	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-limit-repair"}); err != nil {
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-limit-committed"}); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
 	opRef := operation.Ref{Name: "lookup"}
@@ -3244,7 +3561,7 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
-	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-limit-repair"}}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-limit-committed"}}
 
 	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
 	if result.Status != InputStatusFailed {
@@ -3259,12 +3576,12 @@ func TestExecuteInboundInputPersistsToolResultBeforeStepLimit(t *testing.T) {
 	if result.Error.Details["loop"] != "inner" || result.Error.Details["max_steps"] != 2 {
 		t.Fatalf("error details = %#v, want inner max_steps detail", result.Error.Details)
 	}
-	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-limit-repair"})
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-limit-committed"})
 	if err != nil {
 		t.Fatalf("read thread: %v", err)
 	}
 	if !threadHasToolResultCallID(stored.Events, "call_2") {
-		t.Fatalf("stored events = %#v, want repaired tool result for call_2", stored.Events)
+		t.Fatalf("stored events = %#v, want committed tool result for call_2", stored.Events)
 	}
 }
 
@@ -3274,7 +3591,7 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 	if err != nil {
 		t.Fatalf("new thread store: %v", err)
 	}
-	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-failure-repair"}); err != nil {
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-failure-committed"}); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
 	opRef := operation.Ref{Name: "lookup"}
@@ -3314,18 +3631,18 @@ func TestExecuteInboundInputPersistsToolResultWhenContinuationModelFails(t *test
 	if err != nil {
 		t.Fatalf("new llm agent: %v", err)
 	}
-	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-failure-repair"}}
+	s := Session{Agent: runtimeAgent, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-failure-committed"}}
 
 	result := s.ExecuteInboundInput(ctx, channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "lookup A100"}})
 	if result.Status != InputStatusFailed {
 		t.Fatalf("status = %q, want failed: %#v", result.Status, result)
 	}
-	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-failure-repair"})
+	stored, err := threadStore.Read(ctx, corethread.ReadParams{ID: "thread-failure-committed"})
 	if err != nil {
 		t.Fatalf("read thread: %v", err)
 	}
 	if !threadHasToolResultCallID(stored.Events, "call_1") {
-		t.Fatalf("stored events = %#v, want repaired tool result for call_1", stored.Events)
+		t.Fatalf("stored events = %#v, want committed tool result for call_1", stored.Events)
 	}
 }
 
@@ -3366,12 +3683,21 @@ func TestAppendConversationRetriesAppendConflict(t *testing.T) {
 	s := Session{ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-conversation-conflict"}}
 	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
 
-	err = s.appendConversation(ctx, "turn-1", provider, []coreconversation.Item{{
-		Provider: provider,
-		Kind:     coreconversation.ItemToolResult,
-		CallID:   "call_1",
-		Content:  "ok",
-	}})
+	err = s.appendConversation(ctx, "turn-1", provider, []coreconversation.Item{
+		{
+			Provider: provider,
+			Kind:     coreconversation.ItemOutput,
+			CallID:   "call_1",
+			Name:     "lookup",
+		},
+		{
+			Provider: provider,
+			Kind:     coreconversation.ItemToolResult,
+			CallID:   "call_1",
+			Name:     "lookup",
+			Content:  "ok",
+		},
+	})
 	if err != nil {
 		t.Fatalf("appendConversation returned error: %v", err)
 	}
@@ -4170,7 +4496,7 @@ func TestExecuteInboundInputUsesConcreteModelIdentityForReplay(t *testing.T) {
 	}
 }
 
-func TestExecuteInboundInputPersistsPendingInputWhenModelFails(t *testing.T) {
+func TestExecuteInboundInputDoesNotPersistProviderTranscriptWhenModelFails(t *testing.T) {
 	ctx := context.Background()
 	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
 	if err != nil {
@@ -4219,8 +4545,8 @@ func TestExecuteInboundInputPersistsPendingInputWhenModelFails(t *testing.T) {
 	if second.Status != InputStatusOK {
 		t.Fatalf("second status = %q, want ok: %#v", second.Status, second)
 	}
-	if !hasTranscriptUserContent(secondTranscript.Items, "open login page") || !hasTranscriptUserContent(secondTranscript.Items, "so?") {
-		t.Fatalf("second transcript = %#v, want failed prompt and follow-up", secondTranscript.Items)
+	if hasTranscriptUserContent(secondTranscript.Items, "open login page") || !hasTranscriptUserContent(secondTranscript.Items, "so?") {
+		t.Fatalf("second transcript = %#v, want only successful follow-up prompt", secondTranscript.Items)
 	}
 }
 
@@ -4577,6 +4903,11 @@ func compactThread(t *testing.T, ctx context.Context, id corethread.ID) (corethr
 func compactLargeToolResult(provider coreconversation.ProviderIdentity, callID string) []coreconversation.Item {
 	return []coreconversation.Item{{
 		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		CallID:   callID,
+		Name:     "file_read",
+	}, {
+		Provider: provider,
 		Kind:     coreconversation.ItemToolResult,
 		CallID:   callID,
 		Name:     "file_read",
@@ -4649,6 +4980,30 @@ func countEvent(records []corethread.Record, name event.Name) int {
 		}
 	}
 	return count
+}
+
+func newSessionThread(t *testing.T, ctx context.Context, id corethread.ID) (*runtimethread.Store, corethread.Ref) {
+	t.Helper()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: id}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	return threadStore, corethread.Ref{ID: id}
+}
+
+type failAppendThreadStore struct {
+	corethread.Store
+	fail func([]corethread.AppendRecord) bool
+}
+
+func (s *failAppendThreadStore) Append(ctx context.Context, ref corethread.Ref, records ...corethread.AppendRecord) ([]corethread.Record, error) {
+	if s.fail != nil && s.fail(records) {
+		return nil, errors.New("injected append failure")
+	}
+	return s.Store.Append(ctx, ref, records...)
 }
 
 func TestExecuteInboundCommandPersistsThreadEvents(t *testing.T) {

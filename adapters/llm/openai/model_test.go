@@ -200,6 +200,11 @@ func TestResponseParamsUsesTranscriptItemsAndPreviousResponseID(t *testing.T) {
 				CallID:  "call_1",
 				Content: map[string]any{"ok": true},
 			}},
+			NewItems: []coreconversation.Item{{
+				Kind:    coreconversation.ItemToolResult,
+				CallID:  "call_1",
+				Content: map[string]any{"ok": true},
+			}},
 		},
 	})
 	if err != nil {
@@ -239,6 +244,12 @@ func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
 				Content:  map[string]any{"ok": true},
 				Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
 			}},
+			NewItems: []coreconversation.Item{{
+				Kind:     coreconversation.ItemToolResult,
+				CallID:   "call_1",
+				Content:  map[string]any{"ok": true},
+				Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
+			}},
 		},
 	})
 	if err != nil {
@@ -256,12 +267,12 @@ func TestResponseParamsUsesCustomToolCallOutputForCustomCalls(t *testing.T) {
 	}
 }
 
-func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
+func TestResponseParamsRendersCanonicalFunctionToolCallReplay(t *testing.T) {
 	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	synthetic := coreconversation.Item{
+	call := coreconversation.Item{
 		Kind:   coreconversation.ItemOutput,
 		CallID: "call_1",
 		Name:   "task_create",
@@ -269,15 +280,15 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 			CallID: "call_1",
 			Name:   "task_create",
 			Type:   "function_call",
-			Input:  map[string]string{"repair": "orphan_tool_result", "reason": "matching assistant tool call was missing from replay"},
+			Input:  map[string]string{"title": "Fix"},
 		}},
-		Metadata: map[string]string{"provider_call_type": "function_call", "repair": "orphan_tool_result"},
+		Metadata: map[string]string{"provider_call_type": "function_call"},
 	}
 	result := coreconversation.Item{
 		Kind:    coreconversation.ItemToolResult,
 		CallID:  "call_1",
 		Name:    "task_create",
-		Content: map[string]any{"code": "task_invalid", "message": "task: title is required"},
+		Content: map[string]any{"ok": true},
 	}
 	params, _, sent, err := model.responseParams(llmagent.Request{
 		Agent: agent.Spec{Name: "coder", Inference: agent.InferenceSpec{Model: "gpt-test"}},
@@ -286,10 +297,10 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 			Mode:     coreconversation.ProjectionFullReplay,
 			Items: []coreconversation.Item{
 				{Kind: coreconversation.ItemInput, Role: "user", Content: "make a plan"},
-				synthetic,
+				call,
 				result,
 			},
-			NewItems: []coreconversation.Item{synthetic, result},
+			NewItems: []coreconversation.Item{call, result},
 		},
 	})
 	if err != nil {
@@ -301,25 +312,25 @@ func TestResponseParamsRendersCanonicalOrphanReplayRepair(t *testing.T) {
 	}
 	json := string(raw)
 	if strings.Contains(json, `"role":"developer"`) {
-		t.Fatalf("params json = %s, did not want developer repair message", raw)
+		t.Fatalf("params json = %s, did not want developer message", raw)
 	}
 	if !strings.Contains(json, `"type":"function_call"`) || !strings.Contains(json, `"type":"function_call_output"`) {
-		t.Fatalf("params json = %s, want synthetic tool call and tool output", raw)
+		t.Fatalf("params json = %s, want tool call and tool output", raw)
 	}
-	if !strings.Contains(json, "matching assistant tool call was missing from replay") || !strings.Contains(json, "task_invalid") {
-		t.Fatalf("params json = %s, want repair reason and original tool result", raw)
+	if !strings.Contains(json, "task_create") || !strings.Contains(json, "Fix") {
+		t.Fatalf("params json = %s, want original tool call and result", raw)
 	}
-	if len(sent) != 2 || sent[0].Kind != coreconversation.ItemOutput || sent[0].Metadata["repair"] != "orphan_tool_result" || sent[1].Kind != coreconversation.ItemToolResult || sent[1].CallID != "call_1" {
-		t.Fatalf("sent = %#v, want synthetic call plus original tool result", sent)
+	if len(sent) != 2 || sent[0].Kind != coreconversation.ItemOutput || sent[0].Metadata["repair"] != "" || sent[1].Kind != coreconversation.ItemToolResult || sent[1].CallID != "call_1" {
+		t.Fatalf("sent = %#v, want tool call plus original tool result", sent)
 	}
 }
 
-func TestResponseParamsRendersCanonicalCustomToolRepair(t *testing.T) {
+func TestResponseParamsRendersCanonicalCustomToolReplay(t *testing.T) {
 	model, err := New(Config{Runtime: ResponsesRuntimeConfig{Continuation: ResponsesContinuationReplay}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	synthetic := coreconversation.Item{
+	call := coreconversation.Item{
 		Kind:   coreconversation.ItemOutput,
 		CallID: "call_custom",
 		Name:   "inspect",
@@ -327,9 +338,9 @@ func TestResponseParamsRendersCanonicalCustomToolRepair(t *testing.T) {
 			CallID: "call_custom",
 			Name:   "inspect",
 			Type:   "custom_tool_call",
-			Input:  map[string]string{"repair": "orphan_tool_result"},
+			Input:  map[string]string{"path": "README.md"},
 		}},
-		Metadata: map[string]string{"provider_call_type": "custom_tool_call", "repair": "orphan_tool_result"},
+		Metadata: map[string]string{"provider_call_type": "custom_tool_call"},
 	}
 	result := coreconversation.Item{
 		Kind:     coreconversation.ItemToolResult,
@@ -343,8 +354,8 @@ func TestResponseParamsRendersCanonicalCustomToolRepair(t *testing.T) {
 		Transcript: &coreconversation.Transcript{
 			Provider: coreconversation.ProviderIdentity{Provider: "codex", API: "codex.responses", Family: "responses", Model: "gpt-test"},
 			Mode:     coreconversation.ProjectionFullReplay,
-			Items:    []coreconversation.Item{synthetic, result},
-			NewItems: []coreconversation.Item{synthetic, result},
+			Items:    []coreconversation.Item{call, result},
+			NewItems: []coreconversation.Item{call, result},
 		},
 	})
 	if err != nil {
@@ -356,13 +367,13 @@ func TestResponseParamsRendersCanonicalCustomToolRepair(t *testing.T) {
 	}
 	json := string(raw)
 	if strings.Contains(json, `"role":"developer"`) {
-		t.Fatalf("params json = %s, did not want developer repair message", raw)
+		t.Fatalf("params json = %s, did not want developer message", raw)
 	}
 	if !strings.Contains(json, `"type":"custom_tool_call"`) || !strings.Contains(json, `"type":"custom_tool_call_output"`) {
-		t.Fatalf("params json = %s, want synthetic custom tool call and output", raw)
+		t.Fatalf("params json = %s, want custom tool call and output", raw)
 	}
-	if len(sent) != 2 || sent[0].Metadata["provider_call_type"] != "custom_tool_call" || sent[0].Metadata["repair"] != "orphan_tool_result" || sent[1].Metadata["provider_call_type"] != "custom_tool_call" {
-		t.Fatalf("sent = %#v, want repaired custom call plus original custom result", sent)
+	if len(sent) != 2 || sent[0].Metadata["provider_call_type"] != "custom_tool_call" || sent[0].Metadata["repair"] != "" || sent[1].Metadata["provider_call_type"] != "custom_tool_call" {
+		t.Fatalf("sent = %#v, want custom call plus original custom result", sent)
 	}
 }
 

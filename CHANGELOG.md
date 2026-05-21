@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Documented strict conversation continuity rules and removed the stale
+  provider transcript repair path in favor of fail-fast validation.
+- Batched assistant tool-call transcript writes with their matching tool
+  results so failed operation turns cannot persist open provider tool calls.
 - Recalibrated architecture evaluation around production boundary gates,
   component scores, side-effect diagnostics, test-only dependency reporting,
   runtime host-IO allowlists, reviewed composition fan-out, unknown-package

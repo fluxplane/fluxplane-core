@@ -1249,13 +1249,26 @@ func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}
-	if err := conversationruntime.Append(ctx, threadStore, info.Thread, "turn-1", provider, []coreconversation.Item{{
-		Provider: provider,
-		Kind:     coreconversation.ItemToolResult,
-		CallID:   "call_1",
-		Name:     "file_read",
-		Content:  strings.Repeat("large tool result ", 40000),
-	}}); err != nil {
+	if err := conversationruntime.Append(ctx, threadStore, info.Thread, "turn-1", provider, []coreconversation.Item{
+		{
+			Provider: provider,
+			Kind:     coreconversation.ItemOutput,
+			Role:     "assistant",
+			CallID:   "call_1",
+			Name:     "file_read",
+			ToolCalls: []coreconversation.ToolCallRef{{
+				CallID: "call_1",
+				Name:   "file_read",
+			}},
+		},
+		{
+			Provider: provider,
+			Kind:     coreconversation.ItemToolResult,
+			CallID:   "call_1",
+			Name:     "file_read",
+			Content:  strings.Repeat("large tool result ", 40000),
+		},
+	}); err != nil {
 		t.Fatalf("Append transcript: %v", err)
 	}
 	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
@@ -1285,6 +1298,60 @@ func TestHandleInboundCompactCommandUsesAgentProvider(t *testing.T) {
 	}
 	if checkpoint.Provider != provider {
 		t.Fatalf("checkpoint provider = %#v, want %#v", checkpoint.Provider, provider)
+	}
+}
+
+func TestHandleInboundCompactCommandRejectsMalformedProviderTranscript(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Family: "responses", Model: "gpt-test"}
+	service := New(Config{
+		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
+			return harnessProviderAgent{provider: provider}, nil
+		}),
+		ThreadStore: threadStore,
+	})
+	info, err := service.OpenSession(ctx, OpenSessionRequest{
+		Session: coresession.Ref{Name: "coder"},
+		Profile: coresession.Spec{
+			Name:  "coder",
+			Agent: coreagent.Ref{Name: "coder"},
+		},
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-compact-invalid"},
+	})
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if err := conversationruntime.Append(ctx, threadStore, info.Thread, "turn-1", provider, []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemToolResult,
+		CallID:   "call_1",
+		Name:     "file_read",
+		Content:  "orphan result",
+	}}); err != nil {
+		t.Fatalf("Append transcript: %v", err)
+	}
+	result, err := service.HandleSessionInbound(ctx, info, channel.Inbound{
+		ID:           "run-compact-invalid",
+		Channel:      channel.Ref{Name: "local"},
+		Conversation: channel.ConversationRef{ID: "conv-compact-invalid"},
+		Caller:       policy.Caller{Kind: policy.CallerUser},
+		Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Kind:         channel.InboundCommand,
+		Command:      &command.Invocation{Path: command.Path{"compact"}},
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionInbound: %v", err)
+	}
+	if result.Command.Status != session.CommandStatusFailed {
+		t.Fatalf("status = %s, want failed", result.Command.Status)
+	}
+	if result.Command.Error == nil || result.Command.Error.Code != "compact_projection_failed" || !strings.Contains(result.Command.Error.Message, "tool result without open assistant tool call") {
+		t.Fatalf("error = %#v, want compact projection continuity failure", result.Command.Error)
 	}
 }
 

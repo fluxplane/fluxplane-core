@@ -317,7 +317,7 @@ func (m *Model) responseParams(req llmagent.Request) (responses.ResponseNewParam
 		}
 		params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: responses.ResponseInputParam(inputItems)}
 		recordItems := transcript.NewItems
-		if len(recordItems) == 0 {
+		if len(recordItems) == 0 && transcript.Mode == "" {
 			recordItems = transcript.Items
 		}
 		_, sentItems, err = inputItemsFromTranscript(transcript.Provider, recordItems)

@@ -412,7 +412,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 		effects    []environment.EffectResult
 		assertions = append([]coreevidence.Assertion(nil), s.StartupAssertions...)
 		reactions  = replayedReactions
-		pending    = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}
+		pending    = transcriptPending{Items: []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), inbound.Message.Content)}}
 	)
 	observations = append(observations, s.StartupObservations...)
 	if s.shouldRunSessionOpenPhase(ctx) {
@@ -467,7 +467,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 		if instruction == "" {
 			instruction = "Continue."
 		}
-		pending = []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), instruction)}
+		pending = transcriptPending{Items: []coreconversation.Item{inputTranscriptItem(s.providerIdentity(), instruction)}}
 		observations = []coreevidence.Observation{{
 			Source:  "session",
 			Kind:    "session.continuation",
@@ -484,12 +484,12 @@ type innerTurnInput struct {
 	Inbound             channel.Inbound
 	BaseContext         context.Context
 	History             []corecontext.Block
-	Events              sessionenv.EventSink
+	Events              *conversationEventSink
 	ConversationErr     *error
 	LocalTranscript     *[]coreconversation.Item
 	LocalContinuation   **coreconversation.ContinuationHandle
 	LocalContextRecords *map[corecontext.ProviderName]corecontext.ProviderRenderRecord
-	Pending             []coreconversation.Item
+	Pending             transcriptPending
 	Goal                string
 	Observations        []coreevidence.Observation
 	Assertions          []coreevidence.Assertion
@@ -518,8 +518,14 @@ type reactionState struct {
 	Applied            []corereaction.ActionApplied
 }
 
+type transcriptPending struct {
+	Items          []coreconversation.Item
+	Committed      bool
+	CommittedCount int
+}
+
 func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnResult {
-	pending := append([]coreconversation.Item(nil), in.Pending...)
+	pending := transcriptPending{Items: append([]coreconversation.Item(nil), in.Pending.Items...), Committed: in.Pending.Committed, CommittedCount: in.Pending.CommittedCount}
 	observations := append([]coreevidence.Observation(nil), in.Observations...)
 	assertions := append([]coreevidence.Assertion(nil), in.Assertions...)
 	observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseTurn, observations, assertions)
@@ -556,11 +562,16 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 			effects = append(effects, reactionEffects...)
 			lazyPrepared = true
 		}
-		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending, observations, reactions.Active)
+		contextResult, projectedPending, err := s.materializeContext(ctx, in, pending.Items, observations, reactions.Active)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("context_render_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
-		transcript, err := s.transcriptForPending(ctx, projectedPending, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
+		committedCount := pending.CommittedCount
+		if pending.Committed && committedCount == 0 {
+			committedCount = len(pending.Items)
+		}
+		projected := transcriptPending{Items: projectedPending, Committed: pending.Committed, CommittedCount: committedCount}
+		transcript, err := s.transcriptForPending(ctx, projected, derefItems(in.LocalTranscript), derefHandle(in.LocalContinuation))
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("conversation_projection_failed", err.Error(), nil), State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
@@ -584,17 +595,13 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		} else {
 			agentResult = s.Agent.Step(agentCtx, stepInput)
 		}
-		if in.ConversationErr != nil && *in.ConversationErr != nil {
-			return innerTurnResult{Result: inputFailed("conversation_append_failed", (*in.ConversationErr).Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
-		}
-		if err := s.appendThreadEvents(ctx, sessionenv.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}); err != nil {
-			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
-		}
 		if agentResult.Status != agent.StatusOK {
-			if err := s.persistFailedTurnTranscript(ctx, in.ConversationTurnID, in.ProviderIdentity, pending, in.LocalTranscript, agentErrorMessage(agentResult)); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
-			}
 			return innerTurnResult{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: agentError(agentResult.Error)}, AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
+		}
+		stepCompleted := sessionenv.AgentStepCompleted{RunID: in.Inbound.ID, Result: agentResult}
+		stepItems := append(derefItems(in.LocalTranscript), in.Events.Items()...)
+		if err := s.validateOperationRequests(stepItems, agentResult.Decision.Operations); err != nil {
+			return innerTurnResult{Result: inputFailed("conversation_continuity_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if err := s.commitContextRender(ctx, contextResult, in.LocalContextRecords); err != nil {
 			return innerTurnResult{Result: inputFailed("context_commit_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
@@ -604,34 +611,46 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		}
 		lastAgentResult = agentResult
 		if agentResult.Decision.Kind != agent.DecisionOperation {
+			if err := conversationruntime.ValidateContinuity(stepItems, conversationruntime.ValidateOptions{Provider: in.ProviderIdentity}); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_continuity_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
+			}
+			if err := in.Events.Flush(ctx, s, stepCompleted); err != nil {
+				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
+			}
 			return innerTurnResult{AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		if len(agentResult.Decision.Operations) == 0 {
 			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
-		batch, toolResults, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations)
+		batch, toolResults, completed, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations, in.ProviderIdentity)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
 		effects = append(effects, batch...)
-		checkBatch, checkToolResults, err := s.applyPostEditChecks(ctx, agentCtx, in.Inbound, len(effects), batch)
+		checkBatch, _, err := s.applyPostEditChecks(ctx, agentCtx, in.Inbound, len(effects), batch)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
-		effects = append(effects, checkBatch...)
-		toolResults = append(toolResults, checkToolResults...)
-		// Persist tool results before the budget check at the top of the next
-		// iteration fires so they are durably recorded if the loop exits there.
-		if step+1 >= maxSteps {
-			if err := s.persistPendingTranscriptItems(ctx, in.ConversationTurnID, in.ProviderIdentity, toolResults, in.LocalTranscript); err != nil {
-				return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
-			}
+		if err := conversationruntime.ValidateContinuity(append(stepItems, toolResults...), conversationruntime.ValidateOptions{Provider: in.ProviderIdentity}); err != nil {
+			return innerTurnResult{Result: inputFailed("conversation_continuity_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
+		flushEvents := make([]sessionenv.Event, 0, 1+len(completed))
+		flushEvents = append(flushEvents, stepCompleted)
+		for i := range completed {
+			flushEvents = append(flushEvents, completed[i])
+		}
+		if err := in.Events.FlushWithTranscriptItems(ctx, s, toolResults, flushEvents...); err != nil {
+			return innerTurnResult{Result: inputFailed("conversation_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
+		}
+		for _, event := range completed {
+			s.emitLive(event)
+		}
+		effects = append(effects, checkBatch...)
 		observations = append(observations, observationsForEffects(append(batch, checkBatch...))...)
 		observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseToolFollowup, observations, assertions)
 		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, in.Inbound, assertions, reactions, observations, in.Events)
 		effects = append(effects, reactionEffects...)
-		pending = toolResults
+		pending = transcriptPending{Items: toolResults, Committed: true, CommittedCount: len(toolResults)}
 	}
 }
 
@@ -1115,40 +1134,6 @@ func derefHandle(handle **coreconversation.ContinuationHandle) *coreconversation
 		return nil
 	}
 	return *handle
-}
-
-func (s Session) persistPendingTranscriptItems(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, localItems *[]coreconversation.Item) error {
-	if len(items) == 0 {
-		return nil
-	}
-	copied := append([]coreconversation.Item(nil), items...)
-	if localItems != nil {
-		*localItems = append(*localItems, copied...)
-	}
-	return s.appendConversation(ctx, turnID, provider, copied)
-}
-
-func (s Session) persistFailedTurnTranscript(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, pending []coreconversation.Item, localItems *[]coreconversation.Item, reason string) error {
-	base := derefItems(localItems)
-	if len(base) == 0 {
-		return s.persistPendingTranscriptItems(ctx, turnID, provider, pending, localItems)
-	}
-	repaired := conversationruntime.RepairToolContinuity(base, conversationruntime.ToolContinuityRepairOptions{
-		Provider:            provider,
-		RepairOrphanResults: true,
-		MissingResultReason: reason,
-	})
-	if len(repaired.Repairs) == 0 {
-		return nil
-	}
-	return s.persistPendingTranscriptItems(ctx, turnID, provider, repaired.Repairs, localItems)
-}
-
-func agentErrorMessage(result agent.StepResult) string {
-	if result.Error != nil && strings.TrimSpace(result.Error.Message) != "" {
-		return result.Error.Message
-	}
-	return "Tool call did not complete because the model turn failed before a result could be recorded."
 }
 
 func inputObservationMetadata(inbound channel.Inbound) map[string]any {
@@ -2399,61 +2384,78 @@ func cloneContextRecords(records map[corecontext.ProviderName]corecontext.Provid
 	return out
 }
 
-func (s Session) transcriptForPending(ctx context.Context, pending, localItems []coreconversation.Item, localHandle *coreconversation.ContinuationHandle) (coreconversation.Transcript, error) {
+func (s Session) transcriptForPending(ctx context.Context, pending transcriptPending, localItems []coreconversation.Item, localHandle *coreconversation.ContinuationHandle) (coreconversation.Transcript, error) {
 	provider := s.providerIdentity()
 	if s.ThreadStore == nil || s.Thread.ID == "" {
+		committedCount := pending.CommittedCount
+		if pending.Committed && committedCount == 0 {
+			committedCount = len(pending.Items)
+		}
+		if committedCount < 0 {
+			committedCount = 0
+		}
+		if committedCount > len(pending.Items) {
+			committedCount = len(pending.Items)
+		}
+		uncommitted := pending.Items[committedCount:]
+		all := append([]coreconversation.Item(nil), localItems...)
+		all = append(all, uncommitted...)
+		if err := conversationruntime.ValidateContinuity(all, conversationruntime.ValidateOptions{Provider: provider}); err != nil {
+			return coreconversation.Transcript{}, err
+		}
+		newItems := uncommitted
 		if localHandle != nil && localHandle.SupportsPreviousResponseID() {
 			copied := *localHandle
-			repaired := conversationruntime.RepairToolContinuity(append(append([]coreconversation.Item(nil), localItems...), pending...), conversationruntime.ToolContinuityRepairOptions{
-				Provider: provider,
-			})
-			items := append([]coreconversation.Item(nil), repaired.Repairs...)
-			items = append(items, pending...)
 			return coreconversation.Transcript{
 				Provider:     provider,
-				Items:        items,
-				NewItems:     append([]coreconversation.Item(nil), items...),
+				Items:        append([]coreconversation.Item(nil), pending.Items...),
+				NewItems:     append([]coreconversation.Item(nil), newItems...),
 				Continuation: &copied,
 				Mode:         coreconversation.ProjectionNativeContinuation,
 			}, nil
 		}
-		repaired := conversationruntime.RepairToolContinuity(append(append([]coreconversation.Item(nil), localItems...), pending...), conversationruntime.ToolContinuityRepairOptions{
-			Provider:            provider,
-			RepairOrphanResults: true,
-		})
-		newItems := append([]coreconversation.Item(nil), repaired.Repairs...)
-		newItems = append(newItems, pending...)
 		return coreconversation.Transcript{
 			Provider: provider,
-			Items:    repaired.Items,
-			NewItems: newItems,
+			Items:    all,
+			NewItems: append([]coreconversation.Item(nil), newItems...),
 			Mode:     coreconversation.ProjectionFullReplay,
 		}, nil
 	}
 	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
 	if err != nil {
 		if errors.Is(err, corethread.ErrNotFound) {
-			repaired := conversationruntime.RepairToolContinuity(pending, conversationruntime.ToolContinuityRepairOptions{
-				Provider:            provider,
-				RepairOrphanResults: true,
-			})
-			newItems := append([]coreconversation.Item(nil), repaired.Repairs...)
-			newItems = append(newItems, pending...)
+			committedCount := pending.CommittedCount
+			if pending.Committed && committedCount == 0 {
+				committedCount = len(pending.Items)
+			}
+			if committedCount < 0 {
+				committedCount = 0
+			}
+			if committedCount > len(pending.Items) {
+				committedCount = len(pending.Items)
+			}
+			canonical := append([]coreconversation.Item(nil), pending.Items[committedCount:]...)
+			if err := conversationruntime.ValidateContinuity(canonical, conversationruntime.ValidateOptions{Provider: provider}); err != nil {
+				return coreconversation.Transcript{}, err
+			}
+			newItems := pending.Items[committedCount:]
 			return coreconversation.Transcript{
 				Provider: provider,
-				Items:    repaired.Items,
-				NewItems: newItems,
+				Items:    canonical,
+				NewItems: append([]coreconversation.Item(nil), newItems...),
 				Mode:     coreconversation.ProjectionFullReplay,
 			}, nil
 		}
 		return coreconversation.Transcript{}, err
 	}
 	projected, err := conversationruntime.Project(conversationruntime.ProjectionInput{
-		Thread:   snapshot,
-		BranchID: s.Thread.BranchID,
-		Provider: provider,
-		Pending:  pending,
-		Mode:     coreconversation.ProjectionNativeContinuation,
+		Thread:                snapshot,
+		BranchID:              s.Thread.BranchID,
+		Provider:              provider,
+		Pending:               pending.Items,
+		PendingCommitted:      pending.Committed,
+		PendingCommittedCount: pending.CommittedCount,
+		Mode:                  coreconversation.ProjectionNativeContinuation,
 	})
 	if err != nil {
 		return coreconversation.Transcript{}, err
@@ -2549,9 +2551,6 @@ func inputTranscriptItem(provider coreconversation.ProviderIdentity, content any
 
 func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, opReq agent.OperationRequest, callID operation.CallID, result operation.Result) coreconversation.Item {
 	providerCallID := opReq.ProviderCallID
-	if providerCallID == "" {
-		providerCallID = string(callID)
-	}
 	content := result.Output
 	if rendered, ok := result.Output.(operation.ModelRenderable); ok {
 		content = rendered.ModelText()
@@ -2576,81 +2575,135 @@ func operationResultTranscriptItem(provider coreconversation.ProviderIdentity, o
 	return item
 }
 
-func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) sessionenv.EventSink {
-	live := s.eventSink()
-	return sessionenv.EventSinkFunc(func(payload sessionenv.Event) {
-		if payload == nil {
+type conversationEventSink struct {
+	ctx         context.Context
+	turnID      string
+	errp        *error
+	localItems  *[]coreconversation.Item
+	localHandle **coreconversation.ContinuationHandle
+	live        sessionenv.EventSink
+	provider    coreconversation.ProviderIdentity
+	thread      corethread.Ref
+	items       []coreconversation.Item
+	handles     []coreconversation.ContinuationHandle
+}
+
+func (s Session) conversationEventSink(ctx context.Context, turnID string, errp *error, localItems *[]coreconversation.Item, localHandle **coreconversation.ContinuationHandle) *conversationEventSink {
+	return &conversationEventSink{
+		ctx:         ctx,
+		turnID:      turnID,
+		errp:        errp,
+		localItems:  localItems,
+		localHandle: localHandle,
+		live:        s.eventSink(),
+		provider:    s.providerIdentity(),
+		thread:      s.Thread,
+	}
+}
+
+func (c *conversationEventSink) Emit(payload sessionenv.Event) {
+	if payload == nil {
+		return
+	}
+	c.live.Emit(payload)
+	if c.errp != nil && *c.errp != nil {
+		return
+	}
+	switch typed := payload.(type) {
+	case coreconversation.ItemsAppended:
+		if typed.TurnID == "" {
+			typed.TurnID = c.turnID
+		}
+		if typed.Provider.Provider == "" {
+			typed.Provider = c.provider
+		}
+		if c.provider.Provider == "" {
+			c.provider = typed.Provider
+		}
+		c.items = append(c.items, typed.Items...)
+	case *coreconversation.ItemsAppended:
+		if typed == nil {
 			return
 		}
-		live.Emit(payload)
-		if errp != nil && *errp != nil {
+		copied := *typed
+		if copied.TurnID == "" {
+			copied.TurnID = c.turnID
+		}
+		if copied.Provider.Provider == "" {
+			copied.Provider = c.provider
+		}
+		if c.provider.Provider == "" {
+			c.provider = copied.Provider
+		}
+		c.items = append(c.items, copied.Items...)
+	case coreconversation.ContinuationStored:
+		if typed.TurnID == "" {
+			typed.TurnID = c.turnID
+		}
+		if typed.Handle.BranchID == "" {
+			typed.Handle.BranchID = c.thread.BranchID
+		}
+		if c.provider.Provider == "" {
+			c.provider = typed.Handle.Provider
+		}
+		c.handles = append(c.handles, typed.Handle)
+	case *coreconversation.ContinuationStored:
+		if typed == nil {
 			return
 		}
-		switch typed := payload.(type) {
-		case coreconversation.ItemsAppended:
-			if typed.TurnID == "" {
-				typed.TurnID = turnID
-			}
-			if typed.Provider.Provider == "" {
-				typed.Provider = s.providerIdentity()
-			}
-			if localItems != nil {
-				*localItems = append(*localItems, typed.Items...)
-			}
-			if err := s.appendConversation(ctx, typed.TurnID, typed.Provider, typed.Items); err != nil && errp != nil {
-				*errp = err
-			}
-		case *coreconversation.ItemsAppended:
-			if typed == nil {
-				return
-			}
-			copied := *typed
-			if copied.TurnID == "" {
-				copied.TurnID = turnID
-			}
-			if copied.Provider.Provider == "" {
-				copied.Provider = s.providerIdentity()
-			}
-			if localItems != nil {
-				*localItems = append(*localItems, copied.Items...)
-			}
-			if err := s.appendConversation(ctx, copied.TurnID, copied.Provider, copied.Items); err != nil && errp != nil {
-				*errp = err
-			}
-		case coreconversation.ContinuationStored:
-			if typed.TurnID == "" {
-				typed.TurnID = turnID
-			}
-			if typed.Handle.BranchID == "" {
-				typed.Handle.BranchID = s.Thread.BranchID
-			}
-			if localHandle != nil {
-				copied := typed.Handle
-				*localHandle = &copied
-			}
-			if err := s.appendConversation(ctx, typed.TurnID, typed.Handle.Provider, nil, typed.Handle); err != nil && errp != nil {
-				*errp = err
-			}
-		case *coreconversation.ContinuationStored:
-			if typed == nil {
-				return
-			}
-			copied := *typed
-			if copied.TurnID == "" {
-				copied.TurnID = turnID
-			}
-			if copied.Handle.BranchID == "" {
-				copied.Handle.BranchID = s.Thread.BranchID
-			}
-			if localHandle != nil {
-				handle := copied.Handle
-				*localHandle = &handle
-			}
-			if err := s.appendConversation(ctx, copied.TurnID, copied.Handle.Provider, nil, copied.Handle); err != nil && errp != nil {
-				*errp = err
-			}
+		copied := *typed
+		if copied.TurnID == "" {
+			copied.TurnID = c.turnID
 		}
-	})
+		if copied.Handle.BranchID == "" {
+			copied.Handle.BranchID = c.thread.BranchID
+		}
+		if c.provider.Provider == "" {
+			c.provider = copied.Handle.Provider
+		}
+		c.handles = append(c.handles, copied.Handle)
+	}
+}
+
+func (c *conversationEventSink) Flush(ctx context.Context, s Session, events ...sessionenv.Event) error {
+	return c.FlushWithTranscriptItems(ctx, s, nil, events...)
+}
+
+func (c *conversationEventSink) FlushWithTranscriptItems(ctx context.Context, s Session, extraItems []coreconversation.Item, events ...sessionenv.Event) error {
+	if c == nil {
+		return s.appendThreadEvents(ctx, events...)
+	}
+	if c.errp != nil && *c.errp != nil {
+		return *c.errp
+	}
+	if ctx == nil {
+		ctx = c.ctx
+	}
+	items := append([]coreconversation.Item(nil), c.items...)
+	items = append(items, extraItems...)
+	if err := s.appendConversationAndEvents(ctx, c.turnID, c.provider, items, c.handles, events...); err != nil {
+		if c.errp != nil {
+			*c.errp = err
+		}
+		return err
+	}
+	if c.localItems != nil && len(items) > 0 {
+		*c.localItems = append(*c.localItems, items...)
+	}
+	if c.localHandle != nil && len(c.handles) > 0 {
+		copied := c.handles[len(c.handles)-1]
+		*c.localHandle = &copied
+	}
+	c.items = nil
+	c.handles = nil
+	return nil
+}
+
+func (c *conversationEventSink) Items() []coreconversation.Item {
+	if c == nil {
+		return nil
+	}
+	return append([]coreconversation.Item(nil), c.items...)
 }
 
 func (s Session) historyContext(ctx context.Context) ([]corecontext.Block, error) {
@@ -2769,10 +2822,10 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 	}
 }
 
-func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest) ([]environment.EffectResult, []coreconversation.Item, error) {
+func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest, provider coreconversation.ProviderIdentity) ([]environment.EffectResult, []coreconversation.Item, []sessionenv.OperationCompleted, error) {
 	effects := make([]environment.EffectResult, 0, len(requests))
 	toolResults := make([]coreconversation.Item, 0, len(requests))
-	provider := s.providerIdentity()
+	completedEvents := make([]sessionenv.OperationCompleted, 0, len(requests))
 	for i, opReq := range requests {
 		callID := operationCallID(inbound.ID, startIndex+i+1)
 		requested := sessionenv.OperationRequested{
@@ -2782,7 +2835,7 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			Input:     opReq.Input,
 		}
 		if err := s.appendThreadEvents(ctx, requested); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		s.emitLive(requested)
 		effect := s.applyProjectedOperation(agentCtx, opReq.Operation, opReq.Input, callID)
@@ -2812,6 +2865,16 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			}
 		}
 		effects = append(effects, effect)
+		completed := sessionenv.OperationCompleted{
+			RunID:     inbound.ID,
+			CallID:    callID,
+			Operation: opReq.Operation,
+			Result:    effect.Result,
+		}
+		completedEvents = append(completedEvents, completed)
+		if strings.TrimSpace(opReq.ProviderCallID) == "" {
+			continue
+		}
 		toolResult := operationResultTranscriptItem(provider, opReq, callID, effect.Result)
 		if replacement, ok := toolResultReplacement(effect.Result); ok {
 			if toolResult.Metadata == nil {
@@ -2829,18 +2892,63 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			effect.Observation.Metadata["replacement"] = replacement
 		}
 		toolResults = append(toolResults, toolResult)
-		completed := sessionenv.OperationCompleted{
-			RunID:     inbound.ID,
-			CallID:    callID,
-			Operation: opReq.Operation,
-			Result:    effect.Result,
-		}
-		if err := s.appendThreadEvents(ctx, completed); err != nil {
-			return nil, nil, err
-		}
-		s.emitLive(completed)
 	}
-	return effects, toolResults, nil
+	return effects, toolResults, completedEvents, nil
+}
+
+func (s Session) validateOperationRequests(items []coreconversation.Item, requests []agent.OperationRequest) error {
+	open := map[string]coreconversation.ToolCallRef{}
+	for _, item := range items {
+		switch item.Kind {
+		case coreconversation.ItemOutput:
+			for _, call := range item.ToolCallRefs() {
+				callID := strings.TrimSpace(call.CallID)
+				if callID != "" {
+					if existing := open[callID]; existing.CallID != "" {
+						return fmt.Errorf("assistant tool call %q is duplicated", callID)
+					}
+					open[callID] = call
+				}
+			}
+		case coreconversation.ItemToolResult:
+			delete(open, strings.TrimSpace(item.CallID))
+		}
+	}
+	hasProviderRequest := len(open) > 0
+	for _, request := range requests {
+		if strings.TrimSpace(request.ProviderCallID) != "" {
+			hasProviderRequest = true
+			break
+		}
+	}
+	if !hasProviderRequest {
+		return nil
+	}
+	matched := map[string]bool{}
+	for i, request := range requests {
+		callID := strings.TrimSpace(request.ProviderCallID)
+		if callID == "" {
+			return fmt.Errorf("operation request %d for %s is missing provider call id", i, request.Operation.String())
+		}
+		_, ok := open[callID]
+		if !ok {
+			return fmt.Errorf("operation request %d for %s references provider call id %q without a durable open assistant tool call", i, request.Operation.String(), callID)
+		}
+		if matched[callID] {
+			return fmt.Errorf("operation request %d for %s duplicates provider call id %q", i, request.Operation.String(), callID)
+		}
+		matched[callID] = true
+	}
+	for callID, call := range open {
+		if !matched[callID] {
+			name := strings.TrimSpace(call.Name)
+			if name == "" {
+				name = callID
+			}
+			return fmt.Errorf("assistant tool call %q has no matching operation request", name)
+		}
+	}
+	return nil
 }
 
 func (s Session) applyPostEditChecks(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, editEffects []environment.EffectResult) ([]environment.EffectResult, []coreconversation.Item, error) {
@@ -2851,9 +2959,7 @@ func (s Session) applyPostEditChecks(ctx context.Context, agentCtx operation.Con
 	if len(paths) == 0 {
 		return nil, nil, nil
 	}
-	provider := s.providerIdentity()
 	var effects []environment.EffectResult
-	var toolResults []coreconversation.Item
 	for _, editedPath := range paths {
 		for _, check := range s.PostEditChecks {
 			if !postEditCheckMatches(check, editedPath) {
@@ -2897,26 +3003,6 @@ func (s Session) applyPostEditChecks(ctx context.Context, agentCtx operation.Con
 				}
 			}
 			effects = append(effects, effect)
-			opReq := agent.OperationRequest{Operation: check.Operation, Input: input}
-			toolResult := operationResultTranscriptItem(provider, opReq, callID, effect.Result)
-			if toolResult.Metadata == nil {
-				toolResult.Metadata = map[string]string{}
-			}
-			toolResult.Metadata["post_edit_check"] = check.Name
-			toolResult.Metadata["edited_path"] = editedPath
-			if replacement, ok := toolResultReplacement(effect.Result); ok {
-				toolResult.Metadata["replaced"] = "true"
-				toolResult.Metadata["replacement"] = replacement.Kind
-				toolResult.Metadata["replacement_path"] = replacement.Path
-				toolResult.Metadata["replacement_size_bytes"] = fmt.Sprintf("%d", replacement.SizeBytes)
-				toolResult.Metadata["replacement_threshold_bytes"] = fmt.Sprintf("%d", replacement.ThresholdBytes)
-				if effect.Observation.Metadata == nil {
-					effect.Observation.Metadata = map[string]any{}
-				}
-				effect.Observation.Metadata["replaced"] = true
-				effect.Observation.Metadata["replacement"] = replacement
-			}
-			toolResults = append(toolResults, toolResult)
 			completed := sessionenv.OperationCompleted{
 				RunID:     inbound.ID,
 				CallID:    callID,
@@ -2929,7 +3015,7 @@ func (s Session) applyPostEditChecks(ctx context.Context, agentCtx operation.Con
 			s.emitLive(completed)
 		}
 	}
-	return effects, toolResults, nil
+	return effects, nil, nil
 }
 
 func postEditPaths(effects []environment.EffectResult) []string {
@@ -4995,9 +5081,20 @@ func (s Session) appendThreadEvents(ctx context.Context, events ...sessionenv.Ev
 }
 
 func (s Session) appendConversation(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, handles ...coreconversation.ContinuationHandle) error {
-	return retryThreadAppend(ctx, func(appendCtx context.Context) error {
-		return conversationruntime.Append(appendCtx, s.ThreadStore, s.Thread, turnID, provider, items, handles...)
-	})
+	return s.appendConversationAndEvents(ctx, turnID, provider, items, handles)
+}
+
+func (s Session) appendConversationAndEvents(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, handles []coreconversation.ContinuationHandle, payloads ...sessionenv.Event) error {
+	conversationRecords, err := conversationruntime.AppendRecords(turnID, provider, items, handles...)
+	if err != nil {
+		return err
+	}
+	threadRecords := sessionenv.ThreadAppendRecords(s.Thread, payloads...)
+	records := append(conversationRecords, threadRecords...)
+	if len(records) == 0 {
+		return nil
+	}
+	return s.appendThreadRecords(ctx, records...)
 }
 
 func (s Session) appendThreadRecords(ctx context.Context, records ...corethread.AppendRecord) error {

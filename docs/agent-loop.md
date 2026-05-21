@@ -71,14 +71,15 @@
   4. **Check Decision**:
      - `OPERATION` → Execute tool calls (step 5), loop back
      - `STOP` → Exit inner loop (continue to continuation check)
-     - `FAILED` → Persist repair, exit with error
+     - `FAILED` → Exit with error without persisting partial provider transcript items
 
 ### Operation Execution (Step 5)
 - **For each operation call**:
   1. Safety envelope checks (ACL, scope validation)
   2. Operation executor runs (with sandboxing)
   3. Effect result collected
-  4. Tool result items added to pending transcript
+  4. Assistant tool-call items, `OperationCompleted`, and matching provider tool-result items are committed together
+  5. Tool results become committed pending transcript items for the next LLM step
 
 ## Critical State Management
 
@@ -98,7 +99,7 @@
 • agentState               → State ref from agent decisions
 • effects[]                → Accumulated operation results
 • observations[]           → Tool results feeding back to agent
-• pending[]                → Transcript items waiting for LLM
+• pending[]                → Transcript items waiting for LLM, including already committed tool results
 • localTranscript          → Conversation history for this turn
 • localContinuation        → Provider continuation handle (for resume)
 ```
@@ -121,14 +122,16 @@
 Agent.Step() returns StepResult
     │
     ├─ Status != OK
-    │   └─ FAILED: Persist repair, return error
+    │   └─ FAILED: Return error; do not persist partial provider transcript items
     │
     ├─ Decision == STOP (terminal)
     │   ├─ Commit context changes
     │   └─ Return success (outer loop checks continuation)
     │
     └─ Decision == OPERATION (non-terminal)
+        ├─ Validate provider call IDs against assistant tool calls emitted by the model step
         ├─ Execute operations → effects
+        ├─ Commit assistant tool-call items + OperationCompleted + provider tool result atomically
         ├─ Observations += effects (tool.result)
         │
         ├─ step == maxSteps-1?
