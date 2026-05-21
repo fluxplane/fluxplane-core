@@ -41,6 +41,7 @@ var _ pluginhost.InstanceFactory = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.DatasourceProviderContributor = Plugin{}
 var _ pluginhost.AuthMethodContributor = Plugin{}
+var _ pluginhost.AuthTestContributor = Plugin{}
 
 func New(sys system.System, stores ...runtimesecret.FileStore) Plugin {
 	return NewWithDispatcher(sys, nil, stores...)
@@ -100,6 +101,48 @@ func (p Plugin) AuthMethods(_ context.Context, ctx pluginhost.Context) ([]corese
 	return AuthMethods(p.ref, p.cfg), nil
 }
 
+func (p Plugin) AuthTest(ctx context.Context, pluginCtx pluginhost.Context, req pluginhost.AuthTestRequest) (pluginhost.AuthTestResult, error) {
+	ref := req.Ref
+	if ref.Name == "" {
+		ref = pluginCtx.Ref
+	}
+	p = p.withRef(ref)
+	cfg := p.cfg
+	if method := strings.TrimSpace(req.Method); method != "" {
+		cfg.Auth.Method = method
+	}
+	session, err := ResolveWithResolver(ctx, p.system, req.Secrets, p.ref, cfg)
+	result := pluginhost.AuthTestResult{
+		Plugin:   Name,
+		Instance: p.ref.InstanceName(),
+		Method:   firstNonEmpty(session.Method, cfg.Auth.Method),
+		Status:   "failed",
+	}
+	if err != nil {
+		result.Message = err.Error()
+		return result, nil
+	}
+	token := firstNonEmpty(session.UserToken, session.BotToken)
+	if token == "" {
+		result.Message = "slack token is not configured"
+		return result, nil
+	}
+	resp, err := p.newClient(token, session.AppToken).AuthTestContext(ctx)
+	if err != nil {
+		result.Message = err.Error()
+		return result, nil
+	}
+	result.Status = "ok"
+	result.Message = "Slack auth test succeeded"
+	result.Details = map[string]string{
+		"team":              strings.TrimSpace(resp.Team),
+		"team_id":           strings.TrimSpace(resp.TeamID),
+		"user_id":           strings.TrimSpace(resp.UserID),
+		"app_token_present": fmt.Sprintf("%t", session.AppToken != ""),
+	}
+	return result, nil
+}
+
 func (p Plugin) withRef(ref resource.PluginRef) Plugin {
 	if p.ref.Name == "" && ref.Name != "" {
 		p.ref = ref
@@ -124,7 +167,7 @@ func (p Plugin) api(ctx context.Context) (slackAPI, error) {
 	}
 	token := firstNonEmpty(session.UserToken, session.BotToken)
 	if token == "" {
-		return nil, fmt.Errorf("slackplugin: bot token is not configured")
+		return nil, fmt.Errorf("slackplugin: bot token or user token is not configured")
 	}
 	return p.newClient(token, session.AppToken), nil
 }

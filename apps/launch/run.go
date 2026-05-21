@@ -522,12 +522,12 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 			}
 			cfg, err := pluginhost.DecodeConfig[slack.Config](ref.Config)
 			if err != nil {
-				return slack.Config{Auth: slack.AuthConfig{Method: slack.BotTokenMethod}}
+				return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 			}
 			return slack.NormalizeConfig(cfg)
 		}
 	}
-	return slack.Config{Auth: slack.AuthConfig{Method: slack.BotTokenMethod}}
+	return slack.Config{Auth: slack.AuthConfig{Method: slack.TokenMethod}}
 }
 
 func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string) []pluginhost.Plugin {

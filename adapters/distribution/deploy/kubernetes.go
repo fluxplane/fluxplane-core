@@ -105,6 +105,7 @@ func kubernetesObjectResource(obj *unstructured.Unstructured) (schema.GroupVersi
 // KubernetesOptions configures kubectl-manifest deployment.
 type KubernetesOptions struct {
 	AppDir           string
+	TempDir          string
 	Image            string
 	ImagePullPolicy  string
 	BaseImage        string
@@ -257,6 +258,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 
 	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
 		Tags:         []string{baseImage},
+		TempDir:      opts.TempDir,
 		DryRun:       opts.DryRun,
 		Out:          out,
 		Err:          errOut,

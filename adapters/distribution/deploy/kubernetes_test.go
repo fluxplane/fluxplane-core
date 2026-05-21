@@ -263,10 +263,11 @@ name: assistant
 	writeTestFile(t, app, ".env", "OPENROUTER_API_KEY=supersecret\n")
 	var out bytes.Buffer
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
-		AppDir: app,
-		Image:  "sample:test",
-		DryRun: true,
-		Out:    &out,
+		AppDir:  app,
+		TempDir: t.TempDir(),
+		Image:   "sample:test",
+		DryRun:  true,
+		Out:     &out,
 	})
 	if err != nil {
 		t.Fatalf("DeployKubernetes dry-run: %v", err)
@@ -312,6 +313,7 @@ name: assistant
 	forwarder := &recordingPortForwarder{}
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
 		AppDir:        app,
+		TempDir:       t.TempDir(),
 		Image:         "sample:test",
 		RegistryMode:  "namespace",
 		Force:         true,
@@ -386,10 +388,11 @@ name: assistant
 
 	runner := &recordingRunner{}
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
-		AppDir: app,
-		Image:  "sample:test",
-		Force:  true,
-		Runner: runner,
+		AppDir:  app,
+		TempDir: t.TempDir(),
+		Image:   "sample:test",
+		Force:   true,
+		Runner:  runner,
 	})
 	if err != nil {
 		t.Fatalf("DeployKubernetes: %v", err)
@@ -429,6 +432,7 @@ name: assistant
 	var out bytes.Buffer
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
 		AppDir:       app,
+		TempDir:      t.TempDir(),
 		Image:        "sample:test",
 		RegistryMode: "external",
 		Registry:     "123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-bots",
@@ -473,6 +477,7 @@ name: assistant
 	var out bytes.Buffer
 	result, err := DeployKubernetes(context.Background(), KubernetesOptions{
 		AppDir:       app,
+		TempDir:      t.TempDir(),
 		Image:        "ai-agents/slack-bot:latest",
 		RegistryMode: "external",
 		Registry:     "523757638725.dkr.ecr.eu-central-1.amazonaws.com",

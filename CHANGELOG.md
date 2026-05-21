@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Replaced coder's top-level `connect` auth setup command with the reusable
+  `auth connect`, `auth info`, `auth status`, and `auth test` command group for
+  native plugin credentials.
+- Made Slack daemon channel API token selection configurable, defaulting to bot
+  token with user-token fallback while keeping Socket Mode app tokens required.
+- Renamed Slack's stored auth method to `token`, keeping `bot_token`,
+  `user_token`, and `app_token` as setup fields.
 - Documented strict conversation continuity rules and removed the stale
   provider transcript repair path in favor of fail-fast validation.
 - Batched assistant tool-call transcript writes with their matching tool
@@ -63,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dimensions stable when switching between agent and shell input.
 - Cleaned generated Docker build contexts after dry-run app/base image builds
   unless callers explicitly keep the context for inspection.
+- Added configurable deploy Docker build temp roots so local and test deploys
+  can avoid quota-limited system temp directories.
 - Restored Kubernetes namespace-registry deploys for real clusters while
   keeping k3d image-import deploys available through auto-detection or
   `--registry-mode k3d`.

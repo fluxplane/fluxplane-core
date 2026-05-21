@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/fluxplane/agentruntime/adapters/auth/oauth2flow"
-	connectcli "github.com/fluxplane/agentruntime/adapters/connectors/cli"
 	"github.com/fluxplane/agentruntime/core/resource"
 	coresecret "github.com/fluxplane/agentruntime/core/secret"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
@@ -25,116 +24,252 @@ import (
 )
 
 // PluginRegistry supplies plugins whose auth methods should be exposed by the
-// connect command.
+// auth command.
 type PluginRegistry func(context.Context) ([]pluginhost.Plugin, error)
 
-// CommandOptions configures the shared connect command.
+// CommandOptions configures the shared auth command.
 type CommandOptions struct {
-	NativeRegistry    PluginRegistry
-	ConnectorRegistry connectcli.PluginRegistry
+	NativeRegistry PluginRegistry
 }
 
 type options struct {
-	connectorsPath string
-	authPath       string
-	auth           string
-	groups         string
-	instance       string
-	fields         []string
-	info           bool
-	in             io.Reader
-	out            io.Writer
+	authPath  string
+	plugins   []string
+	methods   []string
+	instances []string
+	fields    []string
+	in        io.Reader
+	out       io.Writer
 }
 
-// NewCommand builds a connect command shared by first-party distributions.
+type target struct {
+	plugin   string
+	instance string
+	method   string
+}
+
+// NewCommand builds an auth command shared by first-party distributions.
 func NewCommand(cfg CommandOptions) *cobra.Command {
 	var opts options
 	cmd := &cobra.Command{
-		Use:   "connect [provider]",
-		Short: "Manage provider auth",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			opts.in = cmd.InOrStdin()
-			opts.out = cmd.OutOrStdout()
-			if len(args) == 0 {
-				return runStatus(cmd.Context(), opts, cfg)
-			}
-			return runProvider(cmd.Context(), strings.TrimSpace(args[0]), opts, cfg)
-		},
+		Use:   "auth",
+		Short: "Manage plugin auth",
+		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "~/.connectors", "connector credential store path for connector-backed providers")
-	cmd.Flags().StringVar(&opts.authPath, "auth-path", runtimesecret.DefaultFileStorePath, "native plugin credential store path")
-	cmd.Flags().StringVar(&opts.auth, "auth", "", "authentication method kind to use")
-	cmd.Flags().StringArrayVarP(&opts.fields, "field", "f", nil, "setup/auth field value (key=value, repeatable)")
-	cmd.Flags().StringVar(&opts.groups, "groups", "", "operation groups to enable for connector-backed providers")
-	cmd.Flags().StringVar(&opts.instance, "instance", "", "instance ID to create/update")
-	cmd.Flags().BoolVar(&opts.info, "info", false, "print available auth methods and fields, then exit")
+	cmd.PersistentFlags().StringVar(&opts.authPath, "auth-path", runtimesecret.DefaultFileStorePath, "native plugin credential store path")
+	cmd.PersistentFlags().StringArrayVar(&opts.plugins, "plugin", nil, "plugin name; may be repeated or comma-separated")
+	cmd.PersistentFlags().StringArrayVar(&opts.instances, "instance", nil, "instance ID or plugin=instance; may be repeated")
+	cmd.PersistentFlags().StringArrayVar(&opts.methods, "method", nil, "auth method or plugin=method; may be repeated")
+
+	cmd.AddCommand(newInfoCommand(&opts, cfg))
+	cmd.AddCommand(newStatusCommand(&opts, cfg))
+	cmd.AddCommand(newConnectCommand(&opts, cfg))
+	cmd.AddCommand(newTestCommand(&opts, cfg))
 	return cmd
 }
 
-func runStatus(ctx context.Context, opts options, cfg CommandOptions) error {
-	if cfg.ConnectorRegistry != nil {
-		if err := connectcli.RunStatus(ctx, connectorOptions(opts), cfg.ConnectorRegistry); err != nil {
-			return err
-		}
+func newInfoCommand(opts *options, cfg CommandOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "info",
+		Short: "List plugin auth methods",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			o := *opts
+			o.in = cmd.InOrStdin()
+			o.out = cmd.OutOrStdout()
+			return runInfo(cmd.Context(), o, cfg)
+		},
 	}
-	providers, err := nativeProviderNames(ctx, cfg.NativeRegistry)
+}
+
+func newStatusCommand(opts *options, cfg CommandOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show stored auth readiness",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			o := *opts
+			o.in = cmd.InOrStdin()
+			o.out = cmd.OutOrStdout()
+			return runStatus(cmd.Context(), o, cfg)
+		},
+	}
+}
+
+func newConnectCommand(opts *options, cfg CommandOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "connect",
+		Short: "Connect plugin auth",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			o := *opts
+			o.in = cmd.InOrStdin()
+			o.out = cmd.OutOrStdout()
+			return runConnect(cmd.Context(), o, cfg)
+		},
+	}
+	cmd.Flags().StringArrayVarP(&opts.fields, "field", "f", nil, "setup/auth field value (key=value, repeatable)")
+	return cmd
+}
+
+func newTestCommand(opts *options, cfg CommandOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "test",
+		Short: "Test plugin auth connectivity",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			o := *opts
+			o.in = cmd.InOrStdin()
+			o.out = cmd.OutOrStdout()
+			return runTest(cmd.Context(), o, cfg)
+		},
+	}
+}
+
+func runInfo(ctx context.Context, opts options, cfg CommandOptions) error {
+	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
 	if err != nil {
 		return err
 	}
-	if len(providers) == 0 {
-		return nil
+	targets, err := targetsFor(opts, plugins, true)
+	if err != nil {
+		return err
 	}
 	out := writerOr(opts.out, os.Stdout)
-	_, _ = fmt.Fprintf(out, "\nNative auth providers: %s\n", strings.Join(providers, ", "))
+	for _, target := range targets {
+		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
+		if err != nil {
+			return err
+		}
+		printNativeInfo(out, target.ref(), methods)
+	}
 	return nil
 }
 
-func runProvider(ctx context.Context, provider string, opts options, cfg CommandOptions) error {
-	if provider == "" {
-		return fmt.Errorf("connect: provider is required")
-	}
-	if plugin, ok, err := findNativePlugin(ctx, cfg.NativeRegistry, provider); err != nil {
+func runStatus(ctx context.Context, opts options, cfg CommandOptions) error {
+	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
+	if err != nil {
 		return err
-	} else if ok {
-		return runNativeProvider(ctx, provider, plugin, opts)
 	}
-	if cfg.ConnectorRegistry == nil {
-		return fmt.Errorf("connect: unknown native provider %q", provider)
+	targets, err := targetsFor(opts, plugins, true)
+	if err != nil {
+		return err
 	}
-	return connectcli.RunProvider(ctx, provider, connectorOptions(opts), cfg.ConnectorRegistry)
+	out := writerOr(opts.out, os.Stdout)
+	store := runtimesecret.NewFileStore(opts.authPath)
+	now := time.Now().UTC()
+	for _, target := range targets {
+		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
+		if err != nil {
+			return err
+		}
+		methods, err = filterMethods(methods, target.method)
+		if err != nil {
+			return err
+		}
+		for _, method := range methods {
+			status := methodStatus(ctx, store, target.ref(), method, now)
+			_, _ = fmt.Fprintf(out, "%s/%s %s: %s", target.plugin, target.instance, method.Name, status.Status)
+			if status.Message != "" {
+				_, _ = fmt.Fprintf(out, " (%s)", status.Message)
+			}
+			_, _ = fmt.Fprintln(out)
+		}
+	}
+	return nil
 }
 
-func runNativeProvider(ctx context.Context, provider string, plugin pluginhost.Plugin, opts options) error {
+func runConnect(ctx context.Context, opts options, cfg CommandOptions) error {
+	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
+	if err != nil {
+		return err
+	}
+	targets, err := targetsFor(opts, plugins, false)
+	if err != nil {
+		return err
+	}
 	out := writerOr(opts.out, os.Stdout)
-	instance := strings.TrimSpace(opts.instance)
-	if instance == "" {
-		instance = provider
+	for _, target := range targets {
+		methods, err := methodsFor(ctx, plugins[target.plugin], target.ref())
+		if err != nil {
+			return err
+		}
+		method, err := selectMethod(methods, target.method, readerOr(opts.in, os.Stdin), out)
+		if err != nil {
+			return err
+		}
+		switch method.Method {
+		case coresecret.AuthMethodOAuth2:
+			if err := runOAuth2(ctx, opts, target.ref(), method); err != nil {
+				return err
+			}
+		case coresecret.AuthMethodEnv:
+			printEnvInstructions(out, target.plugin, method)
+		case coresecret.AuthMethodStored:
+			if err := runStored(ctx, opts, target.ref(), method); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("auth connect %s: auth method %q is not supported by this command", target.plugin, method.Method)
+		}
 	}
-	ref := resource.PluginRef{Name: provider, Instance: instance}
-	methods, err := authMethods(ctx, plugin, ref)
+	return nil
+}
+
+func runTest(ctx context.Context, opts options, cfg CommandOptions) error {
+	plugins, err := pluginMap(ctx, cfg.NativeRegistry)
 	if err != nil {
 		return err
 	}
-	if opts.info {
-		printNativeInfo(out, provider, methods)
-		return nil
-	}
-	method, err := selectMethod(methods, opts.auth)
+	targets, err := targetsFor(opts, plugins, false)
 	if err != nil {
 		return err
 	}
-	switch method.Method {
-	case coresecret.AuthMethodOAuth2:
-		return runOAuth2(ctx, opts, ref, method)
-	case coresecret.AuthMethodEnv:
-		printEnvInstructions(out, provider, method)
-		return nil
-	case coresecret.AuthMethodStored:
-		return runStored(ctx, opts, ref, method)
-	default:
-		return fmt.Errorf("connect %s: auth method %q is not supported by this command", provider, method.Method)
+	out := writerOr(opts.out, os.Stdout)
+	resolver := runtimesecret.ChainResolver{
+		runtimesecret.NewFileStore(opts.authPath),
+		runtimesecret.EnvResolver{Environment: osEnvironment{}},
 	}
+	for _, target := range targets {
+		plugin := plugins[target.plugin]
+		methods, err := methodsFor(ctx, plugin, target.ref())
+		if err != nil {
+			return err
+		}
+		method, err := selectMethod(methods, target.method, readerOr(opts.in, os.Stdin), out)
+		if err != nil {
+			return err
+		}
+		tester, ok := plugin.(pluginhost.AuthTestContributor)
+		if !ok {
+			return fmt.Errorf("auth test %s: plugin does not support auth testing", target.plugin)
+		}
+		pluginCtx := pluginhost.Context{Ref: target.ref()}
+		pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
+		if err != nil {
+			return err
+		}
+		if factory, ok := plugin.(pluginhost.InstanceFactory); ok {
+			plugin, err = factory.Instantiate(ctx, pluginCtx)
+			if err != nil {
+				return err
+			}
+			tester, ok = plugin.(pluginhost.AuthTestContributor)
+			if !ok {
+				return fmt.Errorf("auth test %s: plugin does not support auth testing", target.plugin)
+			}
+		}
+		result, err := tester.AuthTest(ctx, pluginCtx, pluginhost.AuthTestRequest{Ref: target.ref(), Method: method.Name, Secrets: resolver})
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(out, "%s/%s %s: %s", target.plugin, target.instance, method.Name, result.Status)
+		if result.Message != "" {
+			_, _ = fmt.Fprintf(out, " (%s)", result.Message)
+		}
+		_, _ = fmt.Fprintln(out)
+	}
+	return nil
 }
 
 func runStored(ctx context.Context, opts options, ref resource.PluginRef, method coresecret.AuthMethodSpec) error {
@@ -155,9 +290,8 @@ func runStored(ctx context.Context, opts options, ref resource.PluginRef, method
 		if name == "" || value == "" {
 			continue
 		}
-		ref := coresecret.Plugin(ref.Name, ref.InstanceName(), name)
 		if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{
-			Ref:   ref,
+			Ref:   coresecret.Plugin(ref.Name, ref.InstanceName(), name),
 			Kind:  kind,
 			Value: value,
 			Metadata: map[string]string{
@@ -169,7 +303,7 @@ func runStored(ctx context.Context, opts options, ref resource.PluginRef, method
 		saved++
 	}
 	if saved == 0 {
-		return fmt.Errorf("connect %s: no stored auth fields were provided", ref.Name)
+		return fmt.Errorf("auth connect %s: no stored auth fields were provided", ref.Name)
 	}
 	_, _ = fmt.Fprintf(out, "Connected %s instance %s\n", ref.Name, ref.InstanceName())
 	return nil
@@ -257,7 +391,7 @@ func runOAuth2(ctx context.Context, opts options, ref resource.PluginRef, method
 	return nil
 }
 
-func authMethods(ctx context.Context, plugin pluginhost.Plugin, ref resource.PluginRef) ([]coresecret.AuthMethodSpec, error) {
+func methodsFor(ctx context.Context, plugin pluginhost.Plugin, ref resource.PluginRef) ([]coresecret.AuthMethodSpec, error) {
 	pluginCtx := pluginhost.Context{Ref: ref}
 	var err error
 	pluginCtx, err = pluginhost.PrepareContext(ctx, plugin, pluginCtx)
@@ -272,27 +406,59 @@ func authMethods(ctx context.Context, plugin pluginhost.Plugin, ref resource.Plu
 	}
 	contributor, ok := plugin.(pluginhost.AuthMethodContributor)
 	if !ok {
-		return nil, fmt.Errorf("connect %s: plugin does not declare auth methods", ref.Name)
+		return nil, fmt.Errorf("auth %s: plugin does not declare auth methods", ref.Name)
 	}
 	return contributor.AuthMethods(ctx, pluginCtx)
 }
 
-func selectMethod(methods []coresecret.AuthMethodSpec, requested string) (coresecret.AuthMethodSpec, error) {
+func selectMethod(methods []coresecret.AuthMethodSpec, requested string, in io.Reader, out io.Writer) (coresecret.AuthMethodSpec, error) {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	for _, method := range methods {
 		name := strings.ToLower(strings.TrimSpace(method.Name))
-		kind := strings.ToLower(strings.TrimSpace(string(method.Method)))
-		if requested == "" && method.Method == coresecret.AuthMethodOAuth2 {
-			return method, nil
-		}
-		if requested != "" && (requested == name || requested == kind) {
+		if requested != "" && requested == name {
 			return method, nil
 		}
 	}
-	if requested == "" && len(methods) > 0 {
+	if requested != "" {
+		return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", requested)
+	}
+	if len(methods) == 1 {
 		return methods[0], nil
 	}
-	return coresecret.AuthMethodSpec{}, fmt.Errorf("connect: auth method %q is unavailable", requested)
+	return promptMethod(methods, in, out)
+}
+
+func promptMethod(methods []coresecret.AuthMethodSpec, in io.Reader, out io.Writer) (coresecret.AuthMethodSpec, error) {
+	if len(methods) == 0 {
+		return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: plugin does not declare auth methods")
+	}
+	_, _ = fmt.Fprintln(out, "Auth methods:")
+	for i, method := range methods {
+		_, _ = fmt.Fprintf(out, "  %d. %s (%s)\n", i+1, firstNonEmpty(method.DisplayName, method.Name), method.Name)
+	}
+	_, _ = fmt.Fprint(out, "Select auth method: ")
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return coresecret.AuthMethodSpec{}, err
+	}
+	selected := strings.ToLower(strings.TrimSpace(line))
+	for i, method := range methods {
+		if selected == fmt.Sprint(i+1) || selected == strings.ToLower(strings.TrimSpace(method.Name)) {
+			return method, nil
+		}
+	}
+	return coresecret.AuthMethodSpec{}, fmt.Errorf("auth: auth method %q is unavailable", selected)
+}
+
+func filterMethods(methods []coresecret.AuthMethodSpec, requested string) ([]coresecret.AuthMethodSpec, error) {
+	if strings.TrimSpace(requested) == "" {
+		return methods, nil
+	}
+	method, err := selectMethod(methods, requested, strings.NewReader(""), io.Discard)
+	if err != nil {
+		return nil, err
+	}
+	return []coresecret.AuthMethodSpec{method}, nil
 }
 
 func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]string, error) {
@@ -308,9 +474,16 @@ func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]
 	}
 	reader := bufio.NewReader(readerOr(opts.in, os.Stdin))
 	out := writerOr(opts.out, os.Stdout)
+	terminalInput := isTerminalInput(opts.in)
 	for _, spec := range specs {
 		name := strings.TrimSpace(spec.Name)
-		if name == "" || strings.TrimSpace(fields[name]) != "" || !spec.Required {
+		if name == "" || strings.TrimSpace(fields[name]) != "" {
+			continue
+		}
+		if group := strings.TrimSpace(spec.RequiredGroup); group != "" && !terminalInput && fieldGroupSatisfied(fields, specs, group) {
+			continue
+		}
+		if !spec.Required && strings.TrimSpace(spec.RequiredGroup) == "" && !terminalInput {
 			continue
 		}
 		value, err := readSetupField(reader, out, opts.in, spec)
@@ -322,7 +495,19 @@ func collectFields(opts options, specs []coresecret.SetupFieldSpec) (map[string]
 	for _, spec := range specs {
 		name := strings.TrimSpace(spec.Name)
 		if spec.Required && strings.TrimSpace(fields[name]) == "" {
-			return nil, fmt.Errorf("connect: setup field %q is required", name)
+			return nil, fmt.Errorf("auth connect: setup field %q is required", name)
+		}
+	}
+	for group, names := range requiredGroups(specs) {
+		ok := false
+		for _, name := range names {
+			if strings.TrimSpace(fields[name]) != "" {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, fmt.Errorf("auth connect: at least one setup field in group %q is required: %s", group, strings.Join(names, ", "))
 		}
 	}
 	return fields, nil
@@ -333,7 +518,7 @@ func readSetupField(reader *bufio.Reader, out io.Writer, in io.Reader, spec core
 	if spec.Sensitive {
 		file, ok := inputFile(in)
 		if !ok || !term.IsTerminal(int(file.Fd())) {
-			return "", fmt.Errorf("connect: sensitive setup field %q must be supplied by --field or environment when stdin is not a terminal", spec.Name)
+			return "", fmt.Errorf("auth connect: sensitive setup field %q must be supplied by --field or environment when stdin is not a terminal", spec.Name)
 		}
 		data, err := term.ReadPassword(int(file.Fd()))
 		_, _ = fmt.Fprintln(out)
@@ -349,14 +534,21 @@ func readSetupField(reader *bufio.Reader, out io.Writer, in io.Reader, spec core
 	return strings.TrimSpace(value), nil
 }
 
-func printNativeInfo(out io.Writer, provider string, methods []coresecret.AuthMethodSpec) {
-	_, _ = fmt.Fprintf(out, "%s\n\nAuth methods:\n", provider)
+func printNativeInfo(out io.Writer, ref resource.PluginRef, methods []coresecret.AuthMethodSpec) {
+	_, _ = fmt.Fprintf(out, "%s/%s\n\nAuth methods:\n", ref.Name, ref.InstanceName())
 	for _, method := range methods {
-		_, _ = fmt.Fprintf(out, "  %s (%s)\n", firstNonEmpty(method.DisplayName, method.Name), method.Method)
+		name := strings.TrimSpace(method.Name)
+		label := firstNonEmpty(method.DisplayName, name)
+		if label != "" && label != name {
+			label = name + " - " + label
+		}
+		_, _ = fmt.Fprintf(out, "  %s (%s)\n", firstNonEmpty(label, name), method.Method)
 		for _, field := range method.SetupFields {
 			req := ""
 			if field.Required {
 				req = " required"
+			} else if strings.TrimSpace(field.RequiredGroup) != "" {
+				req = " required-group=" + strings.TrimSpace(field.RequiredGroup)
 			}
 			envs := append([]string{field.Env.Name}, field.Env.Aliases...)
 			envs = nonEmpty(envs)
@@ -379,35 +571,174 @@ func printEnvInstructions(out io.Writer, provider string, method coresecret.Auth
 	_, _ = fmt.Fprintf(out, "%s token auth resolves an environment variable at runtime. Set one of: %s\n", provider, strings.Join(envs, ", "))
 }
 
-func nativeProviderNames(ctx context.Context, registry PluginRegistry) ([]string, error) {
+type authStatus struct {
+	Status  string
+	Message string
+}
+
+func methodStatus(ctx context.Context, store runtimesecret.FileStore, ref resource.PluginRef, method coresecret.AuthMethodSpec, now time.Time) authStatus {
+	switch method.Method {
+	case coresecret.AuthMethodEnv:
+		if firstEnv(method.Env) != "" {
+			return authStatus{Status: "configured"}
+		}
+		return authStatus{Status: "missing", Message: "environment variable is not set"}
+	case coresecret.AuthMethodOAuth2:
+		return secretStatus(ctx, store, method.Secret, now)
+	case coresecret.AuthMethodStored:
+		if len(method.SetupFields) == 0 {
+			return secretStatus(ctx, store, method.Secret, now)
+		}
+		return setupFieldStatus(ctx, store, ref, method, now)
+	default:
+		return authStatus{Status: "unknown", Message: "unsupported auth method"}
+	}
+}
+
+func setupFieldStatus(ctx context.Context, store runtimesecret.FileStore, ref resource.PluginRef, method coresecret.AuthMethodSpec, now time.Time) authStatus {
+	fields := map[string]bool{}
+	expired := false
+	for _, spec := range method.SetupFields {
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			continue
+		}
+		stored, ok, err := store.LoadSecret(ctx, coresecret.Plugin(ref.Name, ref.InstanceName(), name))
+		if err != nil {
+			return authStatus{Status: "error", Message: err.Error()}
+		}
+		if ok && strings.TrimSpace(stored.Value) != "" {
+			fields[name] = true
+			if !stored.ExpiresAt.IsZero() && !stored.ExpiresAt.After(now) {
+				expired = true
+			}
+		}
+	}
+	if expired {
+		return authStatus{Status: "expired"}
+	}
+	missingRequired := []string{}
+	for _, spec := range method.SetupFields {
+		if spec.Required && !fields[strings.TrimSpace(spec.Name)] {
+			missingRequired = append(missingRequired, strings.TrimSpace(spec.Name))
+		}
+	}
+	for group, names := range requiredGroups(method.SetupFields) {
+		ok := false
+		for _, name := range names {
+			if fields[name] {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			missingRequired = append(missingRequired, group+"("+strings.Join(names, "|")+")")
+		}
+	}
+	if len(missingRequired) > 0 {
+		if len(fields) > 0 {
+			return authStatus{Status: "partial", Message: "missing " + strings.Join(missingRequired, ", ")}
+		}
+		return authStatus{Status: "missing", Message: "missing " + strings.Join(missingRequired, ", ")}
+	}
+	if len(fields) > 0 {
+		return authStatus{Status: "configured"}
+	}
+	return authStatus{Status: "missing"}
+}
+
+func secretStatus(ctx context.Context, store runtimesecret.FileStore, ref coresecret.Ref, now time.Time) authStatus {
+	stored, ok, err := store.LoadSecret(ctx, ref)
+	if err != nil {
+		return authStatus{Status: "error", Message: err.Error()}
+	}
+	if !ok || strings.TrimSpace(stored.Value) == "" {
+		return authStatus{Status: "missing"}
+	}
+	if !stored.ExpiresAt.IsZero() && !stored.ExpiresAt.After(now) {
+		return authStatus{Status: "expired"}
+	}
+	return authStatus{Status: "configured"}
+}
+
+func pluginMap(ctx context.Context, registry PluginRegistry) (map[string]pluginhost.Plugin, error) {
 	plugins, err := nativePlugins(ctx, registry)
 	if err != nil {
 		return nil, err
 	}
-	var names []string
+	out := map[string]pluginhost.Plugin{}
 	for _, plugin := range plugins {
+		if plugin == nil {
+			continue
+		}
+		name := strings.TrimSpace(plugin.Manifest().Name)
+		if name == "" {
+			continue
+		}
 		if _, ok := plugin.(pluginhost.AuthMethodContributor); ok {
-			names = append(names, plugin.Manifest().Name)
+			out[name] = plugin
 		}
 	}
-	sort.Strings(names)
-	return names, nil
+	return out, nil
 }
 
-func findNativePlugin(ctx context.Context, registry PluginRegistry, provider string) (pluginhost.Plugin, bool, error) {
-	plugins, err := nativePlugins(ctx, registry)
-	if err != nil {
-		return nil, false, err
-	}
-	for _, plugin := range plugins {
-		if strings.TrimSpace(plugin.Manifest().Name) == provider {
-			if _, ok := plugin.(pluginhost.AuthMethodContributor); ok {
-				return plugin, true, nil
-			}
-			return nil, false, nil
+func targetsFor(opts options, plugins map[string]pluginhost.Plugin, defaultAll bool) ([]target, error) {
+	names := splitValues(opts.plugins)
+	if len(names) == 0 && defaultAll {
+		for name := range plugins {
+			names = append(names, name)
 		}
+		sort.Strings(names)
 	}
-	return nil, false, nil
+	if len(names) == 0 {
+		return nil, fmt.Errorf("auth: at least one --plugin is required")
+	}
+	methods, methodBare, err := mappedValues(opts.methods)
+	if err != nil {
+		return nil, err
+	}
+	instances, instanceBare, err := mappedValues(opts.instances)
+	if err != nil {
+		return nil, err
+	}
+	if len(methodBare) > 0 && len(names) != 1 {
+		return nil, fmt.Errorf("auth: bare --method is only valid with one --plugin")
+	}
+	if len(instanceBare) > 0 && len(names) != 1 {
+		return nil, fmt.Errorf("auth: bare --instance is only valid with one --plugin")
+	}
+	var out []target
+	seen := map[string]bool{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := plugins[name]; !ok {
+			return nil, fmt.Errorf("auth: unknown plugin %q", name)
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		instance := name
+		if value := strings.TrimSpace(instances[name]); value != "" {
+			instance = value
+		} else if len(instanceBare) > 0 {
+			instance = instanceBare[len(instanceBare)-1]
+		}
+		method := strings.TrimSpace(methods[name])
+		if method == "" && len(methodBare) > 0 {
+			method = methodBare[len(methodBare)-1]
+		}
+		out = append(out, target{plugin: name, instance: instance, method: method})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].plugin < out[j].plugin })
+	return out, nil
+}
+
+func (t target) ref() resource.PluginRef {
+	return resource.PluginRef{Name: t.plugin, Instance: t.instance}
 }
 
 func nativePlugins(ctx context.Context, registry PluginRegistry) ([]pluginhost.Plugin, error) {
@@ -415,19 +746,6 @@ func nativePlugins(ctx context.Context, registry PluginRegistry) ([]pluginhost.P
 		return nil, nil
 	}
 	return registry(ctx)
-}
-
-func connectorOptions(opts options) connectcli.Options {
-	return connectcli.Options{
-		ConnectorsPath: opts.connectorsPath,
-		Auth:           opts.auth,
-		Groups:         opts.groups,
-		Instance:       opts.instance,
-		Fields:         opts.fields,
-		Info:           opts.info,
-		In:             opts.in,
-		Out:            opts.out,
-	}
 }
 
 func relatedSecretRef(ref resource.PluginRef, methodName, name string) coresecret.Ref {
@@ -460,6 +778,58 @@ func firstEnv(spec coresecret.EnvSpec) string {
 
 func displayFieldName(spec coresecret.SetupFieldSpec) string {
 	return firstNonEmpty(spec.DisplayName, spec.Name)
+}
+
+func requiredGroups(specs []coresecret.SetupFieldSpec) map[string][]string {
+	groups := map[string][]string{}
+	for _, spec := range specs {
+		group := strings.TrimSpace(spec.RequiredGroup)
+		name := strings.TrimSpace(spec.Name)
+		if group != "" && name != "" {
+			groups[group] = append(groups[group], name)
+		}
+	}
+	return groups
+}
+
+func fieldGroupSatisfied(fields map[string]string, specs []coresecret.SetupFieldSpec, group string) bool {
+	for _, spec := range specs {
+		if strings.TrimSpace(spec.RequiredGroup) == group && strings.TrimSpace(fields[strings.TrimSpace(spec.Name)]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func mappedValues(values []string) (map[string]string, []string, error) {
+	mapped := map[string]string{}
+	var bare []string
+	for _, value := range splitValues(values) {
+		key, val, ok := strings.Cut(value, "=")
+		if !ok {
+			bare = append(bare, strings.TrimSpace(value))
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		if key == "" || val == "" {
+			return nil, nil, fmt.Errorf("auth: mapped value %q is invalid", value)
+		}
+		mapped[key] = val
+	}
+	return mapped, bare, nil
+}
+
+func splitValues(values []string) []string {
+	var out []string
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {
@@ -501,4 +871,16 @@ func inputFile(value io.Reader) (*os.File, bool) {
 	}
 	file, ok := value.(*os.File)
 	return file, ok
+}
+
+func isTerminalInput(value io.Reader) bool {
+	file, ok := inputFile(value)
+	return ok && term.IsTerminal(int(file.Fd()))
+}
+
+type osEnvironment struct{}
+
+func (osEnvironment) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, ok := os.LookupEnv(strings.TrimSpace(key))
+	return value, ok, nil
 }

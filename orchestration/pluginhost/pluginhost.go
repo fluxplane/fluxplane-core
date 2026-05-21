@@ -118,6 +118,12 @@ type AuthMethodContributor interface {
 	AuthMethods(context.Context, Context) ([]coresecret.AuthMethodSpec, error)
 }
 
+// AuthTestContributor is implemented by plugins that can perform a live
+// credential connectivity check for host-level auth test commands.
+type AuthTestContributor interface {
+	AuthTest(context.Context, Context, AuthTestRequest) (AuthTestResult, error)
+}
+
 // ExternalIdentityContributor is implemented by plugins that can link a
 // resolved canonical user to provider-specific account identities.
 type ExternalIdentityContributor interface {
@@ -195,6 +201,23 @@ type ReactionContribution struct {
 type AuthMethodContribution struct {
 	Source resource.SourceRef
 	Method coresecret.AuthMethodSpec
+}
+
+// AuthTestRequest describes one plugin instance auth test.
+type AuthTestRequest struct {
+	Ref     resource.PluginRef
+	Method  string
+	Secrets runtimesecret.Resolver
+}
+
+// AuthTestResult describes the outcome of one live credential check.
+type AuthTestResult struct {
+	Plugin   string            `json:"plugin"`
+	Instance string            `json:"instance,omitempty"`
+	Method   string            `json:"method,omitempty"`
+	Status   string            `json:"status"`
+	Message  string            `json:"message,omitempty"`
+	Details  map[string]string `json:"details,omitempty"`
 }
 
 // ExternalIdentityContribution is one external identity resolver contributed by

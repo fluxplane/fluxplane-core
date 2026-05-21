@@ -329,7 +329,7 @@ plugins:
     instance: slack-main
     config:
       auth:
-        method: bot_token
+        method: token
   - kind: jira
     config:
       cloud_id: your-atlassian-cloud-id
@@ -352,13 +352,16 @@ plugins:
 
 ```
 
-Connector credentials live outside the app manifest. Manage connector-backed
-credentials with `coder connect`. Native Slack uses stored bot-token
-credentials from `coder connect slack --instance slack-main --auth bot_token`;
-Slack daemon channels also require an app token for Socket Mode. Native Jira
-and Confluence use Atlassian OAuth2 stored credentials from
-`coder connect jira --instance jira` and
-`coder connect confluence --instance confluence`; service-account
+Credentials live outside the app manifest. Manage native plugin
+credentials with the auth commands. Native Slack uses stored bot-token
+credentials from `coder auth connect --plugin slack --instance slack-main --method token`;
+Slack daemon channels also require an app token for Socket Mode. Slack channel
+API calls use `auth.channel_token: auto` by default, which prefers the bot token
+and falls back to the user token; set `auth.channel_token` to `bot_token` or
+`user_token` to require one explicitly. Native Jira and Confluence use Atlassian
+OAuth2 stored credentials from
+`coder auth connect --plugin jira --instance jira` and
+`coder auth connect --plugin confluence --instance confluence`; service-account
 deployments can set `auth.method: token` and `auth.token_env` for a bearer
 token environment variable. Jira and Confluence scoped service-account API-token
 deployments can set `JIRA_API_TOKEN` or `CONFLUENCE_API_TOKEN` and `cloud_id`;
@@ -775,4 +778,4 @@ turn.
 - Use agentdir for portable authoring resources: markdown agents, prompt
   commands, workflows, and skills.
 - Keep secrets out of both formats. Store connector credentials through
-  `coder connect` or provider-specific environment/auth files.
+  `coder auth connect` or provider-specific environment/auth files.

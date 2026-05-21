@@ -54,7 +54,7 @@ plugins:
     instance: slack-bot
     config:
       auth:
-        method: bot_token
+        method: token
   - kind: gitlab
     instance: main
     config:

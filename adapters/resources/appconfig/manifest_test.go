@@ -463,7 +463,7 @@ plugins:
     instance: slack-bot
     config:
       auth:
-        method: bot_token
+        method: token
 datasource:
   datasources:
     - name: slack-bot

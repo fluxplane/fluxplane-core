@@ -141,7 +141,7 @@ func TestPluginIsNotConnectorProvider(t *testing.T) {
 	}
 }
 
-func TestPluginDeclaresStoredBotTokenAndOAuthAuthMethods(t *testing.T) {
+func TestPluginDeclaresStoredTokenAndOAuthAuthMethods(t *testing.T) {
 	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {
 		t.Fatalf("AuthMethods: %v", err)
@@ -149,7 +149,7 @@ func TestPluginDeclaresStoredBotTokenAndOAuthAuthMethods(t *testing.T) {
 	if len(methods) != 3 {
 		t.Fatalf("methods len = %d, want stored, env, oauth2", len(methods))
 	}
-	if methods[0].Name != BotTokenMethod || methods[0].Secret.ResourceName() != "plugin/slack/main/bot_token" {
+	if methods[0].Name != TokenMethod || methods[0].Secret.ResourceName() != "plugin/slack/main/bot_token" {
 		t.Fatalf("stored method = %#v", methods[0])
 	}
 	if methods[2].Name != OAuth2Method || methods[2].Secret.ResourceName() != "plugin/slack/main/oauth2_token" {
@@ -163,12 +163,41 @@ func TestResolveUsesStoredBotTokenWithoutAppTokenForDatasource(t *testing.T) {
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
-	session, err := Resolve(context.Background(), nil, store, ref, Config{Auth: AuthConfig{Method: BotTokenMethod}})
+	session, err := Resolve(context.Background(), nil, store, ref, Config{Auth: AuthConfig{Method: TokenMethod}})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if session.BotToken != "xoxb-test" || session.AppToken != "" {
 		t.Fatalf("session = %#v, want bot token only", session)
+	}
+}
+
+func TestAuthTestUsesStoredSlackToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth.test" {
+			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"team":"Example","team_id":"T1","user_id":"Ubot"}`))
+	}))
+	defer server.Close()
+	store := runtimesecret.NewFileStore(t.TempDir())
+	ref := resource.PluginRef{Name: Name, Instance: "main"}
+	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: BotTokenSecretRef(ref), Value: "xoxb-test"}); err != nil {
+		t.Fatalf("SaveSecret: %v", err)
+	}
+	plugin := New(nil, store)
+	plugin.clientFactory = func(token, appToken string) *slack.Client {
+		if token != "xoxb-test" || appToken != "" {
+			t.Fatalf("client token=%q app=%q", token, appToken)
+		}
+		return slack.New(token, slack.OptionAPIURL(server.URL+"/"))
+	}
+	result, err := plugin.AuthTest(context.Background(), pluginhost.Context{Ref: ref}, pluginhost.AuthTestRequest{Ref: ref, Method: TokenMethod, Secrets: store})
+	if err != nil {
+		t.Fatalf("AuthTest: %v", err)
+	}
+	if result.Status != "ok" || result.Details["team_id"] != "T1" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
@@ -327,6 +356,66 @@ func entityTypes(entities []coredatasource.EntitySpec) map[coredatasource.Entity
 		out[entity.Type] = true
 	}
 	return out
+}
+
+func TestSelectChannelTokenDefaultsBotThenUser(t *testing.T) {
+	token, source, err := selectChannelToken("xoxb-test", "xoxp-test", "")
+	if err != nil {
+		t.Fatalf("selectChannelToken: %v", err)
+	}
+	if token != "xoxb-test" || source != BotTokenPurpose {
+		t.Fatalf("selected token=%q source=%q, want bot", token, source)
+	}
+	token, source, err = selectChannelToken("", "xoxp-test", "")
+	if err != nil {
+		t.Fatalf("selectChannelToken user fallback: %v", err)
+	}
+	if token != "xoxp-test" || source != UserTokenPurpose {
+		t.Fatalf("selected token=%q source=%q, want user", token, source)
+	}
+}
+
+func TestSelectChannelTokenHonorsExplicitPreference(t *testing.T) {
+	token, source, err := selectChannelToken("xoxb-test", "xoxp-test", UserTokenPurpose)
+	if err != nil {
+		t.Fatalf("selectChannelToken user preference: %v", err)
+	}
+	if token != "xoxp-test" || source != UserTokenPurpose {
+		t.Fatalf("selected token=%q source=%q, want user", token, source)
+	}
+	_, _, err = selectChannelToken("", "xoxp-test", BotTokenPurpose)
+	if err == nil || !strings.Contains(err.Error(), `channel token "bot_token" is empty`) {
+		t.Fatalf("selectChannelToken error = %v, want missing bot token", err)
+	}
+}
+
+func TestNewChannelAllowsUserTokenOnly(t *testing.T) {
+	_, err := NewChannel(ChannelConfig{
+		Name:       "slack-main",
+		Session:    coresession.Ref{Name: "slack-main"},
+		UserToken:  "xoxp-test",
+		AppToken:   "xapp-test",
+		SocketMode: socketModeTestClient(),
+		Dispatcher: NewDispatcher(),
+	})
+	if err != nil {
+		t.Fatalf("NewChannel user token only: %v", err)
+	}
+}
+
+func TestNewChannelRejectsExplicitMissingBotToken(t *testing.T) {
+	_, err := NewChannel(ChannelConfig{
+		Name:            "slack-main",
+		Session:         coresession.Ref{Name: "slack-main"},
+		UserToken:       "xoxp-test",
+		AppToken:        "xapp-test",
+		TokenPreference: BotTokenPurpose,
+		SocketMode:      socketModeTestClient(),
+		Dispatcher:      NewDispatcher(),
+	})
+	if err == nil || !strings.Contains(err.Error(), `channel token "bot_token" is empty`) {
+		t.Fatalf("NewChannel error = %v, want missing bot token", err)
+	}
 }
 
 func TestInboundFromMessageAllowsThreadReplyOnlyInDM(t *testing.T) {

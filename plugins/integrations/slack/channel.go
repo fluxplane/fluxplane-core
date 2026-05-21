@@ -134,19 +134,20 @@ func (d *Dispatcher) SearchMessages(ctx context.Context, channelName, query stri
 }
 
 type ChannelConfig struct {
-	Name       string
-	Session    coresession.Ref
-	BotToken   string
-	UserToken  string
-	AppToken   string
-	BotUserID  string
-	TeamID     string
-	Debug      bool
-	Access     AccessPolicy
-	Dispatcher *Dispatcher
-	API        *slack.Client
-	SearchAPI  *slack.Client
-	SocketMode *socketmode.Client
+	Name            string
+	Session         coresession.Ref
+	BotToken        string
+	UserToken       string
+	AppToken        string
+	TokenPreference string
+	BotUserID       string
+	TeamID          string
+	Debug           bool
+	Access          AccessPolicy
+	Dispatcher      *Dispatcher
+	API             *slack.Client
+	SearchAPI       *slack.Client
+	SocketMode      *socketmode.Client
 }
 
 type SlackChannel struct {
@@ -172,10 +173,11 @@ func NewChannel(cfg ChannelConfig) (*SlackChannel, error) {
 	}
 	api := cfg.API
 	if api == nil {
-		if cfg.BotToken == "" {
-			return nil, fmt.Errorf("slackplugin: channel %q bot token is empty", cfg.Name)
+		token, _, err := selectChannelToken(cfg.BotToken, cfg.UserToken, cfg.TokenPreference)
+		if err != nil {
+			return nil, fmt.Errorf("slackplugin: channel %q %w", cfg.Name, err)
 		}
-		api = slack.New(cfg.BotToken, slack.OptionAppLevelToken(cfg.AppToken))
+		api = slack.New(token, slack.OptionAppLevelToken(cfg.AppToken))
 	}
 	socketClient := cfg.SocketMode
 	if socketClient == nil {
@@ -217,7 +219,7 @@ func (c *SlackChannel) Start(ctx context.Context, client clientapi.ChannelClient
 	if c == nil || c.socket == nil {
 		return fmt.Errorf("slackplugin: channel is nil")
 	}
-	if err := c.verifyBotAuth(ctx); err != nil {
+	if err := c.verifyAuth(ctx); err != nil {
 		return err
 	}
 	runErr := make(chan error, 1)
@@ -284,13 +286,39 @@ func (c *SlackChannel) handleSocketEvent(ctx context.Context, client clientapi.C
 	}
 }
 
-func (c *SlackChannel) verifyBotAuth(ctx context.Context) error {
+func selectChannelToken(botToken, userToken, preference string) (string, string, error) {
+	preference = strings.ToLower(strings.TrimSpace(preference))
+	switch preference {
+	case "", ChannelTokenAuto:
+		if strings.TrimSpace(botToken) != "" {
+			return strings.TrimSpace(botToken), BotTokenPurpose, nil
+		}
+		if strings.TrimSpace(userToken) != "" {
+			return strings.TrimSpace(userToken), UserTokenPurpose, nil
+		}
+		return "", "", fmt.Errorf("slack channel API token is empty")
+	case BotTokenPurpose:
+		if strings.TrimSpace(botToken) == "" {
+			return "", "", fmt.Errorf("configured channel token %q is empty", BotTokenPurpose)
+		}
+		return strings.TrimSpace(botToken), BotTokenPurpose, nil
+	case UserTokenPurpose:
+		if strings.TrimSpace(userToken) == "" {
+			return "", "", fmt.Errorf("configured channel token %q is empty", UserTokenPurpose)
+		}
+		return strings.TrimSpace(userToken), UserTokenPurpose, nil
+	default:
+		return "", "", fmt.Errorf("configured channel token %q is unsupported", preference)
+	}
+}
+
+func (c *SlackChannel) verifyAuth(ctx context.Context) error {
 	if c == nil || c.api == nil {
 		return fmt.Errorf("slackplugin: channel is nil")
 	}
 	resp, err := c.api.AuthTestContext(ctx)
 	if err != nil {
-		return fmt.Errorf("slackplugin: bot auth test: %w", err)
+		return fmt.Errorf("slackplugin: auth test: %w", err)
 	}
 	if c.botUserID == "" {
 		c.botUserID = resp.UserID
@@ -298,7 +326,7 @@ func (c *SlackChannel) verifyBotAuth(ctx context.Context) error {
 	if c.teamID == "" {
 		c.teamID = resp.TeamID
 	}
-	slog.Info("slack channel bot authenticated", "channel", c.name, "team", resp.Team, "team_id", resp.TeamID, "bot_user_id", resp.UserID, "bot_id", resp.BotID)
+	slog.Info("slack channel authenticated", "channel", c.name, "team", resp.Team, "team_id", resp.TeamID, "slack_user_id", resp.UserID, "bot_id", resp.BotID)
 	return nil
 }
 

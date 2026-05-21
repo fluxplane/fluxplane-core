@@ -3,10 +3,10 @@
 Native rewrite Slack daemon example.
 
 ```bash
-coder connect slack --instance slack-bot --auth bot_token --field bot_token=xoxb-... --field app_token=xapp-...
-coder connect gitlab --instance gitlab
-coder connect jira --instance jira
-coder connect confluence --instance confluence
+coder auth connect --plugin slack --instance slack-bot --method token --field bot_token=xoxb-... --field app_token=xapp-...
+coder auth connect --plugin gitlab --instance gitlab
+coder auth connect --plugin jira --instance jira
+coder auth connect --plugin confluence --instance confluence
 coder app serve examples/slack-bot
 ```
 

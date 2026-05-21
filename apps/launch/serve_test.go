@@ -39,6 +39,63 @@ func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {
 	}
 }
 
+func TestServeChannelsAllowsNativeSlackUserTokenInstance(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := runtimesecret.NewFileStore(dir)
+	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "xoxp-test"}); err != nil {
+		t.Fatalf("Save user token: %v", err)
+	}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+		t.Fatalf("Save app token: %v", err)
+	}
+
+	channels, err := serveChannels(ctx, []distribution.Channel{{
+		Name:     "slack-main",
+		Type:     "slack",
+		Instance: "workspace-prod",
+		Session:  "slack-main",
+	}}, nil, Options{AuthPath: dir}, slack.NewDispatcher(), nil)
+	if err != nil {
+		t.Fatalf("serveChannels: %v", err)
+	}
+	if len(channels) != 1 {
+		t.Fatalf("channels len = %d, want 1", len(channels))
+	}
+}
+
+func TestServeChannelsHonorsSlackChannelTokenPreference(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := runtimesecret.NewFileStore(dir)
+	ref := resource.PluginRef{Name: slack.Name, Instance: "workspace-prod"}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.UserTokenSecretRef(ref), Value: "xoxp-test"}); err != nil {
+		t.Fatalf("Save user token: %v", err)
+	}
+	if err := store.SaveSecret(ctx, runtimesecret.StoredSecret{Ref: slack.AppTokenSecretRef(ref), Value: "xapp-test"}); err != nil {
+		t.Fatalf("Save app token: %v", err)
+	}
+
+	_, err := serveChannels(ctx, []distribution.Channel{{
+		Name:     "slack-main",
+		Type:     "slack",
+		Instance: "workspace-prod",
+		Session:  "slack-main",
+	}}, []resource.ContributionBundle{{
+		Plugins: []resource.PluginRef{{
+			Name:     slack.Name,
+			Instance: "workspace-prod",
+			Config: map[string]any{
+				"auth": map[string]any{"channel_token": slack.BotTokenPurpose},
+			},
+		}},
+	}}, Options{AuthPath: dir}, slack.NewDispatcher(), nil)
+	if err == nil || !strings.Contains(err.Error(), `channel token "bot_token" is empty`) {
+		t.Fatalf("serveChannels error = %v, want missing bot token", err)
+	}
+}
+
 func TestValidateServeLaunchSuggestsInitForUninitializedPath(t *testing.T) {
 	err := validateServeLaunch(distribution.Loaded{
 		Root: "/repo/sample",

@@ -207,12 +207,13 @@ type OAuth2Spec struct {
 // SetupFieldSpec describes non-model-visible setup inputs needed to establish
 // an auth method.
 type SetupFieldSpec struct {
-	Name        string  `json:"name" yaml:"name"`
-	DisplayName string  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Description string  `json:"description,omitempty" yaml:"description,omitempty"`
-	Required    bool    `json:"required,omitempty" yaml:"required,omitempty"`
-	Sensitive   bool    `json:"sensitive,omitempty" yaml:"sensitive,omitempty"`
-	Env         EnvSpec `json:"env,omitempty" yaml:"env,omitempty"`
+	Name          string  `json:"name" yaml:"name"`
+	DisplayName   string  `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Description   string  `json:"description,omitempty" yaml:"description,omitempty"`
+	Required      bool    `json:"required,omitempty" yaml:"required,omitempty"`
+	RequiredGroup string  `json:"required_group,omitempty" yaml:"required_group,omitempty"`
+	Sensitive     bool    `json:"sensitive,omitempty" yaml:"sensitive,omitempty"`
+	Env           EnvSpec `json:"env,omitempty" yaml:"env,omitempty"`
 }
 
 // Placeholder is the model-visible opaque secret token.

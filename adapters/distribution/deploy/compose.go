@@ -44,6 +44,7 @@ type ComposeResult struct {
 // ComposeDeployOptions configures local Docker Compose deployment.
 type ComposeDeployOptions struct {
 	AppDir         string
+	TempDir        string
 	Image          string
 	BaseImage      string
 	ConnectorsPath string
@@ -108,6 +109,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
 	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
 		Tags:         []string{baseImage},
+		TempDir:      opts.TempDir,
 		DryRun:       opts.DryRun,
 		Out:          out,
 		Err:          errOut,

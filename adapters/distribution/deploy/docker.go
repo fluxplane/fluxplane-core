@@ -166,6 +166,7 @@ func dockerStackLabels(stack string) map[string]string {
 // DockerBuildOptions configures a generated Docker image build.
 type DockerBuildOptions struct {
 	AppDir         string
+	TempDir        string
 	Tags           []string
 	Platforms      []string
 	Push           bool
@@ -198,6 +199,7 @@ type DockerBuildResult struct {
 type BaseImageOptions struct {
 	RepoRoot     string
 	CoderPath    string
+	TempDir      string
 	Tags         []string
 	Platforms    []string
 	Push         bool
@@ -269,7 +271,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		return DockerBuildResult{}, err
 	}
 
-	tempDir, err := os.MkdirTemp("", "coder-app-docker-build-*")
+	tempDir, err := os.MkdirTemp(opts.TempDir, "coder-app-docker-build-*")
 	if err != nil {
 		return DockerBuildResult{}, fmt.Errorf("distribution build: create temp context: %w", err)
 	}
@@ -328,7 +330,7 @@ func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImage
 		errOut = io.Discard
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
-	tempDir, err := os.MkdirTemp("", "coder-base-docker-build-*")
+	tempDir, err := os.MkdirTemp(opts.TempDir, "coder-base-docker-build-*")
 	if err != nil {
 		return BaseImageResult{}, fmt.Errorf("distribution build: create base image context: %w", err)
 	}

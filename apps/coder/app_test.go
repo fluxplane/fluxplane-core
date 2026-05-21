@@ -89,6 +89,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "discover") {
 		t.Fatalf("help = %q, want discover command", help)
 	}
+	if !strings.Contains(help, "auth") {
+		t.Fatalf("help = %q, want auth command", help)
+	}
 	if !strings.Contains(help, "datasource") {
 		t.Fatalf("help = %q, want datasource command", help)
 	}
@@ -124,6 +127,9 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	}
 	hasDescribe := false
 	for _, child := range cmd.Commands() {
+		if child.Name() == "connect" {
+			t.Fatalf("coder command has connect subcommand, want auth connect")
+		}
 		if child.Name() == "repl" {
 			t.Fatalf("coder command has repl subcommand, want coder to be the repl entrypoint")
 		}

@@ -210,21 +210,22 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 				return nil, err
 			}
 			if session.AppToken == "" {
-				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run coder connect slack --instance %s --auth %s --field app_token=<value>", doc.Name, ref.InstanceName(), slack.BotTokenMethod)
+				return nil, fmt.Errorf("serve: slack channel %q requires app_token for Socket Mode; run coder auth connect --plugin slack --instance %s --method %s --field app_token=<value>", doc.Name, ref.InstanceName(), slack.TokenMethod)
 			}
 			sessionName := doc.Session
 			if sessionName == "" {
 				sessionName = doc.Name
 			}
 			ch, err := slack.NewChannel(slack.ChannelConfig{
-				Name:       doc.Name,
-				Session:    agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
-				BotToken:   session.BotToken,
-				UserToken:  session.UserToken,
-				AppToken:   session.AppToken,
-				Debug:      opts.Debug,
-				Access:     slackAccess(doc.Access),
-				Dispatcher: dispatcher,
+				Name:            doc.Name,
+				Session:         agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
+				BotToken:        session.BotToken,
+				UserToken:       session.UserToken,
+				AppToken:        session.AppToken,
+				TokenPreference: cfg.Auth.ChannelToken,
+				Debug:           opts.Debug,
+				Access:          slackAccess(doc.Access),
+				Dispatcher:      dispatcher,
 			})
 			if err != nil {
 				return nil, err

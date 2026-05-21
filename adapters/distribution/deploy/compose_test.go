@@ -31,11 +31,12 @@ name: assistant
 	})
 
 	result, err := DeployDockerCompose(context.Background(), ComposeDeployOptions{
-		AppDir: app,
-		Image:  "sample:test",
-		Force:  true,
-		Detach: true,
-		Runner: runner,
+		AppDir:  app,
+		TempDir: t.TempDir(),
+		Image:   "sample:test",
+		Force:   true,
+		Detach:  true,
+		Runner:  runner,
 	})
 	if err != nil {
 		t.Fatalf("DeployDockerCompose: %v", err)
@@ -83,10 +84,11 @@ name: assistant
 		return nil
 	})
 	result, err := DeployDockerCompose(context.Background(), ComposeDeployOptions{
-		AppDir: app,
-		DryRun: true,
-		Out:    &out,
-		Runner: runner,
+		AppDir:  app,
+		TempDir: t.TempDir(),
+		DryRun:  true,
+		Out:     &out,
+		Runner:  runner,
 	})
 	if err != nil {
 		t.Fatalf("DeployDockerCompose dry-run: %v", err)
