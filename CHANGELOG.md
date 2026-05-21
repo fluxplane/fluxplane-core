@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `agentsdk.app.*` names fail with an explicit rename diagnostic, and moved
   generated app Docker/Compose/Kubernetes launchers to the Fluxplane CLI and
   base image.
+- Split the coder product into the nested `github.com/fluxplane/coder` module
+  under `apps/coder`, moving its entrypoint to `apps/coder/cmd/coder` while
+  keeping engine and coder tests/build tasks explicit.
 - Added GitLab write operations for merge requests, repository files, branches,
   tags, commits, and project CI/CD variables, with GitLab named-plugin
   instances projected as a single logical tool that only exposes an `instance`

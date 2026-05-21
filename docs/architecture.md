@@ -310,7 +310,7 @@ process-level exit behavior and call an assembled app command.
 Example:
 
 ```text
-cmd/coder
+apps/coder/cmd/coder
   -> apps/coder distribution command
 ```
 
@@ -331,7 +331,7 @@ or hide side effects behind authoring helpers.
 ### Local CLI Run
 
 ```text
-cmd/coder
+apps/coder/cmd/coder
   -> apps/coder
      -> apps/launch.NewRunCommand
         -> apps/launch.RunPath
@@ -351,7 +351,7 @@ the generic distribution CLI adapter.
 ### Remote CLI Run
 
 ```text
-cmd/coder
+apps/coder/cmd/coder
   -> apps/coder
      -> adapters/distribution/remote.NewCommand
         -> adapters/distribution/remote.Run
@@ -369,7 +369,7 @@ the same logical session handle contract as local clients.
 ### Daemon Serve
 
 ```text
-cmd/coder
+apps/coder/cmd/coder
   -> apps/coder
      -> apps/launch.NewServeCommand
         -> apps/launch.Serve
@@ -387,7 +387,7 @@ surface is kept separate from daemon/control HTTP.
 ### Connector Auth
 
 ```text
-cmd/coder
+apps/coder/cmd/coder
   -> apps/coder
      -> adapters/connectors/cli.NewCommand
         -> plugin registry supplied by apps/coder

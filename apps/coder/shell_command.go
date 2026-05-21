@@ -3,7 +3,7 @@ package coder
 import (
 	"context"
 
-	codershell "github.com/fluxplane/engine/apps/coder/shell"
+	codershell "github.com/fluxplane/coder/shell"
 	"github.com/spf13/cobra"
 )
 

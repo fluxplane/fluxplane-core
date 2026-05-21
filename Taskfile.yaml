@@ -25,7 +25,9 @@ tasks:
   index:
     desc: Build or update the root app semantic index for local markdown docs.
     cmds:
-      - go run ./cmd/coder datasource index build . --datasource local-docs --entity file.document --full
+      - |
+        cd apps/coder
+        CODER_ROOT="{{.TASKFILE_DIR}}" go run ./cmd/coder datasource index build "{{.TASKFILE_DIR}}" --datasource local-docs --entity file.document --full
 
   verify:
     desc: Run the rewrite quality gate.
@@ -57,6 +59,7 @@ tasks:
     desc: Fail when go.mod or go.sum need tidying.
     cmds:
       - go mod tidy -diff
+      - cd apps/coder && go mod tidy -diff
 
   whitespace:check:
     desc: Fail on whitespace errors in the git diff.
@@ -67,16 +70,19 @@ tasks:
     desc: Run go vet.
     cmds:
       - go vet ./...
+      - cd apps/coder && go vet ./...
 
   lint:
     desc: Run golangci-lint.
     cmds:
       - golangci-lint run ./...
+      - cd apps/coder && golangci-lint run ./...
 
   test:
-    desc: Run rewrite tests.
+    desc: Run engine and coder tests.
     cmds:
       - go test -timeout=30s ./...
+      - cd apps/coder && go test -timeout=30s ./...
 
   coder:live-test:
     desc: 'Live-test coder with the Codex provider. Usage: task coder:live-test -- "prompt"'
@@ -90,7 +96,8 @@ tasks:
           exit 2
         fi
         mkdir -p "$XDG_STATE_HOME"
-        go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "$CODER_LIVE_TEST_PROMPT"
+        cd apps/coder
+        CODER_ROOT="{{.TASKFILE_DIR}}" go run ./cmd/coder --provider codex --model gpt-5.5 --yolo --input "$CODER_LIVE_TEST_PROMPT"
 
   quality:metrics:
     desc: Print non-blocking code quality metrics for refactoring guidance.

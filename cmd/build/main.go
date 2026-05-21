@@ -35,6 +35,12 @@ type options struct {
 	install bool
 }
 
+type buildApp struct {
+	name string
+	dir  string
+	pkg  string
+}
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "build: %v\n", err)
@@ -81,30 +87,39 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func appFromPath(path string) (string, error) {
+func appFromPath(path string) (buildApp, error) {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "." || clean == string(filepath.Separator) || clean == "" {
+		return buildApp{}, fmt.Errorf("invalid app path %q", path)
+	}
 	app := strings.TrimSpace(filepath.Base(filepath.Clean(path)))
-	if app == "." || app == string(filepath.Separator) || app == "" {
-		return "", fmt.Errorf("invalid app path %q", path)
+	if nestedCmd := filepath.Join(clean, "cmd", app); isDir(nestedCmd) {
+		return buildApp{name: app, dir: clean, pkg: "./cmd/" + app}, nil
 	}
 	cmdPath := filepath.Join("cmd", app)
 	if stat, err := os.Stat(cmdPath); err != nil {
-		return "", fmt.Errorf("%s: command package %s not found: %w", path, cmdPath, err)
+		return buildApp{}, fmt.Errorf("%s: command package %s not found: %w", path, cmdPath, err)
 	} else if !stat.IsDir() {
-		return "", fmt.Errorf("%s: command package %s is not a directory", path, cmdPath)
+		return buildApp{}, fmt.Errorf("%s: command package %s is not a directory", path, cmdPath)
 	}
-	return app, nil
+	return buildApp{name: app, dir: ".", pkg: "./cmd/" + app}, nil
 }
 
-func install(ctx context.Context, app string, stdout, stderr io.Writer) error {
-	pkg := "./cmd/" + app
-	_, _ = fmt.Fprintf(stdout, "install: %s\n", pkg)
-	cmd := exec.CommandContext(ctx, "go", "install", pkg)
+func isDir(path string) bool {
+	stat, err := os.Stat(path)
+	return err == nil && stat.IsDir()
+}
+
+func install(ctx context.Context, app buildApp, stdout, stderr io.Writer) error {
+	_, _ = fmt.Fprintf(stdout, "install: %s\n", filepath.ToSlash(filepath.Join(app.dir, app.pkg)))
+	cmd := exec.CommandContext(ctx, "go", "install", app.pkg)
+	cmd.Dir = app.dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
 }
 
-func buildTarget(ctx context.Context, opts options, app, target string, stdout, stderr io.Writer) error {
+func buildTarget(ctx context.Context, opts options, app buildApp, target string, stdout, stderr io.Writer) error {
 	goos, goarch, ok := strings.Cut(strings.TrimSpace(target), "/")
 	if !ok || goos == "" || goarch == "" {
 		return fmt.Errorf("invalid target %q, want GOOS/GOARCH", target)
@@ -116,9 +131,17 @@ func buildTarget(ctx context.Context, opts options, app, target string, stdout, 
 	if err := os.MkdirAll(opts.outDir, 0o755); err != nil {
 		return err
 	}
-	out := filepath.Join(opts.outDir, fmt.Sprintf("%s_%s_%s%s", app, goos, goarch, ext))
+	out := filepath.Join(opts.outDir, fmt.Sprintf("%s_%s_%s%s", app.name, goos, goarch, ext))
+	if !filepath.IsAbs(out) {
+		abs, err := filepath.Abs(out)
+		if err != nil {
+			return err
+		}
+		out = abs
+	}
 	_, _ = fmt.Fprintf(stdout, "build: %s\n", out)
-	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", out, "./cmd/"+app)
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", out, app.pkg)
+	cmd.Dir = app.dir
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

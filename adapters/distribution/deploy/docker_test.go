@@ -226,7 +226,8 @@ func TestBuildCoderBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
 	repo := filepath.Join(parent, "projects", "agentsdk", "rewrite")
 	app := filepath.Join(repo, "examples", "sample")
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/engine\n\nreplace github.com/codewandler/axon => ../../axon\n")
-	writeTestFile(t, repo, "cmd/coder/main.go", "package main\nfunc main() {}\n")
+	writeTestFile(t, repo, "apps/coder/go.mod", "module github.com/fluxplane/coder\n\ngo 1.26.1\n\nrequire github.com/fluxplane/engine v0.0.0\n\nreplace github.com/fluxplane/engine => ../..\n")
+	writeTestFile(t, repo, "apps/coder/cmd/coder/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
 	writeTestFile(t, app, "fluxplane.yaml", `
 kind: app
@@ -254,6 +255,9 @@ name: assistant
 		t.Fatalf("ReadFile Dockerfile: %v", err)
 	}
 	if !strings.Contains(string(dockerfile), "COPY localmods/axon /axon") {
+		t.Fatalf("Dockerfile = %s", dockerfile)
+	}
+	if !strings.Contains(string(dockerfile), "WORKDIR /src/agentruntime/apps/coder") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
 	if !strings.Contains(string(dockerfile), "go build -trimpath -ldflags=\"-s -w\" -o /out/coder ./cmd/coder") {

@@ -45,7 +45,7 @@ usable every day:
 Requires Go 1.26+ and a model credential such as `OPENAI_API_KEY`.
 
 ```bash
-go install github.com/fluxplane/engine/cmd/coder@latest
+go install github.com/fluxplane/coder/cmd/coder@latest
 go install github.com/fluxplane/engine/cmd/fluxplane@latest
 export OPENAI_API_KEY=...
 coder --input "Summarize this repository"

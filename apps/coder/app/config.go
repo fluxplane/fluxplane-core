@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/engine/apps/coder"
+	"github.com/fluxplane/coder"
 	"github.com/fluxplane/engine/apps/launch"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"

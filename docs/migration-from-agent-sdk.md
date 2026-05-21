@@ -5,9 +5,9 @@ repository should move into `github.com/fluxplane/engine`.
 
 The rewrite is not a compatibility-preserving refactor. Prefer deleting stale
 paths and splitting mixed packages over carrying adapters for old package names.
-Current product CLI work lands in `cmd/coder` and `apps/coder`; the legacy
-`agentsdk` binary/package has been removed. The `fluxplane.yaml` manifest
-filename remains until a separate manifest rename is planned.
+Current product CLI work lands in the nested `github.com/fluxplane/coder`
+module under `apps/coder`; the legacy `agentsdk` binary/package has been
+removed. Authored app manifests use `fluxplane.yaml`.
 
 ## Target Layers
 
@@ -516,7 +516,7 @@ ported.
 | `channel` | `core/channel` + `orchestration/harness` | Core keeps normalized envelopes/specs; harness owns routing/session binding. |
 | `channel/httpapi` | `adapters/httpchannel` | Server-side implementation of the direct HTTP/SSE channel. Keep separate from daemon control API. |
 | `channels/slackchan` | `adapters/slack` | Protocol adapter. |
-| `cmd/agentsdk` | `cmd/coder` + `apps/coder` | Legacy product CLI replaced by coder. |
+| `cmd/agentsdk` | `apps/coder/cmd/coder` + `apps/coder` | Legacy product CLI replaced by coder. |
 | `cmd/agentclient` | `apps/agentclient` + `adapters/httpchannel/client` | Product CLI over the direct channel client. It should not call session directly. |
 | `cmd/agent-sim` | `apps/agentsim` or test tool | Probably app/tooling. |
 | `command` | `core/command` + parser adapter | Descriptors/results/core tree in core; slash parsing may be adapter if terminal-specific. |
@@ -1022,8 +1022,8 @@ Parity should be reached in small slices:
    stop-condition-driven follow-up turns after a terminal response.
 
 9. **Phase 7: Product CLI and Coder App**
-   Use `cmd/coder` as the product CLI over the first-party coder app. The
-   embedded `apps/coder` package keeps product assembly and app lifecycle
+   Use `apps/coder/cmd/coder` as the product CLI over the first-party coder
+   app. The nested `apps/coder` module keeps product assembly and app lifecycle
    behavior; reusable runtime operation implementations stay in plugins and
    adapters.
 

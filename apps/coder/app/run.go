@@ -8,7 +8,6 @@ import (
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	"github.com/fluxplane/engine/apps/launch"
 	"github.com/fluxplane/engine/orchestration/distribution"
-	"github.com/spf13/cobra"
 )
 
 // RunOptions configures a programmatic app run through the coder product.
@@ -101,65 +100,6 @@ func (a *App) loaderWithCoderConfig(loader launch.Loader) launch.Loader {
 		loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, bundles...)
 		return loaded, nil
 	}
-}
-
-func (a *App) newAppRunCommand() *cobra.Command {
-	opts := RunOptions{MaxContinuations: 20}
-	modelFlags := launch.ModelFlags{Thinking: "auto"}
-	runtimeFlags := launch.LocalRuntimeFlags{}
-	environmentFlags := launch.LaunchEnvironmentFlags{}
-	cmd := &cobra.Command{
-		Use:   "run [path]",
-		Short: "Run a local app distribution",
-		Args:  cobra.RangeArgs(0, 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			modelFlags.CaptureChanged(cmd.Flags())
-			if err := modelFlags.Validate(); err != nil {
-				return err
-			}
-			if err := runtimeFlags.Validate(); err != nil {
-				return err
-			}
-			if len(args) > 0 {
-				opts.Path = args[0]
-			} else {
-				opts.Path = "."
-			}
-			opts.Provider = modelFlags.Provider
-			opts.Model = modelFlags.Model
-			opts.Thinking = modelFlags.Thinking
-			opts.ThinkingSet = modelFlags.ThinkingSet
-			opts.Effort = modelFlags.Effort
-			opts.EffortSet = modelFlags.EffortSet
-			opts.Debug = runtimeFlags.Debug
-			opts.Yolo = runtimeFlags.Yolo
-			opts.Dev = runtimeFlags.Dev
-			opts.MaxToolRisk = runtimeFlags.AllowMaxToolRisk
-			opts.AuthPath = environmentFlags.AuthPath
-			opts.AllowPluginAuthEnv = environmentFlags.AllowPluginAuthEnv
-			opts.EnvFiles = environmentFlags.EnvFiles
-			opts.GoalSet = cmd.Flags().Changed("goal")
-			opts.MaxContinuationsSet = cmd.Flags().Changed("max-continuations")
-			opts.In = cmd.InOrStdin()
-			opts.Out = cmd.OutOrStdout()
-			opts.Err = cmd.ErrOrStderr()
-			return a.Run(cmd.Context(), opts)
-		},
-	}
-	cmd.Flags().StringVar(&opts.Session, "session", "", "configured session name to open")
-	cmd.Flags().StringVar(&opts.Conversation, "conversation", "", "conversation id")
-	launch.BindModelFlags(cmd.Flags(), &modelFlags, modelFlags)
-	cmd.Flags().StringVar(&opts.Input, "input", "", "send one input and exit instead of opening a REPL")
-	cmd.Flags().StringVar(&opts.Goal, "goal", "", "run a goal-driven task and exit")
-	cmd.Flags().IntVar(&opts.MaxContinuations, "max-continuations", opts.MaxContinuations, "maximum goal continuations")
-	launch.BindLocalRuntimeFlags(cmd.Flags(), &runtimeFlags, launch.LocalRuntimeFlagHelp{
-		Debug: "print run events as highlighted JSON markdown",
-		Yolo:  "auto-approve local operation risk gates for this run",
-	})
-	cmd.Flags().BoolVar(&opts.Usage, "usage", false, "print usage events after each response")
-	launch.BindLaunchEnvironmentFlags(cmd.Flags(), &environmentFlags)
-	cmd.Flags().StringArrayVar(&opts.WorkspaceRoots, "workspace-root", nil, "additional workspace root as PATH or NAME=PATH; may be repeated")
-	return cmd
 }
 
 func mergedRunWorkspace(workspace distribution.WorkspaceConfig, rootOverrides, envFileOverrides []string) (distribution.WorkspaceConfig, error) {

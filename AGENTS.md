@@ -59,10 +59,12 @@ rediscovering CLI defaults:
 task coder:live-test -- "prompt describing the scenario"
 ```
 
-This task uses `go run ./cmd/coder --provider codex --model gpt-5.5 --yolo
---debug --input ...`. The default OpenAI provider usually lacks credentials in
-agent workspaces, so do not use the default provider for live-test requests unless
-explicitly asked. Inspect the terminal output as well as debug JSON when checking
+This task runs the nested coder module with `CODER_ROOT` pointed at the engine
+checkout, equivalent to `cd apps/coder && CODER_ROOT=<repo> go run ./cmd/coder
+--provider codex --model gpt-5.5 --yolo --debug --input ...`. The default
+OpenAI provider usually lacks credentials in agent workspaces, so do not use
+the default provider for live-test requests unless explicitly asked. Inspect
+the terminal output as well as debug JSON when checking
 rendering behavior; model summaries may omit structured operation data.
 ## Layer Rules
 
@@ -88,7 +90,7 @@ outer layers. The exact allowed-import matrix is defined in
 | `adapters` | How does the outside world talk to the runtime? | `core`, `runtime`, `orchestration`, `adapters` | IO and protocol boundaries. Translate external systems in and events/results back out. No new domain concepts. |
 | `plugins` | Which optional first-party capability bundle is contributed? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins` | Optional capability bundles via core/orchestration contracts. No global app assembly. |
 | `apps` | What product was assembled? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins`, `apps`, root facade | Assembled products and dogfood apps. No reusable domain or runtime concepts. |
-| `cmd` | How is an assembled product launched as a process? | `apps`, `adapters`, `cmd` (and stdlib) | Executable entrypoint glue only. Adapter import is allowed for distribution-CLI launchers (e.g. `cmd/coder`); no feature logic, no plugin assembly. |
+| `cmd` | How is an assembled product launched as a process? | `apps`, `adapters`, `cmd` (and stdlib) | Executable entrypoint glue only. Adapter import is allowed for distribution-CLI launchers; no feature logic, no plugin assembly. |
 | `facade` (root module) | In-process embedding entrypoint. | `core`, `sdk`, `runtime`, `orchestration`, `adapters` | The root `agentruntime` package. Assembles outward-facing in-process products. Inner packages must not import it. |
 
 See [docs/architecture.md](docs/architecture.md) for per-layer concept lists
@@ -250,7 +252,7 @@ See [docs/security.md](docs/security.md) for the full safety model.
 - Distribution loading and runtime handles live in
   `orchestration/distribution`. CLI/local/remote/describe helpers are
   adapters under `adapters/distribution/*`. Concrete assembly lives in
-  `apps/launch` (and product bundles like `apps/coder`).
+  `apps/launch` (and products like the nested `apps/coder` module).
 
 ### Channel HTTP/SSE vs Daemon Control HTTP
 

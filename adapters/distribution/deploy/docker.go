@@ -313,27 +313,30 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 }
 
 type baseImageRuntime struct {
-	name        string
-	defaultTag  string
-	binaryName  string
-	sourcePkg   string
-	tempPattern string
+	name         string
+	defaultTag   string
+	binaryName   string
+	buildWorkDir string
+	sourcePkg    string
+	tempPattern  string
 }
 
 var (
 	coderBaseRuntime = baseImageRuntime{
-		name:        "coder",
-		defaultTag:  defaultCoderBaseImage,
-		binaryName:  "coder",
-		sourcePkg:   "./cmd/coder",
-		tempPattern: "coder-base-docker-build-*",
+		name:         "coder",
+		defaultTag:   defaultCoderBaseImage,
+		binaryName:   "coder",
+		buildWorkDir: "/src/agentruntime/apps/coder",
+		sourcePkg:    "./cmd/coder",
+		tempPattern:  "coder-base-docker-build-*",
 	}
 	fluxplaneBaseRuntime = baseImageRuntime{
-		name:        "fluxplane",
-		defaultTag:  defaultBaseImage,
-		binaryName:  "fluxplane",
-		sourcePkg:   "./cmd/fluxplane",
-		tempPattern: "fluxplane-base-docker-build-*",
+		name:         "fluxplane",
+		defaultTag:   defaultBaseImage,
+		binaryName:   "fluxplane",
+		buildWorkDir: "/src/agentruntime",
+		sourcePkg:    "./cmd/fluxplane",
+		tempPattern:  "fluxplane-base-docker-build-*",
 	}
 )
 
@@ -694,6 +697,7 @@ func writeSourceBaseDockerfile(filename string, replaces []replaceCopy, runtime 
 	}
 	lines = append(lines,
 		"COPY src/agentruntime /src/agentruntime",
+		"WORKDIR "+runtime.buildWorkDir,
 		fmt.Sprintf(`RUN go build -trimpath -ldflags="-s -w" -o /out/%s %s`, runtime.binaryName, runtime.sourcePkg),
 		"",
 		"FROM debian:bookworm-slim AS runtime",

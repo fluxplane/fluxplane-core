@@ -4,7 +4,7 @@ package codercli
 import (
 	"context"
 
-	coderapp "github.com/fluxplane/engine/apps/coder/app"
+	coderapp "github.com/fluxplane/coder/app"
 	"github.com/spf13/cobra"
 )
 

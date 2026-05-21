@@ -6,13 +6,13 @@ import (
 	"os"
 	"strings"
 
-	coderapp "github.com/fluxplane/engine/apps/coder/app"
-	codercli "github.com/fluxplane/engine/apps/coder/cli"
+	coderapp "github.com/fluxplane/coder/app"
+	codercli "github.com/fluxplane/coder/cli"
 )
 
 func main() {
 	cmd, err := codercli.NewCommand(context.Background(), coderapp.Config{
-		Root:            ".",
+		Root:            configRoot(),
 		CoderConfigPath: configPathFromArgs(os.Args[1:]),
 	})
 	if err != nil {
@@ -23,6 +23,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func configRoot() string {
+	if root := strings.TrimSpace(os.Getenv("CODER_ROOT")); root != "" {
+		return root
+	}
+	return "."
 }
 
 func configPathFromArgs(args []string) string {

@@ -50,6 +50,10 @@ chat session to understand what has already happened.
   `861c833 refactor: rename root module to fluxplane engine`.
 - Fluxplane CLI extraction commit:
   `592a815 feat: extract fluxplane app cli`.
+- Manifest rename commit:
+  `f9265f7 feat: rename app manifests to fluxplane`.
+- Coder nested-module split commit:
+  `refactor: split coder into product module`.
 - Current root module:
   `github.com/fluxplane/engine`.
 - Current root facade package:
@@ -57,7 +61,7 @@ chat session to understand what has already happened.
 - Current physical repository/worktree path:
   `/home/timo/projects/fluxplane/agentruntime`.
 - Current product CLI entrypoint:
-  `cmd/coder`.
+  `apps/coder/cmd/coder` in the nested `github.com/fluxplane/coder` module.
 - Current generic app command surface:
   `cmd/fluxplane`, implemented by `apps/fluxplane` and reusable command
   builders in `apps/launch`.
@@ -356,9 +360,12 @@ Deliverables:
 Assertions:
 
 - `go run ./cmd/fluxplane --help` shows generic app commands.
-- `go run ./cmd/coder --help` does not show an `app` command.
-- `go run ./cmd/coder auth status` uses the coder product scope.
-- `go run ./cmd/coder datasource index build` indexes coder product
+- `cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder --help` does
+  not show an `app` command.
+- `cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder auth status`
+  uses the coder product scope.
+- `cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder datasource
+  index build <engine-root>` indexes coder product
   datasources, including integration plugins that require auth when auth is
   available and allowed by policy.
 - `go run ./cmd/fluxplane auth status` requires or selects a manifest scope
@@ -432,7 +439,7 @@ Assertions:
 
 ### 5. Coder module split
 
-Status: pending.
+Status: complete.
 
 Purpose: turn coder into a product module that imports the engine, while still
 staging the work inside this physical repository.
@@ -461,10 +468,11 @@ Assertions:
 - `go test ./...` passes in the engine root.
 - `go test ./...` passes in `apps/coder`.
 - The coder module entrypoint works from the expected build task.
-- The root engine module no longer contains `cmd/coder`, unless it is a
-  deliberately temporary development shim that imports the nested module
-  through an explicit root-module dependency.
+- The root engine module no longer contains `cmd/coder`.
 - Architecture checks still report zero violations for the engine module.
+- `go run ./cmd/build/main.go --target linux/amd64 apps/coder` builds the
+  nested coder command.
+- `cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder --help` works.
 
 ### 6. Repository extraction readiness
 
@@ -512,9 +520,9 @@ Assertions:
 Concrete smoke commands to keep current as the implementation evolves:
 
 ```bash
-go run ./cmd/coder --help
-go run ./cmd/coder auth status
-go run ./cmd/coder datasource index build
+cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder --help
+cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder auth status
+cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder datasource index build <engine-root>
 go run ./cmd/fluxplane --help
 go run ./cmd/fluxplane auth status
 go run ./cmd/fluxplane datasource index build

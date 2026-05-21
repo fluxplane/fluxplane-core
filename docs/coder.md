@@ -53,7 +53,7 @@ Generic app-manifest workflows now live under the `fluxplane` CLI. Use
 ### Install
 
 ```bash
-go install github.com/fluxplane/engine/cmd/coder@latest
+go install github.com/fluxplane/coder/cmd/coder@latest
 ```
 
 From a local checkout:

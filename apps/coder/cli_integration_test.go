@@ -25,6 +25,7 @@ func TestIntegrationCoderCLIActivatesLocalSkill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repo root: %v", err)
 	}
+	coderModule := filepath.Join(repoRoot, "apps", "coder")
 	workspace := t.TempDir()
 	writeFile(t, workspace, ".agents/skills/skill-e2e/SKILL.md", `---
 name: skill-e2e
@@ -41,7 +42,7 @@ SKILL_E2E_OK
 	defer cancel()
 	bin := filepath.Join(workspace, "coder-smoke")
 	build := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/coder")
-	build.Dir = repoRoot
+	build.Dir = coderModule
 	build.Env = os.Environ()
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build coder CLI smoke binary: %v\n%s", err, string(out))
