@@ -4,17 +4,17 @@ package evaluator
 import (
 	"os"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	fluxplane "github.com/fluxplane/engine"
+	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 
@@ -41,7 +41,7 @@ func Distribution() distribution.Distribution {
 		Name:                AppName,
 		Title:               "Evaluator",
 		Description:         "Evaluate AgentRuntime apps over the public channel protocol.",
-		DefaultSession:      agentruntime.SessionRef{Name: SessionName},
+		DefaultSession:      fluxplane.SessionRef{Name: SessionName},
 		DefaultConversation: channel.ConversationRef{ID: defaultConversation},
 		DefaultModel: coredistribution.ModelDefault{
 			Provider: "codex",

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/engine/core/resource"
 )
 
 func TestShellCommandUsesLocalDirectClientByDefault(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/engine/core/event"
+	corethread "github.com/fluxplane/engine/core/thread"
 )
 
 const (

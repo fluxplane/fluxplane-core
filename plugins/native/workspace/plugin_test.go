@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestSummaryProviderRendersWorkspaceRoots(t *testing.T) {

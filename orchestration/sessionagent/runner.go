@@ -9,15 +9,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coresession "github.com/fluxplane/engine/core/session"
+	corethread "github.com/fluxplane/engine/core/thread"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const defaultMaxParallel = 4

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/internal/architecture"
+	"github.com/fluxplane/engine/internal/architecture"
 )
 
 func TestLayerImportsPointInward(t *testing.T) {
@@ -58,28 +58,28 @@ func TestCoreDatasourceHasNoProviderSpecificDetectorTerms(t *testing.T) {
 func TestAnalyzeReportsViolationsAndScore(t *testing.T) {
 	packages := []architecture.ListedPackage{
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/core/operation",
-			Imports:    []string{"github.com/fluxplane/agentruntime/runtime/operation"},
+			ImportPath: "github.com/fluxplane/engine/core/operation",
+			Imports:    []string{"github.com/fluxplane/engine/runtime/operation"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/runtime/operation",
-			Imports:    []string{"github.com/fluxplane/agentruntime/core/operation"},
+			ImportPath: "github.com/fluxplane/engine/runtime/operation",
+			Imports:    []string{"github.com/fluxplane/engine/core/operation"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/adapters/slack",
-			Imports:    []string{"github.com/fluxplane/agentruntime/plugins/integrations/slack"},
+			ImportPath: "github.com/fluxplane/engine/adapters/slack",
+			Imports:    []string{"github.com/fluxplane/engine/plugins/integrations/slack"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/plugins/integrations/slack",
-			Imports:    []string{"github.com/fluxplane/agentruntime/adapters/slack"},
+			ImportPath: "github.com/fluxplane/engine/plugins/integrations/slack",
+			Imports:    []string{"github.com/fluxplane/engine/adapters/slack"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/apps/devclient",
-			Imports:    []string{"github.com/fluxplane/agentruntime"},
+			ImportPath: "github.com/fluxplane/engine/apps/devclient",
+			Imports:    []string{"github.com/fluxplane/engine"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime",
-			Imports:    []string{"github.com/fluxplane/agentruntime/apps/devclient"},
+			ImportPath: "github.com/fluxplane/engine",
+			Imports:    []string{"github.com/fluxplane/engine/apps/devclient"},
 		},
 	}
 	report := architecture.Analyze(packages, architecture.Config{
@@ -99,11 +99,11 @@ func TestAnalyzeReportsViolationsAndScore(t *testing.T) {
 func TestAnalyzeSeparatesTestBoundaryViolations(t *testing.T) {
 	packages := []architecture.ListedPackage{
 		{
-			ImportPath:  "github.com/fluxplane/agentruntime/core/operation",
-			TestImports: []string{"github.com/fluxplane/agentruntime/runtime/operation"},
+			ImportPath:  "github.com/fluxplane/engine/core/operation",
+			TestImports: []string{"github.com/fluxplane/engine/runtime/operation"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/runtime/operation",
+			ImportPath: "github.com/fluxplane/engine/runtime/operation",
 		},
 	}
 	report := architecture.Analyze(packages, architecture.Config{
@@ -125,7 +125,7 @@ func TestAnalyzeSeparatesTestBoundaryViolations(t *testing.T) {
 }
 
 func TestAnalyzeTracksReviewedFanOutWithoutCouplingPenalty(t *testing.T) {
-	packages := fanOutPackages("github.com/fluxplane/agentruntime/core/resource")
+	packages := fanOutPackages("github.com/fluxplane/engine/core/resource")
 	report := architecture.Analyze(packages, architecture.Config{ModulePath: architecture.DefaultModulePath})
 	if report.Scores.Coupling != 100 {
 		t.Fatalf("coupling score = %d, want reviewed fan-out excluded", report.Scores.Coupling)
@@ -136,7 +136,7 @@ func TestAnalyzeTracksReviewedFanOutWithoutCouplingPenalty(t *testing.T) {
 }
 
 func TestAnalyzePenalizesUnreviewedFanOut(t *testing.T) {
-	packages := fanOutPackages("github.com/fluxplane/agentruntime/core/newhub")
+	packages := fanOutPackages("github.com/fluxplane/engine/core/newhub")
 	report := architecture.Analyze(packages, architecture.Config{ModulePath: architecture.DefaultModulePath})
 	if report.Scores.Coupling != 98 {
 		t.Fatalf("coupling score = %d, want unreviewed fan-out penalty", report.Scores.Coupling)
@@ -148,9 +148,9 @@ func TestAnalyzePenalizesUnreviewedFanOut(t *testing.T) {
 
 func TestAnalyzeReportsUnknownPackages(t *testing.T) {
 	report := architecture.Analyze([]architecture.ListedPackage{
-		{ImportPath: "github.com/fluxplane/agentruntime/experimental/foo"},
+		{ImportPath: "github.com/fluxplane/engine/experimental/foo"},
 	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
-	if !hasDiagnostic(report, "unknown_package", "github.com/fluxplane/agentruntime/experimental/foo") {
+	if !hasDiagnostic(report, "unknown_package", "github.com/fluxplane/engine/experimental/foo") {
 		t.Fatalf("diagnostics = %#v, want unknown package", report.Diagnostics)
 	}
 	if !architecture.HasFailures(report, "unknown") {
@@ -161,11 +161,11 @@ func TestAnalyzeReportsUnknownPackages(t *testing.T) {
 func TestAnalyzeReportsInnerLayerHostIO(t *testing.T) {
 	report := architecture.Analyze([]architecture.ListedPackage{
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/core/bad",
+			ImportPath: "github.com/fluxplane/engine/core/bad",
 			Imports:    []string{"os"},
 		},
 	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
-	if !hasDiagnostic(report, "inner_host_io", "github.com/fluxplane/agentruntime/core/bad") {
+	if !hasDiagnostic(report, "inner_host_io", "github.com/fluxplane/engine/core/bad") {
 		t.Fatalf("diagnostics = %#v, want inner host IO", report.Diagnostics)
 	}
 	if !architecture.HasFailures(report, "side-effects") {
@@ -176,18 +176,18 @@ func TestAnalyzeReportsInnerLayerHostIO(t *testing.T) {
 func TestAnalyzeRequiresRuntimeHostIOAllowlist(t *testing.T) {
 	report := architecture.Analyze([]architecture.ListedPackage{
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/runtime/newsideeffect",
+			ImportPath: "github.com/fluxplane/engine/runtime/newsideeffect",
 			Imports:    []string{"os"},
 		},
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/runtime/system",
+			ImportPath: "github.com/fluxplane/engine/runtime/system",
 			Imports:    []string{"os"},
 		},
 	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
-	if !hasDiagnostic(report, "runtime_host_io", "github.com/fluxplane/agentruntime/runtime/newsideeffect") {
+	if !hasDiagnostic(report, "runtime_host_io", "github.com/fluxplane/engine/runtime/newsideeffect") {
 		t.Fatalf("diagnostics = %#v, want runtime host IO", report.Diagnostics)
 	}
-	if !hasAllowedDiagnostic(report, "runtime_host_io", "github.com/fluxplane/agentruntime/runtime/system") {
+	if !hasAllowedDiagnostic(report, "runtime_host_io", "github.com/fluxplane/engine/runtime/system") {
 		t.Fatalf("diagnostics = %#v, want allowed runtime host IO", report.Diagnostics)
 	}
 	if !architecture.HasFailures(report, "side-effects") {
@@ -211,13 +211,13 @@ func configure() bool {
 	}
 	report := architecture.Analyze([]architecture.ListedPackage{
 		{
-			ImportPath: "github.com/fluxplane/agentruntime/plugins/test/plugin",
+			ImportPath: "github.com/fluxplane/engine/plugins/test/plugin",
 			Dir:        dir,
 			GoFiles:    []string{"plugin.go"},
 			Imports:    []string{"os"},
 		},
 	}, architecture.Config{ModulePath: architecture.DefaultModulePath})
-	if !hasDiagnostic(report, "plugin_host_effect", "github.com/fluxplane/agentruntime/plugins/test/plugin") {
+	if !hasDiagnostic(report, "plugin_host_effect", "github.com/fluxplane/engine/plugins/test/plugin") {
 		t.Fatalf("diagnostics = %#v, want plugin host effect", report.Diagnostics)
 	}
 }
@@ -227,19 +227,19 @@ func fanOutPackages(importPath string) []architecture.ListedPackage {
 		{
 			ImportPath: importPath,
 			Imports: []string{
-				"github.com/fluxplane/agentruntime/core/a",
-				"github.com/fluxplane/agentruntime/core/b",
-				"github.com/fluxplane/agentruntime/core/c",
-				"github.com/fluxplane/agentruntime/core/d",
-				"github.com/fluxplane/agentruntime/core/e",
-				"github.com/fluxplane/agentruntime/core/f",
-				"github.com/fluxplane/agentruntime/core/g",
-				"github.com/fluxplane/agentruntime/core/h",
-				"github.com/fluxplane/agentruntime/core/i",
-				"github.com/fluxplane/agentruntime/core/j",
-				"github.com/fluxplane/agentruntime/core/k",
-				"github.com/fluxplane/agentruntime/core/l",
-				"github.com/fluxplane/agentruntime/core/m",
+				"github.com/fluxplane/engine/core/a",
+				"github.com/fluxplane/engine/core/b",
+				"github.com/fluxplane/engine/core/c",
+				"github.com/fluxplane/engine/core/d",
+				"github.com/fluxplane/engine/core/e",
+				"github.com/fluxplane/engine/core/f",
+				"github.com/fluxplane/engine/core/g",
+				"github.com/fluxplane/engine/core/h",
+				"github.com/fluxplane/engine/core/i",
+				"github.com/fluxplane/engine/core/j",
+				"github.com/fluxplane/engine/core/k",
+				"github.com/fluxplane/engine/core/l",
+				"github.com/fluxplane/engine/core/m",
 			},
 		},
 	}

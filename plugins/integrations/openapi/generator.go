@@ -8,12 +8,12 @@ import (
 	"sort"
 	"strings"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
 )
 
 func TestMaterializerEmitsOnlyChangedBlocks(t *testing.T) {

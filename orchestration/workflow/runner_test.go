@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreworkflow "github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coreworkflow "github.com/fluxplane/engine/core/workflow"
 )
 
 func TestRunExecutesOperationDAG(t *testing.T) {

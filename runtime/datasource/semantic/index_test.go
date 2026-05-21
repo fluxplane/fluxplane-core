@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 func TestIndexUpdateSkipsUnchangedDocumentAndSearches(t *testing.T) {

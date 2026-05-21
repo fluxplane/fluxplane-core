@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // AuthorizationConfig controls policy enforcement at the System boundary.

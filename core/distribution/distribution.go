@@ -2,8 +2,8 @@
 package distribution
 
 import (
-	"github.com/fluxplane/agentruntime/core/channel"
-	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/engine/core/channel"
+	coresession "github.com/fluxplane/engine/core/session"
 )
 
 // Spec describes a runnable/deployable package around one or more resource

@@ -3,8 +3,8 @@ package coder
 import (
 	"context"
 
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/core/resource"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	"github.com/fluxplane/engine/core/resource"
 )
 
 type startupResources struct {

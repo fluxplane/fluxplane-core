@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/runtime/eventstore"
-	runtimeprojection "github.com/fluxplane/agentruntime/runtime/projection"
-	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+	"github.com/fluxplane/engine/core/event"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/runtime/eventstore"
+	runtimeprojection "github.com/fluxplane/engine/runtime/projection"
+	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
 func TestManagerEnsureFreshUpdatesThreadIndex(t *testing.T) {

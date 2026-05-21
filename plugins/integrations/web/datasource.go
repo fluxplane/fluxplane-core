@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const SearchResultEntity coredatasource.EntityType = "web.search_result"

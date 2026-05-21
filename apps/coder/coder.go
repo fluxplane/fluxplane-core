@@ -4,15 +4,15 @@ import (
 	"context"
 	"strings"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/session"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/session"
 )
 
 // Config configures a reusable coder product instance.
@@ -44,7 +44,7 @@ type Coder struct {
 
 // ChannelClientResult is an opened local coder channel plus cleanup.
 type ChannelClientResult struct {
-	Client   agentruntime.ChannelClient
+	Client   fluxplane.ChannelClient
 	Cleanup  func()
 	Commands []command.Spec
 }

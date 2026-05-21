@@ -3,8 +3,8 @@ package data
 import (
 	"strings"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 // RecordFromCorpusDocument converts provider corpus data into the durable data

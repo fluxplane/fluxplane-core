@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/distribution"
 )
 
 func TestBuildDockerGeneratesContextAndRunsDockerBuild(t *testing.T) {
@@ -225,7 +225,7 @@ func TestBuildCoderBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "projects", "agentsdk", "rewrite")
 	app := filepath.Join(repo, "examples", "sample")
-	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/agentruntime\n\nreplace github.com/codewandler/axon => ../../axon\n")
+	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/engine\n\nreplace github.com/codewandler/axon => ../../axon\n")
 	writeTestFile(t, repo, "cmd/coder/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
 	writeTestFile(t, app, "agentsdk.app.yaml", `

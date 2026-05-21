@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	corereaction "github.com/fluxplane/agentruntime/core/reaction"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/runtime/skill"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corereaction "github.com/fluxplane/engine/core/reaction"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/engine/runtime/skill"
 )
 
 // ReactionAction is one planned reaction action ready for session-local

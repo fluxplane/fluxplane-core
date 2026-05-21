@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	connectoroperation "github.com/codewandler/connectors/operation"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/operation"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestToolNameUsesDefaultAndCustomInstanceNames(t *testing.T) {

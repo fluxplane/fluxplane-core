@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
+	"github.com/fluxplane/engine/core/event"
+	corethread "github.com/fluxplane/engine/core/thread"
 )
 
 // IndexEntry is the projected listing state for one thread.

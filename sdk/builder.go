@@ -9,15 +9,15 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/command"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
+	"github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/command"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
 )
 
 // NewApp starts a pure app contribution builder.

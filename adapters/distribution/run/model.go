@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/adapters/llm/modelcatalog"
-	"github.com/fluxplane/agentruntime/adapters/system/cmdrisk"
-	"github.com/fluxplane/agentruntime/core/agent"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/adapters/llm/modelcatalog"
+	"github.com/fluxplane/engine/adapters/system/cmdrisk"
+	"github.com/fluxplane/engine/core/agent"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const defaultModel = "gpt-5.5"

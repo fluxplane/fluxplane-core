@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	corediscovery "github.com/fluxplane/agentruntime/core/discovery"
+	corediscovery "github.com/fluxplane/engine/core/discovery"
 )
 
 func TestRegistryDiscoversFromMatchingProviders(t *testing.T) {

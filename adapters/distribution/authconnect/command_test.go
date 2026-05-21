@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
 )
 
 func TestCollectFieldsRejectsSensitivePromptOnNonTerminal(t *testing.T) {

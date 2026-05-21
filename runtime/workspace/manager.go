@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coreworkspace "github.com/fluxplane/engine/core/workspace"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 // Manager resolves workspace selections for runtime systems.

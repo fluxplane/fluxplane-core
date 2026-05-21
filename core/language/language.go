@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 // LanguageID identifies a programming or document language.

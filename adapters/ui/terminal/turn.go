@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	coretask "github.com/fluxplane/agentruntime/core/task"
-	"github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/engine/core/command"
+	coretask "github.com/fluxplane/engine/core/task"
+	"github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	sessionruntime "github.com/fluxplane/engine/orchestration/session"
 )
 
 var (

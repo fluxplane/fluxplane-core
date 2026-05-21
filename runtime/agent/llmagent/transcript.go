@@ -3,7 +3,7 @@ package llmagent
 import (
 	"context"
 
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
 )
 
 type transcriptContextKey struct{}

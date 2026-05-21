@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 var (

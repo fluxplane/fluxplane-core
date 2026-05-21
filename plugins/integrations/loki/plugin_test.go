@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	corediscovery "github.com/fluxplane/agentruntime/core/discovery"
-	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	corediscovery "github.com/fluxplane/engine/core/discovery"
+	coreendpoint "github.com/fluxplane/engine/core/endpoint"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {

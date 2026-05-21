@@ -5,15 +5,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coreusage "github.com/fluxplane/agentruntime/core/usage"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/channels/httpsse"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	coreusage "github.com/fluxplane/engine/core/usage"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestDistributionDeclaresInteractiveSurfaces(t *testing.T) {
@@ -60,7 +60,7 @@ func TestDistributionHasRuntime(t *testing.T) {
 
 func TestTargetSubmitOperationUsesHTTPSSERemoteClient(t *testing.T) {
 	ctx := operation.NewContext(context.Background(), coreevent.Discard())
-	service, err := agentruntime.New(agentruntime.Config{
+	service, err := fluxplane.New(fluxplane.Config{
 		Agent:   targetEchoAgent{},
 		Channel: channel.Ref{Name: "http"},
 		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "eval-test"}},

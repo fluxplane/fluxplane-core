@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const (

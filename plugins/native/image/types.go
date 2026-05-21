@@ -3,7 +3,7 @@ package image
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const defaultPrompt = "Describe this image in detail. Include any text, diagrams, UI elements, or notable visual features."

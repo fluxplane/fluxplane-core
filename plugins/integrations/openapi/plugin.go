@@ -6,11 +6,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 // Plugin contributes OpenAPI-generated resources.

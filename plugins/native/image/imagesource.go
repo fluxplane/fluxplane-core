@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func anthropicImageBlocks(ctx context.Context, sys system.System, images []string) ([]map[string]any, error) {

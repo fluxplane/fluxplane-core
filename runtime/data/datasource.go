@@ -1,8 +1,8 @@
 package data
 
 import (
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 // SourceFromDatasource adapts existing datasource entity specs into a generic

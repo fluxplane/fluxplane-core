@@ -12,9 +12,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/eventcodec"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/eventcodec"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 const (
@@ -102,7 +102,7 @@ func OpenWithConnection(ctx context.Context, nc *nats.Conn, cfg Config, registry
 			Discard:     jetstream.DiscardOld,
 			DenyDelete:  true,
 			DenyPurge:   true,
-			Description: "Fluxplane Agent Runtime event store",
+			Description: "Fluxplane Engine event store",
 		})
 	} else {
 		stream, err = js.Stream(ctx, resolved.stream)

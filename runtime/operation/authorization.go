@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // AuthorizationGate enforces the policy.AuthorizationContext carried on the

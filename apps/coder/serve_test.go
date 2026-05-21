@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/distribution/run"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/distribution/run"
 )
 
 func TestServeCommandHasAutomaticSocketDefault(t *testing.T) {
-	cmd := newServeCommand(startupResources{Root: t.TempDir(), Bundles: []agentruntime.ResourceBundle{Bundle()}})
+	cmd := newServeCommand(startupResources{Root: t.TempDir(), Bundles: []fluxplane.ResourceBundle{Bundle()}})
 	if cmd.Name() != "serve" {
 		t.Fatalf("command name = %q, want serve", cmd.Name())
 	}

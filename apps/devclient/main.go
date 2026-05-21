@@ -8,25 +8,25 @@ import (
 	"os"
 	"strings"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/adapters/llm/openai"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/tool"
-	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/plugins/examples/echo"
-	"github.com/fluxplane/agentruntime/plugins/native/text"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/channels/httpsse"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/adapters/llm/openai"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/core/tool"
+	appcomposition "github.com/fluxplane/engine/orchestration/app"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/plugins/examples/echo"
+	"github.com/fluxplane/engine/plugins/native/text"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func main() {
@@ -49,7 +49,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	sessionHandle, err := client.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := client.Open(ctx, fluxplane.OpenRequest{
 		Session:      coresession.Ref{Name: coresession.Name(cfg.sessionName)},
 		Conversation: channel.ConversationRef{ID: "devclient"},
 	})
@@ -57,7 +57,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	submission := agentruntime.NewSubmission()
+	submission := fluxplane.NewSubmission()
 	switch cfg.mode {
 	case "command":
 		submission = submission.WithCommand(command.Invocation{Path: cfg.commandPath, Input: cfg.text})
@@ -203,7 +203,7 @@ func parseCommandPath(raw string) command.Path {
 	return path
 }
 
-func debugRunEvents(debug bool, events <-chan agentruntime.Event) func() {
+func debugRunEvents(debug bool, events <-chan fluxplane.Event) func() {
 	if !debug {
 		return func() {}
 	}
@@ -229,7 +229,7 @@ func debugPrint(label string, value any) {
 	fmt.Fprintln(os.Stderr, string(data))
 }
 
-func checkResult(result agentruntime.Result) error {
+func checkResult(result fluxplane.Result) error {
 	if result.Command != nil {
 		if result.Command.Status != session.CommandStatusOK {
 			if result.Command.Error != nil {
@@ -251,7 +251,7 @@ func checkResult(result agentruntime.Result) error {
 	return fmt.Errorf("run produced no command or input result")
 }
 
-func newClient(ctx context.Context, cfg config) (agentruntime.ChannelClient, error) {
+func newClient(ctx context.Context, cfg config) (fluxplane.ChannelClient, error) {
 	if cfg.remoteURL != "" {
 		return httpsse.NewClient(httpsse.ClientConfig{BaseURL: cfg.remoteURL})
 	}
@@ -271,7 +271,7 @@ func serve(ctx context.Context, cfg config) error {
 	return http.ListenAndServe(cfg.addr, server)
 }
 
-func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) {
+func newRuntime(ctx context.Context, dev config) (*fluxplane.Service, error) {
 	ops := operation.NewRegistry()
 	echoOp := operation.New(operation.Spec{
 		Ref:         operation.Ref{Name: "echo"},
@@ -309,7 +309,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	runtimeAgent := agent.Agent(echoAgent{})
 	var model llmagent.Model
 	if dev.useOpenAI {
-		system := "You are a concise development assistant running inside Fluxplane Agent Runtime."
+		system := "You are a concise development assistant running inside Fluxplane Engine."
 		var tools []tool.Spec
 		if dev.syntheticTool {
 			system += " When a user asks for synthetic runtime data, call the synthetic_lookup tool first. After the tool result arrives, answer from that result and do not call the tool again."
@@ -340,7 +340,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		}
 	}
 
-	cfg := agentruntime.Config{
+	cfg := fluxplane.Config{
 		Agent:      runtimeAgent,
 		Commands:   commands,
 		Operations: ops,
@@ -363,7 +363,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		cfg.LLMStreamPolicy = debugStreamPolicy(dev.debug)
 	}
 	if dev.appDir == "" {
-		return agentruntime.New(cfg)
+		return fluxplane.New(cfg)
 	}
 	bundle, err := appconfig.LoadDir(ctx, dev.appDir)
 	if err != nil {
@@ -377,7 +377,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 		Agent:      composeAgent,
 		Operations: appOperations(bundle, echoOp),
 		Plugins:    []pluginhost.Plugin{echo.New(), text.New()},
-		Bundles:    []agentruntime.ResourceBundle{bundle},
+		Bundles:    []fluxplane.ResourceBundle{bundle},
 	})
 	if err != nil {
 		return nil, err
@@ -387,7 +387,7 @@ func newRuntime(ctx context.Context, dev config) (*agentruntime.Service, error) 
 	if dev.useOpenAI {
 		cfg.Agent = nil
 	}
-	return agentruntime.NewFromComposition(composition, cfg)
+	return fluxplane.NewFromComposition(composition, cfg)
 }
 
 func syntheticLookupOperation() operation.Operation {
@@ -469,7 +469,7 @@ func debugRedactor(debug bool) adapterllm.Redactor {
 	return adapterllm.Redactor{ExposeThinking: true, ExposeToolArgs: true}
 }
 
-func appOperations(bundle agentruntime.ResourceBundle, echoOp operation.Operation) []operation.Operation {
+func appOperations(bundle fluxplane.ResourceBundle, echoOp operation.Operation) []operation.Operation {
 	for _, ref := range bundle.Plugins {
 		if ref.Name == echo.Name {
 			return nil

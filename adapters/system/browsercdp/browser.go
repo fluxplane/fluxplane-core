@@ -12,7 +12,7 @@ import (
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 // Config configures a CDP-backed browser manager.

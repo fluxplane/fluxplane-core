@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/resource"
 )
 
 func TestAvailableCommandSpecsIncludesDispatcherCommands(t *testing.T) {

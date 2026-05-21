@@ -6,11 +6,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/engine/core/agent"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/engine/core/tool"
 )
 
 const ContextProviderName corecontext.ProviderName = "skills"

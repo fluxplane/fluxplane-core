@@ -1,13 +1,13 @@
 package coder
 
 import (
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/plugins/languages/golang"
-	"github.com/fluxplane/agentruntime/plugins/languages/markdown"
-	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	"github.com/fluxplane/agentruntime/plugins/native/project"
-	"github.com/fluxplane/agentruntime/plugins/native/task"
-	runtimelanguage "github.com/fluxplane/agentruntime/runtime/language"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/plugins/languages/golang"
+	"github.com/fluxplane/engine/plugins/languages/markdown"
+	"github.com/fluxplane/engine/plugins/native/memory"
+	"github.com/fluxplane/engine/plugins/native/project"
+	"github.com/fluxplane/engine/plugins/native/task"
+	runtimelanguage "github.com/fluxplane/engine/runtime/language"
 )
 
 // FeatureName identifies a coder-local inert feature preset.

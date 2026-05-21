@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/adapters/llm/anthropicmessages"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/adapters/llm/anthropicmessages"
+	corellm "github.com/fluxplane/engine/core/llm"
 )
 
 const DefaultBaseURL = "https://api.minimax.io/anthropic"

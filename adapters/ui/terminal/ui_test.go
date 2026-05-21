@@ -6,16 +6,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	coretask "github.com/fluxplane/agentruntime/core/task"
-	"github.com/fluxplane/agentruntime/core/testrun"
-	"github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	coresession "github.com/fluxplane/engine/core/session"
+	coretask "github.com/fluxplane/engine/core/task"
+	"github.com/fluxplane/engine/core/testrun"
+	"github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/sessionagent"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 func TestRendererStreamsMarkdownContent(t *testing.T) {

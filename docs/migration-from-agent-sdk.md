@@ -1,7 +1,7 @@
 # Migration From Current `agentsdk`
 
 This document tracks how concepts and packages from the current `agentsdk`
-repository should move into `github.com/fluxplane/agentruntime`.
+repository should move into `github.com/fluxplane/engine`.
 
 The rewrite is not a compatibility-preserving refactor. Prefer deleting stale
 paths and splitting mixed packages over carrying adapters for old package names.
@@ -57,7 +57,7 @@ go run ./apps/archreport -format dot
 The selected module path is:
 
 ```text
-github.com/fluxplane/agentruntime
+github.com/fluxplane/engine
 ```
 
 Fluxplane is the umbrella brand. Agent Runtime is the first product/repository.
@@ -711,7 +711,7 @@ Implemented and green:
 - `orchestration/daemon` + `adapters/httpcontrol`: separate process/control
   status, configured-session listing, and session-listing surface over an
   existing channel client.
-- root `agentruntime.Service`: public in-process facade for library consumers.
+- root `fluxplane.Service`: public in-process facade for library consumers.
 - `apps/devclient`: small dogfood client for local and HTTP/SSE execution,
   including debug event/result output, `-app` resource manifest loading, and
   `-session` configured profile selection.
@@ -850,9 +850,9 @@ Definition of done for that batch:
 - A library consumer can still do:
 
   ```go
-  svc, err := agentruntime.New(...)
-  s, err := svc.Open(ctx, agentruntime.OpenRequest{...})
-  run, err := s.SendInput(ctx, agentruntime.Input{Text: "hello"})
+  svc, err := fluxplane.New(...)
+  s, err := svc.Open(ctx, fluxplane.OpenRequest{...})
+  run, err := s.SendInput(ctx, fluxplane.Input{Text: "hello"})
   result, err := run.Wait(ctx)
   ```
 

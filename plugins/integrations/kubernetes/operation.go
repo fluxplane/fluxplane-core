@@ -11,9 +11,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	coreoperation "github.com/fluxplane/agentruntime/core/operation"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coreoperation "github.com/fluxplane/engine/core/operation"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const defaultPortForwardAddress = "127.0.0.1"

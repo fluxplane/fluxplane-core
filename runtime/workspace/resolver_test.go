@@ -3,7 +3,7 @@ package workspace
 import (
 	"testing"
 
-	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
+	coreworkspace "github.com/fluxplane/engine/core/workspace"
 )
 
 func TestResolverExplicitWorkspaceWins(t *testing.T) {

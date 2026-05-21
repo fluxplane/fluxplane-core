@@ -1,6 +1,6 @@
 # Security Model
 
-Fluxplane Agent Runtime treats every side effect as an operation crossing a
+Fluxplane Engine treats every side effect as an operation crossing a
 runtime boundary. The current implementation is intentionally conservative:
 operations are projected to agents only after policy checks, then every
 execution enters `runtime/operation.SafetyEnvelope` before the handler runs.

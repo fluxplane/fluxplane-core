@@ -1,7 +1,7 @@
-# Fluxplane Agent Runtime
+# Fluxplane Engine
 
 <p align="center">
-  <img src="docs/assets/fluxplane-logo.svg" alt="Fluxplane Agent Runtime logo" width="760">
+  <img src="docs/assets/fluxplane-logo.svg" alt="Fluxplane Engine logo" width="760">
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/fluxplane/agentruntime"><img src="https://pkg.go.dev/badge/github.com/fluxplane/agentruntime.svg" alt="Go Reference"></a>
+  <a href="https://pkg.go.dev/github.com/fluxplane/engine"><img src="https://pkg.go.dev/badge/github.com/fluxplane/engine.svg" alt="Go Reference"></a>
   <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go" alt="Go 1.26+">
   <img src="https://img.shields.io/badge/status-pre--1.0-orange" alt="Status: pre-1.0">
 </p>
@@ -26,7 +26,7 @@ Most agent prototypes are easy to demo and hard to trust in real work. They lose
 context, hide important decisions in chat history, call tools through ad hoc
 code, and become difficult to resume after a crash or deploy.
 
-Fluxplane Agent Runtime is built for the less glamorous parts that make agents
+Fluxplane Engine is built for the less glamorous parts that make agents
 usable every day:
 
 - **Durable sessions**: resume work from event-backed state instead of starting
@@ -45,7 +45,7 @@ usable every day:
 Requires Go 1.26+ and a model credential such as `OPENAI_API_KEY`.
 
 ```bash
-go install github.com/fluxplane/agentruntime/cmd/coder@latest
+go install github.com/fluxplane/engine/cmd/coder@latest
 export OPENAI_API_KEY=...
 coder --input "Summarize this repository"
 ```
@@ -136,7 +136,7 @@ target:
 ```
 
 That same resource model is used by the bundled `coder` app and by custom
-AgentRuntime applications.
+Fluxplane applications.
 
 ## Start here
 
@@ -149,7 +149,7 @@ AgentRuntime applications.
 
 ## Project status
 
-Fluxplane Agent Runtime is a **pre-1.0 rewrite**. The core ideas are active, but
+Fluxplane Engine is a **pre-1.0 rewrite**. The core ideas are active, but
 module APIs, resource shapes, and command surfaces may change quickly. During
 this phase we prefer clean replacements over compatibility shims.
 

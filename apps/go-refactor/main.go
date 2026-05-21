@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fluxplane/agentruntime/plugins/languages/golang/refactor"
+	"github.com/fluxplane/engine/plugins/languages/golang/refactor"
 )
 
 func main() {

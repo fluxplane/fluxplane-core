@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	corellm "github.com/fluxplane/agentruntime/core/llm"
+	corellm "github.com/fluxplane/engine/core/llm"
 	"gopkg.in/yaml.v3"
 )
 

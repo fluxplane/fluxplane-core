@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	connectoroperation "github.com/codewandler/connectors/operation"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 // DatasourceAction maps one datasource entity to explicit connector operations.

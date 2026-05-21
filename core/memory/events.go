@@ -3,7 +3,7 @@ package memory
 import (
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 func RegisterEvents(registry *event.Registry) error {

@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	connectoroperation "github.com/codewandler/connectors/operation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 // Executor is the connector runtime boundary used by connector-backed tools.

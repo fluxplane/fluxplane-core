@@ -1,9 +1,9 @@
 package environment
 
 import (
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // Name identifies an environment.

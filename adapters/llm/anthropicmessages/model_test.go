@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coretool "github.com/fluxplane/agentruntime/core/tool"
-	"github.com/fluxplane/agentruntime/core/usage"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/core/agent"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	coretool "github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/engine/core/usage"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestTranscriptSystemContextItemMapsToSystemBlocks(t *testing.T) {

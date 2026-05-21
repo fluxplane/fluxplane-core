@@ -1,38 +1,38 @@
-package agentruntime_test
+package fluxplane_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coreresource "github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/core/tool"
-	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/plugins/examples/echo"
-	llmagentruntime "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	coreresource "github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/core/tool"
+	appcomposition "github.com/fluxplane/engine/orchestration/app"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/plugins/examples/echo"
+	llmagentruntime "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestServiceSubmitInputThroughTopLevelAPI(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "conv-input"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("hello"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -46,20 +46,20 @@ func TestServiceSubmitInputThroughTopLevelAPI(t *testing.T) {
 	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "agent: hello" {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
-	assertRunEvent(t, run, agentruntime.EventInputCompleted)
+	assertRunEvent(t, run, fluxplane.EventInputCompleted)
 }
 
 func TestServiceSubmitCommandThroughTopLevelAPI(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "conv-command"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"echo"},
 		Input: "hello",
 	}))
@@ -76,7 +76,7 @@ func TestServiceSubmitCommandThroughTopLevelAPI(t *testing.T) {
 	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "hello" {
 		t.Fatalf("outbound = %#v", result.Outbound)
 	}
-	assertRunEvent(t, run, agentruntime.EventCommandCompleted)
+	assertRunEvent(t, run, fluxplane.EventCommandCompleted)
 }
 
 func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
@@ -108,7 +108,7 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Agent:   agentRuntime,
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
@@ -117,12 +117,12 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-tool-trust"}})
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-tool-trust"}})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("hello"))
 	if err != nil {
 		t.Fatalf("Submit verified: %v", err)
 	}
@@ -133,9 +133,9 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 		t.Fatalf("verified tools len = %d, want 1", len(agentRuntime.lastTools))
 	}
 
-	run, err = sessionHandle.Submit(ctx, agentruntime.NewSubmission().
+	run, err = sessionHandle.Submit(ctx, fluxplane.NewSubmission().
 		WithText("hello").
-		WithTrustDowngrade(agentruntime.TrustDowngrade{Level: policy.TrustUntrusted}))
+		WithTrustDowngrade(fluxplane.TrustDowngrade{Level: policy.TrustUntrusted}))
 	if err != nil {
 		t.Fatalf("Submit downgraded: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestServiceRejectsOperationNotProjectedForInboundTrust(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Agent:   operationAgent{},
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
@@ -182,13 +182,13 @@ func TestServiceRejectsOperationNotProjectedForInboundTrust(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-operation-not-projected"}})
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{Conversation: channel.ConversationRef{ID: "conv-operation-not-projected"}})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().
 		WithText("hello").
-		WithTrustDowngrade(agentruntime.TrustDowngrade{Level: policy.TrustUntrusted}))
+		WithTrustDowngrade(fluxplane.TrustDowngrade{Level: policy.TrustUntrusted}))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -207,14 +207,14 @@ func TestServiceRejectsOperationNotProjectedForInboundTrust(t *testing.T) {
 func TestServiceListsAndResumesSessions(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
-	opened, err := svc.Open(ctx, agentruntime.OpenRequest{
+	opened, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "conv-resume"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	summaries, err := svc.ListSessions(ctx, agentruntime.ListSessionsRequest{Limit: 1})
+	summaries, err := svc.ListSessions(ctx, fluxplane.ListSessionsRequest{Limit: 1})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestServiceListsAndResumesSessions(t *testing.T) {
 		t.Fatalf("listed thread = %q, want %q", summaries[0].Info.Thread.ID, opened.Info().Thread.ID)
 	}
 
-	resumed, err := svc.Resume(ctx, agentruntime.ResumeRequest{ThreadID: opened.Info().Thread.ID})
+	resumed, err := svc.Resume(ctx, fluxplane.ResumeRequest{ThreadID: opened.Info().Thread.ID})
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestServiceListsAndResumesSessions(t *testing.T) {
 
 func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 	ctx := context.Background()
-	bundle := agentruntime.ResourceBundle{
+	bundle := fluxplane.ResourceBundle{
 		Commands: []command.Spec{{
 			Path: command.Path{"echo"},
 			Target: invocation.Target{
@@ -256,12 +256,12 @@ func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:      echoAgent{},
 		Operations: []operation.Operation{echo},
-		Bundles:    []agentruntime.ResourceBundle{bundle},
+		Bundles:    []fluxplane.ResourceBundle{bundle},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -270,13 +270,13 @@ func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
 
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "resource-app"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -291,18 +291,18 @@ func TestServiceRunsCommandFromResourceComposition(t *testing.T) {
 
 func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 	ctx := context.Background()
-	bundle := agentruntime.ResourceBundle{
+	bundle := fluxplane.ResourceBundle{
 		Plugins: []coreresource.PluginRef{{Name: "echo"}},
 	}
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Agent:   echoAgent{},
 		Plugins: []pluginhost.Plugin{echo.New()},
-		Bundles: []agentruntime.ResourceBundle{bundle},
+		Bundles: []fluxplane.ResourceBundle{bundle},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -311,13 +311,13 @@ func TestServiceRunsCommandFromPluginResourceComposition(t *testing.T) {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
 
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "plugin-resource-app"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"echo"}, Input: "hello"}))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -338,14 +338,14 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 			resourceTestPlugin{name: "foo"},
 			resourceTestPlugin{name: "bar"},
 		},
-		Bundles: []agentruntime.ResourceBundle{{
+		Bundles: []fluxplane.ResourceBundle{{
 			Plugins: []coreresource.PluginRef{{Name: "foo"}, {Name: "bar"}},
 		}},
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -353,14 +353,14 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
 		Conversation: channel.ConversationRef{ID: "duplicate-plugin-ops"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"foo", "run"}, Input: "hello"}))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"foo", "run"}, Input: "hello"}))
 	if err != nil {
 		t.Fatalf("Submit foo/run: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 		t.Fatalf("plugin = %q, want foo", content["plugin"])
 	}
 
-	run, err = sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"run"}, Input: "hello"}))
+	run, err = sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{Path: command.Path{"run"}, Input: "hello"}))
 	if err != nil {
 		t.Fatalf("Submit run: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestServiceRunsQualifiedCommandsWithDuplicatePluginOperationNames(t *testin
 func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
 	ctx := context.Background()
 	composition, err := appcomposition.Compose(appcomposition.Config{
-		Bundles: []agentruntime.ResourceBundle{{
+		Bundles: []fluxplane.ResourceBundle{{
 			Source: coreresource.SourceRef{Scope: coreresource.ScopeEmbedded, Location: "apps/demo"},
 			Apps: []coreapp.Spec{{
 				Name:         "demo",
@@ -410,7 +410,7 @@ func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel:  channel.Ref{Name: "local"},
 		Caller:   policy.Caller{Kind: policy.CallerUser},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -419,14 +419,14 @@ func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
-		Session: agentruntime.SessionRef{Name: "default"},
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
+		Session: fluxplane.SessionRef{Name: "default"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("hello"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 	})
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Operations: []operation.Operation{echo},
-		Bundles: []agentruntime.ResourceBundle{{
+		Bundles: []fluxplane.ResourceBundle{{
 			Source: coreresource.SourceRef{Scope: coreresource.ScopeEmbedded, Location: "apps/demo"},
 			Apps: []coreapp.Spec{{
 				Name:         "demo",
@@ -477,7 +477,7 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 		t.Fatalf("Compose: %v", err)
 	}
 	var modelRequest llmagentruntime.Request
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -492,14 +492,14 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{
-		Session: agentruntime.SessionRef{Name: "default"},
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
+		Session: fluxplane.SessionRef{Name: "default"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("hello"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("hello"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -522,7 +522,7 @@ func TestServiceSecurityPolicyEnforcedWithDefaultExecutor(t *testing.T) {
 	})
 	composition, err := appcomposition.Compose(appcomposition.Config{
 		Operations: []operation.Operation{echo},
-		Bundles: []agentruntime.ResourceBundle{{
+		Bundles: []fluxplane.ResourceBundle{{
 			Apps: []coreapp.Spec{{
 				Name: "demo",
 				Security: policy.AuthorizationPolicy{Grants: []policy.Grant{{
@@ -547,7 +547,7 @@ func TestServiceSecurityPolicyEnforcedWithDefaultExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	svc, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -555,11 +555,11 @@ func TestServiceSecurityPolicyEnforcedWithDefaultExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := svc.Open(ctx, agentruntime.OpenRequest{Conversation: channel.ConversationRef{ID: "secure-command"}})
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{Conversation: channel.ConversationRef{ID: "secure-command"}})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"echo"},
 		Input: "hello",
 	}))
@@ -578,7 +578,7 @@ func TestServiceSecurityPolicyEnforcedWithDefaultExecutor(t *testing.T) {
 	}
 }
 
-func assertRunEvent(t *testing.T, run agentruntime.Run, kind agentruntime.EventKind) {
+func assertRunEvent(t *testing.T, run fluxplane.Run, kind fluxplane.EventKind) {
 	t.Helper()
 	deadline := time.After(time.Second)
 	for {
@@ -596,7 +596,7 @@ func assertRunEvent(t *testing.T, run agentruntime.Run, kind agentruntime.EventK
 	}
 }
 
-func newTestService(t *testing.T) *agentruntime.Service {
+func newTestService(t *testing.T) *fluxplane.Service {
 	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
@@ -620,7 +620,7 @@ func newTestService(t *testing.T) *agentruntime.Service {
 		t.Fatalf("register command: %v", err)
 	}
 
-	svc, err := agentruntime.New(agentruntime.Config{
+	svc, err := fluxplane.New(fluxplane.Config{
 		Agent:      echoAgent{},
 		Commands:   commands,
 		Operations: ops,
@@ -719,8 +719,8 @@ func (p resourceTestPlugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: p.name}
 }
 
-func (p resourceTestPlugin) Contributions(context.Context, pluginhost.Context) (agentruntime.ResourceBundle, error) {
-	return agentruntime.ResourceBundle{
+func (p resourceTestPlugin) Contributions(context.Context, pluginhost.Context) (fluxplane.ResourceBundle, error) {
+	return fluxplane.ResourceBundle{
 		Operations: []operation.Spec{{Ref: operation.Ref{Name: "run"}}},
 		Commands: []command.Spec{{
 			Path: command.Path{p.name, "run"},

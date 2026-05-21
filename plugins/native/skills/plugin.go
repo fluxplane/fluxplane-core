@@ -4,13 +4,13 @@ package skills
 import (
 	"context"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimeskill "github.com/fluxplane/engine/runtime/skill"
 )
 
 const (

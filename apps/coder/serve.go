@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/distribution/run"
-	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/engine/adapters/distribution/run"
+	distserve "github.com/fluxplane/engine/adapters/distribution/serve"
+	"github.com/fluxplane/engine/apps/launch"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 

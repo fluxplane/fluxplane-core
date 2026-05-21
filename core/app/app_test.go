@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/agent"
+	"github.com/fluxplane/engine/core/agent"
 )
 
 func TestSpecValidateAllowsEngineerManifestShape(t *testing.T) {

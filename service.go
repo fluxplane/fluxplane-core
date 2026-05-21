@@ -1,36 +1,36 @@
-// Package agentruntime provides the public in-process runtime facade.
-package agentruntime
+// Package fluxplane provides the public in-process engine facade.
+package fluxplane
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/adapters/channels/direct"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	corereaction "github.com/fluxplane/agentruntime/core/reaction"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
-	appcomposition "github.com/fluxplane/agentruntime/orchestration/app"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/harness"
-	"github.com/fluxplane/agentruntime/orchestration/identity"
-	"github.com/fluxplane/agentruntime/orchestration/resourcecatalog"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
-	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	"github.com/fluxplane/agentruntime/runtime/eventstore"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+	"github.com/fluxplane/engine/adapters/channels/direct"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	corereaction "github.com/fluxplane/engine/core/reaction"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
+	appcomposition "github.com/fluxplane/engine/orchestration/app"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/harness"
+	"github.com/fluxplane/engine/orchestration/identity"
+	"github.com/fluxplane/engine/orchestration/resourcecatalog"
+	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/orchestration/sessionagent"
+	"github.com/fluxplane/engine/orchestration/toolprojection"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
 type (
@@ -159,7 +159,7 @@ func New(cfg Config) (*Service, error) {
 		}
 		store, err := runtimethread.NewStore(eventStore)
 		if err != nil {
-			return nil, fmt.Errorf("agentruntime: create thread store: %w", err)
+			return nil, fmt.Errorf("fluxplane: create thread store: %w", err)
 		}
 		threadStore = store
 	}
@@ -402,7 +402,7 @@ type resolverStopEvaluator struct {
 
 func (e resolverStopEvaluator) EvaluateStopCondition(ctx context.Context, input session.StopEvaluationInput) (session.StopEvaluation, error) {
 	if e.resolver == nil {
-		return session.StopEvaluation{}, fmt.Errorf("agentruntime: stop evaluator model resolver is nil")
+		return session.StopEvaluation{}, fmt.Errorf("fluxplane: stop evaluator model resolver is nil")
 	}
 	model, err := e.resolver.ResolveModel(ctx, input.Agent)
 	if err != nil {
@@ -422,7 +422,7 @@ func (s *Service) Client() ChannelClient {
 // Open opens or creates a session through the default in-process channel.
 func (s *Service) Open(ctx context.Context, req OpenRequest) (Session, error) {
 	if s == nil || s.client == nil {
-		return nil, fmt.Errorf("agentruntime: service is nil")
+		return nil, fmt.Errorf("fluxplane: service is nil")
 	}
 	return s.client.Open(ctx, req)
 }
@@ -430,7 +430,7 @@ func (s *Service) Open(ctx context.Context, req OpenRequest) (Session, error) {
 // Resume resumes a known session/thread through the default in-process channel.
 func (s *Service) Resume(ctx context.Context, req ResumeRequest) (Session, error) {
 	if s == nil || s.client == nil {
-		return nil, fmt.Errorf("agentruntime: service is nil")
+		return nil, fmt.Errorf("fluxplane: service is nil")
 	}
 	return s.client.Resume(ctx, req)
 }
@@ -438,7 +438,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (Session, error
 // ListSessions lists sessions visible to the default in-process channel.
 func (s *Service) ListSessions(ctx context.Context, req ListSessionsRequest) ([]SessionSummary, error) {
 	if s == nil || s.client == nil {
-		return nil, fmt.Errorf("agentruntime: service is nil")
+		return nil, fmt.Errorf("fluxplane: service is nil")
 	}
 	return s.client.ListSessions(ctx, req)
 }

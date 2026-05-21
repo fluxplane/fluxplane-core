@@ -11,26 +11,26 @@ import (
 	"strings"
 	"time"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
-	controlhttp "github.com/fluxplane/agentruntime/adapters/control/http"
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	distserve "github.com/fluxplane/agentruntime/adapters/distribution/serve"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/core/user"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/channels/httpsse"
+	controlhttp "github.com/fluxplane/engine/adapters/control/http"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	distserve "github.com/fluxplane/engine/adapters/distribution/serve"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/core/user"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
 
-	"github.com/fluxplane/agentruntime/orchestration/channelruntime"
-	"github.com/fluxplane/agentruntime/orchestration/daemon"
-	orchestrationdistribution "github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/channelruntime"
+	"github.com/fluxplane/engine/orchestration/daemon"
+	orchestrationdistribution "github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 type Options struct {
@@ -48,7 +48,7 @@ type Options struct {
 	EffortSet          bool
 	EnvFiles           []string
 	HealthAddr         string
-	ToolProjection     agentruntime.ToolProjectionConfig
+	ToolProjection     fluxplane.ToolProjectionConfig
 	ModelResolver      agentfactory.ModelResolver
 }
 
@@ -71,7 +71,7 @@ type ServeDistributionOptions struct {
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection      agentruntime.ToolProjectionConfig
+	ToolProjection      fluxplane.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 }
@@ -229,7 +229,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 			}
 			ch, err := slack.NewChannel(slack.ChannelConfig{
 				Name:            doc.Name,
-				Session:         agentruntime.SessionRef{Name: agentruntime.SessionName(sessionName)},
+				Session:         fluxplane.SessionRef{Name: fluxplane.SessionName(sessionName)},
 				BotToken:        session.BotToken,
 				UserToken:       session.UserToken,
 				AppToken:        session.AppToken,
@@ -297,7 +297,7 @@ func userTrust(raw string) user.TrustLevel {
 	}
 }
 
-func startServeListeners(ctx context.Context, listeners []orchestrationdistribution.Listener, channels []orchestrationdistribution.Channel, client agentruntime.ChannelClient, host *daemon.Host, caller policy.Caller, trust policy.Trust) error {
+func startServeListeners(ctx context.Context, listeners []orchestrationdistribution.Listener, channels []orchestrationdistribution.Channel, client fluxplane.ChannelClient, host *daemon.Host, caller policy.Caller, trust policy.Trust) error {
 	needsDirect := map[string]bool{}
 	for _, ch := range channels {
 		if ch.Type == "direct" && ch.Listener != "" {

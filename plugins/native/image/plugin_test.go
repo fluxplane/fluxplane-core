@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/tool"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestPluginContributesImageOperationsAndActionToolSet(t *testing.T) {

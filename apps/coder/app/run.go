@@ -5,9 +5,9 @@ import (
 	"io"
 	"strings"
 
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +42,7 @@ type RunOptions struct {
 	Err                 io.Writer
 }
 
-// Run runs the selected agentruntime app facet with coder configuration
+// Run runs the selected Fluxplane app facet with coder configuration
 // defaults applied.
 func (a *App) Run(ctx context.Context, opts RunOptions) error {
 	if a == nil {

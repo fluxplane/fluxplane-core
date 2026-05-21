@@ -16,8 +16,8 @@ import (
 	connectorsdefinition "github.com/codewandler/connectors/definition"
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/spf13/cobra"
 )
 

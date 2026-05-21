@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/event"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/skill"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/event"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/skill"
 )
 
 // Name identifies an agent spec.

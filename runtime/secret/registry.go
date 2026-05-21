@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	coresecret "github.com/fluxplane/engine/core/secret"
 )
 
 // Registry is a mutable resolver chain shared across plugin contribution

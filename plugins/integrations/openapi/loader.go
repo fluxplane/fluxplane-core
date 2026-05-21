@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

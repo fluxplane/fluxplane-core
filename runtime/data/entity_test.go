@@ -3,7 +3,7 @@ package data
 import (
 	"testing"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredata "github.com/fluxplane/engine/core/data"
 )
 
 type testSourceEntity struct {

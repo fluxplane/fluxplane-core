@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/runtime/datasource/semantic"
 )
 
 // RegistryOptions configures datasource registry construction.

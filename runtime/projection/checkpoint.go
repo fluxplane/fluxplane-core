@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	coreprojection "github.com/fluxplane/agentruntime/core/projection"
+	coreprojection "github.com/fluxplane/engine/core/projection"
 )
 
 // CheckpointStore stores projector progress.

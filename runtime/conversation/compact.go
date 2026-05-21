@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
 )
 
 const (

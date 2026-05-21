@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resourceaddr"
-	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resourceaddr"
+	"github.com/fluxplane/engine/core/tool"
 )
 
 // ToolSpec is a provider-facing tool descriptor with enough metadata to map a

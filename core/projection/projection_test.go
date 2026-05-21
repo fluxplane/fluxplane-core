@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 func TestProjectorFuncNil(t *testing.T) {

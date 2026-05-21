@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/operation"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/operation"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ type ClientFactoryRequest struct {
 // ClientFactoryResult carries the local direct channel client and static
 // completion metadata resolved during launch.
 type ClientFactoryResult struct {
-	Client   agentruntime.ChannelClient
+	Client   fluxplane.ChannelClient
 	Cleanup  func()
 	Commands []command.Spec
 }

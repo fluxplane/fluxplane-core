@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 // intentOp is an Operation that also implements IntentProvider.

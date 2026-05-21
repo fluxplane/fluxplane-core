@@ -13,19 +13,19 @@ import (
 	"testing"
 	"time"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/session"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestClientSendsInputThroughHTTPAndSSE(t *testing.T) {
@@ -1096,12 +1096,12 @@ func testEventRegistry(t *testing.T) *coreevent.Registry {
 	return registry
 }
 
-func testRuntime(t *testing.T) *agentruntime.Service {
+func testRuntime(t *testing.T) *fluxplane.Service {
 	t.Helper()
 	return testRuntimeWithAgent(t, remoteEchoAgent{})
 }
 
-func testRuntimeWithAgent(t *testing.T, runtimeAgent agent.Agent) *agentruntime.Service {
+func testRuntimeWithAgent(t *testing.T, runtimeAgent agent.Agent) *fluxplane.Service {
 	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
@@ -1125,7 +1125,7 @@ func testRuntimeWithAgent(t *testing.T, runtimeAgent agent.Agent) *agentruntime.
 		t.Fatalf("register command: %v", err)
 	}
 
-	service, err := agentruntime.New(agentruntime.Config{
+	service, err := fluxplane.New(fluxplane.Config{
 		Agent:      runtimeAgent,
 		Commands:   commands,
 		Operations: ops,

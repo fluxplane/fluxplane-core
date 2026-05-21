@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/resource"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
-	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/resource"
+	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

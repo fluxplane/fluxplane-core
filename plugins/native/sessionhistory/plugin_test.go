@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/runtime/eventstore"
-	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+	"github.com/fluxplane/engine/core/channel"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coresession "github.com/fluxplane/engine/core/session"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/runtime/eventstore"
+	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
 func TestSearchSessionHistoryOperations(t *testing.T) {

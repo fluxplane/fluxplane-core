@@ -9,10 +9,10 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	datasqlstore "github.com/fluxplane/agentruntime/adapters/storage/data/sqlstore"
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
+	datasqlstore "github.com/fluxplane/engine/adapters/storage/data/sqlstore"
+	coredata "github.com/fluxplane/engine/core/data"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
 )
 
 const defaultDataStoreDSNEnv = "AGENTRUNTIME_DATASTORE_MYSQL_DSN"

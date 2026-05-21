@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	runtimeskill "github.com/fluxplane/engine/runtime/skill"
 )
 
 type datasourceProvider struct {

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/runtime/eventstore"
-	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/runtime/eventstore"
+	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
 func TestProjectFullReplayReturnsExactProviderItems(t *testing.T) {

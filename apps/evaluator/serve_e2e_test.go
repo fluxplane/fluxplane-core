@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/adapters/channels/httpsse"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/agent"
+	coreevent "github.com/fluxplane/engine/core/event"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestTargetSubmitOperationUsesLaunchServeUnixSocket(t *testing.T) {

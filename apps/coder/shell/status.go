@@ -9,11 +9,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	coreproject "github.com/fluxplane/agentruntime/core/project"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	projectruntime "github.com/fluxplane/agentruntime/runtime/project"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	coreproject "github.com/fluxplane/engine/core/project"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	projectruntime "github.com/fluxplane/engine/runtime/project"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 type shellStatus struct {

@@ -3,8 +3,8 @@ package taskexecutor
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	coretask "github.com/fluxplane/agentruntime/core/task"
+	"github.com/fluxplane/engine/core/event"
+	coretask "github.com/fluxplane/engine/core/task"
 )
 
 // ReadyNotifier receives task IDs that became ready through appended task

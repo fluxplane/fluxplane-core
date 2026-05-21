@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 func TestWithCallIDPreservesEventSink(t *testing.T) {

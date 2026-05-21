@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/core/operation"
+	fluxplane "github.com/fluxplane/engine"
+	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/core/operation"
 	"github.com/spf13/pflag"
 )
 
@@ -89,8 +89,8 @@ func (o LocalRuntimeFlags) ToolProjectionMaxRisk() operation.RiskLevel {
 	return risk
 }
 
-func ToolProjectionConfigFromRuntime(o LocalRuntimeFlags) agentruntime.ToolProjectionConfig {
-	return agentruntime.ToolProjectionConfig{MaxRisk: o.ToolProjectionMaxRisk()}
+func ToolProjectionConfigFromRuntime(o LocalRuntimeFlags) fluxplane.ToolProjectionConfig {
+	return fluxplane.ToolProjectionConfig{MaxRisk: o.ToolProjectionMaxRisk()}
 }
 
 // LaunchEnvironmentFlags captures local launch environment flags shared by app

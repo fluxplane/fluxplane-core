@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
 	"gopkg.in/yaml.v3"
 )
 

@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/httptransport"
+	"github.com/fluxplane/engine/runtime/httptransport"
 )
 
 const (

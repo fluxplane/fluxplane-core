@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreskill "github.com/fluxplane/engine/core/skill"
 )
 
 func TestActivationStateActivatesSkillsAndReferences(t *testing.T) {

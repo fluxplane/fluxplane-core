@@ -11,8 +11,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestInitialStatusDoesNotProbeWorkspaceBeforeFirstPaint(t *testing.T) {

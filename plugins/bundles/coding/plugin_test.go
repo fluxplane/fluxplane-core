@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/languages/golang"
-	"github.com/fluxplane/agentruntime/plugins/native/project"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/plugins/languages/golang"
+	"github.com/fluxplane/engine/plugins/native/project"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestContextProvidersAggregateCodingSummaries(t *testing.T) {

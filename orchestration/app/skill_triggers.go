@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	corereaction "github.com/fluxplane/agentruntime/core/reaction"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corereaction "github.com/fluxplane/engine/core/reaction"
+	"github.com/fluxplane/engine/core/resource"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
 )
 
 const (

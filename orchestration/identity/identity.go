@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/user"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/user"
 )
 
 // Request describes the evidence available when resolving an inbound actor.

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/resource"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/resource"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
 )
 
 const (

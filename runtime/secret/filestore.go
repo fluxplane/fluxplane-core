@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	coresecret "github.com/fluxplane/engine/core/secret"
 )
 
 const DefaultFileStorePath = "~/.agentruntime/auth"

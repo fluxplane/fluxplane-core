@@ -3,8 +3,8 @@ package operationruntime
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 // Executor executes operations with runtime validation, middleware, and

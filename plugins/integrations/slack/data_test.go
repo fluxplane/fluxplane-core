@@ -3,7 +3,7 @@ package slack
 import (
 	"testing"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredata "github.com/fluxplane/engine/core/data"
 )
 
 func TestDataSourceSpecDeclaresViews(t *testing.T) {

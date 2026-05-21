@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/user"
+	"github.com/fluxplane/engine/core/agent"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/policy"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/core/user"
 )
 
 // Name identifies an application manifest.

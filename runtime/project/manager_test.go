@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	coreproject "github.com/fluxplane/agentruntime/core/project"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	coreproject "github.com/fluxplane/engine/core/project"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestManagerDetectsProjectsWithMemoryAndHostWorkspaces(t *testing.T) {

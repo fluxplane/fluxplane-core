@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreusage "github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/operation"
+	coreusage "github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
 	"gopkg.in/yaml.v3"
 )
 

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/project"
-	"github.com/fluxplane/agentruntime/core/workflow"
-	"github.com/fluxplane/agentruntime/core/workspace"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/project"
+	"github.com/fluxplane/engine/core/workflow"
+	"github.com/fluxplane/engine/core/workspace"
 )
 
 // ID identifies one user-facing task.

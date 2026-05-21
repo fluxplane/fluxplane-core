@@ -13,14 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	coretask "github.com/fluxplane/agentruntime/core/task"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coresession "github.com/fluxplane/engine/core/session"
+	coretask "github.com/fluxplane/engine/core/task"
+	corethread "github.com/fluxplane/engine/core/thread"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimetask "github.com/fluxplane/engine/runtime/task"
 )
 
 const (

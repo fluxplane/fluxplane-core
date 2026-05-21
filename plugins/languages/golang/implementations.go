@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/language/golang"
-	"github.com/fluxplane/agentruntime/core/operation"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/language/golang"
+	"github.com/fluxplane/engine/core/operation"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const implementationResolutionWarning = "AST-only implementations: method matching is name-based and does not resolve aliases, embedded/promoted methods, generics, build tags, cgo, external packages, or type-checked assignability."

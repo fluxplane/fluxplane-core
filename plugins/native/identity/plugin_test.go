@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
+	corecontext "github.com/fluxplane/engine/core/context"
 )
 
 func TestCurrentProviderRendersResolvedUser(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
+	distdeploy "github.com/fluxplane/engine/adapters/distribution/deploy"
 	"github.com/spf13/cobra"
 )
 

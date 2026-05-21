@@ -75,7 +75,7 @@ Range replacement is useful when a paragraph or section needs to be rewritten as
 
 ```text
 Replace lines 21 through 25 with:
-  Fluxplane Agent Runtime provides durable building blocks for agent systems.
+  Fluxplane Engine provides durable building blocks for agent systems.
   Sessions can resume, events can replay, and tools run through a safety envelope.
 ```
 
@@ -97,8 +97,8 @@ Conceptually:
 
 ```text
 patch title:
-  # Fluxplane Agent Runtime
-  -> # Fluxplane Agent Runtime Guide
+  # Fluxplane Engine
+  -> # Fluxplane Engine Guide
 
 insert after line 15:
   <!-- badges end -->

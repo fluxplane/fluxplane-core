@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/policy"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/harness"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/policy"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/harness"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)

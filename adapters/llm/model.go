@@ -3,8 +3,8 @@ package llm
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/core/agent"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 // Response is the adapter-normalized final provider response before it is

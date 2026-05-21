@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestReplaceLargeResultIncludesPreviewMetadata(t *testing.T) {

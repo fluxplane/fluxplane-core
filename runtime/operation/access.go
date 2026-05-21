@@ -3,8 +3,8 @@ package operationruntime
 import (
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // AccessDescriptor describes one protected resource/action an operation will

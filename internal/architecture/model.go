@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const DefaultModulePath = "github.com/fluxplane/agentruntime"
+const DefaultModulePath = "github.com/fluxplane/engine"
 
 type Layer string
 

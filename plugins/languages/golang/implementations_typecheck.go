@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/language/golang"
-	runtimesystem "github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/language/golang"
+	runtimesystem "github.com/fluxplane/engine/runtime/system"
 	"golang.org/x/tools/go/packages"
 )
 

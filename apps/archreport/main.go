@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/fluxplane/agentruntime/internal/architecture"
+	"github.com/fluxplane/engine/internal/architecture"
 )
 
 func main() {

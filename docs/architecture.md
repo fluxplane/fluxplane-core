@@ -1,6 +1,6 @@
 # Architecture
 
-Fluxplane Agent Runtime is organized as a layered Go module. The layers keep
+Fluxplane Engine is organized as a layered Go module. The layers keep
 stable domain concepts separate from execution, use-case composition, IO
 adapters, optional plugins, and assembled products.
 

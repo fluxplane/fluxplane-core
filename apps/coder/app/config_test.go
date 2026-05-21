@@ -9,14 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/session"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corethread "github.com/fluxplane/engine/core/thread"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/session"
 )
 
 func TestResolveConfigDiscoversNearestCoderYAML(t *testing.T) {
@@ -317,7 +317,7 @@ workspace:
 				Distribution: distribution.Distribution{
 					Spec: coredistribution.Spec{
 						Name:           "sample",
-						DefaultSession: agentruntime.SessionRef{Name: "main"},
+						DefaultSession: fluxplane.SessionRef{Name: "main"},
 					},
 					Runtime: runtime,
 				},

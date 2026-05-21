@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/policy"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/engine/core/command"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
+	corethread "github.com/fluxplane/engine/core/thread"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
 )
 
 // Server exposes a ChannelClient through JSON endpoints and SSE event streams.

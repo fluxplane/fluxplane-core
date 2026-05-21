@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 type detectAccessor struct {

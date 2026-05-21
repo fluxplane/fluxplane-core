@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 var duckDuckGoSearchURLTemplate = "https://html.duckduckgo.com/html/?q={query}"

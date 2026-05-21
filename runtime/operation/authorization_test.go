@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 func TestAuthorizationGateDeniesMissingGrant(t *testing.T) {

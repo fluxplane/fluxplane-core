@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/runtime/system"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 func TestServiceUpdatesAndSearchesStructuredRecords(t *testing.T) {

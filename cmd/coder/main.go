@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	coderapp "github.com/fluxplane/agentruntime/apps/coder/app"
-	codercli "github.com/fluxplane/agentruntime/apps/coder/cli"
+	coderapp "github.com/fluxplane/engine/apps/coder/app"
+	codercli "github.com/fluxplane/engine/apps/coder/cli"
 )
 
 func main() {

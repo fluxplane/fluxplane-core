@@ -1,9 +1,9 @@
 package invocation
 
 import (
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/workflow"
 )
 
 // TargetKind classifies what an invocation points at.

@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/internal/atlassian"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/plugins/internal/atlassian"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestPluginIsNotConnectorProvider(t *testing.T) {

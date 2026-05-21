@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // NormalizeRecord applies runtime defaults and validates record/payload

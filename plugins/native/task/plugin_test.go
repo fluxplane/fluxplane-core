@@ -9,17 +9,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coretask "github.com/fluxplane/agentruntime/core/task"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
-	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
-	"github.com/fluxplane/agentruntime/runtime/eventstore"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
-	runtimethread "github.com/fluxplane/agentruntime/runtime/thread"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coretask "github.com/fluxplane/engine/core/task"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/sessionenv"
+	"github.com/fluxplane/engine/orchestration/taskexecutor"
+	"github.com/fluxplane/engine/runtime/eventstore"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimetask "github.com/fluxplane/engine/runtime/task"
+	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
 func TestContributionsIncludeTaskResources(t *testing.T) {

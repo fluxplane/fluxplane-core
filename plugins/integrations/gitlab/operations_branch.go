@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/operation"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

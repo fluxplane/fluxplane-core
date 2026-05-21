@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/usage"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/usage"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
 
 func TestFileReadReturnsRenderedTextAndUsage(t *testing.T) {

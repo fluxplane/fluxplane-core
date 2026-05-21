@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	coreworkspace "github.com/fluxplane/engine/core/workspace"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestManagerResolveSystemWorkspaceFallsBackToLocalRoot(t *testing.T) {

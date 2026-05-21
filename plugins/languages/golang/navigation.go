@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/language/golang"
-	"github.com/fluxplane/agentruntime/core/operation"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/language/golang"
+	"github.com/fluxplane/engine/core/operation"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const astResolutionWarning = "AST-only resolution: no type checking, external dependency resolution, build-tag/cgo semantics, interface dispatch, or function-value dispatch."

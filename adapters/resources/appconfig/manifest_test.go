@@ -8,14 +8,14 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/core/workflow"
-	appcompose "github.com/fluxplane/agentruntime/orchestration/app"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/invocation"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/core/workflow"
+	appcompose "github.com/fluxplane/engine/orchestration/app"
 )
 
 func TestLoadFSLoadsManifestFromFilesystem(t *testing.T) {

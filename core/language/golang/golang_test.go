@@ -3,7 +3,7 @@ package golang
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/language"
+	"github.com/fluxplane/engine/core/language"
 )
 
 func TestNavigationModels(t *testing.T) {

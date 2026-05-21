@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 type lokiClient struct {

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/event"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	"github.com/fluxplane/engine/core/event"
+	corethread "github.com/fluxplane/engine/core/thread"
 )
 
 // ProjectionInput describes transcript projection over a thread branch.

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/daemon"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/daemon"
 )
 
 // Server exposes a daemon host control API.

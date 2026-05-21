@@ -3,8 +3,8 @@ package openai
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
 
 const Name = "openai"

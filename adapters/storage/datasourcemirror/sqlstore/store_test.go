@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/runtime/datasource/mirror"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/runtime/datasource/mirror"
 	_ "github.com/go-sql-driver/mysql"
 	tc_mysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	_ "modernc.org/sqlite"

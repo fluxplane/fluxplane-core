@@ -9,41 +9,41 @@ import (
 	"sync"
 	"time"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/channels/httpsse"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreusage "github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/channels/httpsse"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/operation"
+	coreusage "github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
-// DirectChannelClient adapts the agentruntime direct channel API to ShellClient.
+// DirectChannelClient adapts the Fluxplane direct channel API to ShellClient.
 type DirectChannelClient struct {
-	client   agentruntime.ChannelClient
-	session  agentruntime.SessionRef
+	client   fluxplane.ChannelClient
+	session  fluxplane.SessionRef
 	prefix   string
 	commands []command.Spec
 	mu       sync.Mutex
-	handles  map[string]agentruntime.Session
+	handles  map[string]fluxplane.Session
 }
 
 // DirectChannelClientOptions configures a direct channel shell client.
 type DirectChannelClientOptions struct {
-	Client   agentruntime.ChannelClient
-	Session  agentruntime.SessionRef
+	Client   fluxplane.ChannelClient
+	Session  fluxplane.SessionRef
 	Prefix   string
 	Commands []command.Spec
 }
 
-// NewDirectChannelClient creates a ShellClient over an agentruntime direct channel client.
+// NewDirectChannelClient creates a ShellClient over an Fluxplane direct channel client.
 func NewDirectChannelClient(opts DirectChannelClientOptions) *DirectChannelClient {
 	if opts.Prefix == "" {
 		opts.Prefix = "direct"
 	}
-	return &DirectChannelClient{client: opts.Client, session: opts.Session, prefix: opts.Prefix, commands: append([]command.Spec(nil), opts.Commands...), handles: map[string]agentruntime.Session{}}
+	return &DirectChannelClient{client: opts.Client, session: opts.Session, prefix: opts.Prefix, commands: append([]command.Spec(nil), opts.Commands...), handles: map[string]fluxplane.Session{}}
 }
 
 func (c *DirectChannelClient) ConnectionDescription() string { return "direct-channel" }
@@ -52,7 +52,7 @@ func (c *DirectChannelClient) CreateSession(ctx context.Context, req CreateSessi
 	if c == nil || c.client == nil {
 		return SessionInfo{}, fmt.Errorf("direct channel client unavailable")
 	}
-	handle, err := c.client.Open(ctx, agentruntime.OpenRequest{
+	handle, err := c.client.Open(ctx, fluxplane.OpenRequest{
 		Session:      c.session,
 		Conversation: channel.ConversationRef{ID: fmt.Sprintf("shell-%d", time.Now().UnixNano())},
 		Metadata: map[string]string{
@@ -96,7 +96,7 @@ func (c *DirectChannelClient) SubmitCommand(ctx context.Context, sessionID strin
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -118,7 +118,7 @@ func (c *DirectChannelClient) SubmitCommandStream(ctx context.Context, sessionID
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithOperation(invocation.Operation, invocation.Input))
 	if err != nil {
 		return ShellRunStream{}, err
 	}
@@ -132,7 +132,7 @@ func (c *DirectChannelClient) SubmitAsk(ctx context.Context, sessionID string, r
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithText(text))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithText(text))
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -152,7 +152,7 @@ func (c *DirectChannelClient) SubmitAskStream(ctx context.Context, sessionID str
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithText(text))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithText(text))
 	if err != nil {
 		return ShellRunStream{}, err
 	}
@@ -168,7 +168,7 @@ func (c *DirectChannelClient) SubmitSlash(ctx context.Context, sessionID string,
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommandLine(line))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithCommandLine(line))
 	if err != nil {
 		return []TranscriptEvent{start}, err
 	}
@@ -186,18 +186,18 @@ func (c *DirectChannelClient) SubmitSlashStream(ctx context.Context, sessionID s
 	if err != nil {
 		return ShellRunStream{}, err
 	}
-	run, err := handle.Submit(ctx, agentruntime.NewSubmission().WithCommandLine(line))
+	run, err := handle.Submit(ctx, fluxplane.NewSubmission().WithCommandLine(line))
 	if err != nil {
 		return ShellRunStream{}, err
 	}
 	return c.streamRun(ctx, sessionID, run, EventCommandOutput, EventCommandComplete), nil
 }
 
-func (c *DirectChannelClient) streamRun(ctx context.Context, sessionID string, run agentruntime.Run, outputKind TranscriptKind, completeKind TranscriptKind) ShellRunStream {
+func (c *DirectChannelClient) streamRun(ctx context.Context, sessionID string, run fluxplane.Run, outputKind TranscriptKind, completeKind TranscriptKind) ShellRunStream {
 	return c.streamRunWithOptions(ctx, sessionID, run, outputKind, completeKind, transcriptResultOptions{})
 }
 
-func (c *DirectChannelClient) streamRunWithOptions(ctx context.Context, sessionID string, run agentruntime.Run, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) ShellRunStream {
+func (c *DirectChannelClient) streamRunWithOptions(ctx context.Context, sessionID string, run fluxplane.Run, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) ShellRunStream {
 	events := make(chan TranscriptEvent, 128)
 	done := make(chan ShellRunDone, 1)
 	go func() {
@@ -517,7 +517,7 @@ func compactValue(value any, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-func (c *DirectChannelClient) sessionHandle(sessionID string) (agentruntime.Session, error) {
+func (c *DirectChannelClient) sessionHandle(sessionID string) (fluxplane.Session, error) {
 	if c == nil {
 		return nil, fmt.Errorf("direct channel client unavailable")
 	}
@@ -530,7 +530,7 @@ func (c *DirectChannelClient) sessionHandle(sessionID string) (agentruntime.Sess
 	return handle, nil
 }
 
-func transcriptEventsForResult(sessionID string, result agentruntime.Result, outputKind TranscriptKind, completeKind TranscriptKind) []TranscriptEvent {
+func transcriptEventsForResult(sessionID string, result fluxplane.Result, outputKind TranscriptKind, completeKind TranscriptKind) []TranscriptEvent {
 	return transcriptEventsForResultWithOptions(sessionID, result, outputKind, completeKind, transcriptResultOptions{})
 }
 
@@ -550,7 +550,7 @@ func shellCommandTranscriptOptions() transcriptResultOptions {
 	}
 }
 
-func transcriptEventsForResultWithOptions(sessionID string, result agentruntime.Result, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) []TranscriptEvent {
+func transcriptEventsForResultWithOptions(sessionID string, result fluxplane.Result, outputKind TranscriptKind, completeKind TranscriptKind, opts transcriptResultOptions) []TranscriptEvent {
 	now := time.Now()
 	events := []TranscriptEvent{}
 	hasOutbound := false
@@ -653,17 +653,17 @@ func newRemoteDirectChannelClient(endpoint string) (ShellClient, error) {
 	}
 	return NewDirectChannelClient(DirectChannelClientOptions{
 		Client:  client,
-		Session: agentruntime.SessionRef{Name: defaultSessionName},
+		Session: fluxplane.SessionRef{Name: defaultSessionName},
 		Prefix:  "remote",
 	}), nil
 }
 
-func shellOperationInvocation(line string, cwd string) (agentruntime.OperationInvocation, error) {
+func shellOperationInvocation(line string, cwd string) (fluxplane.OperationInvocation, error) {
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return agentruntime.OperationInvocation{}, fmt.Errorf("shell command is empty")
+		return fluxplane.OperationInvocation{}, fmt.Errorf("shell command is empty")
 	}
-	return agentruntime.OperationInvocation{
+	return fluxplane.OperationInvocation{
 		Operation: operation.Ref{Name: "shell_exec"},
 		Input: map[string]any{
 			"command": line,

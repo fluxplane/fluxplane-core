@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/adapters/llm/openai"
+	"github.com/fluxplane/engine/adapters/llm/openai"
 )
 
 func TestMutateBodyDropsOpenAIOnlyFields(t *testing.T) {

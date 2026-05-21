@@ -1,6 +1,6 @@
 package usage
 
-import "github.com/fluxplane/agentruntime/core/event"
+import "github.com/fluxplane/engine/core/event"
 
 const (
 	// EventRecordedName is emitted when a runtime component observes resource

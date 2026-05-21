@@ -6,40 +6,40 @@ import (
 	"strings"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
-	embedaxon "github.com/fluxplane/agentruntime/adapters/embeddings/axon"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	coreagent "github.com/fluxplane/agentruntime/core/agent"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	"github.com/fluxplane/agentruntime/plugins/integrations/web"
-	"github.com/fluxplane/agentruntime/plugins/native/datasource"
-	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
-	"github.com/fluxplane/agentruntime/plugins/native/task"
-	"github.com/fluxplane/agentruntime/plugins/native/text"
-	"github.com/fluxplane/agentruntime/plugins/native/workspace"
-	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
-	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/distribution/localruntime"
+	embedaxon "github.com/fluxplane/engine/adapters/embeddings/axon"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	coreagent "github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	coresession "github.com/fluxplane/engine/core/session"
+	corethread "github.com/fluxplane/engine/core/thread"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/datasourceindex"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/eventregistry"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/plugins/bundles/coding"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	"github.com/fluxplane/engine/plugins/integrations/web"
+	"github.com/fluxplane/engine/plugins/native/datasource"
+	"github.com/fluxplane/engine/plugins/native/memory"
+	"github.com/fluxplane/engine/plugins/native/sessionhistory"
+	"github.com/fluxplane/engine/plugins/native/task"
+	"github.com/fluxplane/engine/plugins/native/text"
+	"github.com/fluxplane/engine/plugins/native/workspace"
+	"github.com/fluxplane/engine/plugins/support/eventcatalog"
+	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
@@ -71,7 +71,7 @@ func TestAttachLocalRuntimeConfiguresLocalOpener(t *testing.T) {
 }
 
 func TestMergeToolProjectionMaxRiskPreservesDefaults(t *testing.T) {
-	cfg := mergeToolProjectionMaxRisk(agentruntime.ToolProjectionConfig{}, operation.RiskHigh)
+	cfg := mergeToolProjectionMaxRisk(fluxplane.ToolProjectionConfig{}, operation.RiskHigh)
 	if cfg.MaxRisk != operation.RiskHigh {
 		t.Fatalf("max risk = %q, want high", cfg.MaxRisk)
 	}
@@ -81,7 +81,7 @@ func TestMergeToolProjectionMaxRiskPreservesDefaults(t *testing.T) {
 }
 
 func TestFirstToolProjectionTreatsOnlyMaxRiskAsDefaultCap(t *testing.T) {
-	cfg := firstToolProjection(agentruntime.ToolProjectionConfig{MaxRisk: operation.RiskMedium}, defaultToolProjection())
+	cfg := firstToolProjection(fluxplane.ToolProjectionConfig{MaxRisk: operation.RiskMedium}, defaultToolProjection())
 	if cfg.MaxRisk != operation.RiskMedium {
 		t.Fatalf("max risk = %q, want medium", cfg.MaxRisk)
 	}

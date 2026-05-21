@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	corelanguage "github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/language/golang"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/testrun"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corelanguage "github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/language/golang"
+	"github.com/fluxplane/engine/core/operation"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/core/testrun"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestGoOperationsWithMemoryAndHostWorkspaces(t *testing.T) {

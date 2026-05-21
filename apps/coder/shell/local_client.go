@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 // LocalClient provides local shell session bookkeeping for tests and embedders.

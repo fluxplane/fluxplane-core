@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	coresecret "github.com/fluxplane/engine/core/secret"
 )
 
 func TestFileStoreSavesAndResolvesPluginSecret(t *testing.T) {

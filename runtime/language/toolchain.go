@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	corelanguage "github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	corelanguage "github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const defaultProbeTimeout = 10 * time.Second

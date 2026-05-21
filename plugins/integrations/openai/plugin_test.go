@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
 
 func TestPluginContributesOpenAIConnectorProvider(t *testing.T) {

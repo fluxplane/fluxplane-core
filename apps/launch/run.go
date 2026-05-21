@@ -13,59 +13,59 @@ import (
 
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/adapters/system/browsercdp"
-	"github.com/fluxplane/agentruntime/adapters/ui/terminal"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
-	"github.com/fluxplane/agentruntime/orchestration/app"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/eventregistry"
-	orchestrationidentity "github.com/fluxplane/agentruntime/orchestration/identity"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/orchestration/taskexecutor"
-	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
-	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
-	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
-	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
-	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
-	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
-	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
-	"github.com/fluxplane/agentruntime/plugins/integrations/openai"
-	"github.com/fluxplane/agentruntime/plugins/integrations/openapi"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	"github.com/fluxplane/agentruntime/plugins/integrations/web"
-	"github.com/fluxplane/agentruntime/plugins/native/datasource"
-	"github.com/fluxplane/agentruntime/plugins/native/discovery"
-	"github.com/fluxplane/agentruntime/plugins/native/identity"
-	"github.com/fluxplane/agentruntime/plugins/native/image"
-	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	"github.com/fluxplane/agentruntime/plugins/native/sessionhistory"
-	"github.com/fluxplane/agentruntime/plugins/native/skills"
-	"github.com/fluxplane/agentruntime/plugins/native/task"
-	"github.com/fluxplane/agentruntime/plugins/native/text"
-	"github.com/fluxplane/agentruntime/plugins/native/workspace"
-	"github.com/fluxplane/agentruntime/plugins/support/connector"
-	"github.com/fluxplane/agentruntime/plugins/support/eventcatalog"
-	"github.com/fluxplane/agentruntime/runtime/authstatus"
-	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	runtimetask "github.com/fluxplane/agentruntime/runtime/task"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/distribution/localruntime"
+	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/adapters/system/browsercdp"
+	"github.com/fluxplane/engine/adapters/ui/terminal"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
+	"github.com/fluxplane/engine/orchestration/app"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/datasourceindex"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/eventregistry"
+	orchestrationidentity "github.com/fluxplane/engine/orchestration/identity"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/taskexecutor"
+	"github.com/fluxplane/engine/plugins/bundles/coding"
+	"github.com/fluxplane/engine/plugins/integrations/confluence"
+	"github.com/fluxplane/engine/plugins/integrations/gitlab"
+	"github.com/fluxplane/engine/plugins/integrations/jira"
+	"github.com/fluxplane/engine/plugins/integrations/kubernetes"
+	"github.com/fluxplane/engine/plugins/integrations/loki"
+	"github.com/fluxplane/engine/plugins/integrations/mysql"
+	"github.com/fluxplane/engine/plugins/integrations/openai"
+	"github.com/fluxplane/engine/plugins/integrations/openapi"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	"github.com/fluxplane/engine/plugins/integrations/web"
+	"github.com/fluxplane/engine/plugins/native/datasource"
+	"github.com/fluxplane/engine/plugins/native/discovery"
+	"github.com/fluxplane/engine/plugins/native/identity"
+	"github.com/fluxplane/engine/plugins/native/image"
+	"github.com/fluxplane/engine/plugins/native/memory"
+	"github.com/fluxplane/engine/plugins/native/sessionhistory"
+	"github.com/fluxplane/engine/plugins/native/skills"
+	"github.com/fluxplane/engine/plugins/native/task"
+	"github.com/fluxplane/engine/plugins/native/text"
+	"github.com/fluxplane/engine/plugins/native/workspace"
+	"github.com/fluxplane/engine/plugins/support/connector"
+	"github.com/fluxplane/engine/plugins/support/eventcatalog"
+	"github.com/fluxplane/engine/runtime/authstatus"
+	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
+	runtimetask "github.com/fluxplane/engine/runtime/task"
 )
 
 type LocalRuntimeConfig struct {
@@ -74,7 +74,7 @@ type LocalRuntimeConfig struct {
 	Bundles             []resource.ContributionBundle
 	Plugins             func(system.System) []pluginhost.Plugin
 	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection      agentruntime.ToolProjectionConfig
+	ToolProjection      fluxplane.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 	Launch              distribution.LaunchConfig
@@ -109,7 +109,7 @@ type RuntimeOptions struct {
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
 	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
-	ToolProjection      agentruntime.ToolProjectionConfig
+	ToolProjection      fluxplane.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 }
@@ -125,7 +125,7 @@ type PluginFactoryContext struct {
 // Runtime is the composed local runtime plus the resources needed by hosting
 // surfaces such as serve.
 type Runtime struct {
-	Service     agentruntime.ChannelClient
+	Service     fluxplane.ChannelClient
 	Composition app.Composition
 	System      system.System
 	Dispatcher  *slack.Dispatcher
@@ -203,7 +203,7 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 	if err != nil {
 		return nil, err
 	}
-	session, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
+	session, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
 		Session:      req.Session,
 		Conversation: req.Conversation,
 	})
@@ -455,7 +455,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	toolProjection := firstToolProjection(opts.ToolProjection, defaultToolProjection())
 	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv))
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
 		LLMModelResolver: firstModelResolver(opts.ModelResolver, distrun.ModelResolver{
@@ -501,8 +501,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}, nil
 }
 
-func defaultToolProjection() agentruntime.ToolProjectionConfig {
-	return agentruntime.ToolProjectionConfig{
+func defaultToolProjection() fluxplane.ToolProjectionConfig {
+	return fluxplane.ToolProjectionConfig{
 		AllowSideEffects:        true,
 		AllowApprovalRequired:   true,
 		IncludeBareOperations:   true,
@@ -536,7 +536,7 @@ func browserHeadless() bool {
 	}
 }
 
-func firstToolProjection(value, fallback agentruntime.ToolProjectionConfig) agentruntime.ToolProjectionConfig {
+func firstToolProjection(value, fallback fluxplane.ToolProjectionConfig) fluxplane.ToolProjectionConfig {
 	if value.AllowSideEffects ||
 		value.AllowApprovalRequired ||
 		value.IncludeBareOperations ||
@@ -579,7 +579,7 @@ func mergeNamedPluginInstances(base, extra map[string]map[string]bool) map[strin
 	return out
 }
 
-func mergeToolProjectionMaxRisk(cfg agentruntime.ToolProjectionConfig, risk operation.RiskLevel) agentruntime.ToolProjectionConfig {
+func mergeToolProjectionMaxRisk(cfg fluxplane.ToolProjectionConfig, risk operation.RiskLevel) fluxplane.ToolProjectionConfig {
 	if risk != "" {
 		cfg = firstToolProjection(cfg, defaultToolProjection())
 		cfg.MaxRisk = risk

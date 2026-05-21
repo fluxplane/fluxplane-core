@@ -3,8 +3,8 @@ package session
 import (
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/orchestration/sessioncontrol"
-	"github.com/fluxplane/agentruntime/orchestration/sessionenv"
+	"github.com/fluxplane/engine/orchestration/sessioncontrol"
+	"github.com/fluxplane/engine/orchestration/sessionenv"
 )
 
 // SessionBinding binds a configured session profile to its canonical resource

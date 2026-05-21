@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
+	coreendpoint "github.com/fluxplane/engine/core/endpoint"
 )
 
 func TestRegistryResolveFreshRecord(t *testing.T) {

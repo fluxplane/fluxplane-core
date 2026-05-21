@@ -6,21 +6,21 @@ import (
 	"strings"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreusage "github.com/fluxplane/agentruntime/core/usage"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/operation"
+	coreusage "github.com/fluxplane/engine/core/usage"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/session"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestDirectChannelClientCreatesSessionAndConnectionDescription(t *testing.T) {
-	service, err := agentruntime.New(agentruntime.Config{})
+	service, err := fluxplane.New(fluxplane.Config{})
 	if err != nil {
-		t.Fatalf("agentruntime.New() error = %v", err)
+		t.Fatalf("fluxplane.New() error = %v", err)
 	}
 	client := NewDirectChannelClient(DirectChannelClientOptions{Client: service})
 	if got := client.ConnectionDescription(); got != "direct-channel" {
@@ -38,9 +38,9 @@ func TestDirectChannelClientCreatesSessionAndConnectionDescription(t *testing.T)
 	}
 }
 func TestDirectChannelClientSubmitAskUsesChannelClient(t *testing.T) {
-	service, err := agentruntime.New(agentruntime.Config{Agent: echoAgent{}})
+	service, err := fluxplane.New(fluxplane.Config{Agent: echoAgent{}})
 	if err != nil {
-		t.Fatalf("agentruntime.New() error = %v", err)
+		t.Fatalf("fluxplane.New() error = %v", err)
 	}
 	client := NewDirectChannelClient(DirectChannelClientOptions{Client: service})
 	info, err := client.CreateSession(context.Background(), CreateSessionRequest{CWD: "/workspace"})
@@ -79,9 +79,9 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	service, err := agentruntime.New(agentruntime.Config{Operations: ops})
+	service, err := fluxplane.New(fluxplane.Config{Operations: ops})
 	if err != nil {
-		t.Fatalf("agentruntime.New() error = %v", err)
+		t.Fatalf("fluxplane.New() error = %v", err)
 	}
 	client := NewDirectChannelClient(DirectChannelClientOptions{Client: service})
 	info, err := client.CreateSession(context.Background(), CreateSessionRequest{CWD: "/workspace"})
@@ -107,7 +107,7 @@ func TestDirectChannelClientSubmitCommandUsesShellExecOperation(t *testing.T) {
 }
 
 func TestTranscriptEventsForResultUsesRenderedOutboundText(t *testing.T) {
-	events := transcriptEventsForResult("session-1", agentruntime.Result{
+	events := transcriptEventsForResult("session-1", fluxplane.Result{
 		Outbound: &channel.Outbound{Message: &channel.Message{Content: operation.Rendered{
 			Text: "Environment\n\nObservers\n  - runtime.baseline",
 			Data: map[string]any{"observers": []string{"runtime.baseline"}},
@@ -122,7 +122,7 @@ func TestTranscriptEventsForResultUsesRenderedOutboundText(t *testing.T) {
 }
 
 func TestTranscriptEventsForAskResultSuppressesSuccessfulCompletion(t *testing.T) {
-	events := transcriptEventsForResultWithOptions("session-1", agentruntime.Result{
+	events := transcriptEventsForResultWithOptions("session-1", fluxplane.Result{
 		Outbound: &channel.Outbound{Message: &channel.Message{Content: "Here are your available clusters:\n- prod\n- staging"}},
 		Input:    &session.InputResult{Status: session.InputStatusOK},
 	}, EventAskOutput, EventCommandComplete, transcriptResultOptions{suppressSuccessfulCompletion: true})
@@ -136,7 +136,7 @@ func TestTranscriptEventsForAskResultSuppressesSuccessfulCompletion(t *testing.T
 }
 
 func TestTranscriptEventsForAskResultKeepsErrors(t *testing.T) {
-	events := transcriptEventsForResultWithOptions("session-1", agentruntime.Result{
+	events := transcriptEventsForResultWithOptions("session-1", fluxplane.Result{
 		Input: &session.InputResult{
 			Status: session.InputStatusFailed,
 			Error:  &session.CommandError{Message: "ask failed"},

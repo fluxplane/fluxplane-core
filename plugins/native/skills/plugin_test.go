@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	runtimeskill "github.com/fluxplane/engine/runtime/skill"
 )
 
 func TestSkillOperationActivatesSkillAndReference(t *testing.T) {

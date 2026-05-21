@@ -1,7 +1,7 @@
-# Fluxplane Agent Runtime Agent Notes
+# Fluxplane Engine Agent Notes
 
 This file is for AI agents and developers working in
-`github.com/fluxplane/agentruntime`. It carries the operative rules only.
+`github.com/fluxplane/engine`. It carries the operative rules only.
 Background lives in:
 
 - [docs/architecture.md](docs/architecture.md): full layer model, package

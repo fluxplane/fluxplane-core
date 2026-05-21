@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/adapters/resources/resourceview"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
+	"github.com/fluxplane/engine/adapters/resources/resourceview"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
 )
 
 func TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin(t *testing.T) {

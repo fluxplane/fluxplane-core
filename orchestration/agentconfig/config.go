@@ -4,13 +4,13 @@ package agentconfig
 import (
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/command"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/core/tool"
 )
 
 // FilterTools returns the projected tools allowed by spec-level tool,

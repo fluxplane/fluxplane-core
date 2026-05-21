@@ -17,17 +17,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
-	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const (

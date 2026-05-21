@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/datasource"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/engine/core/command"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/core/datasource"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/engine/core/workflow"
 )
 
 // Mode controls when a matching rule should fire.

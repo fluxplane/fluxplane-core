@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/policy"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
+	"github.com/fluxplane/engine/core/policy"
+	coresecret "github.com/fluxplane/engine/core/secret"
 )
 
 func TestEnvResolverFindsEnvSecret(t *testing.T) {

@@ -3,8 +3,8 @@ package session
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestSpecValidateAllowsDelegationPolicy(t *testing.T) {

@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/command"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/command"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
 )
 
 func newRunPromptHandler(loader launch.Loader) distcli.PromptHandler {

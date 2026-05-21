@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
 )
 
 func ListenerHandler(listener appconfig.ListenerDoc, next http.Handler) (http.Handler, error) {

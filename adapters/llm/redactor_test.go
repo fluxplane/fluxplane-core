@@ -3,8 +3,8 @@ package llm
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/policy"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/core/policy"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestRedactorHidesThinkingByDefault(t *testing.T) {

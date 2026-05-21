@@ -3,9 +3,9 @@ package channel
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestInboundValidateMessage(t *testing.T) {

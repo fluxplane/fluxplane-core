@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
-	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
+	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
 )
 
 type DetectedEndpoint struct {

@@ -1,8 +1,8 @@
 package llm
 
 import (
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/tool"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/tool"
 )
 
 // StreamKind classifies provider-normalized stream deltas.

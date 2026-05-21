@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/operation"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestNamedInstanceOperationAddsInstanceOnlyForMultipleInstances(t *testing.T) {

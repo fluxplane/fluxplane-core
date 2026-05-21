@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	runtimedata "github.com/fluxplane/agentruntime/runtime/data"
-	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
+	"github.com/fluxplane/engine/runtime/datasource/semantic"
 )
 
 type memoryAccessor struct {

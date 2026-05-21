@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/language/golang"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/testrun"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/language/golang"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/testrun"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const defaultToolchainTimeout = 30 * time.Second

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/user"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/user"
 )
 
 // DirectoryResolver resolves inbound channel identities against app-declared

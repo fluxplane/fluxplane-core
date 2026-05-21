@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	runtimeskill "github.com/fluxplane/agentruntime/runtime/skill"
+	"github.com/fluxplane/engine/core/operation"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	runtimeskill "github.com/fluxplane/engine/runtime/skill"
 )
 
 type actionInput struct {

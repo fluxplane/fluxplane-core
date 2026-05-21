@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func doJSON(ctx context.Context, sys system.System, targetURL, authorization string, body any, maxBytes int) (system.HTTPResponse, error) {

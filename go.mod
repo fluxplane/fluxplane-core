@@ -1,4 +1,4 @@
-module github.com/fluxplane/agentruntime
+module github.com/fluxplane/engine
 
 go 1.26.1
 

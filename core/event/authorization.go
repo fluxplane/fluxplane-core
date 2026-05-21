@@ -3,7 +3,7 @@ package event
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 const EventAuthorizationDecisionName Name = "policy.authorization_decision"

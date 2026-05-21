@@ -11,14 +11,14 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/fluxplane/agentruntime/adapters/resources/resourceview"
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/engine/adapters/resources/resourceview"
+	"github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/orchestration/distribution"
 )
 
 var (

@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
+	"github.com/fluxplane/engine/core/event"
+	coreskill "github.com/fluxplane/engine/core/skill"
 )
 
 // Status describes how a skill is active in one session.

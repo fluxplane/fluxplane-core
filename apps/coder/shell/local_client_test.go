@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestLocalClientCreatesSeparateSessions(t *testing.T) {

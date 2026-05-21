@@ -3,7 +3,7 @@ package operation
 import (
 	"context"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 // Context is the execution context passed to an operation.

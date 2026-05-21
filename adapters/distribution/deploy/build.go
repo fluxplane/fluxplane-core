@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 )
 
 // AppBuildOptions configures app-local build artifact generation.

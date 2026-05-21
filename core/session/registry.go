@@ -3,7 +3,7 @@ package session
 import (
 	"fmt"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 // RegisterEvents registers session event payloads with registry.

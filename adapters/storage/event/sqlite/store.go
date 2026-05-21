@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/eventcodec"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/eventcodec"
+	"github.com/fluxplane/engine/core/policy"
 	_ "modernc.org/sqlite"
 )
 

@@ -5,10 +5,10 @@ import (
 	"context"
 	"strings"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/core/user"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/core/user"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
 
 const (

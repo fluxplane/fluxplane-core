@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/resources/agentdir"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
+	"github.com/fluxplane/engine/adapters/resources/agentdir"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
 )
 
 // Result is the set of resource bundles discovered from a local root.

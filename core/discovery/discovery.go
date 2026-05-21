@@ -1,6 +1,6 @@
 package discovery
 
-import "github.com/fluxplane/agentruntime/core/endpoint"
+import "github.com/fluxplane/engine/core/endpoint"
 
 // Request describes one endpoint discovery request.
 type Request struct {

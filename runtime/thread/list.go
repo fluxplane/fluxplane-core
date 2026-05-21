@@ -1,6 +1,6 @@
 package thread
 
-import corethread "github.com/fluxplane/agentruntime/core/thread"
+import corethread "github.com/fluxplane/engine/core/thread"
 
 func listFromReadIndex(index *ThreadIndex, params corethread.ListParams) corethread.Page {
 	entries := index.List(params)

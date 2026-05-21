@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/usage"
+	"github.com/fluxplane/engine/core/usage"
 )
 
 func TestProviderSpecValidateAcceptsModelCatalog(t *testing.T) {

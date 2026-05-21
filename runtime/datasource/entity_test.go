@@ -3,7 +3,7 @@ package datasource
 import (
 	"testing"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 )
 
 type testEntity struct {

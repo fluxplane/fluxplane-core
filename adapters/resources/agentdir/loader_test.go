@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/skill"
-	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/engine/core/workflow"
 )
 
 func TestLoadDirParsesEngineerSubset(t *testing.T) {

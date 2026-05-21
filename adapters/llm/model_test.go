@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestScriptedModelStreamsAndReturnsStructuredResponse(t *testing.T) {

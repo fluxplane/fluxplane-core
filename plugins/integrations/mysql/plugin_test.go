@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	coreevent "github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	coreendpoint "github.com/fluxplane/engine/core/endpoint"
+	coreevent "github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 func TestQueryAccessUsesResolvedEndpointAndSecretRef(t *testing.T) {

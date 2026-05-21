@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 func TestEncodeAttributesNil(t *testing.T) {

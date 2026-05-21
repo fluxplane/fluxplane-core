@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/orchestration/session"
 )
 
 // ShellClient is the session-scoped boundary used by the shell controller. Real

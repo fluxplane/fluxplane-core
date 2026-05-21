@@ -9,8 +9,8 @@ import (
 
 	"github.com/codewandler/connectors/connector"
 	"github.com/codewandler/connectors/credential"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
 
 func TestCommandHelpIsNativeCommand(t *testing.T) {

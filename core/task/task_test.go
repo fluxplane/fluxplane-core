@@ -3,9 +3,9 @@ package task
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/workflow"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/workflow"
 )
 
 func TestTaskValidateAcceptsPlanexecShapedTask(t *testing.T) {

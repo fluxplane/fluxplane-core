@@ -6,11 +6,11 @@ import (
 	"io"
 	"strings"
 
-	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 

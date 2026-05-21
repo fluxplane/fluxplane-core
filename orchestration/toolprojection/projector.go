@@ -6,14 +6,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/core/resourceaddr"
-	"github.com/fluxplane/agentruntime/core/tool"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/core/resourceaddr"
+	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/engine/orchestration/session"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 var invalidToolName = regexp.MustCompile(`[^A-Za-z0-9_]+`)

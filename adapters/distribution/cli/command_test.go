@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	sessionruntime "github.com/fluxplane/engine/orchestration/session"
 )
 
 func TestDescribeCommandRendersWithoutRuntime(t *testing.T) {

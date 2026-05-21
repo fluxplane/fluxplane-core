@@ -8,8 +8,8 @@ import (
 	osuser "os/user"
 	"time"
 
-	coreenvironment "github.com/fluxplane/agentruntime/core/environment"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
+	coreenvironment "github.com/fluxplane/engine/core/environment"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
 )
 
 const (

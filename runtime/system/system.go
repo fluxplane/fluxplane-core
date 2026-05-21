@@ -22,9 +22,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/pathpattern"
-	"github.com/fluxplane/agentruntime/runtime/httptransport"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/pathpattern"
+	"github.com/fluxplane/engine/runtime/httptransport"
 )
 
 // System groups the runtime boundaries that can touch the outside world.

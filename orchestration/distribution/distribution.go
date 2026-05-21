@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
 )
 
 // Distribution is a runnable package declaration plus its local runtime hook.

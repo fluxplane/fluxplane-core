@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/orchestration/datasourceindex"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/orchestration/datasourceindex"
 )
 
 func datasourceIndexPageLogArgs(event datasourceindex.ProgressEvent) []any {

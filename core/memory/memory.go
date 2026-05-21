@@ -3,9 +3,9 @@ package memory
 import (
 	"time"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/policy"
+	coredata "github.com/fluxplane/engine/core/data"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 const (

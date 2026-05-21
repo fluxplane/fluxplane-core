@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func lookupEnv(ctx context.Context, sys system.System, key string) (string, bool, error) {

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestPluginContributesObserverAndAssertionDeriver(t *testing.T) {

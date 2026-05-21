@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 const (

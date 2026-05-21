@@ -7,20 +7,20 @@ import (
 	"io"
 	"strings"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/core/workflow"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/session"
+	fluxplane "github.com/fluxplane/engine"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/core/workflow"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/session"
 	"github.com/spf13/cobra"
 )
 
@@ -287,7 +287,7 @@ func runCommandResource(ctx context.Context, loader launch.Loader, kind, name st
 		return err
 	}
 	defer func() { _ = sessionHandle.Close(ctx) }()
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(command.Invocation{
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{
 		Path:  command.Path{"coder", kind, "run"},
 		Input: input,
 	}))
@@ -320,7 +320,7 @@ func runAgentResource(ctx context.Context, loader launch.Loader, name string, op
 		return err
 	}
 	defer func() { _ = sessionHandle.Close(ctx) }()
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText(input))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText(input))
 	if err != nil {
 		return err
 	}

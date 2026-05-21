@@ -13,13 +13,13 @@ import (
 	"strings"
 	"sync/atomic"
 
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/tool"
-	"github.com/fluxplane/agentruntime/core/usage"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	"github.com/fluxplane/agentruntime/runtime/httptransport"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/engine/core/usage"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/runtime/httptransport"
 )
 
 const (

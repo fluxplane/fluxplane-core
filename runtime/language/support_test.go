@@ -3,8 +3,8 @@ package language
 import (
 	"testing"
 
-	corelanguage "github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/core/operation"
+	corelanguage "github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 func TestOperationSetsIncludesStaticAndToolchainSets(t *testing.T) {

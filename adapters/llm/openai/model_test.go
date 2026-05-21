@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/core/agent"
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/invocation"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/tool"
-	"github.com/fluxplane/agentruntime/core/usage"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/core/agent"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	"github.com/fluxplane/engine/core/invocation"
+	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/engine/core/usage"
 	"github.com/openai/openai-go/v3/responses"
 
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestResponseParamsUsesRequestModelAndTools(t *testing.T) {

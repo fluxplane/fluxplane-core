@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
 )
 
 func TestServeChannelsUsesNativeSlackInstance(t *testing.T) {

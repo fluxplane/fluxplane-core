@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	"github.com/fluxplane/agentruntime/core/event"
-	corememory "github.com/fluxplane/agentruntime/core/memory"
-	"github.com/fluxplane/agentruntime/core/policy"
+	coredata "github.com/fluxplane/engine/core/data"
+	"github.com/fluxplane/engine/core/event"
+	corememory "github.com/fluxplane/engine/core/memory"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 type Store struct {

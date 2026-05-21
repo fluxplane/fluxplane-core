@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	"github.com/fluxplane/agentruntime/core/usage"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	"github.com/fluxplane/engine/core/usage"
 )
 
 func TestHTTPUsageMiddlewareCountsRequestAndResponseBodies(t *testing.T) {

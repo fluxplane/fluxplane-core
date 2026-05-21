@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"gopkg.in/yaml.v3"
 )
 

@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coredata "github.com/fluxplane/engine/core/data"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const (

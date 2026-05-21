@@ -9,9 +9,9 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/core/command"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/core/command"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 const (
@@ -31,7 +31,7 @@ type Options struct {
 	// Out receives terminal output. When nil, Bubble Tea uses stdout.
 	Out io.Writer
 	// DirectClient can provide an already opened channel client for tests or embedders.
-	DirectClient agentruntime.ChannelClient
+	DirectClient fluxplane.ChannelClient
 	// CommandSpecs provide static command completion metadata for direct clients.
 	CommandSpecs []command.Spec
 	// Connect selects the shell endpoint. Empty uses the provided direct channel.
@@ -101,7 +101,7 @@ func run(ctx context.Context, opts Options) error {
 func newClient(sys system.System, opts Options) ShellClient {
 	if strings.TrimSpace(opts.Connect) == "" || strings.TrimSpace(opts.Connect) == "direct" {
 		if opts.DirectClient != nil {
-			return NewDirectChannelClient(DirectChannelClientOptions{Client: opts.DirectClient, Session: agentruntime.SessionRef{Name: defaultSessionName}, Commands: opts.CommandSpecs})
+			return NewDirectChannelClient(DirectChannelClientOptions{Client: opts.DirectClient, Session: fluxplane.SessionRef{Name: defaultSessionName}, Commands: opts.CommandSpecs})
 		}
 		client, err := newRemoteDirectChannelClient(defaultDirectEndpoint)
 		if err == nil {

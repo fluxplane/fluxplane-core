@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/core/user"
-	"github.com/fluxplane/agentruntime/core/workspace"
+	"github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/core/user"
+	"github.com/fluxplane/engine/core/workspace"
 )
 
 // SourceName identifies one data source instance.

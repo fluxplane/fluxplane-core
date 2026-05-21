@@ -9,16 +9,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/adapters/distribution/localruntime"
-	"github.com/fluxplane/agentruntime/adapters/resources/agentdir"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	coreapp "github.com/fluxplane/agentruntime/core/app"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresession "github.com/fluxplane/agentruntime/core/session"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	"github.com/fluxplane/engine/adapters/distribution/localruntime"
+	"github.com/fluxplane/engine/adapters/resources/agentdir"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/engine/orchestration/distribution"
 )
 
 // Load loads a local path into an ephemeral runnable distribution.

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
+	coreworkspace "github.com/fluxplane/engine/core/workspace"
 )
 
 // WarningCode classifies a non-fatal workspace resolution issue.

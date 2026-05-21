@@ -3,37 +3,37 @@ package coder
 import (
 	"context"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	"github.com/fluxplane/agentruntime/adapters/distribution/authconnect"
-	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
-	distremote "github.com/fluxplane/agentruntime/adapters/distribution/remote"
-	resourcediscovery "github.com/fluxplane/agentruntime/adapters/resources/discovery"
-	"github.com/fluxplane/agentruntime/apps/evaluator"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/core/channel"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
-	"github.com/fluxplane/agentruntime/plugins/integrations/aws"
-	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
-	"github.com/fluxplane/agentruntime/plugins/integrations/docker"
-	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
-	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
-	"github.com/fluxplane/agentruntime/plugins/integrations/kubernetes"
-	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
-	"github.com/fluxplane/agentruntime/plugins/integrations/mysql"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	"github.com/fluxplane/agentruntime/plugins/native/discovery"
-	"github.com/fluxplane/agentruntime/plugins/native/identity"
-	"github.com/fluxplane/agentruntime/plugins/native/image"
-	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	"github.com/fluxplane/agentruntime/plugins/native/skills"
-	"github.com/fluxplane/agentruntime/plugins/native/task"
-	"github.com/fluxplane/agentruntime/plugins/native/workspace"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	"github.com/fluxplane/engine/adapters/distribution/authconnect"
+	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
+	distremote "github.com/fluxplane/engine/adapters/distribution/remote"
+	resourcediscovery "github.com/fluxplane/engine/adapters/resources/discovery"
+	"github.com/fluxplane/engine/apps/evaluator"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/core/channel"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/plugins/bundles/coding"
+	"github.com/fluxplane/engine/plugins/integrations/aws"
+	"github.com/fluxplane/engine/plugins/integrations/confluence"
+	"github.com/fluxplane/engine/plugins/integrations/docker"
+	"github.com/fluxplane/engine/plugins/integrations/gitlab"
+	"github.com/fluxplane/engine/plugins/integrations/jira"
+	"github.com/fluxplane/engine/plugins/integrations/kubernetes"
+	"github.com/fluxplane/engine/plugins/integrations/loki"
+	"github.com/fluxplane/engine/plugins/integrations/mysql"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	"github.com/fluxplane/engine/plugins/native/discovery"
+	"github.com/fluxplane/engine/plugins/native/identity"
+	"github.com/fluxplane/engine/plugins/native/image"
+	"github.com/fluxplane/engine/plugins/native/memory"
+	"github.com/fluxplane/engine/plugins/native/skills"
+	"github.com/fluxplane/engine/plugins/native/task"
+	"github.com/fluxplane/engine/plugins/native/workspace"
+	"github.com/fluxplane/engine/runtime/system"
 	"github.com/spf13/cobra"
 )
 
@@ -114,7 +114,7 @@ func distributionFromStartup(startup startupResources) distribution.Distribution
 		Name:                AppName,
 		Title:               "Coder",
 		Description:         "Run coder in an interactive session",
-		DefaultSession:      agentruntime.SessionRef{Name: SessionName},
+		DefaultSession:      fluxplane.SessionRef{Name: SessionName},
 		DefaultConversation: channel.ConversationRef{ID: defaultConversation},
 		DefaultModel: coredistribution.ModelDefault{
 			Provider: "openai",
@@ -135,7 +135,7 @@ func distributionFromStartup(startup startupResources) distribution.Distribution
 	})
 	diagnostics = append(startup.Diagnostics, diagnostics...)
 	if len(diagnostics) > 0 {
-		describeBundles = append(describeBundles, agentruntime.ResourceBundle{Diagnostics: diagnostics})
+		describeBundles = append(describeBundles, fluxplane.ResourceBundle{Diagnostics: diagnostics})
 	}
 	return distribution.Distribution{
 		Spec:    spec,
@@ -172,8 +172,8 @@ func newDiscoverCommand(startup startupResources) *cobra.Command {
 }
 
 // ToolProjectionConfig returns coder's local tool projection policy.
-func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
-	return agentruntime.ToolProjectionConfig{
+func ToolProjectionConfig() fluxplane.ToolProjectionConfig {
+	return fluxplane.ToolProjectionConfig{
 		AllowSideEffects:        true,
 		AllowApprovalRequired:   true,
 		IncludeBareOperations:   true,
@@ -181,7 +181,7 @@ func ToolProjectionConfig() agentruntime.ToolProjectionConfig {
 	}
 }
 
-func mergeCoderToolProjection(cfg agentruntime.ToolProjectionConfig, maxRisk operation.RiskLevel) agentruntime.ToolProjectionConfig {
+func mergeCoderToolProjection(cfg fluxplane.ToolProjectionConfig, maxRisk operation.RiskLevel) fluxplane.ToolProjectionConfig {
 	if maxRisk != "" {
 		cfg.MaxRisk = maxRisk
 	}
@@ -244,7 +244,7 @@ func declaredPluginRefs(bundles []resource.ContributionBundle) []resource.Plugin
 }
 
 // BundleWithModel returns Bundle with a provider/model override applied.
-func BundleWithModel(provider, model string) agentruntime.ResourceBundle {
+func BundleWithModel(provider, model string) fluxplane.ResourceBundle {
 	bundle := Bundle()
 	if model == "" {
 		return bundle

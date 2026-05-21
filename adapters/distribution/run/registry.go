@@ -6,16 +6,16 @@ import (
 	"strings"
 
 	"github.com/codewandler/modeldb"
-	"github.com/fluxplane/agentruntime/adapters/llm/anthropic"
-	"github.com/fluxplane/agentruntime/adapters/llm/claudecode"
-	"github.com/fluxplane/agentruntime/adapters/llm/codex"
-	"github.com/fluxplane/agentruntime/adapters/llm/minimax"
-	"github.com/fluxplane/agentruntime/adapters/llm/modelcatalog"
-	"github.com/fluxplane/agentruntime/adapters/llm/openai"
-	"github.com/fluxplane/agentruntime/adapters/llm/openrouter"
-	"github.com/fluxplane/agentruntime/core/agent"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/adapters/llm/anthropic"
+	"github.com/fluxplane/engine/adapters/llm/claudecode"
+	"github.com/fluxplane/engine/adapters/llm/codex"
+	"github.com/fluxplane/engine/adapters/llm/minimax"
+	"github.com/fluxplane/engine/adapters/llm/modelcatalog"
+	"github.com/fluxplane/engine/adapters/llm/openai"
+	"github.com/fluxplane/engine/adapters/llm/openrouter"
+	"github.com/fluxplane/engine/core/agent"
+	corellm "github.com/fluxplane/engine/core/llm"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 var (

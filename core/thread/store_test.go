@@ -3,7 +3,7 @@ package thread
 import (
 	"testing"
 
-	"github.com/fluxplane/agentruntime/core/event"
+	"github.com/fluxplane/engine/core/event"
 )
 
 func TestSnapshotEventsForBranch(t *testing.T) {

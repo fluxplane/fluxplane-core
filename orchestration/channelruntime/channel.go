@@ -3,7 +3,7 @@ package channelruntime
 import (
 	"context"
 
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
 )
 
 // Channel is a long-running external interaction surface driven by a channel

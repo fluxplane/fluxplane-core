@@ -3,7 +3,7 @@
 `coder` is the bundled Fluxplane coding agent. It runs as a terminal REPL by
 default, supports one-shot prompts, streams assistant output, and exposes the
 runtime's coding, skill, and plan-execution plugins through the same safe
-operation layer used by agentruntime apps.
+operation layer used by Fluxplane apps.
 
 ## Getting Started
 
@@ -38,7 +38,7 @@ Top-level behavior and commands:
 - `op run <name>` runs an app-scoped operation explicitly.
 - `workflow run <id>` runs an app-scoped workflow explicitly.
 - `app init [path]` creates a minimal local app manifest.
-- `app run [path]` runs a local agentruntime app manifest.
+- `app run [path]` runs a local Fluxplane app manifest.
 - `app serve [path]` serves a local app daemon.
 - `app build [path]` generates app artifacts such as `bin/<name>`,
   `Dockerfile`, `docker-compose.yaml`, `.deploy/kubernetes.yaml`, and the
@@ -68,7 +68,7 @@ coder models --help
 ### Install
 
 ```bash
-go install github.com/fluxplane/agentruntime/cmd/coder@latest
+go install github.com/fluxplane/engine/cmd/coder@latest
 ```
 
 From a local checkout:
@@ -148,7 +148,7 @@ workspace:
 imports: {}
 ```
 
-Project inventory reports agentruntime app manifests, `.coder.yaml`, and AI
+Project inventory reports Fluxplane app manifests, `.coder.yaml`, and AI
 configuration files as inert facets. Detecting those files does not import app
 agents, skills, workflows, or operations into the running coder session.
 
@@ -156,7 +156,7 @@ Programmatic callers can construct the same configured product surface through
 `coderapp.New(coderapp.Config)` and call `Run` to execute an app facet with
 resolved `.coder.yaml` workspace defaults.
 
-Run or inspect an agentruntime app from the current directory:
+Run or inspect an Fluxplane app from the current directory:
 
 ```bash
 coder app run . --input "Hello"

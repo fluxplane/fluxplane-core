@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredata "github.com/fluxplane/engine/core/data"
 	_ "github.com/go-sql-driver/mysql"
 	tc_mysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	_ "modernc.org/sqlite"

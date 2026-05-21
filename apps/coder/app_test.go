@@ -12,46 +12,46 @@ import (
 	"strings"
 	"testing"
 
-	agentruntime "github.com/fluxplane/agentruntime"
-	distcli "github.com/fluxplane/agentruntime/adapters/distribution/cli"
-	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
-	"github.com/fluxplane/agentruntime/adapters/resources/appconfig"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	coreagent "github.com/fluxplane/agentruntime/core/agent"
-	"github.com/fluxplane/agentruntime/core/channel"
-	corecommand "github.com/fluxplane/agentruntime/core/command"
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coreconversation "github.com/fluxplane/agentruntime/core/conversation"
-	coredistribution "github.com/fluxplane/agentruntime/core/distribution"
-	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/policy"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	coreskill "github.com/fluxplane/agentruntime/core/skill"
-	corethread "github.com/fluxplane/agentruntime/core/thread"
-	"github.com/fluxplane/agentruntime/orchestration/agentfactory"
-	"github.com/fluxplane/agentruntime/orchestration/app"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
-	"github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/orchestration/toolprojection"
-	"github.com/fluxplane/agentruntime/plugins/bundles/coding"
-	"github.com/fluxplane/agentruntime/plugins/integrations/confluence"
-	"github.com/fluxplane/agentruntime/plugins/integrations/gitlab"
-	"github.com/fluxplane/agentruntime/plugins/integrations/jira"
-	"github.com/fluxplane/agentruntime/plugins/integrations/loki"
-	"github.com/fluxplane/agentruntime/plugins/integrations/slack"
-	"github.com/fluxplane/agentruntime/plugins/native/browser"
-	"github.com/fluxplane/agentruntime/plugins/native/discovery"
-	"github.com/fluxplane/agentruntime/plugins/native/image"
-	"github.com/fluxplane/agentruntime/plugins/native/memory"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
-	"github.com/fluxplane/agentruntime/runtime/authstatus"
-	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	fluxplane "github.com/fluxplane/engine"
+	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
+	distdeploy "github.com/fluxplane/engine/adapters/distribution/deploy"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	"github.com/fluxplane/engine/apps/launch"
+	coreagent "github.com/fluxplane/engine/core/agent"
+	"github.com/fluxplane/engine/core/channel"
+	corecommand "github.com/fluxplane/engine/core/command"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coredistribution "github.com/fluxplane/engine/core/distribution"
+	coreendpoint "github.com/fluxplane/engine/core/endpoint"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/engine/orchestration/agentfactory"
+	"github.com/fluxplane/engine/orchestration/app"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/orchestration/toolprojection"
+	"github.com/fluxplane/engine/plugins/bundles/coding"
+	"github.com/fluxplane/engine/plugins/integrations/confluence"
+	"github.com/fluxplane/engine/plugins/integrations/gitlab"
+	"github.com/fluxplane/engine/plugins/integrations/jira"
+	"github.com/fluxplane/engine/plugins/integrations/loki"
+	"github.com/fluxplane/engine/plugins/integrations/slack"
+	"github.com/fluxplane/engine/plugins/native/browser"
+	"github.com/fluxplane/engine/plugins/native/discovery"
+	"github.com/fluxplane/engine/plugins/native/image"
+	"github.com/fluxplane/engine/plugins/native/memory"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/runtime/authstatus"
+	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
@@ -336,7 +336,7 @@ func TestRunPromptHandlerRunsAppFacet(t *testing.T) {
 			Distribution: distribution.Distribution{
 				Spec: coredistribution.Spec{
 					Name:           "sample",
-					DefaultSession: agentruntime.SessionRef{Name: "main"},
+					DefaultSession: fluxplane.SessionRef{Name: "main"},
 				},
 				Runtime: runtime,
 			},
@@ -476,7 +476,7 @@ func TestAppRunForwardsWorkspaceRootFlags(t *testing.T) {
 				Distribution: distribution.Distribution{
 					Spec: coredistribution.Spec{
 						Name:           "sample",
-						DefaultSession: agentruntime.SessionRef{Name: "main"},
+						DefaultSession: fluxplane.SessionRef{Name: "main"},
 					},
 					Runtime: runtime,
 				},
@@ -1032,7 +1032,7 @@ Dex skill body.
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser},
@@ -1042,14 +1042,14 @@ Dex skill body.
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "claude-skill-state-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("load crm and dex skill"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("load crm and dex skill"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1110,13 +1110,13 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel: llmagent.StaticModel{Response: llmagent.MessageResponse("ok")},
 		Channel:  channel.Ref{Name: "local"},
 		Caller:   policy.Caller{Kind: policy.CallerUser},
@@ -1125,14 +1125,14 @@ func TestCompositionContextCommandRendersAgentsMD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "context-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithCommand(corecommand.Invocation{
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(corecommand.Invocation{
 		Path:  corecommand.Path{"context"},
 		Input: map[string]any{"fresh": true, "key": coding.AgentsContextProvider},
 	}))
@@ -1168,7 +1168,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{
+		Bundles: []fluxplane.ResourceBundle{
 			Bundle(),
 			{
 				Source: resource.SourceRef{ID: "test:skills", Scope: resource.ScopeProject, Location: "test/skills"},
@@ -1190,7 +1190,7 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser},
@@ -1200,14 +1200,14 @@ func TestCoderAutoActivatesTriggeredSkillAndReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "skill-trigger-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("please use smoke trigger and detail trigger now"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("please use smoke trigger and detail trigger now"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1243,7 +1243,7 @@ func TestToolProjectionIncludesTaskOperations(t *testing.T) {
 		t.Fatalf("NewHost: %v", err)
 	}
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
@@ -1315,13 +1315,13 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1331,14 +1331,14 @@ func TestCoderSessionProjectsCoreToolsToModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1386,7 +1386,7 @@ func TestCoderSessionActivatesIntegrationToolsFromAuthEvidence(t *testing.T) {
 		"JIRA_TOKEN":   "jira-token",
 	}}})
 	composition, err := app.Compose(app.Config{
-		Bundles:              []agentruntime.ResourceBundle{Bundle()},
+		Bundles:              []fluxplane.ResourceBundle{Bundle()},
 		Plugins:              localPlugins(sys),
 		EnvironmentObservers: []runtimeevidence.Observer{authObserver},
 		AssertionDerivers:    []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()},
@@ -1394,7 +1394,7 @@ func TestCoderSessionActivatesIntegrationToolsFromAuthEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1404,14 +1404,14 @@ func TestCoderSessionActivatesIntegrationToolsFromAuthEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "integration-auth-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1438,13 +1438,13 @@ func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1454,14 +1454,14 @@ func TestCoderSessionActivatesGoToolsFromProjectEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "go-evidence-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1484,7 +1484,7 @@ func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
@@ -1493,7 +1493,7 @@ func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
 	if _, err := composition.Endpoints.Put(runtimeendpoint.Record{Spec: coreendpoint.Spec{Name: "loki-dev", URL: "http://loki:3100", Product: loki.Name}}); err != nil {
 		t.Fatalf("put endpoint: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1503,14 +1503,14 @@ func TestCoderSessionActivatesLokiToolsFromEndpointEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "endpoint-evidence-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1534,13 +1534,13 @@ func TestCoderSessionActivatesBrowserToolsFromAvailability(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1550,14 +1550,14 @@ func TestCoderSessionActivatesBrowserToolsFromAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "browser-availability-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1580,13 +1580,13 @@ func TestCoderSessionDoesNotActivateBrowserToolsWithoutAvailability(t *testing.T
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1596,14 +1596,14 @@ func TestCoderSessionDoesNotActivateBrowserToolsWithoutAvailability(t *testing.T
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "browser-unavailable-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1626,13 +1626,13 @@ func TestCoderSessionActivatesImageToolsFromProviderAvailability(t *testing.T) {
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1642,14 +1642,14 @@ func TestCoderSessionActivatesImageToolsFromProviderAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "image-availability-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1673,13 +1673,13 @@ func TestCoderSessionDoesNotActivateImageUnderstandingWithoutProvider(t *testing
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1689,14 +1689,14 @@ func TestCoderSessionDoesNotActivateImageUnderstandingWithoutProvider(t *testing
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "image-understand-unconfigured-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1720,13 +1720,13 @@ func TestCoderSessionActivatesMemoryMutationToolsFromStorageAvailability(t *test
 		return llmagent.MessageResponse("ok"), nil
 	})
 	composition, err := app.Compose(app.Config{
-		Bundles: []agentruntime.ResourceBundle{Bundle()},
+		Bundles: []fluxplane.ResourceBundle{Bundle()},
 		Plugins: localPlugins(sys),
 	})
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	service, err := agentruntime.NewFromComposition(composition, agentruntime.Config{
+	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		LLMModel:       model,
 		Channel:        channel.Ref{Name: "local"},
 		Caller:         policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "local@test"}},
@@ -1736,14 +1736,14 @@ func TestCoderSessionActivatesMemoryMutationToolsFromStorageAvailability(t *test
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
 	}
-	sessionHandle, err := service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "memory-availability-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1776,14 +1776,14 @@ func TestCoderLaunchProjectsCoreToolsToModel(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
-	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "launch-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1834,14 +1834,14 @@ func TestCoderLaunchActivatesIntegrationToolsAndDatasourcesFromAuthPath(t *testi
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
-	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "launch-integration-auth-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1891,14 +1891,14 @@ func TestCoderLaunchActivatesIntegrationToolsAndDatasourcesFromProcessAuthEnv(t 
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
-	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "launch-integration-auth-env-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -1947,14 +1947,14 @@ func TestCoderLaunchDoesNotActivateIntegrationToolsFromProcessAuthEnvByDefault(t
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
-	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "launch-integration-auth-env-default-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
@@ -2006,14 +2006,14 @@ User skill body.
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
-	sessionHandle, err := runtime.Service.Open(ctx, agentruntime.OpenRequest{
-		Session:      agentruntime.SessionRef{Name: SessionName},
+	sessionHandle, err := runtime.Service.Open(ctx, fluxplane.OpenRequest{
+		Session:      fluxplane.SessionRef{Name: SessionName},
 		Conversation: channel.ConversationRef{ID: "startup-launch-tool-projection-test"},
 	})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	run, err := sessionHandle.Submit(ctx, agentruntime.NewSubmission().WithText("list tools"))
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithText("list tools"))
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}

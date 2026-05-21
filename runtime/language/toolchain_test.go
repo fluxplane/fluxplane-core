@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	corelanguage "github.com/fluxplane/agentruntime/core/language"
-	"github.com/fluxplane/agentruntime/runtime/system"
-	"github.com/fluxplane/agentruntime/runtime/systemtest"
+	corelanguage "github.com/fluxplane/engine/core/language"
+	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestResolveToolchainStatusUnavailableWithoutProcessManager(t *testing.T) {

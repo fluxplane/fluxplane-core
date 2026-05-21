@@ -1,6 +1,6 @@
 # Configuration
 
-Fluxplane Agent Runtime loads configuration from two filesystem-backed sources:
+Fluxplane Engine loads configuration from two filesystem-backed sources:
 appconfig manifests and `.agents` resource trees. Both decode into resource
 contribution bundles that the runtime composes into apps, sessions, agents,
 commands, workflows, operations, datasources, model providers, and plugin

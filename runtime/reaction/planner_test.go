@@ -3,9 +3,9 @@ package reaction
 import (
 	"testing"
 
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	corereaction "github.com/fluxplane/agentruntime/core/reaction"
-	"github.com/fluxplane/agentruntime/core/skill"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corereaction "github.com/fluxplane/engine/core/reaction"
+	"github.com/fluxplane/engine/core/skill"
 )
 
 func TestPlanFiresOnNewAssertion(t *testing.T) {

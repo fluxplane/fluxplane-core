@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	adapterllm "github.com/fluxplane/agentruntime/adapters/llm"
-	"github.com/fluxplane/agentruntime/core/operation"
+	adapterllm "github.com/fluxplane/engine/adapters/llm"
+	"github.com/fluxplane/engine/core/operation"
 )
 
 type messageRequest struct {

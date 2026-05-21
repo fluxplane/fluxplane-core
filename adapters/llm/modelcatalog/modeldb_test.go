@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/codewandler/modeldb"
-	corellm "github.com/fluxplane/agentruntime/core/llm"
+	corellm "github.com/fluxplane/engine/core/llm"
 )
 
 func TestSupportsAPI(t *testing.T) {

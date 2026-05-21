@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 // ProviderName identifies a context provider.
@@ -15,7 +15,7 @@ type ProviderName string
 
 // AnnotationAutoContext marks providers that should remain visible even when an
 // agent declares an explicit context-provider allowlist.
-const AnnotationAutoContext = "agentruntime.auto_context"
+const AnnotationAutoContext = "fluxplane.auto_context"
 
 // ProviderRef identifies a provider by name.
 type ProviderRef struct {

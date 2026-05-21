@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/event"
-	"github.com/fluxplane/agentruntime/core/policy"
+	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 type testEvent struct {

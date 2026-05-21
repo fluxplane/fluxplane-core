@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	coredata "github.com/fluxplane/agentruntime/core/data"
+	coredata "github.com/fluxplane/engine/core/data"
 )
 
 type Dialect string

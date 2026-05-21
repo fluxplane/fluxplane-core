@@ -8,8 +8,8 @@ import (
 	"io/fs"
 	"strings"
 
-	coreworkspace "github.com/fluxplane/agentruntime/core/workspace"
-	"github.com/fluxplane/agentruntime/runtime/system"
+	coreworkspace "github.com/fluxplane/engine/core/workspace"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 // DeclarationLoader loads workspace declarations from a runtime workspace.

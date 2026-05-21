@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/agentruntime/core/operation"
-	coretask "github.com/fluxplane/agentruntime/core/task"
-	clientapi "github.com/fluxplane/agentruntime/orchestration/client"
-	sessionruntime "github.com/fluxplane/agentruntime/orchestration/session"
-	"github.com/fluxplane/agentruntime/orchestration/sessionagent"
-	llmagent "github.com/fluxplane/agentruntime/runtime/agent/llmagent"
+	"github.com/fluxplane/engine/core/operation"
+	coretask "github.com/fluxplane/engine/core/task"
+	clientapi "github.com/fluxplane/engine/orchestration/client"
+	sessionruntime "github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/orchestration/sessionagent"
+	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 	"github.com/slack-go/slack"
 )
 

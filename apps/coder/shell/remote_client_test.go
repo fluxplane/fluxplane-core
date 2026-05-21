@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/agentruntime/runtime/system"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 func TestNewClientSelectsConnectEndpoints(t *testing.T) {

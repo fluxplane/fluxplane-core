@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/resource"
-	coresecret "github.com/fluxplane/agentruntime/core/secret"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/resource"
+	coresecret "github.com/fluxplane/engine/core/secret"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	runtimesecret "github.com/fluxplane/engine/runtime/secret"
 )
 
 func TestEvaluateUsesRequiredGroupSetupField(t *testing.T) {

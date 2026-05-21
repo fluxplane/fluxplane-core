@@ -33,7 +33,7 @@ func TestShellHeaderRendersUnifiedObservedFacts(t *testing.T) {
 		cwd:          "/workspace/agentruntime",
 		projectName:  "agentruntime",
 		projectKind:  "go",
-		goModule:     "github.com/fluxplane/agentruntime",
+		goModule:     "github.com/fluxplane/engine",
 		goVersion:    "go1.25.0",
 		locale:       "en_US.UTF-8",
 		user:         "dev/timo",

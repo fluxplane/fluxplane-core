@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	corecontext "github.com/fluxplane/agentruntime/core/context"
-	coredatasource "github.com/fluxplane/agentruntime/core/datasource"
-	"github.com/fluxplane/agentruntime/core/event"
-	corereaction "github.com/fluxplane/agentruntime/core/reaction"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	"github.com/fluxplane/engine/core/event"
+	corereaction "github.com/fluxplane/engine/core/reaction"
 )
 
 func TestApplyReactionActionsActivatesDatasourceAndOperationSet(t *testing.T) {

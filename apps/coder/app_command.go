@@ -6,12 +6,12 @@ import (
 	"io"
 	"strings"
 
-	distdeploy "github.com/fluxplane/agentruntime/adapters/distribution/deploy"
-	distdescribe "github.com/fluxplane/agentruntime/adapters/distribution/describe"
-	distlocal "github.com/fluxplane/agentruntime/adapters/distribution/local"
-	distrun "github.com/fluxplane/agentruntime/adapters/distribution/run"
-	"github.com/fluxplane/agentruntime/apps/launch"
-	"github.com/fluxplane/agentruntime/orchestration/distribution"
+	distdeploy "github.com/fluxplane/engine/adapters/distribution/deploy"
+	distdescribe "github.com/fluxplane/engine/adapters/distribution/describe"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +37,7 @@ func newAppCommandWithOptions(opts appCommandOptions) *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "app",
-		Short: "Run and manage local agentruntime apps",
+		Short: "Run and manage local Fluxplane apps",
 	}
 	runCommand := opts.runCommand
 	if runCommand == nil {

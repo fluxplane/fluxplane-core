@@ -1,10 +1,10 @@
 package image
 
 import (
-	"github.com/fluxplane/agentruntime/core/invocation"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/tool"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/tool"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 func generateSpec() operation.Spec {

@@ -6,15 +6,15 @@ import (
 	"strings"
 	"time"
 
-	coreendpoint "github.com/fluxplane/agentruntime/core/endpoint"
-	coreevidence "github.com/fluxplane/agentruntime/core/evidence"
-	"github.com/fluxplane/agentruntime/core/operation"
-	"github.com/fluxplane/agentruntime/core/resource"
-	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/agentruntime/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/agentruntime/runtime/endpoint"
-	runtimeevidence "github.com/fluxplane/agentruntime/runtime/evidence"
-	operationruntime "github.com/fluxplane/agentruntime/runtime/operation"
+	coreendpoint "github.com/fluxplane/engine/core/endpoint"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const (
