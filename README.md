@@ -1,7 +1,6 @@
-# Fluxplane Engine
 
 <p align="center">
-  <img src="docs/assets/fluxplane-logo.svg" alt="Fluxplane Engine logo" width="760">
+  <img src="assets/logo.png" alt="Fluxplane Engine logo" width="350">
 </p>
 
 <p align="center">
@@ -18,7 +17,7 @@
   <img src="https://img.shields.io/badge/status-pre--1.0-orange" alt="Status: pre-1.0">
 </p>
 
-<!-- TODO: add a terminal screenshot or asciinema cast of `coder` in action. -->
+---
 
 ## Why Fluxplane?
 

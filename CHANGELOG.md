@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Updated the README branding to use a centered transparent Fluxplane logo
+  asset.
 - Renamed the reusable Go module from `github.com/fluxplane/agentruntime` to
   `github.com/fluxplane/engine` and renamed the root facade package to
   `fluxplane`.
