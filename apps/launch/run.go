@@ -14,6 +14,7 @@ import (
 	"github.com/codewandler/connectors/integrate"
 	connectorsruntime "github.com/codewandler/connectors/runtime"
 	fluxplane "github.com/fluxplane/engine"
+	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	"github.com/fluxplane/engine/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/engine/adapters/distribution/run"
 	"github.com/fluxplane/engine/adapters/system/browsercdp"
@@ -713,6 +714,28 @@ func AuthPluginRegistry(context.Context) ([]pluginhost.Plugin, error) {
 		jira.New(hostSystem),
 		confluence.New(hostSystem),
 	}, nil
+}
+
+// ManifestAuthTargetRegistry returns auth targets declared by a local app
+// manifest scope.
+func ManifestAuthTargetRegistry(loader Loader) func(context.Context) ([]pluginhost.AuthTarget, error) {
+	if loader == nil {
+		loader = distlocal.Load
+	}
+	return func(ctx context.Context) ([]pluginhost.AuthTarget, error) {
+		loaded, err := loader(ctx, ".")
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(loaded.Manifest) == "" {
+			return nil, fmt.Errorf("auth: no app manifest found in %s", loaded.Root)
+		}
+		hostSystem, err := system.NewHost(system.Config{Root: loaded.Root, AllowPrivateNetwork: true})
+		if err != nil {
+			return nil, err
+		}
+		return pluginhost.ResolveAuthTargets(ctx, pluginRefs(loaded.Distribution.Bundles), availablePlugins(hostSystem, nil, nil, "", false))
+	}
 }
 
 func appendPluginIfMissing(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []pluginhost.Plugin {

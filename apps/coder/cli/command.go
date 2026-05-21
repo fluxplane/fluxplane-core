@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCommand resolves coder app configuration and returns the root coder CLI.
+// NewCommand resolves coder product configuration and returns the root coder CLI.
 func NewCommand(ctx context.Context, cfg coderapp.Config) (*cobra.Command, error) {
 	app, err := coderapp.New(ctx, cfg)
 	if err != nil {

@@ -1,4 +1,4 @@
-package coder
+package launch
 
 import (
 	"context"
@@ -17,7 +17,8 @@ type appHealthcheckOptions struct {
 	client  *http.Client
 }
 
-func newAppHealthcheckCommand() *cobra.Command {
+// NewAppHealthcheckCommand returns the app healthcheck command.
+func NewAppHealthcheckCommand() *cobra.Command {
 	var opts appHealthcheckOptions
 	cmd := &cobra.Command{
 		Use:   "healthcheck",

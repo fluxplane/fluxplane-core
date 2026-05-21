@@ -66,7 +66,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 	}
 	if strings.TrimSpace(opts.Session) == "" && loaded.Distribution.Spec.DefaultSession.Name == "" {
 		if loaded.Manifest == "" {
-			return fmt.Errorf("run: %s is not initialized; run \"coder app init %s\" to create a minimal local app manifest", loaded.Root, path)
+			return fmt.Errorf("run: %s is not initialized; run \"fluxplane init %s\" to create a minimal local app manifest", loaded.Root, path)
 		}
 		return fmt.Errorf("run: distribution %q has no default session", loaded.Distribution.Spec.Name)
 	}

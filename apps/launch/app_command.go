@@ -1,4 +1,4 @@
-package coder
+package launch
 
 import (
 	"context"
@@ -10,47 +10,50 @@ import (
 	distdescribe "github.com/fluxplane/engine/adapters/distribution/describe"
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	distrun "github.com/fluxplane/engine/adapters/distribution/run"
-	"github.com/fluxplane/engine/apps/launch"
 	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 
-type appCommandOptions struct {
-	runLoader    launch.Loader
-	runCommand   *cobra.Command
-	serveRunner  launch.ServeRunner
-	buildRunner  distdeploy.CommandRunner
-	configLoader launch.Loader
-	editorRunner launch.EditorRunner
+// AppCommandOptions configures reusable app lifecycle commands.
+type AppCommandOptions struct {
+	RunLoader    Loader
+	RunCommand   *cobra.Command
+	ServeRunner  ServeRunner
+	BuildRunner  distdeploy.CommandRunner
+	ConfigLoader Loader
+	EditorRunner EditorRunner
 }
 
-func newAppCommand() *cobra.Command {
-	return newAppCommandWithOptions(appCommandOptions{})
+// NewAppCommand returns the grouped app lifecycle command.
+func NewAppCommand() *cobra.Command {
+	return NewAppCommandWithOptions(AppCommandOptions{})
 }
 
-func newAppCommandWithOptions(opts appCommandOptions) *cobra.Command {
-	if opts.runLoader == nil {
-		opts.runLoader = distlocal.Load
+// NewAppCommandWithOptions returns the grouped app lifecycle command with
+// injectable runners/loaders for product assembly and tests.
+func NewAppCommandWithOptions(opts AppCommandOptions) *cobra.Command {
+	if opts.RunLoader == nil {
+		opts.RunLoader = distlocal.Load
 	}
-	if opts.configLoader == nil {
-		opts.configLoader = distlocal.Load
+	if opts.ConfigLoader == nil {
+		opts.ConfigLoader = distlocal.Load
 	}
 	cmd := &cobra.Command{
 		Use:   "app",
 		Short: "Run and manage local Fluxplane apps",
 	}
-	runCommand := opts.runCommand
+	runCommand := opts.RunCommand
 	if runCommand == nil {
-		runCommand = launch.NewRunCommandWithLoader(opts.runLoader)
+		runCommand = NewRunCommandWithLoader(opts.RunLoader)
 	}
-	cmd.AddCommand(launch.NewInitCommand())
+	cmd.AddCommand(NewInitCommand())
 	cmd.AddCommand(runCommand)
-	cmd.AddCommand(launch.NewServeCommandWithRunner(opts.serveRunner))
-	cmd.AddCommand(newAppBuildCommandWithRunner(opts.buildRunner))
-	cmd.AddCommand(newAppDeployCommand())
-	cmd.AddCommand(newAppUndeployCommand())
-	cmd.AddCommand(newAppConfigCommand(opts.configLoader, opts.editorRunner))
-	cmd.AddCommand(newAppHealthcheckCommand())
+	cmd.AddCommand(NewServeCommandWithRunner(opts.ServeRunner))
+	cmd.AddCommand(NewAppBuildCommandWithRunner(opts.BuildRunner))
+	cmd.AddCommand(NewAppDeployCommand())
+	cmd.AddCommand(NewAppUndeployCommand())
+	cmd.AddCommand(NewAppConfigCommand(opts.ConfigLoader, opts.EditorRunner))
+	cmd.AddCommand(NewAppHealthcheckCommand())
 	return cmd
 }
 
@@ -73,7 +76,14 @@ type appBuildOptions struct {
 	runner         distdeploy.CommandRunner
 }
 
-func newAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
+// NewAppBuildCommand returns the app build command.
+func NewAppBuildCommand() *cobra.Command {
+	return NewAppBuildCommandWithRunner(nil)
+}
+
+// NewAppBuildCommandWithRunner returns the app build command with an injectable
+// command runner.
+func NewAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
 	var opts appBuildOptions
 	opts.runner = runner
 	cmd := &cobra.Command{
@@ -153,11 +163,14 @@ type appDeployOptions struct {
 	runner          distdeploy.CommandRunner
 }
 
-func newAppDeployCommand() *cobra.Command {
-	return newAppDeployCommandWithRunner(nil)
+// NewAppDeployCommand returns the app deploy command.
+func NewAppDeployCommand() *cobra.Command {
+	return NewAppDeployCommandWithRunner(nil)
 }
 
-func newAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
+// NewAppDeployCommandWithRunner returns the app deploy command with an
+// injectable command runner.
+func NewAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
 	var opts appDeployOptions
 	opts.force = true
 	opts.runner = runner
@@ -249,11 +262,14 @@ type appUndeployOptions struct {
 	runner    distdeploy.CommandRunner
 }
 
-func newAppUndeployCommand() *cobra.Command {
-	return newAppUndeployCommandWithRunner(nil)
+// NewAppUndeployCommand returns the app undeploy command.
+func NewAppUndeployCommand() *cobra.Command {
+	return NewAppUndeployCommandWithRunner(nil)
 }
 
-func newAppUndeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
+// NewAppUndeployCommandWithRunner returns the app undeploy command with an
+// injectable command runner.
+func NewAppUndeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Command {
 	var opts appUndeployOptions
 	opts.runner = runner
 	cmd := &cobra.Command{
@@ -302,7 +318,8 @@ func runAppUndeploy(ctx context.Context, opts appUndeployOptions, appDir string,
 	return err
 }
 
-func newAppConfigCommand(loader launch.Loader, editor launch.EditorRunner) *cobra.Command {
+// NewAppConfigCommand returns the app config inspection command.
+func NewAppConfigCommand(loader Loader, editor EditorRunner) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Inspect local app configuration",
@@ -312,13 +329,25 @@ func newAppConfigCommand(loader launch.Loader, editor launch.EditorRunner) *cobr
 	return cmd
 }
 
-func newAppConfigShowCommand(loader launch.Loader) *cobra.Command {
+// NewAppDescribeCommand returns a top-level app description command.
+func NewAppDescribeCommand(loader Loader) *cobra.Command {
+	return newAppConfigShowCommandWithUse(loader, "describe [path]", "Describe the resolved local app configuration")
+}
+
+func newAppConfigShowCommand(loader Loader) *cobra.Command {
+	return newAppConfigShowCommandWithUse(loader, "show [path]", "Show the resolved local app configuration")
+}
+
+func newAppConfigShowCommandWithUse(loader Loader, use, short string) *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:   "show [path]",
-		Short: "Show the resolved local app configuration",
+		Use:   use,
+		Short: short,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if loader == nil {
+				loader = distlocal.Load
+			}
 			loaded, err := loader(cmd.Context(), optionalPath(args))
 			if err != nil {
 				return err
@@ -346,7 +375,7 @@ func newAppConfigShowCommand(loader launch.Loader) *cobra.Command {
 	return cmd
 }
 
-func newAppConfigEditCommand(loader launch.Loader, editor launch.EditorRunner) *cobra.Command {
+func newAppConfigEditCommand(loader Loader, editor EditorRunner) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit [path]",
 		Short: "Edit the local app manifest",
@@ -360,7 +389,7 @@ func newAppConfigEditCommand(loader launch.Loader, editor launch.EditorRunner) *
 				return fmt.Errorf("app config edit: no app manifest found in %s", loaded.Root)
 			}
 			if editor == nil {
-				editor = launch.OpenEditor
+				editor = OpenEditor
 			}
 			return editor(cmd.Context(), loaded.Manifest, cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},

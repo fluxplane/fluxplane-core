@@ -57,7 +57,7 @@ system: |
 Create this minimal shape with:
 
 ```bash
-coder app init .
+fluxplane init .
 ```
 
 ### App Document
@@ -72,7 +72,7 @@ Common fields are:
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
   directly in the app document.
-- `daemon` for listeners and channels used by `coder app serve` and
+- `daemon` for listeners and channels used by `fluxplane serve` and
   `coder remote`.
 - `runtime` for local runtime wiring; see [Runtime](#runtime).
 - `distribution` for runnable/deployable package metadata and Docker build
@@ -175,7 +175,7 @@ description: Declaration-only operation metadata.
 
 The top-level `runtime` section configures local runtime boundaries. These
 settings are launch-time wiring, not agent resources, and are consumed by
-`coder app run`, `coder app serve`, and generated deployments.
+`fluxplane run`, `fluxplane serve`, and generated deployments.
 
 Filesystem operations are secure by default: without extra configuration, they
 can only access the app workspace root. Additional workspace roots are opt-in
@@ -294,7 +294,7 @@ turns:
 - `new`: use clean evaluator context plus the same compact summary.
 
 Local CLI sessions can also enable continuation for one submission without
-changing agent configuration. `coder --goal "..."`, `coder app run . --goal
+changing agent configuration. `coder --goal "..."`, `fluxplane run . --goal
 "..."`, and `/goal --max 20 "..."` submit the built-in `/goal` command, which
 runs the goal text as the task and installs a prompt stop condition for that run
 only. The command stops when the evaluator decides the goal is complete,
@@ -314,7 +314,7 @@ description: Documentation support session.
 agent: support
 ```
 
-`coder app run . --session support` opens the named profile.
+`fluxplane run . --session support` opens the named profile.
 
 ### Plugins And Connectors
 
@@ -425,7 +425,7 @@ provider. Build the index with `coder datasource index build`; use
 `--phase fields` or `--phase semantic` to run only one indexing phase.
 `--force` and `--full` bypass freshness checks. Semantic documents are queued
 by build and embedded later with `coder datasource index embed` or the
-background embed worker started by `coder app serve`. `coder app serve` starts
+background embed worker started by `fluxplane serve`. `fluxplane serve` starts
 background warmup for indexed datasources with the configured concurrency and
 logs start, fresh-skip, page, complete, and failure progress per entity.
 
@@ -493,7 +493,7 @@ datasource:
 
 ### Daemon Channels
 
-The `daemon` block wires listeners to channels for `coder app serve`.
+The `daemon` block wires listeners to channels for `fluxplane serve`.
 
 ```yaml
 daemon:
@@ -572,10 +572,10 @@ Build with:
 
 ```bash
 coder build --target docker-base --tag fluxplane/coder-base:local
-coder app build . --image support-bot:local
-coder app deploy . --target docker-compose --image support-bot:local
-coder app deploy . --target kubernetes --namespace ai-bots --image support-bot:local
-coder app undeploy . --target kubernetes --namespace ai-bots
+fluxplane build . --image support-bot:local
+fluxplane deploy . --target docker-compose --image support-bot:local
+fluxplane deploy . --target kubernetes --namespace ai-bots --image support-bot:local
+fluxplane undeploy . --target kubernetes --namespace ai-bots
 ```
 
 For Kubernetes deploys, the default registry mode is `auto`: k3d contexts use
@@ -593,7 +593,7 @@ mounted there. Generated Kubernetes manifests are written to
 `.deploy/kubernetes.yaml`, and `.deploy/` is added to the app's `.gitignore`
 when the manifest is written.
 
-`coder app undeploy` deletes generated app resources and preserves persistent
+`fluxplane undeploy` deletes generated app resources and preserves persistent
 Docker volumes or Kubernetes PVCs by default. Add `--volumes` only when runtime
 backend state should be removed too.
 
@@ -778,8 +778,8 @@ turn.
 
 ## Choosing A Format
 
-- Use appconfig for anything runnable with `coder app run`, `coder app serve`, or
-  `coder app build`.
+- Use appconfig for anything runnable with `fluxplane run`, `fluxplane serve`, or
+  `fluxplane build`.
 - Use appconfig for daemon channels, connectors, datasources, and distribution
   metadata.
 - Use agentdir for portable authoring resources: markdown agents, prompt

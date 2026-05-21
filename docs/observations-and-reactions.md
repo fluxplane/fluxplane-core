@@ -1115,7 +1115,7 @@ Already present:
   `observations.signal_derivers`, and `reactions`, keeping the file format as a
   boundary DTO before converting into core environment and reaction specs.
 - coder local config is converted into a contribution bundle and passed into
-  normal coder launches and `coder app run`, so parsed `.coder.yaml` reaction
+  normal coder launches and `fluxplane run`, so parsed `.coder.yaml` reaction
   rules participate in session reaction planning.
 - `orchestration/session` already converts inbound channel messages,
   continuations, and operation effects into observations and passes them through

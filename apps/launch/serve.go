@@ -158,7 +158,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 	if opts.Debug {
-		_, _ = fmt.Fprintf(os.Stderr, "coder app serve loaded %s\n", opts.Root)
+		_, _ = fmt.Fprintf(os.Stderr, "fluxplane serve loaded %s\n", opts.Root)
 	}
 	if len(channels) == 0 {
 		<-runCtx.Done()
@@ -196,7 +196,7 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 			if strings.TrimSpace(initPath) == "" {
 				initPath = loaded.Root
 			}
-			return fmt.Errorf("serve: %s is not initialized; run \"coder app init %s\" to create a minimal local app manifest", loaded.Root, initPath)
+			return fmt.Errorf("serve: %s is not initialized; run \"fluxplane init %s\" to create a minimal local app manifest", loaded.Root, initPath)
 		}
 		return fmt.Errorf("serve: distribution %q has no daemon listeners or channels", loaded.Distribution.Spec.Name)
 	}

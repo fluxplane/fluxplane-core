@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed the reusable Go module from `github.com/fluxplane/agentruntime` to
   `github.com/fluxplane/engine` and renamed the root facade package to
   `fluxplane`.
+- Added the `fluxplane` app-manifest CLI and moved generic app lifecycle
+  commands out of `coder app`, while keeping coder-scoped auth, datasource, and
+  inspection commands on the coder product.
 - Added GitLab write operations for merge requests, repository files, branches,
   tags, commits, and project CI/CD variables, with GitLab named-plugin
   instances projected as a single logical tool that only exposes an `instance`

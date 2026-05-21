@@ -52,7 +52,7 @@ Examples:
 ```
 
 Workspace roots are lower-level runtime configuration, not a coder-only feature.
-`coder app run`, daemon apps, and deployed examples such as `examples/slack-bot`
+`fluxplane run`, daemon apps, and deployed examples such as `examples/slack-bot`
 should all be able to expose workspace context when they launch with local roots.
 The `workspace.summary` context provider renders basic root information so agents
 can see the current working boundary even when they do not use coder.

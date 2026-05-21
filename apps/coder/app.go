@@ -56,7 +56,6 @@ type CommandOptions struct {
 	EnvFiles       []string
 	Workspace      distribution.WorkspaceConfig
 	Bundles        []resource.ContributionBundle
-	AppRunCommand  *cobra.Command
 }
 
 // NewCommandWithOptions returns the CLI command for the coder distribution with
@@ -75,7 +74,6 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
 		TargetRegistry: coderAuthTargetRegistry(startup),
 	}))
-	cmd.AddCommand(newAppCommandWithOptions(appCommandOptions{runCommand: opts.AppRunCommand}))
 	cmd.AddCommand(newBuildCommand())
 	cmd.AddCommand(launch.NewDatasourceCommandWithOptions(launch.DatasourceCommandOptions{
 		PluginFactory: localPluginsWithAuth,

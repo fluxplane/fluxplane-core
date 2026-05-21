@@ -16,27 +16,29 @@ import (
 )
 
 type datasourceIndexOptions struct {
-	datasource     string
-	entity         string
-	full           bool
-	force          bool
-	dryRun         bool
-	limit          int
-	concurrency    int
-	freshness      string
-	phase          string
-	connectorsPath string
-	storePath      string
-	provider       string
-	model          string
-	dev            bool
-	allowAuthEnv   bool
-	pluginFactory  func(PluginFactoryContext) []pluginhost.Plugin
+	datasource      string
+	entity          string
+	full            bool
+	force           bool
+	dryRun          bool
+	limit           int
+	concurrency     int
+	freshness       string
+	phase           string
+	connectorsPath  string
+	storePath       string
+	provider        string
+	model           string
+	dev             bool
+	allowAuthEnv    bool
+	requireManifest bool
+	pluginFactory   func(PluginFactoryContext) []pluginhost.Plugin
 }
 
 // DatasourceCommandOptions configures the datasource management command.
 type DatasourceCommandOptions struct {
-	PluginFactory func(PluginFactoryContext) []pluginhost.Plugin
+	PluginFactory   func(PluginFactoryContext) []pluginhost.Plugin
+	RequireManifest bool
 }
 
 func NewDatasourceCommand() *cobra.Command {
@@ -65,7 +67,7 @@ func newDatasourceIndexCommand(commandOpts DatasourceCommandOptions) *cobra.Comm
 }
 
 func newDatasourceIndexBuildCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
-	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory, requireManifest: commandOpts.RequireManifest}
 	cmd := &cobra.Command{
 		Use:   "build [app-dir]",
 		Short: "Build or update the datasource index",
@@ -86,7 +88,7 @@ func newDatasourceIndexBuildCommand(commandOpts DatasourceCommandOptions) *cobra
 }
 
 func newDatasourceIndexEmbedCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
-	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory, requireManifest: commandOpts.RequireManifest}
 	cmd := &cobra.Command{
 		Use:   "embed [app-dir]",
 		Short: "Embed queued datasource semantic corpus",
@@ -101,7 +103,7 @@ func newDatasourceIndexEmbedCommand(commandOpts DatasourceCommandOptions) *cobra
 }
 
 func newDatasourceIndexStatusCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
-	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory, requireManifest: commandOpts.RequireManifest}
 	cmd := &cobra.Command{
 		Use:   "status [app-dir]",
 		Short: "Show datasource index status",
@@ -115,7 +117,7 @@ func newDatasourceIndexStatusCommand(commandOpts DatasourceCommandOptions) *cobr
 }
 
 func newDatasourceIndexClearCommand(commandOpts DatasourceCommandOptions) *cobra.Command {
-	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory}
+	opts := datasourceIndexOptions{pluginFactory: commandOpts.PluginFactory, requireManifest: commandOpts.RequireManifest}
 	cmd := &cobra.Command{
 		Use:   "clear [app-dir]",
 		Short: "Remove datasource index entries",
@@ -363,6 +365,9 @@ func datasourceIndexRuntime(ctx context.Context, opts datasourceIndexOptions, ap
 	loaded, err := distlocal.Load(ctx, appDir)
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
+	}
+	if opts.requireManifest && strings.TrimSpace(loaded.Manifest) == "" {
+		return DatasourceIndexRuntime{}, fmt.Errorf("datasource: no app manifest found in %s", loaded.Root)
 	}
 	return NewDatasourceIndexRuntime(ctx, DatasourceIndexOptions{
 		Root:               loaded.Root,

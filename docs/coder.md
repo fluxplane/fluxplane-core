@@ -37,33 +37,18 @@ Top-level behavior and commands:
 - `agent run <name>` runs an app-scoped agent explicitly.
 - `op run <name>` runs an app-scoped operation explicitly.
 - `workflow run <id>` runs an app-scoped workflow explicitly.
-- `app init [path]` creates a minimal local app manifest.
-- `app run [path]` runs a local Fluxplane app manifest.
-- `app serve [path]` serves a local app daemon.
-- `app build [path]` generates app artifacts such as `bin/<name>`,
-  `Dockerfile`, `docker-compose.yaml`, `.deploy/kubernetes.yaml`, and the
-  Docker image. Use `--target` to build a subset.
-- `app deploy --target docker-compose [path]` builds the coder base image,
-  generates app Docker/Compose artifacts, builds the app image, and runs
-  `docker compose up`.
-- `app deploy --target kubernetes [path]` builds the app image, generates plain
-  kubectl manifests, creates Kubernetes Secrets from configured root env files,
-  pushes the app image through the selected registry mode, and runs
-  `kubectl apply -f`.
-- `app undeploy --target docker-compose|kubernetes [path]` deletes generated
-  deployment resources while preserving Docker volumes and Kubernetes PVCs by
-  default. Pass `--volumes` to delete persistent storage.
-- `app config show [path]` shows resolved local app configuration.
-- `app config edit [path]` opens the resolved local app manifest.
 
 Use command help for current flags:
 
 ```bash
 coder --help
-coder app --help
 coder describe --help
 coder models --help
 ```
+
+Generic app-manifest workflows now live under the `fluxplane` CLI. Use
+`fluxplane run`, `fluxplane serve`, `fluxplane build`, `fluxplane deploy`,
+`fluxplane auth`, and `fluxplane datasource` for authored local apps.
 
 ### Install
 
@@ -156,24 +141,24 @@ Programmatic callers can construct the same configured product surface through
 `coderapp.New(coderapp.Config)` and call `Run` to execute an app facet with
 resolved `.coder.yaml` workspace defaults.
 
-Run or inspect an Fluxplane app from the current directory:
+Run or inspect a Fluxplane app from the current directory:
 
 ```bash
-coder app run . --input "Hello"
-coder app config show .
-coder app config edit .
-coder app init ./my-app
+fluxplane run . --input "Hello"
+fluxplane config show .
+fluxplane config edit .
+fluxplane init ./my-app
 ```
 
 Build and deploy an app with local Docker Compose:
 
 ```bash
 coder build --target docker-base --tag fluxplane/coder-base:local
-coder app build . --target dockerfile,docker-compose,docker-image --image my-app:local
-coder app deploy . --target docker-compose --image my-app:local
+fluxplane build . --target dockerfile,docker-compose,docker-image --image my-app:local
+fluxplane deploy . --target docker-compose --image my-app:local
 ```
 
-`coder app deploy --target docker-compose` builds the coder base image, generates
+`fluxplane deploy --target docker-compose` builds the coder base image, generates
 the app `Dockerfile` and `docker-compose.yaml`, builds the app image, and runs
 `docker compose up`. Runtime `data.Store` and `event.Store` backends declared in
 appconfig can cause generated Compose services such as MySQL and NATS JetStream
@@ -182,10 +167,10 @@ to be included.
 Build and deploy an app with Kubernetes manifests:
 
 ```bash
-coder app deploy . --target kubernetes --namespace ai-bots --image my-app:local
+fluxplane deploy . --target kubernetes --namespace ai-bots --image my-app:local
 ```
 
-`coder app deploy --target kubernetes` writes `.deploy/kubernetes.yaml`, ensures
+`fluxplane deploy --target kubernetes` writes `.deploy/kubernetes.yaml`, ensures
 `.deploy/` is ignored by the app's `.gitignore`, and applies the manifest with
 `kubectl`. The default registry mode is `auto`: local k3d contexts use
 `k3d image import`, while other Kubernetes contexts deploy a registry into the
@@ -205,8 +190,8 @@ Kubernetes deploy until those roots can be mounted with equivalent semantics.
 Undeploy generated resources without deleting persistent state:
 
 ```bash
-coder app undeploy . --target docker-compose
-coder app undeploy . --target kubernetes --namespace ai-bots
+fluxplane undeploy . --target docker-compose
+fluxplane undeploy . --target kubernetes --namespace ai-bots
 ```
 
 Add `--volumes` only when you want to delete generated Compose volumes or
@@ -268,7 +253,7 @@ distribution:
     model: smart_model
 ```
 
-`coder app build` and `coder app deploy` resolve generated app container
+`fluxplane build` and `fluxplane deploy` resolve generated app container
 provider/model/effort from explicit flags, then `distribution.deploy.model`,
 then `models.default`. If the resolved deployment provider is OpenRouter, the
 generated Compose app service passes `OPENROUTER_API_KEY` through as process

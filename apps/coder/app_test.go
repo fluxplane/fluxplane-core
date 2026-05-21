@@ -376,8 +376,17 @@ func TestRemoteCommandUsesCoderDefaults(t *testing.T) {
 	}
 }
 
+func TestCommandDoesNotExposeAppGroup(t *testing.T) {
+	cmd := NewCommand()
+	for _, child := range cmd.Commands() {
+		if child.Name() == "app" {
+			t.Fatalf("coder command unexpectedly exposes app command")
+		}
+	}
+}
+
 func TestAppCommandHasAppLifecycleActions(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -426,7 +435,7 @@ func TestDatasourceIndexBuildHasPluginAuthEnvFlag(t *testing.T) {
 
 func TestAppInitCreatesMinimalManifest(t *testing.T) {
 	dir := t.TempDir()
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -452,7 +461,7 @@ func TestAppInitCreatesMinimalManifest(t *testing.T) {
 }
 
 func TestAppRunHelpIncludesLaunchFlags(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -470,8 +479,8 @@ func TestAppRunHelpIncludesLaunchFlags(t *testing.T) {
 
 func TestAppRunForwardsWorkspaceRootFlags(t *testing.T) {
 	runtime := &fakeAppRunRuntime{}
-	cmd := newAppCommandWithOptions(appCommandOptions{
-		runLoader: func(context.Context, string) (distribution.Loaded, error) {
+	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
+		RunLoader: func(context.Context, string) (distribution.Loaded, error) {
 			return distribution.Loaded{
 				Distribution: distribution.Distribution{
 					Spec: coredistribution.Spec{
@@ -498,8 +507,8 @@ func TestAppRunForwardsWorkspaceRootFlags(t *testing.T) {
 
 func TestAppServeForwardsModelSelection(t *testing.T) {
 	var got launch.Options
-	cmd := newAppCommandWithOptions(appCommandOptions{
-		serveRunner: func(_ context.Context, opts launch.Options) error {
+	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
+		ServeRunner: func(_ context.Context, opts launch.Options) error {
 			got = opts
 			return nil
 		},
@@ -523,7 +532,7 @@ func TestAppHealthcheckCommandUsesStatusEndpoint(t *testing.T) {
 		_, _ = io.WriteString(w, `{"status":"ok"}`)
 	}))
 	defer server.Close()
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
@@ -611,7 +620,7 @@ func (r fakeAppRunHandle) Wait(context.Context) (clientapi.Result, error) {
 }
 
 func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -628,7 +637,7 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 }
 
 func TestAppBuildRejectsUnsupportedTarget(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"build", "--target", "nope", "."})
@@ -639,7 +648,7 @@ func TestAppBuildRejectsUnsupportedTarget(t *testing.T) {
 }
 
 func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -675,7 +684,7 @@ name: assistant
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return nil
 	})
-	cmd := newAppDeployCommandWithRunner(runner)
+	cmd := launch.NewAppDeployCommandWithRunner(runner)
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"--dry-run", dir})
@@ -688,7 +697,7 @@ name: assistant
 }
 
 func TestAppUndeployHelpIncludesTargets(t *testing.T) {
-	cmd := newAppCommand()
+	cmd := launch.NewAppCommand()
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
@@ -722,7 +731,7 @@ name: assistant
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return nil
 	})
-	cmd := newAppUndeployCommandWithRunner(runner)
+	cmd := launch.NewAppUndeployCommandWithRunner(runner)
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
@@ -740,7 +749,7 @@ name: assistant
 }
 
 func TestAppUndeployRejectsUnsupportedTarget(t *testing.T) {
-	cmd := newAppUndeployCommand()
+	cmd := launch.NewAppUndeployCommand()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"--target", "nope", "."})
@@ -752,8 +761,8 @@ func TestAppUndeployRejectsUnsupportedTarget(t *testing.T) {
 
 func TestAppConfigShowRendersLoadedDistribution(t *testing.T) {
 	root := t.TempDir()
-	cmd := newAppCommandWithOptions(appCommandOptions{
-		configLoader: func(_ context.Context, path string) (distribution.Loaded, error) {
+	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
+		ConfigLoader: func(_ context.Context, path string) (distribution.Loaded, error) {
 			if path != "." {
 				t.Fatalf("path = %q, want .", path)
 			}
@@ -786,8 +795,8 @@ func TestAppConfigShowRendersLoadedDistribution(t *testing.T) {
 
 func TestAppConfigShowRequiresManifest(t *testing.T) {
 	root := t.TempDir()
-	cmd := newAppCommandWithOptions(appCommandOptions{
-		configLoader: func(context.Context, string) (distribution.Loaded, error) {
+	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
+		ConfigLoader: func(context.Context, string) (distribution.Loaded, error) {
 			return distribution.Loaded{Root: root}, nil
 		},
 	})
@@ -804,11 +813,11 @@ func TestAppConfigEditOpensLoadedManifest(t *testing.T) {
 	root := t.TempDir()
 	manifest := filepath.Join(root, "agentsdk.app.yaml")
 	var edited string
-	cmd := newAppCommandWithOptions(appCommandOptions{
-		configLoader: func(context.Context, string) (distribution.Loaded, error) {
+	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
+		ConfigLoader: func(context.Context, string) (distribution.Loaded, error) {
 			return distribution.Loaded{Root: root, Manifest: manifest}, nil
 		},
-		editorRunner: func(_ context.Context, path string, _ io.Reader, _, _ io.Writer) error {
+		EditorRunner: func(_ context.Context, path string, _ io.Reader, _, _ io.Writer) error {
 			edited = path
 			return nil
 		},

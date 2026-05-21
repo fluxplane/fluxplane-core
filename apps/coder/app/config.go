@@ -32,7 +32,7 @@ const (
 	configNameYML  = ".coder.yml"
 )
 
-// Config describes programmatic coder app construction.
+// Config describes programmatic coder product construction.
 type Config struct {
 	Root            string
 	CoderConfigPath string
@@ -234,9 +234,8 @@ func (a *App) Command() *cobra.Command {
 		a = &App{}
 	}
 	cmd := coder.NewCommandWithOptions(coder.CommandOptions{
-		Workspace:     cloneWorkspaceConfig(a.config.Workspace),
-		Bundles:       coderConfigBundles(a.config),
-		AppRunCommand: a.newAppRunCommand(),
+		Workspace: cloneWorkspaceConfig(a.config.Workspace),
+		Bundles:   coderConfigBundles(a.config),
 	})
 	cmd.PersistentFlags().String("config", a.config.Path, "coder config file path")
 	cmd.AddCommand(a.newConfigCommand())
