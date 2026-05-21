@@ -21,9 +21,8 @@ fluxplane auth status
 fluxplane datasource index build .
 ```
 
-During the current split, Fluxplane still reads the existing
-`agentsdk.app.yaml` manifest name. The manifest rename to `fluxplane.yaml` is a
-separate follow-up slice.
+Fluxplane reads `fluxplane.yaml` as the app manifest name. The old
+`agentsdk.app.*` names are not loaded as compatibility aliases.
 
 Auth and datasource commands are scoped to the selected app manifest bundle.
 They do not manage coder's product bundle or `.coder.yaml` configuration.

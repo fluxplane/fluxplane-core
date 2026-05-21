@@ -133,7 +133,7 @@ distribution:
     one_shot: true
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - docs/**/*.md
     docker:
       image: sample-built
@@ -205,7 +205,7 @@ name: assistant
 
 func writeManifest(t *testing.T, dir, data string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "agentsdk.app.yaml"), []byte(data), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "fluxplane.yaml"), []byte(data), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }

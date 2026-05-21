@@ -17,7 +17,7 @@ name: sample
 distribution:
   name: sample
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -51,10 +51,10 @@ name: assistant
 		t.Fatalf("ReadFile Dockerfile: %v", err)
 	}
 	for _, want := range []string{
-		"FROM fluxplane/coder-base:local",
+		"FROM fluxplane/fluxplane-base:local",
 		"COPY . /app",
-		`CMD ["app","serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
-		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/coder","app","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
+		`CMD ["serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/fluxplane","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(string(dockerfile), want) {
 			t.Fatalf("Dockerfile missing %q:\n%s", want, dockerfile)
@@ -64,7 +64,7 @@ name: assistant
 	if err != nil {
 		t.Fatalf("ReadFile launcher: %v", err)
 	}
-	if !strings.Contains(string(launcher), "exec coder app run '"+app+"'") {
+	if !strings.Contains(string(launcher), "exec fluxplane run '"+app+"'") {
 		t.Fatalf("launcher = %s", launcher)
 	}
 	if _, err := os.Stat(filepath.Join(app, "docker-compose.yaml")); err != nil {
@@ -105,7 +105,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -130,13 +130,35 @@ name: assistant
 	}
 }
 
+func TestBuildAppDockerBaseBuildsFluxplaneBase(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+---
+kind: agent
+name: assistant
+`)
+	result, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:    app,
+		Targets:   []string{"docker-base"},
+		BaseImage: "example.com/fluxplane-base:test",
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatalf("BuildApp docker-base: %v", err)
+	}
+	if len(result.Command) == 0 || result.Command[0] != "docker" || !strings.Contains(strings.Join(result.Command, " "), "-t example.com/fluxplane-base:test") {
+		t.Fatalf("command = %#v", result.Command)
+	}
+}
+
 func TestBuildAppDoesNotOverwriteWithoutForce(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -165,7 +187,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]

@@ -113,7 +113,7 @@ turns:
 system: |
   You are a deterministic target fixture.
 `, socketPath)
-	if err := os.WriteFile(filepath.Join(appDir, "agentsdk.app.yaml"), []byte(manifest), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "fluxplane.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatalf("write fixture manifest: %v", err)
 	}
 }

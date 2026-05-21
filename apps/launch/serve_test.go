@@ -110,7 +110,7 @@ func TestValidateServeLaunchSuggestsInitForUninitializedPath(t *testing.T) {
 
 func TestValidateServeLaunchRequiresEntryPointForManifest(t *testing.T) {
 	err := validateServeLaunch(distribution.Loaded{
-		Manifest: "/repo/sample/agentsdk.app.yaml",
+		Manifest: "/repo/sample/fluxplane.yaml",
 		Distribution: distribution.Distribution{
 			Spec: coredistribution.Spec{Name: "sample"},
 		},

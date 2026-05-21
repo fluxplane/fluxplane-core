@@ -132,7 +132,7 @@ write_safe_target_app() {
   local work_repo=$2
   mkdir -p "$work_repo/.agents/commands"
   cp "$root/apps/coder/resources/.agents/commands/reflect.md" "$work_repo/.agents/commands/reflect.md"
-  cat >"$work_repo/agentsdk.app.yaml" <<'EOF'
+  cat >"$work_repo/fluxplane.yaml" <<'EOF'
 kind: app
 name: coder-self-improve-target
 description: Safe local target app for coder self-improvement runs.
@@ -249,7 +249,7 @@ run_coder_repl() {
     env_args+=("GOPRIVATE=$GOPRIVATE")
   fi
 
-  local -a cmd=(go run ./cmd/coder app run "$work_repo" --provider "$provider" --model "$model" --debug --usage)
+  local -a cmd=(go run ./cmd/fluxplane run "$work_repo" --provider "$provider" --model "$model" --debug --usage)
   if [[ "$yolo" == "true" ]]; then
     cmd+=(--yolo)
   fi

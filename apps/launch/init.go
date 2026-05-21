@@ -68,7 +68,7 @@ func Init(path string, opts InitOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	manifestPath := filepath.Join(dir, "agentsdk.app.yaml")
+	manifestPath := filepath.Join(dir, "fluxplane.yaml")
 	if existing != "" && !opts.Force {
 		return "", fmt.Errorf("init: manifest already exists at %s (use --force to overwrite)", existing)
 	}

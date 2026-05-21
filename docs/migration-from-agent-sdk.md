@@ -6,7 +6,7 @@ repository should move into `github.com/fluxplane/engine`.
 The rewrite is not a compatibility-preserving refactor. Prefer deleting stale
 paths and splitting mixed packages over carrying adapters for old package names.
 Current product CLI work lands in `cmd/coder` and `apps/coder`; the legacy
-`agentsdk` binary/package has been removed. The `agentsdk.app.yaml` manifest
+`agentsdk` binary/package has been removed. The `fluxplane.yaml` manifest
 filename remains until a separate manifest rename is planned.
 
 ## Target Layers
@@ -668,7 +668,7 @@ Implemented and green:
   operation and command projection.
 - `plugins/textplugin`: second migrated low-IO plugin, contributing
   configurable pure text transformation operations and commands.
-- `adapters/appconfig`: narrow `agentsdk.app.json`/YAML manifest parser for
+- `adapters/appconfig`: narrow `fluxplane.yaml` manifest parser for
   app specs, source declarations, discovery policy, model policy, plugin refs,
   and embedded or standalone command, workflow, and operation declarations.
 - `adapters/agentdir`: narrow `.agents` parser for the engineer subset:
@@ -939,7 +939,7 @@ The old `agentsdk dev` surface is the first meaningful parity target. Its
 resource surface is:
 
 ```text
-apps/engineer/resources/agentsdk.app.json
+apps/engineer/resources/fluxplane.yaml
 apps/engineer/resources/.agents/agents/main.md
 apps/engineer/resources/.agents/agents/analyst.md
 apps/engineer/resources/.agents/agents/implementer.md

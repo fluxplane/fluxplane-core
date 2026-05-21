@@ -38,11 +38,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultManifestName = "agentsdk.app.json"
+const DefaultManifestName = "fluxplane.yaml"
 
 var DefaultManifestNames = []string{
-	"agentsdk.app.json",
+	"fluxplane.yaml",
+}
+
+var DeprecatedManifestNames = []string{
 	"agentsdk.app.yaml",
+	"agentsdk.app.json",
 	"agentsdk.app.yml",
 }
 
@@ -104,6 +108,14 @@ func LoadDirFile(ctx context.Context, dir string) (File, error) {
 			return File{}, fmt.Errorf("appconfig: read manifest %s: %w", path, err)
 		}
 		missing = append(missing, name)
+	}
+	for _, name := range DeprecatedManifestNames {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return File{}, fmt.Errorf("appconfig: %s is no longer supported; rename it to %s", path, DefaultManifestName)
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return File{}, fmt.Errorf("appconfig: stat manifest %s: %w", path, err)
+		}
 	}
 	return File{}, fmt.Errorf("appconfig: no manifest found in %s (looked for %s)", filepath.Clean(dir), strings.Join(missing, ", "))
 }

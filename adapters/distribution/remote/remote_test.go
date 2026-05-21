@@ -70,7 +70,7 @@ agent: echo
 kind: agent
 name: echo
 `)
-	if err := os.WriteFile(filepath.Join(appDir, "agentsdk.app.yaml"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "fluxplane.yaml"), data, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -125,7 +125,7 @@ agent: echo
 kind: agent
 name: echo
 `)
-	if err := os.WriteFile(filepath.Join(appDir, "agentsdk.app.yaml"), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "fluxplane.yaml"), data, 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

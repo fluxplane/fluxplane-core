@@ -66,7 +66,7 @@ func TestRunPathUsesLoadedDistributionAndSubmitsInput(t *testing.T) {
 func TestRunPathRequiresDefaultOrExplicitSession(t *testing.T) {
 	loader := func(context.Context, string) (distribution.Loaded, error) {
 		return distribution.Loaded{
-			Manifest: "agentsdk.app.yaml",
+			Manifest: "fluxplane.yaml",
 			Distribution: distribution.Distribution{
 				Spec:    coredistribution.Spec{Name: "sample"},
 				Runtime: &fakeRunRuntime{},

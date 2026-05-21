@@ -35,7 +35,7 @@ func TestRenderTreeShowsMetadataAndAllStaticResourceKinds(t *testing.T) {
 		"Distribution:",
 		"name:                testdist",
 		"default model:       openai/gpt-test (coding)",
-		"build assets:        agentsdk.app.yaml, docs/**/*.md",
+		"build assets:        fluxplane.yaml, docs/**/*.md",
 		"docker:              image testdist; tags latest",
 		"Sources:",
 		"embedded/testdist",
@@ -204,7 +204,7 @@ func testDistribution() distribution.Distribution {
 			},
 			Surfaces: coredistribution.Surfaces{CLI: true, REPL: true, OneShot: true},
 			Build: coredistribution.BuildSpec{
-				Assets: []string{"agentsdk.app.yaml", "docs/**/*.md"},
+				Assets: []string{"fluxplane.yaml", "docs/**/*.md"},
 				Docker: &coredistribution.DockerBuildSpec{
 					Image: "testdist",
 					Tags:  []string{"latest"},

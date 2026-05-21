@@ -8,7 +8,7 @@ distribution:
   title: Agent Runtime
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - docs/**/*.md
       - README.md
       - AGENTS.md

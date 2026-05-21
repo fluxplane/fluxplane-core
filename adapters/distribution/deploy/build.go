@@ -156,6 +156,21 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			if err := maybeWriteKubernetesManifest(loaded.Root, kubernetesPath, content.Content, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
+		case "docker-base":
+			base, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
+				Tags:         []string{baseImage},
+				Platforms:    opts.Platforms,
+				Push:         opts.Push,
+				DryRun:       opts.DryRun,
+				Out:          out,
+				Err:          errOut,
+				Runner:       opts.Runner,
+				dockerClient: dockerClient,
+			})
+			if err != nil {
+				return AppBuildResult{}, err
+			}
+			result.Command = base.Command
 		case "docker-image":
 			command, err := dockerCommand(tags, cleanStrings(opts.Platforms), opts.Push)
 			if err != nil {

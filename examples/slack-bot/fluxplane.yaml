@@ -18,7 +18,7 @@ distribution:
     model: smart_model
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - README.md
       - knowledge/**/*
     docker:

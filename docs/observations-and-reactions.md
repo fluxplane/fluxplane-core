@@ -842,7 +842,7 @@ reactions:
           path: references/kubernetes-ai-bots.md
 ```
 
-If app-authored reactions become part of `agentsdk.app.yaml`, they should be
+If app-authored reactions become part of `fluxplane.yaml`, they should be
 declarative and inert, for example:
 
 ```yaml

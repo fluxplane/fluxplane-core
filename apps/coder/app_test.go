@@ -443,7 +443,7 @@ func TestAppInitCreatesMinimalManifest(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	manifestPath := filepath.Join(dir, "agentsdk.app.yaml")
+	manifestPath := filepath.Join(dir, "fluxplane.yaml")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -666,12 +666,12 @@ func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
 
 func TestAppDeployDefaultsToDockerCompose(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "agentsdk.app.yaml", `
+	writeFile(t, dir, "fluxplane.yaml", `
 kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -715,12 +715,12 @@ func TestAppUndeployHelpIncludesTargets(t *testing.T) {
 
 func TestAppUndeployDefaultsToDockerCompose(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "agentsdk.app.yaml", `
+	writeFile(t, dir, "fluxplane.yaml", `
 kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -768,7 +768,7 @@ func TestAppConfigShowRendersLoadedDistribution(t *testing.T) {
 			}
 			return distribution.Loaded{
 				Root:     root,
-				Manifest: filepath.Join(root, "agentsdk.app.yaml"),
+				Manifest: filepath.Join(root, "fluxplane.yaml"),
 				Distribution: distribution.Distribution{
 					Spec: coredistribution.Spec{
 						Name:        "sample",
@@ -811,7 +811,7 @@ func TestAppConfigShowRequiresManifest(t *testing.T) {
 
 func TestAppConfigEditOpensLoadedManifest(t *testing.T) {
 	root := t.TempDir()
-	manifest := filepath.Join(root, "agentsdk.app.yaml")
+	manifest := filepath.Join(root, "fluxplane.yaml")
 	var edited string
 	cmd := launch.NewAppCommandWithOptions(launch.AppCommandOptions{
 		ConfigLoader: func(context.Context, string) (distribution.Loaded, error) {

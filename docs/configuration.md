@@ -12,11 +12,9 @@ tree of authored agents, commands, workflows, and skills.
 ## Appconfig
 
 Appconfig is the primary format for local apps and daemon distributions. A
-project can define one of these files at its root:
+project defines this file at its root:
 
-- `agentsdk.app.json`
-- `agentsdk.app.yaml`
-- `agentsdk.app.yml`
+- `fluxplane.yaml`
 
 YAML is the usual choice because appconfig supports multi-document files. The
 first document is the app document. Additional documents can define agents,
@@ -561,7 +559,7 @@ distribution:
     model: smart_model
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - docs/**/*
     docker:
       image: support-bot
@@ -571,7 +569,7 @@ distribution:
 Build with:
 
 ```bash
-coder build --target docker-base --tag fluxplane/coder-base:local
+fluxplane build . --target docker-base --base-image fluxplane/fluxplane-base:local
 fluxplane build . --image support-bot:local
 fluxplane deploy . --target docker-compose --image support-bot:local
 fluxplane deploy . --target kubernetes --namespace ai-bots --image support-bot:local

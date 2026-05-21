@@ -304,9 +304,7 @@ func probeRoot(ctx context.Context, ws system.Workspace, builders map[string]*pr
 		{path: "makefile", add: addMakefile},
 		{path: "Dockerfile", add: addDockerfile},
 		{path: "docker-compose.yaml", add: addDockerCompose},
-		{path: "agentsdk.app.yaml", add: addAppManifest},
-		{path: "agentsdk.app.yml", add: addAppManifest},
-		{path: "agentsdk.app.json", add: addAppManifest},
+		{path: "fluxplane.yaml", add: addAppManifest},
 		{path: ".coder.yaml", add: addCoderConfig},
 		{path: ".coder.yml", add: addCoderConfig},
 	}
@@ -863,7 +861,7 @@ func cleanRel(raw string) string {
 
 func isAppManifestName(name string) bool {
 	switch name {
-	case "agentsdk.app.yaml", "agentsdk.app.yml", "agentsdk.app.json":
+	case "fluxplane.yaml":
 		return true
 	default:
 		return false

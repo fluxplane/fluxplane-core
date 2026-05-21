@@ -21,7 +21,7 @@ runtime:
       - .env.local
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -72,7 +72,7 @@ runtime:
       dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: support-bot
       tags: [local]
@@ -109,7 +109,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -143,7 +143,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -177,7 +177,7 @@ plugins:
         - monitoring
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -228,7 +228,7 @@ runtime:
         env_files: [.env.tmp]
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -252,7 +252,7 @@ runtime:
     env_files: [.env]
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -301,7 +301,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -332,7 +332,7 @@ name: assistant
 	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
 	joined := strings.Join(runner.calls, "\n")
 	for _, want := range []string{
-		"docker build -t fluxplane/coder-base:local ",
+		"docker build -t fluxplane/fluxplane-base:local ",
 		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
 		"kubectl apply -f ",
 		"kubectl rollout status deployment/coder-registry -n sample --timeout=120s",
@@ -374,7 +374,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -421,7 +421,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -466,7 +466,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: ai-agents/slack-bot
       tags: [latest]
@@ -516,7 +516,7 @@ runtime:
       kind: nats
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -566,7 +566,7 @@ runtime:
       kind: nats
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -607,7 +607,7 @@ runtime:
       kind: mysql
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent

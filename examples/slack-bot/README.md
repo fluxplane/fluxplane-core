@@ -7,7 +7,7 @@ coder auth connect --plugin slack --instance slack-bot --method token --field bo
 coder auth connect --plugin gitlab --instance gitlab
 coder auth connect --plugin jira --instance jira
 coder auth connect --plugin confluence --instance confluence
-coder app serve examples/slack-bot
+fluxplane serve examples/slack-bot
 ```
 
 In another terminal, connect to the local direct channel declared by the app:
@@ -38,7 +38,7 @@ tool in this example.
 
 Slack callers are resolved through Slack `users.info` when native Slack
 credentials are available. The Slack profile email becomes the canonical
-`core/user` ID. Add `identity` entries in `agentsdk.app.yaml` only for
+`core/user` ID. Add `identity` entries in `fluxplane.yaml` only for
 overlays such as special groups, trust, or pinned provider-ID mappings:
 
 ```yaml

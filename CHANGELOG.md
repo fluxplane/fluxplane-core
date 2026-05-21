@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the `fluxplane` app-manifest CLI and moved generic app lifecycle
   commands out of `coder app`, while keeping coder-scoped auth, datasource, and
   inspection commands on the coder product.
+- Renamed authored app manifests to `fluxplane.yaml`, made old
+  `agentsdk.app.*` names fail with an explicit rename diagnostic, and moved
+  generated app Docker/Compose/Kubernetes launchers to the Fluxplane CLI and
+  base image.
 - Added GitLab write operations for merge requests, repository files, branches,
   tags, commits, and project CI/CD variables, with GitLab named-plugin
   instances projected as a single logical tool that only exposes an `instance`
@@ -190,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discovery, labeled background processes, ensure/wait/stop operations, and
   process-management documentation.
 - Added an embedded coder skill with a reference guide for writing and
-  reviewing `agentsdk.app.yaml` app manifests.
+  reviewing `fluxplane.yaml` app manifests.
 
 - Added plugin-contributed post-edit checks so active plugins can run
   formatter or diagnostic operations immediately after matching file edits.
@@ -959,7 +963,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `agentsdk init [path]` creates a minimal secure local app manifest with a
   default no-tool agent, default session, and Unix-socket direct channel.
-- The repository root now includes a minimal local `agentsdk.app.yaml` manifest
+- The repository root now includes a minimal local `fluxplane.yaml` manifest
   for direct dogfooding.
 - The repository-local app manifest now enables a `local-docs` filesystem
   datasource with semantic search settings for markdown documentation.

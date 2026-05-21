@@ -16,7 +16,7 @@ import (
 func TestBundlesWithStaticPluginContributionsUsesNativeSlackAndDatasourcePlugin(t *testing.T) {
 	result := StaticPluginView(context.Background(), StaticPluginOptions{
 		Bundles: []resource.ContributionBundle{{
-			Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"},
+			Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "fluxplane.yaml"},
 			Datasources: []coredatasource.Spec{{
 				Name: "slack-bot",
 				Kind: "slack",

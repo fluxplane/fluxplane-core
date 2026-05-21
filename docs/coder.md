@@ -153,13 +153,13 @@ fluxplane init ./my-app
 Build and deploy an app with local Docker Compose:
 
 ```bash
-coder build --target docker-base --tag fluxplane/coder-base:local
+fluxplane build . --target docker-base --base-image fluxplane/fluxplane-base:local
 fluxplane build . --target dockerfile,docker-compose,docker-image --image my-app:local
 fluxplane deploy . --target docker-compose --image my-app:local
 ```
 
-`fluxplane deploy --target docker-compose` builds the coder base image, generates
-the app `Dockerfile` and `docker-compose.yaml`, builds the app image, and runs
+`fluxplane deploy --target docker-compose` builds the Fluxplane base image,
+generates the app `Dockerfile` and `docker-compose.yaml`, builds the app image, and runs
 `docker compose up`. Runtime `data.Store` and `event.Store` backends declared in
 appconfig can cause generated Compose services such as MySQL and NATS JetStream
 to be included.

@@ -258,7 +258,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
 
-	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
+	base, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
 		Tags:         []string{baseImage},
 		TempDir:      opts.TempDir,
 		DryRun:       opts.DryRun,

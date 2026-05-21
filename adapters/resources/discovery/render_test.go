@@ -37,7 +37,7 @@ func TestRenderJSONIncludesSharedBundleContributionOutput(t *testing.T) {
 	err := RenderJSON(&out, Result{
 		Root: "/repo",
 		Bundles: []resource.ContributionBundle{{
-			Source: resource.SourceRef{ID: "project", Scope: resource.ScopeProject, Location: "/repo/agentsdk.app.yaml"},
+			Source: resource.SourceRef{ID: "project", Scope: resource.ScopeProject, Location: "/repo/fluxplane.yaml"},
 			OperationSets: []operation.Set{{
 				Name: "ops",
 			}},

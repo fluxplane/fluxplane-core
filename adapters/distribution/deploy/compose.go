@@ -108,7 +108,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		runner = execRunner{}
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
-	base, err := BuildCoderBaseDocker(ctx, BaseImageOptions{
+	base, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
 		Tags:         []string{baseImage},
 		TempDir:      opts.TempDir,
 		DryRun:       opts.DryRun,

@@ -196,10 +196,10 @@ type DockerBuildResult struct {
 	DryRun     bool
 }
 
-// BaseImageOptions configures the reusable coder runtime image build.
+// BaseImageOptions configures a reusable CLI runtime image build.
 type BaseImageOptions struct {
 	RepoRoot     string
-	CoderPath    string
+	BinaryPath   string
 	TempDir      string
 	Tags         []string
 	Platforms    []string
@@ -212,7 +212,7 @@ type BaseImageOptions struct {
 	dockerClient DockerClient
 }
 
-// BaseImageResult describes the resolved coder base image build.
+// BaseImageResult describes the resolved CLI base image build.
 type BaseImageResult struct {
 	ContextDir string
 	Dockerfile string
@@ -312,11 +312,45 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 	return result, nil
 }
 
+type baseImageRuntime struct {
+	name        string
+	defaultTag  string
+	binaryName  string
+	sourcePkg   string
+	tempPattern string
+}
+
+var (
+	coderBaseRuntime = baseImageRuntime{
+		name:        "coder",
+		defaultTag:  defaultCoderBaseImage,
+		binaryName:  "coder",
+		sourcePkg:   "./cmd/coder",
+		tempPattern: "coder-base-docker-build-*",
+	}
+	fluxplaneBaseRuntime = baseImageRuntime{
+		name:        "fluxplane",
+		defaultTag:  defaultBaseImage,
+		binaryName:  "fluxplane",
+		sourcePkg:   "./cmd/fluxplane",
+		tempPattern: "fluxplane-base-docker-build-*",
+	}
+)
+
 // BuildCoderBaseDocker builds the reusable Docker base image containing coder.
 func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImageResult, error) {
+	return buildRuntimeBaseDocker(ctx, opts, coderBaseRuntime)
+}
+
+// BuildFluxplaneBaseDocker builds the reusable Docker base image containing fluxplane.
+func BuildFluxplaneBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImageResult, error) {
+	return buildRuntimeBaseDocker(ctx, opts, fluxplaneBaseRuntime)
+}
+
+func buildRuntimeBaseDocker(ctx context.Context, opts BaseImageOptions, runtime baseImageRuntime) (BaseImageResult, error) {
 	tags := cleanStrings(opts.Tags)
 	if len(tags) == 0 {
-		tags = []string{defaultBaseImage}
+		tags = []string{runtime.defaultTag}
 	}
 	platforms := cleanStrings(opts.Platforms)
 	command, err := dockerCommand(tags, platforms, opts.Push)
@@ -332,7 +366,7 @@ func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImage
 		errOut = io.Discard
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
-	tempDir, err := os.MkdirTemp(opts.TempDir, "coder-base-docker-build-*")
+	tempDir, err := os.MkdirTemp(opts.TempDir, runtime.tempPattern)
 	if err != nil {
 		return BaseImageResult{}, fmt.Errorf("distribution build: create base image context: %w", err)
 	}
@@ -342,7 +376,7 @@ func BuildCoderBaseDocker(ctx context.Context, opts BaseImageOptions) (BaseImage
 			_ = os.RemoveAll(tempDir)
 		}
 	}()
-	if err := prepareBaseImageContext(ctx, tempDir, opts); err != nil {
+	if err := prepareBaseImageContext(ctx, tempDir, opts, runtime); err != nil {
 		return BaseImageResult{}, err
 	}
 	command = append(command, tempDir)
@@ -378,10 +412,10 @@ func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPat
 	return assets, nil
 }
 
-func prepareBaseImageContext(ctx context.Context, contextDir string, opts BaseImageOptions) error {
+func prepareBaseImageContext(ctx context.Context, contextDir string, opts BaseImageOptions, runtime baseImageRuntime) error {
 	repoRoot := strings.TrimSpace(opts.RepoRoot)
 	if repoRoot == "" {
-		return prepareBinaryBaseImageContext(contextDir, opts.CoderPath)
+		return prepareBinaryBaseImageContext(contextDir, opts.BinaryPath, runtime)
 	}
 	repoRoot, err := findRepoRoot(repoRoot)
 	if err != nil {
@@ -394,25 +428,25 @@ func prepareBaseImageContext(ctx context.Context, contextDir string, opts BaseIm
 	if err != nil {
 		return err
 	}
-	return writeSourceBaseDockerfile(filepath.Join(contextDir, "Dockerfile"), replaceCopies)
+	return writeSourceBaseDockerfile(filepath.Join(contextDir, "Dockerfile"), replaceCopies, runtime)
 }
 
-func prepareBinaryBaseImageContext(contextDir, coderPath string) error {
-	coderPath = strings.TrimSpace(coderPath)
-	if coderPath == "" {
+func prepareBinaryBaseImageContext(contextDir, binaryPath string, runtime baseImageRuntime) error {
+	binaryPath = strings.TrimSpace(binaryPath)
+	if binaryPath == "" {
 		executable, err := os.Executable()
 		if err != nil {
-			return fmt.Errorf("distribution build: resolve coder executable: %w", err)
+			return fmt.Errorf("distribution build: resolve %s executable: %w", runtime.name, err)
 		}
-		coderPath = executable
+		binaryPath = executable
 	}
-	if resolved, err := filepath.EvalSymlinks(coderPath); err == nil {
-		coderPath = resolved
+	if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil {
+		binaryPath = resolved
 	}
-	if err := copyFile(coderPath, filepath.Join(contextDir, "coder")); err != nil {
-		return fmt.Errorf("distribution build: copy coder executable: %w", err)
+	if err := copyFile(binaryPath, filepath.Join(contextDir, runtime.binaryName)); err != nil {
+		return fmt.Errorf("distribution build: copy %s executable: %w", runtime.name, err)
 	}
-	return writeBinaryBaseDockerfile(filepath.Join(contextDir, "Dockerfile"))
+	return writeBinaryBaseDockerfile(filepath.Join(contextDir, "Dockerfile"), runtime)
 }
 
 func dockerCommand(tags, platforms []string, push bool) ([]string, error) {
@@ -630,7 +664,7 @@ func writeAppDockerfile(filename, baseImage, connectorsPath string, appRuntime a
 		"FROM "+baseImage,
 		"COPY app /app",
 		"WORKDIR /app",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		`ENTRYPOINT ["/usr/local/bin/fluxplane"]`,
 		"CMD "+string(cmd),
 		"HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD "+string(health),
 	)
@@ -644,13 +678,13 @@ func workspaceDockerfile(baseImage, connectorsPath string, appRuntime appRuntime
 		"FROM "+baseImage,
 		"COPY . /app",
 		"WORKDIR /app",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		`ENTRYPOINT ["/usr/local/bin/fluxplane"]`,
 		"CMD "+string(cmd),
 		"HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD "+string(health),
 	)
 }
 
-func writeSourceBaseDockerfile(filename string, replaces []replaceCopy) error {
+func writeSourceBaseDockerfile(filename string, replaces []replaceCopy, runtime baseImageRuntime) error {
 	lines := []string{
 		"FROM golang:1.26-bookworm AS builder",
 		"WORKDIR /src/agentruntime",
@@ -660,22 +694,22 @@ func writeSourceBaseDockerfile(filename string, replaces []replaceCopy) error {
 	}
 	lines = append(lines,
 		"COPY src/agentruntime /src/agentruntime",
-		`RUN go build -trimpath -ldflags="-s -w" -o /out/coder ./cmd/coder`,
+		fmt.Sprintf(`RUN go build -trimpath -ldflags="-s -w" -o /out/%s %s`, runtime.binaryName, runtime.sourcePkg),
 		"",
 		"FROM debian:bookworm-slim AS runtime",
 		"RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*",
-		"COPY --from=builder /out/coder /usr/local/bin/coder",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		fmt.Sprintf("COPY --from=builder /out/%s /usr/local/bin/%s", runtime.binaryName, runtime.binaryName),
+		fmt.Sprintf(`ENTRYPOINT ["/usr/local/bin/%s"]`, runtime.binaryName),
 	)
 	return os.WriteFile(filename, []byte(dockerfileLines(lines...)), 0o600)
 }
 
-func writeBinaryBaseDockerfile(filename string) error {
+func writeBinaryBaseDockerfile(filename string, runtime baseImageRuntime) error {
 	content := dockerfileLines(
 		"FROM debian:bookworm-slim AS runtime",
 		"RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata && rm -rf /var/lib/apt/lists/*",
-		"COPY coder /usr/local/bin/coder",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
+		fmt.Sprintf("COPY %s /usr/local/bin/%s", runtime.binaryName, runtime.binaryName),
+		fmt.Sprintf(`ENTRYPOINT ["/usr/local/bin/%s"]`, runtime.binaryName),
 	)
 	return os.WriteFile(filename, []byte(content), 0o600)
 }

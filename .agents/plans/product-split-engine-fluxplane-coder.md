@@ -48,6 +48,8 @@ chat session to understand what has already happened.
   `2c966c2 chore: capture cli cleanup baseline`.
 - Engine module rename commit:
   `861c833 refactor: rename root module to fluxplane engine`.
+- Fluxplane CLI extraction commit:
+  `592a815 feat: extract fluxplane app cli`.
 - Current root module:
   `github.com/fluxplane/engine`.
 - Current root facade package:
@@ -57,11 +59,9 @@ chat session to understand what has already happened.
 - Current product CLI entrypoint:
   `cmd/coder`.
 - Current generic app command surface:
-  `coder app ...`, implemented under `apps/coder/app_command.go` and backed by
-  reusable code in `apps/launch`.
+  `cmd/fluxplane`, implemented by `apps/fluxplane` and reusable command
+  builders in `apps/launch`.
 - Current app manifest filename:
-  `agentsdk.app.yaml`.
-- Target app manifest filename:
   `fluxplane.yaml`.
 - Known external acceptance fixture:
   `<local-slack-bot-app>`, the user's local Slack bot app outside this repo.
@@ -330,7 +330,7 @@ Assertions:
 
 ### 3. Fluxplane CLI extraction
 
-Status: next.
+Status: complete in commit `592a815 feat: extract fluxplane app cli`.
 
 Purpose: create the generic app CLI without changing the manifest filename yet.
 The command split should happen while `agentsdk.app.yaml` still works, so
@@ -379,7 +379,7 @@ Assertions:
 
 ### 4. Manifest rename
 
-Status: pending.
+Status: complete.
 
 Purpose: rename the generic app manifest file after the Fluxplane CLI exists,
 then migrate known authored apps and docs onto the new filename.
@@ -392,6 +392,12 @@ Deliverables:
    - Make generic app discovery read `fluxplane.yaml`.
    - Make deploy/build/run/serve docs and tests reference `fluxplane.yaml`.
    - Do not retain old manifest discovery aliases.
+   - Make generated app Dockerfiles, Docker Compose services, Kubernetes
+     deployments, health checks, and local launcher scripts invoke the
+     `fluxplane` binary instead of `coder app ...`.
+   - Add `fluxplane build --target docker-base` for the generic Fluxplane base
+     image while keeping `coder build --target docker-base` specific to the
+     coder product image.
    - Refactor `<local-slack-bot-app>` from
      `agentsdk.app.yaml` to `fluxplane.yaml`.
    - Update any local slack-bot scripts/docs that invoke `coder app ...` so
@@ -400,18 +406,29 @@ Deliverables:
 
 Assertions:
 
-- `rg "agentsdk\\.app\\.yaml"` returns only historical migration notes, if any
-  are intentionally kept.
+- Deprecated `agentsdk.app.*` strings remain only in explicit rejection
+  diagnostics, tests for those diagnostics, or docs explaining the unsupported
+  rename path.
 - `fluxplane init` creates `fluxplane.yaml`.
 - `fluxplane run` and related commands fail clearly when only
   `agentsdk.app.yaml` exists.
 - The local slack-bot app at `<local-slack-bot-app>` has
   its manifest refactored to `fluxplane.yaml` and still runs through the new
   `fluxplane` CLI.
+- `go run ./cmd/fluxplane describe <local-slack-bot-app> --output json` loads
+  the external app and shows its integration plugins and datasources.
+- `go run ./cmd/fluxplane discover <local-slack-bot-app> --output json` loads
+  the external app resources, embedded plugin resources, and scoped
+  datasources.
+- `rg "agentsdk\\.app|coder app" <local-slack-bot-app>` returns no matches.
+- `fluxplane build . --target docker-base --dry-run` resolves the
+  `fluxplane/fluxplane-base:local` image.
 - No coder product command depends on an app manifest filename unless it is
   intentionally running an authored app through engine APIs.
 - `go test ./adapters/resources/... ./apps/launch/... ./apps/fluxplane/...`
   passes.
+- `go test ./...` passes.
+- `go run ./apps/archreport` reports zero architecture violations.
 
 ### 5. Coder module split
 

@@ -66,7 +66,7 @@ func TestRenderTreeShowsEveryContributionKind(t *testing.T) {
 
 func TestRenderTreeRendersPluginContributionsAfterRegularBundles(t *testing.T) {
 	base := resource.ContributionBundle{
-		Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"},
+		Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "fluxplane.yaml"},
 		Plugins: []resource.PluginRef{{
 			Name: "lookup",
 		}},
@@ -117,7 +117,7 @@ func TestRenderTreeRendersPluginContributionsAfterRegularBundles(t *testing.T) {
 
 func TestRenderTreeLabelsImplicitPlugins(t *testing.T) {
 	base := resource.ContributionBundle{
-		Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"},
+		Source: resource.SourceRef{ID: "app", Scope: resource.ScopeProject, Location: "fluxplane.yaml"},
 		Plugins: []resource.PluginRef{{
 			Name: "datasource",
 		}},

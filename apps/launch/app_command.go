@@ -95,7 +95,7 @@ func NewAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 		},
 	}
 	cmd.Flags().BoolVar(&opts.docker, "docker", false, "build a Docker image")
-	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose|kubernetes; may be repeated or comma-separated")
+	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose|kubernetes|docker-base; may be repeated or comma-separated")
 	cmd.Flags().StringVar(&opts.image, "image", "", "Docker image tag to use for app artifacts")
 	cmd.Flags().StringVar(&opts.outDir, "out", "", "output directory for generated app artifacts")
 	cmd.Flags().StringArrayVarP(&opts.tags, "tag", "t", nil, "Docker image tag; may be repeated")

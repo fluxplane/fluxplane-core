@@ -16,7 +16,7 @@ name: sample
 distribution:
   name: sample
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -45,7 +45,7 @@ name: assistant
 		t.Fatalf("calls = %#v, want base build, app build, compose up", calls)
 	}
 	for _, want := range []string{
-		"docker build -t fluxplane/coder-base:local ",
+		"docker build -t fluxplane/fluxplane-base:local ",
 		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
 		"docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up -d",
 	} {
@@ -71,7 +71,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -97,7 +97,7 @@ name: assistant
 		t.Fatalf("dry-run calls = %#v, want none", calls)
 	}
 	for _, want := range []string{
-		"command=docker build -t fluxplane/coder-base:local",
+		"command=docker build -t fluxplane/fluxplane-base:local",
 		"write=" + filepath.Join(app, "Dockerfile"),
 		"write=" + filepath.Join(app, "docker-compose.yaml"),
 		"command=docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up",
@@ -117,7 +117,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -157,7 +157,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -189,7 +189,7 @@ name: Sample App
 distribution:
   name: Sample App
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -210,7 +210,7 @@ name: assistant
 		"services:",
 		"    sample-app:",
 		"        image: sample:latest",
-		"        command: [app, serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
+		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
 		"        environment:",
 		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
@@ -244,7 +244,7 @@ distribution:
   deploy:
     model: deploy_model
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -260,7 +260,7 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [app, serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
+		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -285,7 +285,7 @@ models:
         effort: high
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: sample
       tags: [latest]
@@ -301,7 +301,7 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [app, serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
+		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
 		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
@@ -329,7 +329,7 @@ runtime:
 distribution:
   name: support-bot
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker:
       image: support-bot
       tags: [local]

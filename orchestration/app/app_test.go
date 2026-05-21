@@ -636,7 +636,7 @@ func TestComposeDoesNotDiagnoseConfiguredBaselineObserver(t *testing.T) {
 }
 
 func TestComposeDiagnosesAssertionDeriverSpecWithoutTemplateOrImplementation(t *testing.T) {
-	source := resource.SourceRef{Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"}
+	source := resource.SourceRef{Scope: resource.ScopeProject, Location: "fluxplane.yaml"}
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
 			Source: source,
@@ -662,7 +662,7 @@ func TestComposeDiagnosesAssertionDeriverSpecWithoutTemplateOrImplementation(t *
 }
 
 func TestComposeDiagnosesReactionTargetsOutsideSelectedGraph(t *testing.T) {
-	source := resource.SourceRef{Scope: resource.ScopeProject, Location: "agentsdk.app.yaml"}
+	source := resource.SourceRef{Scope: resource.ScopeProject, Location: "fluxplane.yaml"}
 	composition, err := Compose(Config{
 		Bundles: []resource.ContributionBundle{{
 			Source: source,

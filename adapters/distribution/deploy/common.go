@@ -21,7 +21,8 @@ import (
 
 const (
 	defaultConnectorsPath = "/connectors"
-	defaultBaseImage      = "fluxplane/coder-base:local"
+	defaultBaseImage      = "fluxplane/fluxplane-base:local"
+	defaultCoderBaseImage = "fluxplane/coder-base:local"
 	defaultAppImage       = "agentruntime-app:latest"
 	defaultMySQLDSNEnv    = "AGENTRUNTIME_DATASTORE_MYSQL_DSN"
 	defaultNATSDSNEnv     = "AGENTRUNTIME_EVENTSTORE_NATS_DSN"
@@ -209,7 +210,7 @@ func appBuildTargets(values []string) ([]string, error) {
 		switch target {
 		case "all":
 			expanded = append(expanded, "binary", "dockerfile", "docker-compose", "docker-image")
-		case "binary", "dockerfile", "docker-image", "docker-compose", "kubernetes":
+		case "binary", "dockerfile", "docker-image", "docker-compose", "kubernetes", "docker-base":
 			expanded = append(expanded, target)
 		default:
 			return nil, fmt.Errorf("distribution build: unsupported app target %q", target)
@@ -241,7 +242,7 @@ func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeO
 	}
 	appRuntime = appRuntime.withDefaults()
 	command := []string{
-		"app", "serve", "/app",
+		"serve", "/app",
 		"--connectors-path", connectorsPath,
 		"--health-addr", healthAddr,
 		"--provider", appRuntime.Provider,
@@ -255,11 +256,11 @@ func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeO
 }
 
 func appHealthcheckCommand() []string {
-	return []string{"/usr/local/bin/coder", "app", "healthcheck", "--url", defaultHealthURL}
+	return []string{"/usr/local/bin/fluxplane", "healthcheck", "--url", defaultHealthURL}
 }
 
 func appLauncherScript(appRoot string) string {
-	return fmt.Sprintf("#!/usr/bin/env sh\nset -eu\nexec coder app run %s \"$@\"\n", shellQuote(appRoot))
+	return fmt.Sprintf("#!/usr/bin/env sh\nset -eu\nexec fluxplane run %s \"$@\"\n", shellQuote(appRoot))
 }
 
 func cleanStrings(input []string) []string {

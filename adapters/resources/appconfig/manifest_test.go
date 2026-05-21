@@ -58,7 +58,7 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
   ]
 }`)
 
-	bundle, err := DecodeManifest("/repo/agentsdk.app.json", data)
+	bundle, err := DecodeManifest("/repo/fluxplane.json", data)
 	if err != nil {
 		t.Fatalf("DecodeManifest: %v", err)
 	}
@@ -146,7 +146,7 @@ plugins:
       scope: project
 `)
 
-	bundle, err := DecodeManifest("agentsdk.app.yaml", data)
+	bundle, err := DecodeManifest("fluxplane.yaml", data)
 	if err != nil {
 		t.Fatalf("DecodeManifest: %v", err)
 	}
@@ -176,7 +176,7 @@ plugins:
 }
 
 func TestDecodeManifestPreservesScalarShorthands(t *testing.T) {
-	bundle, err := DecodeManifest("agentsdk.app.yaml", []byte(`
+	bundle, err := DecodeManifest("fluxplane.yaml", []byte(`
 name: engineer
 default_agent: main
 sources: [.agents]
@@ -214,7 +214,7 @@ models:
       aliases: [codex]
 `)
 
-	file, err := DecodeFile("agentsdk.app.yaml", data)
+	file, err := DecodeFile("fluxplane.yaml", data)
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
 	}
@@ -263,7 +263,7 @@ models:
       aliases: [smart_model]
 `)
 
-	_, err := DecodeManifest("agentsdk.app.yaml", data)
+	_, err := DecodeManifest("fluxplane.yaml", data)
 	if err == nil || !strings.Contains(err.Error(), `duplicate alias "smart_model"`) {
 		t.Fatalf("DecodeManifest error = %v, want duplicate alias", err)
 	}
@@ -284,7 +284,7 @@ distribution:
     model: typo_model
 `)
 
-	_, err := DecodeManifest("agentsdk.app.yaml", data)
+	_, err := DecodeManifest("fluxplane.yaml", data)
 	if err == nil || !strings.Contains(err.Error(), `distribution.deploy.model "typo_model"`) {
 		t.Fatalf("DecodeManifest error = %v, want unknown deploy model", err)
 	}
@@ -346,7 +346,7 @@ datasource:
               updated_at_field: updated_at
 `)
 
-	file, err := DecodeFile("agentsdk.app.yaml", data)
+	file, err := DecodeFile("fluxplane.yaml", data)
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
 	}
@@ -405,7 +405,7 @@ distribution:
     serve: true
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - .agents/**
       - docs/**/*.md
     docker: {}
@@ -418,7 +418,7 @@ distribution:
       description: Ask the engineer agent.
 `)
 
-	file, err := DecodeFile("agentsdk.app.yaml", data)
+	file, err := DecodeFile("fluxplane.yaml", data)
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
 	}
@@ -513,7 +513,7 @@ system: |
   You are a Slack bot.
 `)
 
-	file, err := DecodeFile("/repo/examples/slack-bot/agentsdk.app.yaml", data)
+	file, err := DecodeFile("/repo/examples/slack-bot/fluxplane.yaml", data)
 	if err != nil {
 		t.Fatalf("DecodeFile: %v", err)
 	}
@@ -562,7 +562,7 @@ system: |
 }
 
 func TestDecodeFileLoadsTopLevelResources(t *testing.T) {
-	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
 name: resource-app
 commands:
@@ -679,7 +679,7 @@ reactions:
 }
 
 func TestDecodeFileLoadsResourceDocuments(t *testing.T) {
-	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
 name: docs
 ---
@@ -744,7 +744,7 @@ actions:
 }
 
 func TestDecodeFileNamesMultiSegmentCommandsForResourceResolution(t *testing.T) {
-	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
 name: resource-app
 commands:
@@ -787,7 +787,7 @@ commands:
 }
 
 func TestDecodeFileComposesMultiSegmentCommandsUnderResolverName(t *testing.T) {
-	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
 name: resource-app
 commands:
@@ -822,7 +822,7 @@ commands:
 }
 
 func TestDecodeFileRejectsUnknownAgentField(t *testing.T) {
-	_, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	_, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: agent
 name: main
 model: openai/gpt-5.5
@@ -834,7 +834,7 @@ surprise: true
 }
 
 func TestDecodeFileRejectsMaxContinuationsWithoutStopCondition(t *testing.T) {
-	_, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	_, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: agent
 name: main
 model: openai/gpt-5.5
@@ -895,7 +895,7 @@ description: missing name
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := DecodeFile("agentsdk.app.yaml", []byte(tc.doc))
+			_, err := DecodeFile("fluxplane.yaml", []byte(tc.doc))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("DecodeFile error = %v, want %q", err, tc.want)
 			}
@@ -911,7 +911,7 @@ func TestFileValidateRejectsConnectorWithoutKind(t *testing.T) {
 }
 
 func TestDecodeFileReadsRuntimeWorkspaceConfig(t *testing.T) {
-	file, err := DecodeFile("agentsdk.app.yaml", []byte(`
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
 name: sample
 runtime:
@@ -953,21 +953,21 @@ runtime:
 }
 
 func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"sources":[{"location":""}]}`))
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"sources":[{"location":""}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want empty source validation error")
 	}
 }
 
 func TestDecodeManifestRejectsEmptyPluginViaValidation(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"kind":""}]}`))
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":[{"kind":""}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want empty plugin validation error")
 	}
 }
 
 func TestDecodeManifestRejectsPluginNameField(t *testing.T) {
-	_, err := DecodeManifest("agentsdk.app.json", []byte(`{"plugins":[{"name":"web"}]}`))
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":[{"name":"web"}]}`))
 	if err == nil {
 		t.Fatal("DecodeManifest error is nil, want plugin name field validation error")
 	}
@@ -994,7 +994,7 @@ func TestLoadDirReadsDefaultManifest(t *testing.T) {
 
 func TestLoadDirReadsYAMLManifest(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agentsdk.app.yaml")
+	path := filepath.Join(dir, "fluxplane.yaml")
 	if err := os.WriteFile(path, []byte("default_agent:\n  name: main\nsources:\n  - location: .agents\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -1011,29 +1011,23 @@ func TestLoadDirReadsYAMLManifest(t *testing.T) {
 	}
 }
 
-func TestLoadDirReadsYMLManifest(t *testing.T) {
+func TestLoadDirRejectsDeprecatedYMLManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agentsdk.app.yml")
 	if err := os.WriteFile(path, []byte("default_agent:\n  name: main\nsources:\n  - location: .agents\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	bundle, err := LoadDir(context.Background(), dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
-	}
-	if len(bundle.Apps) != 1 || bundle.Apps[0].DefaultAgent.Name != "main" {
-		t.Fatalf("bundle apps = %#v, want default agent main", bundle.Apps)
-	}
-	if bundle.Source.Location != filepath.Clean(path) {
-		t.Fatalf("source location = %q, want %q", bundle.Source.Location, filepath.Clean(path))
+	_, err := LoadDir(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") || !strings.Contains(err.Error(), DefaultManifestName) {
+		t.Fatalf("LoadDir error = %v, want deprecated manifest diagnostic", err)
 	}
 }
 
-func TestLoadDirUsesDeterministicManifestOrder(t *testing.T) {
+func TestLoadDirPrefersFluxplaneManifestOverDeprecatedManifest(t *testing.T) {
 	dir := t.TempDir()
 	jsonPath := filepath.Join(dir, "agentsdk.app.json")
-	yamlPath := filepath.Join(dir, "agentsdk.app.yaml")
+	yamlPath := filepath.Join(dir, "fluxplane.yaml")
 	if err := os.WriteFile(jsonPath, []byte(`{"default_agent":{"name":"json"},"sources":[{"location":".agents"}]}`), 0o600); err != nil {
 		t.Fatalf("WriteFile json: %v", err)
 	}
@@ -1045,11 +1039,11 @@ func TestLoadDirUsesDeterministicManifestOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	if bundle.Apps[0].DefaultAgent.Name != "json" {
-		t.Fatalf("default agent = %q, want json", bundle.Apps[0].DefaultAgent.Name)
+	if bundle.Apps[0].DefaultAgent.Name != "yaml" {
+		t.Fatalf("default agent = %q, want yaml", bundle.Apps[0].DefaultAgent.Name)
 	}
-	if bundle.Source.Location != filepath.Clean(jsonPath) {
-		t.Fatalf("source location = %q, want %q", bundle.Source.Location, filepath.Clean(jsonPath))
+	if bundle.Source.Location != filepath.Clean(yamlPath) {
+		t.Fatalf("source location = %q, want %q", bundle.Source.Location, filepath.Clean(yamlPath))
 	}
 }
 

@@ -25,7 +25,7 @@ distribution:
   name: sample
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - docs/**/*.md
     docker:
       image: sample
@@ -68,7 +68,7 @@ name: sample
 distribution:
   build:
     assets:
-      - agentsdk.app.yaml
+      - fluxplane.yaml
       - docs/**/*.md
     docker: {}
 ---
@@ -97,10 +97,10 @@ name: assistant
 	}
 	text := string(dockerfile)
 	for _, want := range []string{
-		"FROM fluxplane/coder-base:local",
-		`ENTRYPOINT ["/usr/local/bin/coder"]`,
-		`CMD ["app","serve","/app","--connectors-path","/secrets/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
-		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/coder","app","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
+		"FROM fluxplane/fluxplane-base:local",
+		`ENTRYPOINT ["/usr/local/bin/fluxplane"]`,
+		`CMD ["serve","/app","--connectors-path","/secrets/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/fluxplane","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("Dockerfile missing %q:\n%s", want, text)
@@ -120,7 +120,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -152,7 +152,7 @@ kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -186,7 +186,7 @@ func TestBuildCoderBaseDockerDefaultsToCurrentExecutable(t *testing.T) {
 	})
 
 	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
-		CoderPath:   coderPath,
+		BinaryPath:  coderPath,
 		Tags:        []string{"fluxplane/coder-base:test"},
 		DryRun:      true,
 		KeepContext: true,
@@ -228,12 +228,12 @@ func TestBuildCoderBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
 	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/engine\n\nreplace github.com/codewandler/axon => ../../axon\n")
 	writeTestFile(t, repo, "cmd/coder/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
-	writeTestFile(t, app, "agentsdk.app.yaml", `
+	writeTestFile(t, app, "fluxplane.yaml", `
 kind: app
 name: sample
 distribution:
   build:
-    assets: [agentsdk.app.yaml]
+    assets: [fluxplane.yaml]
     docker: {}
 ---
 kind: agent
@@ -272,8 +272,8 @@ func TestBuildCoderBaseDockerDryRunCleansContextByDefault(t *testing.T) {
 		t.Fatalf("Chmod coder: %v", err)
 	}
 	result, err := BuildCoderBaseDocker(context.Background(), BaseImageOptions{
-		CoderPath: coderPath,
-		DryRun:    true,
+		BinaryPath: coderPath,
+		DryRun:     true,
 	})
 	if err != nil {
 		t.Fatalf("BuildCoderBaseDocker: %v", err)
@@ -338,7 +338,7 @@ name: assistant
 func TestDockerBuildContextOverlaysGeneratedDockerfile(t *testing.T) {
 	contextDir := t.TempDir()
 	writeTestFile(t, contextDir, "Dockerfile", "FROM stale\n")
-	writeTestFile(t, contextDir, "app/agentsdk.app.yaml", "kind: app\n")
+	writeTestFile(t, contextDir, "app/fluxplane.yaml", "kind: app\n")
 	outDir := t.TempDir()
 	dockerfile := filepath.Join(outDir, "Dockerfile")
 	writeTestFile(t, outDir, "Dockerfile", "FROM generated\n")
@@ -358,7 +358,7 @@ func TestDockerBuildContextOverlaysGeneratedDockerfile(t *testing.T) {
 	if entries["Dockerfile"] != "FROM generated\n" {
 		t.Fatalf("Dockerfile = %q, want generated Dockerfile", entries["Dockerfile"])
 	}
-	if entries["app/agentsdk.app.yaml"] == "" {
+	if entries["app/fluxplane.yaml"] == "" {
 		t.Fatalf("app asset missing from build context: %#v", entries)
 	}
 }
