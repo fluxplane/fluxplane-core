@@ -73,6 +73,7 @@ type LocalRuntimeConfig struct {
 	Spec                coredistribution.Spec
 	Bundles             []resource.ContributionBundle
 	Plugins             func(system.System) []pluginhost.Plugin
+	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
@@ -107,9 +108,18 @@ type RuntimeOptions struct {
 	Yolo                bool
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
+	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
+}
+
+type PluginFactoryContext struct {
+	System             system.System
+	Dispatcher         *slack.Dispatcher
+	TaskRunner         task.TaskRunner
+	NativeAuthStore    runtimesecret.FileStore
+	NativeAuthResolver runtimesecret.Resolver
 }
 
 // Runtime is the composed local runtime plus the resources needed by hosting
@@ -186,8 +196,9 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 		Yolo:                req.Yolo,
 		Dev:                 cfg.Dev || req.Dev,
 		Plugins:             cfg.Plugins,
+		PluginFactory:       cfg.PluginFactory,
 		ModelResolver:       cfg.ModelResolver,
-		AllowPrivateNetwork: cfg.AllowPrivateNetwork,
+		AllowPrivateNetwork: cfg.AllowPrivateNetwork || req.AllowPrivateNetwork,
 	})
 	if err != nil {
 		return nil, err
@@ -338,8 +349,18 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
-	available := availablePlugins(runtimeSystem, dispatcher, taskScheduler, opts.AuthPath, opts.AllowPluginAuthEnv)
-	if opts.Plugins != nil {
+	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
+	nativeResolver := nativeAuthResolver(runtimeSystem, nativeStore, opts.AllowPluginAuthEnv)
+	available := availablePluginsWithAuth(runtimeSystem, dispatcher, taskScheduler, nativeStore, nativeResolver)
+	if opts.PluginFactory != nil {
+		available = opts.PluginFactory(PluginFactoryContext{
+			System:             runtimeSystem,
+			Dispatcher:         dispatcher,
+			TaskRunner:         taskScheduler,
+			NativeAuthStore:    nativeStore,
+			NativeAuthResolver: nativeResolver,
+		})
+	} else if opts.Plugins != nil {
 		available = opts.Plugins(runtimeSystem)
 	}
 	if taskScheduler != nil {
@@ -628,6 +649,10 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
 	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
 	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, allowPluginAuthEnv)
+	return availablePluginsWithAuth(hostSystem, dispatcher, taskRunner, nativeStore, nativeResolver)
+}
+
+func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
 	return []pluginhost.Plugin{
 		workspace.New(hostSystem),
 		discovery.New(),

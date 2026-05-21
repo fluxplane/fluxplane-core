@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/agentruntime/orchestration/identity"
 	"github.com/fluxplane/agentruntime/orchestration/pluginhost"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -435,6 +436,45 @@ func TestDatasourceProviderSearchesProjects(t *testing.T) {
 	}
 	if len(result.Records) != 1 || result.Records[0].ID != "12" || result.Records[0].Title != "fluxplane/runtime" || result.Records[0].Metadata["project_id"] != "12" {
 		t.Fatalf("records = %#v", result.Records)
+	}
+}
+
+func TestDatasourceProviderUsesInjectedSecretResolver(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`[{"id":12,"name":"runtime","path_with_namespace":"fluxplane/runtime","web_url":"https://gitlab.example/fluxplane/runtime"}]`),
+	}}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{network: network},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		secrets: runtimesecret.EnvResolver{Environment: fakeEnvironment{values: map[string]string{
+			gitlabTokenEnv: "resolver-token",
+			gitlabURLEnv:   "gitlab.example",
+		}}},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{ProjectEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	searcher, ok := accessor.(coredatasource.Searcher)
+	if !ok {
+		t.Fatalf("accessor does not implement datasource.Searcher")
+	}
+	result, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: ProjectEntity, Query: "runtime"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "12" {
+		t.Fatalf("records = %#v", result.Records)
+	}
+	if got := headerValue(network.request.Headers, "Private-Token"); got != "resolver-token" {
+		t.Fatalf("private token header = %q, want resolver-token", got)
 	}
 }
 

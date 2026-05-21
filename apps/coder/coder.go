@@ -134,7 +134,7 @@ func (c *Coder) ChannelClient(ctx context.Context, opts ChannelClientOptions) (C
 		Spec:           coderServeSpec(c.startup),
 		Bundles:        c.startup.Bundles,
 		Launch:         distribution.LaunchConfig{Workspace: workspace},
-		Plugins:        localPlugins,
+		PluginFactory:  localPluginsWithAuth,
 		ToolProjection: mergeCoderToolProjection(ToolProjectionConfig(), firstRisk(opts.MaxToolRisk, c.config.MaxToolRisk)),
 		ModelResolver: run.ModelResolver{
 			Provider:        modelSelection.Provider,

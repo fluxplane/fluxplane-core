@@ -86,6 +86,12 @@ func TestCommandDefaultsToREPLAndHasInputFlag(t *testing.T) {
 	if !strings.Contains(help, "--env-file") {
 		t.Fatalf("help = %q, want env-file flag", help)
 	}
+	if !strings.Contains(help, "--allow-plugin-auth-env") {
+		t.Fatalf("help = %q, want allow-plugin-auth-env flag", help)
+	}
+	if !strings.Contains(help, "--allow-private-network") {
+		t.Fatalf("help = %q, want allow-private-network flag", help)
+	}
 	if !strings.Contains(help, "discover") {
 		t.Fatalf("help = %q, want discover command", help)
 	}

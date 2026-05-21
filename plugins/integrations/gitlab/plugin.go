@@ -178,6 +178,7 @@ func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) (
 		system:        p.system,
 		ref:           p.ref,
 		config:        p.config(),
+		secrets:       p.secrets,
 		clientFactory: p.clientFactory,
 	}}, nil
 }

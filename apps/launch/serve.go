@@ -70,6 +70,7 @@ type ServeDistributionOptions struct {
 	Yolo                bool
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
+	PluginFactory       func(PluginFactoryContext) []pluginhost.Plugin
 	ToolProjection      agentruntime.ToolProjectionConfig
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
@@ -127,6 +128,7 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
 		Plugins:             opts.Plugins,
+		PluginFactory:       opts.PluginFactory,
 		ToolProjection:      opts.ToolProjection,
 		ModelResolver:       opts.ModelResolver,
 		AllowPrivateNetwork: opts.AllowPrivateNetwork,

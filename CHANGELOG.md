@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   activation for GitLab, Jira, Confluence, and Slack datasource/tool surfaces.
 - Gated process-environment plugin auth behind `--allow-plugin-auth-env` for
   local coder/app launches and generated app containers.
+- Added `coder --allow-private-network` so the built-in coder runtime can
+  explicitly opt into private/VPN network targets without changing the default
+  network boundary.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.

@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/agentruntime/core/resource"
 	runtimedatasource "github.com/fluxplane/agentruntime/runtime/datasource"
 	"github.com/fluxplane/agentruntime/runtime/datasource/semantic"
+	runtimesecret "github.com/fluxplane/agentruntime/runtime/secret"
 	"github.com/fluxplane/agentruntime/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
@@ -22,6 +23,7 @@ type gitlabDatasourceProvider struct {
 	system        system.System
 	ref           resource.PluginRef
 	config        Config
+	secrets       runtimesecret.Resolver
 	clientFactory gitlabClientFactory
 	index         *semantic.Index
 }
@@ -52,6 +54,7 @@ func (p gitlabDatasourceProvider) Open(ctx context.Context, spec coredatasource.
 		system:            p.system,
 		ref:               p.ref,
 		config:            p.config,
+		secrets:           p.secrets,
 		clientFactory:     p.clientFactory,
 		index:             p.index,
 		entities:          entities,
@@ -64,6 +67,7 @@ type gitlabAccessor struct {
 	system            system.System
 	ref               resource.PluginRef
 	config            Config
+	secrets           runtimesecret.Resolver
 	clientFactory     gitlabClientFactory
 	index             *semantic.Index
 	entities          []coredatasource.EntitySpec
@@ -925,6 +929,9 @@ func (a gitlabAccessor) Corpus(ctx context.Context, req coredatasource.CorpusReq
 func (a gitlabAccessor) client(ctx context.Context) (gitlabClient, error) {
 	factory := a.clientFactory
 	if factory == nil {
+		if a.secrets != nil {
+			return newOfficialClientWithResolver(ctx, a.system, a.secrets, a.ref, a.config)
+		}
 		factory = newOfficialClient
 	}
 	return factory(ctx, a.system, a.ref, a.config)

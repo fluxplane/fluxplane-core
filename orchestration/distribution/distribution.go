@@ -189,18 +189,19 @@ type Runtime interface {
 
 // OpenRequest carries launcher-selected runtime options.
 type OpenRequest struct {
-	Launch             LaunchConfig
-	Session            coresession.Ref
-	Conversation       channel.ConversationRef
-	Provider           string
-	Model              string
-	Thinking           string
-	ThinkingSet        bool
-	Effort             string
-	EffortSet          bool
-	MaxToolRisk        operation.RiskLevel
-	Debug              bool
-	Yolo               bool
-	Dev                bool
-	AllowPluginAuthEnv bool
+	Launch              LaunchConfig
+	Session             coresession.Ref
+	Conversation        channel.ConversationRef
+	Provider            string
+	Model               string
+	Thinking            string
+	ThinkingSet         bool
+	Effort              string
+	EffortSet           bool
+	MaxToolRisk         operation.RiskLevel
+	Debug               bool
+	Yolo                bool
+	Dev                 bool
+	AllowPluginAuthEnv  bool
+	AllowPrivateNetwork bool
 }

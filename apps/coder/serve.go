@@ -68,7 +68,7 @@ func newServeCommandWithOptions(startup startupResources, defaults serveCommandO
 				Spec:           coderServeSpec(startup),
 				Bundles:        startup.Bundles,
 				Launch:         launchConfig,
-				Plugins:        localPlugins,
+				PluginFactory:  localPluginsWithAuth,
 				ToolProjection: mergeCoderToolProjection(ToolProjectionConfig(), opts.runtime.ToolProjectionMaxRisk()),
 				ModelResolver: run.ModelResolver{
 					Provider:        modelSelection.Provider,

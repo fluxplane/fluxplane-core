@@ -65,11 +65,12 @@ func NewCommandWithOptions(opts CommandOptions) *cobra.Command {
 	startup := loadStartupResources(context.Background())
 	startup.Bundles = append(startup.Bundles, cloneContributionBundles(opts.Bundles)...)
 	cmd := distcli.NewCommandWithOptions(distributionFromStartup(startup), distcli.CommandOptions{
-		WorkspaceRoots:          opts.WorkspaceRoots,
-		EnvFiles:                opts.EnvFiles,
-		Workspace:               opts.Workspace,
-		PromptHandler:           newRunPromptHandler(nil),
-		EnablePluginAuthEnvFlag: true,
+		WorkspaceRoots:           opts.WorkspaceRoots,
+		EnvFiles:                 opts.EnvFiles,
+		Workspace:                opts.Workspace,
+		PromptHandler:            newRunPromptHandler(nil),
+		EnablePluginAuthEnvFlag:  true,
+		EnablePrivateNetworkFlag: true,
 	})
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
 		TargetRegistry: coderAuthTargetRegistry(startup),
@@ -141,7 +142,7 @@ func distributionFromStartup(startup startupResources) distribution.Distribution
 			Spec:           spec,
 			Bundles:        runtimeBundles,
 			Root:           startup.Root,
-			Plugins:        localPlugins,
+			PluginFactory:  localPluginsWithAuth,
 			ToolProjection: ToolProjectionConfig(),
 		}),
 	}
@@ -186,6 +187,13 @@ func mergeCoderToolProjection(cfg agentruntime.ToolProjectionConfig, maxRisk ope
 }
 
 func localPlugins(hostSystem system.System) []pluginhost.Plugin {
+	return localPluginsWithAuth(launch.PluginFactoryContext{System: hostSystem})
+}
+
+func localPluginsWithAuth(ctx launch.PluginFactoryContext) []pluginhost.Plugin {
+	hostSystem := ctx.System
+	nativeStore := ctx.NativeAuthStore
+	nativeResolver := ctx.NativeAuthResolver
 	return []pluginhost.Plugin{
 		workspace.New(hostSystem),
 		discovery.New(),
@@ -195,11 +203,11 @@ func localPlugins(hostSystem system.System) []pluginhost.Plugin {
 		skills.New(),
 		image.New(hostSystem),
 		aws.New(hostSystem),
-		slack.New(hostSystem),
+		slack.NewWithResolver(hostSystem, ctx.Dispatcher, nativeResolver, nativeStore),
 		docker.New(hostSystem),
-		gitlab.New(hostSystem),
-		jira.New(hostSystem),
-		confluence.New(hostSystem),
+		gitlab.NewWithResolver(hostSystem, nativeResolver),
+		jira.NewWithResolver(hostSystem, nativeStore, nativeResolver),
+		confluence.NewWithResolver(hostSystem, nativeStore, nativeResolver),
 		kubernetes.New(hostSystem),
 		loki.New(hostSystem),
 		mysql.New(),
