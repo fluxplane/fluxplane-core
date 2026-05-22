@@ -2,15 +2,8 @@
 
 This file is for AI agents and developers working in
 `github.com/fluxplane/engine`. It carries the operative rules only.
-Background lives in:
-
-- [docs/architecture.md](docs/architecture.md): full layer model, package
-  responsibilities, and common flows.
-- [docs/security.md](docs/security.md): full safety model and roadmap.
-- [docs/verification.md](docs/verification.md): quality gate, Git hooks, and
-  codegate review commands.
-- [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md):
-  migration rationale and historical decisions.
+Background and explanatory material live in [docs/](docs/README.md); see
+[Architecture References](#architecture-references) below for the full list.
 
 Do not put migration decision logs in this file.
 
@@ -55,6 +48,7 @@ Zero hard violations are required.
 
 When asked to live-test `coder`, use the `github.com/fluxplane/coder`
 repository. This engine repository no longer contains the coder product module.
+
 ## Layer Rules
 
 The dependency direction is fixed and enforced by codegate rules in

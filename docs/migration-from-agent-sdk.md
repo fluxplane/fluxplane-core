@@ -1,5 +1,11 @@
 # Migration From Current `agentsdk`
 
+> **Status: historical design notes.** This document tracks the original
+> rewrite plan from the `agentsdk` source repository into
+> `github.com/fluxplane/engine`. It is not a user guide. Decisions here may
+> have been superseded by code; the source of truth for current architecture
+> is [architecture.md](architecture.md).
+
 This document tracks how concepts and packages from the current `agentsdk`
 repository should move into `github.com/fluxplane/engine`.
 

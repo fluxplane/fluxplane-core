@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Added `docs/README.md` as an audience-grouped index of all documentation.
+- Expanded `docs/fluxplane.md` from a flat command list into per-command
+  sections with common flows for `init`, `run`, `serve`, `build/deploy`,
+  `config`, `describe`, `discover`, `auth`, and `datasource index`.
+- Tightened `README.md`: the 30-second quickstart no longer installs both
+  `coder` and `fluxplane`, and the "Start here" links point at the docs
+  index and the external `coder` repository.
+- Trimmed the AGENTS.md preamble: the duplicated architecture-reference list
+  now appears once under `Architecture References`, and the missing blank
+  line before `## Layer Rules` is fixed.
+- Marked `docs/migration-from-agent-sdk.md`,
+  `docs/constant-self-evolvement.md`, and `docs/observations-and-reactions.md`
+  as design notes so users do not read them as user guides.
+- Clarified `docs/evaluation.md` audience as developers smoke-testing a
+  running app over the HTTP/SSE channel.
+
 ### Changed
+- Restored live Kubernetes and Loki observability connectivity for local coder
+  runs: Kubernetes datasource calls now honor request-scoped context/namespace
+  filters and list deployments, while Loki discovery can use managed local
+  port-forwards for in-cluster Kubernetes service candidates.
 - Replaced the active architecture score gate with a released codegate
   assessment gate, added root `engine-architecture.rules.json`, and exposed
   codegate-backed Go assessment/review operations from the Go language plugin.

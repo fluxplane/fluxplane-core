@@ -1,5 +1,9 @@
 # Constant Self-Evolvement
 
+> **Status: design proposal.** This document describes a planned runtime loop
+> for evaluating and improving agents. It is a working design, not an
+> implemented feature; open questions remain at the end of the document.
+
 AgentRuntime should not only run agents. It should give every agent a controlled
 path to improve itself.
 

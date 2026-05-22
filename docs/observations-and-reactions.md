@@ -1,5 +1,11 @@
 # Observations And Reactions
 
+> **Status: design and incremental implementation.** This document defines the
+> observation and reaction model and tracks implementation progress. The core
+> shapes are implemented; some observers, derivers, and reaction actions are
+> still being filled in. See the "Implementation Progress" section near the
+> end for the current state.
+
 This document defines the observation and reaction model for AgentRuntime. It
 generalizes project signals, toolchain availability, skill triggers, and
 integration checks such as Kubernetes or AWS availability.

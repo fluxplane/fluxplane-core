@@ -45,9 +45,15 @@ Requires Go 1.26+ and a model credential such as `OPENAI_API_KEY`.
 
 ```bash
 go install github.com/fluxplane/coder/cmd/coder@latest
-go install github.com/fluxplane/engine/cmd/fluxplane@latest
 export OPENAI_API_KEY=...
 coder --input "Summarize this repository"
+```
+
+For authoring your own Fluxplane app, also install the generic CLI:
+
+```bash
+go install github.com/fluxplane/engine/cmd/fluxplane@latest
+fluxplane init ./my-app
 ```
 
 Open an interactive REPL:
@@ -144,11 +150,11 @@ Fluxplane applications.
 
 ## Start here
 
-- **Use the coding agent**: `github.com/fluxplane/coder`
-- **Explore the CLI**: [Fluxplane CLI](docs/fluxplane.md)
-- **Configure providers and apps**: [Configuration](docs/configuration.md)
-- **Understand the runtime**: [Architecture](docs/architecture.md)
+- **Use the coding agent**: [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder)
+- **Build your own app**: [Fluxplane CLI](docs/fluxplane.md) and [Configuration](docs/configuration.md)
+- **Understand the runtime**: [Architecture](docs/architecture.md) and [Concepts](docs/concepts.md)
 - **Review the safety model**: [Security](docs/security.md)
+- **Browse all documentation**: [docs/](docs/README.md)
 - **See what changed**: [Changelog](CHANGELOG.md)
 
 ## Project status

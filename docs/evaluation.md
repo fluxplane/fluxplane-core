@@ -1,7 +1,11 @@
 # Evaluation
 
-This document captures the local smoke-test flow for evaluating an AgentRuntime
-app over the public HTTP/SSE channel protocol.
+This document is for developers smoke-testing a running AgentRuntime app over
+the public HTTP/SSE channel protocol. It is not a tutorial; see
+[Configuration](configuration.md) first if you have not yet authored an app.
+
+It captures the local flow for pointing the evaluator at a running `coder`
+instance and validating end-to-end channel behavior.
 
 ## Evaluate coder over a Unix socket
 
