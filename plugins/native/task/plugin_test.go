@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/engine/core/event"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/operation"
 	coretask "github.com/fluxplane/engine/core/task"
 	corethread "github.com/fluxplane/engine/core/thread"
@@ -17,6 +18,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/sessionenv"
 	"github.com/fluxplane/engine/orchestration/taskexecutor"
 	"github.com/fluxplane/engine/runtime/eventstore"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	runtimetask "github.com/fluxplane/engine/runtime/task"
 	runtimethread "github.com/fluxplane/engine/runtime/thread"
@@ -45,8 +47,11 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if planner := bundle.Agents[1].System; !strings.Contains(planner, "status=draft") || !strings.Contains(planner, "not scheduled yet") || !strings.Contains(planner, "Do not create a second task") || !strings.Contains(planner, "task_run") || !strings.Contains(planner, "scheduler response") {
 		t.Fatalf("planner instructions = %q, want draft visibility, approval/refinement, and scheduler feedback guidance", planner)
 	}
-	if taskAgent := bundle.Agents[0].System; !strings.Contains(taskAgent, "immediate execution") || !strings.Contains(taskAgent, "task_run") {
-		t.Fatalf("task agent instructions = %q, want immediate execution guidance", taskAgent)
+	if taskAgent := bundle.Agents[0].System; !strings.Contains(taskAgent, "immediate execution") || !strings.Contains(taskAgent, "task_run") || !strings.Contains(taskAgent, "at the same time") || !strings.Contains(taskAgent, "one ready explorer-assigned task per distinct thread") {
+		t.Fatalf("task agent instructions = %q, want immediate and parallel execution guidance", taskAgent)
+	}
+	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != ParallelIntentDeriver {
+		t.Fatalf("assertion derivers = %#v, want parallel intent deriver", bundle.AssertionDerivers)
 	}
 	if !operationRefsContain(bundle.Sessions[0].Operations, TaskRunOp) || !operationRefsContain(bundle.Sessions[0].Operations, TaskSchedulerStatusOp) {
 		t.Fatalf("task session operations = %#v, want task_run and scheduler status", bundle.Sessions[0].Operations)
@@ -58,6 +63,52 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 		if !hasOperation(bundle.Operations, name) {
 			t.Fatalf("operations = %#v, want %s", bundle.Operations, name)
 		}
+	}
+}
+
+func TestParallelIntentAssertionDeriver(t *testing.T) {
+	derivers, err := New().AssertionDerivers(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("AssertionDerivers: %v", err)
+	}
+	assertions, err := derivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{Observations: []coreevidence.Observation{{
+		ID:      "obs_1",
+		Kind:    "channel.message",
+		Scope:   "thread",
+		Content: "Work on both things at the same time.",
+	}}})
+	if err != nil {
+		t.Fatalf("Derive: %v", err)
+	}
+	if len(assertions) != 1 || assertions[0].Kind != AssertionParallelWork || assertions[0].Target != "task-scheduler" || len(assertions[0].ObservationIDs) != 1 {
+		t.Fatalf("assertions = %#v, want parallel work assertion", assertions)
+	}
+	negative, err := derivers[0].Derive(context.Background(), runtimeevidence.AssertionDeriveRequest{Observations: []coreevidence.Observation{{
+		ID:      "obs_2",
+		Kind:    "channel.message",
+		Content: "Please review this one file.",
+	}}})
+	if err != nil {
+		t.Fatalf("Derive negative: %v", err)
+	}
+	if len(negative) != 0 {
+		t.Fatalf("negative assertions = %#v, want none", negative)
+	}
+}
+
+func TestParallelIntentReactionEnablesTaskOperationSet(t *testing.T) {
+	rules, err := New().Reactions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Reactions: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("rules = %#v, want one parallel intent rule", rules)
+	}
+	if err := rules[0].Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if rules[0].When.Assertion != AssertionParallelWork || rules[0].Actions[0].OperationSet != Name {
+		t.Fatalf("rule = %#v, want parallel assertion to enable task operation set", rules[0])
 	}
 }
 

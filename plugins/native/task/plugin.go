@@ -14,9 +14,11 @@ import (
 	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/command"
 	"github.com/fluxplane/engine/core/event"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/invocation"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	corereaction "github.com/fluxplane/engine/core/reaction"
 	"github.com/fluxplane/engine/core/resource"
 	coresession "github.com/fluxplane/engine/core/session"
 	coretask "github.com/fluxplane/engine/core/task"
@@ -24,6 +26,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/orchestration/sessionenv"
 	"github.com/fluxplane/engine/orchestration/taskexecutor"
+	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	"github.com/fluxplane/engine/runtime/system"
 	runtimetask "github.com/fluxplane/engine/runtime/task"
@@ -55,6 +58,8 @@ const (
 	ExplorerSession           = "explorer"
 	ReviewerAgent             = "reviewer"
 	ReviewerSession           = "reviewer"
+	ParallelIntentDeriver     = "task.parallel_intent"
+	AssertionParallelWork     = "work.parallel_requested"
 	defaultPrefix             = "task_"
 	artifactPrefix            = "artifact_"
 	taskModifyRetries         = 16
@@ -75,6 +80,8 @@ type TaskRunner interface {
 
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
+var _ pluginhost.AssertionDeriverContributor = Plugin{}
+var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns the task plugin.
 func New() Plugin { return Plugin{} }
@@ -103,7 +110,8 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			Description: "Task creation and management operations.",
 			Operations:  operationRefs(specs),
 		}},
-		Operations: specs,
+		Operations:        specs,
+		AssertionDerivers: []coreevidence.AssertionDeriverSpec{parallelIntentDeriverSpec()},
 		Commands: []command.Spec{
 			{
 				Path:        command.Path{TaskCommand},
@@ -151,6 +159,16 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 			{Name: ReviewerSession, Agent: agent.Ref{Name: ReviewerAgent}, Metadata: map[string]string{"role": "task_reviewer"}},
 		},
 	}, nil
+}
+
+// AssertionDerivers returns executable task-related assertion derivation.
+func (Plugin) AssertionDerivers(context.Context, pluginhost.Context) ([]runtimeevidence.AssertionDeriver, error) {
+	return []runtimeevidence.AssertionDeriver{parallelIntentAssertionDeriver{}}, nil
+}
+
+// Reactions returns task-plugin default reaction rules.
+func (Plugin) Reactions(context.Context, pluginhost.Context) ([]corereaction.Rule, error) {
+	return []corereaction.Rule{parallelIntentReactionRule()}, nil
 }
 
 // Operations returns executable task operations.
@@ -407,6 +425,106 @@ func taskSchedulerSetEnabledSpec() operation.Spec {
 	})
 }
 
+type parallelIntentAssertionDeriver struct{}
+
+func (parallelIntentAssertionDeriver) Spec() coreevidence.AssertionDeriverSpec {
+	return parallelIntentDeriverSpec()
+}
+
+func (parallelIntentAssertionDeriver) Derive(_ context.Context, req runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+	var out []coreevidence.Assertion
+	for _, observation := range req.Observations {
+		if observation.Kind != "channel.message" && observation.Kind != "session.continuation" {
+			continue
+		}
+		if !parallelIntentRequested(observationText(observation.Content)) {
+			continue
+		}
+		out = append(out, coreevidence.Assertion{
+			Kind:           AssertionParallelWork,
+			Target:         "task-scheduler",
+			Scope:          observation.Scope,
+			Environment:    observation.Environment,
+			Confidence:     1,
+			ObservationIDs: taskObservationIDs(observation.ID),
+		})
+	}
+	return out, nil
+}
+
+func parallelIntentDeriverSpec() coreevidence.AssertionDeriverSpec {
+	return coreevidence.AssertionDeriverSpec{
+		Name:             ParallelIntentDeriver,
+		Description:      "Derives parallel-work intent from channel message observations.",
+		ObservationKinds: []string{"channel.message", "session.continuation"},
+	}
+}
+
+func parallelIntentReactionRule() corereaction.Rule {
+	return corereaction.Rule{
+		Name:        "task.parallel_intent.enable_task_operations",
+		Description: "Enable task scheduling tools when the user asks for parallel work.",
+		When: corereaction.Matcher{
+			Assertion: AssertionParallelWork,
+			Target:    "task-scheduler",
+		},
+		Actions: []corereaction.Action{{
+			Kind:         corereaction.ActionEnableOperationSet,
+			OperationSet: Name,
+		}},
+	}
+}
+
+func parallelIntentRequested(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, phrase := range []string{
+		"at the same time",
+		"in parallel",
+		"concurrently",
+		"simultaneously",
+		"work on both",
+		"both things",
+		"split this up",
+		"split the work",
+		"have agents look",
+		"multiple agents",
+		"same time",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	if strings.Contains(text, "while you") && strings.Contains(text, "also") {
+		return true
+	}
+	return false
+}
+
+func observationText(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		data, err := json.Marshal(typed)
+		if err != nil {
+			return strings.TrimSpace(fmt.Sprint(typed))
+		}
+		return string(data)
+	}
+}
+
+func taskObservationIDs(id string) []string {
+	if id == "" {
+		return nil
+	}
+	return []string{id}
+}
+
 func taskAgentSpec() agent.Spec {
 	return agent.Spec{
 		Name:        TaskAgent,
@@ -418,8 +536,11 @@ func taskAgentSpec() agent.Spec {
 			"Ask clarification only when the request cannot be represented as a useful draft or ready task.",
 			"When enough information exists, call task_create.",
 			"If the user asks for immediate execution, create the task with status=ready, call task_run for the created task, and report whether it started, is already running, is not ready, or is waiting for capacity.",
+			"Treat phrases such as work on both things at the same time, in parallel, concurrently, split this up, or while you do one thing also investigate another as explicit immediate parallel execution requests.",
+			"For independent read-only investigation threads in a parallel request, create one ready explorer-assigned task per distinct thread, call task_run for each created task, and report every task id with its scheduler response.",
+			"If the requested threads share a write scope or cannot be separated cleanly, create one task with explicit steps instead of parallel tasks.",
 			"Use task_modify for follow-up changes to an existing task.",
-			"After task_create succeeds, send a concise final message with the task id, title, status, and expected outputs.",
+			"After task_create succeeds, send a concise final message with each task id, title, status, scheduler response when task_run was called, and expected outputs.",
 		}, " "),
 		Driver:     agent.DriverSpec{Kind: "llmagent"},
 		Turns:      agent.TurnPolicy{MaxSteps: 10},

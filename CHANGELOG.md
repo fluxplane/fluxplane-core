@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gave native task worker and explorer agents the `web_search` operation so
   web-search tasks can use the dedicated search tool instead of generic HTTP
   fetches.
+- Added native task phrase detection for parallel-work requests such as "at the
+  same time" or "in parallel", enabling task scheduling operations and guiding
+  read-only threads into separate explorer-assigned scheduled tasks.
 - Made one-shot terminal runs print completed background task result artifacts
   after waiting for task completion.
 - Made GitLab datasource filters accept common model-produced shapes for merge

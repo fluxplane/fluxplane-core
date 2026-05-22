@@ -642,6 +642,7 @@ Migration mapping:
 | Coder `ActivationInput.ToolchainStatuses` | toolchain observers + signal deriver | `toolchain.status` observations derive `toolchain.available`. |
 | `runtime/language.SignalMatcher` | `core/reaction.Matcher` over `environment.Signal` | Language plugins contribute reaction rules that enable operation sets from `language.detected` or `toolchain.available`. |
 | Skill/reference phrase triggers | channel-message observer + reaction rules | Message observations derive `skill.requested` or `skill.reference.requested`, then activate skill state through normal reactions. |
+| Parallel-work intent phrases | channel-message observer + reaction rules | Message observations derive `work.parallel_requested` from phrases such as "at the same time" or "in parallel", then activate task scheduling tools. The model still decomposes concrete task boundaries. |
 | Datasource detection from ad hoc context text | context/message observations + datasource reactions | Datasource visibility is enabled by explicit signals, while providers can still inspect observations for rendering. |
 
 The practical target is that Coder's broad static product bundle can remain
@@ -962,6 +963,13 @@ This model is meant to converge several existing special cases:
   activation matcher.
 - **Skill text triggers**: phrase-based skill and reference activation now uses
   generated reaction rules over channel-message observations.
+- **Parallel task intent**: task plugin phrase detection derives a
+  `work.parallel_requested` assertion from channel-message observations for
+  requests such as "work on both things at the same time" or "in parallel".
+  The default reaction enables task scheduling operations; task decomposition
+  remains model-owned so read-only investigations can become one ready
+  explorer task per independent thread while tightly coupled work stays in one
+  task.
 - **Datasource detection input**: detected datasource context now derives local
   detector input directly from provider request observations, not a parallel
   context side channel.

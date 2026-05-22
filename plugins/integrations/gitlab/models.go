@@ -13,34 +13,35 @@ import (
 )
 
 const (
-	ProjectEntity              coredatasource.EntityType = "gitlab.project"
-	ActivityEntity             coredatasource.EntityType = "gitlab.activity"
-	MergeRequestEntity         coredatasource.EntityType = "gitlab.merge_request"
-	MergeRequestDiffEntity     coredatasource.EntityType = "gitlab.merge_request_diff"
-	MergeRequestDiffLineEntity coredatasource.EntityType = "gitlab.merge_request_diff_line"
-	MergeRequestNoteEntity     coredatasource.EntityType = "gitlab.merge_request_note"
-	MergeRequestApprovalEntity coredatasource.EntityType = "gitlab.merge_request_approval"
-	MergeRequestChangeEntity   coredatasource.EntityType = "gitlab.merge_request_change"
-	DiscussionEntity           coredatasource.EntityType = "gitlab.discussion"
-	AwardEmojiEntity           coredatasource.EntityType = "gitlab.award_emoji"
-	PipelineEntity             coredatasource.EntityType = "gitlab.pipeline"
-	BranchEntity               coredatasource.EntityType = "gitlab.branch"
-	TagEntity                  coredatasource.EntityType = "gitlab.tag"
-	CommitEntity               coredatasource.EntityType = "gitlab.commit"
-	RepositoryTreeEntity       coredatasource.EntityType = "gitlab.repository_tree"
-	RepositoryFileEntity       coredatasource.EntityType = "gitlab.repository_file"
-	CompareEntity              coredatasource.EntityType = "gitlab.compare"
-	BlameEntity                coredatasource.EntityType = "gitlab.blame"
-	BlobSearchEntity           coredatasource.EntityType = "gitlab.blob_search"
-	ProjectLanguageEntity      coredatasource.EntityType = "gitlab.project_language"
-	ProjectContributorEntity   coredatasource.EntityType = "gitlab.project_contributor"
-	JobEntity                  coredatasource.EntityType = "gitlab.job"
-	JobTraceEntity             coredatasource.EntityType = "gitlab.job_trace"
-	SnippetEntity              coredatasource.EntityType = "gitlab.snippet"
-	SnippetFileEntity          coredatasource.EntityType = "gitlab.snippet_file"
-	UserEntity                 coredatasource.EntityType = "gitlab.user"
-	GroupEntity                coredatasource.EntityType = "gitlab.group"
-	MembershipEntity           coredatasource.EntityType = "gitlab.user_membership"
+	ProjectEntity                   coredatasource.EntityType = "gitlab.project"
+	ActivityEntity                  coredatasource.EntityType = "gitlab.activity"
+	MergeRequestEntity              coredatasource.EntityType = "gitlab.merge_request"
+	MergeRequestDiffEntity          coredatasource.EntityType = "gitlab.merge_request_diff"
+	MergeRequestDiffLineEntity      coredatasource.EntityType = "gitlab.merge_request_diff_line"
+	MergeRequestNoteEntity          coredatasource.EntityType = "gitlab.merge_request_note"
+	MergeRequestApprovalEntity      coredatasource.EntityType = "gitlab.merge_request_approval"
+	MergeRequestChangeEntity        coredatasource.EntityType = "gitlab.merge_request_change"
+	MergeRequestReviewContextEntity coredatasource.EntityType = "gitlab.merge_request_review_context"
+	DiscussionEntity                coredatasource.EntityType = "gitlab.discussion"
+	AwardEmojiEntity                coredatasource.EntityType = "gitlab.award_emoji"
+	PipelineEntity                  coredatasource.EntityType = "gitlab.pipeline"
+	BranchEntity                    coredatasource.EntityType = "gitlab.branch"
+	TagEntity                       coredatasource.EntityType = "gitlab.tag"
+	CommitEntity                    coredatasource.EntityType = "gitlab.commit"
+	RepositoryTreeEntity            coredatasource.EntityType = "gitlab.repository_tree"
+	RepositoryFileEntity            coredatasource.EntityType = "gitlab.repository_file"
+	CompareEntity                   coredatasource.EntityType = "gitlab.compare"
+	BlameEntity                     coredatasource.EntityType = "gitlab.blame"
+	BlobSearchEntity                coredatasource.EntityType = "gitlab.blob_search"
+	ProjectLanguageEntity           coredatasource.EntityType = "gitlab.project_language"
+	ProjectContributorEntity        coredatasource.EntityType = "gitlab.project_contributor"
+	JobEntity                       coredatasource.EntityType = "gitlab.job"
+	JobTraceEntity                  coredatasource.EntityType = "gitlab.job_trace"
+	SnippetEntity                   coredatasource.EntityType = "gitlab.snippet"
+	SnippetFileEntity               coredatasource.EntityType = "gitlab.snippet_file"
+	UserEntity                      coredatasource.EntityType = "gitlab.user"
+	GroupEntity                     coredatasource.EntityType = "gitlab.group"
+	MembershipEntity                coredatasource.EntityType = "gitlab.user_membership"
 )
 
 type Project struct {
@@ -161,6 +162,19 @@ type MergeRequestChange struct {
 	Files           []CompareFile `json:"files,omitempty" jsonschema:"description=Changed file summaries."`
 	DiffPreview     string        `json:"diff_preview,omitempty" datasource:"searchable" jsonschema:"description=Optional bounded diff preview for a requested path."`
 	Truncated       bool          `json:"truncated,omitempty" jsonschema:"description=Whether diff preview was truncated."`
+}
+
+type MergeRequestReviewContext struct {
+	ID              string               `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!review_context."`
+	MergeRequest    MergeRequest         `json:"merge_request" jsonschema:"description=Merge request metadata."`
+	Change          MergeRequestChange   `json:"change" jsonschema:"description=Changed-file summary."`
+	Approval        MergeRequestApproval `json:"approval" jsonschema:"description=Approval summary."`
+	Pipelines       []Pipeline           `json:"pipelines,omitempty" jsonschema:"description=Recent pipelines for this merge request."`
+	LatestPipeline  Pipeline             `json:"latest_pipeline,omitempty" jsonschema:"description=Most recent pipeline for this merge request."`
+	Jobs            []Job                `json:"jobs,omitempty" jsonschema:"description=Jobs for the latest pipeline."`
+	Discussions     []Discussion         `json:"discussions,omitempty" jsonschema:"description=Recent discussion threads."`
+	UnresolvedCount int                  `json:"unresolved_discussion_count" datasource:"filterable" jsonschema:"description=Unresolved resolvable discussion count."`
+	SystemNotesOnly bool                 `json:"system_notes_only" datasource:"filterable" jsonschema:"description=Whether discussions contain only system notes or no notes."`
 }
 
 type Discussion struct {
@@ -449,6 +463,7 @@ func entitySpecs() []coredatasource.EntitySpec {
 		mergeRequestNoteEntitySpec(),
 		mergeRequestApprovalEntitySpec(),
 		mergeRequestChangeEntitySpec(),
+		mergeRequestReviewContextEntitySpec(),
 		discussionEntitySpec(),
 		awardEmojiEntitySpec(),
 		pipelineEntitySpec(),
@@ -527,6 +542,7 @@ func mergeRequestEntitySpec() coredatasource.EntitySpec {
 		{Name: "notes", Description: "Notes on this merge request.", TargetEntity: MergeRequestNoteEntity},
 		{Name: "approvals", Description: "Approval summary for this merge request.", TargetEntity: MergeRequestApprovalEntity},
 		{Name: "changes", Description: "Changed-file summary for this merge request.", TargetEntity: MergeRequestChangeEntity},
+		{Name: "review_context", Description: "Aggregated review context for this merge request.", TargetEntity: MergeRequestReviewContextEntity},
 		{Name: "commits", Description: "Commits in this merge request.", TargetEntity: CommitEntity},
 		{Name: "discussions", Description: "Discussion threads on this merge request.", TargetEntity: DiscussionEntity},
 		{Name: "award_emoji", Description: "Award emoji reactions on this merge request.", TargetEntity: AwardEmojiEntity},
@@ -597,6 +613,16 @@ func mergeRequestApprovalEntitySpec() coredatasource.EntitySpec {
 
 func mergeRequestChangeEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestChange](MergeRequestChangeEntity, "GitLab merge request changed-file summary.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func mergeRequestReviewContextEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestReviewContext](MergeRequestReviewContextEntity, "GitLab merge request review context with metadata, changes, approvals, pipelines, jobs, and discussions.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityList,
@@ -1603,6 +1629,18 @@ func parseMergeRequestApprovalID(id string) (any, int64, error) {
 	}
 	project, iid, child, childErr := parseMergeRequestChildID(id)
 	if childErr == nil && child == "approvals" {
+		return project, iid, nil
+	}
+	return nil, 0, err
+}
+
+func parseMergeRequestReviewContextID(id string) (any, int64, error) {
+	project, iid, err := parseMergeRequestID(id)
+	if err == nil {
+		return project, iid, nil
+	}
+	project, iid, child, childErr := parseMergeRequestChildID(id)
+	if childErr == nil && child == "review_context" {
 		return project, iid, nil
 	}
 	return nil, 0, err

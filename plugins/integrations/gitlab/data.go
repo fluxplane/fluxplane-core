@@ -6,11 +6,12 @@ import (
 )
 
 const (
-	GitLabProjectView        coredata.ViewName = "gitlab.project"
-	GitLabUserView           coredata.ViewName = "gitlab.user"
-	GitLabGroupView          coredata.ViewName = "gitlab.group"
-	MembershipDataView       coredata.ViewName = "gitlab.membership"
-	GitLabUserWithGroupsView coredata.ViewName = "gitlab.user_with_groups"
+	GitLabProjectView         coredata.ViewName = "gitlab.project"
+	GitLabUserView            coredata.ViewName = "gitlab.user"
+	GitLabGroupView           coredata.ViewName = "gitlab.group"
+	MembershipDataView        coredata.ViewName = "gitlab.membership"
+	GitLabUserWithGroupsView  coredata.ViewName = "gitlab.user_with_groups"
+	GitLabMRReviewContextView coredata.ViewName = "gitlab.merge_request_review_context"
 )
 
 // DataSourceSpec describes the GitLab source schema and default materialized views.
@@ -44,6 +45,12 @@ func DataViews() []coredata.ViewSpec {
 			coredata.EntityType(MembershipEntity),
 			runtimedata.WithViewDescription("GitLab user membership edge records with source path and access level."),
 			runtimedata.WithViewQueryHints(coredata.QueryGet, coredata.QueryList, coredata.QueryRelation),
+		),
+		runtimedata.ViewOf[MergeRequestReviewContext](
+			GitLabMRReviewContextView,
+			coredata.EntityType(MergeRequestReviewContextEntity),
+			runtimedata.WithViewDescription("GitLab merge request review context with metadata, changes, approvals, pipelines, jobs, and discussions."),
+			runtimedata.WithViewQueryHints(coredata.QueryGet, coredata.QueryList, coredata.QuerySearch),
 		),
 		runtimedata.ViewOf[gitlabUserWithGroupsView](
 			GitLabUserWithGroupsView,

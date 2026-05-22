@@ -160,6 +160,12 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.changeRecord(change)}, -1), nil
+	case MergeRequestReviewContextEntity:
+		context, err := searchMergeRequestReviewContext(ctx, client, req.Query, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.reviewContextRecord(context)}, -1), nil
 	case DiscussionEntity:
 		discussions, err := searchDiscussions(ctx, client, req.Query, req.Filters, req.Limit)
 		if err != nil {
@@ -426,6 +432,12 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 			return coredatasource.ListResult{}, err
 		}
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, []coredatasource.Record{a.changeRecord(change)}, 1, limit, page), nil
+	case MergeRequestReviewContextEntity:
+		context, err := searchMergeRequestReviewContext(ctx, client, "", req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, []coredatasource.Record{a.reviewContextRecord(context)}, 1, limit, page), nil
 	case DiscussionEntity:
 		discussions, err := searchDiscussions(ctx, client, "", req.Filters, limit)
 		if err != nil {
@@ -541,6 +553,16 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			return coredatasource.Record{}, err
 		}
 		return a.approvalRecord(approval), nil
+	case MergeRequestReviewContextEntity:
+		project, iid, err := parseMergeRequestReviewContextID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		context, err := mergeRequestReviewContext(ctx, client, project, iid, defaultPageSize)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.reviewContextRecord(context), nil
 	case MergeRequestNoteEntity:
 		project, iid, child, err := parseMergeRequestChildID(req.ID)
 		if err != nil {
@@ -866,6 +888,12 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return coredatasource.RelationResult{}, err
 			}
 			return a.relationResult(req, MergeRequestChangeEntity, []coredatasource.Record{a.changeRecord(change)}, 1, limit)
+		case "review_context":
+			context, err := mergeRequestReviewContext(ctx, client, project, iid, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, MergeRequestReviewContextEntity, []coredatasource.Record{a.reviewContextRecord(context)}, 1, limit)
 		case "commits":
 			commits, err := client.GetMergeRequestCommits(ctx, project, iid, &gitlab.GetMergeRequestCommitsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(limit), Page: int64(cursorPage(req.Cursor))}})
 			if err != nil {
@@ -1449,6 +1477,44 @@ func (a gitlabAccessor) changeRecord(change MergeRequestChange) coredatasource.R
 			"truncated":         strconv.FormatBool(change.Truncated),
 		},
 		Raw: change,
+	}
+}
+
+func (a gitlabAccessor) reviewContextRecord(context MergeRequestReviewContext) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         context.ID,
+		Datasource: a.spec.Name,
+		Entity:     MergeRequestReviewContextEntity,
+		Title:      fmt.Sprintf("MR !%d review context", context.MergeRequest.IID),
+		Content: strings.Join(cleaned([]string{
+			context.MergeRequest.Title,
+			context.MergeRequest.Description,
+			context.Change.DiffPreview,
+		}), "\n"),
+		URL: context.MergeRequest.WebURL,
+		Metadata: map[string]string{
+			"id":                          context.ID,
+			"project_id":                  strconv.FormatInt(context.MergeRequest.ProjectID, 10),
+			"project_path":                firstNonEmpty(context.MergeRequest.ProjectPath, projectIDLabel(context.MergeRequest.ProjectID)),
+			"merge_request_iid":           strconv.FormatInt(context.MergeRequest.IID, 10),
+			"source_branch":               context.MergeRequest.SourceBranch,
+			"target_branch":               context.MergeRequest.TargetBranch,
+			"sha":                         context.MergeRequest.SHA,
+			"state":                       context.MergeRequest.State,
+			"author":                      context.MergeRequest.AuthorUsername,
+			"changed_files":               strconv.Itoa(len(context.Change.Files)),
+			"approved":                    strconv.FormatBool(context.Approval.Approved),
+			"approvals_required":          strconv.FormatInt(context.Approval.ApprovalsRequired, 10),
+			"approvals_left":              strconv.FormatInt(context.Approval.ApprovalsLeft, 10),
+			"latest_pipeline_id":          strconv.FormatInt(context.LatestPipeline.ID, 10),
+			"latest_pipeline_status":      context.LatestPipeline.Status,
+			"latest_pipeline_sha":         context.LatestPipeline.SHA,
+			"jobs":                        strconv.Itoa(len(context.Jobs)),
+			"discussions":                 strconv.Itoa(len(context.Discussions)),
+			"unresolved_discussion_count": strconv.Itoa(context.UnresolvedCount),
+			"system_notes_only":           strconv.FormatBool(context.SystemNotesOnly),
+		},
+		Raw: context,
 	}
 }
 
@@ -4065,6 +4131,77 @@ func mergeRequestChange(ctx context.Context, client gitlabClient, project any, i
 		return MergeRequestChange{}, err
 	}
 	return changeFromDiffs(project, iid, diffs, path), nil
+}
+
+func searchMergeRequestReviewContext(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) (MergeRequestReviewContext, error) {
+	if project, iid, ok := mergeRequestRefQuery(query); ok {
+		return mergeRequestReviewContext(ctx, client, project, iid, limit)
+	}
+	project, iid, err := projectAndMR(filters)
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	return mergeRequestReviewContext(ctx, client, project, iid, limit)
+}
+
+func mergeRequestReviewContext(ctx context.Context, client gitlabClient, project any, iid int64, limit int) (MergeRequestReviewContext, error) {
+	mr, err := client.GetMergeRequest(ctx, project, iid, nil)
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	change, err := mergeRequestChange(ctx, client, project, iid, "")
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	approval, err := mergeRequestApproval(ctx, client, project, iid)
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	pipelines, err := pipelinesForMRProject(ctx, client, project, iid, limit)
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	var latest Pipeline
+	var jobs []Job
+	if len(pipelines) > 0 {
+		latest = pipelines[0]
+		jobs, err = listPipelineJobs(ctx, client, project, latest.ID, limit, 1)
+		if err != nil {
+			return MergeRequestReviewContext{}, err
+		}
+	}
+	discussions, err := listDiscussions(ctx, client, project, iid, limit)
+	if err != nil {
+		return MergeRequestReviewContext{}, err
+	}
+	unresolved := 0
+	systemNotesOnly := true
+	for _, discussion := range discussions {
+		if discussion.Resolvable && !discussion.Resolved {
+			unresolved++
+		}
+		for _, note := range discussion.Notes {
+			if !note.System {
+				systemNotesOnly = false
+			}
+		}
+	}
+	converted := mergeRequestFromFull(mr)
+	if converted.ProjectPath == "" {
+		converted.ProjectPath = projectIDLabel(project)
+	}
+	return MergeRequestReviewContext{
+		ID:              fmt.Sprintf("%s!review_context", mergeRequestID(projectIDLabel(project), iid)),
+		MergeRequest:    converted,
+		Change:          change,
+		Approval:        approval,
+		Pipelines:       pipelines,
+		LatestPipeline:  latest,
+		Jobs:            jobs,
+		Discussions:     discussions,
+		UnresolvedCount: unresolved,
+		SystemNotesOnly: systemNotesOnly,
+	}, nil
 }
 
 func searchDiscussions(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]Discussion, error) {

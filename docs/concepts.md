@@ -159,6 +159,13 @@ reconciliation. A request that asks for immediate execution should call
 `task_run` after the task is ready so the caller sees whether scheduling
 started, is already running, is not ready, or is waiting for capacity. The local
 scheduler supports role-specific worker profile pools and per-role capacity.
+User phrases that ask to work on multiple things "at the same time", "in
+parallel", or similar derive a `work.parallel_requested` assertion. The default
+task reaction enables task scheduling operations for that turn. When the
+request contains independent read-only investigation threads, the task creator
+guidance expects one ready explorer-assigned task per thread and a `task_run`
+call for each task; tightly coupled write work should stay in one task with
+explicit steps.
 The `/task` and `/plan` command helpers run as command session agents; scheduled
 task execution itself runs through `orchestration/taskexecutor` workers and task
 events rather than through the legacy sub-agent supervisor.

@@ -1505,6 +1505,7 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		MergeRequestNoteEntity,
 		MergeRequestApprovalEntity,
 		MergeRequestChangeEntity,
+		MergeRequestReviewContextEntity,
 		DiscussionEntity,
 		AwardEmojiEntity,
 		PipelineEntity,
@@ -1553,12 +1554,12 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	if !hasCapability(entities[PipelineEntity], coredatasource.EntityCapabilityList) {
 		t.Fatalf("pipeline capabilities = %#v, want list", entities[PipelineEntity].Capabilities)
 	}
-	for _, typ := range []coredatasource.EntityType{MergeRequestDiffEntity, MergeRequestDiffLineEntity, MergeRequestNoteEntity, MergeRequestApprovalEntity, MergeRequestChangeEntity, DiscussionEntity, AwardEmojiEntity} {
+	for _, typ := range []coredatasource.EntityType{MergeRequestDiffEntity, MergeRequestDiffLineEntity, MergeRequestNoteEntity, MergeRequestApprovalEntity, MergeRequestChangeEntity, MergeRequestReviewContextEntity, DiscussionEntity, AwardEmojiEntity} {
 		if !hasCapability(entities[typ], coredatasource.EntityCapabilityList) {
 			t.Fatalf("entity %s capabilities = %#v, want list", typ, entities[typ].Capabilities)
 		}
 	}
-	for _, typ := range []coredatasource.EntityType{MergeRequestApprovalEntity, MergeRequestChangeEntity} {
+	for _, typ := range []coredatasource.EntityType{MergeRequestApprovalEntity, MergeRequestChangeEntity, MergeRequestReviewContextEntity} {
 		if !hasCapability(entities[typ], coredatasource.EntityCapabilityGet) {
 			t.Fatalf("entity %s capabilities = %#v, want get", typ, entities[typ].Capabilities)
 		}
@@ -1579,16 +1580,17 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		relations[relation.Name] = relation.TargetEntity
 	}
 	for name, target := range map[string]coredatasource.EntityType{
-		"diffs":        MergeRequestDiffEntity,
-		"notes":        MergeRequestNoteEntity,
-		"approvals":    MergeRequestApprovalEntity,
-		"changes":      MergeRequestChangeEntity,
-		"commits":      CommitEntity,
-		"discussions":  DiscussionEntity,
-		"award_emoji":  AwardEmojiEntity,
-		"pipelines":    PipelineEntity,
-		"participants": UserEntity,
-		"reviewers":    UserEntity,
+		"diffs":          MergeRequestDiffEntity,
+		"notes":          MergeRequestNoteEntity,
+		"approvals":      MergeRequestApprovalEntity,
+		"changes":        MergeRequestChangeEntity,
+		"review_context": MergeRequestReviewContextEntity,
+		"commits":        CommitEntity,
+		"discussions":    DiscussionEntity,
+		"award_emoji":    AwardEmojiEntity,
+		"pipelines":      PipelineEntity,
+		"participants":   UserEntity,
+		"reviewers":      UserEntity,
 	} {
 		if relations[name] != target {
 			t.Fatalf("relation %s = %s, want %s", name, relations[name], target)
@@ -1941,7 +1943,8 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 					}},
 				}},
 				awardEmoji: []*gitlab.AwardEmoji{{ID: 55, Name: "thumbsup", User: gitlab.BasicUser{Username: "reviewer"}}},
-				pipelines:  []*gitlab.PipelineInfo{{ID: 393891, ProjectID: 12, Ref: "feature", Status: "success"}},
+				pipelines:  []*gitlab.PipelineInfo{{ID: 393891, ProjectID: 12, Ref: "feature", Status: "success", SHA: "abc123"}},
+				jobs:       []*gitlab.Job{{ID: 709198, Pipeline: gitlab.JobPipeline{ID: 393891, ProjectID: 12, Ref: "feature", Sha: "abc123", Status: "success"}, Name: "build", Status: "success", Ref: "feature", Commit: &gitlab.Commit{ID: "abc123"}}},
 			}, nil
 		},
 	}
@@ -1956,6 +1959,7 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 			MergeRequestNoteEntity,
 			MergeRequestApprovalEntity,
 			MergeRequestChangeEntity,
+			MergeRequestReviewContextEntity,
 			DiscussionEntity,
 			AwardEmojiEntity,
 			CommitEntity,
@@ -2012,6 +2016,13 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 	}
 	if len(changes.Records) != 1 || changes.Records[0].Entity != MergeRequestChangeEntity || changes.Records[0].Metadata["files"] != "1" {
 		t.Fatalf("change records = %#v", changes.Records)
+	}
+	reviewContext, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "review_context"})
+	if err != nil {
+		t.Fatalf("mr review_context Relation: %v", err)
+	}
+	if len(reviewContext.Records) != 1 || reviewContext.Records[0].Entity != MergeRequestReviewContextEntity || reviewContext.Records[0].Metadata["changed_files"] != "1" || reviewContext.Records[0].Metadata["latest_pipeline_status"] != "success" || reviewContext.Records[0].Metadata["jobs"] != "1" || reviewContext.Records[0].Metadata["unresolved_discussion_count"] != "1" || reviewContext.Records[0].Metadata["project_path"] != "12" {
+		t.Fatalf("review context records = %#v", reviewContext.Records)
 	}
 	commits, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "commits"})
 	if err != nil {
@@ -2117,7 +2128,8 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 					}},
 				}},
 				awardEmoji: []*gitlab.AwardEmoji{{ID: 55, Name: "thumbsup", User: gitlab.BasicUser{Username: "reviewer"}}},
-				pipelines:  []*gitlab.PipelineInfo{{ID: 393891, ProjectID: 12, Ref: "feature", Status: "success"}},
+				pipelines:  []*gitlab.PipelineInfo{{ID: 393891, ProjectID: 12, Ref: "feature", Status: "success", SHA: "abc123"}},
+				jobs:       []*gitlab.Job{{ID: 709198, Pipeline: gitlab.JobPipeline{ID: 393891, ProjectID: 12, Ref: "feature", Sha: "abc123", Status: "success"}, Name: "build", Status: "success", Ref: "feature", Commit: &gitlab.Commit{ID: "abc123"}}},
 				file:       &gitlab.File{FileName: "runtime.go", FilePath: "runtime.go", Ref: "HEAD", Content: "cGFja2FnZSBtYWluCg==", Encoding: "base64"},
 			}, nil
 		},
@@ -2132,6 +2144,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 			MergeRequestNoteEntity,
 			MergeRequestApprovalEntity,
 			MergeRequestChangeEntity,
+			MergeRequestReviewContextEntity,
 			DiscussionEntity,
 			AwardEmojiEntity,
 			PipelineEntity,
