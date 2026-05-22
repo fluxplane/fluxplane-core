@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added native Jira issue creation and comment posting operations that convert
+  Markdown bodies to Jira ADF using the same converter as `dex jira`.
 - Added a native `usage` datasource plugin that exposes persisted
   `usage.recorded` runtime events for token, cost, request, byte, and wall-time
   inspection.
@@ -230,6 +232,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filesystem entrypoint.
 
 ### Fixed
+- Stopped session event subscribers from forwarding zero-value events if their
+  internal input channel closes, preventing runaway background task event loops.
 - Restored coder shell's agentic input mode as the default and kept timeline
   dimensions stable when switching between agent and shell input.
 - Cleaned generated Docker build contexts after dry-run app/base image builds

@@ -1256,7 +1256,10 @@ func (s *subscriber) run() {
 		select {
 		case <-s.done:
 			return
-		case event := <-s.in:
+		case event, ok := <-s.in:
+			if !ok {
+				return
+			}
 			select {
 			case s.ch <- event:
 			case <-s.done:

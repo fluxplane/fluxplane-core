@@ -803,6 +803,20 @@ func TestSubscriberCloseUnblocksBlockedSend(t *testing.T) {
 	}
 }
 
+func TestSubscriberClosedInputDoesNotEmitZeroEvents(t *testing.T) {
+	sub := newSubscriber(1, 1)
+	close(sub.in)
+
+	select {
+	case event, ok := <-sub.ch:
+		if ok {
+			t.Fatalf("subscriber emitted %#v after input close, want output closed", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber did not close output after input close")
+	}
+}
+
 func TestOpenSessionAppliesConfiguredSessionDefaults(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)

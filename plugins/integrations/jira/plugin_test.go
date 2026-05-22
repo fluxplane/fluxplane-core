@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -61,8 +62,8 @@ func TestPluginMaterializesIssueSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	if len(bundle.Operations) != 1 {
-		t.Fatalf("operations len = %d, want 1", len(bundle.Operations))
+	if len(bundle.Operations) != 3 {
+		t.Fatalf("operations len = %d, want 3", len(bundle.Operations))
 	}
 	if got := string(bundle.Operations[0].Ref.Name); got != "jira_prod_issue_search" {
 		t.Fatalf("operation name = %q, want jira_prod_issue_search", got)
@@ -153,6 +154,102 @@ func TestIssueSearchUsesNativeHTTPAndTokenAuth(t *testing.T) {
 	}
 	if !strings.Contains(network.request.URL, "maxResults=3") {
 		t.Fatalf("request URL = %q, want maxResults=3", network.request.URL)
+	}
+}
+
+func TestIssueCreateUsesNativeHTTPAndTokenAuth(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 201,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"id":"101","key":"DEV-488","self":"https://api.example/issue/101"}`),
+	}}
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := ops[1].Run(coreoperation.NewContext(context.Background(), nil), map[string]any{
+		"project_key": "DEV",
+		"issue_type":  "Task",
+		"summary":     "Create issue from plugin",
+		"description": "Line one with **bold**\n\n- Line two",
+		"labels":      []any{"ivr", "realtime"},
+	})
+	if result.Status != coreoperation.StatusOK {
+		t.Fatalf("status = %s error = %#v", result.Status, result.Error)
+	}
+	if network.request.Method != "POST" {
+		t.Fatalf("method = %q, want POST", network.request.Method)
+	}
+	if network.request.URL != "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue" {
+		t.Fatalf("request URL = %q", network.request.URL)
+	}
+	if got := network.request.Headers["Authorization"]; got != "Bearer jira-token" {
+		t.Fatalf("authorization = %q, want bearer token", got)
+	}
+	body := string(network.request.Body)
+	for _, want := range []string{`"project":{"key":"DEV"}`, `"issuetype":{"name":"Task"}`, `"summary":"Create issue from plugin"`, `"labels":["ivr","realtime"]`, `"type":"doc"`, `"type":"strong"`, `"type":"bulletList"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %s, missing %s", body, want)
+		}
+	}
+}
+
+func TestIssueCommentUsesMarkdownConverter(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 201,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"id":"10042"}`),
+	}}
+	plugin := newTestPlugin(t, network, map[string]string{"JIRA_TOKEN": "jira-token"})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "main"}
+	plugin.cfg = atlassian.Config{CloudID: "cloud-1", Auth: atlassian.AuthConfig{Method: atlassian.TokenMethod}}
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	result := ops[2].Run(coreoperation.NewContext(context.Background(), nil), map[string]any{
+		"issue_key": "DEV-488",
+		"body":      "## Update\n\nSee `worker.go`.",
+	})
+	if result.Status != coreoperation.StatusOK {
+		t.Fatalf("status = %s error = %#v", result.Status, result.Error)
+	}
+	if network.request.Method != "POST" {
+		t.Fatalf("method = %q, want POST", network.request.Method)
+	}
+	if network.request.URL != "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/issue/DEV-488/comment" {
+		t.Fatalf("request URL = %q", network.request.URL)
+	}
+	body := string(network.request.Body)
+	for _, want := range []string{`"body":{"content"`, `"type":"heading"`, `"level":2`, `"type":"code"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body = %s, missing %s", body, want)
+		}
+	}
+}
+
+func TestJiraMarkdownToADFLinkifiesKnownIssueKeys(t *testing.T) {
+	network := &recordingNetwork{response: system.HTTPResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+		Body:       []byte(`{"values":[{"key":"DEV","name":"Development"}],"total":1}`),
+	}}
+	session := atlassian.Session{
+		SiteURL:       "https://example.atlassian.invalid",
+		BaseURL:       "https://api.atlassian.invalid/rest/api/3",
+		Authorization: "Bearer token",
+	}
+	doc := jiraMarkdownToADF(context.Background(), fakeSystem{network: network}, session, "Related to DEV-381.")
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, `"type":"inlineCard"`) || !strings.Contains(body, `"url":"https://example.atlassian.invalid/browse/DEV-381"`) {
+		t.Fatalf("doc = %s, want inline card link to known issue", body)
 	}
 }
 

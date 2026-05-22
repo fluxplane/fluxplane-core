@@ -104,6 +104,8 @@ github.com/codewandler/cmdrisk v0.1.1 h1:EmCvCp/rnOGsxuX8pet1ygIJ/4V070dh29cRSet
 github.com/codewandler/cmdrisk v0.1.1/go.mod h1:PKySwtJeRYRfF0U/mgcI5P6K7OpAuyK8Ktq67W3M0hA=
 github.com/codewandler/markdown v0.46.3 h1:WuZSbjr6kGv8GxUQD0PAW5MKfAmYSh+XBZjlqBualCU=
 github.com/codewandler/markdown v0.46.3/go.mod h1:sNw74i9UYkl+Tms0nUmOeC/uKKQZpkm1rweCS2LqJPA=
+github.com/codewandler/md2adf v0.1.1 h1:jO8P+8KaIkJtFEPdHEafqR3Ta9aTciqgsi8iRpvMc8Q=
+github.com/codewandler/md2adf v0.1.1/go.mod h1:yCYEPa6ydeSgr/qNTbk5rB3YjdTKJoKd6Rq8CFpWkHQ=
 github.com/codewandler/modeldb v0.15.1 h1:yzUGurfqi1DGGqdBvOXoEVvrO95kqG23rPHsJIGOr80=
 github.com/codewandler/modeldb v0.15.1/go.mod h1:gEMWWdksRY8PodHlTY2QEBme1xNBK5gp7h9vo3QAI7g=
 github.com/containerd/errdefs v1.0.0 h1:tg5yIfIlQIrxYtu9ajqY42W3lpS19XqdxRQeEwYG8PI=

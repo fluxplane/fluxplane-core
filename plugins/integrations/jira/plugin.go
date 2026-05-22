@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/codewandler/md2adf"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/operation"
@@ -76,7 +78,7 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{p.issueSearchSpec()},
+		Operations: []operation.Spec{p.issueSearchSpec(), p.issueCreateSpec(), p.issueCommentSpec()},
 		OperationSets: []operation.Set{{
 			Name:        OperationSet,
 			Description: "Jira issue operations.",
@@ -88,7 +90,7 @@ func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resour
 
 func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
 	p = p.withRef(ctx.Ref)
-	return []operation.Operation{p.issueSearchOperation()}, nil
+	return []operation.Operation{p.issueSearchOperation(), p.issueCreateOperation(), p.issueCommentOperation()}, nil
 }
 
 func (p Plugin) DatasourceProviders(_ context.Context, ctx pluginhost.Context) ([]coredatasource.Provider, error) {
@@ -157,7 +159,7 @@ func AtlassianProduct() atlassian.Product {
 		DisplayName:  "Jira Cloud",
 		ResourcePath: "jira",
 		RESTPath:     "/rest/api/3",
-		Scopes:       []string{"read:jira-work", "offline_access"},
+		Scopes:       []string{"read:jira-work", "write:jira-work", "offline_access"},
 	}
 }
 
@@ -212,6 +214,110 @@ type issueSearchInput struct {
 	JQL        string `json:"jql" jsonschema:"description=Jira Query Language expression.,required"`
 	StartAt    int    `json:"start_at,omitempty" jsonschema:"description=Zero-based result offset. Defaults to 0."`
 	MaxResults int    `json:"max_results,omitempty" jsonschema:"description=Maximum issues to return. Defaults to 50."`
+}
+
+type issueCreateInput struct {
+	ProjectKey  string   `json:"project_key" jsonschema:"description=Jira project key such as DEV.,required"`
+	IssueType   string   `json:"issue_type" jsonschema:"description=Jira issue type name such as Task or Bug.,required"`
+	Summary     string   `json:"summary" jsonschema:"description=Issue summary.,required"`
+	Description string   `json:"description,omitempty" jsonschema:"description=Issue description as Markdown."`
+	Labels      []string `json:"labels,omitempty" jsonschema:"description=Labels to apply to the issue."`
+	Priority    string   `json:"priority,omitempty" jsonschema:"description=Priority name to apply to the issue."`
+	Parent      string   `json:"parent,omitempty" jsonschema:"description=Parent issue key for sub-tasks."`
+}
+
+type issueCommentInput struct {
+	IssueKey string `json:"issue_key" jsonschema:"description=Jira issue key such as DEV-123.,required"`
+	Body     string `json:"body" jsonschema:"description=Comment body as Markdown.,required"`
+}
+
+func (p Plugin) issueCreateSpec() operation.Spec {
+	return operationruntime.WithTypedContract[issueCreateInput, Output](operation.Spec{
+		Ref:         operation.Ref{Name: operation.Name(p.operationName("issue_create"))},
+		Description: "Create a Jira issue.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal, operation.EffectCreate},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskMedium,
+		},
+	})
+}
+
+func (p Plugin) issueCreateOperation() operation.Operation {
+	return operationruntime.NewTypedResult[issueCreateInput, Output](
+		p.issueCreateSpec(),
+		p.runIssueCreate,
+		operationruntime.WithAccess(p.issueCreateAccess),
+	)
+}
+
+func (p Plugin) runIssueCreate(ctx operation.Context, input issueCreateInput) operation.Result {
+	session, err := p.session(ctx)
+	if err != nil {
+		return operation.Failed(p.operationName("issue_create")+"_failed", err.Error(), nil)
+	}
+	input.ProjectKey = strings.TrimSpace(input.ProjectKey)
+	input.IssueType = strings.TrimSpace(input.IssueType)
+	input.Summary = strings.TrimSpace(input.Summary)
+	if input.ProjectKey == "" || input.IssueType == "" || input.Summary == "" {
+		return operation.Failed("invalid_"+p.operationName("issue_create")+"_input", "project_key, issue_type, and summary are required", nil)
+	}
+	var data map[string]any
+	status, err := jiraCreateIssue(ctx, p.system, session, input, &data)
+	if err != nil {
+		return operation.Failed(p.operationName("issue_create")+"_failed", err.Error(), nil)
+	}
+	if key, _ := data["key"].(string); key != "" {
+		data["url"] = strings.TrimRight(session.SiteURL, "/") + "/browse/" + key
+	}
+	return operation.OK(Output{Status: "ok", HTTPStatus: status, Data: data})
+}
+
+func (p Plugin) issueCreateAccess(ctx operation.Context, _ issueCreateInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{operationruntime.NetworkDescriptor(p.authzBaseURL(ctx), policy.ActionNetworkFetch)}, nil
+}
+
+func (p Plugin) issueCommentSpec() operation.Spec {
+	return operationruntime.WithTypedContract[issueCommentInput, Output](operation.Spec{
+		Ref:         operation.Ref{Name: operation.Name(p.operationName("issue_comment"))},
+		Description: "Add a Markdown comment to a Jira issue.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal, operation.EffectCreate},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskMedium,
+		},
+	})
+}
+
+func (p Plugin) issueCommentOperation() operation.Operation {
+	return operationruntime.NewTypedResult[issueCommentInput, Output](
+		p.issueCommentSpec(),
+		p.runIssueComment,
+		operationruntime.WithAccess(p.issueCommentAccess),
+	)
+}
+
+func (p Plugin) runIssueComment(ctx operation.Context, input issueCommentInput) operation.Result {
+	session, err := p.session(ctx)
+	if err != nil {
+		return operation.Failed(p.operationName("issue_comment")+"_failed", err.Error(), nil)
+	}
+	input.IssueKey = strings.TrimSpace(input.IssueKey)
+	if input.IssueKey == "" || strings.TrimSpace(input.Body) == "" {
+		return operation.Failed("invalid_"+p.operationName("issue_comment")+"_input", "issue_key and body are required", nil)
+	}
+	var data map[string]any
+	status, err := jiraAddComment(ctx, p.system, session, input, &data)
+	if err != nil {
+		return operation.Failed(p.operationName("issue_comment")+"_failed", err.Error(), nil)
+	}
+	return operation.OK(Output{Status: "ok", HTTPStatus: status, Data: data})
+}
+
+func (p Plugin) issueCommentAccess(ctx operation.Context, _ issueCommentInput) ([]operationruntime.AccessDescriptor, error) {
+	return []operationruntime.AccessDescriptor{operationruntime.NetworkDescriptor(p.authzBaseURL(ctx), policy.ActionNetworkFetch)}, nil
 }
 
 func (p Plugin) issueSearchSpec() operation.Spec {
@@ -562,6 +668,61 @@ type jiraProject struct {
 	Description    string `json:"description"`
 	ProjectTypeKey string `json:"projectTypeKey"`
 	Self           string `json:"self"`
+}
+
+func jiraCreateIssue(ctx context.Context, sys system.System, session atlassian.Session, input issueCreateInput, out any) (int, error) {
+	fields := map[string]any{
+		"project":   map[string]string{"key": input.ProjectKey},
+		"issuetype": map[string]string{"name": input.IssueType},
+		"summary":   input.Summary,
+	}
+	if strings.TrimSpace(input.Description) != "" {
+		fields["description"] = jiraMarkdownToADF(ctx, sys, session, input.Description)
+	}
+	if labels := cleaned(input.Labels); len(labels) > 0 {
+		fields["labels"] = labels
+	}
+	if priority := strings.TrimSpace(input.Priority); priority != "" {
+		fields["priority"] = map[string]string{"name": priority}
+	}
+	if parent := strings.TrimSpace(input.Parent); parent != "" {
+		fields["parent"] = map[string]string{"key": parent}
+	}
+	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, "/issue", map[string]any{"fields": fields}, out)
+}
+
+func jiraAddComment(ctx context.Context, sys system.System, session atlassian.Session, input issueCommentInput, out any) (int, error) {
+	body := map[string]any{"body": jiraMarkdownToADF(ctx, sys, session, input.Body)}
+	path := "/issue/" + url.PathEscape(input.IssueKey) + "/comment"
+	return atlassian.DoJSON(ctx, sys, session, http.MethodPost, path, body, out)
+}
+
+func jiraMarkdownToADF(ctx context.Context, sys system.System, session atlassian.Session, text string) md2adf.Node {
+	return md2adf.Convert(jiraLinkifyIssueKeys(ctx, sys, session, text))
+}
+
+func jiraLinkifyIssueKeys(ctx context.Context, sys system.System, session atlassian.Session, text string) string {
+	siteURL := strings.TrimRight(strings.TrimSpace(session.SiteURL), "/")
+	if siteURL == "" || strings.TrimSpace(text) == "" || sys == nil || sys.Network() == nil {
+		return text
+	}
+	projects, _, err := jiraListProjects(ctx, sys, session, 0, 200)
+	if err != nil || len(projects) == 0 {
+		return text
+	}
+	keys := make([]string, 0, len(projects))
+	for _, project := range projects {
+		if key := strings.TrimSpace(project.Key); key != "" {
+			keys = append(keys, regexp.QuoteMeta(key))
+		}
+	}
+	if len(keys) == 0 {
+		return text
+	}
+	re := regexp.MustCompile(`\b(` + strings.Join(keys, "|") + `)-(\d+)\b`)
+	return re.ReplaceAllStringFunc(text, func(match string) string {
+		return siteURL + "/browse/" + match
+	})
 }
 
 func jiraSearchIssues(ctx context.Context, sys system.System, session atlassian.Session, jql string, startAt, maxResults int, out any) (int, error) {
