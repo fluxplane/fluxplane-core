@@ -59,9 +59,10 @@ chat session to understand what has already happened.
 - Current root facade package:
   `fluxplane`.
 - Current physical repository/worktree path:
-  `/home/timo/projects/fluxplane/agentruntime`.
+  `/home/timo/projects/fluxplane/agentruntime` for engine. The coder product is
+  extracted to `github.com/fluxplane/coder`.
 - Current product CLI entrypoint:
-  `apps/coder/cmd/coder` in the nested `github.com/fluxplane/coder` module.
+  `github.com/fluxplane/coder/cmd/coder` in the standalone coder repository.
 - Current generic app command surface:
   `cmd/fluxplane`, implemented by `apps/fluxplane` and reusable command
   builders in `apps/launch`.
@@ -141,12 +142,8 @@ assembly/defaults that do not belong in `apps/launch`.
 ### Coder Product
 
 - Module path: `github.com/fluxplane/coder`.
-- Current staging location: nested module under `apps/coder`.
-- Imports the engine through:
-
-  ```go
-  replace github.com/fluxplane/engine => ../..
-  ```
+- Current repository: `github.com/fluxplane/coder`.
+- Imports the engine through a tagged `github.com/fluxplane/engine` module version.
 
 - Owns:
   - the coder product bundle
@@ -280,7 +277,8 @@ These were the relevant facts at the start of this plan:
 - Do not make `agentsdk.app.yaml` an active discovery alias after the manifest
   rename.
 - Do not physically extract repositories until the nested-module staging work
-  is clean and explicitly approved.
+  is clean and explicitly approved. This condition was satisfied before the
+  physical coder extraction slice.
 - Do not broaden runtime/plugin access to process environment by default.
 - Do not duplicate generic app command implementation between coder and
   fluxplane.
@@ -502,9 +500,38 @@ Assertions:
   module workspace setup.
 - `docs/repository-split.md` documents the staging replace and future
   extraction contract.
-- `apps/coder/architecture_test.go` fails if coder imports
+- The coder repository architecture test fails if coder imports
   `github.com/fluxplane/engine/internal/...`, engine command packages, or the
   old in-engine coder package path.
+
+### 7. Physical coder repository extraction
+
+Status: in progress.
+
+Purpose: move the coder product out of the engine repository and release it as
+`github.com/fluxplane/coder`.
+
+Deliverables:
+
+- Create the `github.com/fluxplane/coder` GitHub repository.
+- Move the former `apps/coder` module to the root of that repository.
+- Add standalone coder `README.md`, `CHANGELOG.md`, and `AGENTS.md`.
+- Remove local `replace github.com/fluxplane/engine => ../..` from coder.
+- Depend on a tagged engine version.
+- Remove `apps/coder` and coder-owned scripts/docs/tasks from the engine repo.
+- Update engine docs to describe coder as a separate product repository.
+- Push both repositories to GitHub and create the initial coder release tag.
+
+Assertions:
+
+- `gh repo view fluxplane/coder` resolves.
+- Engine root has no `apps/coder` directory.
+- Coder repo root declares `module github.com/fluxplane/coder`.
+- Coder repo has no committed local engine `replace` directive.
+- `go test ./...` passes in engine.
+- `go test ./...` passes in coder.
+- `go install github.com/fluxplane/coder/cmd/coder@latest` can resolve from the
+  released GitHub module path when private module access is configured.
 
 ## Test Plan
 
@@ -512,26 +539,22 @@ Assertions:
 - For architecture-sensitive slices, run `go run ./apps/archreport`.
 - For command-surface changes, run focused CLI smoke tests with `go run` before
   committing.
-- For installed-binary behavior, use the repository task that already wraps the
-  intended coder live-test provider where appropriate:
-
-  ```bash
-  task coder:live-test -- "prompt describing the scenario"
-  ```
+- For installed-binary behavior, use the coder repository's product tasks or
+  direct `go run ./cmd/coder ...` commands.
 
 - For auth and datasource scope changes, validate both sides:
   - coder product scope through `coder auth` and `coder datasource`
   - manifest scope through `fluxplane auth` and `fluxplane datasource`
-- After the coder nested module exists, run tests in both modules.
+- After physical extraction, run tests in both repositories.
 - Before committing a broad slice, ensure `CHANGELOG.md` reflects user-visible
   changes.
 
 Concrete smoke commands to keep current as the implementation evolves:
 
 ```bash
-cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder --help
-cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder auth status
-cd apps/coder && CODER_ROOT=<engine-root> go run ./cmd/coder datasource index build <engine-root>
+cd ../coder && go run ./cmd/coder --help
+cd ../coder && go run ./cmd/coder auth status
+cd ../coder && go run ./cmd/coder datasource index build <engine-root>
 go run ./cmd/fluxplane --help
 go run ./cmd/fluxplane auth status
 go run ./cmd/fluxplane datasource index build
@@ -566,8 +589,8 @@ The split is complete when all of the following are true:
 - The local app at `<local-slack-bot-app>` continues
   working after its manifest is refactored to `fluxplane.yaml` and its commands
   use `fluxplane` instead of `coder app`.
-- The coder product can be built and tested independently from the engine
-  module in the nested-module staging layout.
+- The coder product can be built, tested, installed, and released independently
+  from the engine module in its own repository.
 - The engine module does not import the coder product.
 - Full tests and architecture checks pass.
 

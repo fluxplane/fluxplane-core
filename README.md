@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <em>A Go runtime for durable agent systems — with <code>coder</code>, a terminal coding agent, included.</em>
+  <em>A Go runtime for durable agent systems and the generic <code>fluxplane</code> app CLI.</em>
 </p>
 
 <p align="center">
@@ -36,8 +36,8 @@ usable every day:
   providers, skills, and workflows through plugins.
 - **Real product assembly**: package agents into apps and distributions instead
   of wiring everything in one-off scripts.
-- **A working coding agent**: use `coder` immediately, then reuse the same
-  runtime primitives in your own agents.
+- **A working product path**: use the separate `coder` product immediately,
+  then reuse the same runtime primitives in your own agents.
 
 ## Try `coder` in 30 seconds
 
@@ -71,11 +71,11 @@ coder --model openrouter/anthropic/claude-sonnet-4.6
 coder --provider claudecode --model claude-sonnet-4-6
 ```
 
-See the [coder guide](docs/coder.md) for provider setup, goal mode, debugging,
-usage accounting, and safety expectations.
+See the `github.com/fluxplane/coder` repository for provider setup, goal mode,
+debugging, usage accounting, and safety expectations.
 
-See [repository split readiness](docs/repository-split.md) for the current
-Engine/Coder module boundaries, publish paths, and local development commands.
+See [repository split](docs/repository-split.md) for the current Engine/Coder
+module boundaries, publish paths, and local development commands.
 
 ## What you can build
 
@@ -83,7 +83,8 @@ Engine/Coder module boundaries, publish paths, and local development commands.
 
 Ship a terminal coding assistant with project discovery, language-aware tools,
 web search, file editing, tests, task execution, skills, and review workflows.
-`coder` is the reference app for this path.
+`coder` is the reference product for this path and lives in
+`github.com/fluxplane/coder`.
 
 ### Durable agent apps
 
@@ -143,8 +144,8 @@ Fluxplane applications.
 
 ## Start here
 
-- **Use the coding agent**: [coder guide](docs/coder.md)
-- **Explore the CLI**: [coder guide](docs/coder.md)
+- **Use the coding agent**: `github.com/fluxplane/coder`
+- **Explore the CLI**: [Fluxplane CLI](docs/fluxplane.md)
 - **Configure providers and apps**: [Configuration](docs/configuration.md)
 - **Understand the runtime**: [Architecture](docs/architecture.md)
 - **Review the safety model**: [Security](docs/security.md)

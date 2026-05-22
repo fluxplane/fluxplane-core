@@ -8,33 +8,33 @@ import (
 	"testing"
 )
 
-func TestAppFromPathResolvesCommandPackage(t *testing.T) {
+func TestAppFromPathResolvesRootCommandPackage(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cmd", "coder"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "cmd", "fluxplane"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(root)
-	app, err := appFromPath("apps/coder")
+	app, err := appFromPath("apps/fluxplane")
 	if err != nil {
 		t.Fatalf("appFromPath: %v", err)
 	}
-	if app.name != "coder" || app.dir != "." || app.pkg != "./cmd/coder" {
-		t.Fatalf("app = %#v, want root coder command", app)
+	if app.name != "fluxplane" || app.dir != "." || app.pkg != "./cmd/fluxplane" {
+		t.Fatalf("app = %#v, want root fluxplane command", app)
 	}
 }
 
 func TestAppFromPathResolvesNestedModuleCommandPackage(t *testing.T) {
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "apps", "coder", "cmd", "coder"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "apps", "example", "cmd", "example"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(root)
-	app, err := appFromPath("apps/coder")
+	app, err := appFromPath("apps/example")
 	if err != nil {
 		t.Fatalf("appFromPath: %v", err)
 	}
-	if app.name != "coder" || app.dir != filepath.Join("apps", "coder") || app.pkg != "./cmd/coder" {
-		t.Fatalf("app = %#v, want nested coder command", app)
+	if app.name != "example" || app.dir != filepath.Join("apps", "example") || app.pkg != "./cmd/example" {
+		t.Fatalf("app = %#v, want nested command", app)
 	}
 }
 

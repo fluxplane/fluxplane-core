@@ -82,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the legacy external connectors runtime, connector provider
   contributions, connector manifest fields, connector authorization resources,
   and `--connectors-path`; native plugin auth now uses `--auth-path`.
+- Extracted the coder product out of the engine repository; engine tasks and
+  docs now target the Fluxplane CLI while `github.com/fluxplane/coder` owns the
+  coder binary and product module.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.

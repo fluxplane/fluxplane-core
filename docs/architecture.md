@@ -296,10 +296,9 @@ apps/archreport
 they are assembly points. Reusable domain or runtime concepts should move
 inward once their shape is stable.
 
-The coder product is staged as its own module under `apps/coder` with module
-path `github.com/fluxplane/coder`. It imports public engine APIs and is checked
-separately from the root engine module; see
-[repository-split.md](repository-split.md).
+The coder product lives in its own `github.com/fluxplane/coder` repository. It
+imports public engine APIs and is checked separately from the root engine
+module; see [repository-split.md](repository-split.md).
 
 ### `cmd`
 
@@ -309,8 +308,8 @@ process-level exit behavior and call an assembled app command.
 Example:
 
 ```text
-apps/coder/cmd/coder
-  -> apps/coder distribution command
+cmd/fluxplane
+  -> apps/fluxplane distribution command
 ```
 
 `cmd` should not contain feature logic, command implementations, provider
@@ -330,8 +329,8 @@ or hide side effects behind authoring helpers.
 ### Local CLI Run
 
 ```text
-apps/coder/cmd/coder
-  -> apps/coder
+cmd/fluxplane
+  -> apps/fluxplane
      -> apps/launch.NewRunCommand
         -> apps/launch.RunPath
            -> adapters/distribution/local.Load
@@ -350,8 +349,8 @@ the generic distribution CLI adapter.
 ### Remote CLI Run
 
 ```text
-apps/coder/cmd/coder
-  -> apps/coder
+cmd/fluxplane
+  -> apps/fluxplane
      -> adapters/distribution/remote.NewCommand
         -> adapters/distribution/remote.Run
            -> adapters/distribution/remote.ResolveTarget
@@ -368,8 +367,8 @@ the same logical session handle contract as local clients.
 ### Daemon Serve
 
 ```text
-apps/coder/cmd/coder
-  -> apps/coder
+cmd/fluxplane
+  -> apps/fluxplane
      -> apps/launch.NewServeCommand
         -> apps/launch.Serve
            -> adapters/resources/appconfig
@@ -386,15 +385,16 @@ surface is kept separate from daemon/control HTTP.
 ### Plugin Auth
 
 ```text
-apps/coder/cmd/coder
-  -> apps/coder
+cmd/fluxplane
+  -> apps/fluxplane
      -> apps/launch auth command factory
-        -> plugin registry supplied by apps/coder
+        -> plugin registry supplied by the selected manifest bundle
         -> runtime/secret store and resolvers
 ```
 
-Plugin auth is product-scoped. `apps/coder` supplies the plugin registry for
-the coder bundle, while app-scoped auth resolves the selected manifest bundle.
+Plugin auth is scope-owned. Fluxplane app-scoped auth resolves the selected
+manifest bundle, while product repositories such as `github.com/fluxplane/coder`
+provide their own product-scoped registries.
 
 ### Plugin Contribution Resolution
 
@@ -426,9 +426,6 @@ adapters/distribution/*
 
 apps/launch
   concrete local runtime assembly for run/serve
-
-apps/coder
-  a ready-made coder distribution bundle
 ```
 
 A distribution is a runnable package of defaults, metadata, bundled resources,

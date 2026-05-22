@@ -27,9 +27,9 @@ Do not put migration decision logs in this file.
   explicitly says to skip it.
 - This is a pre-1.0 rewrite. No backward compatibility, no compat shims, no
   deprecated wrappers. Replace stale shapes; do not preserve them.
-- `coder` is the product CLI and main entrypoint. Do not add or preserve
-  `agentsdk` binary compatibility. `fluxplane.yaml` is the app manifest
-  filename.
+- `fluxplane` is the generic app CLI in this repository. The `coder` product
+  lives in `github.com/fluxplane/coder`. Do not add or preserve `agentsdk`
+  binary compatibility. `fluxplane.yaml` is the app manifest filename.
 
 ## Verification
 
@@ -52,20 +52,8 @@ Zero violations is required.
 
 ## Live Testing
 
-When asked to "live-test" coder behavior, run the actual coder binary path without
-rediscovering CLI defaults:
-
-```bash
-task coder:live-test -- "prompt describing the scenario"
-```
-
-This task runs the nested coder module with `CODER_ROOT` pointed at the engine
-checkout, equivalent to `cd apps/coder && CODER_ROOT=<repo> go run ./cmd/coder
---provider codex --model gpt-5.5 --yolo --debug --input ...`. The default
-OpenAI provider usually lacks credentials in agent workspaces, so do not use
-the default provider for live-test requests unless explicitly asked. Inspect
-the terminal output as well as debug JSON when checking
-rendering behavior; model summaries may omit structured operation data.
+When asked to live-test `coder`, use the `github.com/fluxplane/coder`
+repository. This engine repository no longer contains the coder product module.
 ## Layer Rules
 
 The dependency direction is fixed and enforced by `apps/archreport` and
@@ -252,7 +240,7 @@ See [docs/security.md](docs/security.md) for the full safety model.
 - Distribution loading and runtime handles live in
   `orchestration/distribution`. CLI/local/remote/describe helpers are
   adapters under `adapters/distribution/*`. Concrete assembly lives in
-  `apps/launch` (and products like the nested `apps/coder` module).
+  `apps/launch` and product repositories such as `github.com/fluxplane/coder`.
 
 ### Channel HTTP/SSE vs Daemon Control HTTP
 

@@ -62,7 +62,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	opts.targets = targets
 	apps := fs.Args()
 	if len(apps) == 0 {
-		return errors.New("usage: go run ./cmd/build/main.go [--install] [--target GOOS/GOARCH] apps/coder")
+		return errors.New("usage: go run ./cmd/build/main.go [--install] [--target GOOS/GOARCH] apps/fluxplane")
 	}
 	if len(opts.targets) == 0 {
 		opts.targets = defaultTargets()
