@@ -1208,7 +1208,8 @@ func TestSchedulerStoresLargeWorkerOutputAsReferenceArtifact(t *testing.T) {
 		}},
 	}
 	createTask(t, store, task)
-	scheduler := newScheduler(t, store, largeOutputWorker{output: strings.Repeat("large-output ", 2048)})
+	largeOutput := strings.Repeat("large-output ", 50000)
+	scheduler := newScheduler(t, store, largeOutputWorker{output: largeOutput})
 
 	if err := scheduler.RunTask(ctx, task.ID); err != nil {
 		t.Fatalf("RunTask: %v", err)
@@ -1234,7 +1235,7 @@ func TestSchedulerStoresLargeWorkerOutputAsReferenceArtifact(t *testing.T) {
 	if _, err := os.Stat(summary.Ref); err != nil {
 		t.Fatalf("replacement ref %q: %v", summary.Ref, err)
 	}
-	if step.Output == nil || len(step.Output.(string)) >= len(strings.Repeat("large-output ", 2048)) {
+	if step.Output == nil || len(step.Output.(string)) >= len(largeOutput) {
 		t.Fatalf("step output = %#v, want compact replacement output", step.Output)
 	}
 }

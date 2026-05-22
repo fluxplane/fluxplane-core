@@ -1326,7 +1326,7 @@ func TestValidateOperationRequestsAllowsDispatchedToolName(t *testing.T) {
 func TestExecuteInboundInputReplacesOversizedToolResult(t *testing.T) {
 	ctx := context.Background()
 	opRef := operation.Ref{Name: "lookup"}
-	large := strings.Repeat("large tool result ", 800)
+	large := strings.Repeat("large tool result ", 40000)
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(map[string]any{"found": input, "content": large})

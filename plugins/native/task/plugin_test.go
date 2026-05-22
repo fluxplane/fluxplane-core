@@ -33,6 +33,12 @@ func TestContributionsIncludeTaskResources(t *testing.T) {
 	if len(bundle.Agents) != 5 || string(bundle.Agents[0].Name) != TaskAgent || string(bundle.Agents[1].Name) != PlanAgent || string(bundle.Agents[2].Name) != WorkerAgent || string(bundle.Agents[3].Name) != ExplorerAgent || string(bundle.Agents[4].Name) != ReviewerAgent {
 		t.Fatalf("agents = %#v, want task, planner, worker, explorer, and reviewer agents", bundle.Agents)
 	}
+	if !operationRefsContain(bundle.Agents[2].Operations, "web_search") || !operationRefsContain(bundle.Agents[2].Operations, "web_request") {
+		t.Fatalf("worker operations = %#v, want web_search and web_request", bundle.Agents[2].Operations)
+	}
+	if !operationRefsContain(bundle.Agents[3].Operations, "web_search") || !operationRefsContain(bundle.Agents[3].Operations, "web_request") {
+		t.Fatalf("explorer operations = %#v, want web_search and web_request", bundle.Agents[3].Operations)
+	}
 	if len(bundle.Sessions) != 5 || string(bundle.Sessions[0].Name) != TaskSession || string(bundle.Sessions[1].Name) != PlanSession || string(bundle.Sessions[2].Name) != WorkerSession || string(bundle.Sessions[3].Name) != ExplorerSession || string(bundle.Sessions[4].Name) != ReviewerSession {
 		t.Fatalf("sessions = %#v, want task, planner, worker, explorer, and reviewer sessions", bundle.Sessions)
 	}

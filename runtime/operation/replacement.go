@@ -17,7 +17,7 @@ import (
 const (
 	// DefaultToolResultReplacementThresholdBytes is the provider-facing tool
 	// result size limit before the original result is spooled to a temp file.
-	DefaultToolResultReplacementThresholdBytes int64 = 10 * 1024
+	DefaultToolResultReplacementThresholdBytes int64 = 512 * 1024
 
 	defaultReplacementPreviewBytes = 4096
 	defaultReplacementTailBytes    = 2048

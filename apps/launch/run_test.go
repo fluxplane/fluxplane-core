@@ -432,12 +432,29 @@ func TestLaunchSlackDatasourceUsesRuntimeAuthPath(t *testing.T) {
 		t.Fatalf("Launch: %v", err)
 	}
 	defer runtime.Close()
+	if !runtimeHasContextProvider(runtime, datasource.PrewarmProvider) {
+		t.Fatalf("context providers = %#v, want %s", runtime.Composition.ContextSpecs, datasource.PrewarmProvider)
+	}
 
 	registry, err := datasource.BuildRegistry(ctx, bundle.Datasources, runtime.Composition.DatasourceProviders)
 	if err != nil {
 		t.Fatalf("BuildRegistry: %v", err)
 	}
 	assertSlackDatasourceLoadedToken(t, registry)
+}
+
+func runtimeHasContextProvider(runtime Runtime, name string) bool {
+	for _, spec := range runtime.Composition.ContextSpecs {
+		if string(spec.Name) == name {
+			return true
+		}
+	}
+	for _, provider := range runtime.Composition.ContextProviderImpls {
+		if provider != nil && string(provider.Spec().Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDatasourceIndexRuntimeSlackDatasourceUsesAuthPath(t *testing.T) {

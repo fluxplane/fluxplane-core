@@ -390,6 +390,12 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 			return coredatasource.ListResult{}, err
 		}
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(entries, a.repositoryTreeRecord), len(entries), limit, page), nil
+	case MergeRequestEntity:
+		mrs, err := searchMergeRequests(ctx, client, "", req.Filters, limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(mrs, a.mergeRequestRecord), len(mrs), limit, page), nil
 	case MergeRequestDiffEntity:
 		diffs, err := searchMergeRequestDiffs(ctx, client, req.Filters, limit)
 		if err != nil {
@@ -3758,11 +3764,36 @@ func searchMergeRequests(ctx context.Context, client gitlabClient, query string,
 		return []MergeRequest{mergeRequestFromFull(mr)}, nil
 	}
 	project := firstNonEmpty(filters["project_id"], filters["project"])
+	if iid, ok, err := mergeRequestIIDFilter(filters); err != nil {
+		return nil, err
+	} else if ok {
+		if project == "" {
+			return nil, fmt.Errorf("project_id filter is required with iid for gitlab.merge_request")
+		}
+		projectID, _ := resolveProjectIdentifier(ctx, client, project)
+		mr, err := client.GetMergeRequest(ctx, projectID, iid, nil)
+		if err != nil {
+			return nil, err
+		}
+		return []MergeRequest{mergeRequestFromFull(mr)}, nil
+	}
 	if project != "" {
 		projectID, _ := resolveProjectIdentifier(ctx, client, project)
 		return listProjectMergeRequests(ctx, client, projectID, query, filters, perPage, page)
 	}
 	return listMergeRequests(ctx, client, query, filters, perPage, page)
+}
+
+func mergeRequestIIDFilter(filters map[string]string) (int64, bool, error) {
+	value := strings.TrimSpace(firstNonEmpty(filters["iid"], filters["merge_request_iid"]))
+	if value == "" {
+		return 0, false, nil
+	}
+	iid, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, true, fmt.Errorf("invalid merge request iid %q", value)
+	}
+	return iid, true, nil
 }
 
 func mergeRequestRefQuery(query string) (any, int64, bool) {
@@ -4120,6 +4151,13 @@ func searchPipelines(ctx context.Context, client gitlabClient, query string, fil
 }
 
 func listPipelines(ctx context.Context, client gitlabClient, filters map[string]string, limit, page int) ([]Pipeline, error) {
+	if ref := strings.TrimSpace(filters["merge_request"]); ref != "" {
+		project, iid, err := parseMergeRequestID(ref)
+		if err != nil {
+			return nil, err
+		}
+		return pipelinesForMRProject(ctx, client, project, iid, limit)
+	}
 	project := firstNonEmpty(filters["project_id"], filters["project"])
 	if project == "" {
 		return nil, fmt.Errorf("project_id filter is required for gitlab.pipeline search")

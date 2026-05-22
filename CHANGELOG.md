@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Raised the default large tool-result replacement threshold to 512 KiB so
+  bounded reads can return their advertised payload size before spooling.
+- Added datasource prewarming for plugin-declared detectors and introduced an
+  explicit Slack thread reply operation for permalink-targeted replies.
+- Gave native task worker and explorer agents the `web_search` operation so
+  web-search tasks can use the dedicated search tool instead of generic HTTP
+  fetches.
+- Made one-shot terminal runs print completed background task result artifacts
+  after waiting for task completion.
+- Made GitLab datasource filters accept common model-produced shapes for merge
+  request pipelines, merge-request listing, and repository file lookups.
 - Added inert activation set specs, resource catalog wiring, focus/surface trace
   events, `/surface`, and `/activate` as the foundation for prepared work
   surfaces.

@@ -541,6 +541,9 @@ func mergeRequestEntitySpec() coredatasource.EntitySpec {
 		QueryTemplate: "$1!$2",
 		URLTemplate:   "$0",
 		Confidence:    0.9,
+		Annotations: map[string]string{
+			"prewarm.search": "true",
+		},
 	}}
 	return entity
 }
@@ -1634,7 +1637,14 @@ func parseProjectRefPathID(id string) (any, string, string, error) {
 		return parseProjectRefPathColonID(id)
 	}
 	ref, path, ok := strings.Cut(rest, "!")
-	if !ok || strings.TrimSpace(project) == "" || strings.TrimSpace(ref) == "" || strings.TrimSpace(path) == "" || strings.Contains(ref, "!") || strings.Contains(path, "!") {
+	if !ok {
+		path := strings.TrimSpace(rest)
+		if strings.TrimSpace(project) == "" || path == "" || strings.Contains(path, "!") {
+			return nil, "", "", fmt.Errorf("id must be project!ref!path")
+		}
+		return projectID(project), "HEAD", path, nil
+	}
+	if strings.TrimSpace(project) == "" || strings.TrimSpace(ref) == "" || strings.TrimSpace(path) == "" || strings.Contains(ref, "!") || strings.Contains(path, "!") {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}
 	return projectID(project), strings.TrimSpace(ref), strings.TrimSpace(path), nil
@@ -1646,6 +1656,13 @@ func parseProjectRefPathColonID(id string) (any, string, string, error) {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}
 	idx := strings.LastIndex(rest, ":")
+	if idx < 0 {
+		path := strings.TrimSpace(rest)
+		if path == "" {
+			return nil, "", "", fmt.Errorf("id must be project!ref!path")
+		}
+		return projectID(project), "HEAD", path, nil
+	}
 	if idx <= 0 || idx >= len(rest)-1 {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}

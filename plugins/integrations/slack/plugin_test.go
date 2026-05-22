@@ -135,6 +135,52 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	}
 }
 
+func TestThreadReplyUsesExplicitSlackPermalink(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat.postMessage" {
+			t.Fatalf("unexpected Slack path %s", r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("channel"); got != "C03JDUBJD0D" {
+			t.Fatalf("channel = %q, want C03JDUBJD0D", got)
+		}
+		if got := r.Form.Get("thread_ts"); got != "1779354459.249979" {
+			t.Fatalf("thread_ts = %q, want permalink timestamp", got)
+		}
+		if got := r.Form.Get("text"); got != "Reviewed." {
+			t.Fatalf("text = %q, want Reviewed.", got)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C03JDUBJD0D","ts":"1779354460.000100","message":{"text":"Reviewed."}}`))
+	}))
+	defer server.Close()
+	store := runtimesecret.NewFileStore(t.TempDir())
+	ref := resource.PluginRef{Name: Name, Instance: "main"}
+	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{Ref: BotTokenSecretRef(ref), Value: "slack-bot-token"}); err != nil {
+		t.Fatalf("SaveSecret: %v", err)
+	}
+	plugin := New(nil, store).withRef(ref)
+	plugin.clientFactory = func(token, appToken string) *slack.Client {
+		if token != "slack-bot-token" || appToken != "" {
+			t.Fatalf("client token=%q app=%q", token, appToken)
+		}
+		return slack.New(token, slack.OptionAPIURL(server.URL+"/"))
+	}
+
+	result := plugin.threadReply(operation.NewContext(context.Background(), nil), threadReplyInput{
+		Text:      "Reviewed.",
+		Permalink: "https://example.slack.com/archives/C03JDUBJD0D/p1779354459249979",
+	})
+	if result.IsError() {
+		t.Fatalf("threadReply result = %#v", result)
+	}
+	output, ok := result.Output.(threadReplyOutput)
+	if !ok || output.Channel != "C03JDUBJD0D" || output.Thread != "1779354459.249979" || output.Ts == "" {
+		t.Fatalf("output = %#v, want posted thread reply", result.Output)
+	}
+}
+
 func TestPluginDeclaresStoredTokenAndOAuthAuthMethods(t *testing.T) {
 	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {
@@ -281,6 +327,9 @@ func TestPluginContributesSlackEntityDetectors(t *testing.T) {
 	}
 	if len(message.Detectors) != 1 || message.Detectors[0].Kind != coredatasource.DetectorURL || message.Detectors[0].IDTemplate == "" {
 		t.Fatalf("message detectors = %#v, want URL detector with stable id template", message.Detectors)
+	}
+	if message.Detectors[0].Annotations["prewarm.get"] != "true" || message.Detectors[0].Annotations["prewarm.relations"] != "thread_messages" {
+		t.Fatalf("message detector annotations = %#v, want prewarm get and thread relation", message.Detectors[0].Annotations)
 	}
 }
 

@@ -133,6 +133,23 @@ func TestFollowBackgroundTasksCanWaitForCompletion(t *testing.T) {
 		events <- clientapi.Event{
 			Kind: clientapi.EventRuntimeEmitted,
 			Runtime: &clientapi.RuntimeEvent{
+				Name: coretask.EventArtifactAddedName,
+				Payload: coretask.ArtifactAdded{
+					TaskID:      "task_1",
+					ExecutionID: "exec_1",
+					Artifact: coretask.ArtifactSpec{
+						ID:       "apple_news_summary",
+						Name:     "Apple news summary",
+						Kind:     coretask.ArtifactReport,
+						Required: true,
+						Value:    "Apple summary with sources.",
+					},
+				},
+			},
+		}
+		events <- clientapi.Event{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
 				Name:    coretask.EventExecutionCompletedName,
 				Payload: coretask.ExecutionCompleted{TaskID: "task_1", ExecutionID: "exec_1"},
 			},
@@ -154,6 +171,9 @@ func TestFollowBackgroundTasksCanWaitForCompletion(t *testing.T) {
 	}
 	if strings.Contains(got, "still running in background") {
 		t.Fatalf("background output = %q, want no idle timeout", got)
+	}
+	if got := out.String(); !strings.Contains(got, "Task results") || !strings.Contains(got, "Apple summary with sources.") {
+		t.Fatalf("background results = %q, want artifact summary", got)
 	}
 }
 

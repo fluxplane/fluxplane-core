@@ -33,6 +33,7 @@ const (
 	BatchGetOperation       = "datasource_batch_get"
 	ContextProvider         = "datasource.catalog"
 	DetectedProvider        = "datasource.detected"
+	PrewarmProvider         = "datasource.prewarm"
 	SemanticContextProvider = "datasource.semantic_context"
 	defaultSearchLimit      = 10
 	maxParallelSearches     = 4
@@ -72,7 +73,7 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
-		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), semanticContextSpec()},
+		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), prewarmContextSpec(), semanticContextSpec()},
 		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
 	}, nil
 }
@@ -101,6 +102,7 @@ func (p Plugin) ContextProviders(context.Context, pluginhost.Context) ([]corecon
 	return []corecontext.Provider{
 		catalogProvider{registry: p.registry, dataSources: p.dataSources},
 		detectedProvider{registry: p.registry},
+		prewarmProvider{registry: p.registry},
 		semanticContextProvider{registry: p.registry, index: p.semanticIndex},
 	}, nil
 }
@@ -118,6 +120,16 @@ func detectedContextSpec() corecontext.ProviderSpec {
 		Name:        DetectedProvider,
 		Description: "Lists local datasource references detected in the current turn.",
 		Kinds:       []corecontext.BlockKind{corecontext.BlockText, corecontext.BlockData},
+	}
+}
+
+func prewarmContextSpec() corecontext.ProviderSpec {
+	return corecontext.ProviderSpec{
+		Name:             PrewarmProvider,
+		Description:      "Fetches bounded context for high-confidence datasource references detected in the current turn.",
+		Kinds:            []corecontext.BlockKind{corecontext.BlockText, corecontext.BlockData},
+		DefaultPlacement: corecontext.PlacementUser,
+		Annotations:      map[string]string{corecontext.AnnotationAutoContext: "true"},
 	}
 }
 

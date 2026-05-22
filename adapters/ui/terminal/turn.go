@@ -36,6 +36,7 @@ type turnRenderResult struct {
 	Streamed    bool
 	ActiveTasks map[string]bool
 	SeenRuntime map[string]bool
+	Artifacts   map[string][]coretask.ArtifactSpec
 }
 
 // RunTurn submits prompt to a session, treating slash-prefixed prompts as
@@ -76,6 +77,8 @@ func runInputTurn(ctx context.Context, session clientapi.SessionHandle, prompt s
 	if len(eventResult.ActiveTasks) > 0 {
 		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
+	} else if opts.WaitForBackgroundTasks {
+		renderBackgroundTaskResults(defaultWriter(opts.Out), eventResult.Artifacts)
 	}
 	renderUsage(opts.Err, opts.Usage, tracker)
 	if err != nil {
@@ -100,6 +103,8 @@ func runStructuredCommandTurn(ctx context.Context, session clientapi.SessionHand
 	if len(eventResult.ActiveTasks) > 0 {
 		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
+	} else if opts.WaitForBackgroundTasks {
+		renderBackgroundTaskResults(defaultWriter(opts.Out), eventResult.Artifacts)
 	}
 	renderUsage(opts.Err, opts.Usage, tracker)
 	if err != nil {
@@ -123,6 +128,8 @@ func runCommandLineTurn(ctx context.Context, session clientapi.SessionHandle, li
 	if len(eventResult.ActiveTasks) > 0 {
 		followResult := followBackgroundTasks(ctx, session, eventResult, tracker, opts)
 		eventResult.Streamed = eventResult.Streamed || followResult.Streamed
+	} else if opts.WaitForBackgroundTasks {
+		renderBackgroundTaskResults(defaultWriter(opts.Out), eventResult.Artifacts)
 	}
 	renderUsage(opts.Err, opts.Usage, tracker)
 	if err != nil {
@@ -227,10 +234,11 @@ func renderTurnEvents(events <-chan clientapi.Event, tracker *usage.Tracker, opt
 	go func() {
 		renderer := NewRenderer(defaultWriter(opts.Out), defaultWriter(opts.Err), false)
 		renderer.Reasoning = opts.Reasoning
-		result := turnRenderResult{ActiveTasks: map[string]bool{}, SeenRuntime: map[string]bool{}}
+		result := turnRenderResult{ActiveTasks: map[string]bool{}, SeenRuntime: map[string]bool{}, Artifacts: map[string][]coretask.ArtifactSpec{}}
 		for event := range events {
 			trackUsageEvent(tracker, event)
 			trackTaskRuntimeEvent(event, result.ActiveTasks, result.SeenRuntime)
+			trackTaskArtifactEvent(event, result.Artifacts)
 			if opts.Debug {
 				renderer.RenderDebug(event)
 			}
@@ -259,6 +267,7 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 	result := turnRenderResult{
 		ActiveTasks: cloneBoolMap(initial.ActiveTasks),
 		SeenRuntime: cloneBoolMap(initial.SeenRuntime),
+		Artifacts:   cloneArtifactMap(initial.Artifacts),
 	}
 	if ids := activeTaskIDs(result.ActiveTasks); len(ids) > 0 {
 		mode := "watching briefly"
@@ -332,6 +341,7 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 			resetIdle()
 			trackUsageEvent(tracker, event)
 			trackTaskRuntimeEvent(event, result.ActiveTasks, result.SeenRuntime)
+			trackTaskArtifactEvent(event, result.Artifacts)
 			if opts.Debug {
 				renderer.RenderDebug(event)
 			}
@@ -339,6 +349,9 @@ func followBackgroundTasks(ctx context.Context, session clientapi.SessionHandle,
 		}
 	}
 	renderer.Finish()
+	if opts.WaitForBackgroundTasks && len(result.ActiveTasks) == 0 {
+		renderBackgroundTaskResults(defaultWriter(opts.Out), result.Artifacts)
+	}
 	result.Streamed = renderer.HasStreamedContent()
 	return result
 }
@@ -387,6 +400,113 @@ func trackTaskRuntimeEvent(event clientapi.Event, active map[string]bool, seen m
 		active[taskID] = true
 	case string(coretask.EventExecutionInterruptedName), string(coretask.EventExecutionCompletedName), string(coretask.EventExecutionFailedName), string(coretask.EventExecutionCancelledName):
 		delete(active, taskID)
+	}
+}
+
+func trackTaskArtifactEvent(event clientapi.Event, artifacts map[string][]coretask.ArtifactSpec) {
+	if event.Runtime == nil || artifacts == nil || event.Runtime.Name != coretask.EventArtifactAddedName {
+		return
+	}
+	var typed coretask.ArtifactAdded
+	if decodeTypedPayload(event.Runtime.Payload, &typed) != nil || typed.TaskID == "" {
+		return
+	}
+	artifact := typed.Artifact
+	if artifact.ID == "" && artifact.Name == "" && artifact.Value == nil && artifact.Ref == "" {
+		return
+	}
+	taskID := string(typed.TaskID)
+	for _, existing := range artifacts[taskID] {
+		if existing.ID != "" && existing.ID == artifact.ID {
+			return
+		}
+		if existing.Name != "" && existing.Name == artifact.Name && existing.Ref == artifact.Ref {
+			return
+		}
+	}
+	artifacts[taskID] = append(artifacts[taskID], artifact)
+}
+
+func renderBackgroundTaskResults(out io.Writer, artifacts map[string][]coretask.ArtifactSpec) {
+	selected := selectedTaskArtifacts(artifacts)
+	if len(selected) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(out, "\nTask results")
+	taskIDs := make([]string, 0, len(selected))
+	for taskID := range selected {
+		taskIDs = append(taskIDs, taskID)
+	}
+	sort.Strings(taskIDs)
+	for _, taskID := range taskIDs {
+		_, _ = fmt.Fprintf(out, "\n%s\n", taskID)
+		for _, artifact := range selected[taskID] {
+			label := firstNonEmptyString(artifact.Name, artifact.ID, string(artifact.Kind), "result")
+			_, _ = fmt.Fprintf(out, "\n%s\n\n", label)
+			text := artifactResultText(artifact)
+			if strings.TrimSpace(text) == "" {
+				text = artifactSummary(artifact)
+			}
+			_ = RenderMarkdown(out, strings.TrimSpace(text))
+			_, _ = fmt.Fprintln(out)
+		}
+	}
+}
+
+func selectedTaskArtifacts(artifacts map[string][]coretask.ArtifactSpec) map[string][]coretask.ArtifactSpec {
+	out := map[string][]coretask.ArtifactSpec{}
+	for taskID, taskArtifacts := range artifacts {
+		selected := filterTaskArtifacts(taskArtifacts, func(artifact coretask.ArtifactSpec) bool {
+			return artifact.Required && !isWorkerOutputArtifact(artifact)
+		})
+		if len(selected) == 0 {
+			selected = filterTaskArtifacts(taskArtifacts, func(artifact coretask.ArtifactSpec) bool {
+				return !isWorkerOutputArtifact(artifact)
+			})
+		}
+		if len(selected) == 0 {
+			selected = filterTaskArtifacts(taskArtifacts, func(coretask.ArtifactSpec) bool { return true })
+		}
+		if len(selected) > 0 {
+			out[taskID] = selected
+		}
+	}
+	return out
+}
+
+func filterTaskArtifacts(artifacts []coretask.ArtifactSpec, keep func(coretask.ArtifactSpec) bool) []coretask.ArtifactSpec {
+	var out []coretask.ArtifactSpec
+	for _, artifact := range artifacts {
+		if !keep(artifact) {
+			continue
+		}
+		if strings.TrimSpace(artifactResultText(artifact)) == "" && artifact.Ref == "" {
+			continue
+		}
+		out = append(out, artifact)
+	}
+	return out
+}
+
+func isWorkerOutputArtifact(artifact coretask.ArtifactSpec) bool {
+	return strings.HasPrefix(artifact.ID, "worker-output-")
+}
+
+func artifactResultText(artifact coretask.ArtifactSpec) string {
+	if artifact.Value == nil {
+		return ""
+	}
+	switch value := artifact.Value.(type) {
+	case string:
+		return value
+	case fmt.Stringer:
+		return value.String()
+	default:
+		raw, err := json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			return fmt.Sprint(value)
+		}
+		return string(raw)
 	}
 }
 
@@ -461,6 +581,17 @@ func cloneBoolMap(in map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func cloneArtifactMap(in map[string][]coretask.ArtifactSpec) map[string][]coretask.ArtifactSpec {
+	if len(in) == 0 {
+		return map[string][]coretask.ArtifactSpec{}
+	}
+	out := make(map[string][]coretask.ArtifactSpec, len(in))
+	for taskID, artifacts := range in {
+		out[taskID] = append([]coretask.ArtifactSpec(nil), artifacts...)
 	}
 	return out
 }

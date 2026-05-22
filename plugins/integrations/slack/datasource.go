@@ -73,6 +73,7 @@ type slackAPI interface {
 	GetConversationsContext(context.Context, *slack.GetConversationsParameters) ([]slack.Channel, string, error)
 	GetConversationInfoContext(context.Context, *slack.GetConversationInfoInput) (*slack.Channel, error)
 	SearchMessagesContext(context.Context, string, slack.SearchParameters) (*slack.SearchMessages, error)
+	PostMessageContext(context.Context, string, ...slack.MsgOption) (string, string, error)
 	GetUsersInConversationContext(context.Context, *slack.GetUsersInConversationParameters) ([]string, string, error)
 	GetConversationRepliesContext(context.Context, *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error)
 	GetConversationHistoryContext(context.Context, *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
@@ -578,6 +579,11 @@ func entitySpecs() []coredatasource.EntitySpec {
 		QueryTemplate: "$0",
 		URLTemplate:   "$0",
 		Confidence:    0.95,
+		Annotations: map[string]string{
+			"prewarm.get":       "true",
+			"prewarm.relations": "thread_messages",
+			"prewarm.limit":     "20",
+		},
 	}}
 	messageEntity.Relations = []coredatasource.RelationSpec{{
 		Name:         "thread_messages",
@@ -803,6 +809,31 @@ func slackChannelIDFromPermalink(permalink string) string {
 		rest = rest[:cut]
 	}
 	return strings.TrimSpace(rest)
+}
+
+func slackMessageTargetFromPermalink(permalink string) (string, string, bool) {
+	channelID := slackChannelIDFromPermalink(permalink)
+	if channelID == "" {
+		return "", "", false
+	}
+	const marker = "/p"
+	index := strings.Index(permalink, marker)
+	if index < 0 {
+		return "", "", false
+	}
+	rest := permalink[index+len(marker):]
+	var digits strings.Builder
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		digits.WriteRune(r)
+	}
+	raw := digits.String()
+	if len(raw) != 16 {
+		return "", "", false
+	}
+	return channelID, raw[:10] + "." + raw[10:], true
 }
 
 func parseMessageID(id string) (string, string, bool) {

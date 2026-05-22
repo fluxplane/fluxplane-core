@@ -475,7 +475,7 @@ func workerAgentSpec() agent.Spec {
 			{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_docs"}, {Name: "project_tasks"}, {Name: "project_task_run"},
 			{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "file_edit"},
 			{Name: "grep"}, {Name: "glob"}, {Name: "git_status"}, {Name: "git_diff"},
-			{Name: "shell_exec"}, {Name: "code_execute"},
+			{Name: "shell_exec"}, {Name: "code_execute"}, {Name: "web_search"}, {Name: "web_request"},
 			{Name: TaskGetOp}, {Name: TaskModifyOp}, {Name: TaskValidateOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp},
 		},
 	}
@@ -491,7 +491,7 @@ func explorerAgentSpec() agent.Spec {
 		Operations: []operation.Ref{
 			{Name: "project_inventory"}, {Name: "project_files"}, {Name: "project_docs"}, {Name: "project_tasks"},
 			{Name: "dir_list"}, {Name: "dir_tree"}, {Name: "file_read"}, {Name: "grep"}, {Name: "glob"},
-			{Name: "git_status"}, {Name: "git_diff"}, {Name: "web_request"},
+			{Name: "git_status"}, {Name: "git_diff"}, {Name: "web_search"}, {Name: "web_request"},
 			{Name: TaskGetOp}, {Name: TaskModifyOp}, {Name: TaskValidateOp}, {Name: TaskListArtifactsOp}, {Name: TaskGetArtifactOp},
 		},
 	}

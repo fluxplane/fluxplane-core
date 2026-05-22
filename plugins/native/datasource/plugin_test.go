@@ -1096,6 +1096,87 @@ func TestDetectedProviderDoesNotCallDatasourceIO(t *testing.T) {
 	}
 }
 
+func TestPrewarmProviderFetchesDetectedRecordsRelationsAndNestedRefs(t *testing.T) {
+	slack := memoryAccessor{
+		spec: coredatasource.Spec{Name: "slack", Entities: []coredatasource.EntityType{"slack.message"}, Kind: "memory"},
+		entity: coredatasource.EntitySpec{
+			Type:         "slack.message",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilityGet, coredatasource.EntityCapabilityRelation},
+			Detectors: []coredatasource.DetectorSpec{{
+				Name:       "slack_message",
+				Kind:       coredatasource.DetectorRegex,
+				Pattern:    `SLACK-(\d+)`,
+				IDTemplate: "msg-$1",
+				Annotations: map[string]string{
+					"prewarm.get":       "true",
+					"prewarm.relations": "thread_messages",
+				},
+			}},
+			Relations: []coredatasource.RelationSpec{{Name: "thread_messages", TargetEntity: "slack.thread_message", Exact: true}},
+		},
+		records: []coredatasource.Record{{
+			ID:         "msg-42",
+			Datasource: "slack",
+			Entity:     "slack.message",
+			Title:      "review request",
+			Content:    "Please review https://gitlab.example.com/fluxplane/runtime/-/merge_requests/7",
+		}},
+		relationResult: coredatasource.RelationResult{
+			TargetEntity: "slack.thread_message",
+			Records: []coredatasource.Record{{
+				ID:         "reply-1",
+				Datasource: "slack",
+				Entity:     "slack.thread_message",
+				Content:    "related thread reply",
+			}},
+			Complete: true,
+			Exact:    true,
+		},
+	}
+	gitlab := memoryAccessor{
+		spec: coredatasource.Spec{Name: "gitlab", Entities: []coredatasource.EntityType{"gitlab.merge_request"}, Kind: "memory"},
+		entity: coredatasource.EntitySpec{
+			Type:         "gitlab.merge_request",
+			Capabilities: []coredatasource.EntityCapability{coredatasource.EntityCapabilitySearch},
+			Detectors: []coredatasource.DetectorSpec{{
+				Name:          "gitlab_mr",
+				Kind:          coredatasource.DetectorURL,
+				Pattern:       `https?://[^/\s<>"']+/([^\s<>"']+)/-/merge_requests/([0-9]+)`,
+				QueryTemplate: "$1!$2",
+				URLTemplate:   "$0",
+				Annotations:   map[string]string{"prewarm.search": "true"},
+			}},
+		},
+		records: []coredatasource.Record{{
+			ID:         "39!7",
+			Datasource: "gitlab",
+			Entity:     "gitlab.merge_request",
+			Title:      "fluxplane/runtime!7",
+			Content:    "Fix context prewarm",
+		}},
+	}
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{slack, gitlab}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{Datasources: []coredatasource.Name{"slack", "gitlab"}})
+	blocks, err := (prewarmProvider{registry: registry}).Build(ctx, corecontext.Request{Observations: []coreevidence.Observation{{
+		Kind:    "channel.message",
+		Content: "Review SLACK-42",
+	}}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v, want one prewarm block", blocks)
+	}
+	for _, want := range []string{"review request", "related thread reply", "Fix context prewarm"} {
+		if !strings.Contains(blocks[0].Content, want) {
+			t.Fatalf("content = %q, want %q", blocks[0].Content, want)
+		}
+	}
+}
+
 func TestRenderRecordUsesCanonicalURLNotAPIURLMetadata(t *testing.T) {
 	text := renderRecord(coredatasource.Record{
 		ID:      "DEV-380",

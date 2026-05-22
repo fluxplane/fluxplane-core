@@ -36,6 +36,24 @@ func TestReplaceLargeResultIncludesPreviewMetadata(t *testing.T) {
 	}
 }
 
+func TestDefaultReplacementThresholdAllowsLargeFileReads(t *testing.T) {
+	payload := strings.Repeat("x", 128*1024)
+	result := operation.OK(operation.Rendered{Text: payload, Model: payload, Data: map[string]string{"payload": payload}})
+
+	replaced, replacement, err := ReplaceLargeResult(context.Background(), result, ReplacementOptions{
+		TempDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("ReplaceLargeResult: %v", err)
+	}
+	if replacement != nil {
+		t.Fatalf("replacement = %#v, want nil below default threshold", replacement)
+	}
+	if replaced.Status != operation.StatusOK {
+		t.Fatalf("status = %s, want ok", replaced.Status)
+	}
+}
+
 func TestReadReplacementFileReadsBoundedReplacementContent(t *testing.T) {
 	payload := strings.Repeat("content ", 2048)
 	result := operation.OK(operation.Rendered{Text: payload, Model: payload, Data: map[string]string{"payload": payload}})

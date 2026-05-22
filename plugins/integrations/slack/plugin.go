@@ -23,6 +23,7 @@ const (
 	OperationSet     = Name + ".channel"
 	ChannelSendOp    = "channel_send"
 	ReportProgressOp = "slack_report_progress"
+	ThreadReplyOp    = "slack_thread_reply"
 )
 
 type slackClientFactory func(token, appToken string) *slack.Client
@@ -87,12 +88,13 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
 	return resource.ContributionBundle{
-		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec()},
+		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec(), p.threadReplySpec()},
 		OperationSets: []operation.Set{{
 			Name:        OperationSet,
-			Description: "Slack active-channel reply and progress operations.",
+			Description: "Slack active-channel reply, explicit thread reply, and progress operations.",
 			Operations: []operation.Ref{
 				{Name: ChannelSendOp},
+				{Name: ThreadReplyOp},
 				{Name: "slack_*"},
 			},
 		}},
@@ -105,6 +107,7 @@ func (p Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operati
 	return []operation.Operation{
 		operationruntime.NewTypedResult[channelSendInput, channelSendOutput](p.channelSendSpec(), p.channelSend),
 		operationruntime.NewTypedResult[reportProgressInput, reportProgressOutput](p.reportProgressSpec(), p.reportProgress),
+		operationruntime.NewTypedResult[threadReplyInput, threadReplyOutput](p.threadReplySpec(), p.threadReply),
 	}, nil
 }
 
@@ -263,6 +266,61 @@ func (p Plugin) channelSend(ctx operation.Context, input channelSendInput) opera
 		return operation.Failed("slack_channel_send_failed", err.Error(), nil)
 	}
 	return operation.OK(channelSendOutput{Channel: target.ChannelID, Thread: target.ThreadTS, Ts: ts})
+}
+
+func (p Plugin) threadReplySpec() operation.Spec {
+	return operationruntime.WithTypedContract[threadReplyInput, threadReplyOutput](operation.Spec{
+		Ref:         operation.Ref{Name: ThreadReplyOp},
+		Description: "Send a user-visible message to an explicit Slack thread target. Use channel_send instead when the current request came from Slack and already has an active Slack channel turn.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectNetwork, operation.EffectWriteExternal},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	})
+}
+
+type threadReplyInput struct {
+	Text      string `json:"text" jsonschema:"description=Message text to post.,required"`
+	Permalink string `json:"permalink,omitempty" jsonschema:"description=Slack message permalink identifying the thread to reply to."`
+	ChannelID string `json:"channel_id,omitempty" jsonschema:"description=Slack channel id. Required when permalink is omitted."`
+	ThreadTS  string `json:"thread_ts,omitempty" jsonschema:"description=Slack thread timestamp. Required when permalink is omitted."`
+}
+
+type threadReplyOutput struct {
+	Channel string `json:"channel,omitempty"`
+	Thread  string `json:"thread,omitempty"`
+	Ts      string `json:"ts,omitempty"`
+}
+
+func (p Plugin) threadReply(ctx operation.Context, input threadReplyInput) operation.Result {
+	text := strings.TrimSpace(input.Text)
+	if text == "" {
+		return operation.Failed("invalid_slack_thread_reply_input", "text is required", nil)
+	}
+	channelID, threadTS, ok := explicitThreadTarget(input)
+	if !ok {
+		return operation.Failed("invalid_slack_thread_reply_input", "permalink or channel_id and thread_ts are required", nil)
+	}
+	api, err := p.api(ctx)
+	if err != nil {
+		return operation.Failed("slack_thread_reply_auth_failed", err.Error(), nil)
+	}
+	_, ts, err := api.PostMessageContext(ctx, channelID, slack.MsgOptionText(text, false), slack.MsgOptionTS(threadTS))
+	if err != nil {
+		return operation.Failed("slack_thread_reply_failed", err.Error(), nil)
+	}
+	return operation.OK(threadReplyOutput{Channel: channelID, Thread: threadTS, Ts: ts})
+}
+
+func explicitThreadTarget(input threadReplyInput) (string, string, bool) {
+	if channelID, threadTS, ok := slackMessageTargetFromPermalink(input.Permalink); ok {
+		return channelID, threadTS, true
+	}
+	channelID := strings.TrimSpace(input.ChannelID)
+	threadTS := strings.TrimSpace(input.ThreadTS)
+	return channelID, threadTS, channelID != "" && threadTS != ""
 }
 
 func (p Plugin) reportProgressSpec() operation.Spec {

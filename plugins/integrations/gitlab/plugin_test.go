@@ -57,6 +57,9 @@ func TestMergeRequestDetectorKeepsNestedProjectPath(t *testing.T) {
 	if matches[1] != "ai/agents/slack-bot" || matches[2] != "2310" {
 		t.Fatalf("captures = %#v, want nested project path and iid", matches)
 	}
+	if entity.Detectors[0].Annotations["prewarm.search"] != "true" {
+		t.Fatalf("detector annotations = %#v, want prewarm search", entity.Detectors[0].Annotations)
+	}
 }
 
 func TestGitLabReferenceParsersAcceptStableIDForms(t *testing.T) {
@@ -84,6 +87,15 @@ func TestGitLabReferenceParsersAcceptStableIDForms(t *testing.T) {
 			t.Fatalf("parseProjectRefPathID: %v", err)
 		}
 		if toString(project) != "group/project" || ref != "main" || path != "cmd/app/main.go" {
+			t.Fatalf("project=%#v ref=%q path=%q", project, ref, path)
+		}
+	})
+	t.Run("project path defaults head", func(t *testing.T) {
+		project, ref, path, err := parseProjectRefPathID("39:plugins/app/main.go")
+		if err != nil {
+			t.Fatalf("parseProjectRefPathID: %v", err)
+		}
+		if toString(project) != "39" || ref != "HEAD" || path != "plugins/app/main.go" {
 			t.Fatalf("project=%#v ref=%q path=%q", project, ref, path)
 		}
 	})
@@ -2067,6 +2079,13 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
 		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
 			return fakeGitLabClient{
+				mrs: []*gitlab.BasicMergeRequest{{
+					ID:        42,
+					IID:       2553,
+					ProjectID: 12,
+					Title:     "Warn on legacy static key auth",
+					State:     "opened",
+				}},
 				diffs: []*gitlab.MergeRequestDiff{{
 					OldPath: "runtime.go",
 					NewPath: "runtime.go",
@@ -2099,6 +2118,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 				}},
 				awardEmoji: []*gitlab.AwardEmoji{{ID: 55, Name: "thumbsup", User: gitlab.BasicUser{Username: "reviewer"}}},
 				pipelines:  []*gitlab.PipelineInfo{{ID: 393891, ProjectID: 12, Ref: "feature", Status: "success"}},
+				file:       &gitlab.File{FileName: "runtime.go", FilePath: "runtime.go", Ref: "HEAD", Content: "cGFja2FnZSBtYWluCg==", Encoding: "base64"},
 			}, nil
 		},
 	}
@@ -2106,6 +2126,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 		Name: "company-a-gitlab",
 		Kind: Name,
 		Entities: []coredatasource.EntityType{
+			MergeRequestEntity,
 			MergeRequestDiffEntity,
 			MergeRequestDiffLineEntity,
 			MergeRequestNoteEntity,
@@ -2114,6 +2135,7 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 			DiscussionEntity,
 			AwardEmojiEntity,
 			PipelineEntity,
+			RepositoryFileEntity,
 		},
 		Config: map[string]string{"instance": "company-a"},
 	})
@@ -2197,6 +2219,17 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 	if len(changes.Records) != 1 || changes.Records[0].ID != "sbf/services!2553!changes" || changes.Records[0].Metadata["files"] != "1" {
 		t.Fatalf("change list records = %#v", changes.Records)
 	}
+	mrs, err := lister.List(context.Background(), coredatasource.ListRequest{
+		Entity:  MergeRequestEntity,
+		Filters: map[string]string{"project_id": "sbf/services", "iid": "2553"},
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("List merge requests: %v", err)
+	}
+	if len(mrs.Records) != 1 || mrs.Records[0].Entity != MergeRequestEntity || mrs.Records[0].Metadata["iid"] != "2553" {
+		t.Fatalf("merge request list records = %#v", mrs.Records)
+	}
 	record, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{Entity: MergeRequestChangeEntity, ID: "sbf/services!2553!changes"})
 	if err != nil {
 		t.Fatalf("Get change: %v", err)
@@ -2237,6 +2270,17 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 	if len(pipelines.Records) != 1 || pipelines.Records[0].Entity != PipelineEntity || pipelines.Records[0].Metadata["status"] != "success" {
 		t.Fatalf("pipeline records = %#v", pipelines.Records)
 	}
+	pipelinesByMR, err := lister.List(context.Background(), coredatasource.ListRequest{
+		Entity:  PipelineEntity,
+		Filters: map[string]string{"merge_request": "sbf/services!2553"},
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("List pipelines by merge_request: %v", err)
+	}
+	if len(pipelinesByMR.Records) != 1 || pipelinesByMR.Records[0].Entity != PipelineEntity || pipelinesByMR.Records[0].Metadata["status"] != "success" {
+		t.Fatalf("pipeline records by merge_request = %#v", pipelinesByMR.Records)
+	}
 	pipelineSearch, err := accessor.(coredatasource.Searcher).Search(context.Background(), coredatasource.SearchRequest{
 		Entity: PipelineEntity,
 		Query:  "sbf/services!2553",
@@ -2247,6 +2291,16 @@ func TestDatasourceProviderListsMRReviewEntities(t *testing.T) {
 	}
 	if len(pipelineSearch.Records) != 1 || pipelineSearch.Records[0].Entity != PipelineEntity {
 		t.Fatalf("pipeline search records = %#v", pipelineSearch.Records)
+	}
+	file, err := accessor.(coredatasource.Getter).Get(context.Background(), coredatasource.GetRequest{
+		Entity: RepositoryFileEntity,
+		ID:     "sbf/services:runtime.go",
+	})
+	if err != nil {
+		t.Fatalf("Get repository file by project:path: %v", err)
+	}
+	if file.Entity != RepositoryFileEntity || file.Metadata["ref"] != "HEAD" || file.Metadata["file_path"] != "runtime.go" {
+		t.Fatalf("repository file record = %#v", file)
 	}
 }
 
