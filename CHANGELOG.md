@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not interrupt executions while their execution lease is still valid.
 - Rejected model-side `task_modify set_status` resets from running tasks back
   to ready or draft so stale worker outputs are not caused by premature retries.
+- Made background shell/process starts detach from the initiating operation
+  context and ignore `timeout_ms` as a process lifetime, so `process_wait`
+  controls wait time without killing the started process.
 - Made one-shot terminal runs print completed background task result artifacts
   after waiting for task completion.
 - Made GitLab datasource filters accept common model-produced shapes for merge

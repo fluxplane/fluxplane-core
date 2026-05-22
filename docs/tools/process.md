@@ -112,6 +112,10 @@ Example shell process:
 
 The result includes a managed process id. The id can be used with status, output, wait, stop, and kill operations.
 
+For background starts, `timeout_ms` is not a process lifetime. Use
+`process_wait.timeout_ms` to bound how long to wait for completion, and use
+`process_stop` or `process_kill` when a background process should be ended.
+
 ## Labels, tags, and metadata
 
 Background process management is easier when processes are labeled.

@@ -256,6 +256,8 @@ func (p Plugin) ensure() operationruntime.TypedResultHandler[execInput, map[stri
 }
 
 func (p Plugin) startProcess(ctx operation.Context, request system.ProcessRequest, ensure bool) operation.Result {
+	request.Timeout = 0
+	request.Detached = true
 	var (
 		handle  system.ProcessHandle
 		started bool

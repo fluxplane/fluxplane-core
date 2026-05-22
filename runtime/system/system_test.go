@@ -397,6 +397,33 @@ func TestHostProcessRejectsReadOnlyNamedRootWorkdir(t *testing.T) {
 	}
 }
 
+func TestHostProcessDetachedStartSurvivesCallerCancel(t *testing.T) {
+	sys, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	handle, err := sys.Process().Start(ctx, ProcessRequest{
+		Command:  "sh",
+		Args:     []string{"-c", "printf start; sleep 0.2; printf done"},
+		Detached: true,
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	cancel()
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer waitCancel()
+	result, err := handle.Wait(waitCtx)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Stdout != "startdone" {
+		t.Fatalf("stdout = %q, want detached process to complete after caller cancel", result.Stdout)
+	}
+}
+
 func TestHostEnvironmentLoadsRootEnvFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("ROOT_TOKEN=root\nSHARED=first\n"), 0644); err != nil {

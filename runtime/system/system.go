@@ -1306,6 +1306,7 @@ type ProcessRequest struct {
 	Workdir   string
 	Env       []string
 	Timeout   time.Duration
+	Detached  bool
 	MaxStdout int
 	MaxStderr int
 	Label     string
@@ -1374,10 +1375,7 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 	if strings.ContainsAny(command, "\n\r;&|<>$`\\") {
 		return nil, fmt.Errorf("shell syntax is not supported")
 	}
-	baseCtx := ctx
-	if baseCtx == nil {
-		baseCtx = context.Background()
-	}
+	baseCtx := processContext(ctx, req.Detached)
 	var runCtx context.Context
 	var cancel context.CancelFunc
 	if req.Timeout > 0 {
@@ -1451,6 +1449,13 @@ func (p *HostProcess) Start(ctx context.Context, req ProcessRequest) (ProcessHan
 	go mp.copyOutput(stderrPipe, "stderr")
 	go mp.wait(runCtx, start)
 	return mp, nil
+}
+
+func processContext(ctx context.Context, detached bool) context.Context {
+	if detached || ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 // Ensure returns a running process for req.Label or starts a new one.

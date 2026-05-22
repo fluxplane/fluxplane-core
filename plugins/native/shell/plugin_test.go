@@ -115,6 +115,37 @@ func TestBackgroundProcessLifecycle(t *testing.T) {
 	t.Fatalf("output = %#v, want captured text", out.Output)
 }
 
+func TestBackgroundShellStartDoesNotUseTimeoutAsLifetime(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	ops, err := New(sys).Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	shellOp := findOp(t, ops, ShellOp)
+	wait := findOp(t, ops, ProcessWaitOp)
+	result := shellOp.Run(operation.NewContext(context.Background(), nil), map[string]any{
+		"op":         "start",
+		"shell":      "sh",
+		"commands":   []any{"printf start; sleep 0.2; printf done"},
+		"label":      "background-timeout",
+		"timeout_ms": 1,
+	})
+	if result.IsError() {
+		t.Fatalf("shell start error = %#v", result.Error)
+	}
+	waited := wait.Run(operation.NewContext(context.Background(), nil), map[string]any{"label": "background-timeout", "timeout_ms": 2000})
+	if waited.IsError() {
+		t.Fatalf("process_wait error = %#v", waited.Error)
+	}
+	text := waited.Output.(operation.Rendered).Text
+	if !strings.Contains(text, "startdone") {
+		t.Fatalf("wait output = %q, want full background output", text)
+	}
+}
+
 func TestShellInfoWorksWithAuthorizedSystem(t *testing.T) {
 	host, err := system.NewHost(system.Config{Root: t.TempDir()})
 	if err != nil {
