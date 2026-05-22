@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Refreshed Go module dependencies to current compatible releases.
 - Updated the README branding to use a centered transparent Fluxplane logo
   asset.
 - Added a focused gitleaks allowlist for Kubernetes redaction test fixtures so
