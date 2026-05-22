@@ -5,13 +5,14 @@ import (
 	"strconv"
 	"strings"
 
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/operation"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 
 type MRActionInput struct {
-	Op                       string   `json:"op" jsonschema:"description=Merge request action.,enum=create,enum=close,enum=open,enum=reopen,enum=comment,enum=approve,enum=unapprove,enum=merge,enum=rebase,enum=retry_pipeline,enum=cancel_pipeline,required"`
+	Op                       string   `json:"op" jsonschema:"description=Merge request action.,enum=create,enum=edit,enum=close,enum=open,enum=reopen,enum=comment,enum=inline_comment,enum=reply_discussion,enum=resolve_discussion,enum=react,enum=approve,enum=unapprove,enum=merge,enum=rebase,required"`
 	ProjectID                string   `json:"project_id" jsonschema:"description=Numeric project id or path-with-namespace.,required"`
 	MergeRequestIID          int64    `json:"merge_request_iid,omitempty" jsonschema:"description=Project-local merge request iid. Required except for create."`
 	Title                    string   `json:"title,omitempty" jsonschema:"description=Merge request title for create."`
@@ -19,10 +20,22 @@ type MRActionInput struct {
 	SourceBranch             string   `json:"source_branch,omitempty" jsonschema:"description=Source branch for create."`
 	TargetBranch             string   `json:"target_branch,omitempty" jsonschema:"description=Target branch for create."`
 	Labels                   []string `json:"labels,omitempty" jsonschema:"description=Labels for create."`
+	LabelsToAdd              []string `json:"labels_to_add,omitempty" jsonschema:"description=Labels to add for edit."`
+	LabelsToRemove           []string `json:"labels_to_remove,omitempty" jsonschema:"description=Labels to remove for edit."`
 	AssigneeIDs              []int64  `json:"assignee_ids,omitempty" jsonschema:"description=Assignee user ids for create."`
 	ReviewerIDs              []int64  `json:"reviewer_ids,omitempty" jsonschema:"description=Reviewer user ids for create."`
+	Draft                    *bool    `json:"draft,omitempty" jsonschema:"description=Whether the merge request should be a draft for create or edit."`
 	Body                     string   `json:"body,omitempty" jsonschema:"description=Comment body for comment."`
 	Internal                 bool     `json:"internal,omitempty" jsonschema:"description=Whether a comment should be internal."`
+	FilePath                 string   `json:"file_path,omitempty" jsonschema:"description=File path for inline_comment."`
+	Line                     int64    `json:"line,omitempty" jsonschema:"description=New-file line number for inline_comment unless line_side is old."`
+	LineSide                 string   `json:"line_side,omitempty" jsonschema:"description=Line side for inline_comment: new or old."`
+	Context                  int      `json:"context,omitempty" jsonschema:"description=Surrounding diff lines to include in inline_comment result."`
+	DiscussionID             string   `json:"discussion_id,omitempty" jsonschema:"description=GitLab discussion id for replying to or resolving a discussion."`
+	Resolved                 *bool    `json:"resolved,omitempty" jsonschema:"description=Whether a discussion should be marked resolved."`
+	Emoji                    string   `json:"emoji,omitempty" jsonschema:"description=Award emoji name for react."`
+	NoteID                   int64    `json:"note_id,omitempty" jsonschema:"description=Optional note id for note-level emoji reactions."`
+	Reason                   string   `json:"reason,omitempty" jsonschema:"description=Optional reason note to create before close or reopen."`
 	SHA                      string   `json:"sha,omitempty" jsonschema:"description=Expected head sha for approve or merge."`
 	Squash                   *bool    `json:"squash,omitempty" jsonschema:"description=Whether merge should squash commits."`
 	ShouldRemoveSourceBranch *bool    `json:"should_remove_source_branch,omitempty" jsonschema:"description=Whether merge should remove the source branch."`
@@ -30,15 +43,19 @@ type MRActionInput struct {
 	SquashCommitMessage      string   `json:"squash_commit_message,omitempty" jsonschema:"description=Squash commit message for merge."`
 	AutoMerge                *bool    `json:"auto_merge,omitempty" jsonschema:"description=Whether merge should auto-merge when possible."`
 	SkipCI                   *bool    `json:"skip_ci,omitempty" jsonschema:"description=Whether rebase should skip CI."`
-	PipelineID               int64    `json:"pipeline_id,omitempty" jsonschema:"description=Pipeline id for retry_pipeline or cancel_pipeline."`
 }
 
 type MRActionResult struct {
 	Op              string `json:"op"`
 	ProjectID       string `json:"project_id,omitempty"`
 	MergeRequestIID int64  `json:"merge_request_iid,omitempty"`
-	PipelineID      int64  `json:"pipeline_id,omitempty"`
 	NoteID          int64  `json:"note_id,omitempty"`
+	DiscussionID    string `json:"discussion_id,omitempty"`
+	AwardEmojiID    int64  `json:"award_emoji_id,omitempty"`
+	AwardEmojiName  string `json:"award_emoji_name,omitempty"`
+	TargetPath      string `json:"target_path,omitempty"`
+	TargetLine      int64  `json:"target_line,omitempty"`
+	TargetLineType  string `json:"target_line_type,omitempty"`
 	State           string `json:"state,omitempty"`
 	Status          string `json:"status,omitempty"`
 	WebURL          string `json:"web_url,omitempty"`
@@ -86,6 +103,8 @@ func (p Plugin) executeMRAction(ctx operation.Context, client gitlabClient, proj
 	switch req.Op {
 	case "create":
 		return createMR(ctx, client, project, req, base)
+	case "edit":
+		return editMR(ctx, client, project, req, base)
 	case "close":
 		return updateMRState(ctx, client, project, req, "close", base)
 	case "open", "reopen":
@@ -93,6 +112,14 @@ func (p Plugin) executeMRAction(ctx operation.Context, client gitlabClient, proj
 		return updateMRState(ctx, client, project, req, "reopen", base)
 	case "comment":
 		return commentMR(ctx, client, project, req, base)
+	case "inline_comment":
+		return inlineCommentMR(ctx, client, project, req, base)
+	case "reply_discussion":
+		return replyDiscussionMR(ctx, client, project, req, base)
+	case "resolve_discussion":
+		return resolveDiscussionMR(ctx, client, project, req, base)
+	case "react":
+		return reactMR(ctx, client, project, req, base)
 	case "approve":
 		return approveMR(ctx, client, project, req, base)
 	case "unapprove":
@@ -101,10 +128,6 @@ func (p Plugin) executeMRAction(ctx operation.Context, client gitlabClient, proj
 		return mergeMR(ctx, client, project, req, base)
 	case "rebase":
 		return rebaseMR(ctx, client, project, req, base)
-	case "retry_pipeline":
-		return retryPipeline(ctx, client, project, req, base)
-	case "cancel_pipeline":
-		return cancelPipeline(ctx, client, project, req, base)
 	default:
 		return MRActionResult{}, fmt.Errorf("unsupported op %q", req.Op)
 	}
@@ -119,6 +142,9 @@ func createMR(ctx operation.Context, client gitlabClient, project any, req MRAct
 		SourceBranch: gitlab.Ptr(strings.TrimSpace(req.SourceBranch)),
 		TargetBranch: gitlab.Ptr(strings.TrimSpace(req.TargetBranch)),
 	}
+	if req.Draft != nil && *req.Draft {
+		opts.Title = gitlab.Ptr(ensureDraftTitle(*opts.Title))
+	}
 	if strings.TrimSpace(req.Description) != "" {
 		opts.Description = gitlab.Ptr(strings.TrimSpace(req.Description))
 	}
@@ -132,6 +158,8 @@ func createMR(ctx operation.Context, client gitlabClient, project any, req MRAct
 	if len(req.ReviewerIDs) > 0 {
 		opts.ReviewerIDs = &req.ReviewerIDs
 	}
+	opts.Squash = req.Squash
+	opts.RemoveSourceBranch = req.ShouldRemoveSourceBranch
 	mr, err := client.CreateMergeRequest(ctx, project, opts)
 	if err != nil {
 		return MRActionResult{}, err
@@ -139,9 +167,102 @@ func createMR(ctx operation.Context, client gitlabClient, project any, req MRAct
 	return resultFromMR(base, mergeRequestFromFull(mr), "merge request created"), nil
 }
 
+func editMR(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
+	if req.MergeRequestIID == 0 {
+		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for edit")
+	}
+	opts := &gitlab.UpdateMergeRequestOptions{}
+	updates := 0
+	if title := strings.TrimSpace(req.Title); title != "" {
+		if req.Draft != nil {
+			if *req.Draft {
+				title = ensureDraftTitle(title)
+			} else {
+				title = removeDraftTitle(title)
+			}
+		}
+		opts.Title = gitlab.Ptr(title)
+		updates++
+	}
+	if description := strings.TrimSpace(req.Description); description != "" {
+		opts.Description = gitlab.Ptr(description)
+		updates++
+	}
+	if target := strings.TrimSpace(req.TargetBranch); target != "" {
+		opts.TargetBranch = gitlab.Ptr(target)
+		updates++
+	}
+	if len(req.Labels) > 0 {
+		labels := gitlab.LabelOptions(cleaned(req.Labels))
+		opts.Labels = &labels
+		updates++
+	}
+	if len(req.LabelsToAdd) > 0 {
+		labels := gitlab.LabelOptions(cleaned(req.LabelsToAdd))
+		opts.AddLabels = &labels
+		updates++
+	}
+	if len(req.LabelsToRemove) > 0 {
+		labels := gitlab.LabelOptions(cleaned(req.LabelsToRemove))
+		opts.RemoveLabels = &labels
+		updates++
+	}
+	if len(req.AssigneeIDs) > 0 {
+		opts.AssigneeIDs = &req.AssigneeIDs
+		updates++
+	}
+	if len(req.ReviewerIDs) > 0 {
+		opts.ReviewerIDs = &req.ReviewerIDs
+		updates++
+	}
+	if req.Squash != nil {
+		opts.Squash = req.Squash
+		updates++
+	}
+	if req.ShouldRemoveSourceBranch != nil {
+		opts.RemoveSourceBranch = req.ShouldRemoveSourceBranch
+		updates++
+	}
+	if req.Draft != nil && opts.Title == nil {
+		current, err := client.GetMergeRequest(ctx, project, req.MergeRequestIID, nil)
+		if err != nil {
+			return MRActionResult{}, err
+		}
+		if current == nil {
+			return MRActionResult{}, coredatasource.ErrNotFound
+		}
+		title := current.Title
+		if *req.Draft {
+			title = ensureDraftTitle(title)
+		} else {
+			title = removeDraftTitle(title)
+		}
+		opts.Title = gitlab.Ptr(title)
+		updates++
+	}
+	if updates == 0 {
+		return MRActionResult{}, fmt.Errorf("at least one edit field is required")
+	}
+	mr, err := client.UpdateMergeRequest(ctx, project, req.MergeRequestIID, opts)
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	return resultFromMR(base, mergeRequestFromFull(mr), "merge request updated"), nil
+}
+
 func updateMRState(ctx operation.Context, client gitlabClient, project any, req MRActionInput, state string, base MRActionResult) (MRActionResult, error) {
 	if req.MergeRequestIID == 0 {
 		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for %s", req.Op)
+	}
+	if reason := strings.TrimSpace(req.Reason); reason != "" {
+		note, err := client.CreateMergeRequestNote(ctx, project, req.MergeRequestIID, &gitlab.CreateMergeRequestNoteOptions{
+			Body:     gitlab.Ptr(reason),
+			Internal: gitlab.Ptr(req.Internal),
+		})
+		if err != nil {
+			return MRActionResult{}, err
+		}
+		base.NoteID = note.ID
 	}
 	mr, err := client.UpdateMergeRequest(ctx, project, req.MergeRequestIID, &gitlab.UpdateMergeRequestOptions{StateEvent: gitlab.Ptr(state)})
 	if err != nil {
@@ -166,6 +287,166 @@ func commentMR(ctx operation.Context, client gitlabClient, project any, req MRAc
 	}
 	base.NoteID = note.ID
 	base.Message = "merge request comment created"
+	return base, nil
+}
+
+func inlineCommentMR(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
+	if req.MergeRequestIID == 0 {
+		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for inline_comment")
+	}
+	path := strings.TrimSpace(req.FilePath)
+	if path == "" {
+		return MRActionResult{}, fmt.Errorf("file_path is required for inline_comment")
+	}
+	if req.Line == 0 {
+		return MRActionResult{}, fmt.Errorf("line is required for inline_comment")
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		return MRActionResult{}, fmt.Errorf("body is required for inline_comment")
+	}
+	diffs, err := client.ListMergeRequestDiffs(ctx, project, req.MergeRequestIID, &gitlab.ListMergeRequestDiffsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}})
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	versions, err := client.GetMergeRequestDiffVersions(ctx, project, req.MergeRequestIID, &gitlab.GetMergeRequestDiffVersionsOptions{ListOptions: gitlab.ListOptions{PerPage: 1, Page: 1}})
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	target, err := validateInlineTarget(project, req.MergeRequestIID, path, req.Line, req.LineSide, diffs, versions, req.Context)
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	if target.BaseSHA == "" || target.StartSHA == "" || target.HeadSHA == "" {
+		return MRActionResult{}, fmt.Errorf("merge request diff versions did not include base/start/head sha values")
+	}
+	position := &gitlab.PositionOptions{
+		BaseSHA:      gitlab.Ptr(target.BaseSHA),
+		StartSHA:     gitlab.Ptr(target.StartSHA),
+		HeadSHA:      gitlab.Ptr(target.HeadSHA),
+		OldPath:      gitlab.Ptr(firstNonEmpty(target.Path, path)),
+		NewPath:      gitlab.Ptr(firstNonEmpty(target.Path, path)),
+		PositionType: gitlab.Ptr("text"),
+	}
+	for _, diff := range diffs {
+		if diff != nil && (diff.NewPath == path || diff.OldPath == path) {
+			position.OldPath = gitlab.Ptr(firstNonEmpty(diff.OldPath, diff.NewPath))
+			position.NewPath = gitlab.Ptr(firstNonEmpty(diff.NewPath, diff.OldPath))
+			break
+		}
+	}
+	if strings.EqualFold(target.LineSide, "old") {
+		position.OldLine = gitlab.Ptr(target.OldLine)
+	} else {
+		position.NewLine = gitlab.Ptr(target.NewLine)
+	}
+	discussion, err := client.CreateMergeRequestDiscussion(ctx, project, req.MergeRequestIID, &gitlab.CreateMergeRequestDiscussionOptions{
+		Body:     gitlab.Ptr(body),
+		Position: position,
+	})
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	base.TargetPath = path
+	base.TargetLine = req.Line
+	base.TargetLineType = target.LineType
+	if discussion != nil {
+		base.DiscussionID = discussion.ID
+		if len(discussion.Notes) > 0 && discussion.Notes[0] != nil {
+			base.NoteID = discussion.Notes[0].ID
+		}
+	}
+	base.Message = "merge request inline comment created"
+	return base, nil
+}
+
+func replyDiscussionMR(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
+	if req.MergeRequestIID == 0 {
+		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for reply_discussion")
+	}
+	discussionID := strings.TrimSpace(req.DiscussionID)
+	if discussionID == "" {
+		return MRActionResult{}, fmt.Errorf("discussion_id is required for reply_discussion")
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		return MRActionResult{}, fmt.Errorf("body is required for reply_discussion")
+	}
+	note, err := client.AddMergeRequestDiscussionNote(ctx, project, req.MergeRequestIID, discussionID, &gitlab.AddMergeRequestDiscussionNoteOptions{
+		Body: gitlab.Ptr(body),
+	})
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	base.DiscussionID = discussionID
+	if note != nil {
+		base.NoteID = note.ID
+	}
+	base.Message = "merge request discussion reply created"
+	return base, nil
+}
+
+func resolveDiscussionMR(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
+	if req.MergeRequestIID == 0 {
+		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for resolve_discussion")
+	}
+	discussionID := strings.TrimSpace(req.DiscussionID)
+	if discussionID == "" {
+		return MRActionResult{}, fmt.Errorf("discussion_id is required for resolve_discussion")
+	}
+	if req.Resolved == nil {
+		return MRActionResult{}, fmt.Errorf("resolved is required for resolve_discussion")
+	}
+	discussion, err := client.ResolveMergeRequestDiscussion(ctx, project, req.MergeRequestIID, discussionID, &gitlab.ResolveMergeRequestDiscussionOptions{
+		Resolved: req.Resolved,
+	})
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	base.DiscussionID = discussionID
+	if discussion != nil && discussion.ID != "" {
+		base.DiscussionID = discussion.ID
+	}
+	if *req.Resolved {
+		base.Status = "resolved"
+		base.Message = "merge request discussion resolved"
+	} else {
+		base.Status = "unresolved"
+		base.Message = "merge request discussion unresolved"
+	}
+	return base, nil
+}
+
+func reactMR(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
+	if req.MergeRequestIID == 0 {
+		return MRActionResult{}, fmt.Errorf("merge_request_iid is required for react")
+	}
+	emoji := strings.Trim(strings.TrimSpace(req.Emoji), ":")
+	if emoji == "" {
+		return MRActionResult{}, fmt.Errorf("emoji is required for react")
+	}
+	opts := &gitlab.CreateAwardEmojiOptions{Name: emoji}
+	var (
+		award *gitlab.AwardEmoji
+		err   error
+	)
+	if req.NoteID != 0 {
+		award, err = client.CreateMergeRequestAwardEmojiOnNote(ctx, project, req.MergeRequestIID, req.NoteID, opts)
+	} else {
+		award, err = client.CreateMergeRequestAwardEmoji(ctx, project, req.MergeRequestIID, opts)
+	}
+	if err != nil {
+		return MRActionResult{}, err
+	}
+	base.NoteID = req.NoteID
+	base.AwardEmojiName = emoji
+	if award != nil {
+		base.AwardEmojiID = award.ID
+		if award.Name != "" {
+			base.AwardEmojiName = award.Name
+		}
+	}
+	base.Message = "merge request award emoji created"
 	return base, nil
 }
 
@@ -234,28 +515,6 @@ func rebaseMR(ctx operation.Context, client gitlabClient, project any, req MRAct
 	return base, nil
 }
 
-func retryPipeline(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
-	if req.PipelineID == 0 {
-		return MRActionResult{}, fmt.Errorf("pipeline_id is required for retry_pipeline")
-	}
-	pipeline, err := client.RetryPipelineBuild(ctx, project, req.PipelineID)
-	if err != nil {
-		return MRActionResult{}, err
-	}
-	return resultFromPipeline(base, pipelineFromFull(pipeline), "pipeline retried"), nil
-}
-
-func cancelPipeline(ctx operation.Context, client gitlabClient, project any, req MRActionInput, base MRActionResult) (MRActionResult, error) {
-	if req.PipelineID == 0 {
-		return MRActionResult{}, fmt.Errorf("pipeline_id is required for cancel_pipeline")
-	}
-	pipeline, err := client.CancelPipelineBuild(ctx, project, req.PipelineID)
-	if err != nil {
-		return MRActionResult{}, err
-	}
-	return resultFromPipeline(base, pipelineFromFull(pipeline), "pipeline canceled"), nil
-}
-
 func resultFromMR(base MRActionResult, mr MergeRequest, message string) MRActionResult {
 	if mr.ProjectID != 0 {
 		base.ProjectID = strconv.FormatInt(mr.ProjectID, 10)
@@ -270,17 +529,26 @@ func resultFromMR(base MRActionResult, mr MergeRequest, message string) MRAction
 	return base
 }
 
-func resultFromPipeline(base MRActionResult, pipeline Pipeline, message string) MRActionResult {
-	if pipeline.ProjectID != 0 {
-		base.ProjectID = strconv.FormatInt(pipeline.ProjectID, 10)
-	}
-	base.PipelineID = pipeline.ID
-	base.Status = pipeline.Status
-	base.WebURL = pipeline.WebURL
-	base.Message = message
-	return base
-}
-
 func (p Plugin) mrAccess(operation.Context, MRActionInput) ([]operationruntime.AccessDescriptor, error) {
 	return p.gitlabNetworkWriteAccess(nil, nil)
+}
+
+func ensureDraftTitle(title string) string {
+	title = strings.TrimSpace(title)
+	lower := strings.ToLower(title)
+	if strings.HasPrefix(lower, "draft:") || strings.HasPrefix(lower, "wip:") {
+		return title
+	}
+	return "Draft: " + title
+}
+
+func removeDraftTitle(title string) string {
+	title = strings.TrimSpace(title)
+	lower := strings.ToLower(title)
+	for _, prefix := range []string{"draft:", "wip:"} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(title[len(prefix):])
+		}
+	}
+	return title
 }

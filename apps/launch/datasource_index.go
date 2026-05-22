@@ -92,15 +92,18 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		return nil
 	}
 	dispatcher := slack.NewDispatcher()
-	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
-	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, opts.AllowPluginAuthEnv)
-	plugins := datasourceIndexPlugins(hostSystem, dispatcher, nativeStore, nativeResolver)
+	auth := NewPluginAuthContext(PluginAuthOptions{
+		System:             hostSystem,
+		AuthPath:           opts.AuthPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+	})
+	plugins := datasourceIndexPlugins(hostSystem, dispatcher, auth.Store, auth.Resolver)
 	if opts.PluginFactory != nil {
 		for _, plugin := range opts.PluginFactory(PluginFactoryContext{
 			System:             hostSystem,
 			Dispatcher:         dispatcher,
-			NativeAuthStore:    nativeStore,
-			NativeAuthResolver: nativeResolver,
+			NativeAuthStore:    auth.Store,
+			NativeAuthResolver: auth.Resolver,
 		}) {
 			plugins = replacePlugin(plugins, plugin)
 		}

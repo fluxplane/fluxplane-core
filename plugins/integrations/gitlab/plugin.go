@@ -70,6 +70,7 @@ type gitlabClient interface {
 	GetUser(context.Context, int64, *gitlab.GetUserOptions) (*gitlab.User, error)
 	CurrentUser(context.Context) (*gitlab.User, error)
 	GetProject(context.Context, any, *gitlab.GetProjectOptions) (*gitlab.Project, error)
+	GetProjectLanguages(context.Context, any) (*gitlab.ProjectLanguages, error)
 	ListProjectUsers(context.Context, any, *gitlab.ListProjectUserOptions) ([]*gitlab.ProjectUser, error)
 	ListProjectGroups(context.Context, any, *gitlab.ListProjectGroupOptions) ([]*gitlab.ProjectGroup, error)
 	ListProjectMembers(context.Context, any, *gitlab.ListProjectMembersOptions) ([]*gitlab.ProjectMember, error)
@@ -78,6 +79,18 @@ type gitlabClient interface {
 	GetMergeRequest(context.Context, any, int64, *gitlab.GetMergeRequestsOptions) (*gitlab.MergeRequest, error)
 	ListMergeRequestDiffs(context.Context, any, int64, *gitlab.ListMergeRequestDiffsOptions) ([]*gitlab.MergeRequestDiff, error)
 	ListMergeRequestNotes(context.Context, any, int64, *gitlab.ListMergeRequestNotesOptions) ([]*gitlab.Note, error)
+	GetMergeRequestApprovals(context.Context, any, int64) (*gitlab.MergeRequestApprovals, error)
+	GetMergeRequestCommits(context.Context, any, int64, *gitlab.GetMergeRequestCommitsOptions) ([]*gitlab.Commit, error)
+	GetMergeRequestChanges(context.Context, any, int64, *gitlab.GetMergeRequestChangesOptions) (*gitlab.MergeRequest, error)
+	GetMergeRequestDiffVersions(context.Context, any, int64, *gitlab.GetMergeRequestDiffVersionsOptions) ([]*gitlab.MergeRequestDiffVersion, error)
+	ListMergeRequestDiscussions(context.Context, any, int64, *gitlab.ListMergeRequestDiscussionsOptions) ([]*gitlab.Discussion, error)
+	CreateMergeRequestDiscussion(context.Context, any, int64, *gitlab.CreateMergeRequestDiscussionOptions) (*gitlab.Discussion, error)
+	AddMergeRequestDiscussionNote(context.Context, any, int64, string, *gitlab.AddMergeRequestDiscussionNoteOptions) (*gitlab.Note, error)
+	ResolveMergeRequestDiscussion(context.Context, any, int64, string, *gitlab.ResolveMergeRequestDiscussionOptions) (*gitlab.Discussion, error)
+	ListMergeRequestAwardEmoji(context.Context, any, int64, *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error)
+	ListMergeRequestAwardEmojiOnNote(context.Context, any, int64, int64, *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error)
+	CreateMergeRequestAwardEmoji(context.Context, any, int64, *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error)
+	CreateMergeRequestAwardEmojiOnNote(context.Context, any, int64, int64, *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error)
 	ListMergeRequestPipelines(context.Context, any, int64) ([]*gitlab.PipelineInfo, error)
 	GetMergeRequestParticipants(context.Context, any, int64) ([]*gitlab.BasicUser, error)
 	GetMergeRequestReviewers(context.Context, any, int64) ([]*gitlab.MergeRequestReviewer, error)
@@ -91,7 +104,11 @@ type gitlabClient interface {
 	GetCommit(context.Context, any, string, *gitlab.GetCommitOptions) (*gitlab.Commit, error)
 	ListMergeRequestsByCommit(context.Context, any, string) ([]*gitlab.BasicMergeRequest, error)
 	ListTree(context.Context, any, *gitlab.ListTreeOptions) ([]*gitlab.TreeNode, error)
+	ListProjectContributors(context.Context, any, *gitlab.ListContributorsOptions) ([]*gitlab.Contributor, error)
+	CompareRefs(context.Context, any, *gitlab.CompareOptions) (*gitlab.Compare, error)
 	GetFile(context.Context, any, string, *gitlab.GetFileOptions) (*gitlab.File, error)
+	GetFileBlame(context.Context, any, string, *gitlab.GetFileBlameOptions) ([]*gitlab.FileBlameRange, error)
+	SearchBlobsByProject(context.Context, any, string, *gitlab.SearchOptions) ([]*gitlab.Blob, error)
 	ListProjectJobs(context.Context, any, *gitlab.ListJobsOptions) ([]*gitlab.Job, error)
 	ListPipelineJobs(context.Context, any, int64, *gitlab.ListJobsOptions) ([]*gitlab.Job, error)
 	GetJob(context.Context, any, int64) (*gitlab.Job, error)
@@ -103,6 +120,7 @@ type gitlabClient interface {
 	UnapproveMergeRequest(context.Context, any, int64) error
 	AcceptMergeRequest(context.Context, any, int64, *gitlab.AcceptMergeRequestOptions) (*gitlab.MergeRequest, error)
 	RebaseMergeRequest(context.Context, any, int64, *gitlab.RebaseMergeRequestOptions) error
+	CreatePipeline(context.Context, any, *gitlab.CreatePipelineOptions) (*gitlab.Pipeline, error)
 	RetryPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
 	CancelPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error)
 	CreateFile(context.Context, any, string, *gitlab.CreateFileOptions) (*gitlab.FileInfo, error)
@@ -117,6 +135,11 @@ type gitlabClient interface {
 	CreateVariable(context.Context, any, *gitlab.CreateProjectVariableOptions) (*gitlab.ProjectVariable, error)
 	UpdateVariable(context.Context, any, string, *gitlab.UpdateProjectVariableOptions) (*gitlab.ProjectVariable, error)
 	RemoveVariable(context.Context, any, string, *gitlab.RemoveProjectVariableOptions) error
+	ListSnippets(context.Context, *gitlab.ListSnippetsOptions) ([]*gitlab.Snippet, error)
+	GetSnippet(context.Context, int64) (*gitlab.Snippet, error)
+	GetSnippetContent(context.Context, int64) ([]byte, error)
+	CreateSnippet(context.Context, *gitlab.CreateSnippetOptions) (*gitlab.Snippet, error)
+	DeleteSnippet(context.Context, int64) error
 }
 
 type gitlabClientFactory func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error)
@@ -752,6 +775,11 @@ func (c officialClient) GetProject(ctx context.Context, id any, opts *gitlab.Get
 	return project, err
 }
 
+func (c officialClient) GetProjectLanguages(ctx context.Context, id any) (*gitlab.ProjectLanguages, error) {
+	languages, _, err := c.client.Projects.GetProjectLanguages(id, gitlab.WithContext(ctx))
+	return languages, err
+}
+
 func (c officialClient) ListProjectUsers(ctx context.Context, id any, opts *gitlab.ListProjectUserOptions) ([]*gitlab.ProjectUser, error) {
 	users, _, err := c.client.Projects.ListProjectsUsers(id, opts, gitlab.WithContext(ctx))
 	return users, err
@@ -790,6 +818,66 @@ func (c officialClient) ListMergeRequestDiffs(ctx context.Context, id any, mr in
 func (c officialClient) ListMergeRequestNotes(ctx context.Context, id any, mr int64, opts *gitlab.ListMergeRequestNotesOptions) ([]*gitlab.Note, error) {
 	notes, _, err := c.client.Notes.ListMergeRequestNotes(id, mr, opts, gitlab.WithContext(ctx))
 	return notes, err
+}
+
+func (c officialClient) GetMergeRequestApprovals(ctx context.Context, id any, mr int64) (*gitlab.MergeRequestApprovals, error) {
+	out, _, err := c.client.MergeRequests.GetMergeRequestApprovals(id, mr, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetMergeRequestCommits(ctx context.Context, id any, mr int64, opts *gitlab.GetMergeRequestCommitsOptions) ([]*gitlab.Commit, error) {
+	out, _, err := c.client.MergeRequests.GetMergeRequestCommits(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetMergeRequestChanges(ctx context.Context, id any, mr int64, opts *gitlab.GetMergeRequestChangesOptions) (*gitlab.MergeRequest, error) {
+	out, _, err := c.client.MergeRequests.GetMergeRequestChanges(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetMergeRequestDiffVersions(ctx context.Context, id any, mr int64, opts *gitlab.GetMergeRequestDiffVersionsOptions) ([]*gitlab.MergeRequestDiffVersion, error) {
+	out, _, err := c.client.MergeRequests.GetMergeRequestDiffVersions(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListMergeRequestDiscussions(ctx context.Context, id any, mr int64, opts *gitlab.ListMergeRequestDiscussionsOptions) ([]*gitlab.Discussion, error) {
+	out, _, err := c.client.Discussions.ListMergeRequestDiscussions(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateMergeRequestDiscussion(ctx context.Context, id any, mr int64, opts *gitlab.CreateMergeRequestDiscussionOptions) (*gitlab.Discussion, error) {
+	out, _, err := c.client.Discussions.CreateMergeRequestDiscussion(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) AddMergeRequestDiscussionNote(ctx context.Context, id any, mr int64, discussionID string, opts *gitlab.AddMergeRequestDiscussionNoteOptions) (*gitlab.Note, error) {
+	out, _, err := c.client.Discussions.AddMergeRequestDiscussionNote(id, mr, discussionID, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ResolveMergeRequestDiscussion(ctx context.Context, id any, mr int64, discussionID string, opts *gitlab.ResolveMergeRequestDiscussionOptions) (*gitlab.Discussion, error) {
+	out, _, err := c.client.Discussions.ResolveMergeRequestDiscussion(id, mr, discussionID, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListMergeRequestAwardEmoji(ctx context.Context, id any, mr int64, opts *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error) {
+	out, _, err := c.client.AwardEmoji.ListMergeRequestAwardEmoji(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) ListMergeRequestAwardEmojiOnNote(ctx context.Context, id any, mr int64, noteID int64, opts *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error) {
+	out, _, err := c.client.AwardEmoji.ListMergeRequestAwardEmojiOnNote(id, mr, noteID, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateMergeRequestAwardEmoji(ctx context.Context, id any, mr int64, opts *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error) {
+	out, _, err := c.client.AwardEmoji.CreateMergeRequestAwardEmoji(id, mr, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateMergeRequestAwardEmojiOnNote(ctx context.Context, id any, mr int64, noteID int64, opts *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error) {
+	out, _, err := c.client.AwardEmoji.CreateMergeRequestAwardEmojiOnNote(id, mr, noteID, opts, gitlab.WithContext(ctx))
+	return out, err
 }
 
 func (c officialClient) ListMergeRequestPipelines(ctx context.Context, id any, mr int64) ([]*gitlab.PipelineInfo, error) {
@@ -857,8 +945,28 @@ func (c officialClient) ListTree(ctx context.Context, id any, opts *gitlab.ListT
 	return out, err
 }
 
+func (c officialClient) ListProjectContributors(ctx context.Context, id any, opts *gitlab.ListContributorsOptions) ([]*gitlab.Contributor, error) {
+	out, _, err := c.client.Repositories.Contributors(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CompareRefs(ctx context.Context, id any, opts *gitlab.CompareOptions) (*gitlab.Compare, error) {
+	out, _, err := c.client.Repositories.Compare(id, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
 func (c officialClient) GetFile(ctx context.Context, id any, fileName string, opts *gitlab.GetFileOptions) (*gitlab.File, error) {
 	out, _, err := c.client.RepositoryFiles.GetFile(id, fileName, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetFileBlame(ctx context.Context, id any, fileName string, opts *gitlab.GetFileBlameOptions) ([]*gitlab.FileBlameRange, error) {
+	out, _, err := c.client.RepositoryFiles.GetFileBlame(id, fileName, opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) SearchBlobsByProject(ctx context.Context, id any, query string, opts *gitlab.SearchOptions) ([]*gitlab.Blob, error) {
+	out, _, err := c.client.Search.BlobsByProject(id, query, opts, gitlab.WithContext(ctx))
 	return out, err
 }
 
@@ -923,6 +1031,11 @@ func (c officialClient) AcceptMergeRequest(ctx context.Context, id any, mr int64
 func (c officialClient) RebaseMergeRequest(ctx context.Context, id any, mr int64, opts *gitlab.RebaseMergeRequestOptions) error {
 	_, err := c.client.MergeRequests.RebaseMergeRequest(id, mr, opts, gitlab.WithContext(ctx))
 	return err
+}
+
+func (c officialClient) CreatePipeline(ctx context.Context, id any, opts *gitlab.CreatePipelineOptions) (*gitlab.Pipeline, error) {
+	out, _, err := c.client.Pipelines.CreatePipeline(id, opts, gitlab.WithContext(ctx))
+	return out, err
 }
 
 func (c officialClient) RetryPipelineBuild(ctx context.Context, id any, pipeline int64) (*gitlab.Pipeline, error) {
@@ -992,6 +1105,31 @@ func (c officialClient) UpdateVariable(ctx context.Context, id any, key string, 
 
 func (c officialClient) RemoveVariable(ctx context.Context, id any, key string, opts *gitlab.RemoveProjectVariableOptions) error {
 	_, err := c.client.ProjectVariables.RemoveVariable(id, key, opts, gitlab.WithContext(ctx))
+	return err
+}
+
+func (c officialClient) ListSnippets(ctx context.Context, opts *gitlab.ListSnippetsOptions) ([]*gitlab.Snippet, error) {
+	out, _, err := c.client.Snippets.ListSnippets(opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetSnippet(ctx context.Context, snippetID int64) (*gitlab.Snippet, error) {
+	out, _, err := c.client.Snippets.GetSnippet(snippetID, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) GetSnippetContent(ctx context.Context, snippetID int64) ([]byte, error) {
+	out, _, err := c.client.Snippets.SnippetContent(snippetID, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) CreateSnippet(ctx context.Context, opts *gitlab.CreateSnippetOptions) (*gitlab.Snippet, error) {
+	out, _, err := c.client.Snippets.CreateSnippet(opts, gitlab.WithContext(ctx))
+	return out, err
+}
+
+func (c officialClient) DeleteSnippet(ctx context.Context, snippetID int64) error {
+	_, err := c.client.Snippets.DeleteSnippet(snippetID, gitlab.WithContext(ctx))
 	return err
 }
 

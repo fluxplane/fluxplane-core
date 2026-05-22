@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/resource"
@@ -111,6 +112,12 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(projects, a.projectRecord), -1), nil
+	case ActivityEntity:
+		activities, err := searchActivity(ctx, client, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(activities, a.activityRecord), -1), nil
 	case MembershipEntity:
 		memberships, err := a.searchMemberships(ctx, client, req.Query, gitlabDefaultFilters(entity, req.Filters), req.Limit)
 		if err != nil {
@@ -129,12 +136,42 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(diffs, a.diffRecord), -1), nil
+	case MergeRequestDiffLineEntity:
+		lines, err := searchMergeRequestDiffLines(ctx, client, req.Query, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(lines, a.diffLineRecord), -1), nil
 	case MergeRequestNoteEntity:
 		notes, err := searchMergeRequestNotes(ctx, client, req.Query, req.Filters, req.Limit)
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(notes, a.noteRecord), -1), nil
+	case MergeRequestApprovalEntity:
+		approval, err := searchMergeRequestApproval(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.approvalRecord(approval)}, -1), nil
+	case MergeRequestChangeEntity:
+		change, err := searchMergeRequestChange(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.changeRecord(change)}, -1), nil
+	case DiscussionEntity:
+		discussions, err := searchDiscussions(ctx, client, req.Query, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(discussions, a.discussionRecord), -1), nil
+	case AwardEmojiEntity:
+		awards, err := searchAwardEmoji(ctx, client, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(awards, a.awardEmojiRecord), -1), nil
 	case PipelineEntity:
 		pipelines, err := searchPipelines(ctx, client, req.Filters, req.Limit)
 		if err != nil {
@@ -159,6 +196,48 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(commits, a.commitRecord), -1), nil
+	case RepositoryFileEntity:
+		files, err := searchRepositoryFiles(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(files, a.repositoryFileRecord), -1), nil
+	case CompareEntity:
+		compare, err := searchCompare(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.compareRecord(compare)}, -1), nil
+	case BlameEntity:
+		blame, err := searchBlame(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.blameRecord(blame)}, -1), nil
+	case BlobSearchEntity:
+		results, err := searchBlobs(ctx, client, req.Query, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(results, a.blobSearchRecord), -1), nil
+	case ProjectLanguageEntity:
+		languages, err := searchProjectLanguages(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(languages, a.projectLanguageRecord), -1), nil
+	case ProjectContributorEntity:
+		contributors, err := searchProjectContributors(ctx, client, req.Filters, req.Limit)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(contributors, a.projectContributorRecord), -1), nil
+	case JobTraceEntity:
+		trace, err := searchJobTrace(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, []coredatasource.Record{a.jobTraceRecord(trace)}, -1), nil
 	case UserEntity:
 		users, err := searchUsers(ctx, client, req.Query, req.Filters, req.Limit, 1)
 		if err != nil {
@@ -171,6 +250,12 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 			return coredatasource.SearchResult{}, err
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(groups, a.groupRecord), -1), nil
+	case SnippetFileEntity:
+		files, err := searchSnippetFiles(ctx, client, req.Query, req.Filters)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(files, a.snippetFileRecord), -1), nil
 	default:
 		return coredatasource.SearchResult{}, fmt.Errorf("datasource %q entity %q does not support search", a.spec.Name, entity)
 	}
@@ -263,6 +348,12 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 			return coredatasource.ListResult{}, err
 		}
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(projects, a.projectRecord), len(projects), limit, page), nil
+	case ActivityEntity:
+		activities, err := searchActivity(ctx, client, req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(activities, a.activityRecord), len(activities), limit, page), nil
 	case UserEntity:
 		users, err := searchUsers(ctx, client, "", req.Filters, limit, page)
 		if err != nil {
@@ -325,6 +416,12 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 		memberships = filterMemberships(memberships, filters)
 		memberships = pageMemberships(memberships, limit, page)
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(memberships, a.membershipRecord), len(memberships), limit, page), nil
+	case SnippetEntity:
+		snippets, err := listSnippets(ctx, client, limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(snippets, a.snippetRecord), len(snippets), limit, page), nil
 	default:
 		return coredatasource.ListResult{}, fmt.Errorf("datasource %q entity %q does not support list", a.spec.Name, entity)
 	}
@@ -386,6 +483,21 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 		for _, note := range notes {
 			if note.ID == noteID {
 				return a.noteRecord(note), nil
+			}
+		}
+		return coredatasource.Record{}, coredatasource.ErrNotFound
+	case DiscussionEntity:
+		project, iid, child, err := parseMergeRequestChildID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		discussions, err := listDiscussions(ctx, client, project, iid, defaultPageSize)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		for _, discussion := range discussions {
+			if discussion.DiscussionID == child || discussion.ID == req.ID {
+				return a.discussionRecord(discussion), nil
 			}
 		}
 		return coredatasource.Record{}, coredatasource.ErrNotFound
@@ -454,6 +566,16 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			return coredatasource.Record{}, err
 		}
 		return a.repositoryFileRecord(file), nil
+	case BlameEntity:
+		project, ref, path, err := parseBlameID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		blame, err := getBlame(ctx, client, project, ref, path, nil)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.blameRecord(blame), nil
 	case JobEntity:
 		project, jobID, err := parseProjectChildID(req.ID)
 		if err != nil {
@@ -469,7 +591,7 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
-		trace, err := getJobTrace(ctx, client, project, jobID)
+		trace, err := getJobTrace(ctx, client, project, jobID, 0)
 		if err != nil {
 			return coredatasource.Record{}, err
 		}
@@ -503,6 +625,29 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			return coredatasource.Record{}, err
 		}
 		return a.membershipRecord(membership), nil
+	case SnippetEntity:
+		snippetID, err := strconv.ParseInt(strings.TrimSpace(req.ID), 10, 64)
+		if err != nil {
+			return coredatasource.Record{}, fmt.Errorf("gitlab snippet id must be numeric")
+		}
+		snippet, err := getSnippet(ctx, client, snippetID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.snippetRecord(snippet), nil
+	case SnippetFileEntity:
+		snippetID, path, err := parseSnippetFileID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		files, err := snippetFiles(ctx, client, snippetID, path, 0)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		if len(files) == 0 {
+			return coredatasource.Record{}, coredatasource.ErrNotFound
+		}
+		return a.snippetFileRecord(files[0]), nil
 	default:
 		return coredatasource.Record{}, fmt.Errorf("datasource %q entity %q does not support get", a.spec.Name, req.Entity)
 	}
@@ -534,6 +679,12 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 	case ProjectEntity:
 		project, projectLabel := resolveProjectIdentifier(ctx, client, req.ID)
 		switch req.Relation {
+		case "activity":
+			activities, err := searchActivity(ctx, client, map[string]string{"project_id": projectLabel}, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, ActivityEntity, runtimedatasource.RecordsFrom(activities, a.activityRecord), len(activities), limit)
 		case "merge_requests":
 			mrs, err := listProjectMergeRequests(ctx, client, project, "", nil, limit, cursorPage(req.Cursor))
 			if err != nil {
@@ -570,6 +721,18 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return coredatasource.RelationResult{}, err
 			}
 			return a.relationResult(req, RepositoryTreeEntity, runtimedatasource.RecordsFrom(entries, a.repositoryTreeRecord), len(entries), limit)
+		case "languages":
+			languages, err := projectLanguages(ctx, client, project, projectLabel)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, ProjectLanguageEntity, runtimedatasource.RecordsFrom(languages, a.projectLanguageRecord), len(languages), limit)
+		case "contributors":
+			contributors, err := projectContributors(ctx, client, project, projectLabel, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, ProjectContributorEntity, runtimedatasource.RecordsFrom(contributors, a.projectContributorRecord), len(contributors), limit)
 		case "jobs":
 			jobs, err := listProjectJobs(ctx, client, map[string]string{"project_id": projectLabel}, limit, cursorPage(req.Cursor))
 			if err != nil {
@@ -607,6 +770,41 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return coredatasource.RelationResult{}, err
 			}
 			return a.relationResult(req, MergeRequestNoteEntity, runtimedatasource.RecordsFrom(notes, a.noteRecord), len(notes), limit)
+		case "approvals":
+			approval, err := mergeRequestApproval(ctx, client, project, iid)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, MergeRequestApprovalEntity, []coredatasource.Record{a.approvalRecord(approval)}, 1, limit)
+		case "changes":
+			change, err := mergeRequestChange(ctx, client, project, iid, "")
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, MergeRequestChangeEntity, []coredatasource.Record{a.changeRecord(change)}, 1, limit)
+		case "commits":
+			commits, err := client.GetMergeRequestCommits(ctx, project, iid, &gitlab.GetMergeRequestCommitsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(limit), Page: int64(cursorPage(req.Cursor))}})
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			projectLabel := projectIDLabel(project)
+			records := make([]coredatasource.Record, 0, len(commits))
+			for _, commit := range commits {
+				records = append(records, a.commitRecord(commitFromGitLab(projectLabel, commit)))
+			}
+			return a.relationResult(req, CommitEntity, records, len(commits), limit)
+		case "discussions":
+			discussions, err := listDiscussions(ctx, client, project, iid, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, DiscussionEntity, runtimedatasource.RecordsFrom(discussions, a.discussionRecord), len(discussions), limit)
+		case "award_emoji":
+			awards, err := listAwardEmoji(ctx, client, project, iid, 0, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, AwardEmojiEntity, runtimedatasource.RecordsFrom(awards, a.awardEmojiRecord), len(awards), limit)
 		case "pipelines":
 			pipelines, err := client.ListMergeRequestPipelines(ctx, project, iid)
 			if err != nil {
@@ -628,6 +826,36 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 			}
 			records := runtimedatasource.RecordsFrom(limitUsers(usersFromReviewers(reviewers), limit), a.userRecord)
 			return a.relationResult(req, UserEntity, records, len(reviewers), limit)
+		}
+	case MergeRequestDiffEntity:
+		project, iid, child, err := parseMergeRequestChildID(req.ID)
+		if err != nil {
+			return coredatasource.RelationResult{}, err
+		}
+		switch req.Relation {
+		case "lines":
+			lines, err := mergeRequestDiffLines(ctx, client, project, iid, child, "", 0, 3, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, MergeRequestDiffLineEntity, runtimedatasource.RecordsFrom(lines, a.diffLineRecord), len(lines), limit)
+		}
+	case MergeRequestNoteEntity:
+		project, iid, child, err := parseMergeRequestChildID(req.ID)
+		if err != nil {
+			return coredatasource.RelationResult{}, err
+		}
+		noteID, err := strconv.ParseInt(child, 10, 64)
+		if err != nil {
+			return coredatasource.RelationResult{}, fmt.Errorf("invalid note id %q", child)
+		}
+		switch req.Relation {
+		case "award_emoji":
+			awards, err := listAwardEmoji(ctx, client, project, iid, noteID, limit)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			return a.relationResult(req, AwardEmojiEntity, runtimedatasource.RecordsFrom(awards, a.awardEmojiRecord), len(awards), limit)
 		}
 	case UserEntity:
 		userID, err := strconv.ParseInt(strings.TrimSpace(req.ID), 10, 64)
@@ -783,7 +1011,7 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 		}
 		switch req.Relation {
 		case "trace":
-			trace, err := getJobTrace(ctx, client, project, jobID)
+			trace, err := getJobTrace(ctx, client, project, jobID, 0)
 			if err != nil {
 				return coredatasource.RelationResult{}, err
 			}
@@ -811,6 +1039,22 @@ func (a gitlabAccessor) Relation(ctx context.Context, req coredatasource.Relatio
 				return a.relationResult(req, CommitEntity, nil, 0, limit)
 			}
 			return a.relationResult(req, CommitEntity, []coredatasource.Record{a.commitRecord(commit)}, 1, limit)
+		}
+	case SnippetEntity:
+		snippetID, err := strconv.ParseInt(strings.TrimSpace(req.ID), 10, 64)
+		if err != nil {
+			return coredatasource.RelationResult{}, fmt.Errorf("gitlab snippet id must be numeric")
+		}
+		switch req.Relation {
+		case "files":
+			files, err := snippetFiles(ctx, client, snippetID, "", 0)
+			if err != nil {
+				return coredatasource.RelationResult{}, err
+			}
+			if len(files) > limit {
+				files = files[:limit]
+			}
+			return a.relationResult(req, SnippetFileEntity, runtimedatasource.RecordsFrom(files, a.snippetFileRecord), len(files), limit)
 		}
 	case GroupEntity:
 		group := projectID(req.ID)
@@ -961,8 +1205,40 @@ func (a gitlabAccessor) projectRecord(project Project) coredatasource.Record {
 			"visibility":          project.Visibility,
 			"default_branch":      project.DefaultBranch,
 			"archived":            strconv.FormatBool(project.Archived),
+			"star_count":          strconv.FormatInt(project.StarCount, 10),
+			"forks_count":         strconv.FormatInt(project.ForksCount, 10),
+			"last_activity_at":    project.LastActivityAt,
+			"topics":              strings.Join(project.Topics, ","),
 		},
 		Raw: project,
+	}
+}
+
+func (a gitlabAccessor) activityRecord(activity Activity) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         activity.ID,
+		Datasource: a.spec.Name,
+		Entity:     ActivityEntity,
+		Title:      firstNonEmpty(activity.ProjectPath, activity.ProjectName),
+		Content: fmt.Sprintf(
+			"commits=%d merge_requests=%d pipelines=%d",
+			activity.RecentCommitCount,
+			activity.RecentMRCount,
+			activity.RecentPipelineCount,
+		),
+		URL: activity.WebURL,
+		Metadata: map[string]string{
+			"id":                         activity.ID,
+			"project_id":                 strconv.FormatInt(activity.ProjectID, 10),
+			"project_path":               activity.ProjectPath,
+			"project_name":               activity.ProjectName,
+			"last_activity_at":           activity.LastActivityAt,
+			"recent_commit_count":        strconv.Itoa(activity.RecentCommitCount),
+			"recent_merge_request_count": strconv.Itoa(activity.RecentMRCount),
+			"recent_pipeline_count":      strconv.Itoa(activity.RecentPipelineCount),
+			"partial_aggregation_errors": strings.Join(activity.Errors, "; "),
+		},
+		Raw: activity,
 	}
 }
 
@@ -976,12 +1252,18 @@ func (a gitlabAccessor) mergeRequestRecord(mr MergeRequest) coredatasource.Recor
 		URL:        mr.WebURL,
 		Metadata: map[string]string{
 			"project_id":            strconv.FormatInt(mr.ProjectID, 10),
+			"project_path":          mr.ProjectPath,
 			"iid":                   strconv.FormatInt(mr.IID, 10),
 			"state":                 mr.State,
+			"merge_status":          mr.MergeStatus,
 			"detailed_merge_status": mr.DetailedMergeStatus,
+			"has_conflicts":         strconv.FormatBool(mr.HasConflicts),
+			"changes_count":         mr.ChangesCount,
+			"user_notes_count":      strconv.FormatInt(mr.UserNotesCount, 10),
 			"source_branch":         mr.SourceBranch,
 			"target_branch":         mr.TargetBranch,
 			"author":                mr.AuthorUsername,
+			"merged_at":             mr.MergedAt,
 			"updated_at":            mr.UpdatedAt,
 		},
 		Raw: mr,
@@ -1005,6 +1287,28 @@ func (a gitlabAccessor) diffRecord(diff MergeRequestDiff) coredatasource.Record 
 	}
 }
 
+func (a gitlabAccessor) diffLineRecord(line MergeRequestDiffLine) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         line.ID,
+		Datasource: a.spec.Name,
+		Entity:     MergeRequestDiffLineEntity,
+		Title:      fmt.Sprintf("%s:%d", firstNonEmpty(line.NewPath, line.OldPath), firstNonZero(line.NewLine, line.OldLine)),
+		Content:    line.Content,
+		Metadata: map[string]string{
+			"id":                line.ID,
+			"project_id":        line.ProjectID,
+			"merge_request_iid": strconv.FormatInt(line.MergeRequestIID, 10),
+			"new_path":          line.NewPath,
+			"old_path":          line.OldPath,
+			"line_type":         line.LineType,
+			"new_line":          strconv.FormatInt(line.NewLine, 10),
+			"old_line":          strconv.FormatInt(line.OldLine, 10),
+			"hunk_header":       line.HunkHeader,
+		},
+		Raw: line,
+	}
+}
+
 func (a gitlabAccessor) noteRecord(note MergeRequestNote) coredatasource.Record {
 	return coredatasource.Record{
 		ID:         fmt.Sprintf("%d!%d!%d", note.ProjectID, note.MergeRequestIID, note.ID),
@@ -1024,6 +1328,96 @@ func (a gitlabAccessor) noteRecord(note MergeRequestNote) coredatasource.Record 
 	}
 }
 
+func (a gitlabAccessor) approvalRecord(approval MergeRequestApproval) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         approval.ID,
+		Datasource: a.spec.Name,
+		Entity:     MergeRequestApprovalEntity,
+		Title:      fmt.Sprintf("MR !%d approvals", approval.MergeRequestIID),
+		Content:    strings.Join(approval.ApprovedBy, " "),
+		Metadata: map[string]string{
+			"id":                 approval.ID,
+			"project_id":         strconv.FormatInt(approval.ProjectID, 10),
+			"merge_request_iid":  strconv.FormatInt(approval.MergeRequestIID, 10),
+			"approvals_required": strconv.FormatInt(approval.ApprovalsRequired, 10),
+			"approvals_left":     strconv.FormatInt(approval.ApprovalsLeft, 10),
+			"approved":           strconv.FormatBool(approval.Approved),
+			"approved_by":        strings.Join(approval.ApprovedBy, ","),
+		},
+		Raw: approval,
+	}
+}
+
+func (a gitlabAccessor) changeRecord(change MergeRequestChange) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         change.ID,
+		Datasource: a.spec.Name,
+		Entity:     MergeRequestChangeEntity,
+		Title:      fmt.Sprintf("MR !%d changes", change.MergeRequestIID),
+		Content:    change.DiffPreview,
+		Metadata: map[string]string{
+			"id":                change.ID,
+			"project_id":        strconv.FormatInt(change.ProjectID, 10),
+			"merge_request_iid": strconv.FormatInt(change.MergeRequestIID, 10),
+			"additions":         strconv.Itoa(change.Additions),
+			"deletions":         strconv.Itoa(change.Deletions),
+			"files":             strconv.Itoa(len(change.Files)),
+			"truncated":         strconv.FormatBool(change.Truncated),
+		},
+		Raw: change,
+	}
+}
+
+func (a gitlabAccessor) discussionRecord(discussion Discussion) coredatasource.Record {
+	content := make([]string, 0, len(discussion.Notes))
+	for _, note := range discussion.Notes {
+		content = append(content, note.Body)
+	}
+	return coredatasource.Record{
+		ID:         discussion.ID,
+		Datasource: a.spec.Name,
+		Entity:     DiscussionEntity,
+		Title:      discussion.DiscussionID,
+		Content:    strings.Join(cleaned(content), "\n"),
+		Metadata: map[string]string{
+			"id":                discussion.ID,
+			"discussion_id":     discussion.DiscussionID,
+			"project_id":        strconv.FormatInt(discussion.ProjectID, 10),
+			"merge_request_iid": strconv.FormatInt(discussion.MergeRequestIID, 10),
+			"resolvable":        strconv.FormatBool(discussion.Resolvable),
+			"resolved":          strconv.FormatBool(discussion.Resolved),
+			"new_path":          discussion.NewPath,
+			"old_path":          discussion.OldPath,
+			"new_line":          strconv.FormatInt(discussion.NewLine, 10),
+			"old_line":          strconv.FormatInt(discussion.OldLine, 10),
+		},
+		Raw: discussion,
+	}
+}
+
+func (a gitlabAccessor) awardEmojiRecord(award AwardEmoji) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         award.ID,
+		Datasource: a.spec.Name,
+		Entity:     AwardEmojiEntity,
+		Title:      award.Name,
+		Content:    strings.TrimSpace(award.Name + " " + award.User),
+		Metadata: map[string]string{
+			"id":                award.ID,
+			"award_id":          strconv.FormatInt(award.AwardID, 10),
+			"name":              award.Name,
+			"user":              award.User,
+			"project_id":        award.ProjectID,
+			"merge_request_iid": strconv.FormatInt(award.MergeRequestIID, 10),
+			"note_id":           strconv.FormatInt(award.NoteID, 10),
+			"awardable_id":      strconv.FormatInt(award.AwardableID, 10),
+			"awardable_type":    award.AwardableType,
+			"created_at":        award.CreatedAt,
+		},
+		Raw: award,
+	}
+}
+
 func (a gitlabAccessor) pipelineRecord(pipeline Pipeline) coredatasource.Record {
 	return coredatasource.Record{
 		ID:         fmt.Sprintf("%d!%d", pipeline.ProjectID, pipeline.ID),
@@ -1033,12 +1427,16 @@ func (a gitlabAccessor) pipelineRecord(pipeline Pipeline) coredatasource.Record 
 		Content:    strings.Join(cleaned([]string{pipeline.Status, pipeline.Source, pipeline.Ref, pipeline.SHA}), " "),
 		URL:        pipeline.WebURL,
 		Metadata: map[string]string{
-			"project_id": strconv.FormatInt(pipeline.ProjectID, 10),
-			"status":     pipeline.Status,
-			"source":     pipeline.Source,
-			"ref":        pipeline.Ref,
-			"sha":        pipeline.SHA,
-			"updated_at": pipeline.UpdatedAt,
+			"project_id":  strconv.FormatInt(pipeline.ProjectID, 10),
+			"status":      pipeline.Status,
+			"source":      pipeline.Source,
+			"ref":         pipeline.Ref,
+			"sha":         pipeline.SHA,
+			"user":        pipeline.User,
+			"duration":    strconv.FormatInt(pipeline.Duration, 10),
+			"started_at":  pipeline.StartedAt,
+			"finished_at": pipeline.FinishedAt,
+			"updated_at":  pipeline.UpdatedAt,
 		},
 		Raw: pipeline,
 	}
@@ -1103,6 +1501,9 @@ func (a gitlabAccessor) commitRecord(commit Commit) coredatasource.Record {
 			"author_email":     commit.AuthorEmail,
 			"committed_date":   commit.CommittedDate,
 			"last_pipeline_id": strconv.FormatInt(commit.LastPipelineID, 10),
+			"additions":        strconv.FormatInt(commit.Additions, 10),
+			"deletions":        strconv.FormatInt(commit.Deletions, 10),
+			"total":            strconv.FormatInt(commit.Total, 10),
 		},
 		Raw: commit,
 	}
@@ -1153,6 +1554,110 @@ func (a gitlabAccessor) repositoryFileRecord(file RepositoryFile) coredatasource
 	}
 }
 
+func (a gitlabAccessor) compareRecord(compare Compare) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         compare.ID,
+		Datasource: a.spec.Name,
+		Entity:     CompareEntity,
+		Title:      fmt.Sprintf("%s %s..%s", compare.ProjectID, compare.From, compare.To),
+		Content:    strings.Join(cleaned([]string{compare.HeadCommit.Title, compare.DiffPreview}), "\n"),
+		URL:        compare.WebURL,
+		Metadata: map[string]string{
+			"id":         compare.ID,
+			"project_id": compare.ProjectID,
+			"from":       compare.From,
+			"to":         compare.To,
+			"straight":   strconv.FormatBool(compare.Straight),
+			"path":       compare.Path,
+			"timeout":    strconv.FormatBool(compare.Timeout),
+			"same_ref":   strconv.FormatBool(compare.SameRef),
+			"additions":  strconv.Itoa(compare.Additions),
+			"deletions":  strconv.Itoa(compare.Deletions),
+			"truncated":  strconv.FormatBool(compare.Truncated),
+		},
+		Raw: compare,
+	}
+}
+
+func (a gitlabAccessor) blameRecord(blame Blame) coredatasource.Record {
+	var content []string
+	for _, item := range blame.Ranges {
+		content = append(content, item.CommitTitle, strings.Join(item.Lines, "\n"))
+	}
+	return coredatasource.Record{
+		ID:         blame.ID,
+		Datasource: a.spec.Name,
+		Entity:     BlameEntity,
+		Title:      blame.Path,
+		Content:    strings.Join(cleaned(content), "\n"),
+		Metadata: map[string]string{
+			"id":         blame.ID,
+			"project_id": blame.ProjectID,
+			"ref":        blame.Ref,
+			"path":       blame.Path,
+		},
+		Raw: blame,
+	}
+}
+
+func (a gitlabAccessor) blobSearchRecord(result BlobSearchResult) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         result.ID,
+		Datasource: a.spec.Name,
+		Entity:     BlobSearchEntity,
+		Title:      result.Path,
+		Content:    result.Snippet,
+		Metadata: map[string]string{
+			"id":         result.ID,
+			"project_id": strconv.FormatInt(result.ProjectID, 10),
+			"basename":   result.Basename,
+			"filename":   result.Filename,
+			"path":       result.Path,
+			"ref":        result.Ref,
+			"start_line": strconv.FormatInt(result.StartLine, 10),
+			"truncated":  strconv.FormatBool(result.Truncated),
+		},
+		Raw: result,
+	}
+}
+
+func (a gitlabAccessor) projectLanguageRecord(language ProjectLanguage) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         language.ID,
+		Datasource: a.spec.Name,
+		Entity:     ProjectLanguageEntity,
+		Title:      language.Language,
+		Content:    fmt.Sprintf("%s %.2f%%", language.Language, language.Share),
+		Metadata: map[string]string{
+			"id":         language.ID,
+			"project_id": language.ProjectID,
+			"language":   language.Language,
+			"share":      strconv.FormatFloat(float64(language.Share), 'f', -1, 32),
+		},
+		Raw: language,
+	}
+}
+
+func (a gitlabAccessor) projectContributorRecord(contributor ProjectContributor) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         contributor.ID,
+		Datasource: a.spec.Name,
+		Entity:     ProjectContributorEntity,
+		Title:      firstNonEmpty(contributor.Name, contributor.Email),
+		Content:    strings.Join(cleaned([]string{contributor.Name, contributor.Email}), " "),
+		Metadata: map[string]string{
+			"id":         contributor.ID,
+			"project_id": contributor.ProjectID,
+			"name":       contributor.Name,
+			"email":      contributor.Email,
+			"commits":    strconv.FormatInt(contributor.Commits, 10),
+			"additions":  strconv.FormatInt(contributor.Additions, 10),
+			"deletions":  strconv.FormatInt(contributor.Deletions, 10),
+		},
+		Raw: contributor,
+	}
+}
+
 func (a gitlabAccessor) jobRecord(job Job) coredatasource.Record {
 	return coredatasource.Record{
 		ID:         job.ID,
@@ -1199,6 +1704,47 @@ func (a gitlabAccessor) jobTraceRecord(trace JobTrace) coredatasource.Record {
 			"truncated":  strconv.FormatBool(trace.Truncated),
 		},
 		Raw: trace,
+	}
+}
+
+func (a gitlabAccessor) snippetRecord(snippet Snippet) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         strconv.FormatInt(snippet.ID, 10),
+		Datasource: a.spec.Name,
+		Entity:     SnippetEntity,
+		Title:      snippet.Title,
+		Content:    strings.Join(cleaned([]string{snippet.Title, snippet.Description, snippet.AuthorUsername}), " "),
+		URL:        snippet.WebURL,
+		Metadata: map[string]string{
+			"id":              strconv.FormatInt(snippet.ID, 10),
+			"snippet_id":      strconv.FormatInt(snippet.ID, 10),
+			"title":           snippet.Title,
+			"visibility":      snippet.Visibility,
+			"author_username": snippet.AuthorUsername,
+			"raw_url":         snippet.RawURL,
+			"created_at":      snippet.CreatedAt,
+			"updated_at":      snippet.UpdatedAt,
+		},
+		Raw: snippet,
+	}
+}
+
+func (a gitlabAccessor) snippetFileRecord(file SnippetFile) coredatasource.Record {
+	return coredatasource.Record{
+		ID:         file.ID,
+		Datasource: a.spec.Name,
+		Entity:     SnippetFileEntity,
+		Title:      file.FilePath,
+		Content:    file.Content,
+		URL:        file.RawURL,
+		Metadata: map[string]string{
+			"id":         file.ID,
+			"snippet_id": strconv.FormatInt(file.SnippetID, 10),
+			"file_path":  file.FilePath,
+			"raw_url":    file.RawURL,
+			"truncated":  strconv.FormatBool(file.Truncated),
+		},
+		Raw: file,
 	}
 }
 
@@ -1530,15 +2076,180 @@ func searchProjects(ctx context.Context, client gitlabClient, query string, filt
 		}
 		opt.Archived = &archived
 	}
+	for key, dest := range map[string]**bool{
+		"owned":      &opt.Owned,
+		"starred":    &opt.Starred,
+		"membership": &opt.Membership,
+	} {
+		if value := strings.TrimSpace(filters[key]); value != "" {
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("invalid %s filter %q", key, value)
+			}
+			*dest = &parsed
+		}
+	}
+	if value := strings.TrimSpace(filters["visibility"]); value != "" {
+		visibility := gitlab.VisibilityValue(value)
+		opt.Visibility = &visibility
+	}
+	if value := strings.TrimSpace(filters["order_by"]); value != "" {
+		if value == "activity" {
+			value = "last_activity_at"
+		}
+		if value == "created" {
+			value = "created_at"
+		}
+		opt.OrderBy = &value
+	}
+	if value := strings.TrimSpace(filters["sort"]); value != "" {
+		opt.Sort = &value
+	}
 	projects, err := client.ListProjects(ctx, opt)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Project, 0, len(projects))
+	groupPath := strings.Trim(strings.TrimSpace(filters["group_path"]), "/")
 	for _, project := range projects {
-		out = append(out, projectFromGitLab(project))
+		converted := projectFromGitLab(project)
+		if groupPath != "" && converted.PathWithNamespace != groupPath && !strings.HasPrefix(converted.PathWithNamespace, groupPath+"/") {
+			continue
+		}
+		out = append(out, converted)
 	}
 	return out, nil
+}
+
+func searchActivity(ctx context.Context, client gitlabClient, filters map[string]string, limit int) ([]Activity, error) {
+	limit = normalizedLimit(limit)
+	if override := strings.TrimSpace(filters["limit"]); override != "" {
+		if parsed, err := strconv.Atoi(override); err == nil && parsed > 0 {
+			limit = normalizedLimit(parsed)
+		}
+	}
+	var projects []Project
+	if project := strings.TrimSpace(firstNonEmpty(filters["project_id"], filters["project"])); project != "" {
+		resolved, err := getProject(ctx, client, project)
+		if err != nil {
+			return nil, err
+		}
+		projects = []Project{resolved}
+	} else {
+		listFilters := gitlabDefaultFilters(ProjectEntity, map[string]string{"archived": filters["archived"]})
+		projectsPage, err := searchProjects(ctx, client, "", listFilters, limit, 1)
+		if err != nil {
+			return nil, err
+		}
+		groupPath := strings.TrimSpace(filters["group_path"])
+		for _, project := range projectsPage {
+			if groupPath != "" && !strings.HasPrefix(project.PathWithNamespace, groupPath+"/") && project.PathWithNamespace != groupPath {
+				continue
+			}
+			projects = append(projects, project)
+		}
+	}
+	since, err := gitlabTimeFilter(filters["since"])
+	if err != nil {
+		return nil, err
+	}
+	return aggregateActivity(ctx, client, projects, since)
+}
+
+func aggregateActivity(ctx context.Context, client gitlabClient, projects []Project, since *time.Time) ([]Activity, error) {
+	type job struct {
+		index   int
+		project Project
+	}
+	jobs := make(chan job)
+	out := make([]Activity, len(projects))
+	workers := 4
+	if len(projects) < workers {
+		workers = len(projects)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range jobs {
+				out[item.index] = activityForProject(ctx, client, item.project, since)
+			}
+		}()
+	}
+	for i, project := range projects {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return nil, ctx.Err()
+		case jobs <- job{index: i, project: project}:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return out, nil
+}
+
+func activityForProject(ctx context.Context, client gitlabClient, project Project, since *time.Time) Activity {
+	activity := activityFromProject(project)
+	projectRef := projectID(projectIDString(project))
+	commitOpts := &gitlab.ListCommitsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}, Since: since}
+	commits, err := client.ListCommits(ctx, projectRef, commitOpts)
+	if err != nil {
+		activity.Errors = append(activity.Errors, "commits: "+err.Error())
+	} else {
+		activity.RecentCommitCount = len(commits)
+	}
+	mrOpts := &gitlab.ListProjectMergeRequestsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}}
+	if since != nil {
+		mrOpts.UpdatedAfter = since
+	}
+	mrs, err := client.ListProjectMergeRequests(ctx, projectRef, mrOpts)
+	if err != nil {
+		activity.Errors = append(activity.Errors, "merge_requests: "+err.Error())
+	} else {
+		activity.RecentMRCount = len(mrs)
+	}
+	pipelineOpts := &gitlab.ListProjectPipelinesOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}, UpdatedAfter: since}
+	pipelines, err := client.ListProjectPipelines(ctx, projectRef, pipelineOpts)
+	if err != nil {
+		activity.Errors = append(activity.Errors, "pipelines: "+err.Error())
+	} else {
+		activity.RecentPipelineCount = len(pipelines)
+	}
+	return activity
+}
+
+func gitlabTimeFilter(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return &parsed, nil
+	}
+	if len(value) >= 2 {
+		unit := value[len(value)-1]
+		number := value[:len(value)-1]
+		n, err := strconv.Atoi(number)
+		if err == nil && n >= 0 {
+			var duration time.Duration
+			switch unit {
+			case 'm':
+				duration = time.Duration(n) * time.Minute
+			case 'h':
+				duration = time.Duration(n) * time.Hour
+			case 'd':
+				duration = time.Duration(n) * 24 * time.Hour
+			default:
+				return nil, fmt.Errorf("invalid time filter %q", value)
+			}
+			parsed := time.Now().UTC().Add(-duration)
+			return &parsed, nil
+		}
+	}
+	return nil, fmt.Errorf("invalid time filter %q", value)
 }
 
 func searchGroups(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]Group, error) {
@@ -1641,7 +2352,7 @@ func searchCommits(ctx context.Context, client gitlabClient, query string, filte
 	}
 	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
 	opt := &gitlab.ListCommitsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)}}
-	if value := strings.TrimSpace(filters["ref"]); value != "" {
+	if value := strings.TrimSpace(firstNonEmpty(filters["ref"], filters["ref_name"], filters["branch"])); value != "" {
 		opt.RefName = &value
 	}
 	if value := strings.TrimSpace(filters["path"]); value != "" {
@@ -1649,6 +2360,20 @@ func searchCommits(ctx context.Context, client gitlabClient, query string, filte
 	}
 	if value := strings.TrimSpace(filters["author"]); value != "" {
 		opt.Author = &value
+	}
+	if value := strings.TrimSpace(filters["since"]); value != "" {
+		since, err := gitlabTimeFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		opt.Since = since
+	}
+	if value := strings.TrimSpace(filters["until"]); value != "" {
+		until, err := gitlabTimeFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		opt.Until = until
 	}
 	commits, err := client.ListCommits(ctx, projectID, opt)
 	if err != nil {
@@ -1715,6 +2440,210 @@ func getRepositoryFile(ctx context.Context, client gitlabClient, project any, re
 	return repositoryFileFromGitLab(projectIDLabel(project), ref, file), nil
 }
 
+func searchRepositoryFiles(ctx context.Context, client gitlabClient, filters map[string]string) ([]RepositoryFile, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+	ref := strings.TrimSpace(firstNonEmpty(filters["ref"], "HEAD"))
+	path := strings.TrimSpace(filters["path"])
+	if path == "" {
+		return nil, fmt.Errorf("gitlab %s path filter is required", RepositoryFileEntity)
+	}
+	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
+	file, err := getRepositoryFile(ctx, client, projectID, ref, path)
+	if err != nil {
+		return nil, err
+	}
+	file.ProjectID = projectLabel
+	include := false
+	if value := strings.TrimSpace(filters["include_content"]); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid include_content filter %q", value)
+		}
+		include = parsed
+	}
+	if !include {
+		file.ContentPreview = ""
+	} else if maxBytes := maxBytesFilter(filters, 4*1024); maxBytes > 0 {
+		file.ContentPreview, _ = boundedText(file.ContentPreview, maxBytes)
+	}
+	return []RepositoryFile{file}, nil
+}
+
+func searchCompare(ctx context.Context, client gitlabClient, filters map[string]string) (Compare, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return Compare{}, err
+	}
+	from := strings.TrimSpace(filters["from"])
+	if from == "" {
+		return Compare{}, fmt.Errorf("gitlab %s from filter is required", CompareEntity)
+	}
+	to := strings.TrimSpace(filters["to"])
+	if to == "" {
+		return Compare{}, fmt.Errorf("gitlab %s to filter is required", CompareEntity)
+	}
+	straight := false
+	if value := strings.TrimSpace(filters["straight"]); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return Compare{}, fmt.Errorf("gitlab %s straight filter must be boolean", CompareEntity)
+		}
+		straight = parsed
+	}
+	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
+	opts := &gitlab.CompareOptions{From: &from, To: &to, Straight: &straight}
+	compare, err := client.CompareRefs(ctx, projectID, opts)
+	if err != nil {
+		return Compare{}, err
+	}
+	path := strings.TrimSpace(filters["path"])
+	includeDiff := path != ""
+	if value := strings.TrimSpace(filters["include_diff"]); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return Compare{}, fmt.Errorf("gitlab %s include_diff filter must be boolean", CompareEntity)
+		}
+		includeDiff = parsed && path != ""
+	}
+	return compareFromGitLab(projectLabel, from, to, path, straight, includeDiff, maxBytesFilter(filters, 16*1024), compare), nil
+}
+
+func searchBlame(ctx context.Context, client gitlabClient, filters map[string]string) (Blame, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return Blame{}, err
+	}
+	ref := strings.TrimSpace(firstNonEmpty(filters["ref"], "HEAD"))
+	path := strings.TrimSpace(filters["path"])
+	if path == "" {
+		return Blame{}, fmt.Errorf("gitlab %s path filter is required", BlameEntity)
+	}
+	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
+	opts, err := blameOptions(ref, filters)
+	if err != nil {
+		return Blame{}, err
+	}
+	blame, err := getBlame(ctx, client, projectID, ref, path, opts)
+	if err != nil {
+		return Blame{}, err
+	}
+	blame.ProjectID = projectLabel
+	blame.ID = blameID(projectLabel, ref, path)
+	return blame, nil
+}
+
+func getBlame(ctx context.Context, client gitlabClient, project any, ref, path string, opts *gitlab.GetFileBlameOptions) (Blame, error) {
+	if opts == nil {
+		opts = &gitlab.GetFileBlameOptions{Ref: &ref}
+	}
+	ranges, err := client.GetFileBlame(ctx, project, path, opts)
+	if err != nil {
+		return Blame{}, err
+	}
+	return blameFromGitLab(projectIDLabel(project), ref, path, ranges), nil
+}
+
+func blameOptions(ref string, filters map[string]string) (*gitlab.GetFileBlameOptions, error) {
+	opts := &gitlab.GetFileBlameOptions{Ref: &ref}
+	if value := strings.TrimSpace(filters["range_start"]); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab %s range_start filter must be numeric", BlameEntity)
+		}
+		opts.RangeStart = &parsed
+	}
+	if value := strings.TrimSpace(filters["range_end"]); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab %s range_end filter must be numeric", BlameEntity)
+		}
+		opts.RangeEnd = &parsed
+	}
+	return opts, nil
+}
+
+func searchBlobs(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]BlobSearchResult, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+	query = strings.TrimSpace(firstNonEmpty(query, filters["query"]))
+	if query == "" {
+		return nil, fmt.Errorf("gitlab %s query filter is required", BlobSearchEntity)
+	}
+	projectID, _ := resolveProjectIdentifier(ctx, client, project)
+	blobs, err := client.SearchBlobsByProject(ctx, projectID, query, &gitlab.SearchOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]BlobSearchResult, 0, len(blobs))
+	for _, blob := range blobs {
+		out = append(out, blobSearchResultFromGitLab(blob))
+	}
+	return out, nil
+}
+
+func searchProjectLanguages(ctx context.Context, client gitlabClient, filters map[string]string) ([]ProjectLanguage, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
+	return projectLanguages(ctx, client, projectID, projectLabel)
+}
+
+func projectLanguages(ctx context.Context, client gitlabClient, project any, projectLabel string) ([]ProjectLanguage, error) {
+	languages, err := client.GetProjectLanguages(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	if languages == nil {
+		return nil, nil
+	}
+	out := make([]ProjectLanguage, 0, len(*languages))
+	for language, share := range *languages {
+		out = append(out, projectLanguageFromGitLab(projectLabel, language, share))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Share == out[j].Share {
+			return out[i].Language < out[j].Language
+		}
+		return out[i].Share > out[j].Share
+	})
+	return out, nil
+}
+
+func searchProjectContributors(ctx context.Context, client gitlabClient, filters map[string]string, limit int) ([]ProjectContributor, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+	projectID, projectLabel := resolveProjectIdentifier(ctx, client, project)
+	if value := strings.TrimSpace(filters["max_count"]); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab %s max_count filter must be numeric", ProjectContributorEntity)
+		}
+		limit = parsed
+	}
+	return projectContributors(ctx, client, projectID, projectLabel, limit)
+}
+
+func projectContributors(ctx context.Context, client gitlabClient, project any, projectLabel string, limit int) ([]ProjectContributor, error) {
+	contributors, err := client.ListProjectContributors(ctx, project, &gitlab.ListContributorsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectContributor, 0, len(contributors))
+	for _, contributor := range contributors {
+		out = append(out, projectContributorFromGitLab(projectLabel, contributor))
+	}
+	return out, nil
+}
+
 func listProjectJobs(ctx context.Context, client gitlabClient, filters map[string]string, perPage, page int) ([]Job, error) {
 	project, err := projectFilter(filters)
 	if err != nil {
@@ -1725,13 +2654,25 @@ func listProjectJobs(ctx context.Context, client gitlabClient, filters map[strin
 	if err != nil {
 		return nil, err
 	}
-	jobs, err := client.ListProjectJobs(ctx, projectID, opt)
+	var jobs []*gitlab.Job
+	if pipelineID, err := int64Filter(JobEntity, filters, "pipeline_id", false); err != nil {
+		return nil, err
+	} else if pipelineID != 0 {
+		jobs, err = client.ListPipelineJobs(ctx, projectID, pipelineID, opt)
+	} else {
+		jobs, err = client.ListProjectJobs(ctx, projectID, opt)
+	}
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Job, 0, len(jobs))
+	jobName := strings.TrimSpace(filters["job_name"])
 	for _, job := range jobs {
-		out = append(out, jobFromGitLab(projectLabel, job))
+		converted := jobFromGitLab(projectLabel, job)
+		if jobName != "" && converted.Name != jobName {
+			continue
+		}
+		out = append(out, converted)
 	}
 	return out, nil
 }
@@ -1763,19 +2704,183 @@ func listJobsOptions(filters map[string]string, perPage, page int) (*gitlab.List
 		states := []gitlab.BuildStateValue{gitlab.BuildStateValue(value)}
 		opt.Scope = &states
 	}
+	if value := strings.TrimSpace(filters["status"]); value != "" {
+		states := []gitlab.BuildStateValue{gitlab.BuildStateValue(value)}
+		opt.Scope = &states
+	}
 	return opt, nil
 }
 
-func getJobTrace(ctx context.Context, client gitlabClient, project any, jobID int64) (JobTrace, error) {
+func searchJobTrace(ctx context.Context, client gitlabClient, filters map[string]string) (JobTrace, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return JobTrace{}, err
+	}
+	projectID, _ := resolveProjectIdentifier(ctx, client, project)
+	maxBytes := maxBytesFilter(filters, 64*1024)
+	jobID, err := int64Filter(JobTraceEntity, filters, "job_id", false)
+	if err != nil {
+		return JobTrace{}, err
+	}
+	if jobID != 0 {
+		return getJobTrace(ctx, client, projectID, jobID, maxBytes)
+	}
+	pipelineID, err := int64Filter(JobTraceEntity, filters, "pipeline_id", true)
+	if err != nil {
+		return JobTrace{}, err
+	}
+	jobName := strings.TrimSpace(filters["job_name"])
+	if jobName == "" {
+		return JobTrace{}, fmt.Errorf("gitlab %s job_name filter is required", JobTraceEntity)
+	}
+	jobs, err := client.ListPipelineJobs(ctx, projectID, pipelineID, &gitlab.ListJobsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}})
+	if err != nil {
+		return JobTrace{}, err
+	}
+	var matches []int64
+	var names []string
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		names = append(names, job.Name)
+		if job.Name == jobName {
+			matches = append(matches, job.ID)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return JobTrace{}, fmt.Errorf("gitlab %s job_name %q not found; available jobs: %s", JobTraceEntity, jobName, strings.Join(cleaned(names), ", "))
+	case 1:
+		return getJobTrace(ctx, client, projectID, matches[0], maxBytes)
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, id := range matches {
+			ids = append(ids, strconv.FormatInt(id, 10))
+		}
+		return JobTrace{}, fmt.Errorf("gitlab %s job_name %q is ambiguous; matching job ids: %s", JobTraceEntity, jobName, strings.Join(ids, ", "))
+	}
+}
+
+func getJobTrace(ctx context.Context, client gitlabClient, project any, jobID int64, maxBytes int) (JobTrace, error) {
 	data, err := client.GetTraceFile(ctx, project, jobID)
 	if err != nil {
 		return JobTrace{}, err
 	}
+	if maxBytes <= 0 {
+		maxBytes = 64 * 1024
+	}
 	trace := string(data)
-	truncated := len(trace) > 20000
-	trace = boundedText(trace, 20000)
+	trace, truncated := boundedText(trace, maxBytes)
 	projectLabel := projectIDLabel(project)
 	return JobTrace{ID: jobTraceID(projectLabel, jobID), ProjectID: projectLabel, JobID: jobID, Trace: trace, Truncated: truncated}, nil
+}
+
+func listSnippets(ctx context.Context, client gitlabClient, perPage, page int) ([]Snippet, error) {
+	snippets, err := client.ListSnippets(ctx, &gitlab.ListSnippetsOptions{
+		ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Snippet, 0, len(snippets))
+	for _, snippet := range snippets {
+		out = append(out, snippetFromGitLab(snippet))
+	}
+	return out, nil
+}
+
+func getSnippet(ctx context.Context, client gitlabClient, snippetID int64) (Snippet, error) {
+	snippet, err := client.GetSnippet(ctx, snippetID)
+	if err != nil {
+		return Snippet{}, err
+	}
+	return snippetFromGitLab(snippet), nil
+}
+
+func searchSnippetFiles(ctx context.Context, client gitlabClient, query string, filters map[string]string) ([]SnippetFile, error) {
+	snippetID, err := int64Filter(SnippetFileEntity, filters, "snippet_id", true)
+	if err != nil {
+		return nil, err
+	}
+	files, err := snippetFiles(ctx, client, snippetID, strings.TrimSpace(filters["file_path"]), maxBytesFilter(filters, 8192))
+	if err != nil {
+		return nil, err
+	}
+	query = strings.ToLower(strings.TrimSpace(firstNonEmpty(query, filters["query"])))
+	if query == "" {
+		return files, nil
+	}
+	out := make([]SnippetFile, 0, len(files))
+	for _, file := range files {
+		if strings.Contains(strings.ToLower(file.FilePath), query) || strings.Contains(strings.ToLower(file.Content), query) {
+			out = append(out, file)
+		}
+	}
+	return out, nil
+}
+
+func snippetFiles(ctx context.Context, client gitlabClient, snippetID int64, path string, maxBytes int) ([]SnippetFile, error) {
+	if snippetID == 0 {
+		return nil, fmt.Errorf("gitlab %s snippet_id filter is required", SnippetFileEntity)
+	}
+	if maxBytes <= 0 {
+		maxBytes = 8192
+	}
+	snippet, err := client.GetSnippet(ctx, snippetID)
+	if err != nil {
+		return nil, err
+	}
+	content, err := client.GetSnippetContent(ctx, snippetID)
+	if err != nil {
+		return nil, err
+	}
+	text, truncated := boundedText(string(content), maxBytes)
+	metadataFiles := []gitlab.SnippetFile{{Path: "snippet", RawURL: ""}}
+	if snippet != nil && len(snippet.Files) > 0 {
+		metadataFiles = snippet.Files
+	}
+	out := make([]SnippetFile, 0, len(metadataFiles))
+	for i, file := range metadataFiles {
+		if strings.TrimSpace(path) != "" && file.Path != path {
+			continue
+		}
+		fileContent := ""
+		fileTruncated := false
+		if i == 0 {
+			fileContent = text
+			fileTruncated = truncated
+		}
+		out = append(out, snippetFileFromGitLab(snippetID, file, fileContent, fileTruncated))
+	}
+	return out, nil
+}
+
+func int64Filter(entity coredatasource.EntityType, filters map[string]string, key string, required bool) (int64, error) {
+	value := strings.TrimSpace(filters[key])
+	if value == "" {
+		if required {
+			return 0, fmt.Errorf("gitlab %s %s filter is required", entity, key)
+		}
+		return 0, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("gitlab %s %s filter must be numeric", entity, key)
+	}
+	return parsed, nil
+}
+
+func maxBytesFilter(filters map[string]string, fallback int) int {
+	value := strings.TrimSpace(filters["max_bytes"])
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func projectFilter(filters map[string]string) (string, error) {
@@ -1789,20 +2894,12 @@ func projectFilter(filters map[string]string) (string, error) {
 	return project, nil
 }
 
-func resolveProjectIdentifier(ctx context.Context, client gitlabClient, id string) (any, string) {
+func resolveProjectIdentifier(_ context.Context, _ gitlabClient, id string) (any, string) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return "", ""
 	}
-	if _, err := strconv.ParseInt(id, 10, 64); err == nil {
-		return projectID(id), id
-	}
-	project, err := getProject(ctx, client, id)
-	if err != nil || project.ID == 0 {
-		return projectID(id), id
-	}
-	label := strconv.FormatInt(project.ID, 10)
-	return project.ID, label
+	return projectID(id), id
 }
 
 func getGroup(ctx context.Context, client gitlabClient, id string) (Group, error) {
@@ -2582,37 +3679,52 @@ func searchMergeRequests(ctx context.Context, client gitlabClient, query string,
 }
 
 func listMergeRequests(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]MergeRequest, error) {
-	opt := mergeRequestListOptions(query, filters, perPage, page)
+	opt, err := mergeRequestListOptions(query, filters, perPage, page)
+	if err != nil {
+		return nil, err
+	}
 	mrs, err := client.ListMergeRequests(ctx, &gitlab.ListMergeRequestsOptions{
-		ListOptions:  opt.ListOptions,
-		State:        opt.State,
-		Search:       opt.Search,
-		SourceBranch: opt.SourceBranch,
-		TargetBranch: opt.TargetBranch,
-		Scope:        opt.Scope,
+		ListOptions:      opt.ListOptions,
+		State:            opt.State,
+		OrderBy:          opt.OrderBy,
+		Sort:             opt.Sort,
+		Labels:           opt.Labels,
+		Search:           opt.Search,
+		SourceBranch:     opt.SourceBranch,
+		TargetBranch:     opt.TargetBranch,
+		Scope:            opt.Scope,
+		AuthorUsername:   opt.AuthorUsername,
+		ReviewerUsername: opt.ReviewerUsername,
+		Draft:            opt.Draft,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return mergeRequestsFromGitLab(mrs), nil
+	return mergeRequestsWithConflictFilter(ctx, client, mrs, filters)
 }
 
 func listProjectMergeRequests(ctx context.Context, client gitlabClient, project any, query string, filters map[string]string, perPage, page int) ([]MergeRequest, error) {
-	opt := mergeRequestListOptions(query, filters, perPage, page)
+	opt, err := mergeRequestListOptions(query, filters, perPage, page)
+	if err != nil {
+		return nil, err
+	}
 	mrs, err := client.ListProjectMergeRequests(ctx, project, opt)
 	if err != nil {
 		return nil, err
 	}
-	return mergeRequestsFromGitLab(mrs), nil
+	return mergeRequestsWithConflictFilter(ctx, client, mrs, filters)
 }
 
-func mergeRequestListOptions(query string, filters map[string]string, perPage, page int) *gitlab.ListProjectMergeRequestsOptions {
+func mergeRequestListOptions(query string, filters map[string]string, perPage, page int) (*gitlab.ListProjectMergeRequestsOptions, error) {
 	opt := &gitlab.ListProjectMergeRequestsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(perPage)), Page: int64(page)}}
 	if value := strings.TrimSpace(query); value != "" {
 		opt.Search = &value
 	}
 	if value := strings.TrimSpace(filters["state"]); value != "" {
 		opt.State = &value
+	} else if strings.TrimSpace(filters["scope"]) == "" && strings.TrimSpace(filters["draft"]) == "" && strings.TrimSpace(filters["include_wip"]) == "" {
+		state := "opened"
+		opt.State = &state
 	}
 	if value := strings.TrimSpace(filters["source_branch"]); value != "" {
 		opt.SourceBranch = &value
@@ -2623,7 +3735,85 @@ func mergeRequestListOptions(query string, filters map[string]string, perPage, p
 	if value := strings.TrimSpace(filters["scope"]); value != "" {
 		opt.Scope = &value
 	}
-	return opt
+	if value := strings.TrimSpace(filters["labels"]); value != "" {
+		labels := gitlab.LabelOptions(cleaned(strings.Split(value, ",")))
+		opt.Labels = &labels
+	}
+	if value := strings.TrimSpace(filters["author_username"]); value != "" {
+		opt.AuthorUsername = &value
+	}
+	if value := strings.TrimSpace(filters["reviewer_username"]); value != "" {
+		opt.ReviewerUsername = &value
+	}
+	if value := strings.TrimSpace(filters["order_by"]); value != "" {
+		opt.OrderBy = &value
+	}
+	if value := strings.TrimSpace(filters["sort"]); value != "" {
+		opt.Sort = &value
+	}
+	for key, dest := range map[string]**time.Time{
+		"created_after":  &opt.CreatedAfter,
+		"created_before": &opt.CreatedBefore,
+		"updated_after":  &opt.UpdatedAfter,
+		"updated_before": &opt.UpdatedBefore,
+	} {
+		if value := strings.TrimSpace(filters[key]); value != "" {
+			parsed, err := gitlabTimeFilter(value)
+			if err != nil {
+				return nil, err
+			}
+			*dest = parsed
+		}
+	}
+	if value := strings.TrimSpace(filters["draft"]); value != "" {
+		draft, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid draft filter %q", value)
+		}
+		opt.Draft = &draft
+	} else if value := strings.TrimSpace(filters["include_wip"]); value != "" {
+		includeWIP, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid include_wip filter %q", value)
+		}
+		if !includeWIP {
+			draft := false
+			opt.Draft = &draft
+		}
+	} else if includeWIP := strings.TrimSpace(filters["include_wip"]); includeWIP == "" {
+		draft := false
+		opt.Draft = &draft
+	}
+	return opt, nil
+}
+
+func mergeRequestsWithConflictFilter(ctx context.Context, client gitlabClient, mrs []*gitlab.BasicMergeRequest, filters map[string]string) ([]MergeRequest, error) {
+	conflictsOnly := false
+	if value := strings.TrimSpace(filters["conflicts_only"]); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid conflicts_only filter %q", value)
+		}
+		conflictsOnly = parsed
+	}
+	if !conflictsOnly {
+		return mergeRequestsFromGitLab(mrs), nil
+	}
+	out := make([]MergeRequest, 0, len(mrs))
+	for _, mr := range mrs {
+		if mr == nil {
+			continue
+		}
+		full, err := client.GetMergeRequest(ctx, mr.ProjectID, mr.IID, nil)
+		if err != nil {
+			return nil, err
+		}
+		converted := mergeRequestFromFull(full)
+		if converted.HasConflicts {
+			out = append(out, converted)
+		}
+	}
+	return out, nil
 }
 
 func mergeRequestsFromGitLab(mrs []*gitlab.BasicMergeRequest) []MergeRequest {
@@ -2640,6 +3830,54 @@ func searchMergeRequestDiffs(ctx context.Context, client gitlabClient, filters m
 		return nil, err
 	}
 	return listDiffs(ctx, client, project, iid, limit)
+}
+
+func searchMergeRequestDiffLines(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]MergeRequestDiffLine, error) {
+	project, iid, err := projectAndMR(filters)
+	if err != nil {
+		return nil, err
+	}
+	path := strings.TrimSpace(filters["path"])
+	if path == "" {
+		return nil, fmt.Errorf("gitlab %s path filter is required", MergeRequestDiffLineEntity)
+	}
+	line, err := int64Filter(MergeRequestDiffLineEntity, filters, "line", false)
+	if err != nil {
+		return nil, err
+	}
+	contextCount := 3
+	if value := strings.TrimSpace(filters["context"]); value != "" {
+		contextCount, err = strconv.Atoi(value)
+		if err != nil {
+			return nil, fmt.Errorf("gitlab %s context filter must be numeric", MergeRequestDiffLineEntity)
+		}
+	}
+	return mergeRequestDiffLines(ctx, client, project, iid, path, firstNonEmpty(query, filters["query"]), line, contextCount, limit)
+}
+
+func mergeRequestDiffLines(ctx context.Context, client gitlabClient, project any, iid int64, path string, query string, line int64, contextCount int, limit int) ([]MergeRequestDiffLine, error) {
+	diffs, err := client.ListMergeRequestDiffs(ctx, project, iid, &gitlab.ListMergeRequestDiffsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}})
+	if err != nil {
+		return nil, err
+	}
+	var lines []MergeRequestDiffLine
+	for _, diff := range diffs {
+		if diff == nil || (diff.NewPath != path && diff.OldPath != path) {
+			continue
+		}
+		lines = append(lines, parseMergeRequestDiffLines(project, iid, diff)...)
+	}
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("file %q is not present in the merge request diff", path)
+	}
+	selected, err := selectDiffLines(lines, query, line, contextCount)
+	if err != nil {
+		return nil, err
+	}
+	if line == 0 && len(selected) > normalizedLimit(limit) {
+		selected = selected[:normalizedLimit(limit)]
+	}
+	return selected, nil
 }
 
 func searchMergeRequestNotes(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]MergeRequestNote, error) {
@@ -2664,6 +3902,117 @@ func searchMergeRequestNotes(ctx context.Context, client gitlabClient, query str
 	return out, nil
 }
 
+func searchMergeRequestApproval(ctx context.Context, client gitlabClient, filters map[string]string) (MergeRequestApproval, error) {
+	project, iid, err := projectAndMR(filters)
+	if err != nil {
+		return MergeRequestApproval{}, err
+	}
+	return mergeRequestApproval(ctx, client, project, iid)
+}
+
+func mergeRequestApproval(ctx context.Context, client gitlabClient, project any, iid int64) (MergeRequestApproval, error) {
+	approval, err := client.GetMergeRequestApprovals(ctx, project, iid)
+	if err != nil {
+		return MergeRequestApproval{}, err
+	}
+	return approvalFromGitLab(approval), nil
+}
+
+func searchMergeRequestChange(ctx context.Context, client gitlabClient, filters map[string]string) (MergeRequestChange, error) {
+	project, iid, err := projectAndMR(filters)
+	if err != nil {
+		return MergeRequestChange{}, err
+	}
+	return mergeRequestChange(ctx, client, project, iid, strings.TrimSpace(filters["path"]))
+}
+
+func mergeRequestChange(ctx context.Context, client gitlabClient, project any, iid int64, path string) (MergeRequestChange, error) {
+	if _, err := client.GetMergeRequestChanges(ctx, project, iid, &gitlab.GetMergeRequestChangesOptions{}); err != nil {
+		return MergeRequestChange{}, err
+	}
+	diffs, err := client.ListMergeRequestDiffs(ctx, project, iid, &gitlab.ListMergeRequestDiffsOptions{ListOptions: gitlab.ListOptions{PerPage: defaultPageSize, Page: 1}})
+	if err != nil {
+		return MergeRequestChange{}, err
+	}
+	return changeFromDiffs(project, iid, diffs, path), nil
+}
+
+func searchDiscussions(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]Discussion, error) {
+	project, iid, err := projectAndMR(filters)
+	if err != nil {
+		return nil, err
+	}
+	discussions, err := listDiscussions(ctx, client, project, iid, limit)
+	if err != nil {
+		return nil, err
+	}
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return discussions, nil
+	}
+	out := discussions[:0]
+	for _, discussion := range discussions {
+		text := strings.ToLower(discussion.DiscussionID)
+		for _, note := range discussion.Notes {
+			text += " " + strings.ToLower(note.Body)
+		}
+		if strings.Contains(text, query) {
+			out = append(out, discussion)
+		}
+	}
+	return out, nil
+}
+
+func listDiscussions(ctx context.Context, client gitlabClient, project any, iid int64, limit int) ([]Discussion, error) {
+	discussions, err := client.ListMergeRequestDiscussions(ctx, project, iid, &gitlab.ListMergeRequestDiscussionsOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Discussion, 0, len(discussions))
+	for _, discussion := range discussions {
+		out = append(out, discussionFromGitLab(project, iid, discussion))
+	}
+	return out, nil
+}
+
+func searchAwardEmoji(ctx context.Context, client gitlabClient, filters map[string]string, limit int) ([]AwardEmoji, error) {
+	project, err := projectFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+	iid, err := int64Filter(AwardEmojiEntity, filters, "merge_request_iid", true)
+	if err != nil {
+		return nil, err
+	}
+	noteID, err := int64Filter(AwardEmojiEntity, filters, "note_id", false)
+	if err != nil {
+		return nil, err
+	}
+	projectID, _ := resolveProjectIdentifier(ctx, client, project)
+	return listAwardEmoji(ctx, client, projectID, iid, noteID, limit)
+}
+
+func listAwardEmoji(ctx context.Context, client gitlabClient, project any, iid, noteID int64, limit int) ([]AwardEmoji, error) {
+	opts := &gitlab.ListAwardEmojiOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}}
+	var (
+		awards []*gitlab.AwardEmoji
+		err    error
+	)
+	if noteID != 0 {
+		awards, err = client.ListMergeRequestAwardEmojiOnNote(ctx, project, iid, noteID, opts)
+	} else {
+		awards, err = client.ListMergeRequestAwardEmoji(ctx, project, iid, opts)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AwardEmoji, 0, len(awards))
+	for _, award := range awards {
+		out = append(out, awardEmojiFromGitLab(project, iid, noteID, award))
+	}
+	return out, nil
+}
+
 func searchPipelines(ctx context.Context, client gitlabClient, filters map[string]string, limit int) ([]Pipeline, error) {
 	project := firstNonEmpty(filters["project_id"], filters["project"])
 	if project == "" {
@@ -2677,7 +4026,37 @@ func searchPipelines(ctx context.Context, client gitlabClient, filters map[strin
 		}
 		return pipelinesForMRProject(ctx, client, projectID, iid, limit), nil
 	}
-	pipelines, err := client.ListProjectPipelines(ctx, projectID, &gitlab.ListProjectPipelinesOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}})
+	opt := &gitlab.ListProjectPipelinesOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}}
+	if value := strings.TrimSpace(filters["status"]); value != "" {
+		status := gitlab.BuildStateValue(value)
+		opt.Status = &status
+	}
+	for key, dest := range map[string]**string{
+		"ref":      &opt.Ref,
+		"source":   &opt.Source,
+		"sha":      &opt.SHA,
+		"order_by": &opt.OrderBy,
+		"sort":     &opt.Sort,
+	} {
+		if value := strings.TrimSpace(filters[key]); value != "" {
+			*dest = &value
+		}
+	}
+	if value := strings.TrimSpace(filters["updated_after"]); value != "" {
+		updatedAfter, err := gitlabTimeFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		opt.UpdatedAfter = updatedAfter
+	}
+	if value := strings.TrimSpace(filters["updated_before"]); value != "" {
+		updatedBefore, err := gitlabTimeFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		opt.UpdatedBefore = updatedBefore
+	}
+	pipelines, err := client.ListProjectPipelines(ctx, projectID, opt)
 	if err != nil {
 		return nil, err
 	}

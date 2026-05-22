@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added native GitLab pipeline and personal snippet operations, moved pipeline
+  retry/cancel out of the merge-request operation, and documented the native
+  GitLab datasource/operation workflow.
+- Centralized local launch plugin auth context construction so run, serve,
+  datasource indexing, and `op run` share stored-credential and opt-in
+  process-environment resolution.
+- Added `fluxplane op run --allow-private-network` so direct operation smoke
+  tests can intentionally reach private/VPN integration hosts.
+- Added a focused TruffleHog false-positive allowlist for the GitLab award
+  emoji test fixture so staged secret scanning remains enabled.
+- Added GitLab personal snippet datasource entities with metadata-only snippet
+  records and explicit bounded file-content retrieval.
+- Added GitLab Dex-parity read surfaces for activity, project languages and
+  contributors, compare, blame, blob search, MR approvals, MR changes,
+  discussions, award emoji, parsed diff lines, and searchable job traces.
+- Extended the GitLab merge-request operation with edit controls, inline
+  comments with diff-position validation, discussion replies/resolution, and
+  award emoji reactions.
 - Refreshed Go module dependencies to current compatible releases.
 - Updated the README branding to use a centered transparent Fluxplane logo
   asset.

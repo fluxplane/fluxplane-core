@@ -13,42 +13,77 @@ import (
 )
 
 const (
-	ProjectEntity          coredatasource.EntityType = "gitlab.project"
-	MergeRequestEntity     coredatasource.EntityType = "gitlab.merge_request"
-	MergeRequestDiffEntity coredatasource.EntityType = "gitlab.merge_request_diff"
-	MergeRequestNoteEntity coredatasource.EntityType = "gitlab.merge_request_note"
-	PipelineEntity         coredatasource.EntityType = "gitlab.pipeline"
-	BranchEntity           coredatasource.EntityType = "gitlab.branch"
-	TagEntity              coredatasource.EntityType = "gitlab.tag"
-	CommitEntity           coredatasource.EntityType = "gitlab.commit"
-	RepositoryTreeEntity   coredatasource.EntityType = "gitlab.repository_tree"
-	RepositoryFileEntity   coredatasource.EntityType = "gitlab.repository_file"
-	JobEntity              coredatasource.EntityType = "gitlab.job"
-	JobTraceEntity         coredatasource.EntityType = "gitlab.job_trace"
-	UserEntity             coredatasource.EntityType = "gitlab.user"
-	GroupEntity            coredatasource.EntityType = "gitlab.group"
-	MembershipEntity       coredatasource.EntityType = "gitlab.user_membership"
+	ProjectEntity              coredatasource.EntityType = "gitlab.project"
+	ActivityEntity             coredatasource.EntityType = "gitlab.activity"
+	MergeRequestEntity         coredatasource.EntityType = "gitlab.merge_request"
+	MergeRequestDiffEntity     coredatasource.EntityType = "gitlab.merge_request_diff"
+	MergeRequestDiffLineEntity coredatasource.EntityType = "gitlab.merge_request_diff_line"
+	MergeRequestNoteEntity     coredatasource.EntityType = "gitlab.merge_request_note"
+	MergeRequestApprovalEntity coredatasource.EntityType = "gitlab.merge_request_approval"
+	MergeRequestChangeEntity   coredatasource.EntityType = "gitlab.merge_request_change"
+	DiscussionEntity           coredatasource.EntityType = "gitlab.discussion"
+	AwardEmojiEntity           coredatasource.EntityType = "gitlab.award_emoji"
+	PipelineEntity             coredatasource.EntityType = "gitlab.pipeline"
+	BranchEntity               coredatasource.EntityType = "gitlab.branch"
+	TagEntity                  coredatasource.EntityType = "gitlab.tag"
+	CommitEntity               coredatasource.EntityType = "gitlab.commit"
+	RepositoryTreeEntity       coredatasource.EntityType = "gitlab.repository_tree"
+	RepositoryFileEntity       coredatasource.EntityType = "gitlab.repository_file"
+	CompareEntity              coredatasource.EntityType = "gitlab.compare"
+	BlameEntity                coredatasource.EntityType = "gitlab.blame"
+	BlobSearchEntity           coredatasource.EntityType = "gitlab.blob_search"
+	ProjectLanguageEntity      coredatasource.EntityType = "gitlab.project_language"
+	ProjectContributorEntity   coredatasource.EntityType = "gitlab.project_contributor"
+	JobEntity                  coredatasource.EntityType = "gitlab.job"
+	JobTraceEntity             coredatasource.EntityType = "gitlab.job_trace"
+	SnippetEntity              coredatasource.EntityType = "gitlab.snippet"
+	SnippetFileEntity          coredatasource.EntityType = "gitlab.snippet_file"
+	UserEntity                 coredatasource.EntityType = "gitlab.user"
+	GroupEntity                coredatasource.EntityType = "gitlab.group"
+	MembershipEntity           coredatasource.EntityType = "gitlab.user_membership"
 )
 
 type Project struct {
-	ID                int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab project id."`
-	Name              string `json:"name" datasource:"searchable" jsonschema:"description=Project name."`
-	PathWithNamespace string `json:"path_with_namespace" datasource:"searchable,filterable" jsonschema:"description=Full project path with namespace."`
-	Description       string `json:"description,omitempty" datasource:"searchable" corpus:"body" jsonschema:"description=Project description."`
-	WebURL            string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
-	DefaultBranch     string `json:"default_branch,omitempty" datasource:"filterable" jsonschema:"description=Default branch name."`
-	Visibility        string `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Project visibility."`
-	Archived          bool   `json:"archived,omitempty" datasource:"filterable" jsonschema:"description=Whether the project is archived."`
+	ID                int64    `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab project id."`
+	Name              string   `json:"name" datasource:"searchable" jsonschema:"description=Project name."`
+	PathWithNamespace string   `json:"path_with_namespace" datasource:"searchable,filterable" jsonschema:"description=Full project path with namespace."`
+	Description       string   `json:"description,omitempty" datasource:"searchable" corpus:"body" jsonschema:"description=Project description."`
+	WebURL            string   `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
+	DefaultBranch     string   `json:"default_branch,omitempty" datasource:"filterable" jsonschema:"description=Default branch name."`
+	Visibility        string   `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Project visibility."`
+	Archived          bool     `json:"archived,omitempty" datasource:"filterable" jsonschema:"description=Whether the project is archived."`
+	StarCount         int64    `json:"star_count,omitempty" datasource:"filterable" jsonschema:"description=Project star count."`
+	ForksCount        int64    `json:"forks_count,omitempty" datasource:"filterable" jsonschema:"description=Project fork count."`
+	LastActivityAt    string   `json:"last_activity_at,omitempty" datasource:"filterable" jsonschema:"description=Last project activity timestamp."`
+	Topics            []string `json:"topics,omitempty" datasource:"filterable" jsonschema:"description=Project topics."`
+}
+
+type Activity struct {
+	ID                  string   `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this project activity summary."`
+	ProjectID           int64    `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	ProjectPath         string   `json:"project_path" datasource:"searchable,filterable" jsonschema:"description=Project path with namespace."`
+	ProjectName         string   `json:"project_name" datasource:"searchable" jsonschema:"description=Project name."`
+	WebURL              string   `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Project web URL."`
+	LastActivityAt      string   `json:"last_activity_at,omitempty" datasource:"filterable" jsonschema:"description=Project last activity timestamp."`
+	RecentCommitCount   int      `json:"recent_commit_count" datasource:"filterable" jsonschema:"description=Recent commit count in the bounded activity window."`
+	RecentMRCount       int      `json:"recent_merge_request_count" datasource:"filterable" jsonschema:"description=Recent merge request count in the bounded activity window."`
+	RecentPipelineCount int      `json:"recent_pipeline_count" datasource:"filterable" jsonschema:"description=Recent pipeline count in the bounded activity window."`
+	Errors              []string `json:"errors,omitempty" jsonschema:"description=Per-project partial aggregation errors."`
 }
 
 type MergeRequest struct {
 	ID                  int64    `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab merge request id."`
 	IID                 int64    `json:"iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
 	ProjectID           int64    `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	ProjectPath         string   `json:"project_path,omitempty" datasource:"filterable" jsonschema:"description=Project path with namespace when returned by GitLab."`
 	Title               string   `json:"title" datasource:"searchable" jsonschema:"description=Merge request title."`
 	Description         string   `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Merge request description."`
 	State               string   `json:"state,omitempty" datasource:"filterable" jsonschema:"description=Merge request state."`
+	MergeStatus         string   `json:"merge_status,omitempty" datasource:"filterable" jsonschema:"description=Legacy merge status when returned by GitLab."`
 	DetailedMergeStatus string   `json:"detailed_merge_status,omitempty" datasource:"filterable" jsonschema:"description=Detailed merge status."`
+	HasConflicts        bool     `json:"has_conflicts,omitempty" datasource:"filterable" jsonschema:"description=Whether GitLab reports merge conflicts."`
+	ChangesCount        string   `json:"changes_count,omitempty" datasource:"filterable" jsonschema:"description=Changed-file count hint when returned by GitLab."`
+	UserNotesCount      int64    `json:"user_notes_count,omitempty" datasource:"filterable" jsonschema:"description=User note count when returned by GitLab."`
 	SourceBranch        string   `json:"source_branch,omitempty" datasource:"filterable" jsonschema:"description=Source branch."`
 	TargetBranch        string   `json:"target_branch,omitempty" datasource:"filterable" jsonschema:"description=Target branch."`
 	SHA                 string   `json:"sha,omitempty" datasource:"filterable" jsonschema:"description=Current head sha."`
@@ -58,6 +93,7 @@ type MergeRequest struct {
 	Labels              []string `json:"labels,omitempty" datasource:"filterable" jsonschema:"description=Labels."`
 	Draft               bool     `json:"draft,omitempty" datasource:"filterable" jsonschema:"description=Whether the MR is draft."`
 	WebURL              string   `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Merge request web URL."`
+	MergedAt            string   `json:"merged_at,omitempty" datasource:"filterable" jsonschema:"description=Merge timestamp."`
 	CreatedAt           string   `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
 	UpdatedAt           string   `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
 }
@@ -77,6 +113,19 @@ type MergeRequestDiff struct {
 	TooLarge      bool   `json:"too_large,omitempty" datasource:"filterable" jsonschema:"description=Whether GitLab omitted an oversized diff."`
 }
 
+type MergeRequestDiffLine struct {
+	ID              string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!path!line."`
+	ProjectID       string `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	MergeRequestIID int64  `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	OldPath         string `json:"old_path,omitempty" datasource:"filterable" jsonschema:"description=Old file path."`
+	NewPath         string `json:"new_path" datasource:"searchable,filterable" jsonschema:"description=New file path."`
+	LineType        string `json:"line_type" datasource:"filterable" jsonschema:"description=Diff line type: ctx, add, or del."`
+	OldLine         int64  `json:"old_line,omitempty" datasource:"filterable" jsonschema:"description=Old-file line number."`
+	NewLine         int64  `json:"new_line,omitempty" datasource:"filterable" jsonschema:"description=New-file line number."`
+	Content         string `json:"content" datasource:"searchable" jsonschema:"description=Diff line content without prefix."`
+	HunkHeader      string `json:"hunk_header,omitempty" datasource:"searchable" jsonschema:"description=Unified diff hunk header."`
+}
+
 type MergeRequestNote struct {
 	ID              int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab note id."`
 	ProjectID       int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
@@ -91,18 +140,70 @@ type MergeRequestNote struct {
 	UpdatedAt       string `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
 }
 
+type MergeRequestApproval struct {
+	ID                string   `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!approvals."`
+	ProjectID         int64    `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	MergeRequestIID   int64    `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	ApprovalsRequired int64    `json:"approvals_required" datasource:"filterable" jsonschema:"description=Required approvals."`
+	ApprovalsLeft     int64    `json:"approvals_left" datasource:"filterable" jsonschema:"description=Remaining approvals."`
+	Approved          bool     `json:"approved" datasource:"filterable" jsonschema:"description=Whether the MR is approved."`
+	ApprovedBy        []string `json:"approved_by,omitempty" datasource:"searchable" jsonschema:"description=Approving usernames."`
+}
+
+type MergeRequestChange struct {
+	ID              string        `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!changes."`
+	ProjectID       int64         `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	MergeRequestIID int64         `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	Additions       int           `json:"additions,omitempty" jsonschema:"description=Approximate added lines from returned diffs."`
+	Deletions       int           `json:"deletions,omitempty" jsonschema:"description=Approximate deleted lines from returned diffs."`
+	Files           []CompareFile `json:"files,omitempty" jsonschema:"description=Changed file summaries."`
+	DiffPreview     string        `json:"diff_preview,omitempty" datasource:"searchable" jsonschema:"description=Optional bounded diff preview for a requested path."`
+	Truncated       bool          `json:"truncated,omitempty" jsonschema:"description=Whether diff preview was truncated."`
+}
+
+type Discussion struct {
+	ID              string             `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!discussion_id."`
+	DiscussionID    string             `json:"discussion_id" datasource:"filterable" jsonschema:"description=GitLab discussion id."`
+	ProjectID       int64              `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	MergeRequestIID int64              `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	Notes           []MergeRequestNote `json:"notes,omitempty" datasource:"searchable" jsonschema:"description=Discussion notes."`
+	Resolvable      bool               `json:"resolvable,omitempty" datasource:"filterable" jsonschema:"description=Whether any note is resolvable."`
+	Resolved        bool               `json:"resolved,omitempty" datasource:"filterable" jsonschema:"description=Whether all resolvable notes are resolved."`
+	NewPath         string             `json:"new_path,omitempty" datasource:"filterable" jsonschema:"description=Discussion position new path when present."`
+	OldPath         string             `json:"old_path,omitempty" datasource:"filterable" jsonschema:"description=Discussion position old path when present."`
+	NewLine         int64              `json:"new_line,omitempty" datasource:"filterable" jsonschema:"description=Discussion position new line when present."`
+	OldLine         int64              `json:"old_line,omitempty" datasource:"filterable" jsonschema:"description=Discussion position old line when present."`
+}
+
+type AwardEmoji struct {
+	ID              string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this award emoji."`
+	AwardID         int64  `json:"award_id" datasource:"filterable" jsonschema:"description=GitLab award emoji id."`
+	Name            string `json:"name" datasource:"searchable,filterable" jsonschema:"description=Emoji reaction name."`
+	User            string `json:"user,omitempty" datasource:"searchable,filterable" jsonschema:"description=Reacting username."`
+	ProjectID       string `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	MergeRequestIID int64  `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
+	NoteID          int64  `json:"note_id,omitempty" datasource:"filterable" jsonschema:"description=Optional note id for note-level award emoji."`
+	AwardableID     int64  `json:"awardable_id,omitempty" datasource:"filterable" jsonschema:"description=GitLab awardable id."`
+	AwardableType   string `json:"awardable_type,omitempty" datasource:"filterable" jsonschema:"description=GitLab awardable type."`
+	CreatedAt       string `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+}
+
 type Pipeline struct {
-	ID        int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab pipeline id."`
-	IID       int64  `json:"iid,omitempty" datasource:"filterable" jsonschema:"description=Project-local pipeline iid."`
-	ProjectID int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
-	Status    string `json:"status,omitempty" datasource:"filterable" jsonschema:"description=Pipeline status."`
-	Source    string `json:"source,omitempty" datasource:"filterable" jsonschema:"description=Pipeline source."`
-	Ref       string `json:"ref,omitempty" datasource:"filterable" jsonschema:"description=Git ref."`
-	SHA       string `json:"sha,omitempty" datasource:"filterable" jsonschema:"description=Pipeline sha."`
-	Name      string `json:"name,omitempty" datasource:"searchable" jsonschema:"description=Pipeline name."`
-	WebURL    string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Pipeline web URL."`
-	CreatedAt string `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
-	UpdatedAt string `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
+	ID         int64  `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab pipeline id."`
+	IID        int64  `json:"iid,omitempty" datasource:"filterable" jsonschema:"description=Project-local pipeline iid."`
+	ProjectID  int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Status     string `json:"status,omitempty" datasource:"filterable" jsonschema:"description=Pipeline status."`
+	Source     string `json:"source,omitempty" datasource:"filterable" jsonschema:"description=Pipeline source."`
+	Ref        string `json:"ref,omitempty" datasource:"filterable" jsonschema:"description=Git ref."`
+	SHA        string `json:"sha,omitempty" datasource:"filterable" jsonschema:"description=Pipeline sha."`
+	Name       string `json:"name,omitempty" datasource:"searchable" jsonschema:"description=Pipeline name."`
+	WebURL     string `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Pipeline web URL."`
+	User       string `json:"user,omitempty" datasource:"filterable" jsonschema:"description=Pipeline user username when returned by GitLab."`
+	Duration   int64  `json:"duration,omitempty" datasource:"filterable" jsonschema:"description=Pipeline duration in seconds when returned by GitLab."`
+	StartedAt  string `json:"started_at,omitempty" datasource:"filterable" jsonschema:"description=Pipeline start timestamp."`
+	FinishedAt string `json:"finished_at,omitempty" datasource:"filterable" jsonschema:"description=Pipeline finish timestamp."`
+	CreatedAt  string `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+	UpdatedAt  string `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
 }
 
 type Branch struct {
@@ -141,6 +242,9 @@ type Commit struct {
 	ParentIDs      []string `json:"parent_ids,omitempty" jsonschema:"description=Parent commit SHAs."`
 	WebURL         string   `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Commit web URL."`
 	LastPipelineID int64    `json:"last_pipeline_id,omitempty" datasource:"filterable" jsonschema:"description=Last pipeline id for this commit when returned by GitLab."`
+	Additions      int64    `json:"additions,omitempty" datasource:"filterable" jsonschema:"description=Added lines when GitLab returns commit stats."`
+	Deletions      int64    `json:"deletions,omitempty" datasource:"filterable" jsonschema:"description=Deleted lines when GitLab returns commit stats."`
+	Total          int64    `json:"total,omitempty" datasource:"filterable" jsonschema:"description=Total changed lines when GitLab returns commit stats."`
 }
 
 type RepositoryTreeEntry struct {
@@ -167,6 +271,82 @@ type RepositoryFile struct {
 	CommitID       string `json:"commit_id,omitempty" datasource:"filterable" jsonschema:"description=Commit SHA."`
 	LastCommitID   string `json:"last_commit_id,omitempty" datasource:"filterable" jsonschema:"description=Last commit SHA for this file."`
 	SHA256         string `json:"sha256,omitempty" datasource:"filterable" jsonschema:"description=Content SHA256."`
+}
+
+type Compare struct {
+	ID          string        `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!from...to or project!from..to."`
+	ProjectID   string        `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	From        string        `json:"from" datasource:"filterable" jsonschema:"description=Source ref."`
+	To          string        `json:"to" datasource:"filterable" jsonschema:"description=Target ref."`
+	Straight    bool          `json:"straight,omitempty" datasource:"filterable" jsonschema:"description=Whether this is a straight two-dot compare."`
+	Path        string        `json:"path,omitempty" datasource:"filterable" jsonschema:"description=Optional scoped diff path."`
+	HeadCommit  Commit        `json:"head_commit,omitempty" jsonschema:"description=Head commit summary."`
+	Timeout     bool          `json:"timeout,omitempty" jsonschema:"description=Whether GitLab timed out comparing refs."`
+	SameRef     bool          `json:"same_ref,omitempty" jsonschema:"description=Whether GitLab reported the refs as identical."`
+	Commits     []Commit      `json:"commits,omitempty" jsonschema:"description=Bounded commit summaries."`
+	Files       []CompareFile `json:"files,omitempty" jsonschema:"description=Changed file summaries."`
+	Additions   int           `json:"additions,omitempty" jsonschema:"description=Approximate added line count from returned diffs."`
+	Deletions   int           `json:"deletions,omitempty" jsonschema:"description=Approximate deleted line count from returned diffs."`
+	DiffPreview string        `json:"diff_preview,omitempty" datasource:"searchable" jsonschema:"description=Bounded scoped diff preview when path is requested."`
+	Truncated   bool          `json:"truncated,omitempty" jsonschema:"description=Whether diff preview was truncated."`
+	WebURL      string        `json:"web_url,omitempty" datasource:"url" jsonschema:"description=GitLab compare web URL."`
+}
+
+type CompareFile struct {
+	OldPath     string `json:"old_path,omitempty" datasource:"filterable" jsonschema:"description=Old file path."`
+	NewPath     string `json:"new_path" datasource:"searchable,filterable" jsonschema:"description=New file path."`
+	NewFile     bool   `json:"new_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file is new."`
+	RenamedFile bool   `json:"renamed_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file was renamed."`
+	DeletedFile bool   `json:"deleted_file,omitempty" datasource:"filterable" jsonschema:"description=Whether the file was deleted."`
+}
+
+type Blame struct {
+	ID        string       `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!ref!path!blame."`
+	ProjectID string       `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	Ref       string       `json:"ref" datasource:"filterable" jsonschema:"description=Git ref."`
+	Path      string       `json:"path" datasource:"searchable,filterable" jsonschema:"description=Repository file path."`
+	Ranges    []BlameRange `json:"ranges" jsonschema:"description=Bounded blame ranges."`
+}
+
+type BlameRange struct {
+	CommitID      string   `json:"commit_id" datasource:"filterable" jsonschema:"description=Commit SHA for this range."`
+	CommitTitle   string   `json:"commit_title,omitempty" datasource:"searchable" jsonschema:"description=Commit title or first message line."`
+	AuthorName    string   `json:"author_name,omitempty" datasource:"filterable" jsonschema:"description=Commit author name."`
+	AuthorEmail   string   `json:"author_email,omitempty" datasource:"filterable" jsonschema:"description=Commit author email."`
+	CommittedDate string   `json:"committed_date,omitempty" datasource:"filterable" jsonschema:"description=Commit timestamp."`
+	LineStart     int      `json:"line_start" jsonschema:"description=One-based first line in this range."`
+	LineEnd       int      `json:"line_end" jsonschema:"description=One-based last line in this range."`
+	Lines         []string `json:"lines,omitempty" datasource:"searchable" jsonschema:"description=Bounded line content."`
+	Truncated     bool     `json:"truncated,omitempty" jsonschema:"description=Whether lines were truncated."`
+}
+
+type BlobSearchResult struct {
+	ID        string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!ref!path!start_line."`
+	ProjectID int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Basename  string `json:"basename" datasource:"searchable" jsonschema:"description=Matched blob basename."`
+	Filename  string `json:"filename" datasource:"searchable" jsonschema:"description=Matched blob filename."`
+	Path      string `json:"path" datasource:"searchable,filterable" jsonschema:"description=Matched blob path."`
+	Ref       string `json:"ref,omitempty" datasource:"filterable" jsonschema:"description=Matched ref."`
+	StartLine int64  `json:"start_line,omitempty" datasource:"filterable" jsonschema:"description=First matching line."`
+	Snippet   string `json:"snippet,omitempty" datasource:"searchable" jsonschema:"description=Bounded matching snippet."`
+	Truncated bool   `json:"truncated,omitempty" jsonschema:"description=Whether snippet was truncated."`
+}
+
+type ProjectLanguage struct {
+	ID        string  `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!language."`
+	ProjectID string  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	Language  string  `json:"language" datasource:"searchable,filterable" jsonschema:"description=Language name."`
+	Share     float32 `json:"share" datasource:"filterable" jsonschema:"description=Language share percentage."`
+}
+
+type ProjectContributor struct {
+	ID        string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!email-or-name."`
+	ProjectID string `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id or path."`
+	Name      string `json:"name" datasource:"searchable" jsonschema:"description=Contributor name."`
+	Email     string `json:"email,omitempty" datasource:"searchable,filterable" jsonschema:"description=Contributor email."`
+	Commits   int64  `json:"commits" datasource:"filterable" jsonschema:"description=Commit count."`
+	Additions int64  `json:"additions" datasource:"filterable" jsonschema:"description=Added lines."`
+	Deletions int64  `json:"deletions" datasource:"filterable" jsonschema:"description=Deleted lines."`
 }
 
 type Job struct {
@@ -197,6 +377,28 @@ type JobTrace struct {
 	JobID     int64  `json:"job_id" datasource:"filterable" jsonschema:"description=GitLab job id."`
 	Trace     string `json:"trace" jsonschema:"description=Bounded job trace content."`
 	Truncated bool   `json:"truncated,omitempty" jsonschema:"description=Whether the trace was truncated."`
+}
+
+type Snippet struct {
+	ID             int64         `json:"id" datasource:"id,filterable" jsonschema:"description=GitLab snippet id."`
+	Title          string        `json:"title" datasource:"searchable" jsonschema:"description=Snippet title."`
+	Description    string        `json:"description,omitempty" datasource:"searchable" jsonschema:"description=Snippet description."`
+	Visibility     string        `json:"visibility,omitempty" datasource:"filterable" jsonschema:"description=Snippet visibility."`
+	AuthorUsername string        `json:"author_username,omitempty" datasource:"filterable" jsonschema:"description=Snippet author username."`
+	WebURL         string        `json:"web_url,omitempty" datasource:"url" jsonschema:"description=Snippet web URL."`
+	RawURL         string        `json:"raw_url,omitempty" datasource:"url" jsonschema:"description=Snippet raw URL."`
+	Files          []SnippetFile `json:"files,omitempty" jsonschema:"description=Snippet file descriptors without content."`
+	CreatedAt      string        `json:"created_at,omitempty" datasource:"filterable" jsonschema:"description=Creation timestamp."`
+	UpdatedAt      string        `json:"updated_at,omitempty" datasource:"filterable" jsonschema:"description=Update timestamp."`
+}
+
+type SnippetFile struct {
+	ID        string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id snippet_id!file_path."`
+	SnippetID int64  `json:"snippet_id" datasource:"filterable" jsonschema:"description=GitLab snippet id."`
+	FilePath  string `json:"file_path" datasource:"searchable,filterable" jsonschema:"description=Snippet file path."`
+	RawURL    string `json:"raw_url,omitempty" datasource:"url" jsonschema:"description=Snippet raw file URL."`
+	Content   string `json:"content,omitempty" datasource:"searchable" jsonschema:"description=Bounded snippet file content."`
+	Truncated bool   `json:"truncated,omitempty" jsonschema:"description=Whether content was truncated."`
 }
 
 type User struct {
@@ -238,17 +440,30 @@ type Membership struct {
 func entitySpecs() []coredatasource.EntitySpec {
 	return []coredatasource.EntitySpec{
 		projectEntitySpec(),
+		activityEntitySpec(),
 		mergeRequestEntitySpec(),
 		mergeRequestDiffEntitySpec(),
+		mergeRequestDiffLineEntitySpec(),
 		mergeRequestNoteEntitySpec(),
+		mergeRequestApprovalEntitySpec(),
+		mergeRequestChangeEntitySpec(),
+		discussionEntitySpec(),
+		awardEmojiEntitySpec(),
 		pipelineEntitySpec(),
 		branchEntitySpec(),
 		tagEntitySpec(),
 		commitEntitySpec(),
 		repositoryTreeEntitySpec(),
 		repositoryFileEntitySpec(),
+		compareEntitySpec(),
+		blameEntitySpec(),
+		blobSearchEntitySpec(),
+		projectLanguageEntitySpec(),
+		projectContributorEntitySpec(),
 		jobEntitySpec(),
 		jobTraceEntitySpec(),
+		snippetEntitySpec(),
+		snippetFileEntitySpec(),
 		userEntitySpec(),
 		groupEntitySpec(),
 		membershipEntitySpec(),
@@ -266,11 +481,14 @@ func projectEntitySpec() coredatasource.EntitySpec {
 	}
 	entity.Relations = []coredatasource.RelationSpec{
 		{Name: "merge_requests", Description: "Merge requests in this project.", TargetEntity: MergeRequestEntity},
+		{Name: "activity", Description: "Recent activity summary for this project.", TargetEntity: ActivityEntity},
 		{Name: "pipelines", Description: "Pipelines in this project.", TargetEntity: PipelineEntity},
 		{Name: "branches", Description: "Repository branches in this project.", TargetEntity: BranchEntity},
 		{Name: "tags", Description: "Repository tags in this project.", TargetEntity: TagEntity},
 		{Name: "commits", Description: "Recent or filtered repository commits in this project.", TargetEntity: CommitEntity},
 		{Name: "repository_tree", Description: "Repository tree entries for this project.", TargetEntity: RepositoryTreeEntity},
+		{Name: "languages", Description: "Language breakdown for this project.", TargetEntity: ProjectLanguageEntity},
+		{Name: "contributors", Description: "Top repository contributors for this project.", TargetEntity: ProjectContributorEntity},
 		{Name: "jobs", Description: "Recent CI jobs in this project.", TargetEntity: JobEntity},
 		{Name: "users", Description: "Users with access to this project.", TargetEntity: UserEntity},
 		{Name: "groups", Description: "Groups and namespaces with access to this project.", TargetEntity: GroupEntity},
@@ -286,6 +504,15 @@ func projectEntitySpec() coredatasource.EntitySpec {
 	return entity
 }
 
+func activityEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Activity](ActivityEntity, "GitLab recent project activity summary.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
+	}
+	return entity
+}
+
 func mergeRequestEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequest](MergeRequestEntity, "GitLab merge request.")
 	entity.Capabilities = []coredatasource.EntityCapability{
@@ -296,6 +523,11 @@ func mergeRequestEntitySpec() coredatasource.EntitySpec {
 	entity.Relations = []coredatasource.RelationSpec{
 		{Name: "diffs", Description: "Files changed by this merge request.", TargetEntity: MergeRequestDiffEntity},
 		{Name: "notes", Description: "Notes on this merge request.", TargetEntity: MergeRequestNoteEntity},
+		{Name: "approvals", Description: "Approval summary for this merge request.", TargetEntity: MergeRequestApprovalEntity},
+		{Name: "changes", Description: "Changed-file summary for this merge request.", TargetEntity: MergeRequestChangeEntity},
+		{Name: "commits", Description: "Commits in this merge request.", TargetEntity: CommitEntity},
+		{Name: "discussions", Description: "Discussion threads on this merge request.", TargetEntity: DiscussionEntity},
+		{Name: "award_emoji", Description: "Award emoji reactions on this merge request.", TargetEntity: AwardEmojiEntity},
 		{Name: "pipelines", Description: "Pipelines for this merge request.", TargetEntity: PipelineEntity},
 		{Name: "participants", Description: "Users participating in this merge request.", TargetEntity: UserEntity},
 		{Name: "reviewers", Description: "Reviewers assigned to this merge request.", TargetEntity: UserEntity},
@@ -316,6 +548,18 @@ func mergeRequestDiffEntitySpec() coredatasource.EntitySpec {
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "lines", Description: "Parsed changed lines in this diff file.", TargetEntity: MergeRequestDiffLineEntity},
+	}
+	return entity
+}
+
+func mergeRequestDiffLineEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestDiffLine](MergeRequestDiffLineEntity, "GitLab merge request parsed diff line.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 	}
 	return entity
 }
@@ -325,6 +569,43 @@ func mergeRequestNoteEntitySpec() coredatasource.EntitySpec {
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "award_emoji", Description: "Award emoji reactions on this merge request note.", TargetEntity: AwardEmojiEntity},
+	}
+	return entity
+}
+
+func mergeRequestApprovalEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestApproval](MergeRequestApprovalEntity, "GitLab merge request approval summary.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+	}
+	return entity
+}
+
+func mergeRequestChangeEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[MergeRequestChange](MergeRequestChangeEntity, "GitLab merge request changed-file summary.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+	}
+	return entity
+}
+
+func discussionEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Discussion](DiscussionEntity, "GitLab merge request discussion thread.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func awardEmojiEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[AwardEmoji](AwardEmojiEntity, "GitLab merge request or note award emoji reaction.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 	}
 	return entity
 }
@@ -402,7 +683,49 @@ func repositoryTreeEntitySpec() coredatasource.EntitySpec {
 func repositoryFileEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[RepositoryFile](RepositoryFileEntity, "GitLab repository file.")
 	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func compareEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Compare](CompareEntity, "GitLab repository ref comparison.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+	}
+	return entity
+}
+
+func blameEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Blame](BlameEntity, "GitLab repository file blame.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func blobSearchEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[BlobSearchResult](BlobSearchEntity, "GitLab project blob search result.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+	}
+	return entity
+}
+
+func projectLanguageEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[ProjectLanguage](ProjectLanguageEntity, "GitLab project language breakdown.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+	}
+	return entity
+}
+
+func projectContributorEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[ProjectContributor](ProjectContributorEntity, "GitLab project repository contributor.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 	}
 	return entity
 }
@@ -425,6 +748,29 @@ func jobEntitySpec() coredatasource.EntitySpec {
 func jobTraceEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[JobTrace](JobTraceEntity, "GitLab CI job trace.")
 	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
+	}
+	return entity
+}
+
+func snippetEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[Snippet](SnippetEntity, "GitLab personal snippet metadata.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilityList,
+		coredatasource.EntityCapabilityGet,
+		coredatasource.EntityCapabilityRelation,
+	}
+	entity.Relations = []coredatasource.RelationSpec{
+		{Name: "files", Description: "Snippet files with bounded content.", TargetEntity: SnippetFileEntity},
+	}
+	return entity
+}
+
+func snippetFileEntitySpec() coredatasource.EntitySpec {
+	entity := runtimedatasource.EntityOf[SnippetFile](SnippetFileEntity, "GitLab personal snippet file content.")
+	entity.Capabilities = []coredatasource.EntityCapability{
+		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityGet,
 	}
 	return entity
@@ -495,6 +841,21 @@ func projectFromGitLab(project *gitlab.Project) Project {
 		DefaultBranch:     project.DefaultBranch,
 		Visibility:        string(project.Visibility),
 		Archived:          project.Archived,
+		StarCount:         project.StarCount,
+		ForksCount:        project.ForksCount,
+		LastActivityAt:    formatTime(project.LastActivityAt),
+		Topics:            append([]string(nil), project.Topics...),
+	}
+}
+
+func activityFromProject(project Project) Activity {
+	return Activity{
+		ID:             projectIDString(project),
+		ProjectID:      project.ID,
+		ProjectPath:    project.PathWithNamespace,
+		ProjectName:    project.Name,
+		WebURL:         project.WebURL,
+		LastActivityAt: project.LastActivityAt,
 	}
 }
 
@@ -510,6 +871,8 @@ func mergeRequestFromBasic(mr *gitlab.BasicMergeRequest) MergeRequest {
 		Description:         mr.Description,
 		State:               mr.State,
 		DetailedMergeStatus: mr.DetailedMergeStatus,
+		HasConflicts:        mr.HasConflicts,
+		UserNotesCount:      mr.UserNotesCount,
 		SourceBranch:        mr.SourceBranch,
 		TargetBranch:        mr.TargetBranch,
 		SHA:                 mr.SHA,
@@ -519,6 +882,7 @@ func mergeRequestFromBasic(mr *gitlab.BasicMergeRequest) MergeRequest {
 		Labels:              labels(mr.Labels),
 		Draft:               mr.Draft,
 		WebURL:              mr.WebURL,
+		MergedAt:            formatTime(mr.MergedAt),
 		CreatedAt:           formatTime(mr.CreatedAt),
 		UpdatedAt:           formatTime(mr.UpdatedAt),
 	}
@@ -532,6 +896,7 @@ func mergeRequestFromFull(mr *gitlab.MergeRequest) MergeRequest {
 	if out.DetailedMergeStatus == "" {
 		out.DetailedMergeStatus = mr.DetailedMergeStatus
 	}
+	out.ChangesCount = mr.ChangesCount
 	return out
 }
 
@@ -576,6 +941,121 @@ func noteFromGitLab(note *gitlab.Note) MergeRequestNote {
 	}
 }
 
+func approvalFromGitLab(approval *gitlab.MergeRequestApprovals) MergeRequestApproval {
+	if approval == nil {
+		return MergeRequestApproval{}
+	}
+	out := MergeRequestApproval{
+		ID:                fmt.Sprintf("%d!%d!approvals", approval.ProjectID, approval.IID),
+		ProjectID:         approval.ProjectID,
+		MergeRequestIID:   approval.IID,
+		ApprovalsRequired: approval.ApprovalsRequired,
+		ApprovalsLeft:     approval.ApprovalsLeft,
+		Approved:          approval.Approved,
+	}
+	for _, user := range approval.ApprovedBy {
+		if user != nil && user.User != nil && strings.TrimSpace(user.User.Username) != "" {
+			out.ApprovedBy = append(out.ApprovedBy, user.User.Username)
+		}
+	}
+	return out
+}
+
+func changeFromDiffs(project any, iid int64, diffs []*gitlab.MergeRequestDiff, path string) MergeRequestChange {
+	projectLabel := projectIDLabel(project)
+	out := MergeRequestChange{ID: fmt.Sprintf("%s!%d!changes", projectLabel, iid), MergeRequestIID: iid}
+	if projectNum, ok := project.(int64); ok {
+		out.ProjectID = projectNum
+	}
+	var preview []string
+	for _, diff := range diffs {
+		if diff == nil {
+			continue
+		}
+		out.Files = append(out.Files, CompareFile{
+			OldPath:     diff.OldPath,
+			NewPath:     diff.NewPath,
+			NewFile:     diff.NewFile,
+			RenamedFile: diff.RenamedFile,
+			DeletedFile: diff.DeletedFile,
+		})
+		additions, deletions := diffStats(diff.Diff)
+		out.Additions += additions
+		out.Deletions += deletions
+		if path != "" && (diff.NewPath == path || diff.OldPath == path) {
+			preview = append(preview, diff.Diff)
+		}
+	}
+	if len(preview) > 0 {
+		out.DiffPreview, out.Truncated = boundedText(strings.Join(preview, "\n"), 16*1024)
+	}
+	return out
+}
+
+func discussionFromGitLab(project any, iid int64, discussion *gitlab.Discussion) Discussion {
+	if discussion == nil {
+		return Discussion{MergeRequestIID: iid}
+	}
+	projectLabel := projectIDLabel(project)
+	out := Discussion{
+		ID:              fmt.Sprintf("%s!%d!%s", projectLabel, iid, discussion.ID),
+		DiscussionID:    discussion.ID,
+		MergeRequestIID: iid,
+		Resolved:        true,
+	}
+	if projectNum, ok := project.(int64); ok {
+		out.ProjectID = projectNum
+	}
+	for _, note := range discussion.Notes {
+		converted := noteFromGitLab(note)
+		out.Notes = append(out.Notes, converted)
+		if converted.Resolvable {
+			out.Resolvable = true
+			if !converted.Resolved {
+				out.Resolved = false
+			}
+		}
+		if note != nil && note.Position != nil {
+			out.NewPath = firstNonEmpty(out.NewPath, note.Position.NewPath)
+			out.OldPath = firstNonEmpty(out.OldPath, note.Position.OldPath)
+			if out.NewLine == 0 {
+				out.NewLine = note.Position.NewLine
+			}
+			if out.OldLine == 0 {
+				out.OldLine = note.Position.OldLine
+			}
+		}
+	}
+	if !out.Resolvable {
+		out.Resolved = false
+	}
+	return out
+}
+
+func awardEmojiFromGitLab(project any, iid, noteID int64, award *gitlab.AwardEmoji) AwardEmoji {
+	if award == nil {
+		return AwardEmoji{ProjectID: projectIDLabel(project), MergeRequestIID: iid, NoteID: noteID}
+	}
+	projectLabel := projectIDLabel(project)
+	idParts := []string{projectLabel, strconv.FormatInt(iid, 10)}
+	if noteID != 0 {
+		idParts = append(idParts, "note", strconv.FormatInt(noteID, 10))
+	}
+	idParts = append(idParts, "award", strconv.FormatInt(award.ID, 10))
+	return AwardEmoji{
+		ID:              strings.Join(idParts, "!"),
+		AwardID:         award.ID,
+		Name:            award.Name,
+		User:            award.User.Username,
+		ProjectID:       projectLabel,
+		MergeRequestIID: iid,
+		NoteID:          noteID,
+		AwardableID:     award.AwardableID,
+		AwardableType:   award.AwardableType,
+		CreatedAt:       formatTime(award.CreatedAt),
+	}
+}
+
 func pipelineFromInfo(pipeline *gitlab.PipelineInfo) Pipeline {
 	if pipeline == nil {
 		return Pipeline{}
@@ -599,19 +1079,26 @@ func pipelineFromFull(pipeline *gitlab.Pipeline) Pipeline {
 	if pipeline == nil {
 		return Pipeline{}
 	}
-	return Pipeline{
-		ID:        pipeline.ID,
-		IID:       pipeline.IID,
-		ProjectID: pipeline.ProjectID,
-		Status:    pipeline.Status,
-		Source:    string(pipeline.Source),
-		Ref:       pipeline.Ref,
-		SHA:       pipeline.SHA,
-		Name:      pipeline.Name,
-		WebURL:    pipeline.WebURL,
-		CreatedAt: formatTime(pipeline.CreatedAt),
-		UpdatedAt: formatTime(pipeline.UpdatedAt),
+	out := Pipeline{
+		ID:         pipeline.ID,
+		IID:        pipeline.IID,
+		ProjectID:  pipeline.ProjectID,
+		Status:     pipeline.Status,
+		Source:     string(pipeline.Source),
+		Ref:        pipeline.Ref,
+		SHA:        pipeline.SHA,
+		Name:       pipeline.Name,
+		WebURL:     pipeline.WebURL,
+		Duration:   pipeline.Duration,
+		StartedAt:  formatTime(pipeline.StartedAt),
+		FinishedAt: formatTime(pipeline.FinishedAt),
+		CreatedAt:  formatTime(pipeline.CreatedAt),
+		UpdatedAt:  formatTime(pipeline.UpdatedAt),
 	}
+	if pipeline.User != nil {
+		out.User = pipeline.User.Username
+	}
+	return out
 }
 
 func branchFromGitLab(project string, branch *gitlab.Branch) Branch {
@@ -663,7 +1150,7 @@ func commitFromGitLab(project string, commit *gitlab.Commit) Commit {
 	if commit.LastPipeline != nil {
 		lastPipelineID = commit.LastPipeline.ID
 	}
-	return Commit{
+	out := Commit{
 		ID:             projectTextChildID(project, commit.ID),
 		ProjectID:      project,
 		SHA:            commit.ID,
@@ -677,6 +1164,12 @@ func commitFromGitLab(project string, commit *gitlab.Commit) Commit {
 		WebURL:         commit.WebURL,
 		LastPipelineID: lastPipelineID,
 	}
+	if commit.Stats != nil {
+		out.Additions = commit.Stats.Additions
+		out.Deletions = commit.Stats.Deletions
+		out.Total = commit.Stats.Total
+	}
+	return out
 }
 
 func repositoryTreeEntryFromGitLab(project, ref string, node *gitlab.TreeNode) RepositoryTreeEntry {
@@ -716,6 +1209,126 @@ func repositoryFileFromGitLab(project, ref string, file *gitlab.File) Repository
 	}
 }
 
+func compareFromGitLab(project, from, to, path string, straight bool, includeDiff bool, maxBytes int, value *gitlab.Compare) Compare {
+	out := Compare{
+		ID:        compareID(project, from, to, straight),
+		ProjectID: project,
+		From:      from,
+		To:        to,
+		Straight:  straight,
+		Path:      path,
+	}
+	if value == nil {
+		return out
+	}
+	out.HeadCommit = commitFromGitLab(project, value.Commit)
+	out.Timeout = value.CompareTimeout
+	out.SameRef = value.CompareSameRef
+	out.WebURL = value.WebURL
+	for i, commit := range value.Commits {
+		if i >= 20 {
+			break
+		}
+		out.Commits = append(out.Commits, commitFromGitLab(project, commit))
+	}
+	var preview []string
+	for _, diff := range value.Diffs {
+		if diff == nil {
+			continue
+		}
+		file := CompareFile{
+			OldPath:     diff.OldPath,
+			NewPath:     diff.NewPath,
+			NewFile:     diff.NewFile,
+			RenamedFile: diff.RenamedFile,
+			DeletedFile: diff.DeletedFile,
+		}
+		out.Files = append(out.Files, file)
+		additions, deletions := diffStats(diff.Diff)
+		out.Additions += additions
+		out.Deletions += deletions
+		if includeDiff && path != "" && (diff.NewPath == path || diff.OldPath == path) {
+			preview = append(preview, diff.Diff)
+		}
+	}
+	if len(preview) > 0 {
+		if maxBytes <= 0 {
+			maxBytes = 16 * 1024
+		}
+		out.DiffPreview, out.Truncated = boundedText(strings.Join(preview, "\n"), maxBytes)
+	}
+	return out
+}
+
+func blameFromGitLab(project, ref, path string, ranges []*gitlab.FileBlameRange) Blame {
+	out := Blame{ID: blameID(project, ref, path), ProjectID: project, Ref: ref, Path: path}
+	line := 1
+	for _, item := range ranges {
+		if item == nil {
+			continue
+		}
+		lines, truncated := boundedLineSlice(item.Lines, 80, 4*1024)
+		start := line
+		end := line + len(item.Lines) - 1
+		line += len(item.Lines)
+		out.Ranges = append(out.Ranges, BlameRange{
+			CommitID:      item.Commit.ID,
+			CommitTitle:   firstLine(item.Commit.Message),
+			AuthorName:    item.Commit.AuthorName,
+			AuthorEmail:   item.Commit.AuthorEmail,
+			CommittedDate: formatTime(item.Commit.CommittedDate),
+			LineStart:     start,
+			LineEnd:       end,
+			Lines:         lines,
+			Truncated:     truncated,
+		})
+	}
+	return out
+}
+
+func blobSearchResultFromGitLab(blob *gitlab.Blob) BlobSearchResult {
+	if blob == nil {
+		return BlobSearchResult{}
+	}
+	snippet, truncated := boundedText(blob.Data, 1024)
+	return BlobSearchResult{
+		ID:        fmt.Sprintf("%d!%s!%s!%d", blob.ProjectID, strings.TrimSpace(blob.Ref), strings.TrimSpace(blob.Path), blob.Startline),
+		ProjectID: blob.ProjectID,
+		Basename:  blob.Basename,
+		Filename:  blob.Filename,
+		Path:      blob.Path,
+		Ref:       blob.Ref,
+		StartLine: blob.Startline,
+		Snippet:   snippet,
+		Truncated: truncated,
+	}
+}
+
+func projectLanguageFromGitLab(project, language string, share float32) ProjectLanguage {
+	return ProjectLanguage{
+		ID:        projectTextChildID(project, language),
+		ProjectID: project,
+		Language:  language,
+		Share:     share,
+	}
+}
+
+func projectContributorFromGitLab(project string, contributor *gitlab.Contributor) ProjectContributor {
+	if contributor == nil {
+		return ProjectContributor{ProjectID: project}
+	}
+	key := firstNonEmpty(contributor.Email, contributor.Name)
+	return ProjectContributor{
+		ID:        projectTextChildID(project, key),
+		ProjectID: project,
+		Name:      contributor.Name,
+		Email:     contributor.Email,
+		Commits:   contributor.Commits,
+		Additions: contributor.Additions,
+		Deletions: contributor.Deletions,
+	}
+}
+
 func jobFromGitLab(project string, job *gitlab.Job) Job {
 	if job == nil {
 		return Job{ProjectID: project}
@@ -748,6 +1361,39 @@ func jobFromGitLab(project string, job *gitlab.Job) Job {
 		WebURL:         job.WebURL,
 		Runner:         firstNonEmpty(job.Runner.Description, job.Runner.Name),
 		User:           user,
+	}
+}
+
+func snippetFromGitLab(snippet *gitlab.Snippet) Snippet {
+	if snippet == nil {
+		return Snippet{}
+	}
+	files := make([]SnippetFile, 0, len(snippet.Files))
+	for _, file := range snippet.Files {
+		files = append(files, snippetFileFromGitLab(snippet.ID, file, "", false))
+	}
+	return Snippet{
+		ID:             snippet.ID,
+		Title:          snippet.Title,
+		Description:    snippet.Description,
+		Visibility:     snippet.Visibility,
+		AuthorUsername: snippet.Author.Username,
+		WebURL:         snippet.WebURL,
+		RawURL:         snippet.RawURL,
+		Files:          files,
+		CreatedAt:      formatTime(snippet.CreatedAt),
+		UpdatedAt:      formatTime(snippet.UpdatedAt),
+	}
+}
+
+func snippetFileFromGitLab(snippetID int64, file gitlab.SnippetFile, content string, truncated bool) SnippetFile {
+	return SnippetFile{
+		ID:        snippetFileID(snippetID, file.Path),
+		SnippetID: snippetID,
+		FilePath:  file.Path,
+		RawURL:    file.RawURL,
+		Content:   content,
+		Truncated: truncated,
 	}
 }
 
@@ -897,7 +1543,7 @@ func parseProjectChildID(id string) (any, int64, error) {
 
 func parseProjectTextChildID(id, label string) (any, string, error) {
 	left, right, ok := strings.Cut(strings.TrimSpace(id), "!")
-	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" || strings.Contains(right, "!") {
 		if strings.TrimSpace(label) == "" {
 			label = "child"
 		}
@@ -912,7 +1558,7 @@ func parseProjectRefPathID(id string) (any, string, string, error) {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}
 	ref, path, ok := strings.Cut(rest, "!")
-	if !ok || strings.TrimSpace(project) == "" || strings.TrimSpace(ref) == "" || strings.TrimSpace(path) == "" {
+	if !ok || strings.TrimSpace(project) == "" || strings.TrimSpace(ref) == "" || strings.TrimSpace(path) == "" || strings.Contains(ref, "!") || strings.Contains(path, "!") {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}
 	return projectID(project), strings.TrimSpace(ref), strings.TrimSpace(path), nil
@@ -920,7 +1566,7 @@ func parseProjectRefPathID(id string) (any, string, string, error) {
 
 func parseTraceID(id string) (any, int64, error) {
 	project, rest, ok := strings.Cut(strings.TrimSpace(id), "!")
-	if !ok {
+	if !ok || strings.TrimSpace(project) == "" {
 		return nil, 0, fmt.Errorf("id must be project!job_id!trace")
 	}
 	jobIDText, suffix, ok := strings.Cut(rest, "!")
@@ -936,11 +1582,11 @@ func parseTraceID(id string) (any, int64, error) {
 
 func parseMergeRequestChildID(id string) (any, int64, string, error) {
 	project, rest, ok := strings.Cut(strings.TrimSpace(id), "!")
-	if !ok {
+	if !ok || strings.TrimSpace(project) == "" {
 		return nil, 0, "", fmt.Errorf("id must be project!merge_request_iid!child")
 	}
 	mr, child, ok := strings.Cut(rest, "!")
-	if !ok || strings.TrimSpace(child) == "" {
+	if !ok || strings.TrimSpace(child) == "" || strings.Contains(child, "!") {
 		return nil, 0, "", fmt.Errorf("id must be project!merge_request_iid!child")
 	}
 	iid, err := strconv.ParseInt(strings.TrimSpace(mr), 10, 64)
@@ -972,12 +1618,48 @@ func projectRefPathID(project, ref, path string) string {
 	return strings.TrimSpace(project) + "!" + strings.TrimSpace(ref) + "!" + strings.TrimSpace(path)
 }
 
+func compareID(project, from, to string, straight bool) string {
+	separator := "..."
+	if straight {
+		separator = ".."
+	}
+	return strings.TrimSpace(project) + "!" + strings.TrimSpace(from) + separator + strings.TrimSpace(to)
+}
+
+func blameID(project, ref, path string) string {
+	return projectRefPathID(project, ref, path) + "!blame"
+}
+
+func parseBlameID(id string) (any, string, string, error) {
+	project, ref, path, err := parseProjectRefPathID(strings.TrimSuffix(strings.TrimSpace(id), "!blame"))
+	if err != nil || !strings.HasSuffix(strings.TrimSpace(id), "!blame") {
+		return nil, "", "", fmt.Errorf("id must be project!ref!path!blame")
+	}
+	return project, ref, path, nil
+}
+
 func projectJobID(project string, jobID int64) string {
 	return fmt.Sprintf("%s!%d", strings.TrimSpace(project), jobID)
 }
 
 func jobTraceID(project string, jobID int64) string {
 	return fmt.Sprintf("%s!%d!trace", strings.TrimSpace(project), jobID)
+}
+
+func snippetFileID(snippetID int64, path string) string {
+	return fmt.Sprintf("%d!%s", snippetID, strings.TrimSpace(path))
+}
+
+func parseSnippetFileID(id string) (int64, string, error) {
+	left, right, ok := strings.Cut(strings.TrimSpace(id), "!")
+	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" || strings.Contains(right, "!") {
+		return 0, "", fmt.Errorf("id must be snippet_id!file_path")
+	}
+	snippetID, err := strconv.ParseInt(strings.TrimSpace(left), 10, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid snippet id %q", left)
+	}
+	return snippetID, strings.TrimSpace(right), nil
 }
 
 func projectTitle(project Project) string {
@@ -1099,17 +1781,8 @@ func basicUsernames(users []*gitlab.BasicUser) []string {
 }
 
 func compactDiff(diff string) string {
-	const maxLines = 80
-	const maxBytes = 12000
-	diff = strings.TrimSpace(diff)
-	if len(diff) > maxBytes {
-		diff = diff[:maxBytes] + "\n... truncated ..."
-	}
-	lines := strings.Split(diff, "\n")
-	if len(lines) <= maxLines {
-		return diff
-	}
-	return strings.Join(append(lines[:maxLines], "... truncated ..."), "\n")
+	text, _ := boundedLines(diff, 80, 16*1024)
+	return text
 }
 
 func decodedFilePreview(content, encoding string) string {
@@ -1127,15 +1800,59 @@ func decodedFilePreview(content, encoding string) string {
 	if decoded == nil {
 		decoded = []byte(content)
 	}
-	return boundedText(string(decoded), 20000)
+	text, _ := boundedText(string(decoded), 4*1024)
+	return text
 }
 
-func boundedText(value string, maxBytes int) string {
+func boundedText(value string, maxBytes int) (string, bool) {
 	value = strings.TrimSpace(value)
 	if maxBytes <= 0 || len(value) <= maxBytes {
-		return value
+		return value, false
 	}
-	return value[:maxBytes] + "\n... truncated ..."
+	return value[:maxBytes] + "\n... truncated ...", true
+}
+
+func boundedLines(value string, maxLines, maxBytes int) (string, bool) {
+	text, truncated := boundedText(value, maxBytes)
+	if maxLines <= 0 {
+		return text, truncated
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) <= maxLines {
+		return text, truncated
+	}
+	return strings.Join(append(lines[:maxLines], "... truncated ..."), "\n"), true
+}
+
+func boundedLineSlice(lines []string, maxLines, maxBytes int) ([]string, bool) {
+	text, truncated := boundedLines(strings.Join(lines, "\n"), maxLines, maxBytes)
+	if text == "" {
+		return nil, truncated
+	}
+	return strings.Split(text, "\n"), truncated
+}
+
+func firstLine(value string) string {
+	value = strings.TrimSpace(value)
+	if idx := strings.IndexByte(value, '\n'); idx >= 0 {
+		return strings.TrimSpace(value[:idx])
+	}
+	return value
+}
+
+func diffStats(diff string) (int, int) {
+	additions, deletions := 0, 0
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			continue
+		case strings.HasPrefix(line, "+"):
+			additions++
+		case strings.HasPrefix(line, "-"):
+			deletions++
+		}
+	}
+	return additions, deletions
 }
 
 func firstNonEmpty(values ...string) string {

@@ -27,8 +27,8 @@ func TestPluginContributesNamedGitLabMROperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Contributions: %v", err)
 	}
-	if len(bundle.Operations) != 6 {
-		t.Fatalf("operations len = %d, want 6", len(bundle.Operations))
+	if len(bundle.Operations) != 8 {
+		t.Fatalf("operations len = %d, want 8", len(bundle.Operations))
 	}
 	var mrSpec *coreoperation.Spec
 	for i := range bundle.Operations {
@@ -56,6 +56,83 @@ func TestMergeRequestDetectorKeepsNestedProjectPath(t *testing.T) {
 	}
 	if matches[1] != "ai/agents/slack-bot" || matches[2] != "2310" {
 		t.Fatalf("captures = %#v, want nested project path and iid", matches)
+	}
+}
+
+func TestGitLabReferenceParsersAcceptStableIDForms(t *testing.T) {
+	t.Run("merge request nested path", func(t *testing.T) {
+		project, iid, err := parseMergeRequestID("group/subgroup/project!123")
+		if err != nil {
+			t.Fatalf("parseMergeRequestID: %v", err)
+		}
+		if toString(project) != "group/subgroup/project" || iid != 123 {
+			t.Fatalf("project=%#v iid=%d, want nested path and 123", project, iid)
+		}
+	})
+	t.Run("merge request numeric project", func(t *testing.T) {
+		project, iid, err := parseMergeRequestID("742!123")
+		if err != nil {
+			t.Fatalf("parseMergeRequestID: %v", err)
+		}
+		if toString(project) != "742" || iid != 123 {
+			t.Fatalf("project=%#v iid=%d, want numeric project and 123", project, iid)
+		}
+	})
+	t.Run("project ref path", func(t *testing.T) {
+		project, ref, path, err := parseProjectRefPathID("group/project!main!cmd/app/main.go")
+		if err != nil {
+			t.Fatalf("parseProjectRefPathID: %v", err)
+		}
+		if toString(project) != "group/project" || ref != "main" || path != "cmd/app/main.go" {
+			t.Fatalf("project=%#v ref=%q path=%q", project, ref, path)
+		}
+	})
+	t.Run("merge request child", func(t *testing.T) {
+		project, iid, child, err := parseMergeRequestChildID("group/project!123!discussion-1")
+		if err != nil {
+			t.Fatalf("parseMergeRequestChildID: %v", err)
+		}
+		if toString(project) != "group/project" || iid != 123 || child != "discussion-1" {
+			t.Fatalf("project=%#v iid=%d child=%q", project, iid, child)
+		}
+	})
+}
+
+func TestGitLabReferenceParsersRejectInvalidIDForms(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func() error
+		want string
+	}{
+		{name: "missing project", run: func() error { _, _, err := parseMergeRequestID("!123"); return err }, want: "project!iid"},
+		{name: "missing iid", run: func() error { _, _, err := parseMergeRequestID("group/project!"); return err }, want: "project!iid"},
+		{name: "non numeric iid", run: func() error { _, _, err := parseMergeRequestID("group/project!abc"); return err }, want: "invalid merge request iid"},
+		{name: "whitespace only", run: func() error { _, _, err := parseMergeRequestID("   "); return err }, want: "project!iid"},
+		{name: "ref contains bang", run: func() error { _, _, err := parseProjectTextChildID("group/project!feature!bad", "branch"); return err }, want: "project!branch"},
+		{name: "path contains bang", run: func() error { _, _, _, err := parseProjectRefPathID("group/project!main!dir/a!b"); return err }, want: "project!ref!path"},
+		{name: "child contains bang", run: func() error { _, _, _, err := parseMergeRequestChildID("group/project!1!discussion!note"); return err }, want: "project!merge_request_iid!child"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.run()
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestBoundedTextAndLinesReportTruncation(t *testing.T) {
+	text, truncated := boundedText("abcdef", 3)
+	if text != "abc\n... truncated ..." || !truncated {
+		t.Fatalf("boundedText = %q truncated=%v", text, truncated)
+	}
+	lines, truncated := boundedLines("a\nb\nc", 2, 100)
+	if lines != "a\nb\n... truncated ..." || !truncated {
+		t.Fatalf("boundedLines = %q truncated=%v", lines, truncated)
 	}
 }
 
@@ -1373,17 +1450,30 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	}
 	for _, want := range []coredatasource.EntityType{
 		ProjectEntity,
+		ActivityEntity,
 		MergeRequestEntity,
 		MergeRequestDiffEntity,
+		MergeRequestDiffLineEntity,
 		MergeRequestNoteEntity,
+		MergeRequestApprovalEntity,
+		MergeRequestChangeEntity,
+		DiscussionEntity,
+		AwardEmojiEntity,
 		PipelineEntity,
 		BranchEntity,
 		TagEntity,
 		CommitEntity,
 		RepositoryTreeEntity,
 		RepositoryFileEntity,
+		CompareEntity,
+		BlameEntity,
+		BlobSearchEntity,
+		ProjectLanguageEntity,
+		ProjectContributorEntity,
 		JobEntity,
 		JobTraceEntity,
+		SnippetEntity,
+		SnippetFileEntity,
 		UserEntity,
 		GroupEntity,
 		MembershipEntity,
@@ -1430,6 +1520,11 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 	for name, target := range map[string]coredatasource.EntityType{
 		"diffs":        MergeRequestDiffEntity,
 		"notes":        MergeRequestNoteEntity,
+		"approvals":    MergeRequestApprovalEntity,
+		"changes":      MergeRequestChangeEntity,
+		"commits":      CommitEntity,
+		"discussions":  DiscussionEntity,
+		"award_emoji":  AwardEmojiEntity,
 		"pipelines":    PipelineEntity,
 		"participants": UserEntity,
 		"reviewers":    UserEntity,
@@ -1456,12 +1551,15 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		projectRelations[relation.Name] = relation.TargetEntity
 	}
 	for name, target := range map[string]coredatasource.EntityType{
+		"activity":        ActivityEntity,
 		"merge_requests":  MergeRequestEntity,
 		"pipelines":       PipelineEntity,
 		"branches":        BranchEntity,
 		"tags":            TagEntity,
 		"commits":         CommitEntity,
 		"repository_tree": RepositoryTreeEntity,
+		"languages":       ProjectLanguageEntity,
+		"contributors":    ProjectContributorEntity,
 		"jobs":            JobEntity,
 		"users":           UserEntity,
 		"groups":          GroupEntity,
@@ -1496,6 +1594,13 @@ func TestDatasourceProviderExposesMRReviewEntities(t *testing.T) {
 		if membershipRelations[name] != target {
 			t.Fatalf("membership relation %s = %s, want %s", name, membershipRelations[name], target)
 		}
+	}
+	snippetRelations := map[string]coredatasource.EntityType{}
+	for _, relation := range entities[SnippetEntity].Relations {
+		snippetRelations[relation.Name] = relation.TargetEntity
+	}
+	if snippetRelations["files"] != SnippetFileEntity {
+		t.Fatalf("snippet relation files = %s, want %s", snippetRelations["files"], SnippetFileEntity)
 	}
 }
 
@@ -1581,7 +1686,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("branches Relation: %v", err)
 	}
-	if len(branches.Records) != 1 || branches.Records[0].ID != "12!main" {
+	if len(branches.Records) != 1 || branches.Records[0].ID != "engineering/runtime!main" {
 		t.Fatalf("branches = %#v, want main branch", branches.Records)
 	}
 
@@ -1589,7 +1694,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tags Relation: %v", err)
 	}
-	if len(tags.Records) != 1 || tags.Records[0].ID != "12!v1.0.0" {
+	if len(tags.Records) != 1 || tags.Records[0].ID != "engineering/runtime!v1.0.0" {
 		t.Fatalf("tags = %#v, want v1 tag", tags.Records)
 	}
 
@@ -1597,7 +1702,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("commits Relation: %v", err)
 	}
-	if len(commits.Records) != 1 || commits.Records[0].ID != "12!abc123" {
+	if len(commits.Records) != 1 || commits.Records[0].ID != "engineering/runtime!abc123" {
 		t.Fatalf("commits = %#v, want commit", commits.Records)
 	}
 
@@ -1605,11 +1710,11 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repository_tree Relation: %v", err)
 	}
-	if len(tree.Records) != 1 || tree.Records[0].ID != "12!HEAD!cmd/app/main.go" {
+	if len(tree.Records) != 1 || tree.Records[0].ID != "engineering/runtime!HEAD!cmd/app/main.go" {
 		t.Fatalf("tree = %#v, want HEAD file entry", tree.Records)
 	}
 
-	file, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: RepositoryTreeEntity, ID: "12!HEAD!cmd/app/main.go", Relation: "file"})
+	file, err := relation.Relation(context.Background(), coredatasource.RelationRequest{Entity: RepositoryTreeEntity, ID: "engineering/runtime!HEAD!cmd/app/main.go", Relation: "file"})
 	if err != nil {
 		t.Fatalf("file Relation: %v", err)
 	}
@@ -1621,7 +1726,7 @@ func TestDatasourceRelationsReturnCodeAndCIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("jobs Relation: %v", err)
 	}
-	if len(jobs.Records) != 1 || jobs.Records[0].ID != "12!123" {
+	if len(jobs.Records) != 1 || jobs.Records[0].ID != "engineering/runtime!123" {
 		t.Fatalf("jobs = %#v, want project job", jobs.Records)
 	}
 
@@ -1735,6 +1840,28 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 					Body:        "Looks good",
 					Author:      gitlab.NoteAuthor{Username: "reviewer"},
 				}},
+				approvals: &gitlab.MergeRequestApprovals{
+					IID:               7,
+					ProjectID:         12,
+					ApprovalsRequired: 1,
+					ApprovalsLeft:     0,
+					Approved:          true,
+					ApprovedBy:        []*gitlab.MergeRequestApproverUser{{User: &gitlab.BasicUser{Username: "reviewer"}}},
+				},
+				commits: []*gitlab.Commit{{ID: "abc123", ShortID: "abc123", Title: "Update runtime"}},
+				discussions: []*gitlab.Discussion{{
+					ID: "discussion-1",
+					Notes: []*gitlab.Note{{
+						ID:          100,
+						ProjectID:   12,
+						NoteableIID: 7,
+						Body:        "Thread note",
+						Resolvable:  true,
+						Resolved:    false,
+						Position:    &gitlab.NotePosition{NewPath: "runtime.go", NewLine: 3},
+					}},
+				}},
+				awardEmoji: []*gitlab.AwardEmoji{{ID: 55, Name: "thumbsup", User: gitlab.BasicUser{Username: "reviewer"}}},
 			}, nil
 		},
 	}
@@ -1745,7 +1872,13 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 			ProjectEntity,
 			MergeRequestEntity,
 			MergeRequestDiffEntity,
+			MergeRequestDiffLineEntity,
 			MergeRequestNoteEntity,
+			MergeRequestApprovalEntity,
+			MergeRequestChangeEntity,
+			DiscussionEntity,
+			AwardEmojiEntity,
+			CommitEntity,
 			PipelineEntity,
 			UserEntity,
 		},
@@ -1772,12 +1905,231 @@ func TestDatasourceRelationsReturnMRReviewRecords(t *testing.T) {
 	if len(diffs.Records) != 1 || diffs.Records[0].Entity != MergeRequestDiffEntity || strings.Contains(diffs.Records[0].Content, "raw") {
 		t.Fatalf("diff records = %#v", diffs.Records)
 	}
+	diffLines, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestDiffEntity, ID: "12!7!runtime.go", Relation: "lines"})
+	if err != nil {
+		t.Fatalf("mr diff lines Relation: %v", err)
+	}
+	if len(diffLines.Records) != 2 || diffLines.Records[1].Entity != MergeRequestDiffLineEntity || diffLines.Records[1].Metadata["line_type"] != "add" {
+		t.Fatalf("diff line records = %#v", diffLines.Records)
+	}
 	notes, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "notes"})
 	if err != nil {
 		t.Fatalf("mr notes Relation: %v", err)
 	}
 	if len(notes.Records) != 1 || notes.Records[0].Entity != MergeRequestNoteEntity || notes.Records[0].Content != "Looks good" {
 		t.Fatalf("note records = %#v", notes.Records)
+	}
+	approvals, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "approvals"})
+	if err != nil {
+		t.Fatalf("mr approvals Relation: %v", err)
+	}
+	if len(approvals.Records) != 1 || approvals.Records[0].Entity != MergeRequestApprovalEntity || approvals.Records[0].Metadata["approved"] != "true" {
+		t.Fatalf("approval records = %#v", approvals.Records)
+	}
+	changes, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "changes"})
+	if err != nil {
+		t.Fatalf("mr changes Relation: %v", err)
+	}
+	if len(changes.Records) != 1 || changes.Records[0].Entity != MergeRequestChangeEntity || changes.Records[0].Metadata["files"] != "1" {
+		t.Fatalf("change records = %#v", changes.Records)
+	}
+	commits, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "commits"})
+	if err != nil {
+		t.Fatalf("mr commits Relation: %v", err)
+	}
+	if len(commits.Records) != 1 || commits.Records[0].Entity != CommitEntity || commits.Records[0].ID != "12!abc123" {
+		t.Fatalf("commit records = %#v", commits.Records)
+	}
+	discussions, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "discussions"})
+	if err != nil {
+		t.Fatalf("mr discussions Relation: %v", err)
+	}
+	if len(discussions.Records) != 1 || discussions.Records[0].Entity != DiscussionEntity || discussions.Records[0].Metadata["new_path"] != "runtime.go" {
+		t.Fatalf("discussion records = %#v", discussions.Records)
+	}
+	awards, err := relationer.Relation(context.Background(), coredatasource.RelationRequest{Entity: MergeRequestEntity, ID: "12!7", Relation: "award_emoji"})
+	if err != nil {
+		t.Fatalf("mr award_emoji Relation: %v", err)
+	}
+	if len(awards.Records) != 1 || awards.Records[0].Entity != AwardEmojiEntity || awards.Records[0].Metadata["name"] != "thumbsup" {
+		t.Fatalf("award emoji records = %#v", awards.Records)
+	}
+}
+
+func TestDatasourceListsSnippetMetadataAndFetchesSnippetFiles(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return &fakeGitLabClient{
+				snippets: []*gitlab.Snippet{{
+					ID:          77,
+					Title:       "Review notes",
+					Description: "Private notes",
+					Visibility:  "private",
+					Author:      gitlab.SnippetAuthor{Username: "timo"},
+					WebURL:      "https://gitlab.example/snippets/77",
+					Files:       []gitlab.SnippetFile{{Path: "notes.md", RawURL: "https://gitlab.example/snippets/77/raw"}},
+				}},
+				snippetContent: []byte("# Notes\nfull snippet content\n"),
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{SnippetEntity, SnippetFileEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	snippets, err := accessor.(coredatasource.Lister).List(context.Background(), coredatasource.ListRequest{Entity: SnippetEntity})
+	if err != nil {
+		t.Fatalf("List snippets: %v", err)
+	}
+	if len(snippets.Records) != 1 || snippets.Records[0].ID != "77" || strings.Contains(snippets.Records[0].Content, "full snippet content") {
+		t.Fatalf("snippet records = %#v, want metadata-only snippet", snippets.Records)
+	}
+	files, err := accessor.(coredatasource.Relationer).Relation(context.Background(), coredatasource.RelationRequest{Entity: SnippetEntity, ID: "77", Relation: "files"})
+	if err != nil {
+		t.Fatalf("snippet files Relation: %v", err)
+	}
+	if len(files.Records) != 1 || files.Records[0].ID != "77!notes.md" || !strings.Contains(files.Records[0].Content, "full snippet content") {
+		t.Fatalf("snippet file records = %#v, want bounded content", files.Records)
+	}
+}
+
+func TestDatasourceSearchesProjectAndRepositoryInspectionEntities(t *testing.T) {
+	languages := gitlab.ProjectLanguages{"Go": 87.5, "Shell": 12.5}
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return &fakeGitLabClient{
+				projects:         []*gitlab.Project{{ID: 12, PathWithNamespace: "engineering/runtime", Name: "Runtime"}},
+				projectLanguages: &languages,
+				contributors: []*gitlab.Contributor{{
+					Name: "Timo", Email: "timo@example.invalid", Commits: 5, Additions: 20, Deletions: 3,
+				}},
+				compare: &gitlab.Compare{
+					Commit: &gitlab.Commit{ID: "def456", ShortID: "def456", Title: "head"},
+					Commits: []*gitlab.Commit{
+						{ID: "abc123", ShortID: "abc123", Title: "base"},
+						{ID: "def456", ShortID: "def456", Title: "head"},
+					},
+					Diffs: []*gitlab.Diff{{OldPath: "main.go", NewPath: "main.go", Diff: "@@ -1 +1 @@\n-old\n+new"}},
+				},
+				blame: []*gitlab.FileBlameRange{{
+					Commit: gitlab.FileBlameRangeCommit{ID: "abc123", Message: "Initial commit\n\nbody", AuthorName: "Timo"},
+					Lines:  []string{"package main", "func main() {}"},
+				}},
+				blobs: []*gitlab.Blob{{
+					ProjectID: 12,
+					Basename:  "main.go",
+					Filename:  "cmd/app/main.go",
+					Path:      "cmd/app/main.go",
+					Ref:       "main",
+					Startline: 7,
+					Data:      "func main() {}",
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name: "company-a-gitlab",
+		Kind: Name,
+		Entities: []coredatasource.EntityType{
+			ProjectEntity,
+			ProjectLanguageEntity,
+			ProjectContributorEntity,
+			CompareEntity,
+			BlameEntity,
+			BlobSearchEntity,
+		},
+		Config: map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	searcher := accessor.(coredatasource.Searcher)
+	languageResult, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: ProjectLanguageEntity, Filters: map[string]string{"project_id": "engineering/runtime"}})
+	if err != nil {
+		t.Fatalf("Search project languages: %v", err)
+	}
+	if len(languageResult.Records) != 2 || languageResult.Records[0].Entity != ProjectLanguageEntity {
+		t.Fatalf("language records = %#v", languageResult.Records)
+	}
+	contributors, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: ProjectContributorEntity, Filters: map[string]string{"project_id": "engineering/runtime"}})
+	if err != nil {
+		t.Fatalf("Search project contributors: %v", err)
+	}
+	if len(contributors.Records) != 1 || contributors.Records[0].Metadata["email"] != "timo@example.invalid" {
+		t.Fatalf("contributor records = %#v", contributors.Records)
+	}
+	compare, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: CompareEntity, Filters: map[string]string{"project_id": "engineering/runtime", "from": "main", "to": "feature", "path": "main.go"}})
+	if err != nil {
+		t.Fatalf("Search compare: %v", err)
+	}
+	if len(compare.Records) != 1 || compare.Records[0].Entity != CompareEntity || !strings.Contains(compare.Records[0].Content, "+new") {
+		t.Fatalf("compare records = %#v", compare.Records)
+	}
+	blame, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: BlameEntity, Filters: map[string]string{"project_id": "engineering/runtime", "ref": "main", "path": "main.go"}})
+	if err != nil {
+		t.Fatalf("Search blame: %v", err)
+	}
+	if len(blame.Records) != 1 || blame.Records[0].Entity != BlameEntity || !strings.Contains(blame.Records[0].Content, "package main") {
+		t.Fatalf("blame records = %#v", blame.Records)
+	}
+	blobs, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: BlobSearchEntity, Query: "func main", Filters: map[string]string{"project_id": "engineering/runtime"}})
+	if err != nil {
+		t.Fatalf("Search blobs: %v", err)
+	}
+	if len(blobs.Records) != 1 || blobs.Records[0].Entity != BlobSearchEntity || blobs.Records[0].Metadata["path"] != "cmd/app/main.go" {
+		t.Fatalf("blob records = %#v", blobs.Records)
+	}
+}
+
+func TestDatasourceListsActivityWithBoundedPerProjectCounts(t *testing.T) {
+	provider := gitlabDatasourceProvider{
+		system: fakeSystem{},
+		ref:    resource.PluginRef{Name: Name, Instance: "company-a"},
+		clientFactory: func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+			return &fakeGitLabClient{
+				projects: []*gitlab.Project{{
+					ID:                12,
+					Name:              "Runtime",
+					PathWithNamespace: "engineering/runtime",
+					WebURL:            "https://gitlab.example/engineering/runtime",
+				}},
+				commits: []*gitlab.Commit{{ID: "abc123"}},
+				mrs:     []*gitlab.BasicMergeRequest{{IID: 7, ProjectID: 12}},
+				pipelines: []*gitlab.PipelineInfo{{
+					ID:        99,
+					ProjectID: 12,
+					Status:    "success",
+				}},
+			}, nil
+		},
+	}
+	accessor, err := provider.Open(context.Background(), coredatasource.Spec{
+		Name:     "company-a-gitlab",
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{ActivityEntity},
+		Config:   map[string]string{"instance": "company-a"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Lister).List(context.Background(), coredatasource.ListRequest{Entity: ActivityEntity, Filters: map[string]string{"since": "7d"}})
+	if err != nil {
+		t.Fatalf("List activity: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].Entity != ActivityEntity {
+		t.Fatalf("activity records = %#v", result.Records)
+	}
+	if result.Records[0].Metadata["recent_commit_count"] != "1" || result.Records[0].Metadata["recent_merge_request_count"] != "1" || result.Records[0].Metadata["recent_pipeline_count"] != "1" {
+		t.Fatalf("activity metadata = %#v", result.Records[0].Metadata)
 	}
 }
 
@@ -2158,6 +2510,17 @@ func TestMROperationDispatchesSupportedActions(t *testing.T) {
 			WebURL:    "https://gitlab.example/fluxplane/runtime/-/merge_requests/7",
 		}},
 		notes: []*gitlab.Note{{ID: 99}},
+		diffs: []*gitlab.MergeRequestDiff{{
+			OldPath: "runtime.go",
+			NewPath: "runtime.go",
+			Diff:    "@@ -1,2 +1,2 @@\n keep\n+new",
+		}},
+		diffVersions: []*gitlab.MergeRequestDiffVersion{{
+			BaseCommitSHA:  "base",
+			StartCommitSHA: "start",
+			HeadCommitSHA:  "head",
+		}},
+		discussions: []*gitlab.Discussion{{ID: "discussion-1", Notes: []*gitlab.Note{{ID: 100}}}},
 		pipelines: []*gitlab.PipelineInfo{{
 			ID:        123,
 			ProjectID: 12,
@@ -2176,12 +2539,15 @@ func TestMROperationDispatchesSupportedActions(t *testing.T) {
 		mergeMaps(base, map[string]any{"op": "close"}),
 		mergeMaps(base, map[string]any{"op": "reopen"}),
 		mergeMaps(base, map[string]any{"op": "comment", "body": "Looks good"}),
+		mergeMaps(base, map[string]any{"op": "inline_comment", "file_path": "runtime.go", "line": 2, "body": "Inline"}),
+		mergeMaps(base, map[string]any{"op": "reply_discussion", "discussion_id": "discussion-1", "body": "Reply"}),
+		mergeMaps(base, map[string]any{"op": "resolve_discussion", "discussion_id": "discussion-1", "resolved": true}),
+		mergeMaps(base, map[string]any{"op": "react", "emoji": ":thumbsup:"}),
+		mergeMaps(base, map[string]any{"op": "react", "emoji": "eyes", "note_id": 99}),
 		mergeMaps(base, map[string]any{"op": "approve"}),
 		mergeMaps(base, map[string]any{"op": "unapprove"}),
 		mergeMaps(base, map[string]any{"op": "merge"}),
 		mergeMaps(base, map[string]any{"op": "rebase"}),
-		mergeMaps(base, map[string]any{"op": "retry_pipeline", "pipeline_id": 123}),
-		mergeMaps(base, map[string]any{"op": "cancel_pipeline", "pipeline_id": 123}),
 	}
 	for _, input := range inputs {
 		result := op.Run(coreoperation.NewContext(context.Background(), nil), input)
@@ -2189,7 +2555,106 @@ func TestMROperationDispatchesSupportedActions(t *testing.T) {
 			t.Fatalf("Run(%v) status = %s error = %#v", input, result.Status, result.Error)
 		}
 	}
-	want := []string{"create", "update", "update", "comment", "approve", "unapprove", "merge", "rebase", "retry_pipeline", "cancel_pipeline"}
+	want := []string{"create", "update", "update", "comment", "get_merge_request_diff_versions", "create_discussion", "reply_discussion", "resolve_discussion", "react_mr", "react_note", "approve", "unapprove", "merge", "rebase"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestMROperationDoesNotCreateInlineDiscussionForInvalidLine(t *testing.T) {
+	calls := []string{}
+	client := &fakeGitLabClient{
+		calls: &calls,
+		diffs: []*gitlab.MergeRequestDiff{{
+			OldPath: "runtime.go",
+			NewPath: "runtime.go",
+			Diff:    "@@ -1,2 +1,2 @@\n keep\n+new",
+		}},
+		diffVersions: []*gitlab.MergeRequestDiffVersion{{
+			BaseCommitSHA:  "base",
+			StartCommitSHA: "start",
+			HeadCommitSHA:  "head",
+		}},
+	}
+	plugin := New(fakeSystem{})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return client, nil
+	}
+	result := plugin.mrOperation().Run(coreoperation.NewContext(context.Background(), nil), map[string]any{
+		"op":                "inline_comment",
+		"project_id":        "12",
+		"merge_request_iid": 7,
+		"file_path":         "runtime.go",
+		"line":              99,
+		"body":              "Inline",
+	})
+	if result.Status != coreoperation.StatusFailed {
+		t.Fatalf("status = %s, want failed", result.Status)
+	}
+	if strings.Join(calls, ",") != "get_merge_request_diff_versions" {
+		t.Fatalf("calls = %#v, want validation only", calls)
+	}
+}
+
+func TestPipelineOperationDispatchesSupportedActions(t *testing.T) {
+	calls := []string{}
+	client := &fakeGitLabClient{
+		calls: &calls,
+		pipelines: []*gitlab.PipelineInfo{{
+			ID:        123,
+			ProjectID: 12,
+			Status:    "running",
+			Ref:       "main",
+			SHA:       "abc123",
+		}},
+	}
+	plugin := New(fakeSystem{})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return client, nil
+	}
+	op := plugin.pipelineOperation()
+	inputs := []map[string]any{
+		{"op": "create", "project_id": "12", "ref": "main", "variables": []map[string]any{{"key": "ENV", "value": "test", "variable_type": "env_var"}}},
+		{"op": "retry", "project_id": "12", "pipeline_id": 123},
+		{"op": "cancel", "project_id": "12", "pipeline_id": 123},
+	}
+	for _, input := range inputs {
+		result := op.Run(coreoperation.NewContext(context.Background(), nil), input)
+		if result.Status != coreoperation.StatusOK {
+			t.Fatalf("Run(%v) status = %s error = %#v", input, result.Status, result.Error)
+		}
+	}
+	want := []string{"create_pipeline", "retry_pipeline", "cancel_pipeline"}
+	if strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestSnippetOperationDispatchesSupportedActions(t *testing.T) {
+	calls := []string{}
+	client := &fakeGitLabClient{
+		calls:    &calls,
+		snippets: []*gitlab.Snippet{{ID: 77, Title: "Notes", Visibility: "private", WebURL: "https://gitlab.example/snippets/77"}},
+	}
+	plugin := New(fakeSystem{})
+	plugin.ref = resource.PluginRef{Name: Name, Instance: "company-a"}
+	plugin.clientFactory = func(context.Context, system.System, resource.PluginRef, Config) (gitlabClient, error) {
+		return client, nil
+	}
+	op := plugin.snippetOperation()
+	inputs := []map[string]any{
+		{"op": "create", "title": "Notes", "files": []map[string]any{{"file_path": "notes.md", "content": "# Notes\n"}}},
+		{"op": "delete", "snippet_id": 77},
+	}
+	for _, input := range inputs {
+		result := op.Run(coreoperation.NewContext(context.Background(), nil), input)
+		if result.Status != coreoperation.StatusOK {
+			t.Fatalf("Run(%v) status = %s error = %#v", input, result.Status, result.Error)
+		}
+	}
+	want := []string{"create_snippet", "delete_snippet"}
 	if strings.Join(calls, ",") != strings.Join(want, ",") {
 		t.Fatalf("calls = %#v, want %#v", calls, want)
 	}
@@ -2288,18 +2753,30 @@ type fakeGitLabClient struct {
 	projectMembers         []*gitlab.ProjectMember
 	projectMemberPerPages  *[]int64
 	projectMemberUserIDs   *[]int64
+	projectLanguages       *gitlab.ProjectLanguages
+	contributors           []*gitlab.Contributor
 	mrs                    []*gitlab.BasicMergeRequest
 	diffs                  []*gitlab.MergeRequestDiff
+	diffVersions           []*gitlab.MergeRequestDiffVersion
 	notes                  []*gitlab.Note
+	approvals              *gitlab.MergeRequestApprovals
+	discussions            []*gitlab.Discussion
+	awardEmoji             []*gitlab.AwardEmoji
 	pipelines              []*gitlab.PipelineInfo
 	branches               []*gitlab.Branch
 	tags                   []*gitlab.Tag
 	commits                []*gitlab.Commit
 	tree                   []*gitlab.TreeNode
 	file                   *gitlab.File
+	compare                *gitlab.Compare
+	blame                  []*gitlab.FileBlameRange
+	blobs                  []*gitlab.Blob
 	jobs                   []*gitlab.Job
 	trace                  []byte
 	updatedMR              *gitlab.MergeRequest
+	createdPipeline        *gitlab.Pipeline
+	snippets               []*gitlab.Snippet
+	snippetContent         []byte
 	calls                  *[]string
 }
 
@@ -2403,6 +2880,11 @@ func (c fakeGitLabClient) GetProject(context.Context, any, *gitlab.GetProjectOpt
 	return c.projects[0], nil
 }
 
+func (c fakeGitLabClient) GetProjectLanguages(context.Context, any) (*gitlab.ProjectLanguages, error) {
+	c.record("get_project_languages")
+	return c.projectLanguages, nil
+}
+
 func (c fakeGitLabClient) ListProjectUsers(context.Context, any, *gitlab.ListProjectUserOptions) ([]*gitlab.ProjectUser, error) {
 	c.record("list_project_users")
 	return c.projectUsers, nil
@@ -2448,6 +2930,78 @@ func (c fakeGitLabClient) ListMergeRequestDiffs(context.Context, any, int64, *gi
 
 func (c fakeGitLabClient) ListMergeRequestNotes(context.Context, any, int64, *gitlab.ListMergeRequestNotesOptions) ([]*gitlab.Note, error) {
 	return c.notes, nil
+}
+
+func (c fakeGitLabClient) GetMergeRequestApprovals(context.Context, any, int64) (*gitlab.MergeRequestApprovals, error) {
+	c.record("get_merge_request_approvals")
+	return c.approvals, nil
+}
+
+func (c fakeGitLabClient) GetMergeRequestCommits(context.Context, any, int64, *gitlab.GetMergeRequestCommitsOptions) ([]*gitlab.Commit, error) {
+	c.record("get_merge_request_commits")
+	return c.commits, nil
+}
+
+func (c fakeGitLabClient) GetMergeRequestChanges(context.Context, any, int64, *gitlab.GetMergeRequestChangesOptions) (*gitlab.MergeRequest, error) {
+	c.record("get_merge_request_changes")
+	if c.updatedMR != nil {
+		return c.updatedMR, nil
+	}
+	return &gitlab.MergeRequest{}, nil
+}
+
+func (c fakeGitLabClient) GetMergeRequestDiffVersions(context.Context, any, int64, *gitlab.GetMergeRequestDiffVersionsOptions) ([]*gitlab.MergeRequestDiffVersion, error) {
+	c.record("get_merge_request_diff_versions")
+	return c.diffVersions, nil
+}
+
+func (c fakeGitLabClient) ListMergeRequestDiscussions(context.Context, any, int64, *gitlab.ListMergeRequestDiscussionsOptions) ([]*gitlab.Discussion, error) {
+	c.record("list_merge_request_discussions")
+	return c.discussions, nil
+}
+
+func (c fakeGitLabClient) CreateMergeRequestDiscussion(context.Context, any, int64, *gitlab.CreateMergeRequestDiscussionOptions) (*gitlab.Discussion, error) {
+	c.record("create_discussion")
+	if len(c.discussions) == 0 {
+		return &gitlab.Discussion{}, nil
+	}
+	return c.discussions[0], nil
+}
+
+func (c fakeGitLabClient) AddMergeRequestDiscussionNote(context.Context, any, int64, string, *gitlab.AddMergeRequestDiscussionNoteOptions) (*gitlab.Note, error) {
+	c.record("reply_discussion")
+	if len(c.notes) == 0 {
+		return &gitlab.Note{}, nil
+	}
+	return c.notes[0], nil
+}
+
+func (c fakeGitLabClient) ResolveMergeRequestDiscussion(context.Context, any, int64, string, *gitlab.ResolveMergeRequestDiscussionOptions) (*gitlab.Discussion, error) {
+	c.record("resolve_discussion")
+	if len(c.discussions) == 0 {
+		return &gitlab.Discussion{}, nil
+	}
+	return c.discussions[0], nil
+}
+
+func (c fakeGitLabClient) ListMergeRequestAwardEmoji(context.Context, any, int64, *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error) {
+	c.record("list_mr_award_emoji")
+	return c.awardEmoji, nil
+}
+
+func (c fakeGitLabClient) ListMergeRequestAwardEmojiOnNote(context.Context, any, int64, int64, *gitlab.ListAwardEmojiOptions) ([]*gitlab.AwardEmoji, error) {
+	c.record("list_note_award_emoji")
+	return c.awardEmoji, nil
+}
+
+func (c fakeGitLabClient) CreateMergeRequestAwardEmoji(context.Context, any, int64, *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error) {
+	c.record("react_mr")
+	return &gitlab.AwardEmoji{ID: 1, Name: "thumbsup"}, nil
+}
+
+func (c fakeGitLabClient) CreateMergeRequestAwardEmojiOnNote(context.Context, any, int64, int64, *gitlab.CreateAwardEmojiOptions) (*gitlab.AwardEmoji, error) {
+	c.record("react_note")
+	return &gitlab.AwardEmoji{ID: 2, Name: "eyes"}, nil
 }
 
 func (c fakeGitLabClient) ListMergeRequestPipelines(context.Context, any, int64) ([]*gitlab.PipelineInfo, error) {
@@ -2531,9 +3085,29 @@ func (c fakeGitLabClient) ListTree(context.Context, any, *gitlab.ListTreeOptions
 	return c.tree, nil
 }
 
+func (c fakeGitLabClient) ListProjectContributors(context.Context, any, *gitlab.ListContributorsOptions) ([]*gitlab.Contributor, error) {
+	c.record("list_project_contributors")
+	return c.contributors, nil
+}
+
+func (c fakeGitLabClient) CompareRefs(context.Context, any, *gitlab.CompareOptions) (*gitlab.Compare, error) {
+	c.record("compare_refs")
+	return c.compare, nil
+}
+
 func (c fakeGitLabClient) GetFile(context.Context, any, string, *gitlab.GetFileOptions) (*gitlab.File, error) {
 	c.record("get_file")
 	return c.file, nil
+}
+
+func (c fakeGitLabClient) GetFileBlame(context.Context, any, string, *gitlab.GetFileBlameOptions) ([]*gitlab.FileBlameRange, error) {
+	c.record("get_file_blame")
+	return c.blame, nil
+}
+
+func (c fakeGitLabClient) SearchBlobsByProject(context.Context, any, string, *gitlab.SearchOptions) ([]*gitlab.Blob, error) {
+	c.record("search_blobs_by_project")
+	return c.blobs, nil
 }
 
 func (c fakeGitLabClient) ListProjectJobs(context.Context, any, *gitlab.ListJobsOptions) ([]*gitlab.Job, error) {
@@ -2595,6 +3169,14 @@ func (c fakeGitLabClient) AcceptMergeRequest(context.Context, any, int64, *gitla
 func (c fakeGitLabClient) RebaseMergeRequest(context.Context, any, int64, *gitlab.RebaseMergeRequestOptions) error {
 	c.record("rebase")
 	return nil
+}
+
+func (c fakeGitLabClient) CreatePipeline(context.Context, any, *gitlab.CreatePipelineOptions) (*gitlab.Pipeline, error) {
+	c.record("create_pipeline")
+	if c.createdPipeline != nil {
+		return c.createdPipeline, nil
+	}
+	return c.GetPipeline(context.Background(), nil, 0)
 }
 
 func (c fakeGitLabClient) RetryPipelineBuild(context.Context, any, int64) (*gitlab.Pipeline, error) {
@@ -2690,6 +3272,37 @@ func (c fakeGitLabClient) UpdateVariable(_ context.Context, _ any, key string, o
 
 func (c fakeGitLabClient) RemoveVariable(context.Context, any, string, *gitlab.RemoveProjectVariableOptions) error {
 	c.record("remove_variable")
+	return nil
+}
+
+func (c fakeGitLabClient) ListSnippets(context.Context, *gitlab.ListSnippetsOptions) ([]*gitlab.Snippet, error) {
+	c.record("list_snippets")
+	return c.snippets, nil
+}
+
+func (c fakeGitLabClient) GetSnippet(context.Context, int64) (*gitlab.Snippet, error) {
+	c.record("get_snippet")
+	if len(c.snippets) == 0 {
+		return nil, nil
+	}
+	return c.snippets[0], nil
+}
+
+func (c fakeGitLabClient) GetSnippetContent(context.Context, int64) ([]byte, error) {
+	c.record("get_snippet_content")
+	return c.snippetContent, nil
+}
+
+func (c fakeGitLabClient) CreateSnippet(context.Context, *gitlab.CreateSnippetOptions) (*gitlab.Snippet, error) {
+	c.record("create_snippet")
+	if len(c.snippets) == 0 {
+		return &gitlab.Snippet{}, nil
+	}
+	return c.snippets[0], nil
+}
+
+func (c fakeGitLabClient) DeleteSnippet(context.Context, int64) error {
+	c.record("delete_snippet")
 	return nil
 }
 

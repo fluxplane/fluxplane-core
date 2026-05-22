@@ -29,6 +29,7 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(authconnect.NewCommand(authconnect.CommandOptions{
 		TargetRegistry: launch.ManifestAuthTargetRegistry(distlocal.Load),
 	}))
+	cmd.AddCommand(launch.NewOperationCommand())
 	cmd.AddCommand(launch.NewDatasourceCommandWithOptions(launch.DatasourceCommandOptions{RequireManifest: true}))
 	cmd.AddCommand(newDiscoverCommand())
 	return cmd

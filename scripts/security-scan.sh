@@ -55,6 +55,9 @@ allowed_trufflehog_json() {
 		*'"DetectorName":"Gitlab"'*'"Verified":false'*'"Raw":"pipelinesForMRProject"'*)
 			return 0
 			;;
+		*'"DetectorName":"Gitlab"'*'"Verified":false'*'"Raw":"list_note_award_emoji"'*)
+			return 0
+			;;
 		*)
 			return 1
 			;;

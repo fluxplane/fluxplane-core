@@ -14,6 +14,8 @@ const (
 	tagOp          = "tag"
 	commitOp       = "commit"
 	ciVariableOp   = "ci_variable"
+	pipelineOp     = "pipeline"
+	snippetOp      = "snippet"
 
 	requiredGitLabScopeAPI = "api"
 )
@@ -30,6 +32,8 @@ func (p Plugin) operationSpecs() []operation.Spec {
 		p.tagOperationSpec(),
 		p.commitOperationSpec(),
 		p.ciVariableOperationSpec(),
+		p.pipelineOperationSpec(),
+		p.snippetOperationSpec(),
 	}
 }
 
@@ -41,6 +45,8 @@ func (p Plugin) operations() []operation.Operation {
 		p.namedOperation(p.tagOperation()),
 		p.namedOperation(p.commitOperation()),
 		p.namedOperation(p.ciVariableOperation()),
+		p.namedOperation(p.pipelineOperation()),
+		p.namedOperation(p.snippetOperation()),
 	}
 }
 
@@ -49,6 +55,15 @@ func (p Plugin) namedOperation(op operation.Operation) operation.Operation {
 }
 
 func gitlabWriteSpec(name, description string, risk operation.RiskLevel, input, output operation.Type) operation.Spec {
+	return gitlabWriteSpecWithEffects(name, description, risk, operation.EffectSet{
+		operation.EffectNetwork,
+		operation.EffectWriteExternal,
+		operation.EffectCreate,
+		operation.EffectUpdate,
+	}, input, output)
+}
+
+func gitlabWriteSpecWithEffects(name, description string, risk operation.RiskLevel, effects operation.EffectSet, input, output operation.Type) operation.Spec {
 	return operation.Spec{
 		Ref:         operation.Ref{Name: operation.Name(name)},
 		Description: description,
@@ -56,12 +71,7 @@ func gitlabWriteSpec(name, description string, risk operation.RiskLevel, input, 
 		Output:      output,
 		Semantics: operation.Semantics{
 			Determinism: operation.DeterminismNonDeterministic,
-			Effects: operation.EffectSet{
-				operation.EffectNetwork,
-				operation.EffectWriteExternal,
-				operation.EffectCreate,
-				operation.EffectUpdate,
-			},
+			Effects:     effects,
 			Idempotency: operation.IdempotencyNonIdempotent,
 			Risk:        risk,
 		},

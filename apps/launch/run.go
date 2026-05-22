@@ -336,16 +336,19 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		eventStore = taskexecutor.NewNotifyingEventStore(eventStore, taskScheduler)
 	}
-	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
-	nativeResolver := nativeAuthResolver(runtimeSystem, nativeStore, opts.AllowPluginAuthEnv)
-	available := availablePluginsWithAuth(runtimeSystem, dispatcher, taskScheduler, nativeStore, nativeResolver)
+	auth := NewPluginAuthContext(PluginAuthOptions{
+		System:             runtimeSystem,
+		AuthPath:           opts.AuthPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+	})
+	available := availablePluginsWithAuth(runtimeSystem, dispatcher, taskScheduler, auth.Store, auth.Resolver)
 	if opts.PluginFactory != nil {
 		available = opts.PluginFactory(PluginFactoryContext{
 			System:             runtimeSystem,
 			Dispatcher:         dispatcher,
 			TaskRunner:         taskScheduler,
-			NativeAuthStore:    nativeStore,
-			NativeAuthResolver: nativeResolver,
+			NativeAuthStore:    auth.Store,
+			NativeAuthResolver: auth.Resolver,
 		})
 	} else if opts.Plugins != nil {
 		available = opts.Plugins(runtimeSystem)
@@ -405,8 +408,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
-	identityResolver := launchIdentityResolver(ctx, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv, opts.Launch.Channels, bundles)
-	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv)
+	identityResolver := launchIdentityResolver(ctx, runtimeSystem, auth, opts.Launch.Channels, bundles)
+	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, auth)
 	if err != nil {
 		closeRuntime()
 		return Runtime{}, err
@@ -441,7 +444,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	localCaller := localUserCaller()
 	localTrust := policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustPrivileged, Scopes: []policy.Scope{"*"}, VerifiedBy: "local_process", Reason: "local runtime"}
 	toolProjection := firstToolProjection(opts.ToolProjection, defaultToolProjection())
-	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, opts.AuthPath, opts.AllowPluginAuthEnv))
+	toolProjection.NamedPluginInstances = mergeNamedPluginInstances(toolProjection.NamedPluginInstances, gitlabNamedPluginInstances(ctx, bundles, runtimeSystem, auth))
 	service, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		ThreadStore: threadStore,
 		EventStore:  eventStore,
@@ -574,19 +577,18 @@ func mergeToolProjectionMaxRisk(cfg fluxplane.ToolProjectionConfig, risk operati
 	return cfg
 }
 
-func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, authPath string, allowPluginAuthEnv bool) map[string]map[string]bool {
+func gitlabNamedPluginInstances(ctx context.Context, bundles []resource.ContributionBundle, sys system.System, auth PluginAuthContext) map[string]map[string]bool {
 	refs := gitLabPluginRefs(bundles)
 	if len(refs) == 0 {
 		return nil
 	}
 	allowed := map[string]bool{}
-	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)), allowPluginAuthEnv)
 	for _, ref := range refs {
 		cfg, err := gitlabConfigForRef(ref)
 		if err != nil {
 			continue
 		}
-		scopes, ok, err := gitlab.TokenScopes(ctx, sys, resolver, ref, cfg)
+		scopes, ok, err := gitlab.TokenScopes(ctx, sys, auth.Resolver, ref, cfg)
 		if err != nil || !ok || !stringIn(scopes, "api") {
 			allowed[ref.InstanceName()] = false
 			continue
@@ -621,13 +623,6 @@ func stringIn(values []string, want string) bool {
 	return false
 }
 
-func nativeAuthPath(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return runtimesecret.DefaultFileStorePath
-	}
-	return path
-}
-
 func slackConfigForInstance(bundles []resource.ContributionBundle, instance string) slack.Config {
 	instance = strings.TrimSpace(instance)
 	for _, bundle := range bundles {
@@ -646,9 +641,12 @@ func slackConfigForInstance(bundles []resource.ContributionBundle, instance stri
 }
 
 func availablePlugins(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, authPath string, allowPluginAuthEnv bool) []pluginhost.Plugin {
-	nativeStore := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	nativeResolver := nativeAuthResolver(hostSystem, nativeStore, allowPluginAuthEnv)
-	return availablePluginsWithAuth(hostSystem, dispatcher, taskRunner, nativeStore, nativeResolver)
+	auth := NewPluginAuthContext(PluginAuthOptions{
+		System:             hostSystem,
+		AuthPath:           authPath,
+		AllowPluginAuthEnv: allowPluginAuthEnv,
+	})
+	return availablePluginsWithAuth(hostSystem, dispatcher, taskRunner, auth.Store, auth.Resolver)
 }
 
 func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispatcher, taskRunner task.TaskRunner, nativeStore runtimesecret.FileStore, nativeResolver runtimesecret.Resolver) []pluginhost.Plugin {
@@ -673,17 +671,6 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		text.New(),
 		web.New(hostSystem),
 	}
-}
-
-func nativeAuthResolver(sys system.System, store runtimesecret.FileStore, allowProcessEnvironment bool) runtimesecret.Resolver {
-	resolver := runtimesecret.ChainResolver{store}
-	if sys != nil && sys.Environment() != nil {
-		resolver = append(resolver, runtimesecret.EnvResolver{Environment: sys.Environment()})
-	}
-	if allowProcessEnvironment {
-		resolver = append(resolver, runtimesecret.EnvResolver{Environment: processAuthEnvironment{}})
-	}
-	return resolver
 }
 
 // AuthPluginRegistry returns first-party plugins that expose auth declarations
@@ -752,16 +739,14 @@ func replacePlugin(plugins []pluginhost.Plugin, plugin pluginhost.Plugin) []plug
 	return append(plugins, plugin)
 }
 
-func launchIdentityResolver(ctx context.Context, sys system.System, authPath string, allowPluginAuthEnv bool, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
-	store := runtimesecret.NewFileStore(nativeAuthPath(authPath))
-	resolver := nativeAuthResolver(sys, store, allowPluginAuthEnv)
+func launchIdentityResolver(ctx context.Context, sys system.System, auth PluginAuthContext, channels []distribution.Channel, bundles []resource.ContributionBundle) orchestrationidentity.Resolver {
 	var resolvers []orchestrationidentity.Resolver
 	for _, doc := range channels {
 		if doc.Type != "slack" {
 			continue
 		}
 		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
-		session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
+		session, err := slack.ResolveWithResolver(ctx, sys, auth.Resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
 		}
@@ -823,7 +808,7 @@ func selectDeclaredPlugins(bundles []resource.ContributionBundle, available []pl
 	return plugins, nil
 }
 
-func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, sys system.System, authPath string, allowPluginAuthEnv bool) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
+func authEnvironmentContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, auth PluginAuthContext) ([]runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, error) {
 	targets, err := authTargets(ctx, bundles, plugins)
 	if err != nil {
 		return nil, nil, err
@@ -831,8 +816,7 @@ func authEnvironmentContributions(ctx context.Context, bundles []resource.Contri
 	if len(targets) == 0 {
 		return nil, nil, nil
 	}
-	resolver := nativeAuthResolver(sys, runtimesecret.NewFileStore(nativeAuthPath(authPath)), allowPluginAuthEnv)
-	return []runtimeevidence.Observer{authstatus.NewObserver(targets, resolver)}, []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()}, nil
+	return []runtimeevidence.Observer{authstatus.NewObserver(targets, auth.Resolver)}, []runtimeevidence.AssertionDeriver{authstatus.NewAssertionDeriver()}, nil
 }
 
 func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin) ([]authstatus.Target, error) {

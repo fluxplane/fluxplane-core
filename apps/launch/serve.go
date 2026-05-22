@@ -29,7 +29,6 @@ import (
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 
 	"github.com/fluxplane/engine/plugins/integrations/slack"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
 	"github.com/fluxplane/engine/runtime/system"
 )
 
@@ -205,8 +204,11 @@ func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath strin
 
 func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel, bundles []resource.ContributionBundle, opts Options, dispatcher *slack.Dispatcher, sys system.System) ([]channelruntime.Channel, error) {
 	var out []channelruntime.Channel
-	store := runtimesecret.NewFileStore(nativeAuthPath(opts.AuthPath))
-	resolver := nativeAuthResolver(sys, store, opts.AllowPluginAuthEnv)
+	auth := NewPluginAuthContext(PluginAuthOptions{
+		System:             sys,
+		AuthPath:           opts.AuthPath,
+		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+	})
 	for _, doc := range docs {
 		switch doc.Type {
 		case "direct":
@@ -214,7 +216,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 		case "slack":
 			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
-			session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, cfg)
+			session, err := slack.ResolveWithResolver(ctx, sys, auth.Resolver, ref, cfg)
 			if err != nil {
 				slog.Warn("slack channel skipped because auth is not connected", "channel", doc.Name, "instance", ref.InstanceName(), "error", err)
 				continue
