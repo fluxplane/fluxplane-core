@@ -1811,6 +1811,9 @@ func applyModification(taskID coretask.ID, batchReason string, item coretask.Tas
 		if coretask.Terminal(state.Task.Status) && activeTaskStatus(item.Status) {
 			return nil, fmt.Errorf("task is terminal; use reopen")
 		}
+		if state.Task.Status == coretask.StatusRunning && (item.Status == coretask.StatusReady || item.Status == coretask.StatusDraft) {
+			return nil, fmt.Errorf("task is running; wait for scheduler completion or interruption before setting %s", item.Status)
+		}
 		payload := coretask.StatusChanged{TaskID: taskID, Previous: state.Task.Status, Current: item.Status, Reason: reason}
 		*state = runtimetask.Apply(*state, payload, timeNow())
 		return []event.Event{payload}, nil

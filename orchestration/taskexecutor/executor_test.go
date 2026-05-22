@@ -440,10 +440,10 @@ func TestSchedulerRestartRequeuesExpiredRunningLease(t *testing.T) {
 	}
 }
 
-func TestSchedulerRestartRequeuesExpiredWorkerRegistrationBeforeExecutionLeaseExpiry(t *testing.T) {
+func TestSchedulerDoesNotRecoverExpiredWorkerRegistrationBeforeExecutionLeaseExpiry(t *testing.T) {
 	ctx := context.Background()
 	store := newTaskStore(t)
-	task := coretask.Task{ID: "task_1", Title: "Worker expired retry", Status: coretask.StatusRunning}
+	task := coretask.Task{ID: "task_1", Title: "Worker expired but leased", Status: coretask.StatusRunning}
 	createTask(t, store, task)
 	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
 		WorkerID:       "dead-worker",
@@ -491,6 +491,64 @@ func TestSchedulerRestartRequeuesExpiredWorkerRegistrationBeforeExecutionLeaseEx
 	if err != nil {
 		t.Fatalf("Project after worker expiry: %v", err)
 	}
+	if state.Task.Status != coretask.StatusRunning {
+		t.Fatalf("task status after worker expiry = %s, want still running with valid execution lease", state.Task.Status)
+	}
+	exec := state.Executions["exec_old"]
+	if exec.Status != coretask.StatusRunning || exec.Attempt != 1 {
+		t.Fatalf("execution = %#v, want running attempt with valid execution lease", exec)
+	}
+}
+
+func TestSchedulerRecoversExpiredWorkerRegistrationWhenExecutionLeaseMissing(t *testing.T) {
+	ctx := context.Background()
+	store := newTaskStore(t)
+	task := coretask.Task{ID: "task_1", Title: "Legacy worker expired retry", Status: coretask.StatusRunning}
+	createTask(t, store, task)
+	if err := store.RegisterWorker(ctx, coretask.WorkerStatus{
+		WorkerID:       "dead-worker",
+		RegisteredAt:   testTime().Add(-time.Hour),
+		LeaseExpiresAt: testTime().Add(-time.Minute),
+		Capacity:       1,
+		MaxParallel:    1,
+	}); err != nil {
+		t.Fatalf("RegisterWorker dead: %v", err)
+	}
+	if err := store.Append(ctx, task.ID, coretask.ExecutionStarted{
+		TaskID:      task.ID,
+		ExecutionID: "exec_old",
+		Execution: coretask.Execution{
+			ID:       "exec_old",
+			TaskID:   task.ID,
+			Status:   coretask.StatusRunning,
+			Attempt:  1,
+			WorkerID: "dead-worker",
+		},
+	}); err != nil {
+		t.Fatalf("Append execution: %v", err)
+	}
+	if err := store.Index(ctx, summary(task)); err != nil {
+		t.Fatalf("Index running task: %v", err)
+	}
+	restarted, err := New(Config{
+		Store:       store,
+		Worker:      &recordingWorker{},
+		WorkerID:    "worker-after-restart",
+		MaxAttempts: 2,
+		Now:         testTime,
+		NewID:       func(prefix string) string { return prefix + "restart" },
+	})
+	if err != nil {
+		t.Fatalf("New restarted scheduler: %v", err)
+	}
+
+	if err := restarted.Tick(ctx); err != nil {
+		t.Fatalf("Tick restarted scheduler: %v", err)
+	}
+	state, err := store.Project(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("Project after worker expiry: %v", err)
+	}
 	if state.Task.Status != coretask.StatusReady {
 		t.Fatalf("task status after worker expiry = %s, want ready retry", state.Task.Status)
 	}
@@ -500,19 +558,6 @@ func TestSchedulerRestartRequeuesExpiredWorkerRegistrationBeforeExecutionLeaseEx
 	}
 	if got := len(exec.Diagnostics); got != 1 || exec.Diagnostics[0].Code != "task_execution_worker_expired_requeued" {
 		t.Fatalf("diagnostics = %#v, want worker-expired requeue diagnostic", exec.Diagnostics)
-	}
-
-	if err := restarted.Tick(ctx); err != nil {
-		t.Fatalf("Tick retry: %v", err)
-	}
-	waitForTaskStatus(t, store, task.ID, coretask.StatusCompleted)
-	state, err = store.Project(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("Project completed retry: %v", err)
-	}
-	exec = state.Executions["exec_old"]
-	if exec.Attempt != 2 || exec.WorkerID != "worker-after-restart" {
-		t.Fatalf("execution after retry = %#v, want attempt 2 on restarted worker", exec)
 	}
 }
 

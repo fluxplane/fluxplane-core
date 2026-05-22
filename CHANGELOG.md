@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added native task phrase detection for parallel-work requests such as "at the
   same time" or "in parallel", enabling task scheduling operations and guiding
   read-only threads into separate explorer-assigned scheduled tasks.
+- Hardened task scheduler recovery so stale worker capacity registrations do
+  not interrupt executions while their execution lease is still valid.
+- Rejected model-side `task_modify set_status` resets from running tasks back
+  to ready or draft so stale worker outputs are not caused by premature retries.
 - Made one-shot terminal runs print completed background task result artifacts
   after waiting for task completion.
 - Made GitLab datasource filters accept common model-produced shapes for merge

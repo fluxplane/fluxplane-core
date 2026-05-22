@@ -26,7 +26,7 @@ import (
 const (
 	defaultReconcileInterval = 2 * time.Second
 	defaultMaxParallel       = 2
-	defaultLeaseDuration     = 30 * time.Minute
+	defaultLeaseDuration     = 30 * time.Second
 	defaultWorker            = "worker"
 	defaultExplorer          = "explorer"
 	defaultReviewer          = "reviewer"
@@ -542,8 +542,11 @@ func (s *Scheduler) reconcileRecoverableExecution(ctx context.Context, taskID co
 
 func executionRecoveryReason(exec coretask.Execution, workers []coretask.WorkerStatus, now time.Time) (string, string, bool) {
 	workerID := firstNonEmpty(exec.WorkerID, "unknown")
-	if !exec.LeaseExpiresAt.IsZero() && !exec.LeaseExpiresAt.After(now) {
-		return fmt.Sprintf("task execution lease expired for worker %s", workerID), "task_execution_lease_expired", true
+	if !exec.LeaseExpiresAt.IsZero() {
+		if !exec.LeaseExpiresAt.After(now) {
+			return fmt.Sprintf("task execution lease expired for worker %s", workerID), "task_execution_lease_expired", true
+		}
+		return "", "", false
 	}
 	if workerRegistrationExpired(exec.WorkerID, workers, now) {
 		return fmt.Sprintf("task execution worker registration expired for worker %s", workerID), "task_execution_worker_expired", true

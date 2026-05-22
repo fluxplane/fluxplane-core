@@ -882,6 +882,34 @@ func TestTaskModifyRequiresExplicitTaskReopen(t *testing.T) {
 	}
 }
 
+func TestTaskModifyRejectsRunningTaskResetToReady(t *testing.T) {
+	events := eventstore.NewMemoryStore()
+	ops, err := New().Operations(context.Background(), pluginhost.Context{EventStore: events})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	byName := operationsByName(ops)
+	ctx := operation.NewContext(context.Background(), nil)
+	created := byName[TaskCreateOp].Run(ctx, coretask.TaskCreateRequest{ID: "task_1", Title: "Running task"})
+	if created.IsError() {
+		t.Fatalf("task_create error = %#v", created.Error)
+	}
+	running := byName[TaskModifyOp].Run(ctx, coretask.TaskModifyRequest{
+		ID:            "task_1",
+		Modifications: []coretask.TaskModification{{Op: "set_status", Status: coretask.StatusRunning}},
+	})
+	if running.IsError() {
+		t.Fatalf("set running error = %#v", running.Error)
+	}
+	ready := byName[TaskModifyOp].Run(ctx, coretask.TaskModifyRequest{
+		ID:            "task_1",
+		Modifications: []coretask.TaskModification{{Op: "set_status", Status: coretask.StatusReady}},
+	})
+	if !ready.IsError() || !strings.Contains(ready.Error.Message, "task is running") {
+		t.Fatalf("set ready result = %#v, want running task reset rejection", ready)
+	}
+}
+
 type fakeTaskRunner struct {
 	status       coretask.SchedulerStatusResult
 	submitResult taskexecutor.SubmitResult
