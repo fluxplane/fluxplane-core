@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added a native `usage` datasource plugin that exposes persisted
+  `usage.recorded` runtime events for token, cost, request, byte, and wall-time
+  inspection.
+
 ### Documentation
 - Added `docs/README.md` as an audience-grouped index of all documentation.
 - Expanded `docs/fluxplane.md` from a flat command list into per-command

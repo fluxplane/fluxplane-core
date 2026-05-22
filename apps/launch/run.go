@@ -55,6 +55,7 @@ import (
 	"github.com/fluxplane/engine/plugins/native/skills"
 	"github.com/fluxplane/engine/plugins/native/task"
 	"github.com/fluxplane/engine/plugins/native/text"
+	usageplugin "github.com/fluxplane/engine/plugins/native/usage"
 	"github.com/fluxplane/engine/plugins/native/workspace"
 	"github.com/fluxplane/engine/plugins/support/eventcatalog"
 	"github.com/fluxplane/engine/runtime/authstatus"
@@ -673,6 +674,7 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		task.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skills.New(),
 		text.New(),
+		usageplugin.New(nil),
 		web.New(hostSystem),
 	}
 }
