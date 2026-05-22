@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added GitLab Dex-parity read surfaces for activity, project languages and
   contributors, compare, blame, blob search, MR approvals, MR changes,
   discussions, award emoji, parsed diff lines, and searchable job traces.
+- Made GitLab merge-request review records listable by MR filters, made MR
+  approvals/changes directly gettable, and normalized scalar datasource filter
+  values.
+- Hardened GitLab smoke-test ergonomics for MR-ref pipeline searches, blob
+  search result retrieval, pathless diff-line searches, and repository-file
+  colon id variants.
 - Extended the GitLab merge-request operation with edit controls, inline
   comments with diff-position validation, discussion replies/resolution, and
   award emoji reactions.

@@ -2,6 +2,7 @@ package datasource
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -14,6 +15,45 @@ import (
 	runtimedata "github.com/fluxplane/engine/runtime/data"
 	"github.com/fluxplane/engine/runtime/datasource/semantic"
 )
+
+func TestStringFilterMapAcceptsScalarJSONValues(t *testing.T) {
+	var filters stringFilterMap
+	if err := json.Unmarshal([]byte(`{"merge_request_iid":2553,"archived":false,"project_id":"sbf/services","empty":null}`), &filters); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if filters["merge_request_iid"] != "2553" || filters["archived"] != "false" || filters["project_id"] != "sbf/services" {
+		t.Fatalf("filters = %#v, want scalar values normalized to strings", filters)
+	}
+	if _, ok := filters["empty"]; ok {
+		t.Fatalf("filters = %#v, want null filter omitted", filters)
+	}
+}
+
+func TestSearchAllowsFilterOnlyRequestWithExplicitEntities(t *testing.T) {
+	registry, err := coredatasource.NewRegistry([]coredatasource.Accessor{memoryAccessor{
+		spec:   coredatasource.Spec{Name: "gitlab", Kind: "gitlab", Entities: []coredatasource.EntityType{"gitlab.discussion"}},
+		entity: coredatasource.EntitySpec{Type: "gitlab.discussion"},
+		records: []coredatasource.Record{{
+			ID:         "sbf/services!2553!discussion-1",
+			Datasource: "gitlab",
+			Entity:     "gitlab.discussion",
+			Title:      "discussion-1",
+		}},
+	}}, nil)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	ctx := operation.NewContext(coredatasource.ContextWithAccessPolicy(context.Background(), coredatasource.AccessPolicy{
+		Datasources: []coredatasource.Name{"gitlab"},
+	}), nil)
+	result := New(registry).search(ctx, searchInput{
+		Entities: []string{"gitlab.discussion"},
+		Filters:  stringFilterMap{"project_id": "sbf/services", "merge_request_iid": "2553"},
+	})
+	if result.Status != operation.StatusOK {
+		t.Fatalf("search status = %s error=%#v, want ok", result.Status, result.Error)
+	}
+}
 
 type memoryAccessor struct {
 	spec           coredatasource.Spec

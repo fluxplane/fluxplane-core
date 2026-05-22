@@ -173,7 +173,7 @@ func (a gitlabAccessor) Search(ctx context.Context, req coredatasource.SearchReq
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, runtimedatasource.RecordsFrom(awards, a.awardEmojiRecord), -1), nil
 	case PipelineEntity:
-		pipelines, err := searchPipelines(ctx, client, req.Filters, req.Limit)
+		pipelines, err := searchPipelines(ctx, client, req.Query, req.Filters, req.Limit)
 		if err != nil {
 			return coredatasource.SearchResult{}, err
 		}
@@ -390,6 +390,54 @@ func (a gitlabAccessor) List(ctx context.Context, req coredatasource.ListRequest
 			return coredatasource.ListResult{}, err
 		}
 		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(entries, a.repositoryTreeRecord), len(entries), limit, page), nil
+	case MergeRequestDiffEntity:
+		diffs, err := searchMergeRequestDiffs(ctx, client, req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(diffs, a.diffRecord), len(diffs), limit, page), nil
+	case MergeRequestDiffLineEntity:
+		lines, err := searchMergeRequestDiffLines(ctx, client, "", req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(lines, a.diffLineRecord), len(lines), limit, page), nil
+	case MergeRequestNoteEntity:
+		notes, err := searchMergeRequestNotes(ctx, client, "", req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(notes, a.noteRecord), len(notes), limit, page), nil
+	case MergeRequestApprovalEntity:
+		approval, err := searchMergeRequestApproval(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, []coredatasource.Record{a.approvalRecord(approval)}, 1, limit, page), nil
+	case MergeRequestChangeEntity:
+		change, err := searchMergeRequestChange(ctx, client, req.Filters)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, []coredatasource.Record{a.changeRecord(change)}, 1, limit, page), nil
+	case DiscussionEntity:
+		discussions, err := searchDiscussions(ctx, client, "", req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(discussions, a.discussionRecord), len(discussions), limit, page), nil
+	case AwardEmojiEntity:
+		awards, err := searchAwardEmoji(ctx, client, req.Filters, limit)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(awards, a.awardEmojiRecord), len(awards), limit, page), nil
+	case PipelineEntity:
+		pipelines, err := listPipelines(ctx, client, req.Filters, limit, page)
+		if err != nil {
+			return coredatasource.ListResult{}, err
+		}
+		return runtimedatasource.ListResultPage(a.spec.Name, entity, runtimedatasource.RecordsFrom(pipelines, a.pipelineRecord), len(pipelines), limit, page), nil
 	case JobEntity:
 		jobs, err := listProjectJobs(ctx, client, req.Filters, limit, page)
 		if err != nil {
@@ -467,6 +515,26 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			}
 		}
 		return coredatasource.Record{}, coredatasource.ErrNotFound
+	case MergeRequestChangeEntity:
+		project, iid, err := parseMergeRequestChangeID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		change, err := mergeRequestChange(ctx, client, project, iid, "")
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.changeRecord(change), nil
+	case MergeRequestApprovalEntity:
+		project, iid, err := parseMergeRequestApprovalID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		approval, err := mergeRequestApproval(ctx, client, project, iid)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.approvalRecord(approval), nil
 	case MergeRequestNoteEntity:
 		project, iid, child, err := parseMergeRequestChildID(req.ID)
 		if err != nil {
@@ -566,6 +634,16 @@ func (a gitlabAccessor) Get(ctx context.Context, req coredatasource.GetRequest) 
 			return coredatasource.Record{}, err
 		}
 		return a.repositoryFileRecord(file), nil
+	case BlobSearchEntity:
+		project, ref, path, line, err := parseBlobSearchID(req.ID)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		file, err := getRepositoryFile(ctx, client, project, ref, path)
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.blobSearchRecord(blobSearchResultFromRepositoryFile(project, ref, file, line)), nil
 	case BlameEntity:
 		project, ref, path, err := parseBlameID(req.ID)
 		if err != nil {
@@ -1278,7 +1356,7 @@ func (a gitlabAccessor) diffRecord(diff MergeRequestDiff) coredatasource.Record 
 		Title:      firstNonEmpty(diff.NewPath, diff.OldPath),
 		Content:    diff.Summary,
 		Metadata: map[string]string{
-			"project_id":        strconv.FormatInt(diff.ProjectID, 10),
+			"project_id":        projectMetadataID(diff.Project, diff.ProjectID),
 			"merge_request_iid": strconv.FormatInt(diff.MergeRequest, 10),
 			"new_path":          diff.NewPath,
 			"old_path":          diff.OldPath,
@@ -1357,7 +1435,7 @@ func (a gitlabAccessor) changeRecord(change MergeRequestChange) coredatasource.R
 		Content:    change.DiffPreview,
 		Metadata: map[string]string{
 			"id":                change.ID,
-			"project_id":        strconv.FormatInt(change.ProjectID, 10),
+			"project_id":        projectMetadataID(change.Project, change.ProjectID),
 			"merge_request_iid": strconv.FormatInt(change.MergeRequestIID, 10),
 			"additions":         strconv.Itoa(change.Additions),
 			"deletions":         strconv.Itoa(change.Deletions),
@@ -2655,9 +2733,11 @@ func listProjectJobs(ctx context.Context, client gitlabClient, filters map[strin
 		return nil, err
 	}
 	var jobs []*gitlab.Job
-	if pipelineID, err := int64Filter(JobEntity, filters, "pipeline_id", false); err != nil {
+	pipelineID, err := int64Filter(JobEntity, filters, "pipeline_id", false)
+	if err != nil {
 		return nil, err
-	} else if pipelineID != 0 {
+	}
+	if pipelineID != 0 {
 		jobs, err = client.ListPipelineJobs(ctx, projectID, pipelineID, opt)
 	} else {
 		jobs, err = client.ListProjectJobs(ctx, projectID, opt)
@@ -3670,12 +3750,31 @@ func getUser(ctx context.Context, client gitlabClient, id string) (User, error) 
 }
 
 func searchMergeRequests(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]MergeRequest, error) {
+	if project, iid, ok := mergeRequestRefQuery(query); ok {
+		mr, err := client.GetMergeRequest(ctx, project, iid, nil)
+		if err != nil {
+			return nil, err
+		}
+		return []MergeRequest{mergeRequestFromFull(mr)}, nil
+	}
 	project := firstNonEmpty(filters["project_id"], filters["project"])
 	if project != "" {
 		projectID, _ := resolveProjectIdentifier(ctx, client, project)
 		return listProjectMergeRequests(ctx, client, projectID, query, filters, perPage, page)
 	}
 	return listMergeRequests(ctx, client, query, filters, perPage, page)
+}
+
+func mergeRequestRefQuery(query string) (any, int64, bool) {
+	query = strings.TrimSpace(query)
+	if query == "" || strings.ContainsAny(query, " \t\r\n") {
+		return nil, 0, false
+	}
+	project, iid, err := parseMergeRequestID(query)
+	if err != nil {
+		return nil, 0, false
+	}
+	return project, iid, true
 }
 
 func listMergeRequests(ctx context.Context, client gitlabClient, query string, filters map[string]string, perPage, page int) ([]MergeRequest, error) {
@@ -3837,10 +3936,7 @@ func searchMergeRequestDiffLines(ctx context.Context, client gitlabClient, query
 	if err != nil {
 		return nil, err
 	}
-	path := strings.TrimSpace(filters["path"])
-	if path == "" {
-		return nil, fmt.Errorf("gitlab %s path filter is required", MergeRequestDiffLineEntity)
-	}
+	path := strings.TrimSpace(firstNonEmpty(filters["path"], filters["new_path"], filters["old_path"], filters["file_path"]))
 	line, err := int64Filter(MergeRequestDiffLineEntity, filters, "line", false)
 	if err != nil {
 		return nil, err
@@ -3862,12 +3958,15 @@ func mergeRequestDiffLines(ctx context.Context, client gitlabClient, project any
 	}
 	var lines []MergeRequestDiffLine
 	for _, diff := range diffs {
-		if diff == nil || (diff.NewPath != path && diff.OldPath != path) {
+		if diff == nil || (path != "" && diff.NewPath != path && diff.OldPath != path) {
 			continue
 		}
 		lines = append(lines, parseMergeRequestDiffLines(project, iid, diff)...)
 	}
 	if len(lines) == 0 {
+		if path == "" {
+			return nil, fmt.Errorf("merge request !%d has no parsed diff lines", iid)
+		}
 		return nil, fmt.Errorf("file %q is not present in the merge request diff", path)
 	}
 	selected, err := selectDiffLines(lines, query, line, contextCount)
@@ -4013,7 +4112,14 @@ func listAwardEmoji(ctx context.Context, client gitlabClient, project any, iid, 
 	return out, nil
 }
 
-func searchPipelines(ctx context.Context, client gitlabClient, filters map[string]string, limit int) ([]Pipeline, error) {
+func searchPipelines(ctx context.Context, client gitlabClient, query string, filters map[string]string, limit int) ([]Pipeline, error) {
+	if project, iid, ok := mergeRequestRefQuery(query); ok {
+		return pipelinesForMRProject(ctx, client, project, iid, limit)
+	}
+	return listPipelines(ctx, client, filters, limit, 1)
+}
+
+func listPipelines(ctx context.Context, client gitlabClient, filters map[string]string, limit, page int) ([]Pipeline, error) {
 	project := firstNonEmpty(filters["project_id"], filters["project"])
 	if project == "" {
 		return nil, fmt.Errorf("project_id filter is required for gitlab.pipeline search")
@@ -4024,9 +4130,9 @@ func searchPipelines(ctx context.Context, client gitlabClient, filters map[strin
 		if err != nil {
 			return nil, fmt.Errorf("invalid merge_request_iid %q", mr)
 		}
-		return pipelinesForMRProject(ctx, client, projectID, iid, limit), nil
+		return pipelinesForMRProject(ctx, client, projectID, iid, limit)
 	}
-	opt := &gitlab.ListProjectPipelinesOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: 1}}
+	opt := &gitlab.ListProjectPipelinesOptions{ListOptions: gitlab.ListOptions{PerPage: int64(normalizedLimit(limit)), Page: int64(page)}}
 	if value := strings.TrimSpace(filters["status"]); value != "" {
 		status := gitlab.BuildStateValue(value)
 		opt.Status = &status
@@ -4068,13 +4174,9 @@ func listDiffs(ctx context.Context, client gitlabClient, project any, iid int64,
 	if err != nil {
 		return nil, err
 	}
-	var projectNum int64
-	if n, ok := project.(int64); ok {
-		projectNum = n
-	}
 	out := make([]MergeRequestDiff, 0, len(diffs))
 	for _, diff := range diffs {
-		out = append(out, diffFromGitLab(projectNum, iid, diff))
+		out = append(out, diffFromGitLab(project, iid, diff))
 	}
 	return out, nil
 }
@@ -4091,12 +4193,12 @@ func listNotes(ctx context.Context, client gitlabClient, project any, iid int64,
 	return out, nil
 }
 
-func pipelinesForMRProject(ctx context.Context, client gitlabClient, project any, iid int64, limit int) []Pipeline {
+func pipelinesForMRProject(ctx context.Context, client gitlabClient, project any, iid int64, limit int) ([]Pipeline, error) {
 	pipelines, err := client.ListMergeRequestPipelines(ctx, project, iid)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return limitPipelines(pipelinesFromInfo(pipelines), limit)
+	return limitPipelines(pipelinesFromInfo(pipelines), limit), nil
 }
 
 func projectAndMR(filters map[string]string) (any, int64, error) {

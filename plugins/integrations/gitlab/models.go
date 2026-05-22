@@ -101,6 +101,7 @@ type MergeRequest struct {
 type MergeRequestDiff struct {
 	ID            string `json:"id" datasource:"id" jsonschema:"description=Stable datasource id for this diff file."`
 	ProjectID     int64  `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Project       string `json:"project,omitempty" datasource:"filterable" jsonschema:"description=GitLab project id or path used for this request."`
 	MergeRequest  int64  `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
 	OldPath       string `json:"old_path,omitempty" datasource:"filterable" jsonschema:"description=Old file path."`
 	NewPath       string `json:"new_path" datasource:"searchable,filterable" jsonschema:"description=New file path."`
@@ -153,6 +154,7 @@ type MergeRequestApproval struct {
 type MergeRequestChange struct {
 	ID              string        `json:"id" datasource:"id" jsonschema:"description=Stable datasource id project!iid!changes."`
 	ProjectID       int64         `json:"project_id" datasource:"filterable" jsonschema:"description=GitLab project id."`
+	Project         string        `json:"project,omitempty" datasource:"filterable" jsonschema:"description=GitLab project id or path used for this request."`
 	MergeRequestIID int64         `json:"merge_request_iid" datasource:"filterable" jsonschema:"description=Project-local merge request iid."`
 	Additions       int           `json:"additions,omitempty" jsonschema:"description=Approximate added lines from returned diffs."`
 	Deletions       int           `json:"deletions,omitempty" jsonschema:"description=Approximate deleted lines from returned diffs."`
@@ -547,6 +549,7 @@ func mergeRequestDiffEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestDiff](MergeRequestDiffEntity, "GitLab merge request diff file.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
 	}
@@ -560,6 +563,7 @@ func mergeRequestDiffLineEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestDiffLine](MergeRequestDiffLineEntity, "GitLab merge request parsed diff line.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 	}
 	return entity
 }
@@ -568,6 +572,7 @@ func mergeRequestNoteEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestNote](MergeRequestNoteEntity, "GitLab merge request note.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
 	}
@@ -581,6 +586,8 @@ func mergeRequestApprovalEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestApproval](MergeRequestApprovalEntity, "GitLab merge request approval summary.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
+		coredatasource.EntityCapabilityGet,
 	}
 	return entity
 }
@@ -589,6 +596,8 @@ func mergeRequestChangeEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[MergeRequestChange](MergeRequestChangeEntity, "GitLab merge request changed-file summary.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
+		coredatasource.EntityCapabilityGet,
 	}
 	return entity
 }
@@ -597,6 +606,7 @@ func discussionEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[Discussion](DiscussionEntity, "GitLab merge request discussion thread.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 	}
 	return entity
@@ -606,6 +616,7 @@ func awardEmojiEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[AwardEmoji](AwardEmojiEntity, "GitLab merge request or note award emoji reaction.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 	}
 	return entity
 }
@@ -614,6 +625,7 @@ func pipelineEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[Pipeline](PipelineEntity, "GitLab pipeline.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
 	}
@@ -710,6 +722,7 @@ func blobSearchEntitySpec() coredatasource.EntitySpec {
 	entity := runtimedatasource.EntityOf[BlobSearchResult](BlobSearchEntity, "GitLab project blob search result.")
 	entity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
+		coredatasource.EntityCapabilityGet,
 	}
 	return entity
 }
@@ -900,15 +913,15 @@ func mergeRequestFromFull(mr *gitlab.MergeRequest) MergeRequest {
 	return out
 }
 
-func diffFromGitLab(projectID, mrIID int64, diff *gitlab.MergeRequestDiff) MergeRequestDiff {
+func diffFromGitLab(project any, mrIID int64, diff *gitlab.MergeRequestDiff) MergeRequestDiff {
 	if diff == nil {
 		return MergeRequestDiff{}
 	}
+	projectLabel := projectIDLabel(project)
 	path := firstNonEmpty(diff.NewPath, diff.OldPath)
-	id := fmt.Sprintf("%d!%d!%s", projectID, mrIID, path)
-	return MergeRequestDiff{
-		ID:            id,
-		ProjectID:     projectID,
+	out := MergeRequestDiff{
+		ID:            fmt.Sprintf("%s!%d!%s", projectLabel, mrIID, path),
+		Project:       projectLabel,
 		MergeRequest:  mrIID,
 		OldPath:       diff.OldPath,
 		NewPath:       diff.NewPath,
@@ -920,6 +933,10 @@ func diffFromGitLab(projectID, mrIID int64, diff *gitlab.MergeRequestDiff) Merge
 		Collapsed:     diff.Collapsed,
 		TooLarge:      diff.TooLarge,
 	}
+	if projectID, ok := project.(int64); ok {
+		out.ProjectID = projectID
+	}
+	return out
 }
 
 func noteFromGitLab(note *gitlab.Note) MergeRequestNote {
@@ -963,7 +980,7 @@ func approvalFromGitLab(approval *gitlab.MergeRequestApprovals) MergeRequestAppr
 
 func changeFromDiffs(project any, iid int64, diffs []*gitlab.MergeRequestDiff, path string) MergeRequestChange {
 	projectLabel := projectIDLabel(project)
-	out := MergeRequestChange{ID: fmt.Sprintf("%s!%d!changes", projectLabel, iid), MergeRequestIID: iid}
+	out := MergeRequestChange{ID: fmt.Sprintf("%s!%d!changes", projectLabel, iid), Project: projectLabel, MergeRequestIID: iid}
 	if projectNum, ok := project.(int64); ok {
 		out.ProjectID = projectNum
 	}
@@ -1304,6 +1321,41 @@ func blobSearchResultFromGitLab(blob *gitlab.Blob) BlobSearchResult {
 	}
 }
 
+func blobSearchResultFromRepositoryFile(project any, ref string, file RepositoryFile, startLine int64) BlobSearchResult {
+	projectLabel := projectIDLabel(project)
+	var projectID int64
+	if n, ok := project.(int64); ok {
+		projectID = n
+	}
+	snippet := file.ContentPreview
+	if startLine > 0 && snippet != "" {
+		lines := strings.Split(snippet, "\n")
+		start := int(startLine) - 3
+		if start < 0 {
+			start = 0
+		}
+		end := int(startLine) + 3
+		if end > len(lines) {
+			end = len(lines)
+		}
+		if start < end {
+			snippet = strings.Join(lines[start:end], "\n")
+		}
+	}
+	snippet, truncated := boundedText(snippet, 1024)
+	return BlobSearchResult{
+		ID:        fmt.Sprintf("%s!%s!%s!%d", projectLabel, strings.TrimSpace(ref), file.FilePath, startLine),
+		ProjectID: projectID,
+		Basename:  file.FileName,
+		Filename:  file.FileName,
+		Path:      file.FilePath,
+		Ref:       firstNonEmpty(ref, file.Ref),
+		StartLine: startLine,
+		Snippet:   snippet,
+		Truncated: truncated,
+	}
+}
+
 func projectLanguageFromGitLab(project, language string, share float32) ProjectLanguage {
 	return ProjectLanguage{
 		ID:        projectTextChildID(project, language),
@@ -1529,6 +1581,30 @@ func parseMergeRequestID(id string) (any, int64, error) {
 	return projectID(left), iid, nil
 }
 
+func parseMergeRequestChangeID(id string) (any, int64, error) {
+	project, iid, err := parseMergeRequestID(id)
+	if err == nil {
+		return project, iid, nil
+	}
+	project, iid, child, childErr := parseMergeRequestChildID(id)
+	if childErr == nil && child == "changes" {
+		return project, iid, nil
+	}
+	return nil, 0, err
+}
+
+func parseMergeRequestApprovalID(id string) (any, int64, error) {
+	project, iid, err := parseMergeRequestID(id)
+	if err == nil {
+		return project, iid, nil
+	}
+	project, iid, child, childErr := parseMergeRequestChildID(id)
+	if childErr == nil && child == "approvals" {
+		return project, iid, nil
+	}
+	return nil, 0, err
+}
+
 func parseProjectChildID(id string) (any, int64, error) {
 	left, right, ok := strings.Cut(strings.TrimSpace(id), "!")
 	if !ok || strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
@@ -1555,13 +1631,58 @@ func parseProjectTextChildID(id, label string) (any, string, error) {
 func parseProjectRefPathID(id string) (any, string, string, error) {
 	project, rest, ok := strings.Cut(strings.TrimSpace(id), "!")
 	if !ok {
-		return nil, "", "", fmt.Errorf("id must be project!ref!path")
+		return parseProjectRefPathColonID(id)
 	}
 	ref, path, ok := strings.Cut(rest, "!")
 	if !ok || strings.TrimSpace(project) == "" || strings.TrimSpace(ref) == "" || strings.TrimSpace(path) == "" || strings.Contains(ref, "!") || strings.Contains(path, "!") {
 		return nil, "", "", fmt.Errorf("id must be project!ref!path")
 	}
 	return projectID(project), strings.TrimSpace(ref), strings.TrimSpace(path), nil
+}
+
+func parseProjectRefPathColonID(id string) (any, string, string, error) {
+	project, rest, ok := strings.Cut(strings.TrimSpace(id), ":")
+	if !ok || strings.TrimSpace(project) == "" {
+		return nil, "", "", fmt.Errorf("id must be project!ref!path")
+	}
+	idx := strings.LastIndex(rest, ":")
+	if idx <= 0 || idx >= len(rest)-1 {
+		return nil, "", "", fmt.Errorf("id must be project!ref!path")
+	}
+	middle := strings.TrimSpace(rest[:idx])
+	last := strings.TrimSpace(rest[idx+1:])
+	if middle == "" || last == "" {
+		return nil, "", "", fmt.Errorf("id must be project!ref!path")
+	}
+	if gitlabRefLike(last) && !gitlabRefLike(middle) {
+		return projectID(project), last, middle, nil
+	}
+	return projectID(project), middle, last, nil
+}
+
+func gitlabRefLike(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "refs/") || !strings.Contains(value, "/")
+}
+
+func parseBlobSearchID(id string) (any, string, string, int64, error) {
+	project, rest, ok := strings.Cut(strings.TrimSpace(id), "!")
+	if !ok || strings.TrimSpace(project) == "" {
+		return nil, "", "", 0, fmt.Errorf("id must be project!ref!path!start_line")
+	}
+	ref, rest, ok := strings.Cut(rest, "!")
+	if !ok || strings.TrimSpace(ref) == "" {
+		return nil, "", "", 0, fmt.Errorf("id must be project!ref!path!start_line")
+	}
+	path, lineText, ok := strings.Cut(rest, "!")
+	if !ok || strings.TrimSpace(path) == "" || strings.TrimSpace(lineText) == "" || strings.Contains(lineText, "!") {
+		return nil, "", "", 0, fmt.Errorf("id must be project!ref!path!start_line")
+	}
+	line, err := strconv.ParseInt(strings.TrimSpace(lineText), 10, 64)
+	if err != nil {
+		return nil, "", "", 0, fmt.Errorf("invalid start line %q", lineText)
+	}
+	return projectID(project), strings.TrimSpace(ref), strings.TrimSpace(path), line, nil
 }
 
 func parseTraceID(id string) (any, int64, error) {
@@ -1608,6 +1729,16 @@ func projectIDString(project Project) string {
 
 func projectIDLabel(project any) string {
 	return strings.TrimSpace(fmt.Sprint(project))
+}
+
+func projectMetadataID(project string, projectID int64) string {
+	if text := strings.TrimSpace(project); text != "" {
+		return text
+	}
+	if projectID != 0 {
+		return strconv.FormatInt(projectID, 10)
+	}
+	return ""
 }
 
 func projectTextChildID(project, child string) string {

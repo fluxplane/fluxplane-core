@@ -197,21 +197,65 @@ func batchGetSpec() operation.Spec {
 }
 
 type searchInput struct {
-	Queries  []string          `json:"queries,omitempty" jsonschema:"description=Search queries to run. Use one or more short text queries."`
-	Query    string            `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
-	Entities []string          `json:"entities,omitempty" jsonschema:"description=Optional entity type filters such as gitlab.project, jira.issue, or jira.*."`
-	Filters  map[string]string `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for lexical datasource search."`
-	Limit    int               `json:"limit,omitempty" jsonschema:"description=Maximum records per datasource per query. Defaults to 10."`
-	Mode     string            `json:"mode,omitempty" jsonschema:"description=Provider-specific search mode: auto, semantic, hybrid, lexical, provider, or live. Defaults to auto."`
-	MinScore float64           `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
+	Queries  []string        `json:"queries,omitempty" jsonschema:"description=Search queries to run. Use one or more short text queries."`
+	Query    string          `json:"query,omitempty" jsonschema:"description=Single search query convenience field."`
+	Entities []string        `json:"entities,omitempty" jsonschema:"description=Optional entity type filters such as gitlab.project, jira.issue, or jira.*."`
+	Filters  stringFilterMap `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for lexical datasource search."`
+	Limit    int             `json:"limit,omitempty" jsonschema:"description=Maximum records per datasource per query. Defaults to 10."`
+	Mode     string          `json:"mode,omitempty" jsonschema:"description=Provider-specific search mode: auto, semantic, hybrid, lexical, provider, or live. Defaults to auto."`
+	MinScore float64         `json:"min_score,omitempty" jsonschema:"description=Minimum semantic score when semantic search is used."`
 }
 
 type listInput struct {
-	Datasource string            `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
-	Entity     string            `json:"entity" jsonschema:"description=Entity type to list from, such as gitlab.project.,required"`
-	Limit      int               `json:"limit,omitempty" jsonschema:"description=Maximum records to return for one page."`
-	Cursor     string            `json:"cursor,omitempty" jsonschema:"description=Pagination cursor from a previous list call."`
-	Filters    map[string]string `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for datasource listing."`
+	Datasource string          `json:"datasource" jsonschema:"description=Configured datasource name.,required"`
+	Entity     string          `json:"entity" jsonschema:"description=Entity type to list from, such as gitlab.project.,required"`
+	Limit      int             `json:"limit,omitempty" jsonschema:"description=Maximum records to return for one page."`
+	Cursor     string          `json:"cursor,omitempty" jsonschema:"description=Pagination cursor from a previous list call."`
+	Filters    stringFilterMap `json:"filters,omitempty" jsonschema:"description=Provider-specific structured filters for datasource listing."`
+}
+
+type stringFilterMap map[string]string
+
+func (m *stringFilterMap) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*m = nil
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	out := make(map[string]string, len(raw))
+	for key, value := range raw {
+		text, ok, err := scalarFilterValue(value)
+		if err != nil {
+			return fmt.Errorf("filter %q: %w", key, err)
+		}
+		if ok {
+			out[key] = text
+		}
+	}
+	*m = out
+	return nil
+}
+
+func scalarFilterValue(data json.RawMessage) (string, bool, error) {
+	if string(data) == "null" {
+		return "", false, nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		return text, true, nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err == nil {
+		return number.String(), true, nil
+	}
+	var flag bool
+	if err := json.Unmarshal(data, &flag); err == nil {
+		return strconv.FormatBool(flag), true, nil
+	}
+	return "", false, fmt.Errorf("must be a string, number, boolean, or null")
 }
 
 type getInput struct {
@@ -271,7 +315,10 @@ func (p Plugin) search(ctx operation.Context, input searchInput) operation.Resul
 		queries = append(queries, strings.TrimSpace(input.Query))
 	}
 	if len(queries) == 0 {
-		return operation.Failed("invalid_datasource_search_input", "at least one query is required", nil)
+		if len(input.Entities) == 0 || len(input.Filters) == 0 {
+			return operation.Failed("invalid_datasource_search_input", "at least one query is required unless explicit entities and filters are provided", nil)
+		}
+		queries = []string{""}
 	}
 	limit := input.Limit
 	if limit <= 0 {

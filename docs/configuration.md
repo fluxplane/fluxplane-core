@@ -454,10 +454,27 @@ datasource:
         freshness: 15m
       entities:
         - gitlab.project
+        - gitlab.activity
         - gitlab.merge_request
         - gitlab.merge_request_diff
+        - gitlab.merge_request_diff_line
         - gitlab.merge_request_note
+        - gitlab.merge_request_approval
+        - gitlab.merge_request_change
+        - gitlab.discussion
+        - gitlab.award_emoji
         - gitlab.pipeline
+        - gitlab.repository_tree
+        - gitlab.repository_file
+        - gitlab.compare
+        - gitlab.blame
+        - gitlab.blob_search
+        - gitlab.project_language
+        - gitlab.project_contributor
+        - gitlab.job
+        - gitlab.job_trace
+        - gitlab.snippet
+        - gitlab.snippet_file
         - gitlab.user
         - gitlab.group
       config:
