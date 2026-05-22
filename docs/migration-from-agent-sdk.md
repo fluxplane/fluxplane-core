@@ -323,9 +323,9 @@ projections with different policies.
 
 When operation implementations move beyond pure/in-memory examples, implement
 them safety-first. Do not add shell, filesystem, network, browser, code
-execution, or connector operations as plain function calls and retrofit safety
-later. The first real operation runtime batch must include the enforcement
-shape for sandboxing, ACL/scope checks, command-risk classification
+execution operations as plain function calls and retrofit safety later. The
+first real operation runtime batch must include the enforcement shape for
+sandboxing, ACL/scope checks, command-risk classification
 (`codewandler/cmdrisk` or successor), secret handling/redaction, approval
 requirements, audit events, and environment boundaries.
 
@@ -475,7 +475,7 @@ we audit every package in detail.
 | Skills | `core/skill` + `plugins/skills` + resource adapters | Metadata/activation in core; discovery/loading in adapters. |
 | Resources | `core/resource` + `adapters/appconfig`/`adapters/agentdir` + `orchestration/app` | Contribution data is core; loading/parsing is adapter; executable composition is orchestration. |
 | Plugins | `core/plugin` or `orchestration/pluginhost` + `plugins/*` | Keep contracts separate from implementations. |
-| Datasources | `core/datasource` + `plugins/datasources` + connector adapters | Search contract in core; connector/runtime details outward. |
+| Datasources | `core/datasource` + `plugins/datasources` | Search contract in core; runtime/provider details outward. |
 | Channels | `core/channel` + `orchestration/client` + `adapters/terminal/http/slack` | Core has normalized envelopes/specs; client defines handle API; adapters implement transports. |
 | Invocation policy | `core/policy` | Caller, principal, trust kind/level, scopes, and projection invocation policy. |
 | Safety | `core/safety` + `runtime/operation` gates + adapter approval UX | Operation semantics remain intrinsic; projection policy and channel trust use `core/policy`; enforcement happens at execution boundary. |
@@ -802,8 +802,8 @@ Still intentionally incomplete:
 
 - `SubmissionEvent` and `SubmissionSignal` are modeled but not executed.
 - Only low-IO first-party plugins have been migrated. Shell, browser,
-  filesystem, git, and connector plugins are intentionally blocked on concrete
-  safety adapters.
+  filesystem, and git plugins are intentionally blocked on concrete safety
+  adapters.
 - The plugin contract is intentionally minimal and only contributes resource
   bundles plus operation implementations during app composition.
 - The daemon/control surface is minimal: status, configured-session listing,
@@ -870,8 +870,8 @@ Definition of done for that batch:
 - At least one real migrated resource format is supported end to end, not just
   hand-built Go config.
 - Real operation implementations are introduced safety-first. Any shell,
-  filesystem, network, browser, code execution, or connector operation work
-  must include sandboxing shape, ACL/scope checks, command-risk classification
+  filesystem, network, browser, or code execution work must include sandboxing
+  shape, ACL/scope checks, command-risk classification
   (`codewandler/cmdrisk` or successor), secret handling/redaction, approval
   requirements, audit events, and environment-boundary enforcement from the
   start.

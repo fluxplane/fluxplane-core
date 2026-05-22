@@ -79,13 +79,13 @@ name: assistant
 	var out bytes.Buffer
 
 	result, err := BuildDocker(context.Background(), DockerBuildOptions{
-		AppDir:         app,
-		Tags:           []string{"example.com/sample:v1"},
-		Platforms:      []string{"linux/amd64"},
-		ConnectorsPath: "/secrets/connectors",
-		DryRun:         true,
-		KeepContext:    true,
-		Out:            &out,
+		AppDir:      app,
+		Tags:        []string{"example.com/sample:v1"},
+		Platforms:   []string{"linux/amd64"},
+		AuthPath:    "/secrets/auth",
+		DryRun:      true,
+		KeepContext: true,
+		Out:         &out,
 	})
 	if err != nil {
 		t.Fatalf("BuildDocker dry run: %v", err)
@@ -99,7 +99,7 @@ name: assistant
 	for _, want := range []string{
 		"FROM fluxplane/fluxplane-base:local",
 		`ENTRYPOINT ["/usr/local/bin/fluxplane"]`,
-		`CMD ["serve","/app","--connectors-path","/secrets/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+		`CMD ["serve","/app","--auth-path","/secrets/auth","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
 		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/fluxplane","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(text, want) {

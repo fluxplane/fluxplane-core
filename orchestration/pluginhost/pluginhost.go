@@ -88,12 +88,6 @@ type ChannelContributor interface {
 	Channels(context.Context, Context) ([]ChannelContribution, error)
 }
 
-// ConnectorProviderContributor is implemented by plugins that make a
-// third-party connection provider available to host-level connect commands.
-type ConnectorProviderContributor interface {
-	ConnectorProviders(context.Context, Context) ([]ConnectorProvider, error)
-}
-
 // DatasourceProviderContributor is implemented by plugins that make
 // datasource entity accessors available to host-level app composition.
 type DatasourceProviderContributor interface {
@@ -140,17 +134,6 @@ type OperationContribution struct {
 type ChannelContribution struct {
 	Source  resource.SourceRef
 	Channel channelruntime.Channel
-}
-
-// ConnectorProvider identifies one connection provider exposed by a plugin.
-type ConnectorProvider struct {
-	Name string `json:"name"`
-}
-
-// ConnectorProviderContribution is one connection provider contribution.
-type ConnectorProviderContribution struct {
-	Source   resource.SourceRef
-	Provider ConnectorProvider
 }
 
 // DatasourceProviderContribution is one datasource provider contribution.
@@ -237,7 +220,6 @@ type Resolution struct {
 	AssertionDerivers   []AssertionDeriverContribution
 	Reactions           []ReactionContribution
 	Channels            []ChannelContribution
-	ConnectorProviders  []ConnectorProviderContribution
 	DatasourceProviders []DatasourceProviderContribution
 	DiscoveryProviders  []DiscoveryProviderContribution
 	SecretResolvers     []SecretResolverContribution
@@ -452,18 +434,6 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 					ch.Source = source
 				}
 				out.Channels = append(out.Channels, ch)
-			}
-		}
-		if contributor, ok := resolvedPlugin.(ConnectorProviderContributor); ok {
-			providers, err := contributor.ConnectorProviders(ctx, pluginCtx)
-			if err != nil {
-				return Resolution{}, fmt.Errorf("pluginhost: plugin %q connector providers: %w", pluginLabel(ref), err)
-			}
-			for _, provider := range providers {
-				out.ConnectorProviders = append(out.ConnectorProviders, ConnectorProviderContribution{
-					Source:   source,
-					Provider: provider,
-				})
 			}
 		}
 		if contributor, ok := resolvedPlugin.(DatasourceProviderContributor); ok {

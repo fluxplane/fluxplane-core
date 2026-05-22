@@ -25,7 +25,7 @@ type datasourceIndexOptions struct {
 	concurrency     int
 	freshness       string
 	phase           string
-	connectorsPath  string
+	authPath        string
 	storePath       string
 	provider        string
 	model           string
@@ -133,7 +133,7 @@ func newDatasourceIndexClearCommand(commandOpts DatasourceCommandOptions) *cobra
 func addDatasourceIndexFlags(cmd *cobra.Command, opts *datasourceIndexOptions) {
 	cmd.Flags().StringVar(&opts.datasource, "datasource", "", "datasource name to select")
 	cmd.Flags().StringVar(&opts.entity, "entity", "", "entity type to select")
-	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "~/.connectors", "connector credential store path")
+	cmd.Flags().StringVar(&opts.authPath, "auth-path", "", "native plugin auth store path")
 	cmd.Flags().StringVar(&opts.storePath, "store", "", "datasource index store path")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "embedding provider: axon, hash, or openai")
 	cmd.Flags().StringVar(&opts.model, "model", "", "embedding model id")
@@ -374,7 +374,7 @@ func datasourceIndexRuntime(ctx context.Context, opts datasourceIndexOptions, ap
 		Spec:               loaded.Distribution.Spec,
 		Bundles:            loaded.Distribution.Bundles,
 		Launch:             loaded.Launch,
-		AuthPath:           opts.connectorsPath,
+		AuthPath:           opts.authPath,
 		AllowPluginAuthEnv: opts.allowAuthEnv,
 		StorePath:          opts.storePath,
 		Provider:           opts.provider,

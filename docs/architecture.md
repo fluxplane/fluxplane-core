@@ -234,7 +234,6 @@ terminal rendering
 HTTP/SSE channel transport
 HTTP control server
 direct in-process channel client
-connector auth CLI
 distribution CLI/describe/local/remote/run/serve helpers
 provider clients and provider wire formats
 model catalog bridges
@@ -249,21 +248,19 @@ must not import `apps`.
 ### `plugins`
 
 `plugins` are optional first-party capability bundles. They contribute specs,
-operations, context providers, channels, datasource providers, or connector
-providers through core/orchestration contracts.
+operations, context providers, channels, datasource providers, auth methods,
+and identity providers through core/orchestration contracts.
 
 Plugin concepts include:
 
 ```text
 browser operations
 coding operation bundle
-connector-backed operations
 datasource provider bundle
 filesystem operations
 git and GitLab capabilities
 human clarification operation
 Jira capabilities
-OpenAI connector provider
 plan execution operations
 shell operations
 skills
@@ -386,19 +383,18 @@ apps/coder/cmd/coder
 Daemon serve is app assembly plus protocol hosting. The channel HTTP/SSE
 surface is kept separate from daemon/control HTTP.
 
-### Connector Auth
+### Plugin Auth
 
 ```text
 apps/coder/cmd/coder
   -> apps/coder
-     -> adapters/connectors/cli.NewCommand
+     -> apps/launch auth command factory
         -> plugin registry supplied by apps/coder
-        -> codewandler/connectors runtime
-        -> credential stores
+        -> runtime/secret store and resolvers
 ```
 
-Connector auth is an adapter-level CLI. It does not know which first-party
-plugins a product wants; `apps/coder` supplies that registry.
+Plugin auth is product-scoped. `apps/coder` supplies the plugin registry for
+the coder bundle, while app-scoped auth resolves the selected manifest bundle.
 
 ### Plugin Contribution Resolution
 
@@ -406,7 +402,7 @@ plugins a product wants; `apps/coder` supplies that registry.
 resource bundles
   -> orchestration/pluginhost
      -> selected plugins
-        -> specs, operations, channels, datasource providers, connector providers
+        -> specs, operations, channels, datasource providers, auth methods
   -> orchestration/app composition
      -> runtime execution pieces
 ```

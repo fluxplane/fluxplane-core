@@ -33,12 +33,11 @@ type Loaded struct {
 
 // LaunchConfig carries neutral launch metadata for daemon/runtime adapters.
 type LaunchConfig struct {
-	Connectors map[string]Connector
-	Listeners  []Listener
-	Channels   []Channel
-	Workspace  WorkspaceConfig
-	Data       DataConfig
-	Events     EventsConfig
+	Listeners []Listener
+	Channels  []Channel
+	Workspace WorkspaceConfig
+	Data      DataConfig
+	Events    EventsConfig
 }
 
 // DataConfig carries runtime-owned durable data store settings.
@@ -143,11 +142,6 @@ func workspaceRootNameFromPath(value string) string {
 	return name
 }
 
-// Connector describes one configured connector instance expected at launch.
-type Connector struct {
-	Kind string
-}
-
 // Listener describes one daemon listener expected at launch.
 type Listener struct {
 	Name string
@@ -158,13 +152,12 @@ type Listener struct {
 
 // Channel describes one daemon channel expected at launch.
 type Channel struct {
-	Name      string
-	Type      string
-	Connector string
-	Instance  string
-	Listener  string
-	Session   string
-	Access    Access
+	Name     string
+	Type     string
+	Instance string
+	Listener string
+	Session  string
+	Access   Access
 }
 
 // Access carries neutral channel access policy metadata.

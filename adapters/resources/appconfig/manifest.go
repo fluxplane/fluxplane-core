@@ -136,7 +136,6 @@ type File struct {
 	Distribution coredistribution.Spec
 	Runtime      RuntimeConfig
 	Daemon       DaemonConfig
-	Connectors   map[string]ConnectorDoc
 }
 
 // DecodeFile decodes one local app file. It supports both the legacy single
@@ -147,7 +146,6 @@ func DecodeFile(path string, data []byte) (File, error) {
 	distribution := coredistribution.Spec{}
 	runtime := RuntimeConfig{}
 	daemon := DaemonConfig{}
-	connectors := map[string]ConnectorDoc{}
 
 	docs, err := decodeDocuments(data)
 	if err != nil {
@@ -231,7 +229,6 @@ func DecodeFile(path string, data []byte) (File, error) {
 			distribution = manifest.Distribution.Spec()
 			runtime = manifest.Runtime
 			daemon = manifest.Daemon
-			connectors = cloneConnectorMap(manifest.Connectors)
 			continue
 		}
 		switch kind {
@@ -301,7 +298,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
 		}
 	}
-	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon, Connectors: connectors}, nil
+	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon}, nil
 }
 
 func manifestSource(path string) resource.SourceRef {
@@ -435,14 +432,6 @@ func (f File) Validate() error {
 			return fmt.Errorf("appconfig: datasources[%d]: %w", i, err)
 		}
 	}
-	for name, connector := range f.Connectors {
-		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("appconfig: connectors contains an empty instance name")
-		}
-		if strings.TrimSpace(connector.Kind) == "" {
-			return fmt.Errorf("appconfig: connectors[%q].kind is empty", name)
-		}
-	}
 	for i, root := range f.Runtime.Workspace.Roots {
 		if strings.TrimSpace(root.Name) == "" {
 			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].name is empty", i)
@@ -516,7 +505,6 @@ type Manifest struct {
 	LLMProviders   []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Runtime        RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig               `json:"daemon,omitempty" yaml:"daemon,omitempty"`
-	Connectors     map[string]ConnectorDoc    `json:"connectors,omitempty" yaml:"connectors,omitempty"`
 }
 
 type observationsDoc struct {
@@ -1055,7 +1043,6 @@ type DatasourceDoc struct {
 	Name        string             `json:"name" yaml:"name"`
 	Description string             `json:"description,omitempty" yaml:"description,omitempty"`
 	Entities    []string           `json:"entities,omitempty" yaml:"entities,omitempty"`
-	Connector   string             `json:"connector,omitempty" yaml:"connector,omitempty"`
 	Kind        string             `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Type        string             `json:"type,omitempty" yaml:"type,omitempty"`
 	Path        string             `json:"path,omitempty" yaml:"path,omitempty"`
@@ -1102,7 +1089,6 @@ func (d DatasourceDoc) Spec() coredatasource.Spec {
 		Name:        coredatasource.Name(strings.TrimSpace(d.Name)),
 		Description: strings.TrimSpace(d.Description),
 		Entities:    entities,
-		Connector:   strings.TrimSpace(d.Connector),
 		Kind:        datasourceKind(d),
 		Config:      cfg,
 		Index: coredatasource.IndexSpec{
@@ -1211,11 +1197,6 @@ func datasourceKind(d DatasourceDoc) string {
 	return kind
 }
 
-// ConnectorDoc declares one connector instance required by app serving.
-type ConnectorDoc struct {
-	Kind string `json:"kind" yaml:"kind"`
-}
-
 // DaemonConfig contains process wiring consumed by app serving.
 type DaemonConfig struct {
 	Listeners []ListenerDoc `json:"listeners,omitempty" yaml:"listeners,omitempty"`
@@ -1230,13 +1211,12 @@ type ListenerDoc struct {
 }
 
 type ChannelDoc struct {
-	Name      string    `json:"name" yaml:"name"`
-	Type      string    `json:"type" yaml:"type"`
-	Connector string    `json:"connector,omitempty" yaml:"connector,omitempty"`
-	Instance  string    `json:"instance,omitempty" yaml:"instance,omitempty"`
-	Listener  string    `json:"listener,omitempty" yaml:"listener,omitempty"`
-	Session   string    `json:"session,omitempty" yaml:"session,omitempty"`
-	Access    AccessDoc `json:"access,omitempty" yaml:"access,omitempty"`
+	Name     string    `json:"name" yaml:"name"`
+	Type     string    `json:"type" yaml:"type"`
+	Instance string    `json:"instance,omitempty" yaml:"instance,omitempty"`
+	Listener string    `json:"listener,omitempty" yaml:"listener,omitempty"`
+	Session  string    `json:"session,omitempty" yaml:"session,omitempty"`
+	Access   AccessDoc `json:"access,omitempty" yaml:"access,omitempty"`
 }
 
 type AccessDoc struct {
@@ -2167,19 +2147,6 @@ func cloneMap(in map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(in))
 	for key, value := range in {
-		out[key] = value
-	}
-	return out
-}
-
-func cloneConnectorMap(in map[string]ConnectorDoc) map[string]ConnectorDoc {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]ConnectorDoc, len(in))
-	for key, value := range in {
-		key = strings.TrimSpace(key)
-		value.Kind = strings.TrimSpace(value.Kind)
 		out[key] = value
 	}
 	return out

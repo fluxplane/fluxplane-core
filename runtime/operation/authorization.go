@@ -169,9 +169,6 @@ func namedOperationTargets(spec operation.Spec, input operation.Value) []authori
 			action = policy.ActionTaskWrite
 		}
 		return []authorizationTarget{{Resource: policy.ResourceRef{Kind: policy.ResourceTask, Name: wildcardName(stringField(input, "id"))}, Action: action}}
-	case strings.Contains(name, "."):
-		parts := strings.SplitN(name, ".", 2)
-		return []authorizationTarget{{Resource: policy.ResourceRef{Kind: policy.ResourceConnector, Name: parts[0]}, Action: policy.ActionConnectorUse}}
 	default:
 		return nil
 	}

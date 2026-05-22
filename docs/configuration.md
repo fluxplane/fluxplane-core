@@ -66,7 +66,6 @@ Common fields are:
 - `name` and `description` for app identity.
 - `default_agent` for the agent used when a session does not choose one.
 - `plugins` for first-party plugin contribution bundles.
-- `connectors` for named connector instances used by channels or datasources.
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
   directly in the app document.
@@ -314,12 +313,12 @@ agent: support
 
 `fluxplane run . --session support` opens the named profile.
 
-### Plugins And Connectors
+### Plugins And Auth
 
 Plugins contribute optional commands, operations, context providers,
-datasources, and channel integrations. Connector instances name external auth
-targets for connector-backed plugins. Native plugins can also be declared more
-than once with `instance` and per-instance `config`.
+datasources, and channel integrations. Native plugins can be declared more than
+once with `instance` and per-instance `config`; plugin auth is managed through
+`coder auth` for the selected app/product scope.
 
 ```yaml
 plugins:
@@ -625,7 +624,7 @@ coder models .
 ## Agentdir
 
 Agentdir loads a `.agents` resource tree. It is narrower than appconfig: it
-does not describe daemon listeners, distribution builds, connector instances, or
+does not describe daemon listeners, distribution builds, plugin auth scope, or
 app-level defaults. It is best for portable authored resources that an app can
 discover or include.
 
@@ -778,9 +777,9 @@ turn.
 
 - Use appconfig for anything runnable with `fluxplane run`, `fluxplane serve`, or
   `fluxplane build`.
-- Use appconfig for daemon channels, connectors, datasources, and distribution
+- Use appconfig for daemon channels, datasources, plugins, and distribution
   metadata.
 - Use agentdir for portable authoring resources: markdown agents, prompt
   commands, workflows, and skills.
-- Keep secrets out of both formats. Store connector credentials through
+- Keep secrets out of both formats. Store plugin credentials through
   `coder auth connect` or provider-specific environment/auth files.

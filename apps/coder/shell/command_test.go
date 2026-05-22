@@ -68,7 +68,7 @@ func TestNewCommandExposesLocalLaunchFlags(t *testing.T) {
 		"debug",
 		"yolo",
 		"dev",
-		"connectors-path",
+		"auth-path",
 		"allow-plugin-auth-env",
 		"env-file",
 		"workspace-root",
@@ -96,7 +96,7 @@ func TestCommandPassesLocalLaunchFlagsToClientFactory(t *testing.T) {
 		"--debug",
 		"--yolo",
 		"--dev",
-		"--connectors-path", "/tmp/connectors",
+		"--auth-path", "/tmp/auth",
 		"--allow-plugin-auth-env",
 		"--env-file", ".env",
 		"--workspace-root", "extra=/tmp/extra",
@@ -119,8 +119,8 @@ func TestCommandPassesLocalLaunchFlagsToClientFactory(t *testing.T) {
 	if !captured.Debug || !captured.Yolo || !captured.Dev {
 		t.Fatalf("runtime flags = %#v, want debug/yolo/dev", captured)
 	}
-	if captured.AuthPath != "/tmp/connectors" {
-		t.Fatalf("auth path = %q, want /tmp/connectors", captured.AuthPath)
+	if captured.AuthPath != "/tmp/auth" {
+		t.Fatalf("auth path = %q, want /tmp/auth", captured.AuthPath)
 	}
 	if !captured.AllowPluginAuthEnv {
 		t.Fatalf("allow plugin auth env = false, want true")

@@ -25,9 +25,6 @@ const (
 	ActionNetworkFetch   Action = "network.fetch"
 	ActionNetworkConnect Action = "network.connect"
 
-	ActionConnectorUse    Action = "connector.use"
-	ActionConnectorManage Action = "connector.manage"
-
 	ActionChannelSend  Action = "channel.send"
 	ActionChannelAdmin Action = "channel.admin"
 
@@ -75,7 +72,6 @@ const (
 	ResourcePath       ResourceKind = "path"
 	ResourceProcess    ResourceKind = "process"
 	ResourceNetwork    ResourceKind = "network"
-	ResourceConnector  ResourceKind = "connector"
 	ResourceChannel    ResourceKind = "channel"
 	ResourceTask       ResourceKind = "task"
 	ResourceSession    ResourceKind = "session"

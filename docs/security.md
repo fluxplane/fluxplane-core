@@ -47,9 +47,9 @@ orchestration and runtime safety when an operation is projected or executed.
 ## Enforcement Shape
 
 When operation implementations move beyond pure/in-memory examples, they must
-be implemented safety-first. Shell, filesystem, network, browser, code
-execution, and connector operations must not land as plain function calls with
-safety retrofitted later. Every such operation must enter through
+be implemented safety-first. Shell, filesystem, network, browser, and code
+execution operations must not land as plain function calls with safety
+retrofitted later. Every such operation must enter through
 `runtime/operation.SafetyEnvelope`, and the envelope composition must cover:
 
 - sandboxing;
@@ -63,8 +63,8 @@ safety retrofitted later. Every such operation must enter through
 The first-party coder host wires `adapters/system/cmdrisk` for shell and
 structured network intent assessment and keeps operation-local checks as defense
 in depth.
-Do not add a new shell, filesystem, network, browser, code execution, or
-connector path that bypasses the safety envelope.
+Do not add a new shell, filesystem, network, browser, or code execution path
+that bypasses the safety envelope.
 
 ## Implemented Controls
 
@@ -220,8 +220,8 @@ but the platform still needs first-class sandbox profiles and approval UX.
 
 Do not treat the current coder app as safe for untrusted repositories,
 untrusted prompts, or untrusted users. It is a foundation for proving the
-architecture and safety hooks before migrating browser, connector, and broader
-code execution capabilities.
+architecture and safety hooks before migrating browser and broader code
+execution capabilities.
 
 ## Roadmap
 
@@ -244,7 +244,7 @@ Planned controls:
   approvals, and audit vocabulary once the shapes are stable.
 - Reusable filesystem scopes: read roots, write roots, denied paths, symlink
   rules, and secret/sensitive path classes.
-- Reusable network scopes: allowed domains, denied address ranges, connector
+- Reusable network scopes: allowed domains, denied address ranges, provider
   endpoints, proxy policy, and redirect policy.
 - Process sandbox adapters: OS sandbox profiles, containers, or restricted
   subprocess launchers depending on host capability.
@@ -282,5 +282,5 @@ apps/
   Product-specific policy defaults and selected operation bindings.
 ```
 
-No shell, filesystem, network, browser, connector, or code execution path should
+No shell, filesystem, network, browser, or code execution path should
 bypass `runtime/operation.SafetyEnvelope`.

@@ -14,12 +14,12 @@ import (
 )
 
 type dockerComposeStack struct {
-	Name           string
-	AppDir         string
-	Image          string
-	ConnectorsPath string
-	AppRuntime     appRuntimeOptions
-	Launch         distribution.LaunchConfig
+	Name       string
+	AppDir     string
+	Image      string
+	AuthPath   string
+	AppRuntime appRuntimeOptions
+	Launch     distribution.LaunchConfig
 }
 
 // ComposeOptions configures Docker Compose artifact generation.
@@ -47,7 +47,7 @@ type ComposeDeployOptions struct {
 	TempDir            string
 	Image              string
 	BaseImage          string
-	ConnectorsPath     string
+	AuthPath           string
 	AllowPluginAuthEnv bool
 	Provider           string
 	Model              string
@@ -127,7 +127,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		DryRun:             opts.DryRun,
 		Force:              opts.Force,
 		BaseImage:          baseImage,
-		ConnectorsPath:     opts.ConnectorsPath,
+		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 		Provider:           opts.Provider,
 		Model:              opts.Model,
@@ -160,7 +160,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		}
 		return result, nil
 	}
-	stack, err := dockerComposeStackFor(ctx, app.AppDir, firstTag(app.Tags), opts.ConnectorsPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
+	stack, err := dockerComposeStackFor(ctx, app.AppDir, firstTag(app.Tags), opts.AuthPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
 	if err != nil {
 		return ComposeDeployResult{}, err
 	}
@@ -247,7 +247,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 		Model:    opts.Model,
 		Effort:   opts.Effort,
 	})
-	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultConnectorsPath, appRuntime, loaded.Launch)
+	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultAuthPath, appRuntime, loaded.Launch)
 	result := ComposeResult{
 		AppDir:  loaded.Root,
 		Image:   image,
@@ -265,7 +265,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	return ComposeResult{}, errors.New("distribution deploy: docker-compose generation currently requires --dry-run")
 }
 
-func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, provider, model, effort string, allowPluginAuthEnv bool) (dockerComposeStack, error) {
+func dockerComposeStackFor(ctx context.Context, appDir, image, authPath, provider, model, effort string, allowPluginAuthEnv bool) (dockerComposeStack, error) {
 	loaded, err := distlocal.Load(ctx, appDir)
 	if err != nil {
 		return dockerComposeStack{}, err
@@ -277,10 +277,10 @@ func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, p
 		image = defaultAppImage
 	}
 	return dockerComposeStack{
-		Name:           distributionName(loaded.Distribution.Spec),
-		AppDir:         loaded.Root,
-		Image:          image,
-		ConnectorsPath: firstNonEmpty(strings.TrimSpace(connectorsPath), defaultConnectorsPath),
+		Name:     distributionName(loaded.Distribution.Spec),
+		AppDir:   loaded.Root,
+		Image:    image,
+		AuthPath: firstNonEmpty(strings.TrimSpace(authPath), defaultAuthPath),
 		AppRuntime: resolveAppRuntime(loaded, appRuntimeOptions{
 			Provider:           provider,
 			Model:              model,
@@ -291,7 +291,7 @@ func dockerComposeStackFor(ctx context.Context, appDir, image, connectorsPath, p
 	}, nil
 }
 
-func dockerComposeContent(name, image, connectorsPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) string {
+func dockerComposeContent(name, image, authPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig) string {
 	service := strings.TrimSpace(name)
 	if service == "" {
 		service = "app"
@@ -303,7 +303,7 @@ func dockerComposeContent(name, image, connectorsPath string, appRuntime appRunt
 		Services: map[string]composeService{
 			service: {
 				Image:       image,
-				Command:     composeInlineStrings(appServeCommand(connectorsPath, appRuntime)),
+				Command:     composeInlineStrings(appServeCommand(authPath, appRuntime)),
 				Environment: composeEnv(appRuntime, launch),
 				DependsOn:   composeDependencyMap(launch),
 				Restart:     "unless-stopped",

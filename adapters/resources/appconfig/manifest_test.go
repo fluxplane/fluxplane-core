@@ -553,9 +553,6 @@ system: |
 	if len(file.Daemon.Channels) != 1 || file.Daemon.Channels[0].Access.AllowKinds[2] != "thread_reply" {
 		t.Fatalf("channels = %#v", file.Daemon.Channels)
 	}
-	if len(file.Connectors) != 0 {
-		t.Fatalf("connectors = %#v, want none", file.Connectors)
-	}
 	if file.Daemon.Channels[0].Instance != "slack-bot" {
 		t.Fatalf("channel instance = %q, want slack-bot", file.Daemon.Channels[0].Instance)
 	}
@@ -900,13 +897,6 @@ description: missing name
 				t.Fatalf("DecodeFile error = %v, want %q", err, tc.want)
 			}
 		})
-	}
-}
-
-func TestFileValidateRejectsConnectorWithoutKind(t *testing.T) {
-	file := File{Connectors: map[string]ConnectorDoc{"gitlab-prod": {}}}
-	if err := file.Validate(); err == nil || !strings.Contains(err.Error(), "connectors[\"gitlab-prod\"].kind is empty") {
-		t.Fatalf("Validate error = %v, want connector kind error", err)
 	}
 }
 

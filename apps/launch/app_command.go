@@ -58,22 +58,22 @@ func NewAppCommandWithOptions(opts AppCommandOptions) *cobra.Command {
 }
 
 type appBuildOptions struct {
-	targets        []string
-	docker         bool
-	image          string
-	outDir         string
-	tags           []string
-	platforms      []string
-	push           bool
-	dryRun         bool
-	force          bool
-	baseImage      string
-	connectorsPath string
-	allowAuthEnv   bool
-	provider       string
-	model          string
-	effort         string
-	runner         distdeploy.CommandRunner
+	targets      []string
+	docker       bool
+	image        string
+	outDir       string
+	tags         []string
+	platforms    []string
+	push         bool
+	dryRun       bool
+	force        bool
+	baseImage    string
+	authPath     string
+	allowAuthEnv bool
+	provider     string
+	model        string
+	effort       string
+	runner       distdeploy.CommandRunner
 }
 
 // NewAppBuildCommand returns the app build command.
@@ -104,7 +104,7 @@ func NewAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker build inputs without running Docker")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing generated artifacts")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
-	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
+	cmd.Flags().StringVar(&opts.authPath, "auth-path", "/auth", "container plugin auth store path")
 	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
 	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
@@ -131,7 +131,7 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 		DryRun:             opts.dryRun,
 		Force:              opts.force,
 		BaseImage:          opts.baseImage,
-		ConnectorsPath:     opts.connectorsPath,
+		AuthPath:           opts.authPath,
 		AllowPluginAuthEnv: opts.allowAuthEnv,
 		Provider:           opts.provider,
 		Model:              opts.model,
@@ -148,7 +148,7 @@ type appDeployOptions struct {
 	image           string
 	imagePullPolicy string
 	baseImage       string
-	connectorsPath  string
+	authPath        string
 	allowAuthEnv    bool
 	dryRun          bool
 	force           bool
@@ -186,7 +186,7 @@ func NewAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 	cmd.Flags().StringVar(&opts.image, "image", "", "App image to build and reference in generated deployment resources")
 	cmd.Flags().StringVar(&opts.imagePullPolicy, "image-pull-policy", "", "Kubernetes app image pull policy: Always|IfNotPresent|Never")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
-	cmd.Flags().StringVar(&opts.connectorsPath, "connectors-path", "/connectors", "container connector credential path")
+	cmd.Flags().StringVar(&opts.authPath, "auth-path", "/auth", "container plugin auth store path")
 	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker commands without running them")
 	cmd.Flags().BoolVar(&opts.force, "force", opts.force, "overwrite generated app artifacts before deploying")
@@ -218,7 +218,7 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 			Image:              opts.image,
 			ImagePullPolicy:    opts.imagePullPolicy,
 			BaseImage:          opts.baseImage,
-			ConnectorsPath:     opts.connectorsPath,
+			AuthPath:           opts.authPath,
 			AllowPluginAuthEnv: opts.allowAuthEnv,
 			Provider:           opts.provider,
 			Model:              opts.model,
@@ -239,7 +239,7 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 		AppDir:             appDir,
 		Image:              opts.image,
 		BaseImage:          opts.baseImage,
-		ConnectorsPath:     opts.connectorsPath,
+		AuthPath:           opts.authPath,
 		AllowPluginAuthEnv: opts.allowAuthEnv,
 		Provider:           opts.provider,
 		Model:              opts.model,

@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultConnectorsPath = "/connectors"
+	defaultAuthPath       = "/auth"
 	defaultBaseImage      = "fluxplane/fluxplane-base:local"
 	defaultCoderBaseImage = "fluxplane/coder-base:local"
 	defaultAppImage       = "agentruntime-app:latest"
@@ -228,14 +228,14 @@ func appBuildTargets(values []string) ([]string, error) {
 	return out, nil
 }
 
-func appServeCommand(connectorsPath string, appRuntime appRuntimeOptions) []string {
-	return appServeCommandWithHealthAddr(connectorsPath, appRuntime, defaultHealthAddr)
+func appServeCommand(authPath string, appRuntime appRuntimeOptions) []string {
+	return appServeCommandWithHealthAddr(authPath, appRuntime, defaultHealthAddr)
 }
 
-func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeOptions, healthAddr string) []string {
-	connectorsPath = strings.TrimSpace(connectorsPath)
-	if connectorsPath == "" {
-		connectorsPath = defaultConnectorsPath
+func appServeCommandWithHealthAddr(authPath string, appRuntime appRuntimeOptions, healthAddr string) []string {
+	authPath = strings.TrimSpace(authPath)
+	if authPath == "" {
+		authPath = defaultAuthPath
 	}
 	if strings.TrimSpace(healthAddr) == "" {
 		healthAddr = defaultHealthAddr
@@ -243,7 +243,7 @@ func appServeCommandWithHealthAddr(connectorsPath string, appRuntime appRuntimeO
 	appRuntime = appRuntime.withDefaults()
 	command := []string{
 		"serve", "/app",
-		"--connectors-path", connectorsPath,
+		"--auth-path", authPath,
 		"--health-addr", healthAddr,
 		"--provider", appRuntime.Provider,
 		"--model", appRuntime.Model,

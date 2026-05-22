@@ -7,12 +7,9 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
-	"github.com/codewandler/connectors/integrate"
-	connectorsruntime "github.com/codewandler/connectors/runtime"
 	fluxplane "github.com/fluxplane/engine"
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	"github.com/fluxplane/engine/adapters/distribution/localruntime"
@@ -58,7 +55,6 @@ import (
 	"github.com/fluxplane/engine/plugins/native/task"
 	"github.com/fluxplane/engine/plugins/native/text"
 	"github.com/fluxplane/engine/plugins/native/workspace"
-	"github.com/fluxplane/engine/plugins/support/connector"
 	"github.com/fluxplane/engine/plugins/support/eventcatalog"
 	"github.com/fluxplane/engine/runtime/authstatus"
 	"github.com/fluxplane/engine/runtime/datasource/semantic"
@@ -216,9 +212,6 @@ func openLocalSession(ctx context.Context, cfg LocalRuntimeConfig, req distribut
 }
 
 func mergeLaunchConfig(base, override distribution.LaunchConfig) distribution.LaunchConfig {
-	if len(override.Connectors) > 0 {
-		base.Connectors = override.Connectors
-	}
 	if len(override.Listeners) > 0 {
 		base.Listeners = override.Listeners
 	}
@@ -287,10 +280,6 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		_, _ = fmt.Fprintf(os.Stderr, "browser disabled: %v\n", err)
 	}
 
-	connectorEngine, _, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
-	if err != nil {
-		return Runtime{}, err
-	}
 	var semanticIndex interface{ Close() error }
 	var dataStore coredata.Store
 	var closeDataStore func() error
@@ -308,9 +297,6 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 		}
 		if closeThreadStore != nil {
 			closeThreadStore()
-		}
-		if connectorEngine != nil {
-			_ = connectorEngine.Close()
 		}
 	}
 
@@ -636,7 +622,7 @@ func stringIn(values []string, want string) bool {
 }
 
 func nativeAuthPath(path string) string {
-	if strings.TrimSpace(path) == "" || strings.TrimSpace(path) == "~/.connectors" {
+	if strings.TrimSpace(path) == "" {
 		return runtimesecret.DefaultFileStorePath
 	}
 	return path
@@ -774,7 +760,7 @@ func launchIdentityResolver(ctx context.Context, sys system.System, authPath str
 		if doc.Type != "slack" {
 			continue
 		}
-		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
+		ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
 		session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, slackConfigForInstance(bundles, ref.InstanceName()))
 		if err != nil {
 			continue
@@ -859,123 +845,6 @@ func authTargets(ctx context.Context, bundles []resource.ContributionBundle, plu
 		out = append(out, authstatus.Target{Ref: target.Ref, Methods: target.Methods})
 	}
 	return out, nil
-}
-
-func launchConnectorEngine(ctx context.Context, authPath string, connectors map[string]distribution.Connector) (*connectorsruntime.Engine, []connector.Instance, error) {
-	if len(connectors) == 0 {
-		return nil, nil, nil
-	}
-	engine, providers, err := newConnectEngine(ctx, authPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	knownProviders := map[string]bool{}
-	for _, provider := range providers {
-		knownProviders[provider] = true
-	}
-	names := make([]string, 0, len(connectors))
-	for name := range connectors {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	instances := make([]connector.Instance, 0, len(names))
-	for _, instanceID := range names {
-		connectorConfig := connectors[instanceID]
-		kind := strings.TrimSpace(connectorConfig.Kind)
-		if kind == "" {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("launch: connector instance %q kind is empty", instanceID)
-		}
-		if !knownProviders[kind] {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("launch: connector instance %q uses unknown provider %q (available: %s)", instanceID, kind, strings.Join(providers, ", "))
-		}
-		stored, err := engine.Instances.Load(ctx, instanceID)
-		if err != nil {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("launch: load connector instance %q: %w", instanceID, err)
-		}
-		if stored.Connector != kind {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("launch: connector instance %q has kind %q, want %q", instanceID, stored.Connector, kind)
-		}
-		if err := engine.ConnectInstance(ctx, instanceID); err != nil {
-			_ = engine.Close()
-			return nil, nil, fmt.Errorf("launch: connect %s connector instance %q: %w", kind, instanceID, err)
-		}
-		instances = append(instances, connector.Instance{ID: instanceID, Kind: kind})
-	}
-	return engine, instances, nil
-}
-
-func newConnectEngine(ctx context.Context, basePath string) (*connectorsruntime.Engine, []string, error) {
-	providers, err := connectorProviderNames(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(providers) == 0 {
-		return nil, nil, fmt.Errorf("connect: no connector providers registered")
-	}
-	resolvedPath, err := resolveConnectorsPath(basePath)
-	if err != nil {
-		return nil, nil, err
-	}
-	engine, err := integrate.Engine(
-		integrate.WithBasePath(resolvedPath),
-		integrate.WithAllowList(providers...),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	return engine, providers, nil
-}
-
-func connectorProviderNames(ctx context.Context) ([]string, error) {
-	plugins := []pluginhost.Plugin{
-		openai.New(),
-	}
-	seen := map[string]bool{}
-	var names []string
-	for _, plugin := range plugins {
-		contributor, ok := plugin.(pluginhost.ConnectorProviderContributor)
-		if !ok {
-			continue
-		}
-		manifest := plugin.Manifest()
-		providers, err := contributor.ConnectorProviders(ctx, pluginhost.Context{Ref: resource.PluginRef{Name: manifest.Name}})
-		if err != nil {
-			return nil, err
-		}
-		for _, provider := range providers {
-			name := strings.TrimSpace(provider.Name)
-			if name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-func resolveConnectorsPath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		path = "~/.connectors"
-	}
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		if path == "~" {
-			path = home
-		} else {
-			path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-		}
-	}
-	return path, nil
 }
 
 func datasourceRegistry(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, root string) (*coredatasource.Registry, error) {

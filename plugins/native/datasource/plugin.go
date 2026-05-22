@@ -1451,7 +1451,6 @@ func (p catalogProvider) Build(ctx context.Context, _ corecontext.Request) ([]co
 			Name:        string(spec.Name),
 			Description: spec.Description,
 			Kind:        spec.Kind,
-			Connector:   spec.Connector,
 		}
 		for _, entity := range accessor.Entities() {
 			var capabilities []string
@@ -1504,7 +1503,6 @@ type catalogDatasource struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	Kind        string          `json:"kind,omitempty"`
-	Connector   string          `json:"connector,omitempty"`
 	Entities    []catalogEntity `json:"entities,omitempty"`
 	Views       []catalogView   `json:"views,omitempty"`
 }
@@ -1617,9 +1615,6 @@ func renderCatalogLine(entry catalogDatasource) string {
 	var details []string
 	if entry.Kind != "" {
 		details = append(details, "kind "+entry.Kind)
-	}
-	if entry.Connector != "" {
-		details = append(details, "connector "+entry.Connector)
 	}
 	if len(details) > 0 {
 		prefix += " (" + strings.Join(details, ", ") + ")"

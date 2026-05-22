@@ -210,7 +210,7 @@ name: assistant
 		"services:",
 		"    sample-app:",
 		"        image: sample:latest",
-		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
+		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
 		"        environment:",
 		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
@@ -260,7 +260,7 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
+		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -301,7 +301,7 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [serve, /app, --connectors-path, /connectors, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
+		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
 		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {

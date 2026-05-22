@@ -135,12 +135,6 @@ func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	}
 }
 
-func TestPluginIsNotConnectorProvider(t *testing.T) {
-	if _, ok := any(New(nil)).(pluginhost.ConnectorProviderContributor); ok {
-		t.Fatal("Slack plugin must not contribute connector providers")
-	}
-}
-
 func TestPluginDeclaresStoredTokenAndOAuthAuthMethods(t *testing.T) {
 	methods, err := New(nil).AuthMethods(context.Background(), pluginhost.Context{Ref: resource.PluginRef{Name: Name, Instance: "main"}})
 	if err != nil {

@@ -61,7 +61,6 @@ type Spec struct {
 	Name        Name              `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Entities    []EntityType      `json:"entities,omitempty"`
-	Connector   string            `json:"connector,omitempty"`
 	Kind        string            `json:"kind,omitempty"`
 	Config      map[string]string `json:"config,omitempty"`
 	Index       IndexSpec         `json:"index,omitempty"`
@@ -87,8 +86,8 @@ func (s Spec) Validate() error {
 		}
 		seenEntities[entity] = true
 	}
-	if strings.TrimSpace(s.Connector) == "" && strings.TrimSpace(s.Kind) == "" {
-		return fmt.Errorf("datasource: connector or kind is required")
+	if strings.TrimSpace(s.Kind) == "" {
+		return fmt.Errorf("datasource: kind is required")
 	}
 	for key := range s.Config {
 		if strings.TrimSpace(key) == "" {

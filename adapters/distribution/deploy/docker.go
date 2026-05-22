@@ -92,7 +92,7 @@ func dockerStackContainers(stack dockerComposeStack) ([]dockerContainerSpec, err
 	out = append(out, dockerContainerSpec{
 		name:       dockerStackContainerName(service, "app"),
 		image:      stack.Image,
-		command:    appServeCommand(stack.ConnectorsPath, stack.AppRuntime),
+		command:    appServeCommand(stack.AuthPath, stack.AppRuntime),
 		env:        env,
 		workingDir: "/app",
 		aliases:    []string{service, "app"},
@@ -173,7 +173,7 @@ type DockerBuildOptions struct {
 	DryRun             bool
 	KeepContext        bool
 	BaseImage          string
-	ConnectorsPath     string
+	AuthPath           string
 	AllowPluginAuthEnv bool
 	Provider           string
 	Model              string
@@ -228,9 +228,9 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 	if appDir == "" {
 		appDir = "."
 	}
-	connectorsPath := strings.TrimSpace(opts.ConnectorsPath)
-	if connectorsPath == "" {
-		connectorsPath = defaultConnectorsPath
+	authPath := strings.TrimSpace(opts.AuthPath)
+	if authPath == "" {
+		authPath = defaultAuthPath
 	}
 	baseImage := strings.TrimSpace(opts.BaseImage)
 	if baseImage == "" {
@@ -284,7 +284,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		}
 	}()
 
-	assets, err := prepareAppContext(ctx, tempDir, loaded.Root, spec.Build.Assets, baseImage, connectorsPath, appRuntime)
+	assets, err := prepareAppContext(ctx, tempDir, loaded.Root, spec.Build.Assets, baseImage, authPath, appRuntime)
 	if err != nil {
 		return DockerBuildResult{}, err
 	}
@@ -404,12 +404,12 @@ func buildRuntimeBaseDocker(ctx context.Context, opts BaseImageOptions, runtime 
 	return result, nil
 }
 
-func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPatterns []string, baseImage, connectorsPath string, appRuntime appRuntimeOptions) ([]string, error) {
+func prepareAppContext(ctx context.Context, contextDir, appRoot string, assetPatterns []string, baseImage, authPath string, appRuntime appRuntimeOptions) ([]string, error) {
 	assets, err := copyAssets(ctx, appRoot, filepath.Join(contextDir, "app"), assetPatterns)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeAppDockerfile(filepath.Join(contextDir, "Dockerfile"), baseImage, connectorsPath, appRuntime); err != nil {
+	if err := writeAppDockerfile(filepath.Join(contextDir, "Dockerfile"), baseImage, authPath, appRuntime); err != nil {
 		return nil, err
 	}
 	return assets, nil
@@ -660,8 +660,8 @@ func localReplacePaths(goMod string) ([]string, error) {
 	return paths, nil
 }
 
-func writeAppDockerfile(filename, baseImage, connectorsPath string, appRuntime appRuntimeOptions) error {
-	cmd, _ := json.Marshal(appServeCommand(connectorsPath, appRuntime))
+func writeAppDockerfile(filename, baseImage, authPath string, appRuntime appRuntimeOptions) error {
+	cmd, _ := json.Marshal(appServeCommand(authPath, appRuntime))
 	health, _ := json.Marshal(appHealthcheckCommand())
 	content := dockerfileLines(
 		"FROM "+baseImage,
@@ -674,8 +674,8 @@ func writeAppDockerfile(filename, baseImage, connectorsPath string, appRuntime a
 	return os.WriteFile(filename, []byte(content), 0o600)
 }
 
-func workspaceDockerfile(baseImage, connectorsPath string, appRuntime appRuntimeOptions) string {
-	cmd, _ := json.Marshal(appServeCommand(connectorsPath, appRuntime))
+func workspaceDockerfile(baseImage, authPath string, appRuntime appRuntimeOptions) string {
+	cmd, _ := json.Marshal(appServeCommand(authPath, appRuntime))
 	health, _ := json.Marshal(appHealthcheckCommand())
 	return dockerfileLines(
 		"FROM "+baseImage,
@@ -807,13 +807,13 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
-func ensureDockerfileForImage(filename, baseImage, connectorsPath string, appRuntime appRuntimeOptions, force bool) error {
+func ensureDockerfileForImage(filename, baseImage, authPath string, appRuntime appRuntimeOptions, force bool) error {
 	if _, err := os.Stat(filename); err == nil {
 		return nil
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return maybeWriteFile(filename, workspaceDockerfile(baseImage, connectorsPath, appRuntime), 0o600, false, force, io.Discard)
+	return maybeWriteFile(filename, workspaceDockerfile(baseImage, authPath, appRuntime), 0o600, false, force, io.Discard)
 }
 
 func printDryRun(out io.Writer, result DockerBuildResult) {

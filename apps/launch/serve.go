@@ -212,7 +212,7 @@ func serveChannels(ctx context.Context, docs []orchestrationdistribution.Channel
 		case "direct":
 			continue
 		case "slack":
-			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, doc.Connector, slack.Name)}
+			ref := resource.PluginRef{Name: slack.Name, Instance: firstNonEmptyString(doc.Instance, slack.Name)}
 			cfg := slackConfigForInstance(bundles, ref.InstanceName())
 			session, err := slack.ResolveWithResolver(ctx, sys, resolver, ref, cfg)
 			if err != nil {

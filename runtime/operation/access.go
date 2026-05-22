@@ -115,11 +115,6 @@ func NetworkAccess[I any](selector func(I) string, action policy.Action, opts ..
 	return namedAccess(selector, policy.ResourceNetwork, action, "*", opts...)
 }
 
-// ConnectorAccess derives one connector access descriptor.
-func ConnectorAccess[I any](selector func(I) string, action policy.Action, opts ...AccessOption) AccessField[I] {
-	return namedAccess(selector, policy.ResourceConnector, action, "*", opts...)
-}
-
 // TaskAccess derives one task access descriptor.
 func TaskAccess[I any](selector func(I) string, action policy.Action, opts ...AccessOption) AccessField[I] {
 	return func(_ operation.Context, input I) ([]AccessDescriptor, error) {
@@ -152,11 +147,6 @@ func ProcessDescriptor(name string, action policy.Action) AccessDescriptor {
 // NetworkDescriptor returns one network descriptor.
 func NetworkDescriptor(name string, action policy.Action) AccessDescriptor {
 	return namedDescriptor(policy.ResourceNetwork, name, action)
-}
-
-// ConnectorDescriptor returns one connector descriptor.
-func ConnectorDescriptor(name string, action policy.Action) AccessDescriptor {
-	return namedDescriptor(policy.ResourceConnector, name, action)
 }
 
 // TaskDescriptor returns one task descriptor.

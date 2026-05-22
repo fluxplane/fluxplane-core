@@ -72,10 +72,6 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	if err != nil {
 		return DatasourceIndexRuntime{}, err
 	}
-	connectorEngine, _, err := launchConnectorEngine(ctx, opts.AuthPath, opts.Launch.Connectors)
-	if err != nil {
-		return DatasourceIndexRuntime{}, err
-	}
 	var index *semantic.Index
 	var dataStore coredata.Store
 	var closeDataStore func() error
@@ -89,11 +85,6 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		}
 		if closeThreadStore != nil {
 			closeThreadStore()
-		}
-		if connectorEngine != nil {
-			if err := connectorEngine.Close(); err != nil {
-				return err
-			}
 		}
 		if index != nil {
 			return index.Close()

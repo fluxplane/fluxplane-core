@@ -15,12 +15,6 @@ import (
 	"github.com/fluxplane/engine/runtime/system"
 )
 
-func TestPluginIsNotConnectorProvider(t *testing.T) {
-	if _, ok := any(New(nil)).(pluginhost.ConnectorProviderContributor); ok {
-		t.Fatal("Confluence plugin must not contribute connector providers")
-	}
-}
-
 func TestPluginContributesConfluenceDatasourceEntities(t *testing.T) {
 	providers, err := New(nil).DatasourceProviders(context.Background(), pluginhost.Context{})
 	if err != nil {

@@ -17,9 +17,6 @@ model_policy:
   provider: openai
   model: gpt-test
   use_case: coding
-connectors:
-  slack-prod:
-    kind: slack
 daemon:
   listeners:
     - name: control
@@ -84,9 +81,6 @@ name: assistant
 	}
 	if loaded.Distribution.Runtime == nil {
 		t.Fatalf("runtime is nil")
-	}
-	if len(loaded.Launch.Connectors) != 1 || loaded.Launch.Connectors["slack-prod"].Kind != "slack" {
-		t.Fatalf("connectors = %#v, want slack-prod", loaded.Launch.Connectors)
 	}
 	if len(loaded.Launch.Listeners) != 1 || loaded.Launch.Listeners[0].Name != "control" {
 		t.Fatalf("listeners = %#v, want control", loaded.Launch.Listeners)

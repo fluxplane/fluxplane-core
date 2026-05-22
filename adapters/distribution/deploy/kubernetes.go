@@ -109,7 +109,7 @@ type KubernetesOptions struct {
 	Image              string
 	ImagePullPolicy    string
 	BaseImage          string
-	ConnectorsPath     string
+	AuthPath           string
 	AllowPluginAuthEnv bool
 	Provider           string
 	Model              string
@@ -168,7 +168,7 @@ type KubernetesManifestOptions struct {
 	AppDir          string
 	Image           string
 	ImagePullPolicy string
-	ConnectorsPath  string
+	AuthPath        string
 	Provider        string
 	Model           string
 	Effort          string
@@ -277,7 +277,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		DryRun:             opts.DryRun,
 		Force:              opts.Force,
 		BaseImage:          baseImage,
-		ConnectorsPath:     opts.ConnectorsPath,
+		AuthPath:           opts.AuthPath,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 		Provider:           opts.Provider,
 		Model:              opts.Model,
@@ -296,7 +296,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		Namespace:       namespace,
 		Image:           refs.Cluster,
 		ImagePullPolicy: opts.ImagePullPolicy,
-		ConnectorsPath:  opts.ConnectorsPath,
+		AuthPath:        opts.AuthPath,
 		AppRuntime:      appRuntime,
 		NodeSelectors:   opts.NodeSelectors,
 		IncludeRegistry: registryMode == "namespace",
@@ -533,7 +533,7 @@ func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOpt
 		Namespace:       namespace,
 		Image:           image,
 		ImagePullPolicy: opts.ImagePullPolicy,
-		ConnectorsPath:  opts.ConnectorsPath,
+		AuthPath:        opts.AuthPath,
 		AppRuntime:      appRuntime,
 		NodeSelectors:   opts.NodeSelectors,
 		IncludeRegistry: false,
@@ -572,7 +572,7 @@ type kubernetesRenderOptions struct {
 	Namespace       string
 	Image           string
 	ImagePullPolicy string
-	ConnectorsPath  string
+	AuthPath        string
 	AppRuntime      appRuntimeOptions
 	NodeSelectors   []string
 	IncludeRegistry bool
@@ -646,7 +646,7 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 		docs = append(docs, kubernetesRBAC(namespace, name, rbac)...)
 	}
 	docs = append(docs, kubernetesAppService(namespace, name))
-	docs = append(docs, kubernetesAppDeployment(namespace, name, image, opts.ImagePullPolicy, opts.ConnectorsPath, opts.AppRuntime, loaded.Launch, secret.Name, nodeSelectors, rbac.Enabled))
+	docs = append(docs, kubernetesAppDeployment(namespace, name, image, opts.ImagePullPolicy, opts.AuthPath, opts.AppRuntime, loaded.Launch, secret.Name, nodeSelectors, rbac.Enabled))
 	content := joinYAMLDocuments(docs)
 	return kubernetesRenderResult{
 		Content:         content,
@@ -1087,7 +1087,7 @@ func kubernetesStatefulSetIdentity(namespace, name string) string {
 	})
 }
 
-func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, connectorsPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig, secretName string, nodeSelectors map[string]string, serviceAccount bool) string {
+func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig, secretName string, nodeSelectors map[string]string, serviceAccount bool) string {
 	env := kubernetesRuntimeEnv(launch)
 	imagePullPolicy = firstNonEmpty(strings.TrimSpace(imagePullPolicy), "IfNotPresent")
 	labels := map[string]string{"app.kubernetes.io/name": name}
@@ -1095,7 +1095,7 @@ func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, connectors
 		Name:            "app",
 		Image:           image,
 		ImagePullPolicy: corev1.PullPolicy(imagePullPolicy),
-		Args:            appServeCommandWithHealthAddr(connectorsPath, appRuntime, defaultKubeHealthAddr),
+		Args:            appServeCommandWithHealthAddr(authPath, appRuntime, defaultKubeHealthAddr),
 		Ports:           []corev1.ContainerPort{{Name: "control", ContainerPort: 18080}},
 		Env:             stringMapEnv(env),
 		ReadinessProbe: &corev1.Probe{

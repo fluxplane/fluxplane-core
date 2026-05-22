@@ -52,7 +52,6 @@ func (a catalogAccessor) Entities() []coredatasource.EntitySpec {
 			Fields: []coredatasource.FieldSpec{
 				{Name: "name", Type: coredatasource.FieldString, Identifier: true, Searchable: true, Filterable: true},
 				{Name: "kind", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
-				{Name: "connector", Type: coredatasource.FieldString, Searchable: true, Filterable: true},
 				{Name: "entity_count", Type: coredatasource.FieldNumber, Filterable: true},
 				{Name: "view_count", Type: coredatasource.FieldNumber, Filterable: true},
 			},
@@ -227,7 +226,6 @@ func (a catalogAccessor) sourceCatalogRecord(accessor coredatasource.Accessor) c
 	metadata := map[string]string{
 		"name":         string(spec.Name),
 		"kind":         spec.Kind,
-		"connector":    spec.Connector,
 		"entity_count": strconv.Itoa(len(entityTypes)),
 		"view_count":   strconv.Itoa(len(a.viewsForAccessor(accessor))),
 		"entities":     strings.Join(entityTypes, ","),
@@ -237,7 +235,7 @@ func (a catalogAccessor) sourceCatalogRecord(accessor coredatasource.Accessor) c
 		Datasource: coredatasource.Name(Name),
 		Entity:     CatalogSourceEntity,
 		Title:      string(spec.Name),
-		Content:    strings.TrimSpace(strings.Join([]string{spec.Description, spec.Kind, spec.Connector, strings.Join(entityTypes, " ")}, " ")),
+		Content:    strings.TrimSpace(strings.Join([]string{spec.Description, spec.Kind, strings.Join(entityTypes, " ")}, " ")),
 		Metadata:   cleanCatalogMetadata(metadata),
 		Raw:        spec,
 	}

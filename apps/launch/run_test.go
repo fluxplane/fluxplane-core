@@ -121,15 +121,6 @@ func TestAttachLocalRuntimePreservesConcreteRuntime(t *testing.T) {
 	}
 }
 
-func TestRunConnectorEngineRejectsUnknownProvider(t *testing.T) {
-	_, _, err := launchConnectorEngine(context.Background(), t.TempDir(), map[string]distribution.Connector{
-		"unknown": {Kind: "does-not-exist"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
-		t.Fatalf("launchConnectorEngine error = %v, want unknown provider", err)
-	}
-}
-
 func TestLaunchUsesOnlyDeclaredPlugins(t *testing.T) {
 	withStateDir(t)
 	runtime, err := Launch(context.Background(), RuntimeOptions{

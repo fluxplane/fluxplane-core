@@ -54,9 +54,8 @@ require (
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/codewandler/axon v0.0.0 // indirect
+	github.com/codewandler/axon v0.20.1 // indirect
 	github.com/codewandler/cmdrisk v0.1.1 // indirect
-	github.com/codewandler/connectors v0.0.0 // indirect
 	github.com/codewandler/modeldb v0.15.1 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -193,14 +192,11 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.50.0 // indirect
 	mvdan.cc/sh/v3 v3.13.1 // indirect
-	nhooyr.io/websocket v1.8.17 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
 replace github.com/fluxplane/engine => ../..
-
-replace github.com/codewandler/connectors => ../../../../codewandler-ai/connectors
 
 replace github.com/codewandler/axon => ../../../../codewandler-ai/axon

@@ -139,8 +139,8 @@ func TestRunCommandHelpIncludesConnectorPath(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out.String(), "--connectors-path") {
-		t.Fatalf("help = %q, want --connectors-path", out.String())
+	if !strings.Contains(out.String(), "--auth-path") {
+		t.Fatalf("help = %q, want --auth-path", out.String())
 	}
 }
 

@@ -334,17 +334,12 @@ func firstSession(bundles []resource.ContributionBundle) (coresession.Spec, bool
 }
 
 func launchConfig(file appconfig.File) distribution.LaunchConfig {
-	connectors := map[string]distribution.Connector{}
-	for name, connector := range file.Connectors {
-		connectors[name] = distribution.Connector{Kind: connector.Kind}
-	}
 	return distribution.LaunchConfig{
-		Connectors: connectors,
-		Listeners:  listeners(file.Daemon.Listeners),
-		Channels:   channels(file.Daemon.Channels),
-		Workspace:  workspace(file.Runtime.Workspace),
-		Data:       dataConfig(file.Runtime.Data),
-		Events:     eventsConfig(file.Runtime.Events),
+		Listeners: listeners(file.Daemon.Listeners),
+		Channels:  channels(file.Daemon.Channels),
+		Workspace: workspace(file.Runtime.Workspace),
+		Data:      dataConfig(file.Runtime.Data),
+		Events:    eventsConfig(file.Runtime.Events),
 	}
 }
 
@@ -405,12 +400,11 @@ func channels(docs []appconfig.ChannelDoc) []distribution.Channel {
 	out := make([]distribution.Channel, 0, len(docs))
 	for _, doc := range docs {
 		out = append(out, distribution.Channel{
-			Name:      doc.Name,
-			Type:      doc.Type,
-			Connector: doc.Connector,
-			Instance:  doc.Instance,
-			Listener:  doc.Listener,
-			Session:   doc.Session,
+			Name:     doc.Name,
+			Type:     doc.Type,
+			Instance: doc.Instance,
+			Listener: doc.Listener,
+			Session:  doc.Session,
 			Access: distribution.Access{
 				Mode:             doc.Access.Mode,
 				AllowUsers:       append([]string(nil), doc.Access.AllowUsers...),

@@ -152,7 +152,7 @@ func changedLocalOnlyShellFlag(changed func(string) bool) string {
 		"debug",
 		"yolo",
 		"dev",
-		"connectors-path",
+		"auth-path",
 		"allow-plugin-auth-env",
 		"env-file",
 		"workspace-root",

@@ -293,7 +293,7 @@ The same observation may produce multiple signals. Derivers should be registered
 by runtime or plugin contribution, mirroring observers. If the Kubernetes plugin
 is not enabled, no Kubernetes-specific deriver runs.
 
-Derivers should stay pure: no filesystem, network, process, or connector calls.
+Derivers should stay pure: no filesystem, network, or process calls.
 They transform an observation set into a signal set. If more information is
 needed, that is a lazy observer or operation, not hidden work inside derivation.
 
@@ -480,8 +480,8 @@ plugin first, non-secret observation second, normalized signals third, reaction
 rules last.
 
 The pluginhost contract can grow by adding optional contributor interfaces next
-to the existing operation, context provider, channel, connector, datasource,
-auth, and identity contributors:
+to the existing operation, context provider, channel, datasource, auth, and
+identity contributors:
 
 ```text
 ObserverContributor
@@ -1129,7 +1129,7 @@ Already present:
 - context providers already support dynamic blocks through
   `core/context.FreshnessDynamic`.
 - pluginhost already resolves selected plugin refs and collects executable
-  operation, context provider, channel, connector, datasource, auth, and
+  operation, context provider, channel, datasource, auth, and
   identity contributions.
 
 Completion criteria for this design:

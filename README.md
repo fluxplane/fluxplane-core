@@ -95,7 +95,7 @@ adapters while preserving the same session contract.
 
 Bundle reusable capabilities as plugins: project inventory, Go and Markdown
 language tooling, browser automation, code execution, task management,
-datasources, connectors, and more.
+datasources, integrations, and more.
 
 ### Safer automation surfaces
 

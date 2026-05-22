@@ -189,7 +189,7 @@ or runtime attempt. If several answers apply, model those parts separately.
 
 - All side-effecting operations enter through
   `runtime/operation.SafetyEnvelope`. No shell, filesystem, network,
-  browser, code execution, or connector path may bypass it.
+  browser, or code execution path may bypass it.
 - Reusable plugins use `runtime/system.System` for filesystem, network,
   process, browser, and human-clarification access. Do not import or call
   `os`, `os/exec`, `syscall`, `net`, `net/http`, or `net/url` directly
@@ -234,7 +234,7 @@ See [docs/security.md](docs/security.md) for the full safety model.
 ### Plugin Contributions
 
 - A plugin contributes optional capability bundles (specs, operations,
-  context providers, channels, datasource providers, connector providers)
+  context providers, channels, datasource providers, auth methods)
   through `core` and `orchestration` contracts.
 - Plugin contracts belong in `core` or `orchestration`, never in a concrete
   plugin implementation package.

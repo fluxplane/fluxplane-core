@@ -101,15 +101,12 @@ type LaunchEnvironmentFlags struct {
 	AllowPluginAuthEnv bool
 }
 
-// BindLaunchEnvironmentFlags binds connector credential and env-file flags.
+// BindLaunchEnvironmentFlags binds plugin auth and env-file flags.
 func BindLaunchEnvironmentFlags(flags *pflag.FlagSet, opts *LaunchEnvironmentFlags) {
 	if opts == nil {
 		return
 	}
-	if strings.TrimSpace(opts.AuthPath) == "" {
-		opts.AuthPath = "~/.connectors"
-	}
-	flags.StringVar(&opts.AuthPath, "connectors-path", opts.AuthPath, "connector credential store path")
+	flags.StringVar(&opts.AuthPath, "auth-path", opts.AuthPath, "native plugin auth store path")
 	flags.StringArrayVar(&opts.EnvFiles, "env-file", opts.EnvFiles, "root workspace env file or glob to load; may be repeated")
 	flags.BoolVar(&opts.AllowPluginAuthEnv, "allow-plugin-auth-env", opts.AllowPluginAuthEnv, "allow plugin auth methods to resolve credentials from the process environment")
 }

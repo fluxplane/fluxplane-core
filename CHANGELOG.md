@@ -79,6 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   network boundary.
 - Removed the GitLab-specific `coder datasource gitlab check` diagnostic
   command; generic datasource tooling remains under `coder datasource index`.
+- Removed the legacy external connectors runtime, connector provider
+  contributions, connector manifest fields, connector authorization resources,
+  and `--connectors-path`; native plugin auth now uses `--auth-path`.
 - Clarified agent verification guidance so `task verify` is reserved for
   explicit requests, commit preparation, or broad changes, with focused package
   checks preferred during normal iteration.

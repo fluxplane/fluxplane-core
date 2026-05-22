@@ -470,7 +470,7 @@ func TestAppRunHelpIncludesLaunchFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage", "--yolo", "--connectors-path", "--allow-plugin-auth-env", "--workspace-root"} {
+	for _, want := range []string{"run [path]", "--session", "--conversation", "--provider", "--model", "--input", "--debug", "--usage", "--yolo", "--auth-path", "--allow-plugin-auth-env", "--workspace-root"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -629,7 +629,7 @@ func TestAppBuildHelpIncludesDockerFlags(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose|kubernetes", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--connectors-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort"} {
+	for _, want := range []string{"build [path]", "--target", "all|binary|dockerfile|docker-image|docker-compose|kubernetes", "--image", "--out", "--docker", "--tag", "--platform", "--push", "--dry-run", "--force", "--base-image", "--auth-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}
@@ -657,7 +657,7 @@ func TestAppDeployHelpIncludesDockerComposeTarget(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"deploy [path]", "--target", "docker-compose|kubernetes", "--image", "--base-image", "--connectors-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach", "--namespace", "--registry-mode", "--registry"} {
+	for _, want := range []string{"deploy [path]", "--target", "docker-compose|kubernetes", "--image", "--base-image", "--auth-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort", "--dry-run", "--force", "--detach", "--namespace", "--registry-mode", "--registry"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}

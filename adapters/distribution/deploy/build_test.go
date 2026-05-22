@@ -53,7 +53,7 @@ name: assistant
 	for _, want := range []string{
 		"FROM fluxplane/fluxplane-base:local",
 		"COPY . /app",
-		`CMD ["serve","/app","--connectors-path","/connectors","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
+		`CMD ["serve","/app","--auth-path","/auth","--health-addr","127.0.0.1:18080","--provider","openrouter","--model","openai/gpt-5.5","--effort","medium"]`,
 		`HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=12 CMD ["/usr/local/bin/fluxplane","healthcheck","--url","http://127.0.0.1:18080/control/status"]`,
 	} {
 		if !strings.Contains(string(dockerfile), want) {

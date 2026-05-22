@@ -24,7 +24,7 @@ type AppBuildOptions struct {
 	DryRun             bool
 	Force              bool
 	BaseImage          string
-	ConnectorsPath     string
+	AuthPath           string
 	AllowPluginAuthEnv bool
 	Provider           string
 	Model              string
@@ -74,9 +74,9 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	if err != nil {
 		return AppBuildResult{}, err
 	}
-	connectorsPath := strings.TrimSpace(opts.ConnectorsPath)
-	if connectorsPath == "" {
-		connectorsPath = defaultConnectorsPath
+	authPath := strings.TrimSpace(opts.AuthPath)
+	if authPath == "" {
+		authPath = defaultAuthPath
 	}
 	appRuntime := resolveAppRuntime(loaded, appRuntimeOptions{
 		Provider:           opts.Provider,
@@ -132,12 +132,12 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			}
 		case "dockerfile":
 			result.Artifacts = append(result.Artifacts, dockerfilePath)
-			if err := maybeWriteFile(dockerfilePath, workspaceDockerfile(baseImage, connectorsPath, appRuntime), 0o600, opts.DryRun, opts.Force, out); err != nil {
+			if err := maybeWriteFile(dockerfilePath, workspaceDockerfile(baseImage, authPath, appRuntime), 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "docker-compose":
 			result.Artifacts = append(result.Artifacts, composePath)
-			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, connectorsPath, appRuntime, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
+			if err := maybeWriteFile(composePath, dockerComposeContent(name, composeImage, authPath, appRuntime, loaded.Launch), 0o600, opts.DryRun, opts.Force, out); err != nil {
 				return AppBuildResult{}, err
 			}
 		case "kubernetes":
@@ -146,7 +146,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 				Name:            name,
 				Namespace:       kubernetesName(name),
 				Image:           composeImage,
-				ConnectorsPath:  connectorsPath,
+				AuthPath:        authPath,
 				AppRuntime:      appRuntime,
 				IncludeRegistry: false,
 			})
@@ -180,7 +180,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			result.Command = command
 			printAppBuildCommand(out, command, opts.DryRun)
 			if !opts.DryRun {
-				if err := ensureDockerfileForImage(dockerfilePath, baseImage, connectorsPath, appRuntime, opts.Force); err != nil {
+				if err := ensureDockerfileForImage(dockerfilePath, baseImage, authPath, appRuntime, opts.Force); err != nil {
 					return AppBuildResult{}, err
 				}
 				if opts.Runner != nil && opts.dockerClient == nil {
