@@ -54,13 +54,24 @@ chat session to understand what has already happened.
   `f9265f7 feat: rename app manifests to fluxplane`.
 - Coder nested-module split commit:
   `refactor: split coder into product module`.
+- Physical coder extraction commit:
+  `02f6fa2 refactor: extract coder from engine repo`.
+- Engine release tag for standalone coder:
+  `v0.15.0`.
+- Standalone coder repository:
+  `https://github.com/fluxplane/coder`.
+- Standalone coder initial commit:
+  `5043798 feat: extract coder product`.
+- Standalone coder initial release:
+  `v0.1.0`.
 - Current root module:
   `github.com/fluxplane/engine`.
 - Current root facade package:
   `fluxplane`.
-- Current physical repository/worktree path:
-  `/home/timo/projects/fluxplane/agentruntime` for engine. The coder product is
-  extracted to `github.com/fluxplane/coder`.
+- Current physical repository/worktree paths:
+  `/home/timo/projects/fluxplane/agentruntime` for engine, and
+  `/tmp/fluxplane-coder-extract` for the extracted coder checkout used during
+  the initial publication.
 - Current product CLI entrypoint:
   `github.com/fluxplane/coder/cmd/coder` in the standalone coder repository.
 - Current generic app command surface:
@@ -506,7 +517,13 @@ Assertions:
 
 ### 7. Physical coder repository extraction
 
-Status: in progress.
+Status: complete.
+
+Engine commit: `02f6fa2 refactor: extract coder from engine repo`.
+
+Coder commit: `5043798 feat: extract coder product`.
+
+Coder release: `v0.1.0`.
 
 Purpose: move the coder product out of the engine repository and release it as
 `github.com/fluxplane/coder`.
@@ -528,9 +545,9 @@ Assertions:
 - Engine root has no `apps/coder` directory.
 - Coder repo root declares `module github.com/fluxplane/coder`.
 - Coder repo has no committed local engine `replace` directive.
-- `go test ./...` passes in engine.
+- `task verify` passes in engine before extraction commit `02f6fa2`.
 - `go test ./...` passes in coder.
-- `go install github.com/fluxplane/coder/cmd/coder@latest` can resolve from the
+- `go install github.com/fluxplane/coder/cmd/coder@v0.1.0` resolves from the
   released GitHub module path when private module access is configured.
 
 ## Test Plan
@@ -699,7 +716,7 @@ implicitly in code.
 
 ## Assumptions
 
-- The first implementation keeps a single physical repository.
+- Engine and coder are now separate physical repositories.
 - The canonical generic app CLI is `fluxplane`.
 - The engine module is `github.com/fluxplane/engine`.
 - The root facade package is `fluxplane`.
