@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added a detailed goal-refinement design and the first durable thread-goal
+  implementation: the native goal plugin now owns `/goal`
+  set/status/pause/resume/clear lifecycle state, contributes ambient goal
+  context, and goal continuation writes review results back to the thread.
 - Raised the default large tool-result replacement threshold to 512 KiB so
   bounded reads can return their advertised payload size before spooling.
 - Added datasource prewarming for plugin-declared detectors and introduced an

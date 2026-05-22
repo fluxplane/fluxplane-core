@@ -9,6 +9,7 @@ import (
 	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	coreapp "github.com/fluxplane/engine/core/app"
+	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
@@ -26,6 +27,8 @@ import (
 	"github.com/fluxplane/engine/orchestration/eventregistry"
 	"github.com/fluxplane/engine/orchestration/identity"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/engine/orchestration/sessioncontrol"
 	"github.com/fluxplane/engine/plugins/native/text"
 	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
 )
@@ -399,6 +402,21 @@ func TestComposeResolvesPluginContributions(t *testing.T) {
 	}
 	if op, ok := composition.Operations.Resolve(operation.Ref{Name: "echo"}); !ok || op == nil {
 		t.Fatal("plugin operation was not registered")
+	}
+}
+
+func TestComposeCarriesPluginSessionCommandHandlers(t *testing.T) {
+	composition, err := Compose(Config{
+		Plugins: []pluginhost.Plugin{sessionCommandPlugin{}},
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: "session-command-plugin"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Compose: %v", err)
+	}
+	if binding, ok := composition.SessionCommands["/custom"]; !ok || binding.Handler == nil {
+		t.Fatalf("session commands = %#v, want /custom handler", composition.SessionCommands)
 	}
 }
 
@@ -1086,8 +1104,27 @@ func TestComposeRejectsDuplicateSessionProfilesWithSourceDiagnostic(t *testing.T
 
 type echoPlugin struct{}
 
+type sessionCommandPlugin struct{}
+
 func (echoPlugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: "echo-plugin"}
+}
+
+func (sessionCommandPlugin) Manifest() pluginhost.Manifest {
+	return pluginhost.Manifest{Name: "session-command-plugin"}
+}
+
+func (sessionCommandPlugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{}, nil
+}
+
+func (sessionCommandPlugin) SessionCommands(context.Context, pluginhost.Context) ([]session.SessionCommandBinding, error) {
+	return []session.SessionCommandBinding{{
+		Spec: command.Spec{Path: command.Path{"custom"}, Target: invocation.Target{Kind: invocation.TargetSession}},
+		Handler: func(session.Session, context.Context, channel.Inbound, command.Spec, sessioncontrol.PolicyEvaluation) session.CommandResult {
+			return session.CommandResult{}
+		},
+	}}, nil
 }
 
 type testPluginEvent struct {

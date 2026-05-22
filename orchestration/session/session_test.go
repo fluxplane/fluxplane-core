@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/engine/core/environment"
 	"github.com/fluxplane/engine/core/event"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
+	coregoal "github.com/fluxplane/engine/core/goal"
 	"github.com/fluxplane/engine/core/invocation"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
@@ -4449,12 +4450,56 @@ func TestExecuteInboundInputPromptStopConditionUsesEvaluatorInstruction(t *testi
 	}
 }
 
-func TestExecuteInboundCommandGoalUsesPromptContinuation(t *testing.T) {
+func TestExecuteInboundCommandDispatchesSessionCommandContribution(t *testing.T) {
+	s := Session{SessionCommands: SessionCommandCatalog{
+		"/custom": {
+			Spec: command.Spec{
+				Path: command.Path{"custom"},
+				Policy: policy.InvocationPolicy{
+					AllowedCallers: []policy.CallerKind{policy.CallerUser},
+					RequiredTrust:  policy.TrustVerified,
+				},
+				Target: invocation.Target{Kind: invocation.TargetSession},
+			},
+			Handler: func(_ Session, _ context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+				return CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: strings.Join(inbound.Command.Args, " ")}
+			},
+		},
+	}}
+	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
+		ID:     "run-custom",
+		Kind:   channel.InboundCommand,
+		Caller: policy.Caller{Kind: policy.CallerUser},
+		Trust:  policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{
+			Path: command.Path{"custom"},
+			Args: []string{"hello", "session"},
+		},
+	})
+
+	if result.Status != CommandStatusOK || result.Output != "hello session" {
+		t.Fatalf("result = %#v, want custom session command output", result)
+	}
+}
+
+func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("thread store: %v", err)
+	}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-goal-run"}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	s := Session{ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-goal-run"}}
+	if err := s.AppendThreadEvents(ctx, coregoal.Set{GoalID: "goal_1", ThreadID: "thread-goal-run", Text: "Complete the coverage task"}); err != nil {
+		t.Fatalf("append goal: %v", err)
+	}
+
 	agentRuntime := &sequenceAgent{
 		spec: agent.Spec{
-			Name:   "coder",
-			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
-			Turns:  agent.TurnPolicy{MaxSteps: 1},
+			Name:  "coder",
+			Turns: agent.TurnPolicy{MaxSteps: 1},
 		},
 		results: []agent.StepResult{
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "first"}}},
@@ -4462,104 +4507,19 @@ func TestExecuteInboundCommandGoalUsesPromptContinuation(t *testing.T) {
 		},
 	}
 	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
-		{Action: StopActionContinue, ContinueInstruction: "keep going", Reason: "not done"},
+		{Action: StopActionContinue, ContinueInstruction: "finish the task", Reason: "not done"},
 		{Action: StopActionStop, Reason: "done"},
 	}}
-	s := Session{Agent: agentRuntime, StopEvaluator: evaluator}
-	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
-		ID:   "run-goal",
-		Kind: channel.InboundCommand,
-		Caller: policy.Caller{
-			Kind: policy.CallerUser,
-		},
-		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-		Command: &command.Invocation{
-			Path: command.Path{"goal"},
-			Args: []string{"Test coverage has increased to 90%"},
-			Input: map[string]any{
-				"max": 2,
-			},
-		},
+	s.Agent = agentRuntime
+	s.StopEvaluator = evaluator
+	result := s.ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-goal",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "continue"},
 	})
 
-	if result.Status != CommandStatusOK {
+	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q error = %#v, want ok", result.Status, result.Error)
-	}
-	if result.Output != "done" {
-		t.Fatalf("output = %#v, want final goal output", result.Output)
-	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
-	}
-	for i, input := range agentRuntime.inputs {
-		if input.Goal != "Test coverage has increased to 90%" {
-			t.Fatalf("input[%d].Goal = %q, want goal", i, input.Goal)
-		}
-	}
-	if len(evaluator.inputs) != 2 {
-		t.Fatalf("evaluator inputs = %d, want two continuation decisions", len(evaluator.inputs))
-	}
-	if evaluator.inputs[0].MaxContinuations != 2 || !strings.Contains(evaluator.inputs[0].Condition.Prompt, "Test coverage has increased to 90%") {
-		t.Fatalf("evaluator input = %#v, want goal prompt and cap", evaluator.inputs[0])
-	}
-}
-
-func TestExecuteInboundCommandGoalContinuesAfterInnerStepLimit(t *testing.T) {
-	opRef := operation.Ref{Name: "lookup"}
-	ops := operation.NewRegistry()
-	if err := ops.Register(operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
-		return operation.OK(map[string]any{"found": input})
-	})); err != nil {
-		t.Fatalf("register operation: %v", err)
-	}
-	agentRuntime := &sequenceAgent{
-		spec: agent.Spec{
-			Name:  "coder",
-			Turns: agent.TurnPolicy{MaxSteps: 1},
-		},
-		results: []agent.StepResult{
-			{
-				Status: agent.StatusOK,
-				Decision: agent.Decision{
-					Kind:       agent.DecisionOperation,
-					Operations: []agent.OperationRequest{{Operation: opRef, Input: "coverage"}},
-				},
-			},
-			{
-				Status: agent.StatusOK,
-				Decision: agent.Decision{
-					Kind:    agent.DecisionMessage,
-					Message: &agent.Message{Content: "done"},
-				},
-			},
-		},
-	}
-	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
-		{Action: StopActionContinue, ContinueInstruction: "finish the task", Reason: "tool result needs synthesis"},
-		{Action: StopActionStop, Reason: "done"},
-	}}
-	s := Session{Agent: agentRuntime, Operations: ops, OperationExecutor: operationruntime.NewExecutor(), StopEvaluator: evaluator}
-	result := s.ExecuteInboundCommand(context.Background(), channel.Inbound{
-		ID:   "run-goal",
-		Kind: channel.InboundCommand,
-		Caller: policy.Caller{
-			Kind: policy.CallerUser,
-		},
-		Trust: policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-		Command: &command.Invocation{
-			Path: command.Path{"goal"},
-			Args: []string{"Complete the coverage task"},
-			Input: map[string]any{
-				"max": 2,
-			},
-		},
-	})
-
-	if result.Status != CommandStatusOK {
-		t.Fatalf("status = %q error = %#v, want ok", result.Status, result.Error)
-	}
-	if result.Output != "done" {
-		t.Fatalf("output = %#v, want final goal output", result.Output)
 	}
 	if len(agentRuntime.inputs) != 2 {
 		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
@@ -4567,34 +4527,15 @@ func TestExecuteInboundCommandGoalContinuesAfterInnerStepLimit(t *testing.T) {
 	if len(evaluator.inputs) != 2 {
 		t.Fatalf("evaluator inputs = %d, want two continuation decisions", len(evaluator.inputs))
 	}
-	if result.Error != nil {
-		t.Fatalf("error = %#v, want nil", result.Error)
+	if !strings.Contains(evaluator.inputs[0].Condition.Prompt, "Complete the coverage task") {
+		t.Fatalf("evaluator prompt = %q, want durable goal", evaluator.inputs[0].Condition.Prompt)
 	}
-}
-
-func TestParseGoalCommandInputDefaultsMaxContinuations(t *testing.T) {
-	input, err := parseGoalCommandInput(command.Invocation{
-		Path: command.Path{"goal"},
-		Args: []string{"Test coverage has increased to 90%"},
-	})
+	state, err := s.currentGoalState(ctx)
 	if err != nil {
-		t.Fatalf("parseGoalCommandInput: %v", err)
+		t.Fatalf("goal state: %v", err)
 	}
-	if input.Goal != "Test coverage has increased to 90%" || input.MaxContinuations != 10 {
-		t.Fatalf("input = %#v, want goal and default cap 10", input)
-	}
-}
-
-func TestParseGoalCommandInputRejectsExplicitZeroMax(t *testing.T) {
-	_, err := parseGoalCommandInput(command.Invocation{
-		Path: command.Path{"goal"},
-		Args: []string{"Test coverage has increased to 90%"},
-		Input: map[string]any{
-			"max": 0,
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "max-continuations must be > 0") {
-		t.Fatalf("parseGoalCommandInput error = %v, want explicit zero rejected", err)
+	if state.Status != coregoal.StatusReached || state.LatestReview == nil {
+		t.Fatalf("goal state = %#v, want reached with review", state)
 	}
 }
 

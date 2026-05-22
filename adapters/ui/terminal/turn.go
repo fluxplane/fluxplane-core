@@ -48,14 +48,11 @@ func RunTurn(ctx context.Context, session clientapi.SessionHandle, prompt string
 	return runInputTurn(ctx, session, prompt, opts, tracker)
 }
 
-// RunGoalTurn submits a goal-driven command turn.
-func RunGoalTurn(ctx context.Context, session clientapi.SessionHandle, goal string, maxContinuations int, opts TurnOptions, tracker *usage.Tracker) error {
+// RunGoalTurn submits a durable goal command turn.
+func RunGoalTurn(ctx context.Context, session clientapi.SessionHandle, goal string, opts TurnOptions, tracker *usage.Tracker) error {
 	invocation := command.Invocation{
 		Path: command.Path{"goal"},
 		Args: []string{goal},
-		Input: map[string]any{
-			"max": maxContinuations,
-		},
 	}
 	return runStructuredCommandTurn(ctx, session, invocation, opts, tracker)
 }

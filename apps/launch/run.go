@@ -47,6 +47,7 @@ import (
 	"github.com/fluxplane/engine/plugins/integrations/web"
 	"github.com/fluxplane/engine/plugins/native/datasource"
 	"github.com/fluxplane/engine/plugins/native/discovery"
+	goalplugin "github.com/fluxplane/engine/plugins/native/goal"
 	"github.com/fluxplane/engine/plugins/native/identity"
 	"github.com/fluxplane/engine/plugins/native/image"
 	"github.com/fluxplane/engine/plugins/native/memory"
@@ -359,6 +360,8 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
 	}
+	available = appendPluginIfMissing(available, goalplugin.New())
+	ensurePluginRef(bundles, goalplugin.Name)
 	plugins, err := selectDeclaredPlugins(bundles, available)
 	if err != nil {
 		closeRuntime()
@@ -655,6 +658,7 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		discovery.New(),
 		identity.New(),
 		coding.New(hostSystem),
+		goalplugin.New(),
 		openai.New(),
 		slack.NewWithResolver(hostSystem, dispatcher, nativeResolver, nativeStore),
 		gitlab.NewWithResolver(hostSystem, nativeResolver),

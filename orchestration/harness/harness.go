@@ -43,6 +43,7 @@ type Config struct {
 	Operations           *operation.Registry
 	Resolver             *resource.Resolver
 	CommandCatalog       session.CommandCatalog
+	SessionCommands      session.SessionCommandCatalog
 	OperationCatalog     session.OperationCatalog
 	ActivationSets       []coreactivation.Set
 	OperationSets        []operation.Set
@@ -80,6 +81,7 @@ type Service struct {
 	operations           *operation.Registry
 	resolver             *resource.Resolver
 	commandCatalog       session.CommandCatalog
+	sessionCommands      session.SessionCommandCatalog
 	operationCatalog     session.OperationCatalog
 	activationSets       []coreactivation.Set
 	operationSets        []operation.Set
@@ -124,6 +126,7 @@ func New(cfg Config) *Service {
 		operations:           cfg.Operations,
 		resolver:             cfg.Resolver,
 		commandCatalog:       cfg.CommandCatalog,
+		sessionCommands:      cfg.SessionCommands,
 		operationCatalog:     cfg.OperationCatalog,
 		activationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
 		operationSets:        append([]operation.Set(nil), cfg.OperationSets...),
@@ -433,6 +436,7 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Operations:           s.operations,
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
+		SessionCommands:      s.sessionCommands,
 		OperationCatalog:     s.operationCatalog,
 		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
@@ -519,7 +523,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	var commandPath command.Path
 	if inbound.Command != nil {
 		commandPath = inbound.Command.Path
-	} else if parsed, err := session.ParseCommandLine(inbound.CommandLine, s.commands, s.commandCatalog); err == nil {
+	} else if parsed, err := session.ParseCommandLine(inbound.CommandLine, s.commands, s.commandCatalog, s.sessionCommands); err == nil {
 		inbound.Command = &parsed
 		inbound.CommandLine = ""
 		commandPath = parsed.Path
@@ -527,7 +531,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	targetsSession := false
 	if len(commandPath) > 0 {
 		var err error
-		targetsSession, err = session.CommandTargetsSession(commandPath, s.resolver, s.commandCatalog, s.commands)
+		targetsSession, err = session.CommandTargetsSession(commandPath, s.resolver, s.commandCatalog, s.sessionCommands, s.commands)
 		if err != nil {
 			targetsSession = false
 		}
@@ -548,6 +552,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Operations:           s.operations,
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
+		SessionCommands:      s.sessionCommands,
 		OperationCatalog:     s.operationCatalog,
 		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
@@ -616,6 +621,7 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		Operations:           s.operations,
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
+		SessionCommands:      s.sessionCommands,
 		OperationCatalog:     s.operationCatalog,
 		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),

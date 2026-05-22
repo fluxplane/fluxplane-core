@@ -25,10 +25,12 @@ import (
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/environment"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
+	coregoal "github.com/fluxplane/engine/core/goal"
 	"github.com/fluxplane/engine/core/invocation"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
 	corereaction "github.com/fluxplane/engine/core/reaction"
+	corereview "github.com/fluxplane/engine/core/review"
 	coresession "github.com/fluxplane/engine/core/session"
 	coreskill "github.com/fluxplane/engine/core/skill"
 	coretask "github.com/fluxplane/engine/core/task"
@@ -42,6 +44,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/sessionworkflow"
 	conversationruntime "github.com/fluxplane/engine/runtime/conversation"
 	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	runtimegoal "github.com/fluxplane/engine/runtime/goal"
 	runtimereaction "github.com/fluxplane/engine/runtime/reaction"
 )
 
@@ -55,6 +58,7 @@ type Session struct {
 	Operations           *operation.Registry
 	Resolver             *sessioncontrol.Resolver
 	CommandCatalog       CommandCatalog
+	SessionCommands      SessionCommandCatalog
 	OperationCatalog     OperationCatalog
 	ActivationSets       []coreactivation.Set
 	ToolSetCatalog       ToolSetCatalog
@@ -93,10 +97,8 @@ const (
 )
 
 const (
-	defaultLLMMaxSteps       = 50
-	defaultLLMContinuations  = 3
-	defaultGoalContinuations = 10
-
+	defaultLLMMaxSteps          = 50
+	defaultLLMContinuations     = 3
 	defaultCompactContextTokens = 128000
 	maxCompactContextTokens     = 200000
 	compactTriggerRatio         = 0.85
@@ -110,17 +112,15 @@ var envExplainCommandSpec = sessioncontrol.EnvExplainCommandSpec
 var surfaceCommandSpec = sessioncontrol.SurfaceCommandSpec
 var activateCommandSpec = sessioncontrol.ActivateCommandSpec
 var compactCommandSpec = sessioncontrol.CompactCommandSpec
-var goalCommandSpec = sessioncontrol.GoalCommandSpec
 var whoamiCommandSpec = sessioncontrol.WhoamiCommandSpec
 
-func builtInSessionCommands() map[string]sessionCommandBinding {
-	return map[string]sessionCommandBinding{
+func builtInSessionCommands() map[string]SessionCommandBinding {
+	return map[string]SessionCommandBinding{
 		contextCommandSpec.Path.String():    {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
 		envExplainCommandSpec.Path.String(): {Spec: envExplainCommandSpec, Handler: Session.executeEnvExplainCommand},
 		surfaceCommandSpec.Path.String():    {Spec: surfaceCommandSpec, Handler: Session.executeSurfaceCommand},
 		activateCommandSpec.Path.String():   {Spec: activateCommandSpec, Handler: Session.executeActivateCommand},
 		compactCommandSpec.Path.String():    {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
-		goalCommandSpec.Path.String():       {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
 		whoamiCommandSpec.Path.String():     {Spec: whoamiCommandSpec, Handler: Session.executeWhoamiCommand},
 	}
 }
@@ -162,12 +162,14 @@ type CommandBinding struct {
 // CommandCatalog binds canonical command resource IDs to command specs.
 type CommandCatalog map[string]CommandBinding
 
-type sessionCommandHandler func(Session, context.Context, channel.Inbound, command.Spec, sessioncontrol.PolicyEvaluation) CommandResult
+type SessionCommandHandler func(Session, context.Context, channel.Inbound, command.Spec, sessioncontrol.PolicyEvaluation) CommandResult
 
-type sessionCommandBinding struct {
+type SessionCommandBinding struct {
 	Spec    command.Spec
-	Handler sessionCommandHandler
+	Handler SessionCommandHandler
 }
+
+type SessionCommandCatalog map[string]SessionCommandBinding
 
 type turnToolAgent interface {
 	StepWithTools(agent.Context, agent.StepInput, []tool.Spec) agent.StepResult
@@ -175,7 +177,7 @@ type turnToolAgent interface {
 
 type resolvedCommand struct {
 	Binding        CommandBinding
-	SessionHandler sessionCommandHandler
+	SessionHandler SessionCommandHandler
 }
 
 // StepRequest describes one agent step request.
@@ -453,7 +455,7 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 			State:               state,
 			Effects:             effects,
 			MaxSteps:            s.maxSteps(),
-			FailOnStepLimit:     s.failOnStepLimitForInput(opts),
+			FailOnStepLimit:     s.failOnStepLimitForInput(ctx, opts),
 			ProviderIdentity:    s.providerIdentity(),
 			ConversationTurnID:  inbound.ID,
 		})
@@ -1263,8 +1265,32 @@ func continuationPolicyForInput(opts inputExecutionOptions, spec agent.Spec) age
 	}
 }
 
+func continuationPolicyForGoal(state coregoal.State, spec agent.Spec) agent.ContinuationPolicy {
+	if !state.ActiveForContinuation() {
+		return agent.ContinuationPolicy{}
+	}
+	maxContinuations := spec.Turns.Continuation.MaxContinuations
+	if maxContinuations <= 0 {
+		maxContinuations = defaultLLMContinuations
+	}
+	contextPolicy := strings.TrimSpace(spec.Turns.Continuation.ContextPolicy)
+	switch contextPolicy {
+	case "summary", "new":
+	default:
+		contextPolicy = "summary"
+	}
+	return agent.ContinuationPolicy{
+		MaxContinuations: maxContinuations,
+		ContextPolicy:    contextPolicy,
+		StopCondition: agent.StopConditionSpec{
+			Type:   "prompt",
+			Prompt: goalStopPrompt(state.Text),
+		},
+	}
+}
+
 func goalStopPrompt(goal string) string {
-	return "Goal:\n" + goal + "\n\nStop when the goal is complete, impossible, blocked, or no reasonable next action remains. Continue only when more work is needed, and provide the next concrete instruction for the parent agent."
+	return "Goal:\n" + goal + "\n\nStop only when the goal is reached. Continue when more work is needed, when completion is blocked, or when the current evidence is insufficient; provide the next concrete instruction for the parent agent."
 }
 
 type providerIdentityAgent interface {
@@ -1282,14 +1308,6 @@ type contextPreviewInput struct {
 
 type surfaceCommandInput struct {
 	JSON bool `json:"json,omitempty" command:"flag=json"`
-}
-
-type goalCommandInput struct {
-	Goal                []string `json:"goal,omitempty" command:"arg"`
-	Max                 *int     `json:"max,omitempty" command:"flag=max"`
-	MaxContinuations    *int     `json:"max_continuations,omitempty" command:"flag=max-continuations"`
-	MaxContinuationsAlt *int     `json:"max-continuations,omitempty"`
-	DefaultMax          *int     `json:"-" command:"default=10"`
 }
 
 type contextPreviewData struct {
@@ -2551,6 +2569,7 @@ func (s Session) contextProviders(active ...sessionenv.ActiveState) []corecontex
 	if len(active) > 0 && s.shouldProjectSurfaceTools(active[0]) {
 		providers = append(providers, surfaceSchemaContextProvider{session: s, active: active[0]})
 	}
+	providers = appendAutoContextProviders(providers, s.ContextProviders)
 	if len(active) == 0 || len(active[0].ContextProviders) == 0 {
 		return providers
 	}
@@ -2571,6 +2590,28 @@ func (s Session) contextProviders(active ...sessionenv.ActiveState) []corecontex
 		}
 		providers = append(providers, provider)
 		seen[name] = true
+	}
+	return providers
+}
+
+func appendAutoContextProviders(providers []corecontext.Provider, candidates []corecontext.Provider) []corecontext.Provider {
+	seen := map[corecontext.ProviderName]bool{}
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		seen[provider.Spec().Name] = true
+	}
+	for _, provider := range candidates {
+		if provider == nil {
+			continue
+		}
+		spec := provider.Spec()
+		if spec.Annotations[corecontext.AnnotationAutoContext] != "true" || seen[spec.Name] {
+			continue
+		}
+		providers = append(providers, provider)
+		seen[spec.Name] = true
 	}
 	return providers
 }
@@ -3877,12 +3918,17 @@ func (s Session) failOnStepLimit() bool {
 	return sessioncontrol.IsLLMDriverKind(spec.Driver.Kind) || spec.Turns.MaxSteps > 0
 }
 
-func (s Session) failOnStepLimitForInput(opts inputExecutionOptions) bool {
+func (s Session) failOnStepLimitForInput(ctx context.Context, opts inputExecutionOptions) bool {
 	if s.Agent == nil {
 		return true
 	}
 	spec := s.Agent.Spec()
 	continuation := continuationPolicyForInput(opts, spec)
+	if strings.TrimSpace(continuation.StopCondition.Type) == "" {
+		if state, err := s.currentGoalState(ctx); err == nil && state.ActiveForContinuation() {
+			continuation = continuationPolicyForGoal(state, spec)
+		}
+	}
 	if strings.TrimSpace(continuation.StopCondition.Type) != "" {
 		return false
 	}
@@ -3923,6 +3969,13 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 	}
 	spec := s.Agent.Spec()
 	continuation := continuationPolicyForInput(opts, spec)
+	var goalState coregoal.State
+	if strings.TrimSpace(continuation.StopCondition.Type) == "" {
+		if state, err := s.currentGoalState(ctx); err == nil && state.ActiveForContinuation() {
+			goalState = state
+			continuation = continuationPolicyForGoal(state, spec)
+		}
+	}
 	condition := continuation.StopCondition
 	if strings.TrimSpace(condition.Type) == "" {
 		return continuationDecision{}
@@ -3944,16 +3997,83 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 	}
 	action := StopAction(strings.TrimSpace(strings.ToLower(string(evaluation.Action))))
 	if action != StopActionContinue {
+		if goalState.ID != "" {
+			_ = s.recordGoalReview(ctx, inbound.ID, goalState, evaluation, true)
+		}
 		return continuationDecision{Reason: evaluation.Reason}
 	}
 	if completed >= maxContinuations {
 		return continuationDecision{Result: continuationLimitResult(agentResult, effects, maxContinuations)}
+	}
+	if goalState.ID != "" {
+		_ = s.recordGoalReview(ctx, inbound.ID, goalState, evaluation, false)
 	}
 	return continuationDecision{Continue: true, Instruction: evaluation.ContinueInstruction, Reason: evaluation.Reason}
 }
 
 func (s Session) evaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
 	return sessioncontrol.EvaluateStopCondition(ctx, input.Condition, input, s.StopEvaluator)
+}
+
+func (s Session) recordGoalReview(ctx context.Context, runID string, state coregoal.State, evaluation StopEvaluation, reached bool) error {
+	if state.ID == "" {
+		return nil
+	}
+	reviewID := coregoal.ReviewID(newReviewID(state.ID, runID, evaluation, reached))
+	result := corereview.Result{
+		ID:       corereview.ID(reviewID),
+		Decision: corereview.DecisionRejected,
+		Summary:  strings.TrimSpace(evaluation.Reason),
+		Suggestions: []corereview.Suggestion{{
+			Text: strings.TrimSpace(firstNonEmpty(evaluation.ContinueInstruction, evaluation.Reason, "Continue working toward the goal.")),
+		}},
+	}
+	eventPayload := sessionenv.Event(coregoal.Rejected{
+		GoalID: state.ID,
+		Review: coregoal.Review{
+			ReviewID: reviewID,
+			GoalID:   state.ID,
+			RunID:    runID,
+			Result:   result,
+		},
+		RunID: runID,
+	})
+	if reached {
+		result.Decision = corereview.DecisionAccepted
+		result.Evidence = []corereview.Evidence{{
+			Kind:    "stop_evaluator",
+			Summary: strings.TrimSpace(firstNonEmpty(evaluation.Reason, "Evaluator accepted the goal as reached.")),
+		}}
+		result.Suggestions = nil
+		eventPayload = coregoal.Reached{
+			GoalID: state.ID,
+			Review: coregoal.Review{
+				ReviewID: reviewID,
+				GoalID:   state.ID,
+				RunID:    runID,
+				Result:   result,
+			},
+			RunID: runID,
+		}
+	}
+	return s.appendThreadEvents(ctx,
+		coregoal.ReviewRequested{GoalID: state.ID, ReviewID: reviewID, RunID: runID},
+		eventPayload,
+	)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func newReviewID(goalID coregoal.ID, runID string, evaluation StopEvaluation, reached bool) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\n%s\n%t\n%s\n%s\n%d", goalID, runID, reached, evaluation.Reason, evaluation.ContinueInstruction, time.Now().UTC().UnixNano())))
+	return "goal_review_" + hex.EncodeToString(sum[:])[:16]
 }
 
 func continuationLimitResult(agentResult agent.StepResult, effects []environment.EffectResult, max int) InputResult {
@@ -4581,134 +4701,18 @@ func renderSubjects(subjects []policy.SubjectRef) string {
 	return strings.Join(parts, ", ")
 }
 
-func (s Session) executeGoalCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
-	input, err := parseGoalCommandInput(*inbound.Command)
+func (s Session) currentGoalState(ctx context.Context) (coregoal.State, error) {
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return coregoal.State{}, fmt.Errorf("goal requires an active thread")
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
 	if err != nil {
-		return CommandResult{
-			Status: CommandStatusFailed,
-			Spec:   spec,
-			Policy: evaluation,
-			Error:  &CommandError{Code: "invalid_goal_command_input", Message: err.Error()},
-		}
+		return coregoal.State{}, err
 	}
-	messageInbound := inbound
-	messageInbound.Kind = channel.InboundMessage
-	messageInbound.Command = nil
-	messageInbound.Message = &channel.Message{Content: input.Goal}
-	result := s.executeInboundInput(ctx, messageInbound, input)
-	status := CommandStatusOK
-	if result.Status != InputStatusOK {
-		status = CommandStatusFailed
+	if s.Thread.BranchID != "" {
+		snapshot.BranchID = s.Thread.BranchID
 	}
-	var output any
-	if result.Outbound != nil && result.Outbound.Message != nil {
-		output = result.Outbound.Message.Content
-	}
-	return CommandResult{
-		Status: status,
-		Spec:   spec,
-		Policy: evaluation,
-		Output: output,
-		Error:  result.Error,
-	}
-}
-
-func parseGoalCommandInput(inv command.Invocation) (inputExecutionOptions, error) {
-	input, err := command.Bind[goalCommandInput](inv)
-	if err != nil {
-		return inputExecutionOptions{}, err
-	}
-	if len(inv.Args) == 0 && inv.Input != nil {
-		structured := structuredGoalCommandInput(inv.Input)
-		input = mergeGoalCommandInput(input, structured)
-	}
-	return validateGoalCommandInput(input)
-}
-
-func structuredGoalCommandInput(value any) goalCommandInput {
-	values, ok := value.(map[string]any)
-	if !ok {
-		return goalCommandInput{}
-	}
-	var input goalCommandInput
-	switch goal := values["goal"].(type) {
-	case string:
-		input.Goal = []string{goal}
-	case []string:
-		input.Goal = append([]string(nil), goal...)
-	case []any:
-		for _, item := range goal {
-			input.Goal = append(input.Goal, fmt.Sprint(item))
-		}
-	}
-	input.Max = intPointerValue(values, "max")
-	input.MaxContinuations = intPointerValue(values, "max_continuations")
-	input.MaxContinuationsAlt = intPointerValue(values, "max-continuations")
-	return input
-}
-
-func intPointerValue(values map[string]any, key string) *int {
-	value, ok := values[key]
-	if !ok {
-		return nil
-	}
-	parsed := intValue(value)
-	return &parsed
-}
-
-func intValue(value any) int {
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int64:
-		return int(typed)
-	case float64:
-		return int(typed)
-	case string:
-		parsed, _ := strconv.Atoi(strings.TrimSpace(typed))
-		return parsed
-	default:
-		return 0
-	}
-}
-
-func mergeGoalCommandInput(primary, fallback goalCommandInput) goalCommandInput {
-	if len(primary.Goal) == 0 {
-		primary.Goal = fallback.Goal
-	}
-	if primary.Max == nil {
-		primary.Max = fallback.Max
-	}
-	if primary.MaxContinuations == nil {
-		primary.MaxContinuations = fallback.MaxContinuations
-	}
-	if primary.MaxContinuationsAlt == nil {
-		primary.MaxContinuationsAlt = fallback.MaxContinuationsAlt
-	}
-	return primary
-}
-
-func validateGoalCommandInput(input goalCommandInput) (inputExecutionOptions, error) {
-	goal := strings.TrimSpace(strings.Join(input.Goal, " "))
-	if goal == "" {
-		return inputExecutionOptions{}, fmt.Errorf("goal is required; use /goal \"your goal\"")
-	}
-	max := 0
-	if input.Max != nil {
-		max = *input.Max
-	} else if input.MaxContinuations != nil {
-		max = *input.MaxContinuations
-	} else if input.MaxContinuationsAlt != nil {
-		max = *input.MaxContinuationsAlt
-	} else if input.DefaultMax != nil {
-		max = *input.DefaultMax
-	} else {
-		max = defaultGoalContinuations
-	}
-	if max <= 0 {
-		return inputExecutionOptions{}, fmt.Errorf("max-continuations must be > 0")
-	}
-	return inputExecutionOptions{Goal: goal, MaxContinuations: max}, nil
+	return runtimegoal.ProjectThread(snapshot)
 }
 
 func parseContextPreviewCommand(inv command.Invocation) (contextPreviewInput, error) {
@@ -5107,8 +5111,8 @@ func commandPathAllowed(allowed []command.Path, path command.Path) bool {
 
 // CommandTargetsSession reports whether a command path needs session-specific
 // agent/runtime wiring before dispatch.
-func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (bool, error) {
-	resolved, ok, err := resolveCommand(path, resolver, catalog, registry)
+func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, sessionCommands SessionCommandCatalog, registry *command.Registry) (bool, error) {
+	resolved, ok, err := resolveCommand(path, resolver, catalog, sessionCommands, registry)
 	if err != nil || !ok {
 		return false, err
 	}
@@ -5118,7 +5122,7 @@ func CommandTargetsSession(path command.Path, resolver *sessioncontrol.Resolver,
 
 // ParseCommandLine parses a raw slash command line using session command
 // resolution rules.
-func ParseCommandLine(line string, registry *command.Registry, catalog CommandCatalog) (command.Invocation, error) {
+func ParseCommandLine(line string, registry *command.Registry, catalog CommandCatalog, sessionCommands SessionCommandCatalog) (command.Invocation, error) {
 	invocation, ok, err := command.ParseSlash(line)
 	if err != nil {
 		return command.Invocation{}, err
@@ -5126,11 +5130,11 @@ func ParseCommandLine(line string, registry *command.Registry, catalog CommandCa
 	if !ok {
 		return command.Invocation{}, fmt.Errorf("command line is not a slash command")
 	}
-	return preferResolvableCommand(invocation, AvailableCommandSpecs(registry, catalog)), nil
+	return preferResolvableCommand(invocation, AvailableCommandSpecs(registry, catalog, sessionCommands)), nil
 }
 
 func (s Session) parseCommandLine(line string) (command.Invocation, error) {
-	return ParseCommandLine(line, s.Commands, s.CommandCatalog)
+	return ParseCommandLine(line, s.Commands, s.CommandCatalog, s.SessionCommands)
 }
 
 func preferResolvableCommand(invocation command.Invocation, specs []command.Spec) command.Invocation {
@@ -5164,11 +5168,19 @@ func knownCommandPath(path command.Path, specs []command.Spec) bool {
 }
 
 func (s Session) resolveCommand(path command.Path) (resolvedCommand, bool, error) {
-	return resolveCommand(path, s.Resolver, s.CommandCatalog, s.Commands)
+	return resolveCommand(path, s.Resolver, s.CommandCatalog, s.SessionCommands, s.Commands)
 }
 
-func resolveCommand(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
+func resolveCommand(path command.Path, resolver *sessioncontrol.Resolver, catalog CommandCatalog, sessionCommands SessionCommandCatalog, registry *command.Registry) (resolvedCommand, bool, error) {
 	if sessionCommand, ok := builtInSessionCommands()[path.String()]; ok {
+		return resolvedCommand{
+			Binding: CommandBinding{
+				Spec: sessionCommand.Spec,
+			},
+			SessionHandler: sessionCommand.Handler,
+		}, true, nil
+	}
+	if sessionCommand, ok := sessionCommands[path.String()]; ok {
 		return resolvedCommand{
 			Binding: CommandBinding{
 				Spec: sessionCommand.Spec,
@@ -5568,6 +5580,11 @@ func (s Session) appendThreadEvents(ctx context.Context, events ...sessionenv.Ev
 		return nil
 	}
 	return s.appendThreadRecords(ctx, records...)
+}
+
+// AppendThreadEvents appends session-scoped events to the current thread.
+func (s Session) AppendThreadEvents(ctx context.Context, events ...sessionenv.Event) error {
+	return s.appendThreadEvents(ctx, events...)
 }
 
 func (s Session) appendConversation(ctx context.Context, turnID string, provider coreconversation.ProviderIdentity, items []coreconversation.Item, handles ...coreconversation.ContinuationHandle) error {

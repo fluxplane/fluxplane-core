@@ -107,6 +107,7 @@ type Config struct {
 	Operations           *operation.Registry
 	Resolver             *resource.Resolver
 	CommandCatalog       session.CommandCatalog
+	SessionCommands      session.SessionCommandCatalog
 	OperationCatalog     session.OperationCatalog
 	ActivationSets       []coreactivation.Set
 	OperationSets        []operation.Set
@@ -194,6 +195,7 @@ func New(cfg Config) (*Service, error) {
 		Operations:           operations,
 		Resolver:             cfg.Resolver,
 		CommandCatalog:       cfg.CommandCatalog,
+		SessionCommands:      cfg.SessionCommands,
 		OperationCatalog:     cfg.OperationCatalog,
 		ActivationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
 		OperationSets:        append([]operation.Set(nil), cfg.OperationSets...),
@@ -350,6 +352,9 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if cfg.CommandCatalog == nil {
 		cfg.CommandCatalog = composition.CommandCatalog
+	}
+	if cfg.SessionCommands == nil {
+		cfg.SessionCommands = composition.SessionCommands
 	}
 	if len(cfg.OperationSets) == 0 {
 		cfg.OperationSets = composition.OperationSets

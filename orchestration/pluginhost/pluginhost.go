@@ -15,6 +15,7 @@ import (
 	coresecret "github.com/fluxplane/engine/core/secret"
 	"github.com/fluxplane/engine/orchestration/channelruntime"
 	"github.com/fluxplane/engine/orchestration/identity"
+	"github.com/fluxplane/engine/orchestration/session"
 	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
 	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
@@ -62,6 +63,12 @@ type OperationContributor interface {
 // context providers in addition to pure context provider specs.
 type ContextProviderContributor interface {
 	ContextProviders(context.Context, Context) ([]corecontext.Provider, error)
+}
+
+// SessionCommandContributor is implemented by plugins that provide
+// current-session command handlers in addition to inert command specs.
+type SessionCommandContributor interface {
+	SessionCommands(context.Context, Context) ([]session.SessionCommandBinding, error)
 }
 
 // ObserverContributor is implemented by plugins that provide executable
@@ -160,6 +167,12 @@ type ContextProviderContribution struct {
 	Provider corecontext.Provider
 }
 
+// SessionCommandContribution is one executable current-session command handler.
+type SessionCommandContribution struct {
+	Source  resource.SourceRef
+	Binding session.SessionCommandBinding
+}
+
 // EnvironmentObserverContribution is one executable observer contributed by a
 // plugin instance.
 type EnvironmentObserverContribution struct {
@@ -215,6 +228,7 @@ type ExternalIdentityContribution struct {
 type Resolution struct {
 	Bundles             []resource.ContributionBundle
 	Operations          []OperationContribution
+	SessionCommands     []SessionCommandContribution
 	ContextProviders    []ContextProviderContribution
 	Observers           []EnvironmentObserverContribution
 	AssertionDerivers   []AssertionDeriverContribution
@@ -379,6 +393,21 @@ func (h *Host) Resolve(ctx context.Context, refs ...resource.PluginRef) (Resolut
 				out.ContextProviders = append(out.ContextProviders, ContextProviderContribution{
 					Source:   source,
 					Provider: provider,
+				})
+			}
+		}
+		if contributor, ok := resolvedPlugin.(SessionCommandContributor); ok {
+			bindings, err := contributor.SessionCommands(ctx, pluginCtx)
+			if err != nil {
+				return Resolution{}, fmt.Errorf("pluginhost: plugin %q session commands: %w", pluginLabel(ref), err)
+			}
+			for _, binding := range bindings {
+				if binding.Spec.Path.String() == "" || binding.Handler == nil {
+					continue
+				}
+				out.SessionCommands = append(out.SessionCommands, SessionCommandContribution{
+					Source:  source,
+					Binding: binding,
 				})
 			}
 		}

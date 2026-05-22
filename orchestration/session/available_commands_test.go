@@ -30,8 +30,11 @@ func TestAvailableCommandSpecsIncludesDispatcherCommands(t *testing.T) {
 			},
 		},
 	}
+	sessionCommands := SessionCommandCatalog{
+		"/goal": {Spec: command.Spec{Path: command.Path{"goal"}, Target: invocation.Target{Kind: invocation.TargetSession}}},
+	}
 
-	specs := AvailableCommandSpecs(registry, catalog)
+	specs := AvailableCommandSpecs(registry, catalog, sessionCommands)
 	paths := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		paths = append(paths, spec.Path.String())
@@ -47,24 +50,13 @@ func TestAvailableCommandSpecsIncludesDispatcherCommands(t *testing.T) {
 }
 
 func TestAvailableCommandSpecsAddsBuiltInCompletionFlags(t *testing.T) {
-	specs := AvailableCommandSpecs(nil, nil)
+	specs := AvailableCommandSpecs(nil, nil, nil)
 	activate, ok := commandSpecByPath(specs, "/activate")
 	if !ok {
 		t.Fatal("missing /activate command")
 	}
 	if !containsCSV(activate.Annotations[command.CompletionFlagsAnnotation], "duration") {
 		t.Fatalf("/activate completion flags = %q, missing duration", activate.Annotations[command.CompletionFlagsAnnotation])
-	}
-
-	goal, ok := commandSpecByPath(specs, "/goal")
-	if !ok {
-		t.Fatal("missing /goal command")
-	}
-	flags := goal.Annotations[command.CompletionFlagsAnnotation]
-	for _, want := range []string{"max", "max-continuations"} {
-		if !containsCSV(flags, want) {
-			t.Fatalf("/goal completion flags = %q, missing %q", flags, want)
-		}
 	}
 
 	compact, ok := commandSpecByPath(specs, "/compact")

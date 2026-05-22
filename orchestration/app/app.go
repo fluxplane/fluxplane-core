@@ -21,6 +21,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/identity"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/orchestration/resourcecatalog"
+	"github.com/fluxplane/engine/orchestration/session"
 	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
 	"github.com/fluxplane/engine/runtime/eventstore"
@@ -62,6 +63,7 @@ type Composition struct {
 	Resolver      *resource.Resolver
 	resourcecatalog.Catalogs
 	ContextProviderImpls []corecontext.Provider
+	SessionCommands      session.SessionCommandCatalog
 	DatasourceProviders  []coredatasource.Provider
 	EnvironmentObservers []runtimeevidence.Observer
 	AssertionDerivers    []runtimeevidence.AssertionDeriver
@@ -91,7 +93,7 @@ func Compose(cfg Config) (Composition, error) {
 	if cfg.EventStore == nil {
 		cfg.EventStore = eventstore.NewMemoryStore()
 	}
-	bundles, pluginOperations, pluginContextProviders, pluginDatasourceProviders, pluginObservers, pluginAssertionDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
+	bundles, pluginOperations, pluginContextProviders, pluginSessionCommands, pluginDatasourceProviders, pluginObservers, pluginAssertionDerivers, pluginReactions, pluginExternalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err := resolvePluginContributions(cfg.Context, cfg.Bundles, cfg.Plugins, cfg.EventStore, cfg.DataStore)
 	if err != nil {
 		return Composition{Diagnostics: diagnostics}, err
 	}
@@ -188,6 +190,7 @@ func Compose(cfg Config) (Composition, error) {
 		Resolver:             resolver,
 		Catalogs:             catalogs,
 		ContextProviderImpls: append(append([]corecontext.Provider(nil), cfg.ContextProviders...), pluginContextProviders...),
+		SessionCommands:      pluginSessionCommands,
 		DatasourceProviders:  pluginDatasourceProviders,
 		EnvironmentObservers: environmentObservers,
 		AssertionDerivers:    assertionDerivers,
@@ -531,10 +534,11 @@ func appendEventTypesFromBundles(base []event.Event, bundles []resource.Contribu
 	return out
 }
 
-func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
+func resolvePluginContributions(ctx context.Context, bundles []resource.ContributionBundle, plugins []pluginhost.Plugin, eventStore event.Store, dataStore coredata.Store) ([]resource.ContributionBundle, []pluginhost.OperationContribution, []corecontext.Provider, session.SessionCommandCatalog, []coredatasource.Provider, []runtimeevidence.Observer, []runtimeevidence.AssertionDeriver, []reactionRuleBinding, []identity.ExternalResolver, *runtimediscovery.Registry, *runtimediscovery.Runner, *runtimeendpoint.Registry, *runtimesecret.Registry, []resource.Diagnostic, error) {
 	out := append([]resource.ContributionBundle(nil), bundles...)
 	var operations []pluginhost.OperationContribution
 	var contextProviders []corecontext.Provider
+	sessionCommands := session.SessionCommandCatalog{}
 	var datasourceProviders []coredatasource.Provider
 	var observers []runtimeevidence.Observer
 	var assertionDerivers []runtimeevidence.AssertionDeriver
@@ -544,7 +548,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 	host, err := pluginhost.New(plugins...)
 	if err != nil {
 		diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
-		return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
+		return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, nil, nil, nil, nil, diagnostics, err
 	}
 	discoveryRegistry := runtimediscovery.NewRegistry()
 	endpointRegistry := runtimeendpoint.NewRegistry(0)
@@ -563,12 +567,24 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 		contributed, err := host.Resolve(ctx, bundle.Plugins...)
 		if err != nil {
 			diagnostics = append(diagnostics, diagnostic(bundle.Source, err))
-			return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
+			return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
 		}
 		out = append(out, contributed.Bundles...)
 		operations = append(operations, contributed.Operations...)
 		for _, provider := range contributed.ContextProviders {
 			contextProviders = append(contextProviders, provider.Provider)
+		}
+		for _, command := range contributed.SessionCommands {
+			key := command.Binding.Spec.Path.String()
+			if key == "" {
+				continue
+			}
+			if _, exists := sessionCommands[key]; exists {
+				err := fmt.Errorf("duplicate session command handler %q", key)
+				diagnostics = append(diagnostics, diagnostic(command.Source, err))
+				return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, err
+			}
+			sessionCommands[key] = command.Binding
 		}
 		for _, provider := range contributed.DatasourceProviders {
 			datasourceProviders = append(datasourceProviders, provider.Provider)
@@ -586,7 +602,7 @@ func resolvePluginContributions(ctx context.Context, bundles []resource.Contribu
 			externalIdentities = append(externalIdentities, resolver.Resolver)
 		}
 	}
-	return out, operations, contextProviders, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, nil
+	return out, operations, contextProviders, sessionCommands, datasourceProviders, observers, assertionDerivers, reactions, externalIdentities, discoveryRegistry, discoverer, endpointRegistry, secretRegistry, diagnostics, nil
 }
 
 func diagnostic(source resource.SourceRef, err error) resource.Diagnostic {

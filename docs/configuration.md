@@ -290,14 +290,20 @@ turns:
   raw operation payloads.
 - `new`: use clean evaluator context plus the same compact summary.
 
-Local CLI sessions can also enable continuation for one submission without
-changing agent configuration. `coder --goal "..."`, `fluxplane run . --goal
-"..."`, and `/goal --max 20 "..."` submit the built-in `/goal` command, which
-runs the goal text as the task and installs a prompt stop condition for that run
-only. The command stops when the evaluator decides the goal is complete,
-impossible, blocked, or no reasonable next action remains; otherwise it
-continues until the requested cap is reached. `--goal` defaults to
-`--max-continuations 20`.
+Local CLI sessions can also set a durable thread goal without changing agent
+configuration. `coder --goal "..."`, `fluxplane run . --goal "..."`, and
+`/goal "..."` submit the native goal plugin's `/goal` command, which records
+the goal on the current thread instead of running it as a one-shot prompt. The
+current goal is rendered into session context until it is cleared, paused goals
+do not drive continuation, and reached goals remain visible until `/goal clear`.
+
+The `/goal` command accepts only lifecycle arguments:
+
+- `/goal <goal>` sets or replaces the durable thread goal.
+- `/goal` or `/goal status` shows the current goal.
+- `/goal pause` pauses goal-driven continuation.
+- `/goal resume` resumes goal-driven continuation.
+- `/goal clear` clears the current goal from context.
 
 ### Sessions
 

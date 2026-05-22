@@ -360,10 +360,9 @@ func TestRunGoalSubmitsGoalCommand(t *testing.T) {
 		},
 		Runtime: runtime,
 	}, RunOptions{
-		Goal:             "Test coverage has increased to 90%",
-		MaxContinuations: 20,
-		Out:              &bytes.Buffer{},
-		Err:              &bytes.Buffer{},
+		Goal: "Test coverage has increased to 90%",
+		Out:  &bytes.Buffer{},
+		Err:  &bytes.Buffer{},
 	})
 
 	if err != nil {
@@ -379,9 +378,8 @@ func TestRunGoalSubmitsGoalCommand(t *testing.T) {
 	if len(submission.Command.Args) != 1 || submission.Command.Args[0] != "Test coverage has increased to 90%" {
 		t.Fatalf("args = %#v, want goal arg", submission.Command.Args)
 	}
-	input := submission.Command.Input.(map[string]any)
-	if input["max"] != 20 {
-		t.Fatalf("goal input = %#v, want cap 20", input)
+	if submission.Command.Input != nil {
+		t.Fatalf("goal input = %#v, want no command input", submission.Command.Input)
 	}
 }
 
@@ -392,11 +390,9 @@ func TestRunGoalForwardsCommandPayloadWithoutSemanticValidation(t *testing.T) {
 		Spec:    coredistribution.Spec{Name: "coder"},
 		Runtime: runtime,
 	}, RunOptions{
-		GoalSet:             true,
-		MaxContinuations:    0,
-		MaxContinuationsSet: true,
-		Out:                 &bytes.Buffer{},
-		Err:                 &bytes.Buffer{},
+		GoalSet: true,
+		Out:     &bytes.Buffer{},
+		Err:     &bytes.Buffer{},
 	})
 
 	if err != nil {
@@ -412,9 +408,8 @@ func TestRunGoalForwardsCommandPayloadWithoutSemanticValidation(t *testing.T) {
 	if len(submission.Command.Args) != 1 || submission.Command.Args[0] != "" {
 		t.Fatalf("args = %#v, want empty goal forwarded", submission.Command.Args)
 	}
-	input := submission.Command.Input.(map[string]any)
-	if input["max"] != 0 {
-		t.Fatalf("goal input = %#v, want explicit cap 0 forwarded", input)
+	if submission.Command.Input != nil {
+		t.Fatalf("goal input = %#v, want no command input", submission.Command.Input)
 	}
 }
 

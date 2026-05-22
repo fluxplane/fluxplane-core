@@ -11,7 +11,7 @@ import (
 // AvailableCommandSpecs returns the command specs the session command dispatcher
 // can resolve. This is the authoritative command list for presentation-layer
 // command completion.
-func AvailableCommandSpecs(registry *command.Registry, catalog CommandCatalog) []command.Spec {
+func AvailableCommandSpecs(registry *command.Registry, catalog CommandCatalog, sessionCommands SessionCommandCatalog) []command.Spec {
 	seen := map[string]command.Spec{}
 	add := func(spec command.Spec) {
 		key := spec.Path.String()
@@ -24,6 +24,9 @@ func AvailableCommandSpecs(registry *command.Registry, catalog CommandCatalog) [
 		seen[key] = spec
 	}
 	for _, binding := range builtInSessionCommands() {
+		add(completeBuiltInCommandSpec(binding.Spec))
+	}
+	for _, binding := range sessionCommands {
 		add(completeBuiltInCommandSpec(binding.Spec))
 	}
 	for _, binding := range catalog {
@@ -56,9 +59,6 @@ func completeBuiltInCommandSpec(spec command.Spec) command.Spec {
 	case surfaceCommandSpec.Path.String():
 		spec.Input = runtimeoperation.TypeOf[surfaceCommandInput]("surface_input")
 		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[surfaceCommandInput]())
-	case goalCommandSpec.Path.String():
-		spec.Input = runtimeoperation.TypeOf[goalCommandInput]("goal_input")
-		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[goalCommandInput]())
 	}
 	return spec
 }

@@ -193,17 +193,6 @@ var CompactCommandSpec = command.Spec{
 	},
 }
 
-// GoalCommandSpec is the built-in session command that runs goal continuations.
-var GoalCommandSpec = command.Spec{
-	Path:        command.Path{"goal"},
-	Description: "Run a goal-driven task until the goal is complete or the continuation cap is reached.",
-	Target:      invocation.Target{Kind: invocation.TargetSession},
-	Policy: policy.InvocationPolicy{
-		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
-		RequiredTrust:  policy.TrustVerified,
-	},
-}
-
 // WhoamiCommandSpec is the built-in session command that reports the resolved
 // caller, canonical user, effective trust, and authorization subjects.
 var WhoamiCommandSpec = command.Spec{

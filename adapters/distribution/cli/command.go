@@ -46,13 +46,12 @@ func NewCommand(dist distribution.Distribution) *cobra.Command {
 // configured launch defaults.
 func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *cobra.Command {
 	opts := options{
-		provider:         dist.Spec.DefaultModel.Provider,
-		model:            dist.Spec.DefaultModel.Model,
-		thinking:         "auto",
-		maxContinuations: 20,
-		workspaceRoots:   append([]string(nil), cfg.WorkspaceRoots...),
-		envFiles:         append([]string(nil), cfg.EnvFiles...),
-		workspace:        cloneWorkspaceConfig(cfg.Workspace),
+		provider:       dist.Spec.DefaultModel.Provider,
+		model:          dist.Spec.DefaultModel.Model,
+		thinking:       "auto",
+		workspaceRoots: append([]string(nil), cfg.WorkspaceRoots...),
+		envFiles:       append([]string(nil), cfg.EnvFiles...),
+		workspace:      cloneWorkspaceConfig(cfg.Workspace),
 	}
 	cmd := &cobra.Command{
 		Use:   dist.Spec.Name,
@@ -76,8 +75,6 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 				Input:               opts.input,
 				Goal:                opts.goal,
 				GoalSet:             cmd.Flags().Changed("goal"),
-				MaxContinuations:    opts.maxContinuations,
-				MaxContinuationsSet: cmd.Flags().Changed("max-continuations"),
 				Debug:               opts.debug,
 				Usage:               opts.usage,
 				Yolo:                opts.yolo,
@@ -101,8 +98,7 @@ func NewCommandWithOptions(dist distribution.Distribution, cfg CommandOptions) *
 	cmd.Flags().StringVar(&opts.thinking, "thinking", opts.thinking, "thinking mode: auto|on|off")
 	cmd.Flags().StringVar(&opts.effort, "effort", opts.effort, "reasoning effort: low|medium|high|max")
 	cmd.Flags().StringVar(&opts.input, "input", "", "send one input and exit instead of opening a REPL")
-	cmd.Flags().StringVar(&opts.goal, "goal", "", "run a goal-driven task and exit")
-	cmd.Flags().IntVar(&opts.maxContinuations, "max-continuations", opts.maxContinuations, "maximum goal continuations")
+	cmd.Flags().StringVar(&opts.goal, "goal", "", "set the durable session goal and exit")
 	cmd.Flags().BoolVar(&opts.debug, "debug", false, "print run events as highlighted JSON markdown")
 	cmd.Flags().BoolVar(&opts.usage, "usage", false, "print usage events after each response")
 	cmd.Flags().BoolVar(&opts.yolo, "yolo", false, "auto-approve local operation risk gates for this run")
@@ -128,7 +124,6 @@ type options struct {
 	effort              string
 	input               string
 	goal                string
-	maxContinuations    int
 	debug               bool
 	usage               bool
 	yolo                bool
@@ -154,8 +149,6 @@ type RunOptions struct {
 	Input               string
 	Goal                string
 	GoalSet             bool
-	MaxContinuations    int
-	MaxContinuationsSet bool
 	Debug               bool
 	Usage               bool
 	Yolo                bool
@@ -192,7 +185,7 @@ func runGoal(ctx context.Context, dist distribution.Distribution, opts RunOption
 	defer func() { _ = session.Close(ctx) }()
 	turnOpts := terminalOptions(opts)
 	turnOpts.WaitForBackgroundTasks = true
-	return terminal.RunGoalTurn(ctx, session, opts.Goal, opts.MaxContinuations, turnOpts, usage.NewTracker())
+	return terminal.RunGoalTurn(ctx, session, opts.Goal, turnOpts, usage.NewTracker())
 }
 
 func runOneShot(ctx context.Context, dist distribution.Distribution, opts RunOptions) error {
