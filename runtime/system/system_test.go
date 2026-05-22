@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -542,6 +544,79 @@ func TestHostProcessPreservesSSHAgentSocket(t *testing.T) {
 	}
 }
 
+func TestEnvFileParsingPatternsAndExecutableResolution(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(root, "bin", "tool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(root, ".env")
+	envContent := strings.Join([]string{
+		"# comment",
+		"export SIMPLE=value # inline comment",
+		`SINGLE='quoted value'`,
+		`DOUBLE="line\nnext\tTabbed\\slash\"quote"`,
+		"EMPTY=",
+		"",
+	}, "\n")
+	if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	values, err := parseEnvFile(envPath)
+	if err != nil {
+		t.Fatalf("parseEnvFile: %v", err)
+	}
+	if values["SIMPLE"] != "value" || values["SINGLE"] != "quoted value" || values["EMPTY"] != "" {
+		t.Fatalf("values = %#v, want parsed simple/single/empty values", values)
+	}
+	if values["DOUBLE"] != "line\nnext\tTabbed\\slash\"quote" {
+		t.Fatalf("DOUBLE = %q, want unescaped double-quoted value", values["DOUBLE"])
+	}
+	files, err := resolveEnvFiles(root, []string{".missing", ".env", "*.env"})
+	if err != nil {
+		t.Fatalf("resolveEnvFiles: %v", err)
+	}
+	if len(files) != 2 || files[0] != envPath || files[1] != envPath {
+		t.Fatalf("files = %#v, want explicit and glob-resolved .env", files)
+	}
+	if _, err := envFilePattern(root, "../escape.env"); err == nil || !strings.Contains(err.Error(), "escapes") {
+		t.Fatalf("envFilePattern escape error = %v, want escapes", err)
+	}
+	if got := staticPatternDir(filepath.Join(root, "configs", "*.env")); got != filepath.Join(root, "configs") {
+		t.Fatalf("staticPatternDir = %q, want configs dir", got)
+	}
+	resolved, ok, err := resolveExecutableInPath("tool", filepath.Join(root, "bin"))
+	if err != nil || !ok || resolved != tool {
+		t.Fatalf("resolveExecutableInPath = %q, %v, %v; want tool", resolved, ok, err)
+	}
+	if _, ok, err := resolveExecutableInPath("missing", filepath.Join(root, "bin")); err != nil || ok {
+		t.Fatalf("resolve missing = %v, %v; want false nil", ok, err)
+	}
+}
+
+func TestEnvFileParsingRejectsInvalidValues(t *testing.T) {
+	root := t.TempDir()
+	tests := map[string]string{
+		"invalid-key":        "1BAD=value\n",
+		"unterminated-quote": `BAD="unterminated` + "\n",
+		"unterminated-esc":   `BAD="unterminated\` + "\n",
+	}
+	for name, content := range tests {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(root, name+".env")
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parseEnvFile(path); err == nil {
+				t.Fatal("parseEnvFile returned nil error, want invalid env file")
+			}
+		})
+	}
+}
+
 func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	root := t.TempDir()
 	tmp := filepath.Join(t.TempDir(), "scratch")
@@ -654,6 +729,65 @@ func TestHostNetworkUsesRequestTLSConfig(t *testing.T) {
 	}
 }
 
+func TestHostSettersEnvironmentResolverAndNetworkGuards(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(root, "bin", "tool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("PATH="+filepath.Join(root, "bin")+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Join(root, "bin"))
+	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	browser := &recordingBrowser{}
+	host.SetBrowser(browser)
+	if host.Browser() != browser {
+		t.Fatal("Browser() did not return configured browser")
+	}
+	clarifier := recordingClarifier{}
+	host.SetClarifier(clarifier)
+	if host.Clarifier() == nil {
+		t.Fatal("Clarifier() returned nil after SetClarifier")
+	}
+	resolver, ok := host.Environment().(ExecutableResolver)
+	if !ok {
+		t.Fatalf("environment = %T, want ExecutableResolver", host.Environment())
+	}
+	resolved, found, err := resolver.ResolveExecutable(context.Background(), "tool")
+	if err != nil || !found || resolved != tool {
+		t.Fatalf("ResolveExecutable = %q, %v, %v; want tool", resolved, found, err)
+	}
+	if got := DefaultProcessEnv(); got == nil {
+		t.Fatal("DefaultProcessEnv returned nil")
+	}
+	if !AllowedHTTPMethod(http.MethodPatch) || AllowedHTTPMethod("TRACE") {
+		t.Fatal("AllowedHTTPMethod returned unexpected method decisions")
+	}
+	loopback, _ := url.Parse("http://127.0.0.1")
+	if err := ValidatePublicURL(loopback, false); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("ValidatePublicURL loopback error = %v, want private target rejection", err)
+	}
+	if err := ValidatePublicURL(loopback, true); err != nil {
+		t.Fatalf("ValidatePublicURL allow private: %v", err)
+	}
+	if _, err := PublicNetworkTransport(false).(*http.Transport).DialContext(context.Background(), "tcp", "127.0.0.1:1"); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("PublicNetworkTransport dial error = %v, want private target rejection", err)
+	}
+	if !blockedIP(nil) || !blockedIP(net.ParseIP("127.0.0.1")) || blockedIP(net.ParseIP("8.8.8.8")) {
+		t.Fatal("blockedIP returned unexpected decisions")
+	}
+	if !matchFilterPattern("*.go", "nested/file.go", false) || matchFilterPattern("[", "file.go", false) {
+		t.Fatal("matchFilterPattern returned unexpected decisions")
+	}
+}
+
 func TestAuthorizedSystemEnforcesWorkspaceActions(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("docs"), 0644); err != nil {
@@ -676,6 +810,97 @@ func TestAuthorizedSystemEnforcesWorkspaceActions(t *testing.T) {
 	_, err = sys.Workspace().WriteFile(ctx, "out.txt", []byte("x"), 0644, false)
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("WriteFile error = %v, want authorization deny", err)
+	}
+}
+
+func TestAuthorizedWorkspaceAllowsFileHelperOperations(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("line1\nline2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	host, err := NewHost(Config{
+		Root: root,
+		Workspace: WorkspaceConfig{
+			Roots: []WorkspaceRootConfig{{
+				Name:   "scratch",
+				Path:   filepath.Join(root, "scratch-root"),
+				Access: WorkspaceAccessReadWrite,
+				Create: true,
+			}},
+			ScratchRoot: "scratch",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{
+		{
+			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
+			Actions: []policy.Action{
+				policy.ActionWorkspaceRead,
+				policy.ActionWorkspaceWrite,
+			},
+		},
+		{
+			Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+			Resources: []policy.ResourceRef{{Kind: policy.ResourceWorkspace, Name: "scratch"}},
+			Actions:   []policy.Action{policy.ActionWorkspaceWrite},
+		},
+	})
+
+	if got := sys.Workspace().Root(); got == "" {
+		t.Fatal("Root() returned empty root")
+	}
+	if roots := sys.Workspace().Roots(); len(roots) != 2 {
+		t.Fatalf("Roots() len = %d, want 2", len(roots))
+	}
+	if _, err := sys.Workspace().ResolveExisting(ctx, "README.md"); err != nil {
+		t.Fatalf("ResolveExisting: %v", err)
+	}
+	if _, err := sys.Workspace().ResolveCreate(ctx, "nested/out.txt"); err != nil {
+		t.Fatalf("ResolveCreate: %v", err)
+	}
+	if data, first, truncated, _, err := sys.Workspace().ReadFileLines(ctx, "README.md", 2, 2, 1024); err != nil || string(data) != "line2\n" || first != 2 || truncated {
+		t.Fatalf("ReadFileLines data=%q first=%d truncated=%v err=%v; want line2", data, first, truncated, err)
+	}
+	if _, _, written, err := sys.Workspace().CopyFile(ctx, "README.md", "copy.md", false); err != nil || written == 0 {
+		t.Fatalf("CopyFile written=%d err=%v, want copied file", written, err)
+	}
+	if _, _, written, err := sys.Workspace().MoveFile(ctx, "copy.md", "moved.md", false); err != nil || written == 0 {
+		t.Fatalf("MoveFile written=%d err=%v, want moved file", written, err)
+	}
+	if _, err := sys.Workspace().MkdirAll(ctx, "dir", 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if _, _, err := sys.Workspace().Stat(ctx, "moved.md"); err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if entries, _, err := sys.Workspace().ReadDir(ctx, "."); err != nil || len(entries) == 0 {
+		t.Fatalf("ReadDir entries=%d err=%v, want entries", len(entries), err)
+	}
+	if entries, _, _, err := sys.Workspace().Walk(ctx, ".", WalkOptions{MaxEntries: 20}); err != nil || len(entries) == 0 {
+		t.Fatalf("Walk entries=%d err=%v, want entries", len(entries), err)
+	}
+	if matches, _, err := sys.Workspace().Glob(ctx, "*.md", GlobOptions{MaxResults: 20}); err != nil || !resolvedContains(matches, "README.md") || !resolvedContains(matches, "moved.md") {
+		t.Fatalf("Glob matches=%#v err=%v, want markdown files", matches, err)
+	}
+	if _, err := sys.Workspace().Remove(ctx, "moved.md"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	scratch, err := sys.Workspace().CreateScratch(ctx, "auth-test-*")
+	if err != nil {
+		t.Fatalf("CreateScratch: %v", err)
+	}
+	if scratch.Root() == "" {
+		t.Fatal("scratch Root() returned empty root")
+	}
+	if _, err := scratch.WriteFile(ctx, "out.txt", []byte("scratch"), 0644); err != nil {
+		t.Fatalf("scratch WriteFile: %v", err)
+	}
+	if err := scratch.RemoveAll(ctx); err != nil {
+		t.Fatalf("scratch RemoveAll: %v", err)
 	}
 }
 
@@ -796,6 +1021,63 @@ func TestAuthorizedSystemEnforcesBrowserNetworkAccess(t *testing.T) {
 	}
 }
 
+func TestAuthorizedBrowserAllowsSessionOperations(t *testing.T) {
+	browser := &recordingBrowser{}
+	sys := WithAuthorization(testSystemBoundary{browser: browser}, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceNetwork, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionNetworkFetch},
+	}})
+	manager := sys.Browser()
+	if _, err := manager.Open(ctx, BrowserOpenRequest{URL: "https://example.com"}); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	session := BrowserSessionRequest{SessionID: "browser-1", URL: "https://example.com/page"}
+	if _, err := manager.Navigate(ctx, session); err != nil {
+		t.Fatalf("Navigate: %v", err)
+	}
+	if _, err := manager.Click(ctx, BrowserSelectorRequest{SessionID: "browser-1", Selector: "button"}); err != nil {
+		t.Fatalf("Click: %v", err)
+	}
+	if _, err := manager.Type(ctx, BrowserTypeRequest{SessionID: "browser-1", Selector: "input", Text: "hello"}); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	if _, err := manager.Select(ctx, BrowserSelectRequest{SessionID: "browser-1", Selector: "select", Values: []string{"one"}}); err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if _, err := manager.Read(ctx, BrowserReadRequest{SessionID: "browser-1"}); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if _, err := manager.Screenshot(ctx, session); err != nil {
+		t.Fatalf("Screenshot: %v", err)
+	}
+	if _, err := manager.Evaluate(ctx, BrowserEvaluateRequest{SessionID: "browser-1", Script: "1+1"}); err != nil {
+		t.Fatalf("Evaluate: %v", err)
+	}
+	if _, err := manager.Wait(ctx, BrowserWaitRequest{SessionID: "browser-1", Selector: "body"}); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if _, err := manager.Scroll(ctx, BrowserScrollRequest{SessionID: "browser-1", Y: 10}); err != nil {
+		t.Fatalf("Scroll: %v", err)
+	}
+	if _, err := manager.Hover(ctx, BrowserSelectorRequest{SessionID: "browser-1", Selector: "a"}); err != nil {
+		t.Fatalf("Hover: %v", err)
+	}
+	if _, err := manager.Back(ctx, session); err != nil {
+		t.Fatalf("Back: %v", err)
+	}
+	if _, err := manager.Forward(ctx, session); err != nil {
+		t.Fatalf("Forward: %v", err)
+	}
+	if _, err := manager.PDF(ctx, session); err != nil {
+		t.Fatalf("PDF: %v", err)
+	}
+	if err := manager.Close(ctx, session); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestAuthorizedSystemEnforcesProcessExec(t *testing.T) {
 	host, err := NewHost(Config{Root: t.TempDir()})
 	if err != nil {
@@ -810,6 +1092,57 @@ func TestAuthorizedSystemEnforcesProcessExec(t *testing.T) {
 	_, err = sys.Process().Run(ctx, ProcessRequest{Command: "go", Args: []string{"version"}, Timeout: time.Second})
 	if err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("Run error = %v, want authorization deny", err)
+	}
+}
+
+func TestAuthorizedProcessManagerAllowsManagedLifecycle(t *testing.T) {
+	host, err := NewHost(Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatalf("NewHost: %v", err)
+	}
+	sys := WithAuthorization(host, AuthorizationConfig{})
+	ctx := authorizedTestContext([]policy.Grant{{
+		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceProcess, Name: "*"}},
+		Actions:   []policy.Action{policy.ActionProcessExec, policy.ActionProcessAdmin},
+	}})
+	manager := sys.Process()
+	handle, created, err := manager.Ensure(ctx, ProcessRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf hello"},
+		Label:   "short",
+		Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if !created {
+		t.Fatal("Ensure created = false, want new process")
+	}
+	if handle.ID() == "" || handle.Info().Label != "short" {
+		t.Fatalf("handle info = %#v, want labeled process", handle.Info())
+	}
+	if _, err := manager.List(ctx); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if _, err := manager.Status(ctx, handle.ID()); err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if _, err := manager.Output(ctx, handle.ID()); err != nil {
+		t.Fatalf("Output: %v", err)
+	}
+	result, err := manager.Wait(ctx, handle.ID(), time.Second)
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if result.Stdout != "hello" {
+		t.Fatalf("stdout = %q, want hello", result.Stdout)
+	}
+	if err := manager.Stop(ctx, handle.ID()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := manager.Kill(ctx, handle.ID()); err != nil {
+		t.Fatalf("Kill: %v", err)
 	}
 }
 
@@ -830,6 +1163,12 @@ func (s testSystemBoundary) Environment() Environment { return s.env }
 
 type recordingBrowser struct {
 	openCalls int
+}
+
+type recordingClarifier struct{}
+
+func (recordingClarifier) Clarify(context.Context, ClarifyRequest) (ClarifyResult, error) {
+	return ClarifyResult{}, nil
 }
 
 func (b *recordingBrowser) Open(context.Context, BrowserOpenRequest) (BrowserOpenResult, error) {

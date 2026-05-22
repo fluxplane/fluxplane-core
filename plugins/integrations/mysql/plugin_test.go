@@ -2,7 +2,9 @@ package mysql
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	coreendpoint "github.com/fluxplane/engine/core/endpoint"
 	coreevent "github.com/fluxplane/engine/core/event"
@@ -46,6 +48,76 @@ func TestMySQLTargetFromSecretDSNRedactsCredentials(t *testing.T) {
 		t.Fatalf("SafeURL leaked DSN: %#v", target)
 	}
 }
+
+func TestMySQLTargetFromJSONSecretAndDatabaseOverride(t *testing.T) {
+	target, ok, err := targetFromSecret(`{"username":"app","password":"secret","host":"mysql.internal","port":3307,"database":"default"}`, "override")
+	if err != nil {
+		t.Fatalf("targetFromSecret() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("targetFromSecret() ok = false, want true")
+	}
+	if target.Database != "override" || target.SafeURL != "mysql://mysql.internal:3307/override" {
+		t.Fatalf("target = %#v, want override database and credential-free safe URL", target)
+	}
+	if !strings.Contains(target.DSN, "app:secret@tcp(") || !strings.Contains(target.DSN, "parseTime=true") {
+		t.Fatalf("target DSN = %q, want app credentials and parseTime", target.DSN)
+	}
+}
+
+func TestMySQLTargetFromEndpointURLAndPasswordSecret(t *testing.T) {
+	target, err := mysqlTargetFrom(resolvedEndpoint{URL: "mysql://db.example.com/app"}, "password-from-secret", "")
+	if err != nil {
+		t.Fatalf("mysqlTargetFrom() error = %v", err)
+	}
+	if target.Database != "app" || target.SafeURL != "mysql://db.example.com:3306/app" {
+		t.Fatalf("target = %#v, want endpoint host and database", target)
+	}
+	if !strings.Contains(target.DSN, "root:password-from-secret@tcp(") {
+		t.Fatalf("target DSN = %q, want default root user and secret password", target.DSN)
+	}
+}
+
+func TestMySQLDriverDSNParsingAndRedaction(t *testing.T) {
+	target, ok, err := targetFromSecret("user:pass@tcp(mysql.internal:3307)/app?parseTime=true", "")
+	if err != nil {
+		t.Fatalf("targetFromSecret() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("targetFromSecret() ok = false, want true")
+	}
+	if target.Database != "app" || target.SafeURL != "mysql://mysql.internal:3307)/app?parseTime=true" {
+		t.Fatalf("target = %#v, want parsed database and redacted driver DSN", target)
+	}
+	if got := databaseFromDriverDSN("user:pass@tcp(mysql.internal:3307)/app?parseTime=true"); got != "app" {
+		t.Fatalf("databaseFromDriverDSN() = %q, want app", got)
+	}
+	if got := redactDSN("not-a-dsn"); got != "mysql://redacted" {
+		t.Fatalf("redactDSN() = %q, want generic redaction", got)
+	}
+}
+
+func TestMySQLHelpersValidateAndRedact(t *testing.T) {
+	if _, err := mysqlTargetFrom(resolvedEndpoint{URL: "mysql:///app"}, "", ""); err == nil || !strings.Contains(err.Error(), "no host") {
+		t.Fatalf("mysqlTargetFrom missing host error = %v, want no host", err)
+	}
+	if got, err := duration("", 5*time.Second); err != nil || got != 5*time.Second {
+		t.Fatalf("duration fallback = %v, %v; want 5s nil", got, err)
+	}
+	if _, err := duration("nope", time.Second); err == nil || !strings.Contains(err.Error(), "invalid timeout") {
+		t.Fatalf("duration invalid error = %v, want invalid timeout", err)
+	}
+	if got := redactError(context.Canceled); got != context.Canceled.Error() {
+		t.Fatalf("redactError safe = %q, want context canceled", got)
+	}
+	if got := redactError(assertErr("dial tcp mysql://user:pass@host/db")); got != "mysql operation failed" {
+		t.Fatalf("redactError secret = %q, want generic message", got)
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }
 
 func assertAccess(t *testing.T, access []operationruntime.AccessDescriptor, kind policy.ResourceKind, name string, action policy.Action) {
 	t.Helper()

@@ -15,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/engine/core/policy"
 )
 
 type messageAdded struct {
@@ -233,6 +234,111 @@ func TestStoreRejectsEmptyStream(t *testing.T) {
 	_, err := store.Append(context.Background(), "", event.AppendOptions{}, event.Record{Payload: messageAdded{Text: "bad"}})
 	if err == nil || !strings.Contains(err.Error(), "stream is empty") {
 		t.Fatalf("Append error = %v, want empty stream", err)
+	}
+}
+
+func TestResolveConfigDefaultsAndOverrides(t *testing.T) {
+	defaults := resolveConfig(Config{})
+	if defaults.url != nats.DefaultURL || defaults.stream != DefaultStream || defaults.subject != DefaultSubject {
+		t.Fatalf("defaults = %#v, want NATS default URL and event stream defaults", defaults)
+	}
+	if defaults.maxAppendRetries != defaultMaxAppendRetries || defaults.replayBatchSize != defaultReplayBatchSize {
+		t.Fatalf("defaults = %#v, want retry and replay defaults", defaults)
+	}
+	custom := resolveConfig(Config{
+		URL:              " nats://example:4222 ",
+		Stream:           " EVENTS ",
+		Subject:          " events.log ",
+		CreateStream:     true,
+		MaxAppendRetries: 3,
+		ReplayBatchSize:  10,
+	})
+	if custom.url != "nats://example:4222" || custom.stream != "EVENTS" || custom.subject != "events.log" || !custom.createStream {
+		t.Fatalf("custom = %#v, want trimmed overrides", custom)
+	}
+	if custom.maxAppendRetries != 3 || custom.replayBatchSize != 10 {
+		t.Fatalf("custom retry/replay = %#v, want explicit values", custom)
+	}
+}
+
+func TestPureProjectionPrepareLoadAndPreconditions(t *testing.T) {
+	store := &Store{project: newProjection()}
+	store.project.loaded = true
+	requests, err := normalizeRequests([]event.AppendRequest{{
+		Stream:  "test",
+		Options: event.ExpectSequence(0),
+		Records: []event.Record{{ID: "one", Name: "message.added"}, {ID: "two", Name: "message.added"}},
+	}})
+	if err != nil {
+		t.Fatalf("normalizeRequests: %v", err)
+	}
+	results, err := store.prepareResults(requests)
+	if err != nil {
+		t.Fatalf("prepareResults: %v", err)
+	}
+	if got := sequences(results[0].Records); got != "1,2" {
+		t.Fatalf("prepared sequences = %s, want 1,2", got)
+	}
+	store.applyResults(results)
+	if err := store.preconditionError([]normalizedRequest{{
+		Stream:  "test",
+		Options: event.ExpectSequence(1),
+		Records: []event.Record{{ID: "three", Name: "message.added"}},
+	}}); !errors.Is(err, event.ErrAppendConflict) {
+		t.Fatalf("precondition conflict = %v, want append conflict", err)
+	}
+	if err := store.preconditionError([]normalizedRequest{{
+		Stream:  "other",
+		Records: []event.Record{{ID: "one", Name: "message.added"}},
+	}}); !errors.Is(err, event.ErrDuplicateRecord) {
+		t.Fatalf("precondition duplicate = %v, want duplicate", err)
+	}
+	if got := sequences(store.project.streams["test"]); got != "1,2" {
+		t.Fatalf("projected sequences = %s, want 1,2", got)
+	}
+}
+
+func TestNormalizeRequestsAndBatchCodec(t *testing.T) {
+	_, err := normalizeRequests([]event.AppendRequest{
+		{Stream: "a", Records: []event.Record{{ID: "same", Name: "message.added"}}},
+		{Stream: "b", Records: []event.Record{{ID: "same", Name: "message.added"}}},
+	})
+	if !errors.Is(err, event.ErrDuplicateRecord) {
+		t.Fatalf("normalize duplicate error = %v, want duplicate record", err)
+	}
+	if err := validateAppendRequests([]event.AppendRequest{{Stream: "a"}, {Stream: "a"}}); err == nil || !strings.Contains(err.Error(), "duplicate stream") {
+		t.Fatalf("validate duplicate stream error = %v, want duplicate stream", err)
+	}
+	results := []event.AppendResult{{
+		Stream: "test",
+		Records: []event.StoredRecord{{
+			Stream:   "test",
+			Sequence: 7,
+			Record: event.Record{
+				ID:          "stable",
+				Name:        "message.added",
+				Attributes:  map[string]string{"k": "v"},
+				Sensitivity: policy.SensitivitySecret,
+			},
+		}},
+	}}
+	data, err := encodeBatch(results)
+	if err != nil {
+		t.Fatalf("encodeBatch: %v", err)
+	}
+	decoded, err := decodeBatch(data, nil)
+	if err != nil {
+		t.Fatalf("decodeBatch: %v", err)
+	}
+	if len(decoded) != 1 || len(decoded[0].Records) != 1 {
+		t.Fatalf("decoded = %#v, want one result and record", decoded)
+	}
+	record := decoded[0].Records[0]
+	if record.Sequence != 7 || record.Record.Attributes["k"] != "v" || record.Record.Sensitivity != policy.SensitivitySecret {
+		t.Fatalf("decoded record = %#v, want metadata preserved", record)
+	}
+	if _, err := decodeBatch([]byte(`{"version":2}`), nil); err == nil || !strings.Contains(err.Error(), "unsupported batch version") {
+		t.Fatalf("decode version error = %v, want unsupported version", err)
 	}
 }
 

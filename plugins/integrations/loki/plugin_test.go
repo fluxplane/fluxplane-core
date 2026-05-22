@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	corediscovery "github.com/fluxplane/engine/core/discovery"
 	coreendpoint "github.com/fluxplane/engine/core/endpoint"
 	"github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
 	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
@@ -172,6 +174,68 @@ func TestLokiNetworkAccessUsesResolvedTarget(t *testing.T) {
 		t.Fatalf("lokiNetworkAccess(endpoint ref) error = %v", err)
 	}
 	assertNetworkAccess(t, access, "http://endpoint-loki:3100")
+}
+
+func TestPluginContributionsOperationsAndDatasourceProvider(t *testing.T) {
+	sys, err := system.NewHost(system.Config{Root: t.TempDir(), AllowPrivateNetwork: true})
+	if err != nil {
+		t.Fatalf("NewHost() error = %v", err)
+	}
+	plugin := New(sys)
+	if manifest := plugin.Manifest(); manifest.Name != Name || manifest.Description == "" {
+		t.Fatalf("manifest = %#v, want Loki manifest", manifest)
+	}
+	cfg := normalizeConfig(Config{
+		URL:              " http://loki:3100 ",
+		DefaultNamespace: " latest ",
+		AutoDiscover:     AutoDiscoverConfig{Enabled: true, Namespaces: []string{"prod, staging", "prod"}},
+	})
+	if cfg.URL != "http://loki:3100" || cfg.DefaultNamespace != "latest" || strings.Join(cfg.AutoDiscover.Namespaces, ",") != "prod,staging" || !cfg.AutoDiscover.Kubernetes {
+		t.Fatalf("normalized config = %#v", cfg)
+	}
+	contrib, err := plugin.Contributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(contrib.DataSources) != 1 || len(contrib.Operations) != 4 || len(contrib.OperationSets) != 1 {
+		t.Fatalf("contribution = %#v, want datasource, operations, and operation set", contrib)
+	}
+	ops, err := plugin.Operations(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Operations: %v", err)
+	}
+	if len(ops) != 4 {
+		t.Fatalf("operations len = %d, want 4", len(ops))
+	}
+
+	providers, err := plugin.DatasourceProviders(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("DatasourceProviders: %v", err)
+	}
+	if len(providers) != 1 || len(providers[0].Entities()) != 4 {
+		t.Fatalf("providers = %#v, want one provider with four entities", providers)
+	}
+	accessor, err := providers[0].Open(context.Background(), coredatasource.Spec{
+		Name:   "logs",
+		Kind:   Name,
+		Config: map[string]string{"url": "http://loki:3100", "default_namespace": "latest"},
+	})
+	if err != nil {
+		t.Fatalf("Open datasource: %v", err)
+	}
+	if accessor.Spec().Name != "logs" || len(accessor.Entities()) != 4 {
+		t.Fatalf("accessor spec/entities = %#v %#v", accessor.Spec(), accessor.Entities())
+	}
+	searcher, ok := accessor.(coredatasource.Searcher)
+	if !ok {
+		t.Fatalf("accessor = %T, want Searcher", accessor)
+	}
+	if _, err := searcher.Search(context.Background(), coredatasource.SearchRequest{Entity: LogEntryEntity}); err == nil || !strings.Contains(err.Error(), "requires LogQL query") {
+		t.Fatalf("Search empty query error = %v, want LogQL query requirement", err)
+	}
+	if _, err := providers[0].Open(context.Background(), coredatasource.Spec{Kind: "other"}); err == nil || !strings.Contains(err.Error(), "unsupported datasource kind") {
+		t.Fatalf("Open unsupported error = %v, want unsupported kind", err)
+	}
 }
 
 func assertNetworkAccess(t *testing.T, access []operationruntime.AccessDescriptor, want string) {

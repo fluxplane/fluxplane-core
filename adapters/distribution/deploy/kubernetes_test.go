@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestGenerateKubernetesManifestsCreatesEnvSecret(t *testing.T) {
@@ -240,6 +242,79 @@ name: assistant
 	})
 	if err == nil || !strings.Contains(err.Error(), `does not support env_files on workspace root "tmp"`) {
 		t.Fatalf("GenerateKubernetesManifests error = %v, want named root env_files error", err)
+	}
+}
+
+func TestKubernetesPureObjectHelpers(t *testing.T) {
+	content := `
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-bots
+---
+not: valid enough to map
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: ai-bots
+`
+	objects := decodeKubernetesObjects(content)
+	if len(objects) != 3 {
+		t.Fatalf("objects len = %d, want 3", len(objects))
+	}
+	resource, namespaced, err := kubernetesObjectResource(objects[0])
+	if err != nil || resource.Resource != "namespaces" || namespaced {
+		t.Fatalf("namespace resource=%#v namespaced=%v err=%v", resource, namespaced, err)
+	}
+	resource, namespaced, err = kubernetesObjectResource(objects[2])
+	if err != nil || resource.Group != "apps" || resource.Resource != "deployments" || !namespaced {
+		t.Fatalf("deployment resource=%#v namespaced=%v err=%v", resource, namespaced, err)
+	}
+	_, _, err = kubernetesObjectResource(&unstructured.Unstructured{Object: map[string]any{"apiVersion": "batch/v1", "kind": "Job"}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported kubernetes object") {
+		t.Fatalf("unsupported resource error = %v, want unsupported object", err)
+	}
+
+	for _, object := range []*unstructured.Unstructured{
+		{Object: map[string]any{"apiVersion": "v1", "kind": "Secret"}},
+		{Object: map[string]any{"apiVersion": "v1", "kind": "Service"}},
+		{Object: map[string]any{"apiVersion": "v1", "kind": "PersistentVolumeClaim"}},
+		{Object: map[string]any{"apiVersion": "v1", "kind": "ServiceAccount"}},
+		{Object: map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet"}},
+		{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role"}},
+		{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding"}},
+		{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole"}},
+		{Object: map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding"}},
+	} {
+		if resource, _, err := kubernetesObjectResource(object); err != nil || resource.Resource == "" {
+			t.Fatalf("kubernetesObjectResource(%s/%s) = %#v, %v", object.GetAPIVersion(), object.GetKind(), resource, err)
+		}
+	}
+}
+
+func TestKubernetesIdentityAndConfigHelpers(t *testing.T) {
+	if !boolFromConfig(" YES ") || !boolFromConfig(true) || boolFromConfig("no") {
+		t.Fatal("boolFromConfig returned unexpected decisions")
+	}
+	namespaces := namespacesFromConfig([]any{"prod, staging", []string{"dev", "prod"}})
+	if got := strings.Join(normalizeKubernetesNamespaces(namespaces), ","); got != "dev,prod,staging" {
+		t.Fatalf("namespaces = %q, want sorted unique list", got)
+	}
+	for _, rendered := range []string{
+		kubernetesPVCIdentities("ai-bots", []string{"data-mysql-0"}),
+		kubernetesServiceAccountIdentity("ai-bots", "app"),
+		strings.Join(kubernetesRBACIdentities("ai-bots", "app", kubernetesRBACSpec{Namespaces: []string{"prod"}}), "\n"),
+		strings.Join(kubernetesRBACIdentities("ai-bots", "app", kubernetesRBACSpec{AllNamespaces: true}), "\n"),
+		kubernetesRoleIdentity("prod", "reader"),
+		kubernetesRoleBindingIdentity("prod", "reader"),
+		kubernetesClusterRoleIdentity("reader"),
+		kubernetesClusterRoleBindingIdentity("reader"),
+	} {
+		if !strings.Contains(rendered, "kind:") {
+			t.Fatalf("rendered identity missing kind:\n%s", rendered)
+		}
 	}
 }
 
