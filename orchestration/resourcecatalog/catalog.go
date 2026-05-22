@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	coreapp "github.com/fluxplane/engine/core/app"
 	corecontext "github.com/fluxplane/engine/core/context"
@@ -30,6 +31,10 @@ type AppCatalog map[string]Binding[coreapp.Spec]
 
 // AgentCatalog indexes agent specs by canonical resource ID address.
 type AgentCatalog map[string]Binding[agent.Spec]
+
+// ActivationSetCatalog indexes activation set specs by canonical resource ID
+// address.
+type ActivationSetCatalog map[string]Binding[activation.Set]
 
 // SkillCatalog indexes skill specs by canonical resource ID address.
 type SkillCatalog map[string]Binding[skill.Spec]
@@ -62,6 +67,7 @@ type ToolchainCatalog map[string]Binding[language.ToolchainSpec]
 type Catalogs struct {
 	AppCatalog           AppCatalog
 	AgentCatalog         AgentCatalog
+	ActivationSetCatalog ActivationSetCatalog
 	SkillCatalog         SkillCatalog
 	ContextProviders     ContextProviderCatalog
 	DatasourceCatalog    DatasourceCatalog
@@ -76,6 +82,7 @@ type Catalogs struct {
 type Specs struct {
 	AppSpecs         []coreapp.Spec
 	AgentSpecs       []agent.Spec
+	ActivationSets   []activation.Set
 	SkillSpecs       []skill.Spec
 	ContextSpecs     []corecontext.ProviderSpec
 	DatasourceSpecs  []coredatasource.Spec
@@ -94,6 +101,10 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 		return Catalogs{}, Specs{}, diag, err
 	}
 	agentCatalog, agentSpecs, diag, err := collectAgents(bundles, index)
+	if err != nil {
+		return Catalogs{}, Specs{}, diag, err
+	}
+	activationSetCatalog, activationSets, diag, err := CollectActivationSets(bundles, index)
 	if err != nil {
 		return Catalogs{}, Specs{}, diag, err
 	}
@@ -136,6 +147,7 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 	return Catalogs{
 			AppCatalog:           appCatalog,
 			AgentCatalog:         agentCatalog,
+			ActivationSetCatalog: activationSetCatalog,
 			SkillCatalog:         skillCatalog,
 			ContextProviders:     contextCatalog,
 			DatasourceCatalog:    datasourceCatalog,
@@ -147,6 +159,7 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 		}, Specs{
 			AppSpecs:         appSpecs,
 			AgentSpecs:       agentSpecs,
+			ActivationSets:   activationSets,
 			SkillSpecs:       skillSpecs,
 			ContextSpecs:     contextSpecs,
 			DatasourceSpecs:  datasourceSpecs,
@@ -157,6 +170,20 @@ func Collect(bundles []resource.ContributionBundle, index *resource.ResourceInde
 			Toolchains:       toolchains,
 			PostEditChecks:   postEditChecks,
 		}, resource.Diagnostic{}, nil
+}
+
+// CollectActivationSets validates and indexes activation set specs from
+// resource bundles.
+func CollectActivationSets(bundles []resource.ContributionBundle, index *resource.ResourceIndex) (ActivationSetCatalog, []activation.Set, resource.Diagnostic, error) {
+	catalog, specs, diag, err := collectResourceSpecs(
+		bundles,
+		index,
+		"activation_set",
+		func(bundle resource.ContributionBundle) []activation.Set { return bundle.ActivationSets },
+		func(spec activation.Set, _ resource.SourceRef) string { return spec.Name },
+		func(spec activation.Set) error { return spec.Validate() },
+	)
+	return ActivationSetCatalog(catalog), specs, diag, err
 }
 
 type selector[T any] func(resource.ContributionBundle) []T

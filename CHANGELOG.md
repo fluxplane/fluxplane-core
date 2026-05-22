@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added inert activation set specs, resource catalog wiring, focus/surface trace
+  events, `/surface`, and `/activate` as the foundation for prepared work
+  surfaces.
+- Added model-facing `session_focus`, `surface_info`, `surface_prepare`, and
+  `surface_call` tools for inspecting, preparing, and invoking the active work
+  surface.
 - Added native GitLab pipeline and personal snippet operations, moved pipeline
   retry/cancel out of the merge-request operation, and documented the native
   GitLab datasource/operation workflow.

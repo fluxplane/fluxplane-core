@@ -125,14 +125,15 @@ func subjectMatches(matcher, assertion coreevidence.Subject) bool {
 type ActionKind string
 
 const (
-	ActionActivateSkill      ActionKind = "activate_skill"
-	ActionActivateReference  ActionKind = "activate_reference"
-	ActionEnableOperationSet ActionKind = "enable_operation_set"
-	ActionEnableDatasource   ActionKind = "enable_datasource"
-	ActionEnableContext      ActionKind = "enable_context_provider"
-	ActionRunWorkflow        ActionKind = "run_workflow"
-	ActionRunOperation       ActionKind = "run_operation"
-	ActionRunCommand         ActionKind = "run_command"
+	ActionActivateSkill       ActionKind = "activate_skill"
+	ActionActivateReference   ActionKind = "activate_reference"
+	ActionEnableActivationSet ActionKind = "enable_activation_set"
+	ActionEnableOperationSet  ActionKind = "enable_operation_set"
+	ActionEnableDatasource    ActionKind = "enable_datasource"
+	ActionEnableContext       ActionKind = "enable_context_provider"
+	ActionRunWorkflow         ActionKind = "run_workflow"
+	ActionRunOperation        ActionKind = "run_operation"
+	ActionRunCommand          ActionKind = "run_command"
 )
 
 // Action is an inert reaction result. Runtime/orchestration decides whether and
@@ -141,6 +142,7 @@ type Action struct {
 	Kind                ActionKind              `json:"kind" yaml:"kind"`
 	Skill               skill.Ref               `json:"skill,omitempty" yaml:"skill,omitempty"`
 	Reference           ReferenceAction         `json:"reference,omitempty" yaml:"reference,omitempty"`
+	ActivationSet       string                  `json:"activation_set,omitempty" yaml:"activation_set,omitempty"`
 	OperationSet        string                  `json:"operation_set,omitempty" yaml:"operation_set,omitempty"`
 	Datasource          datasource.Ref          `json:"datasource,omitempty" yaml:"datasource,omitempty"`
 	ContextProvider     corecontext.ProviderRef `json:"context_provider,omitempty" yaml:"context_provider,omitempty"`
@@ -165,6 +167,10 @@ func (a Action) Validate() error {
 		}
 		if !skill.ValidReferencePath(a.Reference.Path) {
 			return fmt.Errorf("activate_reference path %q is invalid", a.Reference.Path)
+		}
+	case ActionEnableActivationSet:
+		if strings.TrimSpace(a.ActivationSet) == "" {
+			return fmt.Errorf("enable_activation_set requires activation_set")
 		}
 	case ActionEnableOperationSet:
 		if strings.TrimSpace(a.OperationSet) == "" {

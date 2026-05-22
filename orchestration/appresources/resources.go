@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/command"
 	"github.com/fluxplane/engine/core/invocation"
 	"github.com/fluxplane/engine/core/operation"
@@ -34,19 +35,26 @@ type Config struct {
 
 // Resources groups executable catalogs and their ordered inert specs.
 type Resources struct {
-	Commands         *command.Registry
-	Operations       *operation.Registry
-	ToolSetCatalog   session.ToolSetCatalog
-	CommandCatalog   session.CommandCatalog
-	OperationCatalog session.OperationCatalog
-	SessionCatalog   session.SessionCatalog
-	ToolSets         []tool.Set
-	OperationSpecs   []operation.Spec
-	SessionSpecs     []coresession.Spec
+	Commands             *command.Registry
+	Operations           *operation.Registry
+	ActivationSetCatalog resourcecatalog.ActivationSetCatalog
+	ToolSetCatalog       session.ToolSetCatalog
+	CommandCatalog       session.CommandCatalog
+	OperationCatalog     session.OperationCatalog
+	SessionCatalog       session.SessionCatalog
+	ActivationSets       []activation.Set
+	ToolSets             []tool.Set
+	OperationSpecs       []operation.Spec
+	SessionSpecs         []coresession.Spec
 }
 
 // Collect validates and binds executable resources.
 func Collect(cfg Config) (Resources, resource.Diagnostic, error) {
+	activationCatalog, activationSets, diag, err := resourcecatalog.CollectActivationSets(cfg.Bundles, cfg.Index)
+	if err != nil {
+		return Resources{}, diag, err
+	}
+
 	toolSetCatalog, toolSets, diag, err := collectToolSets(cfg.Bundles, cfg.Index)
 	if err != nil {
 		return Resources{}, diag, err
@@ -78,15 +86,17 @@ func Collect(cfg Config) (Resources, resource.Diagnostic, error) {
 	}
 
 	return Resources{
-		Commands:         commands,
-		Operations:       operations,
-		ToolSetCatalog:   toolSetCatalog,
-		CommandCatalog:   commandCatalog,
-		OperationCatalog: operationCatalog,
-		SessionCatalog:   sessionCatalog,
-		ToolSets:         toolSets,
-		OperationSpecs:   operationSpecs,
-		SessionSpecs:     sessionSpecs,
+		Commands:             commands,
+		Operations:           operations,
+		ActivationSetCatalog: activationCatalog,
+		ToolSetCatalog:       toolSetCatalog,
+		CommandCatalog:       commandCatalog,
+		OperationCatalog:     operationCatalog,
+		SessionCatalog:       sessionCatalog,
+		ActivationSets:       activationSets,
+		ToolSets:             toolSets,
+		OperationSpecs:       operationSpecs,
+		SessionSpecs:         sessionSpecs,
 	}, resource.Diagnostic{}, nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"text/template"
 	"time"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
@@ -29,6 +30,7 @@ import (
 	"github.com/fluxplane/engine/core/policy"
 	corereaction "github.com/fluxplane/engine/core/reaction"
 	coresession "github.com/fluxplane/engine/core/session"
+	coreskill "github.com/fluxplane/engine/core/skill"
 	coretask "github.com/fluxplane/engine/core/task"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/core/tool"
@@ -54,8 +56,10 @@ type Session struct {
 	Resolver             *sessioncontrol.Resolver
 	CommandCatalog       CommandCatalog
 	OperationCatalog     OperationCatalog
+	ActivationSets       []coreactivation.Set
 	ToolSetCatalog       ToolSetCatalog
 	OperationSets        []operation.Set
+	Datasources          []coredatasource.Spec
 	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      sessionworkflow.WorkflowCatalog
@@ -103,6 +107,8 @@ const (
 
 var contextCommandSpec = sessioncontrol.ContextCommandSpec
 var envExplainCommandSpec = sessioncontrol.EnvExplainCommandSpec
+var surfaceCommandSpec = sessioncontrol.SurfaceCommandSpec
+var activateCommandSpec = sessioncontrol.ActivateCommandSpec
 var compactCommandSpec = sessioncontrol.CompactCommandSpec
 var goalCommandSpec = sessioncontrol.GoalCommandSpec
 var whoamiCommandSpec = sessioncontrol.WhoamiCommandSpec
@@ -111,6 +117,8 @@ func builtInSessionCommands() map[string]sessionCommandBinding {
 	return map[string]sessionCommandBinding{
 		contextCommandSpec.Path.String():    {Spec: contextCommandSpec, Handler: Session.executeContextCommand},
 		envExplainCommandSpec.Path.String(): {Spec: envExplainCommandSpec, Handler: Session.executeEnvExplainCommand},
+		surfaceCommandSpec.Path.String():    {Spec: surfaceCommandSpec, Handler: Session.executeSurfaceCommand},
+		activateCommandSpec.Path.String():   {Spec: activateCommandSpec, Handler: Session.executeActivateCommand},
 		compactCommandSpec.Path.String():    {Spec: compactCommandSpec, Handler: Session.executeCompactCommand},
 		goalCommandSpec.Path.String():       {Spec: goalCommandSpec, Handler: Session.executeGoalCommand},
 		whoamiCommandSpec.Path.String():     {Spec: whoamiCommandSpec, Handler: Session.executeWhoamiCommand},
@@ -225,6 +233,9 @@ func (s Session) Step(ctx context.Context, req StepRequest) StepResult {
 }
 
 func (s Session) applyOperation(ctx operation.Context, ref operation.Ref, input operation.Value, callID operation.CallID) environment.EffectResult {
+	if effect, ok := s.applySurfaceOperation(ctx, ref, input, callID); ok {
+		return effect
+	}
 	if len(s.OperationCatalog) > 0 {
 		binding, err := s.OperationCatalog.Resolve(ref.String(), sessioncontrol.ResourceID{})
 		if err != nil {
@@ -392,6 +403,9 @@ func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inboun
 	replayedReactions, err := s.replayReactionEvents(ctx)
 	if err != nil {
 		return inputFailed("reaction_replay_failed", err.Error(), nil)
+	}
+	if surface, err := s.surfaceReadModel(ctx); err == nil && surface.Active.Lifetime != "" {
+		replayedReactions.Active = mergeActiveState(replayedReactions.Active, s.activeStateFromSurface(surface.Active))
 	}
 
 	baseCtx := ensureContext(ctx)
@@ -622,7 +636,7 @@ func (s Session) runInnerTurn(ctx context.Context, in innerTurnInput) innerTurnR
 		if len(agentResult.Decision.Operations) == 0 {
 			return innerTurnResult{Result: InputResult{Status: InputStatusUnsupported, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "operation_missing", Message: "agent operation decision is empty"}}, AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
-		batch, toolResults, completed, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations, in.ProviderIdentity)
+		batch, toolResults, completed, err := s.applyAgentOperations(ctx, agentCtx, in.Inbound, len(effects), agentResult.Decision.Operations, &reactions.Active, in.ProviderIdentity)
 		if err != nil {
 			return innerTurnResult{Result: inputFailed("thread_append_failed", err.Error(), nil), AgentResult: agentResult, State: state, Effects: effects, Assertions: assertions, Reactions: reactions}
 		}
@@ -711,6 +725,7 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 		return state, observations, nil
 	}
 	actions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
+	activationSetActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
 	operationActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
 	commandActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
 	workflowActions := make([]sessionenv.ReactionAction, 0, len(plan.Planned))
@@ -753,6 +768,10 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 			workflowActions = append(workflowActions, action)
 			continue
 		}
+		if planned.Action.Kind == corereaction.ActionEnableActivationSet {
+			activationSetActions = append(activationSetActions, action)
+			continue
+		}
 		actions = append(actions, action)
 	}
 	emitReactionApplyDiagnostics(sink, approvalDiagnostics)
@@ -768,12 +787,15 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 	}
 	emitReactionApplyDiagnostics(sink, result.Diagnostics)
 	observations = append(observations, reactionApplyDiagnostics(result.Diagnostics)...)
+	activationDiagnostics, appliedActivationKeys := s.applyReactionActivationSets(ctx, inbound.ID, activationSetActions, &state.Active, sink)
 	reactionEffects, operationDiagnostics, appliedOperationKeys := s.applyReactionOperations(ctx, inbound.ID, operationActions, state.Active, sink)
 	commandEffects, commandDiagnostics, appliedCommandKeys := s.applyReactionCommands(ctx, inbound, commandActions, state.Active, sink)
 	workflowObservations, workflowDiagnostics, appliedWorkflowKeys := s.applyReactionWorkflows(ctx, inbound.ID, workflowActions, sink)
 	reactionEffects = append(reactionEffects, commandEffects...)
+	operationDiagnostics = append(operationDiagnostics, activationDiagnostics...)
 	operationDiagnostics = append(operationDiagnostics, commandDiagnostics...)
 	operationDiagnostics = append(operationDiagnostics, workflowDiagnostics...)
+	appliedOperationKeys = append(appliedOperationKeys, appliedActivationKeys...)
 	appliedOperationKeys = append(appliedOperationKeys, appliedCommandKeys...)
 	appliedOperationKeys = append(appliedOperationKeys, appliedWorkflowKeys...)
 	if len(appliedOperationKeys) > 0 && state.AppliedKeys == nil {
@@ -787,6 +809,56 @@ func (s Session) applyTurnReactions(ctx context.Context, inbound channel.Inbound
 	observations = append(observations, observationsForEffects(reactionEffects)...)
 	observations = append(observations, workflowObservations...)
 	return state, observations, reactionEffects
+}
+
+func (s Session) applyReactionActivationSets(ctx context.Context, runID string, actions []sessionenv.ReactionAction, active *sessionenv.ActiveState, sink sessionenv.EventSink) ([]sessionenv.ReactionDiagnostic, []string) {
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	var diagnostics []sessionenv.ReactionDiagnostic
+	var appliedKeys []string
+	for _, planned := range actions {
+		name := strings.TrimSpace(planned.Action.ActivationSet)
+		if name == "" {
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: "activation set name is empty"})
+			continue
+		}
+		prepared := s.prepareSurfaceWithEmit(ctx, surfacePrepareRequest{
+			Terms:    []string{name},
+			Lifetime: coreactivation.LifetimeRun,
+			Source:   coreactivation.SourceReaction,
+			RunID:    runID,
+		}, sink.Emit)
+		if active != nil {
+			*active = mergeActiveState(*active, s.activeStateFromSurface(prepared.Active))
+		}
+		if len(prepared.Prepared.ActivationSets) == 0 {
+			message := "activation set was not prepared"
+			if len(prepared.Diagnostics) > 0 {
+				message = firstNonEmptyString(prepared.Diagnostics[0].Message, prepared.Diagnostics[0].Reason, message)
+			}
+			diagnostics = append(diagnostics, sessionenv.ReactionDiagnostic{Rule: planned.Rule, Action: planned.Action.Kind, Message: message})
+			continue
+		}
+		if planned.IdempotencyKey != "" {
+			appliedKeys = append(appliedKeys, planned.IdempotencyKey)
+			emitReactionEvent(sink, corereaction.ActionApplied{
+				Rule:                 planned.Rule,
+				Action:               planned.Action.Kind,
+				IdempotencyKey:       planned.IdempotencyKey,
+				Target:               name,
+				Assertion:            planned.Assertion.Kind,
+				AssertionTarget:      planned.Assertion.Target,
+				AssertionSubjectKind: string(planned.Assertion.Subject.Kind),
+				AssertionSubjectName: planned.Assertion.Subject.Name,
+				AssertionSubjectID:   planned.Assertion.Subject.ID,
+				AssertionScope:       planned.Assertion.Scope,
+				AssertionSource:      planned.Assertion.Source,
+				ObservationIDs:       append([]string(nil), planned.Assertion.ObservationIDs...),
+			})
+		}
+	}
+	return diagnostics, appliedKeys
 }
 
 func effectfulReactionAction(kind corereaction.ActionKind) bool {
@@ -1119,6 +1191,7 @@ func (s Session) finalizeInputResult(ctx context.Context, inbound channel.Inboun
 	if result.Status == InputStatusOK {
 		_ = s.autoCompactAfterTurn(ctx, inbound.ID)
 	}
+	s.expireRunSurface(ctx)
 	return result
 }
 
@@ -1207,6 +1280,10 @@ type contextPreviewInput struct {
 	Key   string `json:"key,omitempty" command:"flag=key"`
 }
 
+type surfaceCommandInput struct {
+	JSON bool `json:"json,omitempty" command:"flag=json"`
+}
+
 type goalCommandInput struct {
 	Goal                []string `json:"goal,omitempty" command:"arg"`
 	Max                 *int     `json:"max,omitempty" command:"flag=max"`
@@ -1277,9 +1354,12 @@ type envExplainReactionMatch struct {
 }
 
 type envExplainActive struct {
+	ActivationSets   []string `json:"activation_sets,omitempty"`
+	Operations       []string `json:"operations,omitempty"`
 	OperationSets    []string `json:"operation_sets,omitempty"`
 	Datasources      []string `json:"datasources,omitempty"`
 	ContextProviders []string `json:"context_providers,omitempty"`
+	InlineContexts   []string `json:"inline_contexts,omitempty"`
 }
 
 type envExplainApplied struct {
@@ -1298,6 +1378,9 @@ func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.I
 	state, err := s.replayReactionEvents(ctx)
 	if err != nil {
 		return commandFailed("reaction_replay_failed", err.Error(), nil)
+	}
+	if surface, err := s.surfaceReadModel(ctx); err == nil && surface.Active.Lifetime != "" {
+		state.Active = mergeActiveState(state.Active, s.activeStateFromSurface(surface.Active))
 	}
 	observations := append([]coreevidence.Observation(nil), s.StartupObservations...)
 	assertions := append([]coreevidence.Assertion(nil), s.StartupAssertions...)
@@ -1322,6 +1405,265 @@ func (s Session) executeEnvExplainCommand(ctx context.Context, inbound channel.I
 		Text: renderEnvExplain(data),
 		Data: data,
 	}}
+}
+
+func (s Session) executeSurfaceCommand(ctx context.Context, inbound channel.Inbound, spec command.Spec, evaluation sessioncontrol.PolicyEvaluation) CommandResult {
+	input, err := parseSurfaceCommand(*inbound.Command)
+	if err != nil {
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: "invalid_surface_command_input", Message: err.Error()},
+		}
+	}
+	model, err := s.surfaceReadModel(ctx)
+	if err != nil {
+		return CommandResult{
+			Status: CommandStatusFailed,
+			Spec:   spec,
+			Policy: evaluation,
+			Error:  &CommandError{Code: "surface_read_failed", Message: err.Error()},
+		}
+	}
+	text := renderSurfaceReadModel(model)
+	if input.JSON {
+		data, err := json.MarshalIndent(model, "", "  ")
+		if err != nil {
+			return CommandResult{
+				Status: CommandStatusFailed,
+				Spec:   spec,
+				Policy: evaluation,
+				Error:  &CommandError{Code: "surface_json_failed", Message: err.Error()},
+			}
+		}
+		text = string(data)
+	}
+	return CommandResult{Status: CommandStatusOK, Spec: spec, Policy: evaluation, Output: operation.Rendered{
+		Text: text,
+		Data: model,
+	}}
+}
+
+func parseSurfaceCommand(inv command.Invocation) (surfaceCommandInput, error) {
+	input, err := command.Bind[surfaceCommandInput](inv)
+	if err != nil {
+		return surfaceCommandInput{}, err
+	}
+	if inv.Input != nil {
+		structured, err := decodeCommandInput[surfaceCommandInput](inv.Input)
+		if err != nil {
+			return surfaceCommandInput{}, err
+		}
+		if structured.JSON {
+			input.JSON = true
+		}
+	}
+	return input, nil
+}
+
+func (s Session) surfaceReadModel(ctx context.Context) (coreactivation.ReadModel, error) {
+	var model coreactivation.ReadModel
+	if s.ThreadStore == nil || s.Thread.ID == "" {
+		return model, nil
+	}
+	snapshot, err := s.ThreadStore.Read(ensureContext(ctx), corethread.ReadParams{ID: s.Thread.ID})
+	if err != nil {
+		if errors.Is(err, corethread.ErrNotFound) {
+			return model, nil
+		}
+		return model, err
+	}
+	records, err := snapshot.EventsForBranch(s.Thread.BranchID)
+	if err != nil {
+		return model, err
+	}
+	for _, record := range records {
+		runtimeEvent, ok := runtimeEmittedPayload(record.Event.Payload)
+		if !ok {
+			continue
+		}
+		if err := model.ApplyNamed(runtimeEvent.Name, runtimeEvent.Payload); err != nil {
+			return model, err
+		}
+	}
+	return model, nil
+}
+
+func runtimeEmittedPayload(payload any) (coresession.RuntimeEmitted, bool) {
+	runtimeEvent, ok := payload.(coresession.RuntimeEmitted)
+	if ok {
+		return runtimeEvent, true
+	}
+	ptr, ok := payload.(*coresession.RuntimeEmitted)
+	if ok && ptr != nil {
+		return *ptr, true
+	}
+	return coresession.RuntimeEmitted{}, false
+}
+
+func renderSurfaceReadModel(model coreactivation.ReadModel) string {
+	var b strings.Builder
+	b.WriteString("Surface\n")
+	writeSurfaceFocus(&b, model.Focus)
+	writeSurfaceActive(&b, model.Active)
+	writeSurfaceDiagnostics(&b, model.Diagnostics)
+	writeSurfaceRecent(&b, model.Recent)
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func writeSurfaceFocus(b *strings.Builder, focus *coreactivation.FocusSummary) {
+	b.WriteString("\nFocus\n")
+	if focus == nil {
+		b.WriteString("  none\n")
+		return
+	}
+	if focus.Objective != "" {
+		b.WriteString("  objective: ")
+		b.WriteString(focus.Objective)
+		b.WriteByte('\n')
+	}
+	if len(focus.Intents) > 0 {
+		b.WriteString("  intents: ")
+		b.WriteString(strings.Join(focus.Intents, ", "))
+		b.WriteByte('\n')
+	}
+	if len(focus.Subjects) > 0 {
+		b.WriteString("  subjects: ")
+		b.WriteString(strings.Join(focus.Subjects, ", "))
+		b.WriteByte('\n')
+	}
+	parts := []string{}
+	if focus.Source != "" {
+		parts = append(parts, "source="+string(focus.Source))
+	}
+	if focus.Confidence > 0 {
+		parts = append(parts, fmt.Sprintf("confidence=%.2f", focus.Confidence))
+	}
+	if len(parts) > 0 {
+		b.WriteString("  ")
+		b.WriteString(strings.Join(parts, " "))
+		b.WriteByte('\n')
+	}
+}
+
+func writeSurfaceActive(b *strings.Builder, active coreactivation.ActiveSurface) {
+	b.WriteString("\nActive\n")
+	b.WriteString("  activation sets: ")
+	b.WriteString(envExplainList(active.ActivationSets))
+	b.WriteByte('\n')
+	b.WriteString("  operations: ")
+	b.WriteString(envExplainList(surfaceOperationRefs(active.Operations)))
+	b.WriteByte('\n')
+	b.WriteString("  operation sets: ")
+	b.WriteString(envExplainList(active.OperationSets))
+	b.WriteByte('\n')
+	b.WriteString("  context providers: ")
+	b.WriteString(envExplainList(surfaceContextRefs(active.ContextProviders)))
+	b.WriteByte('\n')
+	b.WriteString("  datasources: ")
+	b.WriteString(envExplainList(surfaceDatasourceRefs(active.Datasources)))
+	b.WriteByte('\n')
+	b.WriteString("  skills: ")
+	b.WriteString(envExplainList(surfaceSkillRefs(active.Skills)))
+	b.WriteByte('\n')
+	b.WriteString("  references: ")
+	b.WriteString(envExplainList(surfaceReferenceTargets(active.References)))
+	b.WriteByte('\n')
+	b.WriteString("  inline context: ")
+	b.WriteString(envExplainList(active.InlineContexts))
+	b.WriteByte('\n')
+	if active.Lifetime != "" {
+		b.WriteString("  duration: ")
+		b.WriteString(string(active.Lifetime))
+		b.WriteByte('\n')
+	}
+}
+
+func writeSurfaceDiagnostics(b *strings.Builder, diagnostics []coreactivation.Diagnostic) {
+	b.WriteString("\nDiagnostics\n")
+	if len(diagnostics) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, diagnostic := range diagnostics {
+		parts := []string{}
+		if diagnostic.Term != "" {
+			parts = append(parts, "term="+diagnostic.Term)
+		}
+		if diagnostic.Target != "" {
+			parts = append(parts, "target="+diagnostic.Target)
+		}
+		if diagnostic.Reason != "" {
+			parts = append(parts, "reason="+diagnostic.Reason)
+		}
+		writeEnvExplainLine(b, firstNonEmptyString(diagnostic.Message, "diagnostic"), parts)
+	}
+}
+
+func writeSurfaceRecent(b *strings.Builder, recent []coreactivation.TraceEntry) {
+	b.WriteString("\nRecent\n")
+	if len(recent) == 0 {
+		b.WriteString("  none\n")
+		return
+	}
+	for _, item := range recent {
+		parts := []string{}
+		if item.Source != "" {
+			parts = append(parts, "source="+string(item.Source))
+		}
+		writeEnvExplainLine(b, firstNonEmptyString(item.Summary, string(item.Event)), parts)
+	}
+}
+
+func surfaceOperationRefs(refs []operation.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if value := ref.String(); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func surfaceContextRefs(refs []corecontext.ProviderRef) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func surfaceDatasourceRefs(refs []coredatasource.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func surfaceSkillRefs(refs []coreskill.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func surfaceReferenceTargets(refs []coreactivation.ReferenceTarget) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Skill.Name != "" && ref.Path != "" {
+			out = append(out, string(ref.Skill.Name)+":"+ref.Path)
+		}
+	}
+	return out
 }
 
 func renderEnvExplain(data envExplainData) string {
@@ -1494,6 +1836,12 @@ func writeEnvExplainMatching(b *strings.Builder, matches []envExplainReactionMat
 
 func writeEnvExplainActive(b *strings.Builder, active envExplainActive, applied int) {
 	b.WriteString("\nActive\n")
+	b.WriteString("  activation sets: ")
+	b.WriteString(envExplainList(active.ActivationSets))
+	b.WriteByte('\n')
+	b.WriteString("  operations: ")
+	b.WriteString(envExplainList(active.Operations))
+	b.WriteByte('\n')
 	b.WriteString("  operation sets: ")
 	b.WriteString(envExplainList(active.OperationSets))
 	b.WriteByte('\n')
@@ -1502,6 +1850,9 @@ func writeEnvExplainActive(b *strings.Builder, active envExplainActive, applied 
 	b.WriteByte('\n')
 	b.WriteString("  context providers: ")
 	b.WriteString(envExplainList(active.ContextProviders))
+	b.WriteByte('\n')
+	b.WriteString("  inline context: ")
+	b.WriteString(envExplainList(active.InlineContexts))
 	b.WriteByte('\n')
 	b.WriteString("  applied reactions: ")
 	b.WriteString(strconv.Itoa(applied))
@@ -1703,6 +2054,8 @@ func envExplainReactionActionTarget(action corereaction.Action) string {
 			return string(action.Reference.Skill.Name)
 		}
 		return string(action.Reference.Skill.Name) + ":" + action.Reference.Path
+	case corereaction.ActionEnableActivationSet:
+		return action.ActivationSet
 	case corereaction.ActionEnableOperationSet:
 		return action.OperationSet
 	case corereaction.ActionEnableDatasource:
@@ -1912,10 +2265,35 @@ func reactionRuleNames(rules []corereaction.Rule) []string {
 
 func explainActiveState(active sessionenv.ActiveState) envExplainActive {
 	out := envExplainActive{
+		ActivationSets:   sortedBoolMapKeys(active.ActivationSets),
+		Operations:       surfaceOperationRefs(sortedActiveOperationRefs(active.Operations)),
 		OperationSets:    sortedBoolMapKeys(active.OperationSets),
 		Datasources:      sortedNameBoolMapKeys(active.Datasources),
 		ContextProviders: sortedNameBoolMapKeys(active.ContextProviders),
+		InlineContexts:   sortedInlineContextMapKeys(active.InlineContexts),
 	}
+	return out
+}
+
+func sortedActiveOperationRefs(values map[operation.Ref]bool) []operation.Ref {
+	var out []operation.Ref
+	for ref, active := range values {
+		if active && strings.TrimSpace(string(ref.Name)) != "" {
+			out = append(out, ref)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
+func sortedInlineContextMapKeys(values map[string]corecontext.Block) []string {
+	var out []string
+	for id := range values {
+		if strings.TrimSpace(id) != "" {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -2166,6 +2544,12 @@ func (s Session) contextProviders(active ...sessionenv.ActiveState) []corecontex
 	var providers []corecontext.Provider
 	if ok && carrier != nil {
 		providers = carrier.ContextProviders()
+	}
+	if len(active) > 0 && len(active[0].InlineContexts) > 0 {
+		providers = append(providers, inlineSurfaceContextProvider{blocks: active[0].InlineContexts})
+	}
+	if len(active) > 0 && s.shouldProjectSurfaceTools(active[0]) {
+		providers = append(providers, surfaceSchemaContextProvider{session: s, active: active[0]})
 	}
 	if len(active) == 0 || len(active[0].ContextProviders) == 0 {
 		return providers
@@ -2822,7 +3206,7 @@ func (s Session) applyTerminalAgentDecision(ctx context.Context, inbound channel
 	}
 }
 
-func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest, provider coreconversation.ProviderIdentity) ([]environment.EffectResult, []coreconversation.Item, []sessionenv.OperationCompleted, error) {
+func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Context, inbound channel.Inbound, startIndex int, requests []agent.OperationRequest, active *sessionenv.ActiveState, provider coreconversation.ProviderIdentity) ([]environment.EffectResult, []coreconversation.Item, []sessionenv.OperationCompleted, error) {
 	effects := make([]environment.EffectResult, 0, len(requests))
 	toolResults := make([]coreconversation.Item, 0, len(requests))
 	completedEvents := make([]sessionenv.OperationCompleted, 0, len(requests))
@@ -2865,6 +3249,11 @@ func (s Session) applyAgentOperations(ctx context.Context, agentCtx operation.Co
 			}
 		}
 		effects = append(effects, effect)
+		if active != nil {
+			if preparedActive, ok := s.activeStateFromSurfaceToolResult(effect.Result); ok {
+				*active = mergeActiveState(*active, preparedActive)
+			}
+		}
 		completed := sessionenv.OperationCompleted{
 			RunID:     inbound.ID,
 			CallID:    callID,
@@ -3177,6 +3566,18 @@ func (s Session) applyProjectedOperation(ctx operation.Context, ref operation.Re
 
 func (s Session) turnTools(active sessionenv.ActiveState) []tool.Spec {
 	out := append([]tool.Spec(nil), s.TurnTools...)
+	if s.shouldProjectSurfaceTools(active) {
+		for _, projected := range s.surfaceToolSpecs() {
+			if !toolProjected(out, projected) {
+				out = append(out, projected)
+			}
+		}
+	}
+	for _, projected := range s.activeOperationTools(active) {
+		if !toolProjected(out, projected) {
+			out = append(out, projected)
+		}
+	}
 	for _, projected := range s.activeOperationSetTools(active) {
 		if !toolProjected(out, projected) {
 			out = append(out, projected)
@@ -3184,6 +3585,38 @@ func (s Session) turnTools(active sessionenv.ActiveState) []tool.Spec {
 	}
 	if out == nil && s.TurnTools != nil {
 		return []tool.Spec{}
+	}
+	return out
+}
+
+func (s Session) shouldProjectSurfaceTools(active sessionenv.ActiveState) bool {
+	return len(s.ActivationSets) > 0 ||
+		len(active.ActivationSets) > 0 ||
+		len(active.Operations) > 0 ||
+		len(active.OperationSets) > 0 ||
+		len(active.ContextProviders) > 0 ||
+		len(active.Datasources) > 0 ||
+		len(active.InlineContexts) > 0
+}
+
+func (s Session) activeOperationTools(active sessionenv.ActiveState) []tool.Spec {
+	if len(active.Operations) == 0 {
+		return nil
+	}
+	var refs []operation.Ref
+	for ref, enabled := range active.Operations {
+		if enabled && strings.TrimSpace(string(ref.Name)) != "" {
+			refs = append(refs, ref)
+		}
+	}
+	sort.Slice(refs, func(i, j int) bool { return refs[i].String() < refs[j].String() })
+	var out []tool.Spec
+	for _, ref := range refs {
+		for _, projected := range s.operationTools(ref) {
+			if !toolProjected(out, projected) {
+				out = append(out, projected)
+			}
+		}
 	}
 	return out
 }

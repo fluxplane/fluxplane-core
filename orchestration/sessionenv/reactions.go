@@ -2,11 +2,14 @@ package sessionenv
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
+	"github.com/fluxplane/engine/core/operation"
 	corereaction "github.com/fluxplane/engine/core/reaction"
 	coreskill "github.com/fluxplane/engine/core/skill"
 	"github.com/fluxplane/engine/runtime/skill"
@@ -31,9 +34,45 @@ type ReactionApplyResult struct {
 // ActiveState records capabilities activated for the current session by
 // reactions.
 type ActiveState struct {
+	ActivationSets   map[string]bool
+	Operations       map[operation.Ref]bool
 	OperationSets    map[string]bool
 	Datasources      map[coredatasource.Name]bool
 	ContextProviders map[corecontext.ProviderName]bool
+	InlineContexts   map[string]corecontext.Block
+}
+
+// EnableActivationSet records an active activation set and reports whether
+// state changed.
+func (s *ActiveState) EnableActivationSet(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || s == nil {
+		return false
+	}
+	if s.ActivationSets == nil {
+		s.ActivationSets = map[string]bool{}
+	}
+	if s.ActivationSets[name] {
+		return false
+	}
+	s.ActivationSets[name] = true
+	return true
+}
+
+// EnableOperation records an active operation and reports whether state
+// changed.
+func (s *ActiveState) EnableOperation(ref operation.Ref) bool {
+	if strings.TrimSpace(string(ref.Name)) == "" || s == nil {
+		return false
+	}
+	if s.Operations == nil {
+		s.Operations = map[operation.Ref]bool{}
+	}
+	if s.Operations[ref] {
+		return false
+	}
+	s.Operations[ref] = true
+	return true
 }
 
 // EnableOperationSet records an active operation set and reports whether state
@@ -85,9 +124,55 @@ func (s *ActiveState) EnableContextProvider(name corecontext.ProviderName) bool 
 	return true
 }
 
+// EnableInlineContext records an active inline context block and reports
+// whether state changed.
+func (s *ActiveState) EnableInlineContext(block corecontext.Block) bool {
+	id := strings.TrimSpace(block.ID)
+	if id == "" || s == nil {
+		return false
+	}
+	if s.InlineContexts == nil {
+		s.InlineContexts = map[string]corecontext.Block{}
+	}
+	if _, exists := s.InlineContexts[id]; exists {
+		return false
+	}
+	s.InlineContexts[id] = block
+	return true
+}
+
+// ActiveSurface returns a read-model compatible view of active state.
+func (s ActiveState) ActiveSurface() coreactivation.ActiveSurface {
+	out := coreactivation.ActiveSurface{
+		ActivationSets:   sortedBoolMapKeys(s.ActivationSets),
+		Operations:       sortedOperationRefs(s.Operations),
+		OperationSets:    sortedBoolMapKeys(s.OperationSets),
+		ContextProviders: sortedContextProviderRefs(s.ContextProviders),
+		Datasources:      sortedDatasourceRefs(s.Datasources),
+		InlineContexts:   sortedInlineContextIDs(s.InlineContexts),
+	}
+	return out
+}
+
 // Clone returns a detached copy of active state.
 func (s ActiveState) Clone() ActiveState {
 	out := ActiveState{}
+	if len(s.ActivationSets) > 0 {
+		out.ActivationSets = map[string]bool{}
+		for name, active := range s.ActivationSets {
+			if active {
+				out.ActivationSets[name] = true
+			}
+		}
+	}
+	if len(s.Operations) > 0 {
+		out.Operations = map[operation.Ref]bool{}
+		for ref, active := range s.Operations {
+			if active {
+				out.Operations[ref] = true
+			}
+		}
+	}
 	if len(s.OperationSets) > 0 {
 		out.OperationSets = map[string]bool{}
 		for name, active := range s.OperationSets {
@@ -112,6 +197,67 @@ func (s ActiveState) Clone() ActiveState {
 			}
 		}
 	}
+	if len(s.InlineContexts) > 0 {
+		out.InlineContexts = map[string]corecontext.Block{}
+		for id, block := range s.InlineContexts {
+			out.InlineContexts[id] = block
+		}
+	}
+	return out
+}
+
+func sortedBoolMapKeys(values map[string]bool) []string {
+	var out []string
+	for value, active := range values {
+		if active && strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedOperationRefs(values map[operation.Ref]bool) []operation.Ref {
+	var out []operation.Ref
+	for ref, active := range values {
+		if active && strings.TrimSpace(string(ref.Name)) != "" {
+			out = append(out, ref)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
+func sortedContextProviderRefs(values map[corecontext.ProviderName]bool) []corecontext.ProviderRef {
+	var out []corecontext.ProviderRef
+	for name, active := range values {
+		if active && strings.TrimSpace(string(name)) != "" {
+			out = append(out, corecontext.ProviderRef{Name: name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func sortedDatasourceRefs(values map[coredatasource.Name]bool) []coredatasource.Ref {
+	var out []coredatasource.Ref
+	for name, active := range values {
+		if active && strings.TrimSpace(string(name)) != "" {
+			out = append(out, coredatasource.Ref{Name: name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func sortedInlineContextIDs(values map[string]corecontext.Block) []string {
+	var out []string
+	for id := range values {
+		if strings.TrimSpace(id) != "" {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -169,6 +315,8 @@ func applyReactionAction(action corereaction.Action, cfg Config) error {
 		return activateReactionDatasource(action.Datasource.Name, cfg)
 	case corereaction.ActionEnableContext:
 		return activateReactionContextProvider(action.ContextProvider.Name, cfg)
+	case corereaction.ActionEnableActivationSet:
+		return fmt.Errorf("reaction action %q is not supported yet", action.Kind)
 	case corereaction.ActionRunWorkflow,
 		corereaction.ActionRunOperation,
 		corereaction.ActionRunCommand:
@@ -226,6 +374,8 @@ func reactionActionTarget(action corereaction.Action) string {
 			return string(action.Reference.Skill.Name)
 		}
 		return string(action.Reference.Skill.Name) + ":" + action.Reference.Path
+	case corereaction.ActionEnableActivationSet:
+		return strings.TrimSpace(action.ActivationSet)
 	case corereaction.ActionEnableOperationSet:
 		return strings.TrimSpace(action.OperationSet)
 	case corereaction.ActionEnableDatasource:

@@ -3,6 +3,7 @@ package resource
 import (
 	"testing"
 
+	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/operation"
@@ -20,6 +21,13 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 		AssertionDerivers: []evidence.AssertionDeriverSpec{{
 			Name:             "kubernetes.assertions",
 			ObservationKinds: []string{"kubernetes.context"},
+		}},
+		ActivationSets: []activation.Set{{
+			Name: "incident.slack",
+			Targets: []activation.Target{{
+				Kind:         activation.TargetOperationSet,
+				OperationSet: "slack.message_read",
+			}},
 		}},
 		Reactions: []reaction.Rule{{
 			Name: "kubernetes-available",
@@ -39,6 +47,9 @@ func TestContributionBundleAppendObservationReactionFields(t *testing.T) {
 	}
 	if len(bundle.AssertionDerivers) != 1 || bundle.AssertionDerivers[0].Name != "kubernetes.assertions" {
 		t.Fatalf("assertion derivers = %#v", bundle.AssertionDerivers)
+	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != "incident.slack" {
+		t.Fatalf("activation sets = %#v", bundle.ActivationSets)
 	}
 	if len(bundle.Reactions) != 1 || bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v", bundle.Reactions)

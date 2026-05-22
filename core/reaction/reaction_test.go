@@ -80,6 +80,10 @@ func TestRuleValidateAcceptsActivationActions(t *testing.T) {
 				ContextProvider: corecontext.ProviderRef{Name: "kubernetes.context"},
 			},
 			{
+				Kind:          ActionEnableActivationSet,
+				ActivationSet: "incident.slack_thread",
+			},
+			{
 				Kind: ActionActivateReference,
 				Reference: ReferenceAction{
 					Skill: skill.Ref{Name: "kubernetes"},

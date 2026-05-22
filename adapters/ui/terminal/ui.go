@@ -13,9 +13,13 @@ import (
 	"sync"
 	"time"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevent "github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/skill"
 	coretask "github.com/fluxplane/engine/core/task"
 	"github.com/fluxplane/engine/core/testrun"
 	"github.com/fluxplane/engine/core/usage"
@@ -184,6 +188,9 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 	if event.Runtime == nil {
 		return
 	}
+	if r.renderActivationRuntime(out, event.Runtime.Name, event.Runtime.Payload) {
+		return
+	}
 	if r.renderTaskRuntime(out, string(event.Runtime.Name), event.Runtime.Payload) {
 		return
 	}
@@ -227,6 +234,109 @@ func (r *Renderer) renderRuntime(out io.Writer, event clientapi.Event) {
 		if string(event.Runtime.Name) == "human.clarification.completed" {
 			_, _ = fmt.Fprintf(out, "clarify answer: %s\n", field(payload, "Answer"))
 		}
+	}
+}
+
+func (r *Renderer) renderActivationRuntime(out io.Writer, name coreevent.Name, payload any) bool {
+	switch name {
+	case coreactivation.EventFocusDetected:
+		var typed coreactivation.FocusDetected
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		labels := append([]string(nil), typed.Intents...)
+		for _, subject := range typed.Subjects {
+			if subject.Name != "" {
+				labels = append(labels, subject.Name)
+			}
+		}
+		_, _ = fmt.Fprintf(out, "%sfocus:%s %s", ansiCyan, ansiReset, compact(firstNonEmptyString(typed.Objective, typed.Summary), 160))
+		if len(labels) > 0 {
+			_, _ = fmt.Fprintf(out, " %s[%s]%s", ansiDim, strings.Join(uniqueCompactStrings(labels, 8), ", "), ansiReset)
+		}
+		if typed.Source != "" || typed.Confidence > 0 {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, sourceConfidenceSummary(typed.Source, typed.Confidence), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+		return true
+	case coreactivation.EventSurfacePrepareRequested:
+		var typed coreactivation.SurfacePrepareRequested
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		terms := append([]string(nil), typed.Terms...)
+		terms = append(terms, typed.ActivationSets...)
+		_, _ = fmt.Fprintf(out, "%ssurface requested:%s %s", ansiCyan, ansiReset, compact(firstNonEmptyString(strings.Join(terms, " "), typed.Objective), 160))
+		if typed.Lifetime != "" || typed.Source != "" {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, lifetimeSourceSummary(typed.Lifetime, typed.Source), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+		return true
+	case coreactivation.EventSurfaceResolved:
+		var typed coreactivation.SurfaceResolved
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		summary := firstNonEmptyString(strings.Join(typed.ActivationSets, ", "), resolvedResourceSummary(typed.Resources))
+		if summary == "" && len(typed.UnmatchedTerms) > 0 {
+			summary = "unmatched " + strings.Join(typed.UnmatchedTerms, ", ")
+		}
+		_, _ = fmt.Fprintf(out, "%ssurface resolved:%s %s\n", ansiCyan, ansiReset, compact(summary, 180))
+		if skipped := activationDiagnosticsSummary(append(typed.Skipped, typed.Diagnostics...)); skipped != "" {
+			_, _ = fmt.Fprintf(out, "  %sskipped:%s %s\n", ansiDim, ansiReset, skipped)
+		}
+		return true
+	case coreactivation.EventSurfacePrepared:
+		var typed coreactivation.SurfacePrepared
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%ssurface prepared:%s %s", ansiGreen, ansiReset, compact(firstNonEmptyString(strings.Join(typed.ActivationSets, ", "), preparedCountsSummary(typed)), 180))
+		if typed.Lifetime != "" || typed.Source != "" {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, lifetimeSourceSummary(typed.Lifetime, typed.Source), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+		renderActivationDetail(out, "operations", operationRefsToStrings(typed.Operations))
+		renderActivationDetail(out, "operation sets", typed.OperationSets)
+		renderActivationDetail(out, "context", contextRefsToStrings(typed.ContextProviders))
+		renderActivationDetail(out, "datasources", datasourceRefsToStrings(typed.Datasources))
+		renderActivationDetail(out, "skills", skillRefsToStrings(typed.Skills))
+		renderActivationDetail(out, "references", referenceTargetsToStrings(typed.References))
+		renderActivationDetail(out, "inline context", typed.InlineContexts)
+		if skipped := activationDiagnosticsSummary(typed.Diagnostics); skipped != "" {
+			_, _ = fmt.Fprintf(out, "  %sskipped:%s %s\n", ansiDim, ansiReset, skipped)
+		}
+		return true
+	case coreactivation.EventSurfacePrepareSkipped:
+		var typed coreactivation.SurfacePrepareSkipped
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%ssurface skipped:%s %s", ansiYellow, ansiReset, compact(firstNonEmptyString(typed.ActivationSet, typed.Resource, typed.Term), 140))
+		if reason := firstNonEmptyString(typed.Reason, typed.Diagnostic.Reason, typed.Diagnostic.Message); reason != "" {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, compact(reason, 120), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+		return true
+	case coreactivation.EventSurfaceExpired:
+		var typed coreactivation.SurfaceExpired
+		if decodeFlexiblePayload(payload, &typed) != nil {
+			return false
+		}
+		r.flushContent()
+		_, _ = fmt.Fprintf(out, "%ssurface expired:%s %s", ansiYellow, ansiReset, compact(firstNonEmptyString(strings.Join(typed.ActivationSets, ", "), expiredCountsSummary(typed)), 180))
+		if typed.Lifetime != "" || typed.Reason != "" {
+			_, _ = fmt.Fprintf(out, " %s%s%s", ansiDim, lifetimeReasonSummary(typed.Lifetime, typed.Reason), ansiReset)
+		}
+		_, _ = fmt.Fprintln(out)
+		return true
+	default:
+		return false
 	}
 }
 
@@ -698,6 +808,170 @@ func decodeTypedPayload(payload any, out any) error {
 		return err
 	}
 	return json.Unmarshal(data, out)
+}
+
+func decodeFlexiblePayload(payload any, out any) error {
+	switch typed := payload.(type) {
+	case json.RawMessage:
+		return json.Unmarshal(typed, out)
+	case []byte:
+		return json.Unmarshal(typed, out)
+	default:
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		return json.Unmarshal(data, out)
+	}
+}
+
+func sourceConfidenceSummary(source coreactivation.Source, confidence float64) string {
+	parts := []string{}
+	if source != "" {
+		parts = append(parts, "source="+string(source))
+	}
+	if confidence > 0 {
+		parts = append(parts, fmt.Sprintf("confidence=%.2f", confidence))
+	}
+	return strings.Join(parts, " ")
+}
+
+func lifetimeSourceSummary(lifetime coreactivation.Lifetime, source coreactivation.Source) string {
+	parts := []string{}
+	if lifetime != "" {
+		parts = append(parts, "duration="+string(lifetime))
+	}
+	if source != "" {
+		parts = append(parts, "source="+string(source))
+	}
+	return strings.Join(parts, " ")
+}
+
+func lifetimeReasonSummary(lifetime coreactivation.Lifetime, reason string) string {
+	parts := []string{}
+	if lifetime != "" {
+		parts = append(parts, "duration="+string(lifetime))
+	}
+	if reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	return strings.Join(parts, " ")
+}
+
+func preparedCountsSummary(event coreactivation.SurfacePrepared) string {
+	count := len(event.Operations) + len(event.OperationSets) + len(event.ContextProviders) + len(event.Datasources) + len(event.Skills) + len(event.InlineContexts)
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d resources", count)
+}
+
+func expiredCountsSummary(event coreactivation.SurfaceExpired) string {
+	count := len(event.Operations) + len(event.OperationSets) + len(event.ContextProviders) + len(event.Datasources) + len(event.Skills) + len(event.InlineContexts)
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d resources", count)
+}
+
+func renderActivationDetail(out io.Writer, label string, values []string) {
+	values = uniqueCompactStrings(values, 8)
+	if len(values) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "  %s: %s\n", label, strings.Join(values, ", "))
+}
+
+func operationRefsToStrings(refs []operation.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if value := ref.String(); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func contextRefsToStrings(refs []corecontext.ProviderRef) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func datasourceRefsToStrings(refs []coredatasource.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func skillRefsToStrings(refs []skill.Ref) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Name != "" {
+			out = append(out, string(ref.Name))
+		}
+	}
+	return out
+}
+
+func referenceTargetsToStrings(refs []coreactivation.ReferenceTarget) []string {
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Skill.Name != "" && ref.Path != "" {
+			out = append(out, string(ref.Skill.Name)+":"+ref.Path)
+		}
+	}
+	return out
+}
+
+func resolvedResourceSummary(resources []coreactivation.ResolvedResource) string {
+	out := make([]string, 0, len(resources))
+	for _, resource := range resources {
+		value := firstNonEmptyString(resource.Alias, resource.Name, resource.Address)
+		if value != "" {
+			out = append(out, string(resource.Kind)+":"+value)
+		}
+	}
+	return strings.Join(uniqueCompactStrings(out, 8), ", ")
+}
+
+func activationDiagnosticsSummary(diagnostics []coreactivation.Diagnostic) string {
+	out := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		value := firstNonEmptyString(diagnostic.Message, diagnostic.Reason, diagnostic.Target, diagnostic.Term)
+		if value != "" {
+			out = append(out, compact(value, 80))
+		}
+	}
+	return strings.Join(uniqueCompactStrings(out, 4), "; ")
+}
+
+func uniqueCompactStrings(values []string, limit int) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	if limit > 0 && len(out) > limit {
+		remaining := len(out) - limit
+		out = out[:limit]
+		out = append(out, fmt.Sprintf("+%d more", remaining))
+	}
+	return out
 }
 
 func (r *Renderer) renderModelStream(event llmagent.StreamEvent) {

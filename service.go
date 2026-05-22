@@ -6,10 +6,12 @@ import (
 	"fmt"
 
 	"github.com/fluxplane/engine/adapters/channels/direct"
+	coreactivation "github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevent "github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
@@ -106,7 +108,9 @@ type Config struct {
 	Resolver             *resource.Resolver
 	CommandCatalog       session.CommandCatalog
 	OperationCatalog     session.OperationCatalog
+	ActivationSets       []coreactivation.Set
 	OperationSets        []operation.Set
+	Datasources          []coredatasource.Spec
 	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      resourcecatalog.WorkflowCatalog
@@ -191,7 +195,9 @@ func New(cfg Config) (*Service, error) {
 		Resolver:             cfg.Resolver,
 		CommandCatalog:       cfg.CommandCatalog,
 		OperationCatalog:     cfg.OperationCatalog,
+		ActivationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
 		OperationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		Datasources:          append([]coredatasource.Spec(nil), cfg.Datasources...),
 		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		WorkflowCatalog:      cfg.WorkflowCatalog,
@@ -347,6 +353,12 @@ func NewFromComposition(composition appcomposition.Composition, cfg Config) (*Se
 	}
 	if len(cfg.OperationSets) == 0 {
 		cfg.OperationSets = composition.OperationSets
+	}
+	if len(cfg.ActivationSets) == 0 {
+		cfg.ActivationSets = composition.Specs.ActivationSets
+	}
+	if len(cfg.Datasources) == 0 {
+		cfg.Datasources = composition.DatasourceSpecs
 	}
 	if len(cfg.PostEditChecks) == 0 {
 		cfg.PostEditChecks = composition.PostEditChecks

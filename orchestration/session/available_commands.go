@@ -44,12 +44,18 @@ func AvailableCommandSpecs(registry *command.Registry, catalog CommandCatalog) [
 
 func completeBuiltInCommandSpec(spec command.Spec) command.Spec {
 	switch spec.Path.String() {
+	case activateCommandSpec.Path.String():
+		spec.Input = runtimeoperation.TypeOf[activateCommandInput]("activate_input")
+		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[activateCommandInput]())
 	case contextCommandSpec.Path.String():
 		spec.Input = runtimeoperation.TypeOf[contextPreviewInput]("context_input")
 		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[contextPreviewInput]())
 	case compactCommandSpec.Path.String():
 		spec.Input = runtimeoperation.TypeOf[compactCommandInput]("compact_input")
 		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[compactCommandInput]())
+	case surfaceCommandSpec.Path.String():
+		spec.Input = runtimeoperation.TypeOf[surfaceCommandInput]("surface_input")
+		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[surfaceCommandInput]())
 	case goalCommandSpec.Path.String():
 		spec.Input = runtimeoperation.TypeOf[goalCommandInput]("goal_input")
 		spec.Annotations = commandCompletionAnnotations(spec.Annotations, command.FlagNamesFor[goalCommandInput]())

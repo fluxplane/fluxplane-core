@@ -36,7 +36,7 @@ func TestAvailableCommandSpecsIncludesDispatcherCommands(t *testing.T) {
 	for _, spec := range specs {
 		paths = append(paths, spec.Path.String())
 	}
-	for _, want := range []string{"/catalog", "/compact", "/context", "/env/explain", "/goal", "/registry", "/whoami"} {
+	for _, want := range []string{"/activate", "/catalog", "/compact", "/context", "/env/explain", "/goal", "/registry", "/surface", "/whoami"} {
 		if !containsCommandPath(paths, want) {
 			t.Fatalf("AvailableCommandSpecs paths = %#v, missing %s", paths, want)
 		}
@@ -48,6 +48,14 @@ func TestAvailableCommandSpecsIncludesDispatcherCommands(t *testing.T) {
 
 func TestAvailableCommandSpecsAddsBuiltInCompletionFlags(t *testing.T) {
 	specs := AvailableCommandSpecs(nil, nil)
+	activate, ok := commandSpecByPath(specs, "/activate")
+	if !ok {
+		t.Fatal("missing /activate command")
+	}
+	if !containsCSV(activate.Annotations[command.CompletionFlagsAnnotation], "duration") {
+		t.Fatalf("/activate completion flags = %q, missing duration", activate.Annotations[command.CompletionFlagsAnnotation])
+	}
+
 	goal, ok := commandSpecByPath(specs, "/goal")
 	if !ok {
 		t.Fatal("missing /goal command")
@@ -65,6 +73,14 @@ func TestAvailableCommandSpecsAddsBuiltInCompletionFlags(t *testing.T) {
 	}
 	if !containsCSV(compact.Annotations[command.CompletionFlagsAnnotation], "dry-run") {
 		t.Fatalf("/compact completion flags = %q, missing dry-run", compact.Annotations[command.CompletionFlagsAnnotation])
+	}
+
+	surface, ok := commandSpecByPath(specs, "/surface")
+	if !ok {
+		t.Fatal("missing /surface command")
+	}
+	if !containsCSV(surface.Annotations[command.CompletionFlagsAnnotation], "json") {
+		t.Fatalf("/surface completion flags = %q, missing json", surface.Annotations[command.CompletionFlagsAnnotation])
 	}
 }
 

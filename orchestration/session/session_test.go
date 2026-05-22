@@ -9,11 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/environment"
 	"github.com/fluxplane/engine/core/event"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
@@ -32,6 +34,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/resourcecatalog"
 	"github.com/fluxplane/engine/orchestration/sessionagent"
 	"github.com/fluxplane/engine/orchestration/sessioncontrol"
+	"github.com/fluxplane/engine/orchestration/sessionenv"
 	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 	conversationruntime "github.com/fluxplane/engine/runtime/conversation"
 	"github.com/fluxplane/engine/runtime/eventstore"
@@ -2686,6 +2689,299 @@ func TestExecuteInboundCommandEnvExplainReportsConfiguredAndActiveState(t *testi
 	}
 }
 
+func TestExecuteInboundCommandSurfaceReportsReadModel(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-surface"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	events := []corethread.AppendRecord{
+		{Event: event.Record{
+			Name: coresession.EventRuntimeEmitted,
+			Payload: coresession.RuntimeEmitted{
+				Name: coreactivation.EventFocusDetected,
+				Payload: coreactivation.FocusDetected{
+					Objective:  "Troubleshoot backend load",
+					Intents:    []string{"troubleshoot"},
+					Subjects:   []coreevidence.Subject{{Name: "slack"}, {Name: "backend"}},
+					Source:     coreactivation.SourceModelFocus,
+					Confidence: 0.86,
+				},
+			},
+		}},
+		{Event: event.Record{
+			Name: coresession.EventRuntimeEmitted,
+			Payload: coresession.RuntimeEmitted{
+				Name: coreactivation.EventSurfacePrepared,
+				Payload: coreactivation.SurfacePrepared{
+					ActivationSets:   []string{"incident.slack_jira"},
+					Operations:       []operation.Ref{{Name: "slack_thread_read"}},
+					OperationSets:    []string{"jira.issue_read"},
+					ContextProviders: []corecontext.ProviderRef{{Name: "surface.schema"}},
+					Datasources:      []coredatasource.Ref{{Name: "jira"}},
+					Skills:           []coreskill.Ref{{Name: "incident-response"}},
+					Lifetime:         coreactivation.LifetimeRun,
+					Source:           coreactivation.SourceReaction,
+				},
+			},
+		}},
+	}
+	if _, err := threadStore.Append(ctx, thread, events...); err != nil {
+		t.Fatalf("append surface events: %v", err)
+	}
+	result := (Session{ThreadStore: threadStore, Thread: thread}).ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:      "cmd-surface",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"surface"}},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want rendered surface output", result.Output)
+	}
+	for _, want := range []string{"Surface", "Focus", "Troubleshoot backend load", "Active", "incident.slack_jira", "slack_thread_read", "jira.issue_read", "surface.schema", "duration: run"} {
+		if !strings.Contains(rendered.Text, want) {
+			t.Fatalf("surface output = %q, missing %q", rendered.Text, want)
+		}
+	}
+	model, ok := rendered.Data.(coreactivation.ReadModel)
+	if !ok {
+		t.Fatalf("data = %#v, want activation read model", rendered.Data)
+	}
+	if model.Focus == nil || model.Focus.Objective != "Troubleshoot backend load" {
+		t.Fatalf("focus = %#v", model.Focus)
+	}
+	if len(model.Active.ActivationSets) != 1 || model.Active.ActivationSets[0] != "incident.slack_jira" {
+		t.Fatalf("active activation sets = %#v", model.Active.ActivationSets)
+	}
+}
+
+func TestExecuteInboundCommandActivatePreparesSurface(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	echo := operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "echo"},
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})
+	if err := ops.Register(echo); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var emitted []event.Event
+	result := (Session{
+		Operations: ops,
+		ActivationSets: []coreactivation.Set{{
+			Name:    "incident.echo",
+			Aliases: []string{"incident"},
+			Targets: []coreactivation.Target{{
+				Kind:      coreactivation.TargetOperation,
+				Operation: operation.Ref{Name: "echo"},
+			}, {
+				Kind:          coreactivation.TargetInlineContext,
+				InlineContext: &coreactivation.ContextTarget{ID: "incident/notes", Content: "Use incident notes."},
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:      "cmd-activate",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"activate"}, Args: []string{"incident"}},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok || !strings.Contains(rendered.Text, "incident.echo") || !strings.Contains(rendered.Text, "echo") {
+		t.Fatalf("output = %#v, want rendered activation summary", result.Output)
+	}
+	prepared, ok := rendered.Data.(surfacePreparation)
+	if !ok {
+		t.Fatalf("data = %#v, want surface preparation", rendered.Data)
+	}
+	if len(prepared.Prepared.ActivationSets) != 1 || prepared.Prepared.ActivationSets[0] != "incident.echo" {
+		t.Fatalf("prepared sets = %#v", prepared.Prepared.ActivationSets)
+	}
+	if len(prepared.Prepared.Operations) != 1 || prepared.Prepared.Operations[0].Name != "echo" {
+		t.Fatalf("prepared operations = %#v", prepared.Prepared.Operations)
+	}
+	for _, want := range []event.Name{coreactivation.EventSurfacePrepareRequested, coreactivation.EventSurfaceResolved, coreactivation.EventSurfacePrepared} {
+		if !hasEvent(emitted, want) {
+			t.Fatalf("emitted events = %#v, missing %s", eventNames(emitted), want)
+		}
+	}
+}
+
+func TestResolveSurfaceTermsMatchesTypedResourcePhrases(t *testing.T) {
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "gitlab_mr"}}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	s := Session{
+		Operations:     ops,
+		OperationSets:  []operation.Set{{Name: "gitlab"}},
+		Datasources:    []coredatasource.Spec{{Name: "gitlab"}},
+		ActivationSets: []coreactivation.Set{{Name: "coder.mr_review", Aliases: []string{"mr"}}},
+	}
+
+	resolved := s.resolveSurfaceTerms([]string{
+		"coder.mr_review surface",
+		"gitlab datasource",
+		"gitlab operation set",
+		"gitlab_mr operation",
+	})
+
+	if len(resolved.ActivationSets) != 1 || resolved.ActivationSets[0] != "coder.mr_review" {
+		t.Fatalf("activation sets = %#v, want coder.mr_review", resolved.ActivationSets)
+	}
+	for _, want := range []coreactivation.ResolvedResource{
+		{Kind: coreactivation.TargetDatasource, Name: "gitlab"},
+		{Kind: coreactivation.TargetOperationSet, Name: "gitlab"},
+		{Kind: coreactivation.TargetOperation, Name: "gitlab_mr"},
+	} {
+		if !resolvedResourcesContain(resolved.Resources, want) {
+			t.Fatalf("resources = %#v, missing %#v", resolved.Resources, want)
+		}
+	}
+	if len(resolved.UnmatchedTerms) != 0 || len(resolved.Diagnostics) != 0 {
+		t.Fatalf("resolved = %#v, want no unmatched typed phrases", resolved)
+	}
+}
+
+func TestExecuteInboundCommandEnvExplainIncludesActiveSurface(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-env-surface"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: coreactivation.EventSurfacePrepared,
+			Payload: coreactivation.SurfacePrepared{
+				ActivationSets: []string{"incident.echo"},
+				OperationSets:  []string{"echo-tools"},
+				Lifetime:       coreactivation.LifetimeRun,
+				Source:         coreactivation.SourceUserCommand,
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append surface event: %v", err)
+	}
+	result := (Session{ThreadStore: threadStore, Thread: thread}).ExecuteInboundCommand(ctx, channel.Inbound{
+		ID:      "cmd-env-surface",
+		Kind:    channel.InboundCommand,
+		Caller:  policy.Caller{Kind: policy.CallerUser},
+		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+		Command: &command.Invocation{Path: command.Path{"env", "explain"}},
+	})
+	if result.Status != CommandStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	rendered, ok := result.Output.(operation.Rendered)
+	if !ok {
+		t.Fatalf("output = %#v, want rendered env explain output", result.Output)
+	}
+	for _, want := range []string{"activation sets: incident.echo", "operation sets: echo-tools"} {
+		if !strings.Contains(rendered.Text, want) {
+			t.Fatalf("env explain output = %q, missing %q", rendered.Text, want)
+		}
+	}
+}
+
+func TestExecuteInboundInputUsesAndExpiresRunSurface(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-activated-run"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := threadStore.Append(ctx, thread, corethread.AppendRecord{Event: event.Record{
+		Name: coresession.EventRuntimeEmitted,
+		Payload: coresession.RuntimeEmitted{
+			Name: coreactivation.EventSurfacePrepared,
+			Payload: coreactivation.SurfacePrepared{
+				ActivationSets: []string{"incident.echo"},
+				Lifetime:       coreactivation.LifetimeRun,
+				Source:         coreactivation.SourceUserCommand,
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("append surface event: %v", err)
+	}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "echo"},
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	agentRuntime := &toolCaptureAgent{
+		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
+	}
+	var emitted []event.Event
+	result := (Session{
+		Agent:       agentRuntime,
+		Operations:  ops,
+		ThreadStore: threadStore,
+		Thread:      thread,
+		ActivationSets: []coreactivation.Set{{
+			Name: "incident.echo",
+			Targets: []coreactivation.Target{{
+				Kind:         coreactivation.TargetOperationSet,
+				OperationSet: "echo-tools",
+			}},
+		}},
+		OperationSets: []operation.Set{{
+			Name:       "echo-tools",
+			Operations: []operation.Ref{{Name: "echo"}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-activated",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "continue"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
+		t.Fatalf("tools = %#v, want active echo tool", agentRuntime.tools)
+	}
+	if !hasEvent(emitted, coreactivation.EventSurfaceExpired) {
+		t.Fatalf("emitted events = %#v, want surface expiry", eventNames(emitted))
+	}
+}
+
 func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 	ctx := context.Background()
 	ops := operation.NewRegistry()
@@ -2731,11 +3027,70 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if len(agentRuntime.tools) != 1 {
-		t.Fatalf("tools = %#v, want one active operation-set tool", agentRuntime.tools)
-	}
-	if agentRuntime.tools[0].Name != "echo" || agentRuntime.tools[0].Target.Operation.Name != "echo" {
+	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
 		t.Fatalf("tools = %#v, want echo operation tool", agentRuntime.tools)
+	}
+}
+
+func TestExecuteInboundInputReactionEnablesActivationSet(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "echo"},
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	deriver := &scriptedAssertionDeriver{
+		spec: coreevidence.AssertionDeriverSpec{Name: "test.deriver"},
+		derive: func(context.Context, runtimeevidence.AssertionDeriveRequest) ([]coreevidence.Assertion, error) {
+			return []coreevidence.Assertion{{Kind: "focus.detected", Target: "incident", Source: "test.deriver"}}, nil
+		},
+	}
+	agentRuntime := &toolCaptureAgent{
+		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
+	}
+	var emitted []event.Event
+	result := (Session{
+		Agent:             agentRuntime,
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ActivationSets: []coreactivation.Set{{
+			Name: "incident.echo",
+			Targets: []coreactivation.Target{{
+				Kind:      coreactivation.TargetOperation,
+				Operation: operation.Ref{Name: "echo"},
+			}},
+		}},
+		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
+		ReactionRules: []corereaction.Rule{{
+			Name: "incident.echo",
+			When: corereaction.Matcher{Assertion: "focus.detected", Target: "incident"},
+			Actions: []corereaction.Action{{
+				Kind:          corereaction.ActionEnableActivationSet,
+				ActivationSet: "incident.echo",
+			}},
+		}},
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundInput(ctx, channel.Inbound{
+		ID:      "run-active-activation-set",
+		Kind:    channel.InboundMessage,
+		Message: &channel.Message{Content: "incident"},
+	})
+	if result.Status != InputStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
+		t.Fatalf("tools = %#v, want echo operation from activation set", agentRuntime.tools)
+	}
+	if !hasEvent(emitted, coreactivation.EventSurfacePrepared) {
+		t.Fatalf("emitted events = %#v, want surface prepared", eventNames(emitted))
 	}
 }
 
@@ -2792,6 +3147,146 @@ func TestExecuteInboundInputExpandsWildcardOperationSetTools(t *testing.T) {
 	}
 	if !got["gitlab_mr"] || !got["gitlab_commit"] || got["jira_issue_search"] {
 		t.Fatalf("tools = %#v, want only gitlab wildcard matches", agentRuntime.tools)
+	}
+}
+
+func TestSurfacePrepareOperationActivatesToolsForProjection(t *testing.T) {
+	ctx := context.Background()
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref:         operation.Ref{Name: "echo"},
+		Description: "Echo input.",
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var emitted []event.Event
+	s := Session{
+		Operations:        ops,
+		OperationExecutor: operationruntime.NewExecutor(),
+		ActivationSets: []coreactivation.Set{{
+			Name: "incident.echo",
+			Targets: []coreactivation.Target{{
+				Kind:      coreactivation.TargetOperation,
+				Operation: operation.Ref{Name: "echo"},
+			}},
+		}},
+	}
+	sink := event.SinkFunc(func(payload event.Event) {
+		if payload != nil {
+			emitted = append(emitted, payload)
+		}
+	})
+	base := operation.NewContext(s.withBaseContext(ctx, "", sink), sink)
+	effect := s.applyOperation(base, surfacePrepareOperationRef, map[string]any{
+		"terms": []string{"incident.echo"},
+	}, "surface-prepare-1")
+	if effect.Result.Status != operation.StatusOK {
+		t.Fatalf("surface_prepare result = %#v, want ok", effect.Result)
+	}
+	active, ok := s.activeStateFromSurfaceToolResult(effect.Result)
+	if !ok {
+		t.Fatalf("surface_prepare result = %#v, want active surface", effect.Result)
+	}
+	tools := s.turnTools(active)
+	if !toolSpecsContainOperation(tools, surfacePrepareOperationRef.Name) {
+		t.Fatalf("tools = %#v, want surface_prepare", tools)
+	}
+	if !toolSpecsContainOperation(tools, "echo") {
+		t.Fatalf("tools = %#v, want active echo", tools)
+	}
+	if !hasEvent(emitted, coreactivation.EventSurfacePrepared) {
+		t.Fatalf("emitted events = %#v, want surface prepared", eventNames(emitted))
+	}
+}
+
+func TestSurfaceCallOperationRequiresActiveSurfaceAndUsesExecutor(t *testing.T) {
+	ctx := context.Background()
+	echoRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{Ref: echoRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"echo": input})
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var checked []operation.Name
+	s := Session{
+		Operations: ops,
+		OperationExecutor: operationruntime.NewExecutor(operationruntime.WithSafetyGate(operationruntime.SafetyGateFunc(func(_ operation.Context, op operation.Operation, _ operation.Value) error {
+			checked = append(checked, op.Spec().Ref.Name)
+			return nil
+		}))),
+	}
+	base := operation.NewContext(s.withBaseContext(ctx, "", event.Discard()), event.Discard())
+	inactive := s.applyOperation(base, surfaceCallOperationRef, map[string]any{
+		"operation": "echo",
+		"input":     "inactive",
+	}, "surface-call-1")
+	if inactive.Result.Status != operation.StatusRejected || inactive.Result.Error == nil || inactive.Result.Error.Code != "surface_call_operation_not_active" {
+		t.Fatalf("inactive result = %#v, want rejected not active", inactive.Result)
+	}
+
+	var active sessionenv.ActiveState
+	active.EnableOperation(echoRef)
+	activeBase := operation.NewContext(s.withBaseContext(ctx, "", event.Discard(), active), event.Discard())
+	called := s.applyOperation(activeBase, surfaceCallOperationRef, map[string]any{
+		"operation": "echo",
+		"input":     "active",
+	}, "surface-call-2")
+	if called.Result.Status != operation.StatusOK {
+		t.Fatalf("active result = %#v, want ok", called.Result)
+	}
+	output, ok := called.Result.Output.(map[string]any)
+	if !ok || output["echo"] != "active" {
+		t.Fatalf("active output = %#v, want echo active", called.Result.Output)
+	}
+	if !operationNamesContain(checked, "echo") {
+		t.Fatalf("safety checks = %#v, want target echo checked", checked)
+	}
+}
+
+func TestSurfaceSchemaContextProviderRendersActiveOperationSchema(t *testing.T) {
+	type echoInput struct {
+		Value string `json:"value,omitempty"`
+	}
+	echoRef := operation.Ref{Name: "echo"}
+	ops := operation.NewRegistry()
+	if err := ops.Register(operation.New(operation.Spec{
+		Ref:         echoRef,
+		Description: "Echo input.",
+		Input:       operationruntime.TypeOf[echoInput]("echo_input"),
+		Semantics: operation.Semantics{
+			Effects: operation.EffectSet{operation.EffectNone},
+			Risk:    operation.RiskLow,
+		},
+	}, func(operation.Context, operation.Value) operation.Result {
+		return operation.OK(nil)
+	})); err != nil {
+		t.Fatalf("register operation: %v", err)
+	}
+	var active sessionenv.ActiveState
+	active.EnableOperation(echoRef)
+	providers := (Session{Operations: ops}).contextProviders(active)
+	var provider corecontext.Provider
+	for _, candidate := range providers {
+		if candidate.Spec().Name == surfaceSchemaProviderName {
+			provider = candidate
+			break
+		}
+	}
+	if provider == nil {
+		t.Fatalf("providers = %#v, want surface schema provider", providers)
+	}
+	blocks, err := provider.Build(context.Background(), corecontext.Request{})
+	if err != nil {
+		t.Fatalf("build schema context: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v, want one schema block", blocks)
+	}
+	if blocks[0].ID != "surface/schema/echo" || !strings.Contains(blocks[0].Content, "surface_call") || !strings.Contains(blocks[0].Content, `"value"`) {
+		t.Fatalf("block = %#v, want echo surface_call schema", blocks[0])
 	}
 }
 
@@ -5187,6 +5682,33 @@ func eventNames(events []event.Event) []event.Name {
 		}
 	}
 	return out
+}
+
+func toolSpecsContainOperation(specs []tool.Spec, name operation.Name) bool {
+	for _, spec := range specs {
+		if spec.Target.Operation.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func operationNamesContain(values []operation.Name, want operation.Name) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedResourcesContain(values []coreactivation.ResolvedResource, want coreactivation.ResolvedResource) bool {
+	for _, value := range values {
+		if value.Kind == want.Kind && value.Name == want.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func containsString(values []string, want string) bool {

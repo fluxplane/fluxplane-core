@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	coreapp "github.com/fluxplane/engine/core/app"
 	"github.com/fluxplane/engine/core/command"
@@ -671,6 +672,7 @@ func TestComposeDiagnosesReactionTargetsOutsideSelectedGraph(t *testing.T) {
 				When: corereaction.Matcher{Assertion: "integration.available"},
 				Actions: []corereaction.Action{
 					{Kind: corereaction.ActionActivateSkill, Skill: skill.Ref{Name: "missing-skill"}},
+					{Kind: corereaction.ActionEnableActivationSet, ActivationSet: "missing-surface"},
 					{Kind: corereaction.ActionEnableOperationSet, OperationSet: "missing-ops"},
 					{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: "missing-datasource"}},
 					{Kind: corereaction.ActionEnableContext, ContextProvider: corecontext.ProviderRef{Name: "missing.context"}},
@@ -684,11 +686,11 @@ func TestComposeDiagnosesReactionTargetsOutsideSelectedGraph(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	if len(composition.Diagnostics) != 7 {
-		t.Fatalf("diagnostics len = %d, want 7: %#v", len(composition.Diagnostics), composition.Diagnostics)
+	if len(composition.Diagnostics) != 8 {
+		t.Fatalf("diagnostics len = %d, want 8: %#v", len(composition.Diagnostics), composition.Diagnostics)
 	}
 	joined := diagnosticsText(composition.Diagnostics)
-	for _, want := range []string{"unknown skill", "unknown operation set", "unknown datasource", "unknown context provider", "unknown workflow", "unknown operation", "unknown command"} {
+	for _, want := range []string{"unknown skill", "unknown activation set", "unknown operation set", "unknown datasource", "unknown context provider", "unknown workflow", "unknown operation", "unknown command"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("diagnostics = %s\nmissing %q", joined, want)
 		}
@@ -715,6 +717,14 @@ func TestComposeDoesNotDiagnoseKnownReactionTargets(t *testing.T) {
 			}},
 			OperationSets: []operation.Set{{
 				Name: "go-tools",
+			}},
+			ActivationSets: []activation.Set{{
+				Name:    "go-editing",
+				Aliases: []string{"go-surface"},
+				Targets: []activation.Target{{
+					Kind:         activation.TargetOperationSet,
+					OperationSet: "go-tools",
+				}},
 			}},
 			Datasources: []coredatasource.Spec{{
 				Name:     "docs",
@@ -744,6 +754,7 @@ func TestComposeDoesNotDiagnoseKnownReactionTargets(t *testing.T) {
 				Actions: []corereaction.Action{
 					{Kind: corereaction.ActionActivateSkill, Skill: skill.Ref{Name: "go"}},
 					{Kind: corereaction.ActionActivateReference, Reference: corereaction.ReferenceAction{Skill: skill.Ref{Name: "go"}, Path: "references/testing.md"}},
+					{Kind: corereaction.ActionEnableActivationSet, ActivationSet: "go-surface"},
 					{Kind: corereaction.ActionEnableOperationSet, OperationSet: "go-tools"},
 					{Kind: corereaction.ActionEnableDatasource, Datasource: coredatasource.Ref{Name: "docs"}},
 					{Kind: corereaction.ActionEnableContext, ContextProvider: corecontext.ProviderRef{Name: "docs.context"}},

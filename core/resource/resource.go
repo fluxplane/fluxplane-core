@@ -3,6 +3,7 @@ package resource
 import (
 	"strings"
 
+	"github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	coreapp "github.com/fluxplane/engine/core/app"
 	"github.com/fluxplane/engine/core/command"
@@ -94,6 +95,7 @@ type ContributionBundle struct {
 
 	Apps              []coreapp.Spec                      `json:"apps,omitempty"`
 	Agents            []agent.Spec                        `json:"agents,omitempty"`
+	ActivationSets    []activation.Set                    `json:"activation_sets,omitempty"`
 	OperationSets     []operation.Set                     `json:"operation_sets,omitempty"`
 	Toolchains        []language.ToolchainSpec            `json:"toolchains,omitempty"`
 	ToolSets          []tool.Set                          `json:"tool_sets,omitempty"`
@@ -123,6 +125,7 @@ func (b *ContributionBundle) Append(other ContributionBundle) {
 	}
 	b.Apps = append(b.Apps, other.Apps...)
 	b.Agents = append(b.Agents, other.Agents...)
+	b.ActivationSets = append(b.ActivationSets, other.ActivationSets...)
 	b.OperationSets = append(b.OperationSets, other.OperationSets...)
 	b.Toolchains = append(b.Toolchains, other.Toolchains...)
 	b.ToolSets = append(b.ToolSets, other.ToolSets...)

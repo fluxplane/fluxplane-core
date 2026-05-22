@@ -9,10 +9,12 @@ import (
 	"strings"
 	"sync"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
 	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevent "github.com/fluxplane/engine/core/event"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/operation"
@@ -42,7 +44,9 @@ type Config struct {
 	Resolver             *resource.Resolver
 	CommandCatalog       session.CommandCatalog
 	OperationCatalog     session.OperationCatalog
+	ActivationSets       []coreactivation.Set
 	OperationSets        []operation.Set
+	Datasources          []coredatasource.Spec
 	PostEditChecks       []coresession.PostEditCheckSpec
 	ContextProviders     []corecontext.Provider
 	WorkflowCatalog      session.WorkflowCatalog
@@ -77,7 +81,9 @@ type Service struct {
 	resolver             *resource.Resolver
 	commandCatalog       session.CommandCatalog
 	operationCatalog     session.OperationCatalog
+	activationSets       []coreactivation.Set
 	operationSets        []operation.Set
+	datasources          []coredatasource.Spec
 	postEditChecks       []coresession.PostEditCheckSpec
 	contextProviders     []corecontext.Provider
 	workflowCatalog      session.WorkflowCatalog
@@ -119,7 +125,9 @@ func New(cfg Config) *Service {
 		resolver:             cfg.Resolver,
 		commandCatalog:       cfg.CommandCatalog,
 		operationCatalog:     cfg.OperationCatalog,
+		activationSets:       append([]coreactivation.Set(nil), cfg.ActivationSets...),
 		operationSets:        append([]operation.Set(nil), cfg.OperationSets...),
+		datasources:          append([]coredatasource.Spec(nil), cfg.Datasources...),
 		postEditChecks:       append([]coresession.PostEditCheckSpec(nil), cfg.PostEditChecks...),
 		contextProviders:     append([]corecontext.Provider(nil), cfg.ContextProviders...),
 		workflowCatalog:      cfg.WorkflowCatalog,
@@ -426,7 +434,9 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
+		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		Datasources:          append([]coredatasource.Spec(nil), s.datasources...),
 		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		ToolSetCatalog:       s.toolSetCatalog,
@@ -539,7 +549,9 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
+		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		Datasources:          append([]coredatasource.Spec(nil), s.datasources...),
 		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		WorkflowCatalog:      s.workflowCatalog,
@@ -605,7 +617,9 @@ func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound
 		Resolver:             s.resolver,
 		CommandCatalog:       s.commandCatalog,
 		OperationCatalog:     s.operationCatalog,
+		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
 		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		Datasources:          append([]coredatasource.Spec(nil), s.datasources...),
 		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
 		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
 		WorkflowCatalog:      s.workflowCatalog,
@@ -1158,6 +1172,8 @@ func runtimeEventPersistenceContext(ctx context.Context) context.Context {
 func shouldPersistRuntimeEvent(name coreevent.Name) bool {
 	value := string(name)
 	return strings.HasPrefix(value, "plan.") ||
+		strings.HasPrefix(value, "focus.") ||
+		strings.HasPrefix(value, "surface.") ||
 		strings.HasPrefix(value, "reaction.") ||
 		strings.HasPrefix(value, "task.") ||
 		strings.HasPrefix(value, "workflow.") ||

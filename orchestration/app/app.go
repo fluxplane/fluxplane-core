@@ -418,6 +418,18 @@ func validateReactionTargets(bindings []reactionRuleBinding, specs resourcecatal
 	for _, spec := range specs.OperationSets {
 		operationSets[strings.TrimSpace(spec.Name)] = true
 	}
+	activationSets := map[string]bool{}
+	for _, spec := range specs.ActivationSets {
+		name := strings.TrimSpace(spec.Name)
+		if name != "" {
+			activationSets[name] = true
+		}
+		for _, alias := range spec.Aliases {
+			if alias = strings.TrimSpace(alias); alias != "" {
+				activationSets[alias] = true
+			}
+		}
+	}
 	datasources := map[string]bool{}
 	for _, spec := range specs.DatasourceSpecs {
 		datasources[strings.TrimSpace(string(spec.Name))] = true
@@ -454,6 +466,11 @@ func validateReactionTargets(bindings []reactionRuleBinding, specs resourcecatal
 				name := strings.TrimSpace(action.OperationSet)
 				if !operationSets[name] {
 					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q enables unknown operation set %q", binding.Rule.Name, name)))
+				}
+			case corereaction.ActionEnableActivationSet:
+				name := strings.TrimSpace(action.ActivationSet)
+				if !activationSets[name] {
+					diagnostics = append(diagnostics, reactionTargetDiagnostic(binding, fmt.Sprintf("reaction rule %q enables unknown activation set %q", binding.Rule.Name, name)))
 				}
 			case corereaction.ActionEnableDatasource:
 				name := strings.TrimSpace(string(action.Datasource.Name))

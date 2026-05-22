@@ -157,6 +157,30 @@ var EnvExplainCommandSpec = command.Spec{
 	},
 }
 
+// SurfaceCommandSpec is the built-in session command that reports the current
+// prepared surface read model.
+var SurfaceCommandSpec = command.Spec{
+	Path:        command.Path{"surface"},
+	Description: "Show the current prepared surface and recent focus/surface trace.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustVerified,
+	},
+}
+
+// ActivateCommandSpec is the built-in session command that prepares selected
+// resources for the next work surface.
+var ActivateCommandSpec = command.Spec{
+	Path:        command.Path{"activate"},
+	Description: "Prepare selected resources for the current work surface.",
+	Target:      invocation.Target{Kind: invocation.TargetSession},
+	Policy: policy.InvocationPolicy{
+		AllowedCallers: []policy.CallerKind{policy.CallerUser, policy.CallerSystem},
+		RequiredTrust:  policy.TrustVerified,
+	},
+}
+
 // CompactCommandSpec is the built-in session command that compacts transcript
 // replay.
 var CompactCommandSpec = command.Spec{

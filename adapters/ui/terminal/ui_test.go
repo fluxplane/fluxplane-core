@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	coreactivation "github.com/fluxplane/engine/core/activation"
+	corecontext "github.com/fluxplane/engine/core/context"
+	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coreevidence "github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
 	coresession "github.com/fluxplane/engine/core/session"
@@ -17,6 +21,76 @@ import (
 	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
+
+func TestRendererRendersFocusAndSurfaceEvents(t *testing.T) {
+	var out, err bytes.Buffer
+	renderer := NewRenderer(&out, &err, false)
+	events := []clientapi.Event{
+		{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name: coreactivation.EventFocusDetected,
+				Payload: coreactivation.FocusDetected{
+					Objective:  "Troubleshoot backend load",
+					Intents:    []string{"troubleshoot"},
+					Subjects:   []coreevidence.Subject{{Name: "slack"}, {Name: "backend"}},
+					Source:     coreactivation.SourceModelFocus,
+					Confidence: 0.86,
+				},
+			},
+		},
+		{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name: coreactivation.EventSurfacePrepareRequested,
+				Payload: map[string]any{
+					"terms":    []any{"slack", "jira"},
+					"lifetime": "run",
+					"source":   "user_command",
+				},
+			},
+		},
+		{
+			Kind: clientapi.EventRuntimeEmitted,
+			Runtime: &clientapi.RuntimeEvent{
+				Name: coreactivation.EventSurfacePrepared,
+				Payload: coreactivation.SurfacePrepared{
+					ActivationSets:   []string{"incident.slack_jira"},
+					Operations:       []operation.Ref{{Name: "slack_thread_read"}},
+					OperationSets:    []string{"jira.issue_read"},
+					ContextProviders: []corecontext.ProviderRef{{Name: "surface.schema"}},
+					Datasources:      []coredatasource.Ref{{Name: "jira"}},
+					Lifetime:         coreactivation.LifetimeRun,
+					Source:           coreactivation.SourceReaction,
+				},
+			},
+		},
+	}
+	for _, event := range events {
+		renderer.Render(event)
+	}
+
+	got := err.String()
+	for _, want := range []string{
+		"focus:",
+		"Troubleshoot backend load",
+		"source=model_focus",
+		"confidence=0.86",
+		"surface requested:",
+		"duration=run",
+		"source=user_command",
+		"surface prepared:",
+		"incident.slack_jira",
+		"operations: slack_thread_read",
+		"operation sets: jira.issue_read",
+		"context: surface.schema",
+		"datasources: jira",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered output = %q, missing %q", got, want)
+		}
+	}
+}
 
 func TestRendererStreamsMarkdownContent(t *testing.T) {
 	var out, err bytes.Buffer
