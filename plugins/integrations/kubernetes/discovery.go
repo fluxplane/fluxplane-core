@@ -96,7 +96,31 @@ func DiscoverEndpointCandidates(ctx context.Context, p Plugin, opts EndpointDisc
 		}
 	}
 	candidates = rankedCandidates(candidates, limit)
+	for i := range candidates {
+		annotateKubernetesCandidate(&candidates[i], p.cfg)
+	}
 	return candidates, nil
+}
+
+func annotateKubernetesCandidate(candidate *corediscovery.Candidate, cfg Config) {
+	if candidate == nil {
+		return
+	}
+	attrs := candidate.Source.Attributes
+	if attrs == nil {
+		attrs = map[string]string{}
+	}
+	cfg = NormalizeConfig(cfg)
+	if cfg.Context != "" {
+		attrs["context"] = cfg.Context
+	}
+	if cfg.Kubeconfig != "" {
+		attrs["kubeconfig"] = cfg.Kubeconfig
+	}
+	if cfg.KubeconfigEnv != "" {
+		attrs["kubeconfig_env"] = cfg.KubeconfigEnv
+	}
+	candidate.Source.Attributes = attrs
 }
 
 func queryList(query map[string]string, keys ...string) []string {

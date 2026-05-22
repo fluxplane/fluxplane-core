@@ -55,6 +55,7 @@ type AutoDiscoverConfig struct {
 	Namespaces    []string `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
 	PreferService bool     `json:"prefer_service,omitempty" yaml:"prefer_service,omitempty"`
 	AllowPodIP    bool     `json:"allow_pod_ip,omitempty" yaml:"allow_pod_ip,omitempty"`
+	PortForward   bool     `json:"port_forward,omitempty" yaml:"port_forward,omitempty"`
 	ProbeTimeout  string   `json:"probe_timeout,omitempty" yaml:"probe_timeout,omitempty"`
 }
 
@@ -169,6 +170,9 @@ func normalizeConfig(cfg Config) Config {
 	if cfg.URL == "" && cfg.EndpointRef == "" {
 		cfg.AutoDiscover.Enabled = true
 		cfg.AutoDiscover.Kubernetes = true
+	}
+	if cfg.AutoDiscover.Enabled && cfg.AutoDiscover.Kubernetes {
+		cfg.AutoDiscover.PortForward = true
 	}
 	return cfg
 }

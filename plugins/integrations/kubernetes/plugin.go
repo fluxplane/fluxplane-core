@@ -118,11 +118,8 @@ func policyFromConfig(cfg Config, fallback string) namespacePolicy {
 		return namespacePolicy{AllNamespaces: true}
 	}
 	namespaces := cfg.Namespaces
-	if len(namespaces) == 0 && strings.TrimSpace(fallback) != "" {
-		namespaces = []string{strings.TrimSpace(fallback)}
-	}
 	if len(namespaces) == 0 {
-		namespaces = []string{"default"}
+		return namespacePolicy{AllNamespaces: true}
 	}
 	return namespacePolicy{Namespaces: normalizeNamespaces(namespaces)}
 }
@@ -352,7 +349,11 @@ func (a *kubernetesAccessor) List(ctx context.Context, req coredatasource.ListRe
 		}
 		return runtimedatasource.ListResult(a.spec.Name, entity, records, len(records), ""), nil
 	}
-	client, err := a.plugin.clientset(ctx)
+	plugin, policy, err := a.requestScope(ctx, req.Filters)
+	if err != nil {
+		return coredatasource.ListResult{}, err
+	}
+	client, err := plugin.clientset(ctx)
 	if err != nil {
 		return coredatasource.ListResult{}, err
 	}
@@ -366,7 +367,7 @@ func (a *kubernetesAccessor) List(ctx context.Context, req coredatasource.ListRe
 		records := runtimedatasource.NonEmptyRecordsFrom(list.Items, a.namespaceRecord)
 		return runtimedatasource.ListResult(a.spec.Name, entity, records, len(records), list.Continue), nil
 	case PodEntity:
-		return a.listNamespaced(ctx, entity, limit, opts, func(ns string, opts metav1.ListOptions) ([]coredatasource.Record, string, error) {
+		return a.listNamespaced(ctx, policy, entity, limit, opts, func(ns string, opts metav1.ListOptions) ([]coredatasource.Record, string, error) {
 			list, err := client.CoreV1().Pods(ns).List(ctx, opts)
 			if err != nil {
 				return nil, "", err
@@ -374,12 +375,20 @@ func (a *kubernetesAccessor) List(ctx context.Context, req coredatasource.ListRe
 			return runtimedatasource.NonEmptyRecordsFrom(list.Items, a.podRecord), list.Continue, nil
 		})
 	case ServiceEntity:
-		return a.listNamespaced(ctx, entity, limit, opts, func(ns string, opts metav1.ListOptions) ([]coredatasource.Record, string, error) {
+		return a.listNamespaced(ctx, policy, entity, limit, opts, func(ns string, opts metav1.ListOptions) ([]coredatasource.Record, string, error) {
 			list, err := client.CoreV1().Services(ns).List(ctx, opts)
 			if err != nil {
 				return nil, "", err
 			}
 			return runtimedatasource.NonEmptyRecordsFrom(list.Items, a.serviceRecord), list.Continue, nil
+		})
+	case DeploymentEntity:
+		return a.listNamespaced(ctx, policy, entity, limit, opts, func(ns string, opts metav1.ListOptions) ([]coredatasource.Record, string, error) {
+			list, err := client.AppsV1().Deployments(ns).List(ctx, opts)
+			if err != nil {
+				return nil, "", err
+			}
+			return runtimedatasource.NonEmptyRecordsFrom(list.Items, a.deploymentRecord), list.Continue, nil
 		})
 	case ContainerEntity:
 		result, err := a.List(ctx, coredatasource.ListRequest{Entity: PodEntity, Limit: limit, Cursor: req.Cursor, Filters: req.Filters})
@@ -472,6 +481,15 @@ func (a *kubernetesAccessor) Get(ctx context.Context, req coredatasource.GetRequ
 			return coredatasource.Record{}, err
 		}
 		return a.serviceRecord(*service), nil
+	case DeploymentEntity:
+		if err := a.policy.AuthorizeNamespace(ns); err != nil {
+			return coredatasource.Record{}, err
+		}
+		deployment, err := client.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return coredatasource.Record{}, err
+		}
+		return a.deploymentRecord(*deployment), nil
 	default:
 		return coredatasource.Record{}, fmt.Errorf("datasource %q entity %q does not support get yet", a.spec.Name, req.Entity)
 	}
@@ -479,11 +497,11 @@ func (a *kubernetesAccessor) Get(ctx context.Context, req coredatasource.GetRequ
 
 type listFunc func(namespace string, opts metav1.ListOptions) ([]coredatasource.Record, string, error)
 
-func (a *kubernetesAccessor) listNamespaced(ctx context.Context, entity coredatasource.EntityType, limit int, opts metav1.ListOptions, list listFunc) (coredatasource.ListResult, error) {
+func (a *kubernetesAccessor) listNamespaced(ctx context.Context, policy namespacePolicy, entity coredatasource.EntityType, limit int, opts metav1.ListOptions, list listFunc) (coredatasource.ListResult, error) {
 	var records []coredatasource.Record
 	var next string
-	for _, namespace := range a.policy.listNamespaces() {
-		if err := a.policy.AuthorizeNamespace(namespace); err != nil && namespace != metav1.NamespaceAll {
+	for _, namespace := range policy.listNamespaces() {
+		if err := policy.AuthorizeNamespace(namespace); err != nil && namespace != metav1.NamespaceAll {
 			return coredatasource.ListResult{}, err
 		}
 		page, cont, err := list(namespace, opts)
@@ -503,6 +521,46 @@ func (a *kubernetesAccessor) listNamespaced(ctx context.Context, entity coredata
 		records = records[:limit]
 	}
 	return runtimedatasource.ListResult(a.spec.Name, entity, records, len(records), next), nil
+}
+
+func (a *kubernetesAccessor) requestScope(ctx context.Context, filters map[string]string) (Plugin, namespacePolicy, error) {
+	plugin := a.plugin
+	plugin.cfg = NormalizeConfig(configWithRequestFilters(plugin.cfg, filters))
+	policy, err := plugin.policy(ctx, mergeStringMaps(a.spec.Config, filters))
+	if err != nil {
+		return Plugin{}, namespacePolicy{}, err
+	}
+	return plugin, policy, nil
+}
+
+func configWithRequestFilters(cfg Config, filters map[string]string) Config {
+	if len(filters) == 0 {
+		return cfg
+	}
+	if value := strings.TrimSpace(filters["context"]); value != "" {
+		cfg.Context = value
+	}
+	if value := strings.TrimSpace(filters["kubeconfig"]); value != "" {
+		cfg.Kubeconfig = value
+	}
+	if value := strings.TrimSpace(filters["kubeconfig_env"]); value != "" {
+		cfg.KubeconfigEnv = value
+	}
+	return cfg
+}
+
+func mergeStringMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range override {
+		out[key] = value
+	}
+	return out
 }
 
 func (p Plugin) clientset(ctx context.Context) (kubernetes.Interface, error) {

@@ -17,6 +17,7 @@ import (
 	"github.com/fluxplane/engine/core/policy"
 	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/engine/runtime/system"
 )
 
 type TestInput struct {
@@ -220,29 +221,42 @@ func (p Plugin) discoverEndpoints(ctx operation.Context, in discoveryRequest) (d
 	var refs []coreendpoint.Ref
 	selected := ""
 	for _, candidate := range discovered.Candidates {
+		probeCandidate := candidate
 		if in.Probe {
-			probe := p.probeCandidate(ctx, candidate)
+			probe := p.probeCandidate(ctx, probeCandidate)
+			if !usableProbe(probe) && cfg.AutoDiscover.Kubernetes && cfg.AutoDiscover.PortForward {
+				if forwarded, err := p.portForwardCandidate(ctx, candidate); err == nil {
+					forwardedProbe := p.probeCandidateWithRetry(ctx, forwarded, 5*time.Second)
+					probes = append(probes, probe)
+					probe = forwardedProbe
+					probeCandidate = forwarded
+				}
+			}
 			probes = append(probes, probe)
-			if probe.Status != "ready" && probe.Status != "reachable" {
+			if !usableProbe(probe) {
 				continue
 			}
 		}
 		ref, err := p.endpointRegistry().Put(runtimeendpoint.Record{
-			Spec:     coreendpoint.Spec{Name: "loki-" + candidate.ID, URL: candidate.URL, Product: "loki", Protocol: "http", Labels: candidate.Labels, Annotations: candidate.Annotations},
-			Source:   candidate.Source,
-			Metadata: map[string]string{"product": "loki", "score": fmt.Sprintf("%.1f", candidate.Score), "provenance": strings.Join(candidate.Reasons, ",")},
+			Spec:     coreendpoint.Spec{Name: "loki-" + probeCandidate.ID, URL: probeCandidate.URL, Product: "loki", Protocol: "http", Labels: probeCandidate.Labels, Annotations: probeCandidate.Annotations},
+			Source:   probeCandidate.Source,
+			Metadata: endpointMetadata(candidate, probeCandidate),
 		})
 		if err == nil {
 			refs = append(refs, ref)
 		}
 		if selected == "" {
-			selected = candidate.URL
+			selected = probeCandidate.URL
 		}
 	}
 	if in.Probe && selected == "" && len(discovered.Candidates) > 0 {
 		return discoveryResult{Candidates: discovered.Candidates, Probes: probes}, fmt.Errorf("no usable Loki endpoint discovered")
 	}
 	return discoveryResult{EndpointRefs: refs, Candidates: discovered.Candidates, Probes: probes, SelectedURL: selected}, nil
+}
+
+func usableProbe(probe corediscovery.ProbeResult) bool {
+	return probe.Status == "ready" || probe.Status == "reachable"
 }
 
 func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Candidate) corediscovery.ProbeResult {
@@ -264,6 +278,124 @@ func (p Plugin) probeCandidate(ctx operation.Context, candidate corediscovery.Ca
 		Version:     test.Version,
 		Error:       test.Error,
 	}
+}
+
+func (p Plugin) probeCandidateWithRetry(ctx operation.Context, candidate corediscovery.Candidate, timeout time.Duration) corediscovery.ProbeResult {
+	deadline := time.Now().Add(timeout)
+	var last corediscovery.ProbeResult
+	for {
+		last = p.probeCandidate(ctx, candidate)
+		if usableProbe(last) || time.Now().After(deadline) {
+			return last
+		}
+		select {
+		case <-ctx.Done():
+			last.Error = ctx.Err().Error()
+			return last
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func (p Plugin) portForwardCandidate(ctx operation.Context, candidate corediscovery.Candidate) (corediscovery.Candidate, error) {
+	if p.system == nil || p.system.Process() == nil {
+		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes port-forward requires process system")
+	}
+	namespace := strings.TrimSpace(candidate.Source.Namespace)
+	name := strings.TrimSpace(candidate.Source.Name)
+	if namespace == "" || name == "" {
+		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes candidate is missing namespace or name")
+	}
+	kind, ok := portForwardKind(candidate.Source.Kind)
+	if !ok {
+		return corediscovery.Candidate{}, fmt.Errorf("loki kubernetes candidate kind %q cannot be port-forwarded", candidate.Source.Kind)
+	}
+	remotePort := candidate.Port
+	if remotePort <= 0 {
+		remotePort = portFromURL(candidate.URL)
+	}
+	if remotePort <= 0 {
+		remotePort = 3100
+	}
+	localPort := localPortForCandidate(candidate, remotePort)
+	args := []string{}
+	if contextName := strings.TrimSpace(candidate.Source.Attributes["context"]); contextName != "" {
+		args = append(args, "--context", contextName)
+	}
+	kubeconfig := strings.TrimSpace(candidate.Source.Attributes["kubeconfig"])
+	if kubeconfig == "" {
+		kubeconfig, _, _ = lookupEnv(ctx, p.system, candidate.Source.Attributes["kubeconfig_env"])
+	}
+	if kubeconfig != "" {
+		args = append(args, "--kubeconfig", kubeconfig)
+	}
+	resource := kind + "/" + name
+	args = append(args, "-n", namespace, "port-forward", "--address", "127.0.0.1", resource, fmt.Sprintf("%d:%d", localPort, remotePort))
+	label := fmt.Sprintf("loki-%s-%s-%d", namespace, name, remotePort)
+	_, _, err := p.system.Process().Ensure(ctx, system.ProcessRequest{
+		Command:   "kubectl",
+		Args:      args,
+		Label:     label,
+		Tags:      []string{"kubernetes", "loki", "port-forward"},
+		Metadata:  map[string]string{"namespace": namespace, "kind": kind, "name": name, "remote_port": strconv.Itoa(remotePort), "local_port": strconv.Itoa(localPort)},
+		MaxStdout: 16 * 1024,
+		MaxStderr: 16 * 1024,
+	})
+	if err != nil {
+		return corediscovery.Candidate{}, err
+	}
+	forwarded := candidate
+	forwarded.URL = fmt.Sprintf("http://127.0.0.1:%d", localPort)
+	forwarded.Host = "127.0.0.1"
+	forwarded.Port = localPort
+	forwarded.Reasons = append(append([]string(nil), candidate.Reasons...), "local_port_forward")
+	forwarded.Annotations = cloneStringMap(candidate.Annotations)
+	forwarded.Annotations["original_url"] = candidate.URL
+	forwarded.Annotations["port_forward"] = "true"
+	return forwarded, nil
+}
+
+func portForwardKind(kind string) (string, bool) {
+	switch strings.TrimSpace(kind) {
+	case "kubernetes.service":
+		return "service", true
+	case "kubernetes.pod":
+		return "pod", true
+	default:
+		return "", false
+	}
+}
+
+func portFromURL(value string) int {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return 0
+	}
+	port, _ := strconv.Atoi(parsed.Port())
+	return port
+}
+
+func localPortForCandidate(candidate corediscovery.Candidate, remotePort int) int {
+	sum := sha1.Sum([]byte(candidate.ID + "|" + candidate.Source.Namespace + "|" + candidate.Source.Name + "|" + strconv.Itoa(remotePort)))
+	offset := int(sum[0])<<8 | int(sum[1])
+	return 20000 + offset%20000
+}
+
+func endpointMetadata(original, selected corediscovery.Candidate) map[string]string {
+	metadata := map[string]string{"product": "loki", "score": fmt.Sprintf("%.1f", original.Score), "provenance": strings.Join(selected.Reasons, ",")}
+	if selected.URL != original.URL {
+		metadata["original_url"] = original.URL
+		metadata["port_forward"] = "true"
+	}
+	return metadata
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func (p Plugin) clientFor(ctx operation.Context, inputURL, endpointRef, tenantID, timeout string) (lokiClient, string, error) {

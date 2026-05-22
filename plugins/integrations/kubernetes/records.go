@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -143,7 +144,7 @@ func (a *kubernetesAccessor) namespaceRecord(namespace corev1.Namespace) coredat
 }
 
 func (a *kubernetesAccessor) podRecord(pod corev1.Pod) coredatasource.Record {
-	sanitizedPod := sanitizePodEnv(pod)
+	sanitizedPod := sanitizePod(pod)
 	containers := make([]string, 0, len(sanitizedPod.Spec.Containers))
 	images := make([]string, 0, len(sanitizedPod.Spec.Containers))
 	for _, container := range sanitizedPod.Spec.Containers {
@@ -184,6 +185,8 @@ func (a *kubernetesAccessor) podRecord(pod corev1.Pod) coredatasource.Record {
 }
 
 func (a *kubernetesAccessor) serviceRecord(service corev1.Service) coredatasource.Record {
+	sanitizedService := service
+	sanitizedService.Annotations = sanitizeAnnotations(sanitizedService.Annotations)
 	ports := make([]string, 0, len(service.Spec.Ports))
 	for _, port := range service.Spec.Ports {
 		ports = append(ports, fmt.Sprintf("%s:%d/%s", port.Name, port.Port, port.Protocol))
@@ -210,7 +213,49 @@ func (a *kubernetesAccessor) serviceRecord(service corev1.Service) coredatasourc
 			"selector":   labelsString(service.Spec.Selector),
 			"labels":     labelsString(service.Labels),
 		}),
-		Raw: service,
+		Raw: sanitizedService,
+	}
+}
+
+func (a *kubernetesAccessor) deploymentRecord(deployment appsv1.Deployment) coredatasource.Record {
+	sanitizedDeployment := sanitizeDeployment(deployment)
+	containers := make([]string, 0, len(sanitizedDeployment.Spec.Template.Spec.Containers))
+	images := make([]string, 0, len(sanitizedDeployment.Spec.Template.Spec.Containers))
+	for _, container := range sanitizedDeployment.Spec.Template.Spec.Containers {
+		containers = append(containers, container.Name)
+		images = append(images, container.Image)
+	}
+	replicas := int32(1)
+	if sanitizedDeployment.Spec.Replicas != nil {
+		replicas = *sanitizedDeployment.Spec.Replicas
+	}
+	id := namespacedID(sanitizedDeployment.Namespace, sanitizedDeployment.Name)
+	return coredatasource.Record{
+		ID:         id,
+		Datasource: a.spec.Name,
+		Entity:     DeploymentEntity,
+		Title:      id,
+		Content: strings.TrimSpace(strings.Join([]string{
+			id,
+			fmt.Sprintf("ready=%d", deployment.Status.ReadyReplicas),
+			fmt.Sprintf("available=%d", deployment.Status.AvailableReplicas),
+			fmt.Sprintf("replicas=%d", replicas),
+			strings.Join(containers, " "),
+			strings.Join(images, " "),
+			labelsString(deployment.Labels),
+		}, " ")),
+		Metadata: cleanMetadata(map[string]string{
+			"namespace":          sanitizedDeployment.Namespace,
+			"name":               sanitizedDeployment.Name,
+			"replicas":           fmt.Sprintf("%d", replicas),
+			"ready_replicas":     fmt.Sprintf("%d", sanitizedDeployment.Status.ReadyReplicas),
+			"available_replicas": fmt.Sprintf("%d", sanitizedDeployment.Status.AvailableReplicas),
+			"updated_replicas":   fmt.Sprintf("%d", sanitizedDeployment.Status.UpdatedReplicas),
+			"containers":         strings.Join(containers, ","),
+			"images":             strings.Join(images, ","),
+			"labels":             labelsString(sanitizedDeployment.Labels),
+		}),
+		Raw: sanitizedDeployment,
 	}
 }
 
@@ -258,6 +303,21 @@ func sanitizePodEnv(pod corev1.Pod) corev1.Pod {
 	return pod
 }
 
+func sanitizePod(pod corev1.Pod) corev1.Pod {
+	pod = sanitizePodEnv(pod)
+	pod.Annotations = sanitizeAnnotations(pod.Annotations)
+	return pod
+}
+
+func sanitizeDeployment(deployment appsv1.Deployment) appsv1.Deployment {
+	deployment.Annotations = sanitizeAnnotations(deployment.Annotations)
+	deployment.Spec.Template.Annotations = sanitizeAnnotations(deployment.Spec.Template.Annotations)
+	deployment.Spec.Template.Spec.InitContainers = sanitizeContainersEnv(deployment.Spec.Template.Spec.InitContainers)
+	deployment.Spec.Template.Spec.Containers = sanitizeContainersEnv(deployment.Spec.Template.Spec.Containers)
+	deployment.Spec.Template.Spec.EphemeralContainers = sanitizeEphemeralContainersEnv(deployment.Spec.Template.Spec.EphemeralContainers)
+	return deployment
+}
+
 func sanitizeContainersEnv(containers []corev1.Container) []corev1.Container {
 	if len(containers) == 0 {
 		return containers
@@ -266,6 +326,20 @@ func sanitizeContainersEnv(containers []corev1.Container) []corev1.Container {
 	copy(out, containers)
 	for i := range out {
 		out[i].Env = sanitizeEnvVars(out[i].Env)
+	}
+	return out
+}
+
+func sanitizeAnnotations(annotations map[string]string) map[string]string {
+	if len(annotations) == 0 {
+		return annotations
+	}
+	out := make(map[string]string, len(annotations))
+	for key, value := range annotations {
+		if key == "kubectl.kubernetes.io/last-applied-configuration" {
+			continue
+		}
+		out[key] = value
 	}
 	return out
 }

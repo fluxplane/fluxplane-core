@@ -2,11 +2,14 @@ package loki
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	corediscovery "github.com/fluxplane/engine/core/discovery"
@@ -18,6 +21,7 @@ import (
 	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/engine/runtime/systemtest"
 )
 
 func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {
@@ -135,6 +139,51 @@ func TestAutoDiscoverySelectsOnlySuccessfulProbe(t *testing.T) {
 	}
 	if client.baseURL != good.URL {
 		t.Fatalf("client baseURL = %q, want %q", client.baseURL, good.URL)
+	}
+}
+
+func TestAutoDiscoveryPortForwardsKubernetesServiceCandidate(t *testing.T) {
+	registry := runtimediscovery.NewRegistry()
+	if err := registry.Register(staticDiscoveryProvider{candidates: []corediscovery.Candidate{{
+		ID:          "loki-service",
+		URL:         "http://loki.monitoring.svc:3100",
+		Host:        "loki.monitoring.svc",
+		Port:        3100,
+		ProductHint: "loki",
+		Score:       100,
+		Source: coreendpoint.SourceRef{
+			Kind:      "kubernetes.service",
+			Namespace: "monitoring",
+			Name:      "loki",
+			Attributes: map[string]string{
+				"context": "dev",
+			},
+		},
+	}}}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	process := &recordingLokiProcess{}
+	network := &lokiPortForwardNetwork{}
+	plugin := New(lokiFakeSystem{MemorySystem: systemtest.NewMemory(), process: process, network: network})
+	plugin.discovery = registry
+	plugin.cfg = Config{AutoDiscover: AutoDiscoverConfig{Enabled: true, Kubernetes: true}}
+
+	client, target, err := plugin.clientFor(operation.NewContext(context.Background(), event.Discard()), "", "", "", "")
+	if err != nil {
+		t.Fatalf("clientFor() error = %v", err)
+	}
+	if !strings.HasPrefix(target, "http://127.0.0.1:") || client.baseURL != target {
+		t.Fatalf("target = %q client = %#v, want local port-forward URL", target, client)
+	}
+	if len(process.ensureRequests) != 1 {
+		t.Fatalf("ensure requests = %d, want 1", len(process.ensureRequests))
+	}
+	req := process.ensureRequests[0]
+	if req.Command != "kubectl" || !strings.Contains(strings.Join(req.Args, " "), "--context dev -n monitoring port-forward --address 127.0.0.1 service/loki") {
+		t.Fatalf("process request = %#v, want kubectl service/loki port-forward in dev monitoring", req)
+	}
+	if len(network.requests) < 2 {
+		t.Fatalf("network requests = %#v, want original and forwarded probes", network.requests)
 	}
 }
 
@@ -272,4 +321,98 @@ func (p staticDiscoveryProvider) Spec() runtimediscovery.ProviderSpec {
 
 func (p staticDiscoveryProvider) Discover(context.Context, corediscovery.Request) (corediscovery.Result, error) {
 	return corediscovery.Result{Candidates: p.candidates}, nil
+}
+
+type lokiFakeSystem struct {
+	*systemtest.MemorySystem
+	process system.ProcessManager
+	network system.Network
+}
+
+func (s lokiFakeSystem) Process() system.ProcessManager { return s.process }
+
+func (s lokiFakeSystem) Network() system.Network {
+	if s.network != nil {
+		return s.network
+	}
+	return s.MemorySystem.Network()
+}
+
+type lokiPortForwardNetwork struct {
+	requests []system.HTTPRequest
+}
+
+func (n *lokiPortForwardNetwork) DoHTTP(_ context.Context, req system.HTTPRequest) (system.HTTPResponse, error) {
+	n.requests = append(n.requests, req)
+	parsed, _ := url.Parse(req.URL)
+	if parsed.Hostname() != "127.0.0.1" {
+		return system.HTTPResponse{}, errors.New("cluster service DNS is not locally reachable")
+	}
+	switch parsed.Path {
+	case "/ready":
+		return system.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte("ready")}, nil
+	case "/loki/api/v1/status/buildinfo":
+		return system.HTTPResponse{StatusCode: http.StatusOK, Status: "200 OK", Body: []byte(`{"status":"success","data":{"version":"3.5.7"}}`)}, nil
+	default:
+		return system.HTTPResponse{StatusCode: http.StatusNotFound, Status: "404 Not Found"}, nil
+	}
+}
+
+type recordingLokiProcess struct {
+	ensureRequests []system.ProcessRequest
+}
+
+func (p *recordingLokiProcess) Run(context.Context, system.ProcessRequest) (system.ProcessResult, error) {
+	return system.ProcessResult{}, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Start(context.Context, system.ProcessRequest) (system.ProcessHandle, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Ensure(_ context.Context, req system.ProcessRequest) (system.ProcessHandle, bool, error) {
+	p.ensureRequests = append(p.ensureRequests, req)
+	return lokiProcessHandle{info: system.ProcessInfo{ID: "proc-1", Label: req.Label, Command: req.Command, Args: req.Args, Running: true}}, true, nil
+}
+
+func (p *recordingLokiProcess) List(context.Context) ([]system.ProcessInfo, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Status(context.Context, string) (system.ProcessInfo, error) {
+	return system.ProcessInfo{}, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Output(context.Context, string) (system.ProcessOutput, error) {
+	return system.ProcessOutput{}, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Wait(context.Context, string, time.Duration) (system.ProcessResult, error) {
+	return system.ProcessResult{}, errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Stop(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
+func (p *recordingLokiProcess) Kill(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
+type lokiProcessHandle struct {
+	info system.ProcessInfo
+}
+
+func (h lokiProcessHandle) ID() string { return h.info.ID }
+
+func (h lokiProcessHandle) Info() system.ProcessInfo { return h.info }
+
+func (h lokiProcessHandle) Events() <-chan system.ProcessEvent {
+	ch := make(chan system.ProcessEvent)
+	close(ch)
+	return ch
+}
+
+func (h lokiProcessHandle) Wait(context.Context) (system.ProcessResult, error) {
+	return system.ProcessResult{Command: h.info.Command, Args: h.info.Args}, nil
 }

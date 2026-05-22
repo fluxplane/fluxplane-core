@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -278,6 +279,44 @@ func TestKubernetesAccessorListsPodsWithinNamespacePolicy(t *testing.T) {
 	}
 }
 
+func TestKubernetesAccessorDefaultsToAllNamespacesAndHonorsRequestNamespace(t *testing.T) {
+	ctx := context.Background()
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: objectMeta("api", "default"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
+		&corev1.Pod{ObjectMeta: objectMeta("slack-bot-abc", "ai-bots"), Status: corev1.PodStatus{Phase: corev1.PodRunning}},
+	)
+	plugin := NewWithClient(nil, client)
+	plugin.ref = resource.PluginRef{Name: Name}
+	provider := kubernetesDatasourceProvider{plugin: plugin}
+	accessor, err := provider.Open(ctx, coredatasource.Spec{
+		Name:     coredatasource.Name(Name),
+		Kind:     Name,
+		Entities: []coredatasource.EntityType{PodEntity},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	all, err := accessor.(coredatasource.Lister).List(ctx, coredatasource.ListRequest{Entity: PodEntity})
+	if err != nil {
+		t.Fatalf("List all namespaces: %v", err)
+	}
+	if len(all.Records) != 2 {
+		t.Fatalf("all namespace records = %#v, want 2 pods", all.Records)
+	}
+	filtered, err := accessor.(coredatasource.Searcher).Search(ctx, coredatasource.SearchRequest{
+		Entity:  PodEntity,
+		Query:   "slack-bot",
+		Filters: map[string]string{"namespace": "ai-bots"},
+	})
+	if err != nil {
+		t.Fatalf("Search ai-bots: %v", err)
+	}
+	if len(filtered.Records) != 1 || filtered.Records[0].ID != "ai-bots/slack-bot-abc" {
+		t.Fatalf("filtered records = %#v, want ai-bots/slack-bot-abc", filtered.Records)
+	}
+}
+
 func TestKubernetesAccessorRejectsDatasourceNamespaceExpansion(t *testing.T) {
 	ctx := context.Background()
 	plugin := NewWithClient(nil, fake.NewSimpleClientset())
@@ -292,6 +331,36 @@ func TestKubernetesAccessorRejectsDatasourceNamespaceExpansion(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot expand") {
 		t.Fatalf("Open error = %v, want cannot expand", err)
+	}
+}
+
+func TestKubernetesAccessorListsDeployments(t *testing.T) {
+	ctx := context.Background()
+	replicas := int32(2)
+	client := fake.NewSimpleClientset(&appsv1.Deployment{
+		ObjectMeta: objectMeta("slack-bot", "ai-bots"),
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name:  "app",
+				Image: "example/slack-bot:latest",
+			}}}},
+		},
+		Status: appsv1.DeploymentStatus{ReadyReplicas: 2, AvailableReplicas: 2, UpdatedReplicas: 2},
+	})
+	plugin := NewWithClient(nil, client)
+	plugin.ref = resource.PluginRef{Name: Name}
+	provider := kubernetesDatasourceProvider{plugin: plugin}
+	accessor, err := provider.Open(ctx, coredatasource.Spec{Name: coredatasource.Name(Name), Kind: Name, Entities: []coredatasource.EntityType{DeploymentEntity}})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	result, err := accessor.(coredatasource.Lister).List(ctx, coredatasource.ListRequest{Entity: DeploymentEntity, Filters: map[string]string{"namespace": "ai-bots"}})
+	if err != nil {
+		t.Fatalf("List deployments: %v", err)
+	}
+	if len(result.Records) != 1 || result.Records[0].ID != "ai-bots/slack-bot" || result.Records[0].Metadata["ready_replicas"] != "2" {
+		t.Fatalf("deployment records = %#v, want ai-bots/slack-bot ready", result.Records)
 	}
 }
 
@@ -575,6 +644,37 @@ func TestKubernetesRecordsRedactEnvVarValuesFromRawPodsAndContainers(t *testing.
 		t.Fatalf("container raw type = %T, want corev1.Container", containerRecords[0].Raw)
 	}
 	assertEnvRedacted(t, rawContainer.Env[0], "API_TOKEN")
+}
+
+func TestKubernetesDeploymentRecordRedactsEnvAndLastAppliedAnnotation(t *testing.T) {
+	accessor := kubernetesAccessor{spec: coredatasource.Spec{Name: coredatasource.Name(Name)}}
+	deployment := appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"kubectl.kubernetes.io/last-applied-configuration": `{"env":[{"name":"TOKEN","value":"secret"}]}`,
+				"safe": "kept",
+			},
+		},
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app",
+			Env:  []corev1.EnvVar{{Name: "TOKEN", Value: "secret"}},
+		}}}}},
+	}
+
+	record := accessor.deploymentRecord(deployment)
+	rawDeployment, ok := record.Raw.(appsv1.Deployment)
+	if !ok {
+		t.Fatalf("deployment raw type = %T, want appsv1.Deployment", record.Raw)
+	}
+	if _, ok := rawDeployment.Annotations["kubectl.kubernetes.io/last-applied-configuration"]; ok {
+		t.Fatalf("last-applied annotation was not redacted: %#v", rawDeployment.Annotations)
+	}
+	if rawDeployment.Annotations["safe"] != "kept" {
+		t.Fatalf("safe annotation = %#v, want kept", rawDeployment.Annotations)
+	}
+	assertEnvRedacted(t, rawDeployment.Spec.Template.Spec.Containers[0].Env[0], "TOKEN")
 }
 
 func assertEnvRedacted(t *testing.T, env corev1.EnvVar, name string) {
