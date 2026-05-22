@@ -1,8 +1,7 @@
 # Verification
 
-This document covers the local quality gate, Git hooks, and architecture
-reporting commands. AGENTS.md only states the rule; this document covers the
-how.
+This document covers the local quality gate, Git hooks, and codegate review
+commands. AGENTS.md only states the rule; this document covers the how.
 
 ## Quality Gate
 
@@ -18,8 +17,8 @@ task verify
 - `task vet` (`go vet ./...`)
 - `task lint` (`golangci-lint run ./...`)
 - `task test` (`go test -timeout=30s ./...`)
-- `task arch:check` (production architecture import check via
-  `apps/archreport -fail-on boundary`)
+- `task quality:go` (codegate Go assessment with hard failure on architecture
+  boundary, side-effect, and unknown-package violations)
 
 Do not run the old repository root CI for rewrite work unless explicitly
 asked.
@@ -36,27 +35,20 @@ The tracked pre-commit hook runs the staged security scan and staged
 whitespace check. The tracked pre-push hook runs the full security scan,
 `task verify`, and the cross-platform binary build.
 
-## Architecture Reports
+## Codegate Go Review
 
-The architecture test (`internal/architecture`) is the hard boundary check.
-The report is a review tool for boundary health, coupling, fan-in/fan-out,
-side-effect drift, and refactoring decisions. Production boundary violations are
-the hard gate; component scores and diagnostics guide review.
+The repo-owned codegate architecture policy lives in
+`engine-architecture.rules.json`. Codegate is the quality gate and review tool
+for architecture boundary health, side-effect drift, maintainability, safety,
+coverage, coupling, and refactoring decisions. Production architecture boundary,
+side-effect, and unknown-package violations are hard gate failures; scores and
+findings guide review.
 
 ```bash
-go run ./apps/archreport
-go run ./apps/archreport -format json
-go run ./apps/archreport -format dot
-go run ./apps/archreport -format mermaid
-go run ./apps/archreport -tests
-go run ./apps/archreport -fail-on boundary
-go run ./apps/archreport -fail-on side-effects,unknown
-task arch:render
+task quality:go
+task quality:go:review
+task quality:go:full
 ```
-
-`task arch:render` writes Mermaid and DOT graph sources into
-`.agents/architecture/`. That directory is gitignored; regenerate it when
-needed.
 
 ## Security Scan
 

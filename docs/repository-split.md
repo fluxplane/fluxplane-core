@@ -31,7 +31,7 @@ Run engine checks from the repository root:
 
 ```bash
 go test ./...
-go run ./apps/archreport
+task quality:go
 go run ./cmd/fluxplane --help
 ```
 

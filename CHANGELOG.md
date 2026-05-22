@@ -8,10 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Replaced the active architecture score gate with a released codegate
+  assessment gate, added root `engine-architecture.rules.json`, and exposed
+  codegate-backed Go assessment/review operations from the Go language plugin.
 - Added a detailed goal-refinement design and the first durable thread-goal
   implementation: the native goal plugin now owns `/goal`
   set/status/pause/resume/clear lifecycle state, contributes ambient goal
   context, and goal continuation writes review results back to the thread.
+- Added isolated goal verification: active durable goals now spawn a
+  `goal-reviewer` helper session whose bound review decision controls whether
+  the parent session stops or continues with reviewer suggestions.
 - Raised the default large tool-result replacement threshold to 512 KiB so
   bounded reads can return their advertised payload size before spooling.
 - Added datasource prewarming for plugin-declared detectors and introduced an
@@ -152,10 +158,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provider transcript repair path in favor of fail-fast validation.
 - Batched assistant tool-call transcript writes with their matching tool
   results so failed operation turns cannot persist open provider tool calls.
-- Recalibrated architecture evaluation around production boundary gates,
-  component scores, side-effect diagnostics, test-only dependency reporting,
-  runtime host-IO allowlists, reviewed composition fan-out, unknown-package
-  diagnostics, and explicit `archreport -fail-on` gates.
+- Reworked architecture evaluation from the earlier `archreport` score model to
+  codegate rules, hard failure categories, and review-oriented findings, and
+  removed the legacy `apps/archreport` and `internal/architecture` checker.
 - Improved coder shell responsiveness by batching stream repaints, caching
   transcript rendering incrementally, bounding rendered history, showing
   completion loading state, and passing shell input as raw command text.

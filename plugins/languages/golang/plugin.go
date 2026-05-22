@@ -57,6 +57,8 @@ const (
 	ImplementationsOp   = golang.ImplementationsOp
 	CallersOp           = golang.CallersOp
 	CalleesOp           = golang.CalleesOp
+	AssessOp            = golang.AssessOp
+	ReviewOp            = golang.ReviewOp
 	SummaryProvider     = golang.SummaryProvider
 	defaultMaxResults   = 200
 	defaultSourceBytes  = 512 * 1024
@@ -211,6 +213,8 @@ func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Ope
 		operationruntime.NewTypedResult[golang.ImplementationQuery, operation.Rendered](specByName(ImplementationsOp), p.goImplementations()),
 		operationruntime.NewTypedResult[golang.CallQuery, operation.Rendered](specByName(CallersOp), p.goCallers()),
 		operationruntime.NewTypedResult[golang.CallQuery, operation.Rendered](specByName(CalleesOp), p.goCallees()),
+		operationruntime.NewTypedResult[golang.AssessmentQuery, operation.Rendered](specByName(AssessOp), p.goAssess(false)),
+		operationruntime.NewTypedResult[golang.AssessmentQuery, operation.Rendered](specByName(ReviewOp), p.goAssess(true)),
 	}, nil
 }
 
@@ -239,6 +243,8 @@ func specs() []operation.Spec {
 		spec[golang.ImplementationQuery](ImplementationsOp, "Return best-effort AST-only Go implementation relationships for a selected interface, concrete type, or method. Scope defaults to the selected package; module scope is supported."),
 		spec[golang.CallQuery](CallersOp, "Return bounded AST-only direct callers for the selected Go function or method. Scope defaults to package, include_tests defaults to true, and module scope is best-effort for module-local function selectors."),
 		spec[golang.CallQuery](CalleesOp, "Return bounded AST-only direct callees from the selected Go function or method body. Scope defaults to package, include_tests defaults to true, and unresolved external/function-value calls are reported as limitations."),
+		spec[golang.AssessmentQuery](AssessOp, "Run a codegate-backed Go assessment and return structured quality, architecture, safety, coverage, and maintainability evidence. Defaults to the workspace codegate architecture rules when present."),
+		spec[golang.AssessmentQuery](ReviewOp, "Run a compact codegate-backed Go review assessment optimized for agent code review findings and top remediation suggestions."),
 	}
 }
 
@@ -331,6 +337,7 @@ func parserOperationNames() []string {
 	return []string{
 		ProjectOp, PackagesOp, OutlineOp, SymbolOp, DefinitionOp, SymbolInfoOp,
 		ReferencesOp, ImportsOp, ImplementationsOp, CallersOp, CalleesOp,
+		AssessOp, ReviewOp,
 	}
 }
 

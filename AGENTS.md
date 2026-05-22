@@ -8,7 +8,7 @@ Background lives in:
   responsibilities, and common flows.
 - [docs/security.md](docs/security.md): full safety model and roadmap.
 - [docs/verification.md](docs/verification.md): quality gate, Git hooks, and
-  architecture report commands.
+  codegate review commands.
 - [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md):
   migration rationale and historical decisions.
 
@@ -43,11 +43,12 @@ When a narrower command covers the edited area, prefer that instead, for
 example `go test ./runtime/conversation ./orchestration/session` or the
 specific package set touched by the change. `task verify` remains the
 rewrite-local full quality gate (format, modules, whitespace, vet, lint, tests,
-architecture check). See [docs/verification.md](docs/verification.md) for
-hooks, the security scan, and architecture report invocations.
+codegate Go quality gate). See [docs/verification.md](docs/verification.md) for
+hooks, the security scan, and codegate review invocations.
 
-The architecture test in `internal/architecture` is the hard boundary check.
-Zero violations is required.
+The codegate policy in `engine-architecture.rules.json` is the hard Go quality
+gate for architecture boundary, side-effect, and unknown-package violations.
+Zero hard violations are required.
 
 
 ## Live Testing
@@ -56,8 +57,8 @@ When asked to live-test `coder`, use the `github.com/fluxplane/coder`
 repository. This engine repository no longer contains the coder product module.
 ## Layer Rules
 
-The dependency direction is fixed and enforced by `apps/archreport` and
-`internal/architecture`:
+The dependency direction is fixed and enforced by codegate rules in
+`engine-architecture.rules.json`:
 
 ```text
 cmd -> apps -> {plugins, adapters} -> orchestration -> runtime -> core
@@ -67,7 +68,7 @@ facade (root module) -> {core, sdk, runtime, orchestration, adapters}
 
 Outer layers may depend on inner layers; inner layers must not depend on
 outer layers. The exact allowed-import matrix is defined in
-`internal/architecture/model.go` (`allowedImport`).
+`engine-architecture.rules.json`.
 
 | Layer | Answers | May import | Notes |
 |---|---|---|---|
@@ -96,7 +97,7 @@ the docs:
 - [docs/security.md](docs/security.md): side-effect, operation safety, and
   system boundary model.
 - [docs/verification.md](docs/verification.md): `task verify`,
-  architecture report, hooks, and quality gates.
+  codegate review commands, hooks, and quality gates.
 - [docs/migration-from-agent-sdk.md](docs/migration-from-agent-sdk.md):
   migration rationale, architecture fitness-function notes, and package status.
 

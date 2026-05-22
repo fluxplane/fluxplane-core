@@ -31,8 +31,152 @@ const (
 	ImplementationsOp = "go_implementations"
 	CallersOp         = "go_callers"
 	CalleesOp         = "go_callees"
+	AssessOp          = "go_assess"
+	ReviewOp          = "go_review"
 	SummaryProvider   = "go.summary"
 )
+
+// AssessmentGate selects a code quality assessment category.
+type AssessmentGate string
+
+const (
+	AssessmentGateAll             AssessmentGate = "all"
+	AssessmentGateArchitecture    AssessmentGate = "architecture"
+	AssessmentGateMaintainability AssessmentGate = "maintainability"
+	AssessmentGateSafety          AssessmentGate = "safety"
+	AssessmentGateCoverage        AssessmentGate = "coverage"
+)
+
+// AssessmentFailureCategory selects which hard findings fail an assessment
+// operation.
+type AssessmentFailureCategory string
+
+const (
+	AssessmentFailureAll          AssessmentFailureCategory = "all"
+	AssessmentFailureBoundary     AssessmentFailureCategory = "boundary"
+	AssessmentFailureTestBoundary AssessmentFailureCategory = "test-boundary"
+	AssessmentFailureEffects      AssessmentFailureCategory = "effects"
+	AssessmentFailureUnknown      AssessmentFailureCategory = "unknown"
+)
+
+// AssessmentView selects how much structured evidence is returned.
+type AssessmentView string
+
+const (
+	AssessmentViewSummary AssessmentView = "summary"
+	AssessmentViewCompact AssessmentView = "compact"
+	AssessmentViewFull    AssessmentView = "full"
+)
+
+// AssessmentQuery runs a deterministic Go code quality assessment.
+type AssessmentQuery struct {
+	Language         language.LanguageID         `json:"language,omitempty" jsonschema:"description=Language id. Defaults to go."`
+	Path             string                      `json:"path,omitempty" jsonschema:"description=Workspace-relative path to assess. Defaults to workspace root."`
+	RulesPath        string                      `json:"rules_path,omitempty" jsonschema:"description=Workspace-relative codegate architecture rules JSON path. Defaults to engine-architecture.rules.json when present."`
+	Gates            []AssessmentGate            `json:"gates,omitempty" jsonschema:"description=Assessment gates. Defaults to all."`
+	FailOn           []AssessmentFailureCategory `json:"fail_on,omitempty" jsonschema:"description=Failure categories that turn matching violations into operation failures."`
+	IncludeTests     bool                        `json:"include_tests,omitempty" jsonschema:"description=Include Go test files in assessment scope."`
+	IncludeGenerated bool                        `json:"include_generated,omitempty" jsonschema:"description=Include generated Go source files in assessment scope."`
+	SuggestionLimit  int                         `json:"suggestion_limit,omitempty" jsonschema:"description=Maximum suggestions to include."`
+	View             AssessmentView              `json:"view,omitempty" jsonschema:"description=Evidence view. Defaults to compact.,enum=summary,enum=compact,enum=full"`
+}
+
+// AssessmentResult is the stable engine-facing shape returned by Go
+// assessment operations.
+type AssessmentResult struct {
+	Root                  string                      `json:"root,omitempty"`
+	Language              string                      `json:"language,omitempty"`
+	View                  AssessmentView              `json:"view,omitempty"`
+	Rating                string                      `json:"rating,omitempty"`
+	ScoreMax              int                         `json:"score_max,omitempty"`
+	Summary               AssessmentSummary           `json:"summary"`
+	Scores                AssessmentScores            `json:"scores"`
+	Validation            AssessmentValidation        `json:"validation"`
+	Metrics               map[string]any              `json:"metrics,omitempty"`
+	FindingCounts         map[string]int              `json:"finding_counts,omitempty"`
+	FindingCategoryCounts map[string]int              `json:"finding_category_counts,omitempty"`
+	ViolationCounts       map[string]int              `json:"violation_counts,omitempty"`
+	TopFindings           []AssessmentIssue           `json:"top_findings,omitempty"`
+	TopViolations         []AssessmentIssue           `json:"top_violations,omitempty"`
+	TopUnits              []AssessmentUnit            `json:"top_units,omitempty"`
+	Suggestions           AssessmentSuggestionSummary `json:"suggestions"`
+	TopSuggestions        []AssessmentSuggestion      `json:"top_suggestions,omitempty"`
+}
+
+// AssessmentSummary contains aggregate assessment counts.
+type AssessmentSummary struct {
+	Score           int `json:"score"`
+	Packages        int `json:"packages"`
+	Symbols         int `json:"symbols"`
+	Imports         int `json:"imports"`
+	Suggestions     int `json:"suggestions"`
+	ExecutableFixes int `json:"executable_fixes"`
+	Findings        int `json:"findings"`
+	Violations      int `json:"violations"`
+	Diagnostics     int `json:"diagnostics"`
+}
+
+// AssessmentScores contains bounded assessment component scores plus pressure.
+type AssessmentScores struct {
+	Overall         int     `json:"overall"`
+	Boundary        int     `json:"boundary,omitempty"`
+	TestBoundary    int     `json:"test_boundary,omitempty"`
+	Coupling        int     `json:"coupling,omitempty"`
+	SideEffect      int     `json:"side_effect,omitempty"`
+	Coverage        int     `json:"coverage,omitempty"`
+	Maintainability int     `json:"maintainability"`
+	Pressure        float64 `json:"pressure,omitempty"`
+}
+
+// AssessmentValidation summarizes validation performed during assessment.
+type AssessmentValidation struct {
+	Passed         bool   `json:"passed"`
+	ResolutionMode string `json:"resolution_mode,omitempty"`
+	Diagnostics    int    `json:"diagnostics"`
+	Files          int    `json:"files"`
+	Complete       bool   `json:"complete"`
+}
+
+// AssessmentIssue is a compact finding or violation.
+type AssessmentIssue struct {
+	Kind     string            `json:"kind,omitempty"`
+	Severity string            `json:"severity,omitempty"`
+	Location language.Location `json:"location,omitempty"`
+	Package  string            `json:"package,omitempty"`
+	Symbol   string            `json:"symbol,omitempty"`
+	Allowed  bool              `json:"allowed,omitempty"`
+	Reason   string            `json:"reason,omitempty"`
+}
+
+// AssessmentUnit identifies a high-pressure Go unit.
+type AssessmentUnit struct {
+	UnitID        string  `json:"unit_id,omitempty"`
+	DirectFanIn   int     `json:"direct_fan_in,omitempty"`
+	DirectFanOut  int     `json:"direct_fan_out,omitempty"`
+	CallFanIn     int     `json:"call_fan_in,omitempty"`
+	CallFanOut    int     `json:"call_fan_out,omitempty"`
+	FileCount     int     `json:"file_count,omitempty"`
+	LOC           int     `json:"loc,omitempty"`
+	PressureScore float64 `json:"pressure_score,omitempty"`
+}
+
+// AssessmentSuggestionSummary summarizes remediation suggestions.
+type AssessmentSuggestionSummary struct {
+	Total      int `json:"total"`
+	Executable int `json:"executable"`
+}
+
+// AssessmentSuggestion is a compact assessment suggestion.
+type AssessmentSuggestion struct {
+	ID         string             `json:"id,omitempty"`
+	Kind       string             `json:"kind,omitempty"`
+	Title      string             `json:"title,omitempty"`
+	Summary    string             `json:"summary,omitempty"`
+	Confidence string             `json:"confidence,omitempty"`
+	Risk       string             `json:"risk,omitempty"`
+	Operations int                `json:"operations,omitempty"`
+	Metrics    map[string]float64 `json:"metrics,omitempty"`
+}
 
 // NavigationScope bounds a position-based navigation lookup.
 type NavigationScope string

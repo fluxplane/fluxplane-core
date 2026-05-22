@@ -36,7 +36,7 @@ tasks:
       - task: vet
       - task: lint
       - task: test
-      - task: arch:check
+      - task: quality:go
 
   security:scan:
     desc: Scan working tree and Git history for secrets and banned keywords.
@@ -99,29 +99,17 @@ tasks:
           printf '\nSkipping gocognit: not installed. Run: go install github.com/uudashr/gocognit/cmd/gocognit@latest\n'
         fi
 
-  arch:check:
-    desc: Fail on architecture import-direction violations.
+  quality:go:
+    desc: Run the codegate Go quality gate.
     cmds:
-      - go run ./apps/archreport -fail-on boundary
+      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --fail-on boundary,effects,unknown --view summary
 
-  arch:report:
-    desc: Print the architecture report.
+  quality:go:review:
+    desc: Print compact codegate Go review evidence.
     cmds:
-      - go run ./apps/archreport
+      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view compact --suggestions 10
 
-  arch:report:tests:
-    desc: Print the architecture report including test imports.
+  quality:go:full:
+    desc: Print full codegate Go review evidence.
     cmds:
-      - go run ./apps/archreport -tests
-
-  arch:check:side-effects:
-    desc: Fail on side-effect and unknown-package architecture diagnostics.
-    cmds:
-      - go run ./apps/archreport -fail-on side-effects,unknown
-
-  arch:render:
-    desc: Render architecture graph sources into .agents/architecture.
-    cmds:
-      - mkdir -p .agents/architecture
-      - go run ./apps/archreport -format mermaid -out .agents/architecture/import-graph.mmd
-      - go run ./apps/archreport -format dot -out .agents/architecture/import-graph.dot
+      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view full --suggestions 20

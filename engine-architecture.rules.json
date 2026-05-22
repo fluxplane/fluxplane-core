@@ -1,0 +1,115 @@
+{
+  "module_path": "github.com/fluxplane/engine",
+  "layers": [
+    {"name": "facade", "prefixes": ["."]},
+    {"name": "core", "prefixes": ["core"]},
+    {"name": "sdk", "prefixes": ["sdk"]},
+    {"name": "runtime", "prefixes": ["runtime"]},
+    {"name": "orchestration", "prefixes": ["orchestration"]},
+    {"name": "adapters", "prefixes": ["adapters"]},
+    {"name": "plugins", "prefixes": ["plugins"]},
+    {"name": "apps", "prefixes": ["apps"]},
+    {"name": "cmd", "prefixes": ["cmd"]}
+  ],
+  "dependencies": [
+    {"from_layer": "core", "to_layer": "core"},
+    {"from_layer": "sdk", "to_layer": "core"},
+    {"from_layer": "sdk", "to_layer": "sdk"},
+    {"from_layer": "runtime", "to_layer": "core"},
+    {"from_layer": "runtime", "to_layer": "runtime"},
+    {"from_layer": "orchestration", "to_layer": "core"},
+    {"from_layer": "orchestration", "to_layer": "runtime"},
+    {"from_layer": "orchestration", "to_layer": "orchestration"},
+    {"from_layer": "adapters", "to_layer": "core"},
+    {"from_layer": "adapters", "to_layer": "runtime"},
+    {"from_layer": "adapters", "to_layer": "orchestration"},
+    {"from_layer": "adapters", "to_layer": "adapters"},
+    {"from_layer": "plugins", "to_layer": "core"},
+    {"from_layer": "plugins", "to_layer": "sdk"},
+    {"from_layer": "plugins", "to_layer": "runtime"},
+    {"from_layer": "plugins", "to_layer": "orchestration"},
+    {"from_layer": "plugins", "to_layer": "adapters"},
+    {"from_layer": "plugins", "to_layer": "plugins"},
+    {"from_layer": "apps", "to_layer": "core"},
+    {"from_layer": "apps", "to_layer": "sdk"},
+    {"from_layer": "apps", "to_layer": "runtime"},
+    {"from_layer": "apps", "to_layer": "orchestration"},
+    {"from_layer": "apps", "to_layer": "adapters"},
+    {"from_layer": "apps", "to_layer": "plugins"},
+    {"from_layer": "apps", "to_layer": "apps"},
+    {"from_layer": "apps", "to_layer": "facade"},
+    {"from_layer": "cmd", "to_layer": "apps"},
+    {"from_layer": "cmd", "to_layer": "adapters"},
+    {"from_layer": "cmd", "to_layer": "cmd"},
+    {"from_layer": "facade", "to_layer": "core"},
+    {"from_layer": "facade", "to_layer": "sdk"},
+    {"from_layer": "facade", "to_layer": "runtime"},
+    {"from_layer": "facade", "to_layer": "orchestration"},
+    {"from_layer": "facade", "to_layer": "adapters"}
+  ],
+  "effects": [
+    {
+      "name": "inner_host_io",
+      "scope": {"layers": ["core", "sdk", "orchestration"]},
+      "imports": ["os", "os/exec", "syscall", "net", "net/http", "net/url", "database/sql", "github.com/spf13/cobra"],
+      "reason": "core, sdk, and orchestration production code must not import host IO directly"
+    },
+    {
+      "name": "core_filepath",
+      "scope": {"layers": ["core"]},
+      "imports": ["path/filepath"],
+      "severity": "warning",
+      "reason": "core should prefer logical slash paths unless host filesystem paths are explicitly justified"
+    },
+    {
+      "name": "runtime_host_io",
+      "scope": {"layers": ["runtime"]},
+      "imports": ["os", "os/exec", "os/user", "syscall", "net", "net/http", "net/url", "database/sql", "path/filepath"],
+      "reason": "runtime host IO imports require an explicit package allowlist reason"
+    },
+    {
+      "name": "plugin_host_effect",
+      "scope": {"layers": ["plugins"]},
+      "calls": [
+        {"import": "net", "symbol": "Dial"},
+        {"import": "net", "symbol": "DialTimeout"},
+        {"import": "net/http", "symbol": "DefaultClient"},
+        {"import": "net/http", "symbol": "Get"},
+        {"import": "net/http", "symbol": "Post"},
+        {"import": "os", "symbol": "Getenv"},
+        {"import": "os", "symbol": "LookupEnv"},
+        {"import": "os", "symbol": "ReadFile"},
+        {"import": "os", "symbol": "Stat"},
+        {"import": "os", "symbol": "UserHomeDir"},
+        {"import": "os", "symbol": "WriteFile"},
+        {"import": "os/exec", "symbol": "Command"},
+        {"import": "os/exec", "symbol": "CommandContext"}
+      ],
+      "reason": "plugin host side effects must go through runtime/system.System unless explicitly allowed"
+    }
+  ],
+  "coupling": {
+    "fan_out_threshold": 12,
+    "layers": ["core", "runtime", "orchestration"],
+    "reviewed_fan_out": [
+      {"package": "core/resource", "reason": "resource owns the inert contribution bundle, index, and resolver hub"},
+      {"package": "orchestration/app", "reason": "app composition intentionally assembles resource catalogs and runtime registries"},
+      {"package": "orchestration/eventregistry", "reason": "event registry owns explicit decoder registration for core and runtime event payloads"},
+      {"package": "orchestration/harness", "reason": "channel-facing harness composes session dependencies at the orchestration boundary"},
+      {"package": "orchestration/pluginhost", "reason": "plugin host owns contribution interfaces for optional capability bundles"},
+      {"package": "orchestration/session", "reason": "session orchestration composes command, context, operation, evidence, reaction, and persistence flow"},
+      {"package": "orchestration/sessionenv", "reason": "session environment materializes runtime context and reaction state for session execution"}
+    ]
+  },
+  "exceptions": [
+    {"kind": "architecture_runtime_host_io", "package": "runtime/datasource/semantic", "reason": "semantic JSON store persists local index state"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/evidence", "reason": "runtime observers read host identity and environment evidence"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/httptransport", "reason": "runtime HTTP transport implementation owns concrete network behavior"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/oauth2client", "reason": "runtime OAuth2 client builds provider-neutral HTTP requests"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/operation", "reason": "operation runtime validates file-backed operation inputs and schemas"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/secret", "reason": "secret runtime implements file-backed secret storage"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/sqlclient", "reason": "SQL runtime owns database client integration"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/system", "reason": "system runtime is the central host side-effect boundary"},
+    {"kind": "architecture_runtime_host_io", "package": "runtime/systemtest", "reason": "test fixture package implements in-memory runtime system helpers"}
+  ]
+}

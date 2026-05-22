@@ -41,15 +41,12 @@ apps -> plugins/adapters -> orchestration -> runtime -> core
 `adapters` only when the plugin's purpose requires it. Plugin contracts should
 not live in plugin implementation packages.
 
-`internal/architecture` and `apps/archreport` make this dependency direction
-observable. Use the test for hard violations and the report for recurring
-refactoring review:
+Codegate makes this dependency direction observable. Use the quality gate for
+hard violations and the review report for recurring refactoring review:
 
 ```bash
-go test ./internal/architecture
-go run ./apps/archreport
-go run ./apps/archreport -format json
-go run ./apps/archreport -format dot
+task quality:go
+task quality:go:review
 ```
 
 ## Naming
@@ -66,10 +63,11 @@ Fluxplane is the umbrella brand. Agent Runtime is the first product/repository.
 
 ### Architecture Fitness Function
 
-`internal/architecture` and `apps/archreport` make package dependency direction
-observable. The architecture test is the hard check for boundary violations;
-the report is a recurring review artifact for coupling, fan-in/fan-out, and
-refactoring decisions.
+Codegate and `engine-architecture.rules.json` make package dependency
+direction observable. `task quality:go` is the hard check for boundary,
+side-effect, and unknown-package violations; `task quality:go:review` is the
+recurring review artifact for coupling, fan-in/fan-out, and refactoring
+decisions.
 
 The score is intentionally directional, not absolute truth. Boundary
 violations carry the largest penalty. Runtime sibling imports and high fan-out

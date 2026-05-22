@@ -287,9 +287,6 @@ apps/launch
 
 apps/devclient
   development client
-
-apps/archreport
-  architecture reporting tool
 ```
 
 `apps` may import plugins, adapters, orchestration, runtime, and core because
@@ -479,26 +476,16 @@ sdk performing IO or execution
 
 ## Architecture Checks
 
-The architecture boundary is enforced by tests and reviewed with reports:
+The architecture boundary is enforced by codegate:
 
 ```bash
-go test ./internal/architecture
-go run ./apps/archreport
-go run ./apps/archreport -format json
-go run ./apps/archreport -format dot
-go run ./apps/archreport -format mermaid
-task arch:render
+task quality:go
+task quality:go:review
 ```
 
-The hard requirement is zero production architecture violations. The numeric
-score is a review signal, not a release gate by itself. The report separates
-boundary, coupling, side-effect, coverage, and test-boundary scores so expected
-composition fan-out cannot make a clean production boundary look equivalent to
-a hard violation. Fan-out in app assembly packages is expected; fan-out in inner
-layers usually deserves review. Reviewed composition hubs remain visible in the
-report as allowed fan-out notes with package-specific reasons.
-
-As of the current architecture split, the report is expected to remain at or
-above 98 with zero violations. Remaining score penalties are intentionally
-visible in the report so future work can decide whether a runtime sibling edge
-still warrants extraction.
+The hard requirement is zero production architecture boundary, side-effect, and
+unknown-package violations under `engine-architecture.rules.json`. Codegate
+scores, findings, top units, and suggestions are review evidence, not a
+standalone release rule. Fan-out in app assembly packages is expected; fan-out
+in inner layers usually deserves review. Reviewed composition hubs remain
+visible in the rules file with package-specific reasons.

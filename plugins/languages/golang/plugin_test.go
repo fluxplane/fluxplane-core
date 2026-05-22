@@ -266,6 +266,76 @@ func Good() {}
 	})
 }
 
+func TestGoAssessmentOperations(t *testing.T) {
+	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeGoFile(t, sys.Workspace(), "engine-architecture.rules.json", `{
+  "module_path": "example.com/app",
+  "layers": [
+    {"name": "core", "prefixes": ["core"]},
+    {"name": "adapters", "prefixes": ["adapters"]}
+  ],
+  "dependencies": [
+    {"from_layer": "core", "to_layer": "core"},
+    {"from_layer": "adapters", "to_layer": "core"},
+    {"from_layer": "adapters", "to_layer": "adapters"}
+  ]
+}`)
+		writeGoFile(t, sys.Workspace(), "core/core.go", `package core
+
+import _ "example.com/app/adapters"
+
+func UseAdapter() {}
+`)
+		writeGoFile(t, sys.Workspace(), "adapters/adapters.go", `package adapters
+
+func Adapter() {}
+`)
+
+		review := runGoOp(t, sys, ReviewOp, map[string]any{"gates": []any{"architecture"}})
+		assessment := assessmentResultFromRendered(t, review)
+		if assessment.Summary.Violations == 0 || assessment.ViolationCounts["architecture_boundary_violation"] == 0 {
+			t.Fatalf("assessment = %#v, want architecture boundary violation", assessment)
+		}
+		if !strings.Contains(review.Text, "Go assessment:") {
+			t.Fatalf("review text = %q, want assessment summary", review.Text)
+		}
+
+		failed := runGoResult(t, sys, AssessOp, map[string]any{"gates": []any{"architecture"}, "fail_on": []any{"boundary"}})
+		if failed.Status != operation.StatusFailed || failed.Error == nil || failed.Error.Code != "go_assessment_gate_failed" {
+			t.Fatalf("failed assessment = %#v, want gate failure", failed)
+		}
+		if !strings.Contains(failed.Error.Message, "Go assessment:") {
+			t.Fatalf("failed assessment message = %q, want rendered summary", failed.Error.Message)
+		}
+		rendered, ok := failed.Output.(operation.Rendered)
+		if !ok || !strings.Contains(rendered.Text, "Go assessment:") {
+			t.Fatalf("failed assessment output = %#v, want rendered assessment output", failed.Output)
+		}
+	})
+}
+
+func TestGoAssessmentDisablesArchitectureWhenDefaultRulesMissing(t *testing.T) {
+	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
+		writeGoFile(t, sys.Workspace(), "go.mod", "module example.com/app\n\ngo 1.26\n")
+		writeGoFile(t, sys.Workspace(), "core/core.go", `package core
+
+import _ "example.com/app/adapters"
+
+func UseAdapter() {}
+`)
+		writeGoFile(t, sys.Workspace(), "adapters/adapters.go", `package adapters
+
+func Adapter() {}
+`)
+
+		result := runGoResult(t, sys, AssessOp, map[string]any{"gates": []any{"architecture"}, "fail_on": []any{"boundary"}})
+		if result.Status != operation.StatusOK {
+			t.Fatalf("assessment without default rules = %#v, want ok with architecture policy disabled", result)
+		}
+	})
+}
+
 func TestGoImportsClassifiesDotlessModuleLocalImports(t *testing.T) {
 	runGoPluginBackends(t, func(t *testing.T, sys system.System) {
 		writeGoFile(t, sys.Workspace(), "go.mod", "module app\n\ngo 1.26\n")
@@ -1310,6 +1380,19 @@ func implementationResultFromRendered(t *testing.T, rendered operation.Rendered)
 		t.Fatalf("implementations data = %#v, want golang.ImplementationResult", data["implementations"])
 	}
 	return implementations
+}
+
+func assessmentResultFromRendered(t *testing.T, rendered operation.Rendered) golang.AssessmentResult {
+	t.Helper()
+	data, ok := rendered.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("rendered data = %#v, want map", rendered.Data)
+	}
+	assessment, ok := data["assessment"].(golang.AssessmentResult)
+	if !ok {
+		t.Fatalf("assessment data = %#v, want golang.AssessmentResult", data["assessment"])
+	}
+	return assessment
 }
 
 func goInfoResultFromRendered(t *testing.T, rendered operation.Rendered) golang.GoInfoResult {

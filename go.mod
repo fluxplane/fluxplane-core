@@ -13,6 +13,7 @@ require (
 	github.com/codewandler/modeldb v0.15.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
+	github.com/fluxplane/codegate v1.1.0
 	github.com/getkin/kin-openapi v0.138.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/invopop/jsonschema v0.14.0
