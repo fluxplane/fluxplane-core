@@ -25,6 +25,7 @@ import (
 	"github.com/fluxplane/engine/core/policy"
 	corereaction "github.com/fluxplane/engine/core/reaction"
 	"github.com/fluxplane/engine/core/resource"
+	corereview "github.com/fluxplane/engine/core/review"
 	coresession "github.com/fluxplane/engine/core/session"
 	coreskill "github.com/fluxplane/engine/core/skill"
 	coretask "github.com/fluxplane/engine/core/task"
@@ -4506,12 +4507,21 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "done"}}},
 		},
 	}
-	evaluator := &sequenceStopEvaluator{evaluations: []StopEvaluation{
-		{Action: StopActionContinue, ContinueInstruction: "finish the task", Reason: "not done"},
-		{Action: StopActionStop, Reason: "done"},
+	reviewer := &goalReviewerClient{store: threadStore, decisions: []goalReviewDecision{
+		{decision: "rejected", summary: "not done", suggestion: "finish the task"},
+		{decision: "reached", summary: "done", evidence: "final message says done"},
 	}}
 	s.Agent = agentRuntime
-	s.StopEvaluator = evaluator
+	s.SessionAgents = sessionagent.New(sessionagent.Config{
+		Client: reviewer,
+		ResolveProfile: sessionagent.ProfileResolverFunc(func(context.Context, coresession.Ref) (coresession.Spec, error) {
+			return coresession.Spec{
+				Name:       goalReviewerSessionName,
+				Agent:      agent.Ref{Name: "goal-reviewer"},
+				Operations: []operation.Ref{{Name: goalReviewDecisionOpName}},
+			}, nil
+		}),
+	})
 	result := s.ExecuteInboundInput(ctx, channel.Inbound{
 		ID:      "run-goal",
 		Kind:    channel.InboundMessage,
@@ -4524,11 +4534,14 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 	if len(agentRuntime.inputs) != 2 {
 		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
 	}
-	if len(evaluator.inputs) != 2 {
-		t.Fatalf("evaluator inputs = %d, want two continuation decisions", len(evaluator.inputs))
+	if len(reviewer.tasks) != 2 {
+		t.Fatalf("reviewer tasks = %d, want two verification runs", len(reviewer.tasks))
 	}
-	if !strings.Contains(evaluator.inputs[0].Condition.Prompt, "Complete the coverage task") {
-		t.Fatalf("evaluator prompt = %q, want durable goal", evaluator.inputs[0].Condition.Prompt)
+	if !strings.Contains(reviewer.tasks[0], "Complete the coverage task") {
+		t.Fatalf("reviewer task = %q, want durable goal", reviewer.tasks[0])
+	}
+	if got := agentRuntime.inputs[1].Observations[0].Content; got != "finish the task" {
+		t.Fatalf("continuation instruction = %#v, want reviewer suggestion", got)
 	}
 	state, err := s.currentGoalState(ctx)
 	if err != nil {
@@ -4536,6 +4549,9 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 	}
 	if state.Status != coregoal.StatusReached || state.LatestReview == nil {
 		t.Fatalf("goal state = %#v, want reached with review", state)
+	}
+	if state.LatestReview.ReviewerThreadID == "" || state.LatestReview.ReviewerRunID == "" {
+		t.Fatalf("latest review = %#v, want reviewer child coordinates", state.LatestReview)
 	}
 }
 
@@ -5116,9 +5132,13 @@ func (s sessionTargetSession) SendInput(_ context.Context, input sessionagent.In
 type sessionTargetRun struct {
 	output string
 	events <-chan sessionagent.RunEvent
+	id     string
 }
 
 func (r sessionTargetRun) ID() string {
+	if r.id != "" {
+		return r.id
+	}
 	return "child-run"
 }
 
@@ -5128,6 +5148,93 @@ func (r sessionTargetRun) Events() <-chan sessionagent.RunEvent {
 
 func (r sessionTargetRun) Wait(context.Context) (sessionagent.RunResult, error) {
 	return sessionagent.RunResult{Text: r.output}, nil
+}
+
+type goalReviewDecision struct {
+	decision   string
+	summary    string
+	suggestion string
+	evidence   string
+}
+
+type goalReviewerClient struct {
+	store     corethread.Store
+	tasks     []string
+	decisions []goalReviewDecision
+	opens     int
+}
+
+func (c *goalReviewerClient) Open(_ context.Context, req sessionagent.OpenRequest) (sessionagent.Session, error) {
+	c.opens++
+	threadID := corethread.ID(fmt.Sprintf("goal-review-child-%d", c.opens))
+	return goalReviewerSession{client: c, parentThreadID: corethread.ID(req.Metadata["parent_thread_id"]), parentRunID: req.Metadata["parent_run_id"], childThreadID: threadID}, nil
+}
+
+type goalReviewerSession struct {
+	client         *goalReviewerClient
+	parentThreadID corethread.ID
+	parentRunID    string
+	childThreadID  corethread.ID
+}
+
+func (s goalReviewerSession) Info() sessionagent.SessionInfo {
+	return sessionagent.SessionInfo{Thread: corethread.Ref{ID: s.childThreadID}}
+}
+
+func (s goalReviewerSession) SendInput(ctx context.Context, input sessionagent.Input) (sessionagent.Run, error) {
+	s.client.tasks = append(s.client.tasks, input.Text)
+	index := len(s.client.tasks) - 1
+	if index >= len(s.client.decisions) {
+		return sessionTargetRun{events: closedRunEvents()}, fmt.Errorf("missing goal review decision %d", index)
+	}
+	decision := s.client.decisions[index]
+	goalID := coregoal.ID(taskField(input.Text, "goal_id"))
+	reviewID := coregoal.ReviewID(taskField(input.Text, "review_id"))
+	runID := firstNonEmpty(taskField(input.Text, "run_id"), s.parentRunID)
+	review := coregoal.Review{
+		ReviewID:         reviewID,
+		GoalID:           goalID,
+		RunID:            runID,
+		ReviewerThreadID: s.childThreadID,
+		ReviewerRunID:    fmt.Sprintf("goal-review-run-%d", index+1),
+		Result: corereview.Result{
+			ID:       corereview.ID(reviewID),
+			Decision: corereview.DecisionRejected,
+			Summary:  decision.summary,
+		},
+	}
+	var payload sessionenv.Event
+	switch decision.decision {
+	case "reached":
+		review.Result.Decision = corereview.DecisionAccepted
+		review.Result.Evidence = []corereview.Evidence{{Kind: "test", Summary: decision.evidence}}
+		payload = coregoal.Reached{GoalID: goalID, Review: review, RunID: runID}
+	default:
+		review.Result.Suggestions = []corereview.Suggestion{{Text: decision.suggestion}}
+		payload = coregoal.Rejected{GoalID: goalID, Review: review, RunID: runID}
+	}
+	records := sessionenv.ThreadAppendRecords(corethread.Ref{ID: s.parentThreadID}, payload)
+	if _, err := s.client.store.Append(ctx, corethread.Ref{ID: s.parentThreadID}, records...); err != nil {
+		return sessionTargetRun{events: closedRunEvents()}, err
+	}
+	return sessionTargetRun{output: decision.summary, events: closedRunEvents(), id: review.ReviewerRunID}, nil
+}
+
+func taskField(task, name string) string {
+	prefix := "- " + name + ":"
+	for _, line := range strings.Split(task, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
+}
+
+func closedRunEvents() <-chan sessionagent.RunEvent {
+	events := make(chan sessionagent.RunEvent)
+	close(events)
+	return events
 }
 
 type fixedAgent struct {

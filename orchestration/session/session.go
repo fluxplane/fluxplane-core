@@ -30,7 +30,6 @@ import (
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
 	corereaction "github.com/fluxplane/engine/core/reaction"
-	corereview "github.com/fluxplane/engine/core/review"
 	coresession "github.com/fluxplane/engine/core/session"
 	coreskill "github.com/fluxplane/engine/core/skill"
 	coretask "github.com/fluxplane/engine/core/task"
@@ -105,6 +104,12 @@ const (
 	compactSafetyMarginTokens   = 4096
 	compactLargeItemTokens      = 4096
 	compactPreserveRecentItems  = 16
+)
+
+const (
+	goalReviewerSessionName   coresession.Name = "goal-reviewer"
+	goalReviewDecisionOpName  operation.Name   = "goal_review_decision"
+	goalReviewSessionAgentTag string           = "goal-review"
 )
 
 var contextCommandSpec = sessioncontrol.ContextCommandSpec
@@ -3970,15 +3975,34 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 	spec := s.Agent.Spec()
 	continuation := continuationPolicyForInput(opts, spec)
 	var goalState coregoal.State
+	goalContinuation := false
 	if strings.TrimSpace(continuation.StopCondition.Type) == "" {
 		if state, err := s.currentGoalState(ctx); err == nil && state.ActiveForContinuation() {
 			goalState = state
+			goalContinuation = true
 			continuation = continuationPolicyForGoal(state, spec)
 		}
 	}
 	condition := continuation.StopCondition
 	if strings.TrimSpace(condition.Type) == "" {
 		return continuationDecision{}
+	}
+	if goalContinuation {
+		maxContinuations := s.maxContinuationsForPolicy(continuation)
+		reviewed, err := s.verifyGoalWithReviewer(ctx, inbound, goalState, completed, agentResult, effects)
+		if err != nil {
+			return continuationDecision{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "goal_verification_failed", Message: err.Error()}}}
+		}
+		if reviewed.Status == coregoal.StatusReached {
+			return continuationDecision{Reason: goalReviewReason(reviewed)}
+		}
+		if completed >= maxContinuations {
+			return continuationDecision{Result: continuationLimitResult(agentResult, effects, maxContinuations)}
+		}
+		if reviewed.Status == coregoal.StatusRejected {
+			return continuationDecision{Continue: true, Instruction: goalReviewInstruction(reviewed), Reason: goalReviewReason(reviewed)}
+		}
+		return continuationDecision{Result: InputResult{Status: InputStatusFailed, Agent: agentResult, Effect: lastEffect(effects), Effects: effects, Error: &CommandError{Code: "goal_verifier_no_decision", Message: "goal reviewer completed without recording a reached or rejected decision"}}}
 	}
 	evalSpec := spec
 	evalSpec.Turns.Continuation = continuation
@@ -3997,69 +4021,16 @@ func (s Session) evaluateContinuation(ctx context.Context, inbound channel.Inbou
 	}
 	action := StopAction(strings.TrimSpace(strings.ToLower(string(evaluation.Action))))
 	if action != StopActionContinue {
-		if goalState.ID != "" {
-			_ = s.recordGoalReview(ctx, inbound.ID, goalState, evaluation, true)
-		}
 		return continuationDecision{Reason: evaluation.Reason}
 	}
 	if completed >= maxContinuations {
 		return continuationDecision{Result: continuationLimitResult(agentResult, effects, maxContinuations)}
-	}
-	if goalState.ID != "" {
-		_ = s.recordGoalReview(ctx, inbound.ID, goalState, evaluation, false)
 	}
 	return continuationDecision{Continue: true, Instruction: evaluation.ContinueInstruction, Reason: evaluation.Reason}
 }
 
 func (s Session) evaluateStopCondition(ctx context.Context, input StopEvaluationInput) (StopEvaluation, error) {
 	return sessioncontrol.EvaluateStopCondition(ctx, input.Condition, input, s.StopEvaluator)
-}
-
-func (s Session) recordGoalReview(ctx context.Context, runID string, state coregoal.State, evaluation StopEvaluation, reached bool) error {
-	if state.ID == "" {
-		return nil
-	}
-	reviewID := coregoal.ReviewID(newReviewID(state.ID, runID, evaluation, reached))
-	result := corereview.Result{
-		ID:       corereview.ID(reviewID),
-		Decision: corereview.DecisionRejected,
-		Summary:  strings.TrimSpace(evaluation.Reason),
-		Suggestions: []corereview.Suggestion{{
-			Text: strings.TrimSpace(firstNonEmpty(evaluation.ContinueInstruction, evaluation.Reason, "Continue working toward the goal.")),
-		}},
-	}
-	eventPayload := sessionenv.Event(coregoal.Rejected{
-		GoalID: state.ID,
-		Review: coregoal.Review{
-			ReviewID: reviewID,
-			GoalID:   state.ID,
-			RunID:    runID,
-			Result:   result,
-		},
-		RunID: runID,
-	})
-	if reached {
-		result.Decision = corereview.DecisionAccepted
-		result.Evidence = []corereview.Evidence{{
-			Kind:    "stop_evaluator",
-			Summary: strings.TrimSpace(firstNonEmpty(evaluation.Reason, "Evaluator accepted the goal as reached.")),
-		}}
-		result.Suggestions = nil
-		eventPayload = coregoal.Reached{
-			GoalID: state.ID,
-			Review: coregoal.Review{
-				ReviewID: reviewID,
-				GoalID:   state.ID,
-				RunID:    runID,
-				Result:   result,
-			},
-			RunID: runID,
-		}
-	}
-	return s.appendThreadEvents(ctx,
-		coregoal.ReviewRequested{GoalID: state.ID, ReviewID: reviewID, RunID: runID},
-		eventPayload,
-	)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -4071,8 +4042,128 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func newReviewID(goalID coregoal.ID, runID string, evaluation StopEvaluation, reached bool) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\n%s\n%t\n%s\n%s\n%d", goalID, runID, reached, evaluation.Reason, evaluation.ContinueInstruction, time.Now().UTC().UnixNano())))
+func (s Session) verifyGoalWithReviewer(ctx context.Context, inbound channel.Inbound, state coregoal.State, completed int, agentResult agent.StepResult, effects []environment.EffectResult) (coregoal.State, error) {
+	if state.ID == "" {
+		return coregoal.State{}, fmt.Errorf("goal state is empty")
+	}
+	if s.SessionAgents == nil {
+		return coregoal.State{}, fmt.Errorf("goal reviewer session-agent runner is not configured")
+	}
+	reviewID := coregoal.ReviewID(newReviewID(state.ID, inbound.ID, completed))
+	if err := s.appendThreadEvents(ctx, coregoal.ReviewRequested{GoalID: state.ID, ReviewID: reviewID, RunID: inbound.ID}); err != nil {
+		return coregoal.State{}, err
+	}
+	_, err := s.SessionAgents.Run(ctx, sessionagent.Request{
+		ID:             sessionagent.ID(fmt.Sprintf("%s:%s:%s", inbound.ID, goalReviewSessionAgentTag, reviewID)),
+		Profile:        coresession.Ref{Name: goalReviewerSessionName},
+		Task:           renderGoalVerifierTask(s.Thread.ID, inbound.ID, reviewID, state, completed, agentResult, effects),
+		TaskID:         inbound.ID,
+		ParentThreadID: s.Thread.ID,
+		ParentRunID:    inbound.ID,
+		ParentCallID:   operation.CallID(fmt.Sprintf("%s:%s", inbound.ID, goalReviewSessionAgentTag)),
+		Policy: coresession.DelegationPolicy{
+			AllowedProfiles: []coresession.Ref{{Name: goalReviewerSessionName}},
+			Operations:      []operation.Ref{{Name: goalReviewDecisionOpName}},
+		},
+		Events:   s.eventSink(),
+		Approver: sessionenv.ApproverFromExecutor(s.OperationExecutor),
+	})
+	if err != nil {
+		_ = s.appendThreadEvents(ctx, coregoal.ReviewFailed{GoalID: state.ID, ReviewID: reviewID, RunID: inbound.ID, Reason: err.Error()})
+		return coregoal.State{}, err
+	}
+	reviewed, err := s.currentGoalState(ctx)
+	if err != nil {
+		return coregoal.State{}, err
+	}
+	if reviewed.LatestReview == nil || reviewed.LatestReview.ReviewID != reviewID {
+		reason := "goal reviewer completed without submitting the bound decision"
+		_ = s.appendThreadEvents(ctx, coregoal.ReviewFailed{GoalID: state.ID, ReviewID: reviewID, RunID: inbound.ID, Reason: reason})
+		return coregoal.State{}, fmt.Errorf("%s", reason)
+	}
+	return reviewed, nil
+}
+
+func renderGoalVerifierTask(threadID corethread.ID, runID string, reviewID coregoal.ReviewID, state coregoal.State, completed int, agentResult agent.StepResult, effects []environment.EffectResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "You are reviewing whether the parent agent reached the active durable goal.\n\n")
+	fmt.Fprintf(&b, "Required operation call:\n")
+	fmt.Fprintf(&b, "- operation: %s\n", goalReviewDecisionOpName)
+	fmt.Fprintf(&b, "- thread_id: %s\n", threadID)
+	fmt.Fprintf(&b, "- goal_id: %s\n", state.ID)
+	fmt.Fprintf(&b, "- review_id: %s\n", reviewID)
+	fmt.Fprintf(&b, "- run_id: %s\n\n", runID)
+	fmt.Fprintf(&b, "Goal:\n%s\n\n", state.Text)
+	if len(state.AcceptanceCriteria) > 0 {
+		fmt.Fprintf(&b, "Acceptance criteria:\n")
+		for _, criterion := range state.AcceptanceCriteria {
+			description := strings.TrimSpace(criterion.Description)
+			if description == "" {
+				continue
+			}
+			required := ""
+			if criterion.Required {
+				required = " required"
+			}
+			fmt.Fprintf(&b, "-%s %s\n", required, description)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "Review context:\n")
+	fmt.Fprintf(&b, "- completed_continuations: %d\n", completed)
+	fmt.Fprintf(&b, "- agent_decision: %s\n", agentResult.Decision.Kind)
+	if agentResult.Decision.Message != nil {
+		fmt.Fprintf(&b, "- latest_message: %s\n", strings.TrimSpace(fmt.Sprint(agentResult.Decision.Message.Content)))
+	}
+	if agentResult.Decision.Complete != nil {
+		fmt.Fprintf(&b, "- completion_output: %s\n", strings.TrimSpace(fmt.Sprint(agentResult.Decision.Complete.Output)))
+		fmt.Fprintf(&b, "- completion_reason: %s\n", strings.TrimSpace(agentResult.Decision.Complete.Reason))
+	}
+	if agentResult.State.Summary != "" {
+		fmt.Fprintf(&b, "- state_summary: %s\n", strings.TrimSpace(agentResult.State.Summary))
+	}
+	if len(effects) > 0 {
+		fmt.Fprintf(&b, "\nOperation/effect evidence:\n")
+		for i, effect := range effects {
+			status := string(effect.Result.Status)
+			if status == "" {
+				status = "unknown"
+			}
+			fmt.Fprintf(&b, "- #%d status=%s", i+1, status)
+			if effect.Result.Error != nil {
+				fmt.Fprintf(&b, " error=%s", strings.TrimSpace(effect.Result.Error.Message))
+			}
+			if summary := strings.TrimSpace(fmt.Sprint(effect.Observation.Content)); summary != "" {
+				fmt.Fprintf(&b, " observation=%s", summary)
+			}
+			b.WriteString("\n")
+		}
+	}
+	fmt.Fprintf(&b, "\nDecide reached only if the goal and required acceptance criteria are satisfied by the provided evidence. Otherwise decide rejected and provide concrete suggestions for the parent agent's next continuation.")
+	return b.String()
+}
+
+func goalReviewInstruction(state coregoal.State) string {
+	if state.LatestReview == nil {
+		return "Continue working toward the goal."
+	}
+	for _, suggestion := range state.LatestReview.Result.Suggestions {
+		if text := strings.TrimSpace(suggestion.Text); text != "" {
+			return text
+		}
+	}
+	return firstNonEmpty(state.LatestReview.Result.Summary, "Continue working toward the goal.")
+}
+
+func goalReviewReason(state coregoal.State) string {
+	if state.LatestReview == nil {
+		return string(state.Status)
+	}
+	return firstNonEmpty(state.LatestReview.Result.Summary, string(state.LatestReview.Result.Decision), string(state.Status))
+}
+
+func newReviewID(goalID coregoal.ID, runID string, completed int) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\n%s\n%d\n%d", goalID, runID, completed, time.Now().UTC().UnixNano())))
 	return "goal_review_" + hex.EncodeToString(sum[:])[:16]
 }
 

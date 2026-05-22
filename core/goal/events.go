@@ -97,9 +97,10 @@ type Rejected struct {
 func (Rejected) EventName() event.Name { return EventRejectedName }
 
 type ReviewFailed struct {
-	GoalID ID     `json:"goal_id,omitempty"`
-	Reason string `json:"reason,omitempty"`
-	RunID  string `json:"run_id,omitempty"`
+	GoalID   ID       `json:"goal_id,omitempty"`
+	ReviewID ReviewID `json:"review_id,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
+	RunID    string   `json:"run_id,omitempty"`
 }
 
 func (ReviewFailed) EventName() event.Name { return EventReviewFailedName }

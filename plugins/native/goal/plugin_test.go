@@ -9,7 +9,9 @@ import (
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	coregoal "github.com/fluxplane/engine/core/goal"
+	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	corereview "github.com/fluxplane/engine/core/review"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/orchestration/session"
@@ -93,6 +95,52 @@ func TestSessionCommandsContributesGoalHandler(t *testing.T) {
 	}
 	if len(bindings) != 1 || bindings[0].Spec.Path.String() != "/goal" || bindings[0].Handler == nil {
 		t.Fatalf("bindings = %#v, want goal handler", bindings)
+	}
+}
+
+func TestReviewDecisionHandlerRecordsGoalReviewDecision(t *testing.T) {
+	ctx := context.Background()
+	threadStore := testThreadStore(t, "thread-goal-review")
+	session := session.Session{ThreadStore: threadStore, Thread: corethread.Ref{ID: "thread-goal-review"}}
+	if err := session.AppendThreadEvents(ctx, coregoal.Set{GoalID: "goal_review_target", ThreadID: "thread-goal-review", Text: "Ship the goal verifier"}); err != nil {
+		t.Fatalf("append goal: %v", err)
+	}
+	handler := reviewDecisionHandler(threadStore)
+	rejected := handler(operation.NewContext(ctx, nil), ReviewDecisionInput{
+		ThreadID: "thread-goal-review",
+		GoalID:   "goal_review_target",
+		ReviewID: "review_rejected",
+		RunID:    "run-review",
+		Decision: "rejected",
+		Summary:  "tests are missing",
+		Suggestions: []corereview.Suggestion{{
+			Text: "add smoke tests",
+		}},
+	})
+	if rejected.Status != operation.StatusOK {
+		t.Fatalf("rejected result = %#v, want ok", rejected)
+	}
+	if state := projectedState(t, threadStore, "thread-goal-review"); state.Status != coregoal.StatusRejected || state.LatestReview == nil || state.LatestReview.ReviewID != "review_rejected" {
+		t.Fatalf("rejected state = %#v, want latest rejected review", state)
+	}
+
+	reached := handler(operation.NewContext(ctx, nil), ReviewDecisionInput{
+		ThreadID: "thread-goal-review",
+		GoalID:   "goal_review_target",
+		ReviewID: "review_reached",
+		RunID:    "run-review",
+		Decision: "reached",
+		Summary:  "goal satisfied",
+		Evidence: []corereview.Evidence{{
+			Kind:    "test",
+			Summary: "smoke tests passed",
+		}},
+	})
+	if reached.Status != operation.StatusOK {
+		t.Fatalf("reached result = %#v, want ok", reached)
+	}
+	if state := projectedState(t, threadStore, "thread-goal-review"); state.Status != coregoal.StatusReached || state.LatestReview == nil || state.LatestReview.ReviewID != "review_reached" {
+		t.Fatalf("reached state = %#v, want latest reached review", state)
 	}
 }
 

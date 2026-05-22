@@ -8,19 +8,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/engine/core/agent"
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/command"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coregoal "github.com/fluxplane/engine/core/goal"
 	"github.com/fluxplane/engine/core/invocation"
+	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
 	"github.com/fluxplane/engine/core/resource"
+	corereview "github.com/fluxplane/engine/core/review"
+	coresession "github.com/fluxplane/engine/core/session"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/orchestration/session"
 	"github.com/fluxplane/engine/orchestration/sessioncontrol"
 	"github.com/fluxplane/engine/orchestration/sessionenv"
 	runtimegoal "github.com/fluxplane/engine/runtime/goal"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
@@ -28,6 +33,9 @@ const (
 	Name                = "goal"
 	Command             = "goal"
 	ContextProviderName = "session_goal"
+	ReviewDecisionOp    = "goal_review_decision"
+	ReviewerAgent       = "goal-reviewer"
+	ReviewerSession     = "goal-reviewer"
 )
 
 type Plugin struct{}
@@ -35,6 +43,7 @@ type Plugin struct{}
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.SessionCommandContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ pluginhost.OperationContributor = Plugin{}
 
 func New() Plugin { return Plugin{} }
 
@@ -44,6 +53,20 @@ func (Plugin) Manifest() pluginhost.Manifest {
 
 func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
 	return resource.ContributionBundle{
+		Operations: []operation.Spec{reviewDecisionSpec()},
+		OperationSets: []operation.Set{{
+			Name:        Name,
+			Description: "Goal lifecycle and verifier operations.",
+			Operations:  []operation.Ref{{Name: ReviewDecisionOp}},
+		}},
+		Agents: []agent.Spec{reviewerAgentSpec()},
+		Sessions: []coresession.Spec{{
+			Name:        ReviewerSession,
+			Description: "Isolated goal verifier session.",
+			Agent:       agent.Ref{Name: ReviewerAgent},
+			Operations:  []operation.Ref{{Name: ReviewDecisionOp}},
+			Metadata:    map[string]string{"role": "goal_reviewer"},
+		}},
 		ContextProviders: []corecontext.ProviderSpec{{
 			Name:             ContextProviderName,
 			Description:      "Current durable thread goal.",
@@ -74,6 +97,17 @@ func (Plugin) ContextProviders(_ context.Context, ctx pluginhost.Context) ([]cor
 	return []corecontext.Provider{ContextProvider{Store: store}}, nil
 }
 
+func (Plugin) Operations(_ context.Context, ctx pluginhost.Context) ([]operation.Operation, error) {
+	if ctx.EventStore == nil {
+		return nil, nil
+	}
+	store, err := runtimethread.NewStore(ctx.EventStore)
+	if err != nil {
+		return nil, err
+	}
+	return []operation.Operation{operationruntime.NewTypedResult[ReviewDecisionInput, ReviewDecisionOutput](reviewDecisionSpec(), reviewDecisionHandler(store))}, nil
+}
+
 func CommandSpec() command.Spec {
 	return command.Spec{
 		Path:        command.Path{Command},
@@ -84,6 +118,132 @@ func CommandSpec() command.Spec {
 			RequiredTrust:  policy.TrustVerified,
 		},
 	}
+}
+
+func reviewDecisionSpec() operation.Spec {
+	return operation.Spec{
+		Ref:         operation.Ref{Name: ReviewDecisionOp},
+		Description: "Submit the bound decision for one goal verification review.",
+		Semantics: operation.Semantics{
+			Determinism: operation.DeterminismNonDeterministic,
+			Effects:     operation.EffectSet{operation.EffectUpdate},
+			Idempotency: operation.IdempotencyNonIdempotent,
+			Risk:        operation.RiskLow,
+		},
+	}
+}
+
+func reviewerAgentSpec() agent.Spec {
+	return agent.Spec{
+		Name:        ReviewerAgent,
+		Description: "Narrow verifier that decides whether the bound durable goal has been reached.",
+		System: strings.Join([]string{
+			"You are a goal verifier, not an implementation agent.",
+			"Review only the provided goal, acceptance criteria, and evidence.",
+			"Do not continue the implementation work.",
+			"You must call goal_review_decision exactly once.",
+			"Use decision=reached only when the evidence satisfies the goal and required acceptance criteria.",
+			"Use decision=rejected when work remains, evidence is insufficient, or the goal is blocked; include concrete suggestions for the parent agent.",
+		}, " "),
+		Driver:     agent.DriverSpec{Kind: "llmagent"},
+		Turns:      agent.TurnPolicy{MaxSteps: 3},
+		Operations: []operation.Ref{{Name: ReviewDecisionOp}},
+	}
+}
+
+type ReviewDecisionInput struct {
+	ThreadID    string                  `json:"thread_id" jsonschema:"description=Parent thread id that owns the goal.,required"`
+	GoalID      string                  `json:"goal_id" jsonschema:"description=Bound goal id to review.,required"`
+	ReviewID    string                  `json:"review_id" jsonschema:"description=Bound review id from the review request.,required"`
+	RunID       string                  `json:"run_id,omitempty" jsonschema:"description=Parent run id being reviewed."`
+	Decision    string                  `json:"decision" jsonschema:"description=Review decision.,enum=reached,enum=rejected,required"`
+	Summary     string                  `json:"summary,omitempty" jsonschema:"description=Short reason for the decision."`
+	Evidence    []corereview.Evidence   `json:"evidence,omitempty" jsonschema:"description=Evidence supporting reached decisions."`
+	Suggestions []corereview.Suggestion `json:"suggestions,omitempty" jsonschema:"description=Concrete next actions for rejected decisions."`
+	Findings    []corereview.Finding    `json:"findings,omitempty" jsonschema:"description=Optional findings that explain the decision."`
+}
+
+type ReviewDecisionOutput struct {
+	GoalID   string `json:"goal_id"`
+	ReviewID string `json:"review_id"`
+	Decision string `json:"decision"`
+	Status   string `json:"status"`
+}
+
+func reviewDecisionHandler(store corethread.Store) operationruntime.TypedResultHandler[ReviewDecisionInput, ReviewDecisionOutput] {
+	return func(ctx operation.Context, input ReviewDecisionInput) operation.Result {
+		input.ThreadID = strings.TrimSpace(input.ThreadID)
+		input.GoalID = strings.TrimSpace(input.GoalID)
+		input.ReviewID = strings.TrimSpace(input.ReviewID)
+		input.RunID = strings.TrimSpace(input.RunID)
+		input.Decision = strings.TrimSpace(strings.ToLower(input.Decision))
+		if store == nil {
+			return operation.Failed("goal_review_unavailable", "goal thread store is unavailable", nil)
+		}
+		if input.ThreadID == "" || input.GoalID == "" || input.ReviewID == "" {
+			return operation.Failed("invalid_goal_review_decision", "thread_id, goal_id, and review_id are required", nil)
+		}
+		state, err := currentState(ctx, store, corethread.Ref{ID: corethread.ID(input.ThreadID)})
+		if err != nil {
+			return operation.Failed("goal_review_state_failed", err.Error(), nil)
+		}
+		if state.ID != coregoal.ID(input.GoalID) || !state.ActiveForContinuation() {
+			return operation.Failed("goal_review_stale", "goal is not the active review target", map[string]any{
+				"goal_id":        input.GoalID,
+				"current_goal":   string(state.ID),
+				"current_status": string(state.Status),
+			})
+		}
+		result := corereview.Result{
+			ID:          corereview.ID(input.ReviewID),
+			Decision:    corereview.DecisionRejected,
+			Summary:     strings.TrimSpace(input.Summary),
+			Findings:    input.Findings,
+			Evidence:    input.Evidence,
+			Suggestions: input.Suggestions,
+		}
+		payload := sessionenv.Event(nil)
+		switch input.Decision {
+		case "reached":
+			result.Decision = corereview.DecisionAccepted
+			if len(result.Evidence) == 0 {
+				return operation.Failed("invalid_goal_review_decision", "reached decisions require evidence", nil)
+			}
+			payload = coregoal.Reached{GoalID: state.ID, Review: reviewFromDecision(ctx, state.ID, input, result), RunID: input.RunID}
+		case "rejected":
+			if len(result.Suggestions) == 0 {
+				return operation.Failed("invalid_goal_review_decision", "rejected decisions require suggestions", nil)
+			}
+			payload = coregoal.Rejected{GoalID: state.ID, Review: reviewFromDecision(ctx, state.ID, input, result), RunID: input.RunID}
+		default:
+			return operation.Failed("invalid_goal_review_decision", "decision must be reached or rejected", nil)
+		}
+		if err := appendParentThreadEvent(ctx, store, corethread.ID(input.ThreadID), payload); err != nil {
+			return operation.Failed("goal_review_append_failed", err.Error(), nil)
+		}
+		return operation.OK(ReviewDecisionOutput{GoalID: input.GoalID, ReviewID: input.ReviewID, Decision: input.Decision, Status: "recorded"})
+	}
+}
+
+func reviewFromDecision(ctx context.Context, goalID coregoal.ID, input ReviewDecisionInput, result corereview.Result) coregoal.Review {
+	scope, _ := sessionenv.ScopeFromContext(ctx)
+	return coregoal.Review{
+		ReviewID:         coregoal.ReviewID(input.ReviewID),
+		GoalID:           goalID,
+		RunID:            input.RunID,
+		ReviewerThreadID: scope.Thread.ID,
+		ReviewerRunID:    scope.RunID,
+		Result:           result,
+	}
+}
+
+func appendParentThreadEvent(ctx context.Context, store corethread.Store, threadID corethread.ID, payload sessionenv.Event) error {
+	records := sessionenv.ThreadAppendRecords(corethread.Ref{ID: threadID}, payload)
+	if len(records) == 0 {
+		return nil
+	}
+	_, err := store.Append(ctx, corethread.Ref{ID: threadID}, records...)
+	return err
 }
 
 type commandInput struct {
