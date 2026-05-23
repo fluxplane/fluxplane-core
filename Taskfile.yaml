@@ -1,5 +1,10 @@
 version: "3"
 
+vars:
+  VERIFY_GOMAXPROCS: '{{.FLUXPLANE_VERIFY_GOMAXPROCS | default "4"}}'
+  VERIFY_GO_PACKAGES: '{{.FLUXPLANE_VERIFY_GO_PACKAGES | default "2"}}'
+  VERIFY_TEST_PARALLEL: '{{.FLUXPLANE_VERIFY_TEST_PARALLEL | default "2"}}'
+
 tasks:
   default:
     desc: List available tasks.
@@ -56,7 +61,7 @@ tasks:
   mod:check:
     desc: Fail when go.mod or go.sum need tidying.
     cmds:
-      - go mod tidy -diff
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go mod tidy -diff
 
   whitespace:check:
     desc: Fail on whitespace errors in the git diff.
@@ -66,23 +71,23 @@ tasks:
   vet:
     desc: Run go vet.
     cmds:
-      - go vet ./...
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go vet -p={{.VERIFY_GO_PACKAGES}} ./...
 
   lint:
     desc: Run golangci-lint.
     cmds:
-      - golangci-lint run ./...
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} golangci-lint run --concurrency={{.VERIFY_GOMAXPROCS}} ./...
 
   test:
     desc: Run engine tests.
     cmds:
-      - go test -timeout=30s ./...
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go test -p={{.VERIFY_GO_PACKAGES}} -parallel={{.VERIFY_TEST_PARALLEL}} -timeout=30s ./...
 
   quality:metrics:
     desc: Print non-blocking code quality metrics for refactoring guidance.
     cmds:
       - mkdir -p .cache/quality
-      - go test -timeout=30s -coverprofile=.cache/quality/coverage.out ./...
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go test -p={{.VERIFY_GO_PACKAGES}} -parallel={{.VERIFY_TEST_PARALLEL}} -timeout=30s -coverprofile=.cache/quality/coverage.out ./...
       - go tool cover -func=.cache/quality/coverage.out | tail -n 1
       - |
         if command -v gocyclo >/dev/null 2>&1; then
@@ -102,14 +107,14 @@ tasks:
   quality:go:
     desc: Run the codegate Go quality gate.
     cmds:
-      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --fail-on boundary,effects,unknown --view summary
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go run -p={{.VERIFY_GO_PACKAGES}} github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --fail-on boundary,effects,unknown --view summary
 
   quality:go:review:
     desc: Print compact codegate Go review evidence.
     cmds:
-      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view compact --suggestions 10
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go run -p={{.VERIFY_GO_PACKAGES}} github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view compact --suggestions 10
 
   quality:go:full:
     desc: Print full codegate Go review evidence.
     cmds:
-      - go run github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view full --suggestions 20
+      - GOMAXPROCS={{.VERIFY_GOMAXPROCS}} go run -p={{.VERIFY_GO_PACKAGES}} github.com/fluxplane/codegate/cmd/codegate@v1.1.0 --root . --language go --format json assess --gate all --rules engine-architecture.rules.json --view full --suggestions 20

@@ -20,6 +20,21 @@ task verify
 - `task quality:go` (codegate Go assessment with hard failure on architecture
   boundary, side-effect, and unknown-package violations)
 
+The local gate intentionally uses conservative CPU defaults so it does not
+consume every logical core on developer machines:
+
+- `FLUXPLANE_VERIFY_GOMAXPROCS` defaults to `4`.
+- `FLUXPLANE_VERIFY_GO_PACKAGES` defaults to `2` for Go package build/test
+  parallelism.
+- `FLUXPLANE_VERIFY_TEST_PARALLEL` defaults to `2` for tests that call
+  `t.Parallel`.
+
+Override these per run when needed:
+
+```bash
+FLUXPLANE_VERIFY_GOMAXPROCS=8 FLUXPLANE_VERIFY_GO_PACKAGES=4 task verify
+```
+
 Do not run the old repository root CI for rewrite work unless explicitly
 asked.
 
