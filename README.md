@@ -98,6 +98,12 @@ Define agents, sessions, commands, workflows, operations, context providers,
 datasources, and resources as app specs. Run them in-process or over channel
 adapters while preserving the same session contract.
 
+### Background automation
+
+Serve an app as a daemon with HTTP/SSE or plugin-backed channels, scheduled
+triggers, startup triggers, workflow execution, and verbose event streaming for
+run progress.
+
 ### Plugin-powered capabilities
 
 Bundle reusable capabilities as plugins: project inventory, Go and Markdown
@@ -110,6 +116,9 @@ Put side effects behind typed operations and policy checks instead of letting
 model output directly touch the host. The runtime keeps tool contracts,
 execution boundaries, and event records explicit.
 
+See [Features](docs/features.md) for a user-facing tour of the runtime,
+built-in capability areas, and entry points.
+
 ## Runtime building blocks
 
 | Need | Fluxplane primitive |
@@ -120,6 +129,7 @@ execution boundaries, and event records explicit.
 | Repeatable processes | workflows and command targets |
 | Project-specific context | resources, context providers, skills, datasources |
 | Product packaging | apps, plugins, distributions, launch adapters |
+| Background automation | daemon triggers, workflows, operation actions, channel submissions |
 | External surfaces | terminal, HTTP/SSE, direct channel, provider adapters |
 
 ## A tiny app shape
@@ -151,7 +161,7 @@ Fluxplane applications.
 ## Start here
 
 - **Use the coding agent**: [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder)
-- **Build your own app**: [Fluxplane CLI](docs/fluxplane.md) and [Configuration](docs/configuration.md)
+- **Build your own app**: [Features](docs/features.md), [Fluxplane CLI](docs/fluxplane.md), and [Configuration](docs/configuration.md)
 - **Understand the runtime**: [Architecture](docs/architecture.md) and [Concepts](docs/concepts.md)
 - **Review the safety model**: [Security](docs/security.md)
 - **Browse all documentation**: [docs/](docs/README.md)

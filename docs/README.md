@@ -9,6 +9,9 @@ groups the rest of the docs by audience.
 Start here if you want to author a Fluxplane app, run the `fluxplane` CLI, or
 configure a daemon deployment.
 
+- [Features](features.md) — user-facing tour of what Engine provides:
+  durable sessions, safe tools, app packaging, daemon automation, datasources,
+  language tooling, tasks, and plugin capabilities.
 - [Fluxplane CLI](fluxplane.md) — commands, flags, and what each one does.
 - [Configuration](configuration.md) — `fluxplane.yaml` manifests and `.agents`
   resource trees: agents, sessions, commands, workflows, datasources, plugins,
@@ -66,6 +69,7 @@ edges and open questions.
 ## See also
 
 - Root [`README.md`](../README.md) — project overview and quickstart.
+- [Features](features.md) — user-facing feature map and capability tour.
 - Root [`AGENTS.md`](../AGENTS.md) — operative rules for agents and developers.
 - Root [`CHANGELOG.md`](../CHANGELOG.md) — user-visible changes per release.
 - The coding-agent product `coder` lives in

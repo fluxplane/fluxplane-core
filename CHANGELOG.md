@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Added `docs/features.md`, a user-facing feature tour that maps Engine
+  capabilities to entry points for coding agents, app authors, integrations,
+  language tooling, daemon automation, and plugin-based extensions.
+- Linked the new feature tour from the root README and documentation index.
+
 ## [0.16.0] - 2026-05-23
 
 ### Added
