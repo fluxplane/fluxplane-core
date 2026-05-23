@@ -581,7 +581,7 @@ func (r *blockingRun) Wait(ctx context.Context) (clientapi.Result, error) {
 	select {
 	case <-ctx.Done():
 		r.session.waitContextCanceled = true
-		return clientapi.Result{Submission: r.submission, Input: &sessionruntime.InputResult{Status: sessionruntime.InputStatusCancelled}}, ctx.Err()
+		return clientapi.Result{Submission: r.submission, Input: &sessionruntime.InputResult{Status: sessionruntime.InputStatusFailed}}, ctx.Err()
 	case <-r.session.release:
 		return clientapi.Result{Submission: r.submission, Input: &sessionruntime.InputResult{Status: sessionruntime.InputStatusOK}}, nil
 	}

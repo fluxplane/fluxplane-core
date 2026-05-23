@@ -1,3 +1,5 @@
+//go:build linux
+
 package system
 
 import (
@@ -74,7 +76,7 @@ func playWAVBackground(ctx context.Context, path string) error {
 		}
 		done := make(chan struct{})
 		go func() {
-			defer os.Remove(path)
+			defer func() { _ = os.Remove(path) }()
 			defer close(done)
 			_ = cmd.Wait()
 		}()

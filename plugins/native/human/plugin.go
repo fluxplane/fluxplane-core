@@ -547,20 +547,6 @@ func renderAnswer(answer any) string {
 	}
 }
 
-func notificationText(notification NotificationSent) string {
-	var parts []string
-	if notification.Level != "" {
-		parts = append(parts, strings.ToUpper(notification.Level))
-	}
-	if notification.Title != "" {
-		parts = append(parts, notification.Title)
-	}
-	if notification.Message != "" {
-		parts = append(parts, notification.Message)
-	}
-	return strings.Join(parts, ": ")
-}
-
 func cloneMap(in map[string]any) map[string]any {
 	if len(in) == 0 {
 		return nil

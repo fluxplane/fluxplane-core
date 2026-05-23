@@ -150,7 +150,7 @@ func (h *Host) Fire(ctx context.Context, spec coretrigger.Spec, at time.Time) er
 	if err != nil {
 		return err
 	}
-	defer session.Close(ctx)
+	defer func() { _ = session.Close(ctx) }()
 	submission := clientapi.NewSubmission().
 		WithID(clientapi.RunID(h.newRunID("run_trigger_"))).
 		WithCaller(h.caller).

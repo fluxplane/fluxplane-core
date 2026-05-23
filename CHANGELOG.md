@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-05-23
+
 ### Added
 - Added daemon scheduled triggers that can submit structured trigger events in
   `serve` mode and run configured workflow, operation, or command actions
