@@ -1,6 +1,6 @@
 # Configuration
 
-Fluxplane Engine loads configuration from two filesystem-backed sources:
+Fluxplane core loads configuration from two filesystem-backed sources:
 appconfig manifests and `.agents` resource trees. Both decode into resource
 contribution bundles that the runtime composes into apps, sessions, agents,
 commands, workflows, operations, datasources, model providers, and plugin
@@ -69,8 +69,8 @@ Common fields are:
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
   directly in the app document.
-- `daemon` for listeners and channels used by `fluxplane serve` and
-  `coder remote`.
+- `daemon` for listeners and channels used by `fluxplane serve` and remote
+  channel clients.
 - `runtime` for local runtime wiring; see [Runtime](#runtime).
 - `distribution` for runnable/deployable package metadata and Docker build
   inputs.
@@ -291,9 +291,10 @@ turns:
 - `new`: use clean evaluator context plus the same compact summary.
 
 Local CLI sessions can also set a durable thread goal without changing agent
-configuration. `coder --goal "..."`, `fluxplane run . --goal "..."`, and
-`/goal "..."` submit the native goal plugin's `/goal` command, which records
-the goal on the current thread instead of running it as a one-shot prompt. The
+configuration. `fluxplane run . --goal "..."` and `/goal "..."` submit the
+native goal plugin's `/goal` command, which records the goal on the current
+thread instead of running it as a one-shot prompt. Product CLIs such as `coder`
+may expose the same runtime goal feature with product-specific flags.
 current goal is rendered into session context until it is cleared, paused goals
 do not drive continuation, and reached goals remain visible until `/goal clear`.
 
@@ -323,8 +324,9 @@ agent: support
 
 Plugins contribute optional commands, operations, context providers,
 datasources, and channel integrations. Native plugins can be declared more than
-once with `instance` and per-instance `config`; plugin auth is managed through
-`coder auth` for the selected app/product scope.
+once with `instance` and per-instance `config`; credentials are stored outside
+the app manifest and resolved by the runtime auth/secret providers for the
+selected app or product scope.
 
 ```yaml
 plugins:
@@ -355,21 +357,18 @@ plugins:
 
 ```
 
-Credentials live outside the app manifest. Manage native plugin
-credentials with the auth commands. Native Slack uses stored bot-token
-credentials from `coder auth connect --plugin slack --instance slack-main --method token`;
-`coder auth status` reports one readiness line per plugin/instance and shows
-which setup fields are present for the selected method without printing secret
-values. By default it also runs live connection checks for connected auth;
-pass `--no-test` for readiness-only output.
+Credentials live outside the app manifest. Native Slack can use a stored bot
+token or token environment variable selected by the runtime secret provider;
+`fluxplane auth status` reports plugin readiness for the selected app without
+printing secret values. Product CLIs may add setup commands for their own auth
+stores, but Fluxplane app manifests should only declare the auth method and
+logical secret address.
 Slack daemon channels also require an app token for Socket Mode. Slack channel
 API calls use `auth.channel_token: auto` by default, which prefers the bot token
 and falls back to the user token; set `auth.channel_token` to `bot_token` or
-`user_token` to require one explicitly. Native Jira and Confluence use Atlassian
-OAuth2 stored credentials from
-`coder auth connect --plugin jira --instance jira` and
-`coder auth connect --plugin confluence --instance confluence`; service-account
-deployments can set `auth.method: token` and `auth.token_env` for a bearer
+`user_token` to require one explicitly. Native Jira and Confluence can use
+Atlassian OAuth2 stored credentials, service-account bearer tokens, or Basic API
+tokens depending on plugin configuration. Service-account deployments can set `auth.method: token` and `auth.token_env` for a bearer
 token environment variable. Jira and Confluence scoped service-account API-token
 deployments can set `JIRA_API_TOKEN` or `CONFLUENCE_API_TOKEN` and `cloud_id`;
 Basic API-token auth additionally needs an account email such as `JIRA_EMAIL`
@@ -424,11 +423,11 @@ always rebuilds.
 
 The datasource index can hold structured field records, semantic vector
 documents, or both, depending on the entity capabilities declared by the
-provider. Build the index with `coder datasource index build`; use
+provider. Build the index with `fluxplane datasource index build`; use
 `--phase fields` or `--phase semantic` to run only one indexing phase.
 `--force` and `--full` bypass freshness checks. Semantic documents are queued
-by build and embedded later with `coder datasource index embed` or the
-background embed worker started by `fluxplane serve`. `fluxplane serve` starts
+by build and embedded later with the datasource embed worker or the background
+embed worker started by `fluxplane serve`. `fluxplane serve` starts
 background warmup for indexed datasources with the configured concurrency and
 logs start, fresh-skip, page, complete, and failure progress per entity.
 
@@ -641,7 +640,7 @@ distribution:
 Inspect the merged catalog with:
 
 ```bash
-coder models .
+fluxplane models .
 ```
 
 ## Agentdir
@@ -773,10 +772,10 @@ the workflow input and a prior step id, such as `fetch`, for that step's output.
 Skills live at `.agents/skills/<name>/SKILL.md`. Optional references live in
 `.agents/skills/<name>/references/*.md`.
 
-The standalone `coder` app requests project and user resource roots at startup.
-It includes `<cwd>/.agents` plus global `$HOME/.agents` and `$HOME/.claude`
-resources through the same local app discovery path used by appconfig. Use
-`coder discover` to inspect the resulting resource set.
+The standalone `coder` product requests project and user resource roots at
+startup. Generic Fluxplane apps can do the same by including the relevant
+resource roots in app discovery. Use `fluxplane discover` to inspect the resource
+set that a Fluxplane app will load.
 
 ```markdown
 ---
@@ -810,5 +809,5 @@ turn.
   metadata.
 - Use agentdir for portable authoring resources: markdown agents, prompt
   commands, workflows, and skills.
-- Keep secrets out of both formats. Store plugin credentials through
-  `coder auth connect` or provider-specific environment/auth files.
+- Keep secrets out of both formats. Store plugin credentials through runtime
+  auth providers, environment variables, or provider-specific auth files.

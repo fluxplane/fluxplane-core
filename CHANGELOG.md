@@ -8,10 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
-- Added `docs/features.md`, a user-facing feature tour that maps Engine
+- Reworked the root README around Fluxplane core as the reusable runtime and
+  generic `fluxplane` CLI, with `coder` documented as a separate sibling product
+  rather than an integrated app.
+- Added `docs/features.md`, a user-facing feature tour that maps Fluxplane core
   capabilities to entry points for coding agents, app authors, integrations,
   language tooling, daemon automation, and plugin-based extensions.
-- Linked the new feature tour from the root README and documentation index.
+- Reworked `docs/configuration.md`, `docs/embeddings.md`, and
+  `docs/evaluation.md` so generic Fluxplane docs use `fluxplane` commands and
+  runtime concepts instead of product-specific `coder` commands where the
+  behavior belongs to core.
+- Removed `docs/repository-split.md` and moved the remaining product-boundary
+  guidance into the README and architecture documentation.
 
 ## [0.16.0] - 2026-05-23
 

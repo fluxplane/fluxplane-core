@@ -1,14 +1,14 @@
 
 <p align="center">
-  <img src="assets/logo.png" alt="Fluxplane Engine logo" width="350">
+  <img src="assets/logo.png" alt="Fluxplane core logo" width="350">
 </p>
 
 <p align="center">
-  <strong>Build coding agents that remember what happened, use tools safely, and keep working across sessions.</strong>
+  <strong>Build durable agent applications with explicit tools, events, plugins, and deployment surfaces.</strong>
 </p>
 
 <p align="center">
-  <em>A Go runtime for durable agent systems and the generic <code>fluxplane</code> app CLI.</em>
+  <em>This repository is the Fluxplane engine: the core Go runtime behind Fluxplane apps and the generic <code>fluxplane</code> app CLI.</em>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@ Most agent prototypes are easy to demo and hard to trust in real work. They lose
 context, hide important decisions in chat history, call tools through ad hoc
 code, and become difficult to resume after a crash or deploy.
 
-Fluxplane Engine is built for the less glamorous parts that make agents
+Fluxplane core is built for the less glamorous parts that make agents
 usable every day:
 
 - **Durable sessions**: resume work from event-backed state instead of starting
@@ -36,61 +36,59 @@ usable every day:
   providers, skills, and workflows through plugins.
 - **Real product assembly**: package agents into apps and distributions instead
   of wiring everything in one-off scripts.
-- **A working product path**: use the separate `coder` product immediately,
-  then reuse the same runtime primitives in your own agents.
+- **Product separation**: Fluxplane provides reusable runtime packages and the
+  generic `fluxplane` CLI. The `coder` coding-agent product lives in the
+  separate [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder)
+  repository.
 
-## Try `coder` in 30 seconds
+## Try Fluxplane in 30 seconds
 
-Requires Go 1.26+ and a model credential such as `OPENAI_API_KEY`.
-
-```bash
-go install github.com/fluxplane/coder/cmd/coder@latest
-export OPENAI_API_KEY=...
-coder --input "Summarize this repository"
-```
-
-For authoring your own Fluxplane app, also install the generic CLI:
+Requires Go 1.26+ and a model credential supported by your app configuration.
 
 ```bash
 go install github.com/fluxplane/engine/cmd/fluxplane@latest
 fluxplane init ./my-app
+fluxplane run ./my-app --input "Hello from Fluxplane"
 ```
 
-Open an interactive REPL:
+Use `fluxplane` when you are authoring, inspecting, serving, building, or
+shipping a Fluxplane app:
 
 ```bash
-coder
+fluxplane config show ./my-app
+fluxplane discover ./my-app
+fluxplane serve ./my-app --verbose
 ```
 
-Run a goal until it is satisfied or the continuation cap is reached:
+Looking for the ready-to-use coding assistant? Install and run `coder` from its
+own repository instead:
 
 ```bash
-coder --goal "Find the failing tests, fix them, and summarize the patch"
+go install github.com/fluxplane/coder/cmd/coder@latest
+coder --input "Summarize this repository"
 ```
 
-`coder` defaults to OpenAI (`gpt-5.5`) and also supports Codex, OpenRouter,
-Anthropic, Claude Code, and MiniMax:
+For local development, keep Fluxplane core and Coder as sibling checkouts when
+you need both codebases, for example this repository plus `../coder`. Coder
+depends on tagged `github.com/fluxplane/engine` releases and must not import
+engine-internal packages or old in-tree coder paths.
 
-```bash
-coder --model codex/gpt-5.5 --input "Explain the current diff"
-coder --model openrouter/anthropic/claude-sonnet-4.6
-coder --provider claudecode --model claude-sonnet-4-6
-```
+### Product boundaries
 
-See the `github.com/fluxplane/coder` repository for provider setup, goal mode,
-debugging, usage accounting, and safety expectations.
-
-See [repository split](docs/repository-split.md) for the current Engine/Coder
-module boundaries, publish paths, and local development commands.
+This repository publishes the `github.com/fluxplane/engine` module, reusable
+core/runtime packages, plugins, adapters, and the generic `fluxplane` app CLI. It
+does not publish the `coder` CLI. Coder lives in
+[`github.com/fluxplane/coder`](https://github.com/fluxplane/coder), should be
+checked out as `../coder` for local cross-repository work, and depends on tagged
+Fluxplane core releases rather than in-tree product packages.
 
 ## What you can build
 
-### Local coding agents
+### Runtime-backed agent products
 
-Ship a terminal coding assistant with project discovery, language-aware tools,
-web search, file editing, tests, task execution, skills, and review workflows.
-`coder` is the reference product for this path and lives in
-`github.com/fluxplane/coder`.
+Build product-specific agents on top of the reusable runtime instead of keeping
+product code in this module. `coder` is the reference coding-agent product, but
+it now lives in the separate `github.com/fluxplane/coder` repository.
 
 ### Durable agent apps
 
@@ -155,13 +153,14 @@ target:
     Review the current diff for correctness, tests, and maintainability.
 ```
 
-That same resource model is used by the bundled `coder` app and by custom
-Fluxplane applications.
+That same resource model can be used by custom Fluxplane applications and by
+separate products such as `coder`, without embedding product-specific code in
+this core repository.
 
 ## Start here
 
-- **Use the coding agent**: [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder)
 - **Build your own app**: [Features](docs/features.md), [Fluxplane CLI](docs/fluxplane.md), and [Configuration](docs/configuration.md)
+- **Use the separate coding-agent product**: [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder)
 - **Understand the runtime**: [Architecture](docs/architecture.md) and [Concepts](docs/concepts.md)
 - **Review the safety model**: [Security](docs/security.md)
 - **Browse all documentation**: [docs/](docs/README.md)
@@ -169,10 +168,11 @@ Fluxplane applications.
 
 ## Project status
 
-Fluxplane Engine is a **pre-1.0 rewrite**. The core ideas are active, but
+Fluxplane core is a **pre-1.0 rewrite**. The core ideas are active, but
 module APIs, resource shapes, and command surfaces may change quickly. During
 this phase we prefer clean replacements over compatibility shims.
 
-If you are evaluating the project, start with `coder`. If you are building on
-the runtime APIs, expect breaking changes and follow the
-[migration notes](docs/migration-from-agent-sdk.md).
+If you are evaluating Fluxplane, start with the generic `fluxplane` app flow in this
+README. If you want the end-user coding assistant, use the separate `coder`
+repository. If you are building on the runtime APIs, expect breaking changes and
+follow the [migration notes](docs/migration-from-agent-sdk.md).

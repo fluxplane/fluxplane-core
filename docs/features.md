@@ -1,12 +1,14 @@
 # Features
 
-Fluxplane Engine provides the runtime pieces for durable agent applications. Use it
-when you want an agent to keep state, call tools through explicit safety
-boundaries, and be packaged as a reusable app instead of a one-off script.
+Fluxplane core provides the runtime pieces for durable agent applications. This
+repository is the Fluxplane engine: reusable Go packages plus the generic
+`fluxplane` app CLI. Use it when you want an agent to keep state, call tools
+through explicit safety boundaries, and be packaged as a reusable app instead of
+a one-off script.
 
 If you want a ready-to-use coding assistant, start with
 [`coder`](https://github.com/fluxplane/coder). If you want to build an agent app
-or product, use the generic `fluxplane` CLI and the Engine packages in this
+or product, use the generic `fluxplane` CLI and the core packages in this
 repository.
 
 ## At a glance
@@ -26,21 +28,22 @@ repository.
 
 ## What users can do today
 
-### Run a coding agent
+### Run the separate coding agent
 
-Install `coder` from its product repository and run a one-shot or interactive
-coding session:
+The `coder` CLI is no longer part of this repository. Install it from
+[`github.com/fluxplane/coder`](https://github.com/fluxplane/coder) when you want
+the ready-to-use coding assistant:
 
 ```bash
 go install github.com/fluxplane/coder/cmd/coder@latest
 export OPENAI_API_KEY=...
 coder --input "Summarize this repository"
-coder
 ```
 
-`coder` is built on Fluxplane Engine. It includes project discovery, file
-editing, shell/process tools, Go and Markdown tooling, web and browser tools when
-configured, task workflows, and usage accounting.
+`coder` depends on Fluxplane core and contributes its own product defaults,
+terminal UX, provider setup, goal mode, debugging, and safety expectations in
+that repository. Fluxplane core does not publish `cmd/coder` or an in-tree
+`apps/coder` package.
 
 ### Create an app
 
@@ -73,7 +76,7 @@ scheduled and startup triggers configured in the app manifest.
 
 ### Native tools
 
-Engine ships native plugins for common agent capabilities:
+Fluxplane ships native plugins for common agent capabilities:
 
 - filesystem reads, writes, globbing, and bounded file edits;
 - managed processes and shell execution;
@@ -102,7 +105,7 @@ local link diagnostics.
 
 ## How the pieces fit
 
-A typical product built on Engine has four layers of user-visible behavior:
+A typical product built on Fluxplane core has four layers of user-visible behavior:
 
 1. **App manifest**: `fluxplane.yaml` selects runtime settings, agents, sessions,
    daemon channels, plugins, datasources, and deployment options.
@@ -118,13 +121,13 @@ events, operations, workflows, tasks, commands, resources, and datasources.
 
 ## Choosing an entry point
 
-- **I want a coding assistant**: install
-  [`coder`](https://github.com/fluxplane/coder).
+- **I want the coding assistant**: use the separate
+  [`coder`](https://github.com/fluxplane/coder) repository.
 - **I want to author an app**: read [Fluxplane CLI](fluxplane.md) and
   [Configuration](configuration.md).
 - **I want to integrate a system**: start with [Plugins and auth](configuration.md#plugins-and-auth)
   and the existing [plugin docs](plugins/).
 - **I want to understand safety**: read [Security](security.md) and
   [Process tools](tools/process.md).
-- **I want to contribute to Engine**: read [Architecture](architecture.md),
+- **I want to contribute to core**: read [Architecture](architecture.md),
   [Concepts](concepts.md), and the root [`AGENTS.md`](../AGENTS.md).

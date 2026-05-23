@@ -1,7 +1,8 @@
-# Fluxplane Engine Documentation
+# Fluxplane Core Documentation
 
-This directory holds the reference documentation for `github.com/fluxplane/engine`.
-The repository root [`README.md`](../README.md) is the entry point. This index
+This directory holds the reference documentation for the Fluxplane engine — the
+core runtime module published as `github.com/fluxplane/engine`. The repository
+root [`README.md`](../README.md) is the entry point. This index
 groups the rest of the docs by audience.
 
 ## For users building or running an app
@@ -9,7 +10,7 @@ groups the rest of the docs by audience.
 Start here if you want to author a Fluxplane app, run the `fluxplane` CLI, or
 configure a daemon deployment.
 
-- [Features](features.md) — user-facing tour of what Engine provides:
+- [Features](features.md) — user-facing tour of what Fluxplane core provides:
   durable sessions, safe tools, app packaging, daemon automation, datasources,
   language tooling, tasks, and plugin capabilities.
 - [Fluxplane CLI](fluxplane.md) — commands, flags, and what each one does.
@@ -49,8 +50,6 @@ If you are working inside this module, start with the operative rules in
   invariants for replay, native continuation, and compaction.
 - [Verification](verification.md) — `task verify`, Git hooks, codegate review,
   and the security scan.
-- [Repository split](repository-split.md) — Engine/Coder module boundaries and
-  local development.
 
 ## Design notes and history
 

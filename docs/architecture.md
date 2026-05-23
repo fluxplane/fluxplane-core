@@ -1,6 +1,6 @@
 # Architecture
 
-Fluxplane Engine is organized as a layered Go module. The layers keep
+Fluxplane core is organized as a layered Go module. The layers keep
 stable domain concepts separate from execution, use-case composition, IO
 adapters, optional plugins, and assembled products.
 
@@ -294,8 +294,9 @@ they are assembly points. Reusable domain or runtime concepts should move
 inward once their shape is stable.
 
 The coder product lives in its own `github.com/fluxplane/coder` repository. It
-imports public engine APIs and is checked separately from the root engine
-module; see [repository-split.md](repository-split.md).
+imports public core APIs, is checked separately from the root module, and must
+not import `github.com/fluxplane/engine/internal/...`, command packages, or old
+in-tree coder package paths.
 
 ### `cmd`
 

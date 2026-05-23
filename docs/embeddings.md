@@ -47,7 +47,7 @@ A deterministic hash embedder remains available for tests and fast smoke
 checks:
 
 ```bash
-coder datasource index build examples/slack-bot \
+fluxplane datasource index build examples/slack-bot \
   --datasource local-docs \
   --entity file.document \
   --provider hash
@@ -68,8 +68,8 @@ it is written under the app root:
 The CLI can override this path:
 
 ```bash
-coder datasource index build examples/slack-bot \
-  --store /tmp/agentruntime-semantic-smoke.json
+fluxplane datasource index build examples/slack-bot \
+  --store /tmp/fluxplane-semantic-smoke.json
 ```
 
 The JSON store is suitable for local development and pipeline validation. Large
@@ -97,7 +97,7 @@ large production corpora.
 Build or update an index:
 
 ```bash
-coder datasource index build <app-dir> \
+fluxplane datasource index build <app-dir> \
   --datasource local-docs \
   --entity file.document \
   --full
@@ -109,7 +109,7 @@ semantic corpus work. It does not run embeddings inline.
 Embed queued semantic corpus:
 
 ```bash
-coder datasource index embed <app-dir> \
+fluxplane datasource index embed <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```
@@ -117,8 +117,8 @@ coder datasource index embed <app-dir> \
 Run only one indexing phase:
 
 ```bash
-coder datasource index build <app-dir> --phase fields
-coder datasource index build <app-dir> --phase semantic
+fluxplane datasource index build <app-dir> --phase fields
+fluxplane datasource index build <app-dir> --phase semantic
 ```
 
 The `semantic` build phase queues semantic corpus only; use `embed` to run the
@@ -127,7 +127,7 @@ embedding worker.
 Show index status:
 
 ```bash
-coder datasource index status <app-dir> \
+fluxplane datasource index status <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```
@@ -135,7 +135,7 @@ coder datasource index status <app-dir> \
 Clear indexed records:
 
 ```bash
-coder datasource index clear <app-dir> \
+fluxplane datasource index clear <app-dir> \
   --datasource local-docs \
   --entity file.document
 ```
