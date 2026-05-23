@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fluxplane/engine/core/channel"
 	coredistribution "github.com/fluxplane/engine/core/distribution"
@@ -337,6 +339,49 @@ func TestRunREPLHandlesUIReasoningLocally(t *testing.T) {
 	}
 }
 
+func TestRunREPLUsesPerTurnCancelableContext(t *testing.T) {
+	session := &blockingSession{started: make(chan struct{}), release: make(chan struct{})}
+	runtime := &sessionRuntime{session: session}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out, errOut bytes.Buffer
+	done := make(chan error, 1)
+
+	go func() {
+		done <- Run(ctx, distribution.Distribution{
+			Spec: coredistribution.Spec{
+				Name:                "coder",
+				DefaultSession:      coresession.Ref{Name: "coder"},
+				DefaultConversation: channel.ConversationRef{ID: "coder"},
+			},
+			Runtime: runtime,
+		}, RunOptions{
+			In:  io.MultiReader(strings.NewReader("work\n/exit\n"), session.releaseReader()),
+			Out: &out,
+			Err: &errOut,
+		})
+	}()
+
+	select {
+	case <-session.started:
+	case <-time.After(time.Second):
+		t.Fatal("turn did not start")
+	}
+	cancel()
+	session.unblock()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	if !session.waitContextCanceled {
+		t.Fatal("turn Wait did not observe context cancellation")
+	}
+}
+
 func TestCommandRejectsInvalidEffort(t *testing.T) {
 	cmd := NewCommand(distribution.Distribution{Spec: coredistribution.Spec{Name: "coder"}})
 	cmd.SetOut(&bytes.Buffer{})
@@ -487,3 +532,61 @@ func (r captureRun) Wait(context.Context) (clientapi.Result, error) {
 		Command:    &sessionruntime.CommandResult{Status: sessionruntime.CommandStatusOK},
 	}, nil
 }
+
+type blockingSession struct {
+	captureSession
+	started             chan struct{}
+	release             chan struct{}
+	waitContextCanceled bool
+}
+
+func (s *blockingSession) Submit(_ context.Context, submission clientapi.Submission) (clientapi.RunHandle, error) {
+	s.submits++
+	s.submissions = append(s.submissions, submission)
+	return &blockingRun{session: s, submission: submission}, nil
+}
+
+func (s *blockingSession) releaseReader() io.Reader {
+	return readerFunc(func(p []byte) (int, error) {
+		<-s.release
+		return 0, io.EOF
+	})
+}
+
+func (s *blockingSession) unblock() {
+	select {
+	case <-s.release:
+	default:
+		close(s.release)
+	}
+}
+
+type blockingRun struct {
+	session    *blockingSession
+	submission clientapi.Submission
+}
+
+func (r *blockingRun) ID() clientapi.RunID              { return r.submission.ID }
+func (r *blockingRun) Session() clientapi.SessionInfo   { return clientapi.SessionInfo{} }
+func (r *blockingRun) Submission() clientapi.Submission { return r.submission }
+func (r *blockingRun) Events() <-chan clientapi.Event {
+	ch := make(chan clientapi.Event)
+	close(ch)
+	return ch
+}
+func (r *blockingRun) Done() <-chan struct{} { return r.session.release }
+func (r *blockingRun) Err() error            { return nil }
+func (r *blockingRun) Wait(ctx context.Context) (clientapi.Result, error) {
+	close(r.session.started)
+	select {
+	case <-ctx.Done():
+		r.session.waitContextCanceled = true
+		return clientapi.Result{Submission: r.submission, Input: &sessionruntime.InputResult{Status: sessionruntime.InputStatusCancelled}}, ctx.Err()
+	case <-r.session.release:
+		return clientapi.Result{Submission: r.submission, Input: &sessionruntime.InputResult{Status: sessionruntime.InputStatusOK}}, nil
+	}
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

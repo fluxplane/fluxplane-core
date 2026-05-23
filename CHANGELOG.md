@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running app over the HTTP/SSE channel.
 
 ### Changed
+- Changed the distribution CLI REPL so Ctrl+C cancels only the active turn and
+  leaves the REPL open for the next prompt.
 - Restored live Kubernetes and Loki observability connectivity for local coder
   runs: Kubernetes datasource calls now honor request-scoped context/namespace
   filters and list deployments, while Loki discovery can use managed local

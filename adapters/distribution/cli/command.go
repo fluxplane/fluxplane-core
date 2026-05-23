@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
 
 	distdescribe "github.com/fluxplane/engine/adapters/distribution/describe"
 	distrun "github.com/fluxplane/engine/adapters/distribution/run"
@@ -219,7 +221,37 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 	uiState := terminal.UIState{}
 	errOut := writerOr(opts.Err, os.Stderr)
 	stdout := writerOr(opts.Out, os.Stdout)
-	_, _ = fmt.Fprintf(errOut, "coder %s repl. Type /exit or /quit to stop.\n", name)
+	_, _ = fmt.Fprintf(errOut, "coder %s repl. Type /exit or /quit to stop. Ctrl+C cancels the current turn.\n", name)
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	defer signal.Stop(interrupts)
+	var turnCancelMu sync.Mutex
+	var turnCancel context.CancelFunc
+	setTurnCancel := func(cancel context.CancelFunc) {
+		turnCancelMu.Lock()
+		turnCancel = cancel
+		turnCancelMu.Unlock()
+	}
+	replCtx, stopInterrupts := context.WithCancel(ctx)
+	defer stopInterrupts()
+	go func() {
+		for {
+			select {
+			case <-replCtx.Done():
+				return
+			case <-interrupts:
+				turnCancelMu.Lock()
+				cancel := turnCancel
+				turnCancelMu.Unlock()
+				if cancel != nil {
+					_, _ = fmt.Fprintln(errOut, "\ninterrupt: canceling current turn...")
+					cancel()
+					continue
+				}
+				_, _ = fmt.Fprintf(errOut, "\ninterrupt: type /exit or /quit to stop.\n%s> ", name)
+			}
+		}
+	}()
 	scanner := bufio.NewScanner(readerOr(opts.In, os.Stdin))
 	for {
 		_, _ = fmt.Fprintf(stdout, "%s> ", name)
@@ -252,7 +284,12 @@ func runREPL(ctx context.Context, dist distribution.Distribution, opts RunOption
 				continue
 			}
 		}
-		if err := terminal.RunTurn(ctx, session, prompt, terminalOptions(opts, uiState), tracker); err != nil {
+		turnCtx, cancelTurn := context.WithCancel(ctx)
+		setTurnCancel(cancelTurn)
+		err := terminal.RunTurn(turnCtx, session, prompt, terminalOptions(opts, uiState), tracker)
+		cancelTurn()
+		setTurnCancel(nil)
+		if err != nil {
 			_, _ = fmt.Fprintf(errOut, "error: %v\n", err)
 		}
 	}
