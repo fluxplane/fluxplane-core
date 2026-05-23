@@ -234,11 +234,13 @@ func DecodeFile(path string, data []byte) (File, error) {
 		}
 		switch kind {
 		case "agent":
-			spec, err := decodeAgentDoc(doc)
+			spec, triggerResources, err := decodeAgentDoc(doc)
 			if err != nil {
 				return File{}, err
 			}
 			bundle.Agents = append(bundle.Agents, spec)
+			daemon.Triggers = append(daemon.Triggers, triggerResources.Triggers...)
+			bundle.Workflows = append(bundle.Workflows, triggerResources.Workflows...)
 		case "session":
 			spec, err := decodeSessionDoc(doc)
 			if err != nil {
@@ -297,6 +299,11 @@ func DecodeFile(path string, data []byte) (File, error) {
 			return File{}, fmt.Errorf("appconfig: document %d kind is empty", i+1)
 		default:
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
+		}
+	}
+	if len(bundle.Apps) == 0 && len(bundle.Sessions) == 0 {
+		if spec, ok := implicitDefaultSessionForAgentTriggers(bundle.Agents, daemon.Triggers); ok {
+			bundle.Sessions = append(bundle.Sessions, spec)
 		}
 	}
 	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon}, nil
@@ -1241,20 +1248,52 @@ type AccessDoc struct {
 }
 
 type agentDoc struct {
-	Kind        string   `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Name        string   `json:"name" yaml:"name"`
-	Description string   `json:"description,omitempty" yaml:"description,omitempty"`
-	Model       string   `json:"model,omitempty" yaml:"model,omitempty"`
-	MaxTokens   int      `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	Turns       turnsDoc `json:"turns,omitempty" yaml:"turns,omitempty"`
-	Thinking    string   `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	Effort      string   `json:"effort,omitempty" yaml:"effort,omitempty"`
-	Operations  []string `json:"operations,omitempty" yaml:"operations,omitempty"`
-	Tools       []string `json:"tools,omitempty" yaml:"tools,omitempty"`
-	Context     []string `json:"context,omitempty" yaml:"context,omitempty"`
-	Datasources []string `json:"datasources,omitempty" yaml:"datasources,omitempty"`
-	Skills      []string `json:"skills,omitempty" yaml:"skills,omitempty"`
-	System      string   `json:"system,omitempty" yaml:"system,omitempty"`
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Model       string            `json:"model,omitempty" yaml:"model,omitempty"`
+	MaxTokens   int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	Turns       turnsDoc          `json:"turns,omitempty" yaml:"turns,omitempty"`
+	Thinking    string            `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort      string            `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Operations  []string          `json:"operations,omitempty" yaml:"operations,omitempty"`
+	Tools       []string          `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Context     []string          `json:"context,omitempty" yaml:"context,omitempty"`
+	Datasources []string          `json:"datasources,omitempty" yaml:"datasources,omitempty"`
+	Skills      []string          `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Triggers    []agentTriggerDoc `json:"triggers,omitempty" yaml:"triggers,omitempty"`
+	System      string            `json:"system,omitempty" yaml:"system,omitempty"`
+}
+
+type agentTriggerDoc struct {
+	Name        string                  `json:"name,omitempty" yaml:"name,omitempty"`
+	Description string                  `json:"description,omitempty" yaml:"description,omitempty"`
+	Every       string                  `json:"every,omitempty" yaml:"every,omitempty"`
+	Startup     *agentStartupTriggerDoc `json:"startup,omitempty" yaml:"startup,omitempty"`
+	Session     string                  `json:"session,omitempty" yaml:"session,omitempty"`
+	Prompt      string                  `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Workflow    string                  `json:"workflow,omitempty" yaml:"workflow,omitempty"`
+	Do          agentTriggerDoDoc       `json:"do,omitempty" yaml:"do,omitempty"`
+	Actions     []corereaction.Action   `json:"actions,omitempty" yaml:"actions,omitempty"`
+	Disabled    bool                    `json:"disabled,omitempty" yaml:"disabled,omitempty"`
+	Metadata    map[string]string       `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+type agentStartupTriggerDoc struct {
+	Prompt   string                `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Workflow string                `json:"workflow,omitempty" yaml:"workflow,omitempty"`
+	Do       agentTriggerDoDoc     `json:"do,omitempty" yaml:"do,omitempty"`
+	Actions  []corereaction.Action `json:"actions,omitempty" yaml:"actions,omitempty"`
+}
+
+type agentTriggerDoDoc struct {
+	Workflow string                `json:"workflow,omitempty" yaml:"workflow,omitempty"`
+	Actions  []corereaction.Action `json:"actions,omitempty" yaml:"actions,omitempty"`
+}
+
+type agentTriggerResources struct {
+	Triggers  []coretrigger.Spec
+	Workflows []workflow.Spec
 }
 
 type turnsDoc struct {
@@ -1294,13 +1333,13 @@ func (d stopConditionDoc) Spec() agent.StopConditionSpec {
 	return out
 }
 
-func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
+func decodeAgentDoc(node yaml.Node) (agent.Spec, agentTriggerResources, error) {
 	if err := validateYAMLNode[agentDoc](node); err != nil {
-		return agent.Spec{}, fmt.Errorf("appconfig: validate agent document schema: %w", err)
+		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: validate agent document schema: %w", err)
 	}
 	var raw agentDoc
 	if err := node.Decode(&raw); err != nil {
-		return agent.Spec{}, fmt.Errorf("appconfig: decode agent document: %w", err)
+		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: decode agent document: %w", err)
 	}
 	spec := agent.Spec{
 		Name:        agent.Name(strings.TrimSpace(raw.Name)),
@@ -1352,9 +1391,208 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, error) {
 		}
 	}
 	if err := spec.Validate(); err != nil {
-		return agent.Spec{}, fmt.Errorf("appconfig: validate agent document: %w", err)
+		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: validate agent document: %w", err)
 	}
-	return spec, nil
+	triggerResources, err := agentTriggerSpecs(raw)
+	if err != nil {
+		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: validate agent triggers for %q: %w", raw.Name, err)
+	}
+	return spec, triggerResources, nil
+}
+
+func agentTriggerSpecs(raw agentDoc) (agentTriggerResources, error) {
+	agentName := strings.TrimSpace(raw.Name)
+	if agentName == "" || len(raw.Triggers) == 0 {
+		return agentTriggerResources{}, nil
+	}
+	var out agentTriggerResources
+	seen := map[string]int{}
+	for i, trigger := range raw.Triggers {
+		spec, generatedWorkflow, err := agentTriggerSpec(agentName, i, trigger, seen)
+		if err != nil {
+			return agentTriggerResources{}, err
+		}
+		out.Triggers = append(out.Triggers, spec)
+		if generatedWorkflow.Name != "" {
+			out.Workflows = append(out.Workflows, generatedWorkflow)
+		}
+	}
+	return out, nil
+}
+
+func agentTriggerSpec(agentName string, index int, raw agentTriggerDoc, seen map[string]int) (coretrigger.Spec, workflow.Spec, error) {
+	kind := coretrigger.KindSchedule
+	every := strings.TrimSpace(raw.Every)
+	prompt := strings.TrimSpace(raw.Prompt)
+	workflowName := firstNonEmpty(strings.TrimSpace(raw.Workflow), strings.TrimSpace(raw.Do.Workflow))
+	actions := append([]corereaction.Action(nil), raw.Actions...)
+	actions = append(actions, raw.Do.Actions...)
+	if raw.Startup != nil {
+		if every != "" {
+			return coretrigger.Spec{}, workflow.Spec{}, fmt.Errorf("triggers[%d]: startup and every are mutually exclusive", index)
+		}
+		kind = coretrigger.KindStartup
+		prompt = firstNonEmpty(strings.TrimSpace(raw.Startup.Prompt), prompt)
+		workflowName = firstNonEmpty(strings.TrimSpace(raw.Startup.Workflow), strings.TrimSpace(raw.Startup.Do.Workflow), workflowName)
+		actions = append(actions, raw.Startup.Actions...)
+		actions = append(actions, raw.Startup.Do.Actions...)
+	}
+	name := strings.TrimSpace(raw.Name)
+	if name == "" {
+		name = defaultAgentTriggerName(agentName, index, kind, every)
+	}
+	name = uniqueAgentTriggerName(name, seen)
+	if kind == coretrigger.KindSchedule && every == "" {
+		return coretrigger.Spec{}, workflow.Spec{}, fmt.Errorf("triggers[%d]: every is empty", index)
+	}
+	var generated workflow.Spec
+	if workflowName == "" && prompt != "" {
+		workflowName = generatedTriggerWorkflowName(name)
+		generated = workflow.Spec{
+			Name: workflow.Name(workflowName),
+			Steps: []workflow.Step{{
+				ID:    "prompt",
+				Kind:  workflow.StepAgent,
+				Agent: agent.Ref{Name: agent.Name(agentName)},
+				Input: prompt,
+			}},
+			Annotations: map[string]string{
+				"generated_by": "agent.trigger",
+				"agent":        agentName,
+				"trigger":      name,
+			},
+		}
+		if err := generated.Validate(); err != nil {
+			return coretrigger.Spec{}, workflow.Spec{}, err
+		}
+	}
+	if workflowName != "" {
+		actions = append(actions, corereaction.Action{
+			Kind: corereaction.ActionRunWorkflow,
+			Workflow: corereaction.WorkflowAction{
+				Name: workflow.Name(workflowName),
+			},
+		})
+	}
+	if len(actions) == 0 {
+		return coretrigger.Spec{}, workflow.Spec{}, fmt.Errorf("triggers[%d]: prompt, workflow, do.workflow, or actions is required", index)
+	}
+	sessionName := strings.TrimSpace(raw.Session)
+	if sessionName == "" {
+		sessionName = "default"
+	}
+	spec := coretrigger.Spec{
+		Name:        name,
+		Description: strings.TrimSpace(raw.Description),
+		Kind:        kind,
+		Session:     sessionName,
+		Actions:     actions,
+		Disabled:    raw.Disabled,
+		Metadata:    cloneStringMap(raw.Metadata),
+	}
+	if kind == coretrigger.KindSchedule {
+		spec.Schedule.Every = every
+	}
+	if spec.Metadata == nil {
+		spec.Metadata = map[string]string{}
+	}
+	spec.Metadata["agent"] = agentName
+	if err := spec.Validate(); err != nil {
+		return coretrigger.Spec{}, workflow.Spec{}, err
+	}
+	return spec, generated, nil
+}
+
+func defaultAgentTriggerName(agentName string, index int, kind coretrigger.Kind, every string) string {
+	switch kind {
+	case coretrigger.KindStartup:
+		return sanitizeResourcePart(agentName) + "-startup"
+	case coretrigger.KindSchedule:
+		if every = sanitizeResourcePart(every); every != "" {
+			return sanitizeResourcePart(agentName) + "-every-" + every
+		}
+	}
+	return fmt.Sprintf("%s-trigger-%d", sanitizeResourcePart(agentName), index+1)
+}
+
+func uniqueAgentTriggerName(name string, seen map[string]int) string {
+	if seen == nil {
+		return name
+	}
+	seen[name]++
+	if seen[name] == 1 {
+		return name
+	}
+	return fmt.Sprintf("%s-%d", name, seen[name])
+}
+
+func generatedTriggerWorkflowName(triggerName string) string {
+	return "__trigger_" + sanitizeResourcePart(triggerName)
+}
+
+func sanitizeResourcePart(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "trigger"
+	}
+	return out
+}
+
+func implicitDefaultSessionForAgentTriggers(agents []agent.Spec, triggers []coretrigger.Spec) (coresession.Spec, bool) {
+	if len(triggers) == 0 {
+		return coresession.Spec{}, false
+	}
+	var agentName agent.Name
+	for _, trigger := range triggers {
+		if trigger.Session != "default" {
+			continue
+		}
+		name := agentNameForTrigger(trigger, agents)
+		if name == "" {
+			continue
+		}
+		if agentName != "" && agentName != name {
+			return coresession.Spec{}, false
+		}
+		agentName = name
+	}
+	if agentName == "" {
+		return coresession.Spec{}, false
+	}
+	return coresession.Spec{
+		Name:  "default",
+		Agent: agent.Ref{Name: agentName},
+		Metadata: map[string]string{
+			"generated_by": "agent.trigger",
+		},
+	}, true
+}
+
+func agentNameForTrigger(trigger coretrigger.Spec, agents []agent.Spec) agent.Name {
+	if trigger.Metadata != nil {
+		if name := strings.TrimSpace(trigger.Metadata["agent"]); name != "" {
+			return agent.Name(name)
+		}
+	}
+	if len(agents) == 1 {
+		return agents[0].Name
+	}
+	return ""
 }
 
 type commandDoc struct {

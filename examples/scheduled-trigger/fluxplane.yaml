@@ -1,8 +1,7 @@
 kind: app
 name: scheduled-trigger
 description: Daemon app that samples system health and summarizes it on a schedule.
-default_agent:
-  name: health_summarizer
+default_agent: health_summarizer
 
 models:
   default: smart_model
@@ -14,7 +13,7 @@ models:
         effort: low
 
 plugins:
-  - kind: coding
+  - coding
 
 runtime:
   workspace:
@@ -23,136 +22,33 @@ runtime:
         path: .
         access: read_write
 
-daemon:
-  triggers:
-    - name: monitoring-started
-      kind: startup
-      session: heartbeat
-      actions:
-        - kind: run_operation
-          operation:
-            operation:
-              name: notify_send
-            input:
-              speak: System monitoring active.
-        - kind: run_workflow
-          workflow:
-            name: heartbeat
-            input: |
-              Run the startup system-health snapshot for an operator.
-              Focus on actionable anomalies only.
-    - name: every-minute-heartbeat
-      kind: schedule
-      schedule:
-        every: 1m
-      session: heartbeat
-      actions:
-        - kind: run_workflow
-          workflow:
-            name: heartbeat
-            input: |
-              Summarize this scheduled system-health snapshot for an operator.
-              Focus on load, memory, disk, and the busiest processes. Mention
-              anything that looks unhealthy or uncertain.
-
----
-kind: session
-name: heartbeat
-agent: health_summarizer
-
----
-kind: command
-name: heartbeat
-description: Run the scheduled system health workflow once.
-target:
-  workflow: heartbeat
-
 ---
 kind: agent
 name: health_summarizer
 model: smart_model
+operations:
+  - shell_exec
+  - notify_send
+triggers:
+  - startup:
+      prompt: |
+        Send a desktop notification that says exactly: System monitoring active.
+  - every: 1m
+    prompt: |
+      Collect a system-health snapshot with shell_exec, then notify the operator
+      only if there is a clear actionable anomaly.
+
+      Check timestamp, uptime/load, CPU count, memory, disk usage, and the
+      busiest processes. Treat disk below 90 percent, available memory above 10
+      percent, no swap use, successful command collection, and load below CPU
+      count as normal. Do not report healthy, normal, moderate one-off CPU, or
+      informational summaries.
+
+      If action is needed, call notify_send with summary
+      "System health attention needed", urgency "normal", app_name
+      "fluxplane", icon "dialog-warning", and a plain-text body under 160
+      characters that includes the operator action.
 system: |
-  You are an operator alert assistant.
-
-  The workflow has already collected command output for you. Do not ask to run
-  tools and do not invent measurements. Follow each workflow step instruction
-  exactly. Only alert about actionable anomalies.
-
-  Do not report "healthy", "normal", moderate one-off CPU, or informational
-  summaries. Treat disk below 90 percent, available memory above 10 percent, no
-  swap use, successful command collection, and load below CPU count as normal.
-  When uncertain, choose NO_ACTION.
-
----
-kind: workflow
-name: heartbeat
-steps:
-  - id: collect-system-health
-    operation: shell_exec
-    input:
-      command: |
-        set +e
-        echo "## timestamp"
-        date -Is 2>/dev/null || date
-        echo
-        echo "## uptime and load"
-        uptime 2>&1 || true
-        echo
-        echo "## cpu count"
-        nproc 2>&1 || sysctl -n hw.ncpu 2>&1 || true
-        echo
-        echo "## memory"
-        free -h 2>&1 || vm_stat 2>&1 || true
-        echo
-        echo "## disk"
-        df -h / . 2>&1 || df -h 2>&1 || true
-        echo
-        echo "## busiest processes"
-        ps -eo pid,ppid,pcpu,pmem,comm --sort=-pcpu 2>/dev/null | head -n 8 || ps aux 2>&1 | head -n 8 || true
-      timeout_ms: 10000
-  - id: classify-system-health
-    agent: health_summarizer
-    depends-on: [collect-system-health]
-    input:
-      instruction: |
-        Decide whether this snapshot contains an actionable anomaly worth
-        interrupting the operator about.
-
-        Return exactly ACTION_NEEDED when there is a clear actionable issue.
-        Return exactly NO_ACTION otherwise.
-
-        Actionable examples: disk at or above 90 percent, available memory below
-        10 percent, swap in active use, failed metrics collection, sustained load
-        above CPU count, or another clear operator action.
-
-        If the situation is merely noisy, informational, or uncertain, return
-        exactly NO_ACTION.
-    input_map:
-      metrics: collect-system-health
-  - id: write-notification-text
-    agent: health_summarizer
-    depends-on: [classify-system-health, collect-system-health]
-    when:
-      step_id: classify-system-health
-      equals: ACTION_NEEDED
-    input:
-      instruction: |
-        Write the desktop notification body for the actionable issue.
-
-        Use plain text only. No Markdown. No "all normal" summary. Keep it under
-        160 characters. Include the action the operator should take.
-    input_map:
-      metrics: collect-system-health
-  - id: notify-user
-    operation: notify_send
-    depends-on: [classify-system-health, write-notification-text]
-    when:
-      step_id: classify-system-health
-      equals: ACTION_NEEDED
-    input:
-      summary: System health attention needed
-      urgency: normal
-      app_name: fluxplane
-      icon: dialog-warning
-    input_map:
-      body: write-notification-text
+  You are an operator alert assistant. Use shell_exec to collect measurements
+  before judging system health. Do not invent measurements. Use notify_send only
+  for actionable anomalies or for the startup notification.

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added agent-level manifest trigger shorthand so `kind: agent` documents can
+  declare scheduled or startup prompts that expand to daemon triggers and
+  generated workflows.
+
 ### Documentation
 - Reworked the root README around Fluxplane core as the reusable runtime and
   generic `fluxplane` CLI, with `coder` documented as a separate sibling product

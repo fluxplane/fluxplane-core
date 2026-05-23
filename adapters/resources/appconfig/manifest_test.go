@@ -574,6 +574,81 @@ system: |
 	}
 }
 
+func TestDecodeFileExpandsAgentTriggers(t *testing.T) {
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: app
+name: health
+default_agent: health
+---
+kind: agent
+name: health
+triggers:
+  - every: 1m
+    prompt: |
+      Summarize system health and notify only on actionable anomalies.
+  - startup:
+      prompt: System monitoring active.
+system: |
+  You are an operator alert assistant.
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "health" {
+		t.Fatalf("agents = %#v", file.Bundle.Agents)
+	}
+	if len(file.Daemon.Triggers) != 2 {
+		t.Fatalf("triggers = %#v, want 2", file.Daemon.Triggers)
+	}
+	scheduled := file.Daemon.Triggers[0]
+	if scheduled.Name != "health-every-1m" || scheduled.Kind != "schedule" || scheduled.Schedule.Every != "1m" || scheduled.Session != "default" {
+		t.Fatalf("scheduled trigger = %#v", scheduled)
+	}
+	if scheduled.Metadata["agent"] != "health" {
+		t.Fatalf("scheduled metadata = %#v, want agent health", scheduled.Metadata)
+	}
+	if len(scheduled.Actions) != 1 || scheduled.Actions[0].Workflow.Name != "__trigger_health-every-1m" {
+		t.Fatalf("scheduled actions = %#v", scheduled.Actions)
+	}
+	startup := file.Daemon.Triggers[1]
+	if startup.Name != "health-startup" || startup.Kind != "startup" || startup.Session != "default" {
+		t.Fatalf("startup trigger = %#v", startup)
+	}
+	if len(file.Bundle.Workflows) != 2 {
+		t.Fatalf("generated workflows = %#v, want 2", file.Bundle.Workflows)
+	}
+	if file.Bundle.Workflows[0].Name != "__trigger_health-every-1m" || file.Bundle.Workflows[0].Steps[0].Agent.Name != "health" {
+		t.Fatalf("scheduled workflow = %#v", file.Bundle.Workflows[0])
+	}
+	if got := file.Bundle.Workflows[0].Steps[0].Input; !strings.Contains(got.(string), "Summarize system health") {
+		t.Fatalf("scheduled workflow input = %#v", got)
+	}
+	if got := file.Bundle.Workflows[1].Steps[0].Input; got != "System monitoring active." {
+		t.Fatalf("startup workflow input = %#v", got)
+	}
+}
+
+func TestDecodeFileAddsDefaultSessionForResourceOnlyAgentTriggers(t *testing.T) {
+	file, err := DecodeFile("agent.yaml", []byte(`
+kind: agent
+name: health
+triggers:
+  - every: 5m
+    workflow: heartbeat
+system: |
+  You are an operator alert assistant.
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Sessions) != 1 || file.Bundle.Sessions[0].Name != "default" || file.Bundle.Sessions[0].Agent.Name != "health" {
+		t.Fatalf("sessions = %#v, want generated default health session", file.Bundle.Sessions)
+	}
+	if len(file.Daemon.Triggers) != 1 || file.Daemon.Triggers[0].Actions[0].Workflow.Name != "heartbeat" {
+		t.Fatalf("triggers = %#v", file.Daemon.Triggers)
+	}
+}
+
 func TestDecodeFileLoadsTopLevelResources(t *testing.T) {
 	file, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: app
