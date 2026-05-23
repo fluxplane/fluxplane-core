@@ -44,10 +44,6 @@ var _ pluginhost.ReactionContributor = Plugin{}
 
 // New returns a standard coding plugin bundle.
 func New(sys system.System) Plugin {
-	var clarifier system.Clarifier
-	if sys != nil {
-		clarifier = sys.Clarifier()
-	}
 	return Plugin{system: sys, plugins: []pluginhost.Plugin{
 		project.New(sys),
 		filesystem.New(sys),
@@ -58,7 +54,7 @@ func New(sys system.System) Plugin {
 		git.New(sys),
 		shell.New(sys),
 		code.New(sys),
-		human.New(clarifier),
+		human.NewWithSystem(sys),
 	}}
 }
 

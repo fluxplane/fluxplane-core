@@ -5,6 +5,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/fluxplane/engine/core/event"
@@ -71,7 +72,12 @@ func Run(ctx context.Context, cfg Config) Result {
 				continue
 			}
 			progress = true
-			stepResult, terminal := runStep(ctx, events, cfg, step)
+			if !conditionMatches(step.When, results) {
+				results[step.ID] = StepResult{Status: coreworkflow.StatusSucceeded}
+				done[step.ID] = true
+				continue
+			}
+			stepResult, terminal := runStep(ctx, events, cfg, step, results)
 			results[step.ID] = stepResult
 			done[step.ID] = true
 			if terminal != nil {
@@ -90,9 +96,9 @@ func Run(ctx context.Context, cfg Config) Result {
 	return Result{Status: coreworkflow.StatusSucceeded, Output: output, Steps: results}
 }
 
-func runStep(ctx context.Context, events event.Sink, cfg Config, step coreworkflow.Step) (StepResult, *operation.Result) {
+func runStep(ctx context.Context, events event.Sink, cfg Config, step coreworkflow.Step, results map[coreworkflow.StepID]StepResult) (StepResult, *operation.Result) {
 	kind := stepKind(step)
-	input := stepInput(step, cfg.Input)
+	input := stepInput(step, cfg.Input, results)
 	events.Emit(coreworkflow.StepStarted{
 		RunID:     cfg.RunID,
 		Workflow:  cfg.Spec.Name,
@@ -172,6 +178,37 @@ func dependenciesDone(step coreworkflow.Step, done map[coreworkflow.StepID]bool)
 	return true
 }
 
+func conditionMatches(condition coreworkflow.Condition, results map[coreworkflow.StepID]StepResult) bool {
+	if condition.StepID == "" && condition.Equals == nil && !condition.Exists {
+		return true
+	}
+	result, ok := results[condition.StepID]
+	value := operation.Value(nil)
+	if ok {
+		value = stepOutputValue(result)
+	}
+	matches := true
+	if condition.Exists {
+		matches = ok && value != nil
+	}
+	if condition.Equals != nil {
+		matches = ok && valuesEqual(value, condition.Equals)
+	}
+	if condition.Not {
+		return !matches
+	}
+	return matches
+}
+
+func valuesEqual(got, want operation.Value) bool {
+	gotString, gotOK := got.(string)
+	wantString, wantOK := want.(string)
+	if gotOK && wantOK {
+		return strings.TrimSpace(gotString) == strings.TrimSpace(wantString)
+	}
+	return reflect.DeepEqual(got, want)
+}
+
 func stepKind(step coreworkflow.Step) coreworkflow.StepKind {
 	if step.Kind != "" {
 		return step.Kind
@@ -182,11 +219,54 @@ func stepKind(step coreworkflow.Step) coreworkflow.StepKind {
 	return coreworkflow.StepOperation
 }
 
-func stepInput(step coreworkflow.Step, runInput operation.Value) operation.Value {
+func stepInput(step coreworkflow.Step, runInput operation.Value, results map[coreworkflow.StepID]StepResult) operation.Value {
+	if len(step.InputMap) > 0 {
+		out := map[string]operation.Value{}
+		if step.Input != nil {
+			if mapped, ok := step.Input.(map[string]any); ok {
+				for key, value := range mapped {
+					out[key] = value
+				}
+			} else {
+				out["input"] = step.Input
+			}
+		}
+		for key, ref := range step.InputMap {
+			out[key] = mappedInputValue(ref, runInput, results)
+		}
+		return out
+	}
 	if step.Input != nil {
 		return step.Input
 	}
 	return runInput
+}
+
+func mappedInputValue(ref string, runInput operation.Value, results map[coreworkflow.StepID]StepResult) operation.Value {
+	ref = strings.TrimSpace(ref)
+	switch ref {
+	case "$input", "workflow.input":
+		return runInput
+	case "$steps":
+		out := make(map[string]operation.Value, len(results))
+		for stepID, result := range results {
+			out[string(stepID)] = stepOutputValue(result)
+		}
+		return out
+	}
+	ref = strings.TrimPrefix(ref, "steps.")
+	ref = strings.TrimSuffix(ref, ".output")
+	if result, ok := results[coreworkflow.StepID(ref)]; ok {
+		return stepOutputValue(result)
+	}
+	return nil
+}
+
+func stepOutputValue(result StepResult) operation.Value {
+	if result.Error != nil {
+		return map[string]any{"error": result.Error}
+	}
+	return result.Output
 }
 
 func stepCallID(runID coreworkflow.RunID, stepID coreworkflow.StepID) operation.CallID {

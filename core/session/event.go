@@ -7,11 +7,13 @@ import (
 	"github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/trigger"
 )
 
 const (
 	EventInputReceived      event.Name = "session.input.received"
 	EventCommandReceived    event.Name = "session.command.received"
+	EventTriggerReceived    event.Name = "session.trigger.received"
 	EventCommandRejected    event.Name = "session.command.rejected"
 	EventAgentStepCompleted event.Name = "session.agent_step.completed"
 	EventOperationRequested event.Name = "session.operation.requested"
@@ -44,6 +46,19 @@ type CommandReceived struct {
 }
 
 func (CommandReceived) EventName() event.Name { return EventCommandReceived }
+
+// TriggerReceived records an inbound daemon trigger accepted by the session
+// boundary.
+type TriggerReceived struct {
+	RunID        string                  `json:"run_id,omitempty"`
+	Trigger      trigger.Event           `json:"trigger"`
+	Channel      channel.Ref             `json:"channel,omitempty"`
+	Conversation channel.ConversationRef `json:"conversation,omitempty"`
+	Caller       policy.Caller           `json:"caller,omitempty"`
+	Trust        policy.Trust            `json:"trust,omitempty"`
+}
+
+func (TriggerReceived) EventName() event.Name { return EventTriggerReceived }
 
 // CommandRejected records a command rejected before target execution.
 type CommandRejected struct {

@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	coredistribution "github.com/fluxplane/engine/core/distribution"
 	"github.com/fluxplane/engine/core/resource"
@@ -153,6 +154,45 @@ func TestServeCommandForwardsYolo(t *testing.T) {
 	}
 	if !got.Yolo {
 		t.Fatalf("yolo = false, want true")
+	}
+}
+
+func TestServeCommandForwardsVerbose(t *testing.T) {
+	var got Options
+	cmd := NewServeCommandWithRunner(func(_ context.Context, opts Options) error {
+		got = opts
+		return nil
+	})
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--verbose"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !got.Verbose {
+		t.Fatalf("verbose = false, want true")
+	}
+}
+
+func TestWaitServeShutdownReturnsWhenRunnersStop(t *testing.T) {
+	errs := make(chan error, 1)
+	errs <- nil
+
+	if !waitServeShutdown(errs, 1, time.Second) {
+		t.Fatal("waitServeShutdown returned false, want true")
+	}
+}
+
+func TestWaitServeShutdownTimesOutWhenRunnerHangs(t *testing.T) {
+	errs := make(chan error)
+	start := time.Now()
+
+	if waitServeShutdown(errs, 1, 10*time.Millisecond) {
+		t.Fatal("waitServeShutdown returned true, want false")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("waitServeShutdown took %s, want bounded wait", elapsed)
 	}
 }
 

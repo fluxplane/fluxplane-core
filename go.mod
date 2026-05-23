@@ -4,6 +4,8 @@ go 1.26.1
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.1
+	github.com/amitybell/piper v0.0.0-20250621082041-2bb74e3a4a55
+	github.com/amitybell/piper-voice-jenny v0.0.0-20231118093224-dcf0d49e46b7
 	github.com/andybalholm/brotli v1.2.1
 	github.com/chromedp/cdproto v0.0.0-20260427013145-5737772c319b
 	github.com/chromedp/chromedp v0.15.1
@@ -52,6 +54,10 @@ require (
 	git.sr.ht/~sbinet/gg v0.8.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/adrg/xdg v0.4.0 // indirect
+	github.com/amitybell/piper-asset v0.0.0-20231030194325-d36a29e3b1fd // indirect
+	github.com/amitybell/piper-bin-linux v0.0.0-20231118093037-92b3de178ad8 // indirect
+	github.com/amitybell/piper-bin-windows v0.0.0-20231118093113-cc2cef2f6b74 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

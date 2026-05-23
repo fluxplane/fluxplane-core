@@ -1103,15 +1103,11 @@ func renderProcessEvent(out io.Writer, event system.ProcessEvent) {
 	case "exited":
 		_, _ = fmt.Fprintf(out, "process exit: %s code=%s\n", event.ProcessID, strings.TrimSpace(event.Data))
 	case "output":
-		prefix := "stdout"
-		if event.Stream != "" {
-			prefix = event.Stream
-		}
 		for _, line := range strings.SplitAfter(event.Data, "\n") {
 			if line == "" {
 				continue
 			}
-			_, _ = fmt.Fprintf(out, "%s: %s", prefix, line)
+			_, _ = fmt.Fprintf(out, "%s", line)
 			if !strings.HasSuffix(line, "\n") {
 				_, _ = fmt.Fprintln(out)
 			}

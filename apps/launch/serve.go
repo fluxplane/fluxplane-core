@@ -27,6 +27,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/daemon"
 	orchestrationdistribution "github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
+	triggerhost "github.com/fluxplane/engine/orchestration/trigger"
 
 	"github.com/fluxplane/engine/plugins/integrations/slack"
 	"github.com/fluxplane/engine/runtime/system"
@@ -35,6 +36,7 @@ import (
 type Options struct {
 	AppDir             string
 	Debug              bool
+	Verbose            bool
 	Yolo               bool
 	Dev                bool
 	AuthPath           string
@@ -66,6 +68,7 @@ type ServeDistributionOptions struct {
 	EffortSet           bool
 	HealthAddr          string
 	Debug               bool
+	Verbose             bool
 	Yolo                bool
 	Dev                 bool
 	Plugins             func(system.System) []pluginhost.Plugin
@@ -74,6 +77,8 @@ type ServeDistributionOptions struct {
 	ModelResolver       agentfactory.ModelResolver
 	AllowPrivateNetwork bool
 }
+
+var serveShutdownGrace = 5 * time.Second
 
 func Serve(ctx context.Context, opts Options) error {
 	configureServeLogging(opts.Debug)
@@ -100,6 +105,7 @@ func Serve(ctx context.Context, opts Options) error {
 		EffortSet:           opts.EffortSet,
 		HealthAddr:          opts.HealthAddr,
 		Debug:               opts.Debug,
+		Verbose:             opts.Verbose,
 		Yolo:                opts.Yolo,
 		Dev:                 opts.Dev,
 		ToolProjection:      opts.ToolProjection,
@@ -159,19 +165,98 @@ func ServeDistribution(ctx context.Context, opts ServeDistributionOptions) error
 	if opts.Debug {
 		_, _ = fmt.Fprintf(os.Stderr, "fluxplane serve loaded %s\n", opts.Root)
 	}
-	if len(channels) == 0 {
-		<-runCtx.Done()
-		return nil
+	serveCtx, cancelServe := context.WithCancel(runCtx)
+	defer cancelServe()
+	if opts.Verbose {
+		cancelEvents, err := startServeEventLogger(serveCtx, runtime.Service, os.Stderr)
+		if err != nil {
+			return err
+		}
+		defer cancelEvents()
+		logServeVerboseReady(os.Stderr, opts.Root)
+	}
+	errs := make(chan error, 2)
+	running := 0
+	if len(opts.Launch.Triggers) > 0 {
+		triggers, err := triggerhost.New(triggerhost.Config{
+			Client: runtime.Service,
+			Specs:  opts.Launch.Triggers,
+			Caller: runtime.Caller,
+			Trust:  runtime.Trust,
+		})
+		if err != nil {
+			return err
+		}
+		if opts.Verbose {
+			logServeTriggerStart(os.Stderr, opts.Launch.Triggers)
+		}
+		running++
+		go func() {
+			err := triggers.Run(serveCtx)
+			if errors.Is(err, context.Canceled) {
+				err = nil
+			}
+			errs <- err
+		}()
 	}
 	for _, ch := range channels {
 		if ch != nil && ch.Name() != "" {
 			_, _ = fmt.Fprintf(os.Stderr, "channel %s starting\n", ch.Name())
 		}
 	}
-	if err := host.RunChannels(runCtx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+	if len(channels) > 0 {
+		running++
+		go func() {
+			err := host.RunChannels(serveCtx)
+			if errors.Is(err, context.Canceled) {
+				err = nil
+			}
+			errs <- err
+		}()
+	}
+	if running == 0 {
+		<-runCtx.Done()
+		return nil
+	}
+	for i := 0; i < running; i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				cancelServe()
+				return err
+			}
+		case <-runCtx.Done():
+			cancelServe()
+			pending := running - i
+			if !waitServeShutdown(errs, pending, serveShutdownGrace) && opts.Verbose {
+				_, _ = fmt.Fprintf(os.Stderr, "serve shutdown timed out after %s; exiting\n", serveShutdownGrace)
+			}
+			return nil
+		}
 	}
 	return nil
+}
+
+func waitServeShutdown(errs <-chan error, pending int, grace time.Duration) bool {
+	if pending <= 0 {
+		return true
+	}
+	if grace <= 0 {
+		for i := 0; i < pending; i++ {
+			<-errs
+		}
+		return true
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	for i := 0; i < pending; i++ {
+		select {
+		case <-errs:
+		case <-timer.C:
+			return false
+		}
+	}
+	return true
 }
 
 func listenerAuthority(listener orchestrationdistribution.Listener, caller policy.Caller, trust policy.Trust) httpsse.Authority {
@@ -190,14 +275,14 @@ func listenerAuthority(listener orchestrationdistribution.Listener, caller polic
 }
 
 func validateServeLaunch(loaded orchestrationdistribution.Loaded, initPath string) error {
-	if len(loaded.Launch.Listeners) == 0 && len(loaded.Launch.Channels) == 0 {
+	if len(loaded.Launch.Listeners) == 0 && len(loaded.Launch.Channels) == 0 && len(loaded.Launch.Triggers) == 0 {
 		if loaded.Manifest == "" {
 			if strings.TrimSpace(initPath) == "" {
 				initPath = loaded.Root
 			}
 			return fmt.Errorf("serve: %s is not initialized; run \"fluxplane init %s\" to create a minimal local app manifest", loaded.Root, initPath)
 		}
-		return fmt.Errorf("serve: distribution %q has no daemon listeners or channels", loaded.Distribution.Spec.Name)
+		return fmt.Errorf("serve: distribution %q has no daemon listeners or channels or triggers", loaded.Distribution.Spec.Name)
 	}
 	return nil
 }

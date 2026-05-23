@@ -43,6 +43,120 @@ func TestRunExecutesOperationDAG(t *testing.T) {
 	}
 }
 
+func TestRunMapsDependencyOutputIntoStepInput(t *testing.T) {
+	var nextInput operation.Value
+	result := Run(context.Background(), Config{
+		Spec: coreworkflow.Spec{
+			Name: "feature",
+			Steps: []coreworkflow.Step{
+				{ID: "collect", Operation: operation.Ref{Name: "echo"}},
+				{
+					ID:        "summarize",
+					Operation: operation.Ref{Name: "echo"},
+					DependsOn: []coreworkflow.StepID{"collect"},
+					InputMap: map[string]string{
+						"metrics": "collect",
+						"request": "$input",
+					},
+				},
+			},
+		},
+		RunID: "run-1",
+		Input: map[string]any{"trigger": "scheduled"},
+		RunOperation: func(_ context.Context, step coreworkflow.Step, input operation.Value, _ operation.CallID) (operation.Result, error) {
+			if step.ID == "summarize" {
+				nextInput = input
+			}
+			return operation.OK(map[string]any{"step": string(step.ID), "input": input}), nil
+		},
+	})
+
+	if result.Status != coreworkflow.StatusSucceeded {
+		t.Fatalf("status = %q, want succeeded: %#v", result.Status, result)
+	}
+	mapped, ok := nextInput.(map[string]operation.Value)
+	if !ok {
+		t.Fatalf("next input = %#v, want mapped input", nextInput)
+	}
+	if mapped["metrics"] == nil || mapped["request"] == nil {
+		t.Fatalf("mapped input = %#v, want metrics and request", mapped)
+	}
+}
+
+func TestRunSkipsStepWhenConditionDoesNotMatch(t *testing.T) {
+	var calls []string
+	result := Run(context.Background(), Config{
+		Spec: coreworkflow.Spec{
+			Name: "feature",
+			Steps: []coreworkflow.Step{
+				{ID: "classify", Operation: operation.Ref{Name: "echo"}},
+				{
+					ID:        "notify",
+					Operation: operation.Ref{Name: "echo"},
+					DependsOn: []coreworkflow.StepID{"classify"},
+					When: coreworkflow.Condition{
+						StepID: "classify",
+						Equals: "NO_ACTION",
+						Not:    true,
+					},
+				},
+			},
+		},
+		RunID: "run-1",
+		RunOperation: func(_ context.Context, step coreworkflow.Step, _ operation.Value, _ operation.CallID) (operation.Result, error) {
+			calls = append(calls, string(step.ID))
+			return operation.OK("NO_ACTION\n"), nil
+		},
+	})
+
+	if result.Status != coreworkflow.StatusSucceeded {
+		t.Fatalf("status = %q, want succeeded: %#v", result.Status, result)
+	}
+	if len(calls) != 1 || calls[0] != "classify" {
+		t.Fatalf("calls = %#v, want only classify", calls)
+	}
+	if result.Steps["notify"].Output != nil {
+		t.Fatalf("notify output = %#v, want nil skipped output", result.Steps["notify"].Output)
+	}
+}
+
+func TestRunExecutesStepWhenNotEqualsConditionMatches(t *testing.T) {
+	var calls []string
+	result := Run(context.Background(), Config{
+		Spec: coreworkflow.Spec{
+			Name: "feature",
+			Steps: []coreworkflow.Step{
+				{ID: "classify", Operation: operation.Ref{Name: "echo"}},
+				{
+					ID:        "notify",
+					Operation: operation.Ref{Name: "echo"},
+					DependsOn: []coreworkflow.StepID{"classify"},
+					When: coreworkflow.Condition{
+						StepID: "classify",
+						Equals: "NO_ACTION",
+						Not:    true,
+					},
+				},
+			},
+		},
+		RunID: "run-1",
+		RunOperation: func(_ context.Context, step coreworkflow.Step, _ operation.Value, _ operation.CallID) (operation.Result, error) {
+			calls = append(calls, string(step.ID))
+			if step.ID == "classify" {
+				return operation.OK("Disk usage is at 91 percent. Free space or expand the volume."), nil
+			}
+			return operation.OK("notified"), nil
+		},
+	})
+
+	if result.Status != coreworkflow.StatusSucceeded {
+		t.Fatalf("status = %q, want succeeded: %#v", result.Status, result)
+	}
+	if len(calls) != 2 || calls[1] != "notify" {
+		t.Fatalf("calls = %#v, want notify to run", calls)
+	}
+}
+
 func TestRunFailsOnStepError(t *testing.T) {
 	result := Run(context.Background(), Config{
 		Spec: coreworkflow.Spec{

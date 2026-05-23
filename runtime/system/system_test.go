@@ -528,9 +528,12 @@ func TestHostProcessAllowsConfiguredAndToolchainEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestHostProcessPreservesSSHAgentSocket(t *testing.T) {
+func TestHostProcessPreservesForwardedHostEnvironment(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/test-ssh-agent.sock")
+	t.Setenv("DISPLAY", ":77")
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/tmp/test-bus")
+	t.Setenv("XDG_RUNTIME_DIR", "/tmp/test-runtime")
 	sys, err := NewHost(Config{Root: root})
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
@@ -539,8 +542,15 @@ func TestHostProcessPreservesSSHAgentSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(run.Stdout, "SSH_AUTH_SOCK=/tmp/test-ssh-agent.sock\n") {
-		t.Fatalf("stdout = %q, want SSH_AUTH_SOCK", run.Stdout)
+	for _, want := range []string{
+		"SSH_AUTH_SOCK=/tmp/test-ssh-agent.sock\n",
+		"DISPLAY=:77\n",
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/test-bus\n",
+		"XDG_RUNTIME_DIR=/tmp/test-runtime\n",
+	} {
+		if !strings.Contains(run.Stdout, want) {
+			t.Fatalf("stdout = %q, want %s", run.Stdout, want)
+		}
 	}
 }
 

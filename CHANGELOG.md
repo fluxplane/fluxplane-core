@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added daemon scheduled triggers that can submit structured trigger events in
+  `serve` mode and run configured workflow, operation, or command actions
+  through the existing reaction execution path.
+- Added `examples/scheduled-trigger`, a runnable `serve` example that fires a
+  scheduled workflow every minute.
+- Added `fluxplane serve --verbose` to print live served session events for
+  background trigger, agent, operation, and run progress.
+- Wired workflow step `input_map` so later workflow steps can consume the
+  workflow input and previous step outputs.
+- Added native `notify_send`/`notify` operations for OS desktop notifications,
+  preset tones, and local text-to-speech from workflows or agents.
+- Added workflow `when` condition execution so scheduled workflows can skip
+  notification steps when classifier output says no action is needed.
+- Added startup daemon triggers for one-shot serve startup actions.
 - Added native Jira issue creation and comment posting operations that convert
   Markdown bodies to Jira ADF using the same converter as `dex jira`.
 - Added a native `usage` datasource plugin that exposes persisted
@@ -34,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Changed the distribution CLI REPL so Ctrl+C cancels only the active turn and
   leaves the REPL open for the next prompt.
+- Bounded direct-channel run event draining after a turn result is available so
+  local coder REPL sessions cannot hang indefinitely waiting for a missed run
+  completion event.
 - Restored live Kubernetes and Loki observability connectivity for local coder
   runs: Kubernetes datasource calls now honor request-scoped context/namespace
   filters and list deployments, while Loki discovery can use managed local
@@ -234,6 +251,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filesystem entrypoint.
 
 ### Fixed
+- Decoded YAML-authored workflow `when.step_id` conditions so scheduled
+  workflows can run notification steps when classifier output matches.
+- Counted daemon trigger submissions as inbound session activity so repeated
+  trigger-only sessions do not rerun session-open preparation on every tick.
+- Forwarded desktop session environment variables through managed local
+  processes so `notify_send` can reach the user's notification/audio buses.
+- Sanitized and bounded `notify_send` speech text so TTS does not read raw
+  Markdown or unbounded notification bodies aloud.
+- Switched `notify_send` speech from espeak/spd-say fallback to embedded Piper
+  TTS with the Jenny voice.
 - Stopped session event subscribers from forwarding zero-value events if their
   internal input channel closes, preventing runaway background task event loops.
 - Restored coder shell's agentic input mode as the default and kept timeline

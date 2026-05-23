@@ -70,6 +70,7 @@ const (
 	SubjectEndpoint    SubjectKind = "endpoint"
 	SubjectCapability  SubjectKind = "capability"
 	SubjectProvider    SubjectKind = "provider"
+	SubjectTrigger     SubjectKind = "trigger"
 )
 
 // Subject gives assertions a structured target vocabulary. Target is retained

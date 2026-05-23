@@ -8,6 +8,7 @@ import (
 	"github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/trigger"
 	"github.com/fluxplane/engine/core/user"
 )
 
@@ -77,6 +78,7 @@ const (
 	InboundCommand   InboundKind = "command"
 	InboundOperation InboundKind = "operation"
 	InboundEvent     InboundKind = "event"
+	InboundTrigger   InboundKind = "trigger"
 )
 
 // OperationInvocation is a direct operation submission entering a session
@@ -108,6 +110,7 @@ type Inbound struct {
 	CommandLine   string               `json:"command_line,omitempty"`
 	Operation     *OperationInvocation `json:"operation,omitempty"`
 	Event         event.Event          `json:"event,omitempty"`
+	Trigger       *trigger.Event       `json:"trigger,omitempty"`
 	CorrelationID string               `json:"correlation_id,omitempty"`
 }
 
@@ -146,6 +149,14 @@ func (i Inbound) Validate() error {
 			return fmt.Errorf("channel: inbound event payload is nil")
 		}
 		return rejectInboundExtras(i, "event")
+	case InboundTrigger:
+		if i.Trigger == nil {
+			return fmt.Errorf("channel: inbound trigger payload is nil")
+		}
+		if strings.TrimSpace(i.Trigger.Name) == "" {
+			return fmt.Errorf("channel: inbound trigger name is empty")
+		}
+		return rejectInboundExtras(i, "trigger")
 	default:
 		return fmt.Errorf("channel: inbound kind %q is invalid", i.Kind)
 	}
@@ -213,6 +224,9 @@ func rejectInboundExtras(inbound Inbound, expected string) error {
 	}
 	if expected != "event" && inbound.Event != nil {
 		return fmt.Errorf("channel: inbound %s cannot also carry event", expected)
+	}
+	if expected != "trigger" && inbound.Trigger != nil {
+		return fmt.Errorf("channel: inbound %s cannot also carry trigger", expected)
 	}
 	return nil
 }

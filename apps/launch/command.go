@@ -11,6 +11,7 @@ type serveCommandOptions struct {
 	runtime     LocalRuntimeFlags
 	environment LaunchEnvironmentFlags
 	healthAddr  string
+	verbose     bool
 }
 
 type ServeRunner func(context.Context, Options) error
@@ -43,6 +44,7 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 			return runner(cmd.Context(), Options{
 				AppDir:             path,
 				Debug:              opts.runtime.Debug,
+				Verbose:            opts.verbose,
 				Yolo:               opts.runtime.Yolo,
 				Dev:                opts.runtime.Dev,
 				AuthPath:           opts.environment.AuthPath,
@@ -66,5 +68,6 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 	})
 	BindLaunchEnvironmentFlags(cmd.Flags(), &opts.environment)
 	cmd.Flags().StringVar(&opts.healthAddr, "health-addr", "", "internal HTTP address for unauthenticated health checks")
+	cmd.Flags().BoolVar(&opts.verbose, "verbose", false, "print live served session events")
 	return cmd
 }

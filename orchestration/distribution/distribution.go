@@ -11,6 +11,7 @@ import (
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/resource"
 	coresession "github.com/fluxplane/engine/core/session"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	clientapi "github.com/fluxplane/engine/orchestration/client"
 )
 
@@ -35,6 +36,7 @@ type Loaded struct {
 type LaunchConfig struct {
 	Listeners []Listener
 	Channels  []Channel
+	Triggers  []coretrigger.Spec
 	Workspace WorkspaceConfig
 	Data      DataConfig
 	Events    EventsConfig

@@ -220,6 +220,9 @@ func mergeLaunchConfig(base, override distribution.LaunchConfig) distribution.La
 	if len(override.Channels) > 0 {
 		base.Channels = override.Channels
 	}
+	if len(override.Triggers) > 0 {
+		base.Triggers = override.Triggers
+	}
 	if len(override.Workspace.Roots) > 0 {
 		base.Workspace.Roots = append(base.Workspace.Roots, override.Workspace.Roots...)
 	}

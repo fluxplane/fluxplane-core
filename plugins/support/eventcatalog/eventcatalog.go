@@ -12,5 +12,6 @@ func All() []event.Event {
 	return []event.Event{
 		human.ClarificationRequested{},
 		human.ClarificationCompleted{},
+		human.NotificationSent{},
 	}
 }

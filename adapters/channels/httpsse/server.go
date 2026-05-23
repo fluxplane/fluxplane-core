@@ -109,6 +109,7 @@ type remoteSubmission struct {
 	Command        *command.Invocation            `json:"command,omitempty"`
 	CommandLine    string                         `json:"command_line,omitempty"`
 	Operation      *clientapi.OperationInvocation `json:"operation,omitempty"`
+	Trigger        *clientapi.Trigger             `json:"trigger,omitempty"`
 	TrustDowngrade *clientapi.TrustDowngrade      `json:"trust_downgrade,omitempty"`
 	Metadata       map[string]any                 `json:"metadata,omitempty"`
 }
@@ -171,6 +172,7 @@ func (s *Server) normalizeRemoteSubmission(remote remoteSubmission) (clientapi.S
 		Command:        remote.Command,
 		CommandLine:    remote.CommandLine,
 		Operation:      remote.Operation,
+		Trigger:        remote.Trigger,
 		TrustDowngrade: remote.TrustDowngrade,
 		Metadata:       remote.Metadata,
 	}

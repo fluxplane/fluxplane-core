@@ -31,6 +31,7 @@ import (
 	coretask "github.com/fluxplane/engine/core/task"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/core/tool"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	"github.com/fluxplane/engine/core/user"
 	coreworkflow "github.com/fluxplane/engine/core/workflow"
 	"github.com/fluxplane/engine/orchestration/resourcecatalog"
@@ -1910,6 +1911,56 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 	}
 }
 
+func TestExecuteInboundTriggerRunsSessionOpenEnvironmentOncePerThread(t *testing.T) {
+	ctx := context.Background()
+	threadStore, err := runtimethread.NewStore(eventstore.NewMemoryStore())
+	if err != nil {
+		t.Fatalf("new thread store: %v", err)
+	}
+	thread := corethread.Ref{ID: "thread-trigger-session-open"}
+	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: thread.ID}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	var phases []coreevidence.ObservationPhase
+	observer := &scriptedEnvironmentObserver{
+		spec: coreevidence.ObserverSpec{Name: "session.open", Phase: coreevidence.PhaseSessionOpen},
+		observe: func(_ context.Context, req runtimeevidence.ObservationRequest) ([]coreevidence.Observation, error) {
+			phases = append(phases, req.Phase)
+			return []coreevidence.Observation{{Kind: "session.opened"}}, nil
+		},
+	}
+	session := Session{
+		ThreadStore:          threadStore,
+		Thread:               thread,
+		EnvironmentObservers: []runtimeevidence.Observer{observer},
+	}
+	first := session.ExecuteInboundTrigger(ctx, channel.Inbound{
+		ID:   "run-trigger-open-1",
+		Kind: channel.InboundTrigger,
+		Trigger: &coretrigger.Event{
+			Name:   "heartbeat",
+			Source: "schedule",
+		},
+	})
+	if first.Status != TriggerStatusOK {
+		t.Fatalf("first status = %q: %#v", first.Status, first)
+	}
+	second := session.ExecuteInboundTrigger(ctx, channel.Inbound{
+		ID:   "run-trigger-open-2",
+		Kind: channel.InboundTrigger,
+		Trigger: &coretrigger.Event{
+			Name:   "heartbeat",
+			Source: "schedule",
+		},
+	})
+	if second.Status != TriggerStatusOK {
+		t.Fatalf("second status = %q: %#v", second.Status, second)
+	}
+	if len(phases) != 1 || phases[0] != coreevidence.PhaseSessionOpen {
+		t.Fatalf("phases = %#v, want one session_open run for repeated triggers", phases)
+	}
+}
+
 func TestExecuteInboundInputRunsLazyEnvironmentBeforeContextMaterialization(t *testing.T) {
 	ctx := context.Background()
 	observerCalls := 0
@@ -2333,6 +2384,72 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 	}
 	if !seenWorkflowObservation {
 		t.Fatalf("agent observations = %#v, want workflow result observation", agentRuntime.inputs[0].Observations)
+	}
+}
+
+func TestExecuteInboundTriggerRunsWorkflowAction(t *testing.T) {
+	ctx := context.Background()
+	opRef := operation.Ref{Name: "echo"}
+	op := operation.New(operation.Spec{Ref: opRef}, func(_ operation.Context, input operation.Value) operation.Result {
+		return operation.OK(map[string]any{"echo": input})
+	})
+	workflowID := resource.ResourceID{Kind: "workflow", Origin: "project", Name: "feature"}
+	operationID := resource.ResourceID{Kind: "operation", Origin: "project", Name: "echo"}
+	index := resource.NewResourceIndex()
+	index.Add(workflowID)
+	var emitted []event.Event
+	result := (Session{
+		Resolver: resource.NewResolver(resource.ResolverConfig{Index: index}),
+		WorkflowCatalog: resourcecatalog.WorkflowCatalog{
+			workflowID.Address(): {
+				ID: workflowID,
+				Spec: coreworkflow.Spec{
+					Name: "feature",
+					Steps: []coreworkflow.Step{{
+						ID:        "run",
+						Operation: opRef,
+					}},
+				},
+			},
+		},
+		OperationCatalog: OperationCatalog{
+			operationID.Address(): {ID: operationID, Operation: op},
+		},
+		OperationExecutor: operationruntime.NewExecutor(),
+		Events: event.SinkFunc(func(payload event.Event) {
+			if payload != nil {
+				emitted = append(emitted, payload)
+			}
+		}),
+	}).ExecuteInboundTrigger(ctx, channel.Inbound{
+		ID:   "run-trigger",
+		Kind: channel.InboundTrigger,
+		Trigger: &coretrigger.Event{
+			Name:   "nightly",
+			Source: "schedule",
+			Actions: []corereaction.Action{{
+				Kind: corereaction.ActionRunWorkflow,
+				Workflow: corereaction.WorkflowAction{
+					Name:  "feature",
+					Input: "from trigger",
+				},
+			}},
+		},
+	})
+	if result.Status != TriggerStatusOK {
+		t.Fatalf("status = %q: %#v", result.Status, result)
+	}
+	if !hasEvent(emitted, coreworkflow.EventCompletedName) {
+		t.Fatalf("emitted events = %#v, want workflow completion", eventNames(emitted))
+	}
+	seenWorkflowObservation := false
+	for _, observation := range result.Observations {
+		if observation.Kind == "workflow.result" && observation.Metadata["reaction_rule"] == "trigger.nightly" {
+			seenWorkflowObservation = true
+		}
+	}
+	if !seenWorkflowObservation {
+		t.Fatalf("observations = %#v, want trigger workflow result observation", result.Observations)
 	}
 }
 

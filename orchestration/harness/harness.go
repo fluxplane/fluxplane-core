@@ -113,6 +113,7 @@ type Service struct {
 	profiles    map[corethread.ID]coresession.Spec
 	approvers   map[corethread.ID]operationruntime.ApprovalGate
 	subscribers map[corethread.ID]map[int]*subscriber
+	allSubs     map[int]*subscriber
 	nextSub     int
 }
 
@@ -154,6 +155,7 @@ func New(cfg Config) *Service {
 		bindings:             map[bindingKey]corethread.Ref{},
 		profiles:             map[corethread.ID]coresession.Spec{},
 		subscribers:          map[corethread.ID]map[int]*subscriber{},
+		allSubs:              map[int]*subscriber{},
 	}
 }
 
@@ -272,6 +274,7 @@ type InboundResult struct {
 	Session   SessionInfo
 	Input     session.InputResult
 	Command   session.CommandResult
+	Trigger   session.TriggerResult
 	Operation session.OperationResult
 	Outbound  *channel.Outbound
 }
@@ -331,6 +334,8 @@ func (s *Service) HandleSessionInbound(ctx context.Context, info SessionInfo, in
 		return s.handleCommand(ctx, info, normalized)
 	case channel.InboundOperation:
 		return s.handleOperation(ctx, info, normalized)
+	case channel.InboundTrigger:
+		return s.handleTrigger(ctx, info, normalized)
 	default:
 		return InboundResult{Session: info}, fmt.Errorf("harness: inbound kind %q is not executable yet", normalized.Kind)
 	}
@@ -398,6 +403,53 @@ func (s *Service) Subscribe(ctx context.Context, threadID corethread.ID, opts cl
 				if len(subs) == 0 {
 					delete(s.subscribers, threadID)
 				}
+			}
+			s.mu.Unlock()
+			if removed != nil {
+				removed.close()
+			}
+		})
+	}
+	if ctx != nil {
+		go func() {
+			<-ctx.Done()
+			cancel()
+		}()
+	}
+	return ch, cancel, nil
+}
+
+// SubscribeAll returns live semantic events produced by all session threads.
+// It is intentionally live-only; durable replay remains scoped to a known
+// session thread.
+func (s *Service) SubscribeAll(ctx context.Context, opts clientapi.EventOptions) (<-chan clientapi.Event, func(), error) {
+	if opts.Buffer < 0 {
+		opts.Buffer = 0
+	}
+	if s == nil {
+		ch := make(chan clientapi.Event)
+		close(ch)
+		return ch, func() {}, nil
+	}
+	sub := newSubscriber(opts.Buffer, opts.Buffer)
+	ch := sub.ch
+	s.mu.Lock()
+	if s.allSubs == nil {
+		s.allSubs = map[int]*subscriber{}
+	}
+	id := s.nextSub
+	s.nextSub++
+	s.allSubs[id] = sub
+	s.mu.Unlock()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			var removed *subscriber
+			s.mu.Lock()
+			if existing, ok := s.allSubs[id]; ok {
+				delete(s.allSubs, id)
+				removed = existing
 			}
 			s.mu.Unlock()
 			if removed != nil {
@@ -604,6 +656,66 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	return InboundResult{Session: info, Command: result, Outbound: outbound}, nil
 }
 
+func (s *Service) handleTrigger(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {
+	runID := clientapi.RunID(inbound.ID)
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:       clientapi.EventSubmissionReceived,
+		RunID:      runID,
+		Session:    toClientSessionInfo(info),
+		Submission: submissionForInbound(normalizedSubmissionTrigger, runID, inbound),
+	})
+	profile, _, _ := s.profileForInfo(info)
+	runtimeFailures := &runtimeEventPersistenceFailures{}
+	exec := session.Session{
+		Agent:                s.agent,
+		Profile:              profile,
+		Commands:             s.commands,
+		Operations:           s.operations,
+		Resolver:             s.resolver,
+		CommandCatalog:       s.commandCatalog,
+		SessionCommands:      s.sessionCommands,
+		OperationCatalog:     s.operationCatalog,
+		ActivationSets:       append([]coreactivation.Set(nil), s.activationSets...),
+		OperationSets:        append([]operation.Set(nil), s.operationSets...),
+		Datasources:          append([]coredatasource.Spec(nil), s.datasources...),
+		PostEditChecks:       append([]coresession.PostEditCheckSpec(nil), s.postEditChecks...),
+		ContextProviders:     append([]corecontext.Provider(nil), s.contextProviders...),
+		ToolSetCatalog:       s.toolSetCatalog,
+		WorkflowCatalog:      s.workflowCatalog,
+		OperationExecutor:    s.executorForInfo(info),
+		Events:               s.runtimeEventSinkWithFailures(ctx, info, runID, runtimeFailures),
+		ThreadStore:          s.threadStore,
+		Thread:               info.Thread,
+		SessionAgents:        s.currentSessionAgents(),
+		Delegation:           s.delegationForInfo(info),
+		StopEvaluator:        s.stopEvaluator,
+		RunID:                string(runID),
+		StartupObservations:  append([]coreevidence.Observation(nil), s.startupObservations...),
+		StartupAssertions:    append([]coreevidence.Assertion(nil), s.startupAssertions...),
+		EnvironmentObservers: append([]runtimeevidence.Observer(nil), s.environmentObservers...),
+		AssertionDerivers:    append([]runtimeevidence.AssertionDeriver(nil), s.assertionDerivers...),
+		ReactionRules:        append([]corereaction.Rule(nil), s.reactionRules...),
+		Security:             s.security,
+		SecurityTrace:        s.securityTrace,
+	}
+	result := exec.ExecuteInboundTrigger(ctx, inbound)
+	if err := runtimeFailures.Err(); err != nil {
+		return InboundResult{Session: info, Trigger: result}, err
+	}
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventTriggerCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+		Trigger: &result,
+	})
+	s.publish(info.Thread.ID, clientapi.Event{
+		Kind:    clientapi.EventRunCompleted,
+		RunID:   runID,
+		Session: toClientSessionInfo(info),
+	})
+	return InboundResult{Session: info, Trigger: result}, nil
+}
+
 func (s *Service) handleOperation(ctx context.Context, info SessionInfo, inbound channel.Inbound) (InboundResult, error) {
 	runID := clientapi.RunID(inbound.ID)
 	s.publish(info.Thread.ID, clientapi.Event{
@@ -758,6 +870,7 @@ const (
 	normalizedSubmissionInput normalizedSubmissionKind = iota
 	normalizedSubmissionCommand
 	normalizedSubmissionOperation
+	normalizedSubmissionTrigger
 )
 
 func submissionForInbound(kind normalizedSubmissionKind, runID clientapi.RunID, inbound channel.Inbound) *clientapi.Submission {
@@ -785,6 +898,17 @@ func submissionForInbound(kind normalizedSubmissionKind, runID clientapi.RunID, 
 			submission.Operation = &clientapi.OperationInvocation{
 				Operation: inbound.Operation.Operation,
 				Input:     inbound.Operation.Input,
+			}
+		}
+	case normalizedSubmissionTrigger:
+		submission.Kind = clientapi.SubmissionTrigger
+		if inbound.Trigger != nil {
+			submission.Trigger = &clientapi.Trigger{
+				Name:     inbound.Trigger.Name,
+				Source:   inbound.Trigger.Source,
+				Payload:  inbound.Trigger.Payload,
+				Actions:  append([]corereaction.Action(nil), inbound.Trigger.Actions...),
+				Metadata: cloneAnyMap(inbound.Trigger.Metadata),
 			}
 		}
 	}
@@ -981,15 +1105,24 @@ func (s *Service) ensureThread(ctx context.Context, id corethread.ID, metadata m
 }
 
 func (s *Service) publish(threadID corethread.ID, event clientapi.Event) {
-	if s == nil || threadID == "" {
+	if s == nil {
 		return
 	}
 	s.mu.Lock()
+	allSubs := make([]*subscriber, 0, len(s.allSubs))
+	for _, sub := range s.allSubs {
+		allSubs = append(allSubs, sub)
+	}
 	subs := make([]*subscriber, 0, len(s.subscribers[threadID]))
-	for _, sub := range s.subscribers[threadID] {
-		subs = append(subs, sub)
+	if threadID != "" {
+		for _, sub := range s.subscribers[threadID] {
+			subs = append(subs, sub)
+		}
 	}
 	s.mu.Unlock()
+	for _, sub := range allSubs {
+		sub.send(event)
+	}
 	for _, sub := range subs {
 		sub.send(event)
 	}
@@ -1357,6 +1490,20 @@ func recordToClientEvents(info clientapi.SessionInfo, record corethread.Record) 
 			Caller:  payload.Caller,
 			Trust:   payload.Trust,
 		})}
+	case coresession.TriggerReceived:
+		return []clientapi.Event{withSubmission(base, clientapi.Submission{
+			ID:   clientapi.RunID(payload.RunID),
+			Kind: clientapi.SubmissionTrigger,
+			Trigger: &clientapi.Trigger{
+				Name:     payload.Trigger.Name,
+				Source:   payload.Trigger.Source,
+				Payload:  payload.Trigger.Payload,
+				Actions:  append([]corereaction.Action(nil), payload.Trigger.Actions...),
+				Metadata: cloneAnyMap(payload.Trigger.Metadata),
+			},
+			Caller: payload.Caller,
+			Trust:  payload.Trust,
+		})}
 	case coresession.CommandRejected:
 		event := base
 		event.Kind = clientapi.EventCommandCompleted
@@ -1452,6 +1599,17 @@ func cloneStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

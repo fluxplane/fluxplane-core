@@ -50,10 +50,10 @@ type Step struct {
 
 // Condition controls whether a step should run after dependencies complete.
 type Condition struct {
-	StepID StepID          `json:"step_id,omitempty"`
-	Equals operation.Value `json:"equals,omitempty"`
-	Exists bool            `json:"exists,omitempty"`
-	Not    bool            `json:"not,omitempty"`
+	StepID StepID          `json:"step_id,omitempty" yaml:"step_id,omitempty"`
+	Equals operation.Value `json:"equals,omitempty" yaml:"equals,omitempty"`
+	Exists bool            `json:"exists,omitempty" yaml:"exists,omitempty"`
+	Not    bool            `json:"not,omitempty" yaml:"not,omitempty"`
 }
 
 // RetryPolicy describes retry attempts for one step.

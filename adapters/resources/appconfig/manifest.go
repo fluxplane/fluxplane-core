@@ -31,6 +31,7 @@ import (
 	"github.com/fluxplane/engine/core/resource"
 	coresession "github.com/fluxplane/engine/core/session"
 	coreskill "github.com/fluxplane/engine/core/skill"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	"github.com/fluxplane/engine/core/user"
 	"github.com/fluxplane/engine/core/workflow"
 	invjsonschema "github.com/invopop/jsonschema"
@@ -472,6 +473,11 @@ func (f File) Validate() error {
 		}
 		if strings.TrimSpace(ch.Type) == "" {
 			return fmt.Errorf("appconfig: daemon.channels[%d] type is empty", i)
+		}
+	}
+	for i, trigger := range f.Daemon.Triggers {
+		if err := trigger.Validate(); err != nil {
+			return fmt.Errorf("appconfig: validate daemon.triggers[%d]: %w", i, err)
 		}
 	}
 	return nil
@@ -1199,8 +1205,9 @@ func datasourceKind(d DatasourceDoc) string {
 
 // DaemonConfig contains process wiring consumed by app serving.
 type DaemonConfig struct {
-	Listeners []ListenerDoc `json:"listeners,omitempty" yaml:"listeners,omitempty"`
-	Channels  []ChannelDoc  `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Listeners []ListenerDoc      `json:"listeners,omitempty" yaml:"listeners,omitempty"`
+	Channels  []ChannelDoc       `json:"channels,omitempty" yaml:"channels,omitempty"`
+	Triggers  []coretrigger.Spec `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 }
 
 type ListenerDoc struct {

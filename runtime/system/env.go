@@ -12,7 +12,19 @@ import (
 )
 
 var defaultProcessEnvKeys = []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "GOCACHE"}
-var hostForwardedProcessEnvKeys = []string{"SSH_AUTH_SOCK"}
+var hostForwardedProcessEnvKeys = []string{
+	"SSH_AUTH_SOCK",
+	"DISPLAY",
+	"WAYLAND_DISPLAY",
+	"XAUTHORITY",
+	"XDG_RUNTIME_DIR",
+	"XDG_SESSION_TYPE",
+	"XDG_CURRENT_DESKTOP",
+	"DESKTOP_SESSION",
+	"DBUS_SESSION_BUS_ADDRESS",
+	"PULSE_SERVER",
+	"PIPEWIRE_REMOTE",
+}
 
 var processOverrideEnvKeys = map[string]bool{
 	"CGO_ENABLED": true,

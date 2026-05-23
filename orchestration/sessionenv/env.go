@@ -34,6 +34,8 @@ type (
 	OutboundProduced = coresession.OutboundProduced
 	// CommandReceived aliases the persisted command input event.
 	CommandReceived = coresession.CommandReceived
+	// TriggerReceived aliases the persisted trigger input event.
+	TriggerReceived = coresession.TriggerReceived
 	// CommandRejected aliases the persisted command rejection event.
 	CommandRejected = coresession.CommandRejected
 	// OperationRequested aliases the persisted operation request event.

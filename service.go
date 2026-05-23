@@ -82,6 +82,7 @@ const (
 	EventSubmissionReceived = clientapi.EventSubmissionReceived
 	EventInputCompleted     = clientapi.EventInputCompleted
 	EventCommandCompleted   = clientapi.EventCommandCompleted
+	EventTriggerCompleted   = clientapi.EventTriggerCompleted
 	EventAgentStepCompleted = clientapi.EventAgentStepCompleted
 	EventOperationRequested = clientapi.EventOperationRequested
 	EventOperationCompleted = clientapi.EventOperationCompleted
@@ -434,6 +435,21 @@ func (s *Service) Client() ChannelClient {
 		return nil
 	}
 	return s.client
+}
+
+// OnEvent registers a callback for live events across all default in-process
+// sessions.
+func (s *Service) OnEvent(ctx context.Context, fn func(Event)) (func(), error) {
+	if s == nil || s.client == nil {
+		return func() {}, fmt.Errorf("fluxplane: service is nil")
+	}
+	watcher, ok := s.client.(interface {
+		OnEvent(context.Context, func(clientapi.Event)) (func(), error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("fluxplane: live event subscription is unavailable")
+	}
+	return watcher.OnEvent(ctx, fn)
 }
 
 // Open opens or creates a session through the default in-process channel.

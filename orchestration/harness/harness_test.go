@@ -100,6 +100,42 @@ sawOutbound:
 	}
 }
 
+func TestSubscribeAllReceivesEventsAcrossThreads(t *testing.T) {
+	ctx := context.Background()
+	service, _ := testService(t)
+	events, cancel, err := service.SubscribeAll(ctx, clientapi.EventOptions{Buffer: 16})
+	if err != nil {
+		t.Fatalf("SubscribeAll: %v", err)
+	}
+	defer cancel()
+
+	for _, conversation := range []string{"conv-global-1", "conv-global-2"} {
+		if _, err := service.HandleInbound(ctx, channel.Inbound{
+			Channel:      channel.Ref{Name: "local"},
+			Conversation: channel.ConversationRef{ID: conversation},
+			Caller:       policy.Caller{Kind: policy.CallerUser},
+			Trust:        policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
+			Kind:         channel.InboundCommand,
+			Command:      &command.Invocation{Path: command.Path{"echo"}, Input: conversation},
+		}); err != nil {
+			t.Fatalf("HandleInbound %s: %v", conversation, err)
+		}
+	}
+
+	seen := map[corethread.ID]bool{}
+	deadline := time.After(time.Second)
+	for len(seen) < 2 {
+		select {
+		case event := <-events:
+			if event.Kind == clientapi.EventSubmissionReceived && event.Session.Thread.ID != "" {
+				seen[event.Session.Thread.ID] = true
+			}
+		case <-deadline:
+			t.Fatalf("saw submissions for %d threads, want 2", len(seen))
+		}
+	}
+}
+
 func TestHandleInboundCommandLineParsesBeforeRouting(t *testing.T) {
 	ctx := context.Background()
 	service, _ := testService(t)

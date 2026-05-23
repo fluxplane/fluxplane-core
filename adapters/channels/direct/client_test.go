@@ -364,6 +364,30 @@ func TestRunWaitDoesNotBlockWhenEventsAreUndrained(t *testing.T) {
 	}
 }
 
+func TestWaitForRunEventForwardingCancelsAfterGrace(t *testing.T) {
+	previous := runEventForwardGrace
+	runEventForwardGrace = 10 * time.Millisecond
+	defer func() { runEventForwardGrace = previous }()
+
+	forwardDone := make(chan struct{})
+	cancelled := make(chan struct{})
+	go func() {
+		<-cancelled
+		close(forwardDone)
+	}()
+
+	start := time.Now()
+	waitForRunEventForwarding(forwardDone, func() { close(cancelled) })
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("waitForRunEventForwarding took %s, want bounded wait", elapsed)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("cancel was not called after grace timeout")
+	}
+}
+
 func TestRunHandleEmitAfterEventsClosedDoesNotPanic(t *testing.T) {
 	run := newRunHandle(clientapi.SessionInfo{}, clientapi.NewSubmission().WithText("hello"))
 	run.closeEvents()

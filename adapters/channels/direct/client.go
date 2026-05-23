@@ -10,11 +10,17 @@ import (
 
 	"github.com/fluxplane/engine/core/channel"
 	"github.com/fluxplane/engine/core/policy"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	clientapi "github.com/fluxplane/engine/orchestration/client"
 	"github.com/fluxplane/engine/orchestration/harness"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)
+
+// runEventForwardGrace bounds the post-result drain of live run events. The
+// harness call has already returned at this point, so a missed completion event
+// must not keep direct REPL clients blocked forever.
+var runEventForwardGrace = 5 * time.Second
 
 // Client is a channel client that talks to a harness in-process.
 type Client struct {
@@ -54,6 +60,42 @@ func New(cfg Config) (*Client, error) {
 		channel: cfg.Channel,
 		caller:  cfg.Caller,
 		trust:   cfg.Trust,
+	}, nil
+}
+
+// OnEvent registers a callback for live events across all direct sessions.
+func (c *Client) OnEvent(ctx context.Context, fn func(clientapi.Event)) (func(), error) {
+	if c == nil || c.service == nil {
+		return func() {}, fmt.Errorf("directchannel: client is nil")
+	}
+	if fn == nil {
+		return func() {}, fmt.Errorf("directchannel: event callback is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	events, cancel, err := c.service.SubscribeAll(ctx, clientapi.EventOptions{Buffer: clientapi.DefaultRunEventBuffer})
+	if err != nil {
+		return cancel, err
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case event, ok := <-events:
+				if !ok {
+					return
+				}
+				fn(event)
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
 	}, nil
 }
 
@@ -288,7 +330,7 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 		if forwardDone != nil {
 			if waitForForward {
 				close(r.done)
-				<-forwardDone
+				waitForRunEventForwarding(forwardDone, cancel)
 			} else {
 				if cancel != nil {
 					cancel()
@@ -392,10 +434,57 @@ func (r *runHandle) execute(ctx context.Context, service *harness.Service, info 
 			Outbound:   result.Outbound,
 		}, nil)
 		waitForForward = true
-	case clientapi.SubmissionEvent, clientapi.SubmissionTrigger:
+	case clientapi.SubmissionTrigger:
+		result, err := service.HandleSessionInbound(ctx, toHarnessSessionInfo(info), channel.Inbound{
+			ID:           string(r.id),
+			Channel:      info.Channel,
+			Conversation: info.Conversation,
+			Caller:       r.submission.Caller,
+			Trust:        r.submission.Trust,
+			Kind:         channel.InboundTrigger,
+			Trigger: &coretrigger.Event{
+				Name:     r.submission.Trigger.Name,
+				Source:   r.submission.Trigger.Source,
+				Payload:  r.submission.Trigger.Payload,
+				Actions:  r.submission.Trigger.Actions,
+				Metadata: r.submission.Trigger.Metadata,
+			},
+		})
+		if err != nil {
+			r.fail(info, err)
+			return
+		}
+		r.setResult(clientapi.Result{
+			RunID:      r.id,
+			Session:    info,
+			Submission: r.submission,
+			Trigger:    &result.Trigger,
+		}, nil)
+		waitForForward = true
+	case clientapi.SubmissionEvent:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is not supported yet", r.submission.Kind))
 	default:
 		r.fail(info, fmt.Errorf("directchannel: submission kind %q is invalid", r.submission.Kind))
+	}
+}
+
+func waitForRunEventForwarding(forwardDone <-chan struct{}, cancel func()) {
+	if forwardDone == nil {
+		return
+	}
+	if runEventForwardGrace <= 0 {
+		<-forwardDone
+		return
+	}
+	timer := time.NewTimer(runEventForwardGrace)
+	defer timer.Stop()
+	select {
+	case <-forwardDone:
+	case <-timer.C:
+		if cancel != nil {
+			cancel()
+		}
+		<-forwardDone
 	}
 }
 

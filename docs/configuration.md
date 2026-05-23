@@ -759,8 +759,14 @@ steps:
   - id: summarize
     operation: summarize
     depends-on: [fetch]
+    input_map:
+      page: fetch
+      request: $input
     error-policy: continue
 ```
+
+`input_map` builds the step input from earlier workflow values. Use `$input` for
+the workflow input and a prior step id, such as `fetch`, for that step's output.
 
 ### Skills
 

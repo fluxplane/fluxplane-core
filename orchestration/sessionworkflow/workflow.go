@@ -3,6 +3,7 @@ package sessionworkflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -196,6 +197,15 @@ func runAgentStep(ctx context.Context, cfg Config, runID string, step coreworkfl
 func agentTask(step coreworkflow.Step, input operation.Value) string {
 	if text, ok := input.(string); ok && strings.TrimSpace(text) != "" {
 		return strings.TrimSpace(text)
+	}
+	if input != nil {
+		if data, err := json.MarshalIndent(input, "", "  "); err == nil && len(data) > 0 {
+			if step.ID != "" {
+				return "Run workflow step " + string(step.ID) + " with this input:\n" + string(data)
+			}
+			return "Run workflow step with this input:\n" + string(data)
+		}
+		return fmt.Sprintf("%v", input)
 	}
 	if step.ID != "" {
 		return "Run workflow step " + string(step.ID)

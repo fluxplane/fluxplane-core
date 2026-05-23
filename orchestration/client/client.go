@@ -11,6 +11,7 @@ import (
 	"github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/engine/core/reaction"
 	coresession "github.com/fluxplane/engine/core/session"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/orchestration/session"
@@ -260,10 +261,11 @@ func (i Input) ContentOrText() any {
 // watcher notification. Concrete timer/fs implementations belong outside this
 // package.
 type Trigger struct {
-	Name     string         `json:"name"`
-	Source   string         `json:"source,omitempty"`
-	Payload  any            `json:"payload,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Name     string            `json:"name"`
+	Source   string            `json:"source,omitempty"`
+	Payload  any               `json:"payload,omitempty"`
+	Actions  []reaction.Action `json:"actions,omitempty"`
+	Metadata map[string]any    `json:"metadata,omitempty"`
 }
 
 // Validate checks that the submission carries exactly the payload required by
@@ -343,6 +345,7 @@ const (
 	EventSubmissionReceived EventKind = "submission.received"
 	EventInputCompleted     EventKind = "input.completed"
 	EventCommandCompleted   EventKind = "command.completed"
+	EventTriggerCompleted   EventKind = "trigger.completed"
 	EventAgentStepCompleted EventKind = "agent_step.completed"
 	EventOperationRequested EventKind = "operation.requested"
 	EventOperationCompleted EventKind = "operation.completed"
@@ -382,6 +385,7 @@ type Event struct {
 	Submission *Submission            `json:"submission,omitempty"`
 	Input      *session.InputResult   `json:"input,omitempty"`
 	Command    *session.CommandResult `json:"command,omitempty"`
+	Trigger    *session.TriggerResult `json:"trigger,omitempty"`
 	Agent      *agent.StepResult      `json:"agent,omitempty"`
 	Operation  *OperationEvent        `json:"operation,omitempty"`
 	Outbound   *channel.Outbound      `json:"outbound,omitempty"`
@@ -403,6 +407,7 @@ type Result struct {
 	Submission Submission               `json:"submission"`
 	Input      *session.InputResult     `json:"input,omitempty"`
 	Command    *session.CommandResult   `json:"command,omitempty"`
+	Trigger    *session.TriggerResult   `json:"trigger,omitempty"`
 	Operation  *session.OperationResult `json:"operation,omitempty"`
 	Outbound   *channel.Outbound        `json:"outbound,omitempty"`
 }

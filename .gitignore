@@ -19,3 +19,6 @@ dist/
 .idea
 .work
 .claude
+TODO.md
+.agents/designs/
+.agents/index/

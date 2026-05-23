@@ -14,6 +14,7 @@ func RegisterEvents(registry *event.Registry) error {
 	for _, sample := range []event.Event{
 		InputReceived{},
 		CommandReceived{},
+		TriggerReceived{},
 		CommandRejected{},
 		AgentStepCompleted{},
 		OperationRequested{},

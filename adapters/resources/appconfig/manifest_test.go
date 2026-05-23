@@ -491,6 +491,16 @@ daemon:
         allow_kinds: [dm, mention, thread_reply]
         default_trust: public
         sharing: strict
+  triggers:
+    - name: nightly-summary
+      kind: schedule
+      schedule:
+        every: 1h
+      session: slack-main
+      actions:
+        - kind: run_workflow
+          workflow:
+            name: feature
 ---
 kind: session
 name: slack-main
@@ -555,6 +565,12 @@ system: |
 	}
 	if file.Daemon.Channels[0].Instance != "slack-bot" {
 		t.Fatalf("channel instance = %q, want slack-bot", file.Daemon.Channels[0].Instance)
+	}
+	if len(file.Daemon.Triggers) != 1 || file.Daemon.Triggers[0].Name != "nightly-summary" {
+		t.Fatalf("triggers = %#v, want nightly-summary", file.Daemon.Triggers)
+	}
+	if len(file.Daemon.Triggers[0].Actions) != 1 || file.Daemon.Triggers[0].Actions[0].Workflow.Name != "feature" {
+		t.Fatalf("trigger actions = %#v, want feature workflow", file.Daemon.Triggers[0].Actions)
 	}
 }
 
@@ -737,6 +753,32 @@ actions:
 	}
 	if len(file.Bundle.Reactions) != 1 || file.Bundle.Reactions[0].Name != "kubernetes-available" {
 		t.Fatalf("reactions = %#v", file.Bundle.Reactions)
+	}
+}
+
+func TestDecodeFileMapsWorkflowConditionStepID(t *testing.T) {
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: workflow
+name: health
+steps:
+  - id: classify
+    operation: echo
+  - id: notify
+    operation: echo
+    depends_on: [classify]
+    when:
+      step_id: classify
+      equals: ACTION_NEEDED
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Workflows) != 1 || len(file.Bundle.Workflows[0].Steps) != 2 {
+		t.Fatalf("workflows = %#v", file.Bundle.Workflows)
+	}
+	when := file.Bundle.Workflows[0].Steps[1].When
+	if when.StepID != "classify" || when.Equals != "ACTION_NEEDED" {
+		t.Fatalf("when = %#v, want step_id classify equals ACTION_NEEDED", when)
 	}
 }
 

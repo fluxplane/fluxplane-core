@@ -35,6 +35,7 @@ import (
 	coretask "github.com/fluxplane/engine/core/task"
 	corethread "github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/core/tool"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	"github.com/fluxplane/engine/core/user"
 	"github.com/fluxplane/engine/orchestration/security"
 	"github.com/fluxplane/engine/orchestration/sessionagent"
@@ -351,6 +352,23 @@ type InputResult struct {
 	Error    *CommandError              `json:"error,omitempty"`
 }
 
+// TriggerStatus classifies the outcome of trigger dispatch.
+type TriggerStatus string
+
+const (
+	TriggerStatusOK     TriggerStatus = "ok"
+	TriggerStatusFailed TriggerStatus = "failed"
+)
+
+// TriggerResult is the structured outcome of daemon trigger dispatch.
+type TriggerResult struct {
+	Status       TriggerStatus              `json:"status"`
+	Trigger      coretrigger.Event          `json:"trigger"`
+	Effects      []environment.EffectResult `json:"effects,omitempty"`
+	Observations []coreevidence.Observation `json:"observations,omitempty"`
+	Error        *CommandError              `json:"error,omitempty"`
+}
+
 // OperationStatus classifies the outcome of direct operation dispatch.
 type OperationStatus string
 
@@ -377,6 +395,62 @@ type inputExecutionOptions struct {
 // input to the configured agent.
 func (s Session) ExecuteInboundInput(ctx context.Context, inbound channel.Inbound) InputResult {
 	return s.executeInboundInput(ctx, inbound, inputExecutionOptions{})
+}
+
+// ExecuteInboundTrigger dispatches a daemon trigger through reaction planning
+// without calling the conversational agent.
+func (s Session) ExecuteInboundTrigger(ctx context.Context, inbound channel.Inbound) TriggerResult {
+	if err := inbound.Validate(); err != nil {
+		return triggerFailed(coretrigger.Event{}, "invalid_trigger_inbound", err.Error(), nil)
+	}
+	if inbound.Kind != channel.InboundTrigger || inbound.Trigger == nil {
+		return triggerFailed(coretrigger.Event{}, "invalid_trigger_inbound", "inbound envelope does not contain a trigger", nil)
+	}
+	trigger := *inbound.Trigger
+	if err := s.appendThreadEvents(ctx, sessionenv.TriggerReceived{
+		RunID:        inbound.ID,
+		Trigger:      trigger,
+		Channel:      inbound.Channel,
+		Conversation: inbound.Conversation,
+		Caller:       inbound.Caller,
+		Trust:        inbound.Trust,
+	}); err != nil {
+		return triggerFailed(trigger, "thread_append_failed", err.Error(), nil)
+	}
+	reactions, err := s.replayReactionEvents(ctx)
+	if err != nil {
+		return triggerFailed(trigger, "reaction_replay_failed", err.Error(), nil)
+	}
+	if surface, err := s.surfaceReadModel(ctx); err == nil && surface.Active.Lifetime != "" {
+		reactions.Active = mergeActiveState(reactions.Active, s.activeStateFromSurface(surface.Active))
+	}
+	events := s.eventSink()
+	var effects []environment.EffectResult
+	observations := append([]coreevidence.Observation(nil), s.StartupObservations...)
+	assertions := append([]coreevidence.Assertion(nil), s.StartupAssertions...)
+	if s.shouldRunSessionOpenPhase(ctx) {
+		observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseSessionOpen, observations, assertions)
+		var reactionEffects []environment.EffectResult
+		reactions, observations, reactionEffects = s.applyTurnReactions(ctx, inbound, assertions, reactions, observations, events)
+		effects = append(effects, reactionEffects...)
+	}
+	triggerObservation, triggerAssertion := triggerEvidence(inbound.ID, inbound.Channel, inbound.Conversation, trigger)
+	observations = append(observations, triggerObservation)
+	assertions = append(assertions, triggerAssertion)
+	observations, assertions = s.prepareEnvironmentPhase(ctx, coreevidence.PhaseTurn, observations, assertions)
+	triggerSession := s
+	if len(trigger.Actions) > 0 {
+		triggerSession.ReactionRules = append(append([]corereaction.Rule(nil), s.ReactionRules...), triggerReactionRule(trigger))
+	}
+	var reactionEffects []environment.EffectResult
+	reactions, observations, reactionEffects = triggerSession.applyTurnReactions(ctx, inbound, assertions, reactions, observations, events)
+	effects = append(effects, reactionEffects...)
+	return TriggerResult{
+		Status:       TriggerStatusOK,
+		Trigger:      trigger,
+		Effects:      effects,
+		Observations: observations,
+	}
 }
 
 func (s Session) executeInboundInput(ctx context.Context, inbound channel.Inbound, opts inputExecutionOptions) InputResult {
@@ -1231,6 +1305,68 @@ func inputObservationMetadata(inbound channel.Inbound) map[string]any {
 	return out
 }
 
+func triggerEvidence(runID string, ch channel.Ref, conversation channel.ConversationRef, trigger coretrigger.Event) (coreevidence.Observation, coreevidence.Assertion) {
+	metadata := map[string]any{}
+	for key, value := range trigger.Metadata {
+		metadata[key] = value
+	}
+	if ch.Name != "" {
+		metadata["channel"] = string(ch.Name)
+	}
+	if conversation.ID != "" {
+		metadata["conversation"] = conversation.ID
+	}
+	if trigger.Source != "" {
+		metadata["source"] = trigger.Source
+	}
+	if runID != "" {
+		metadata["run_id"] = runID
+	}
+	observationID := "trigger:" + trigger.Name
+	if runID != "" {
+		observationID += ":" + runID
+	}
+	observation := coreevidence.Observation{
+		ID:       observationID,
+		Source:   firstNonEmpty(trigger.Source, "trigger"),
+		Kind:     "trigger.received",
+		Content:  trigger.Payload,
+		Metadata: metadata,
+		At:       time.Now().UTC(),
+	}
+	assertion := coreevidence.Assertion{
+		Kind:   "trigger.received",
+		Target: trigger.Name,
+		Subject: coreevidence.Subject{
+			Kind: coreevidence.SubjectTrigger,
+			Name: trigger.Name,
+		},
+		Source:         firstNonEmpty(trigger.Source, "trigger"),
+		Confidence:     1,
+		ObservationIDs: []string{observation.ID},
+		Metadata: map[string]string{
+			"run_id": runID,
+		},
+	}
+	return observation, assertion
+}
+
+func triggerReactionRule(trigger coretrigger.Event) corereaction.Rule {
+	return corereaction.Rule{
+		Name: "trigger." + trigger.Name,
+		Mode: corereaction.ModeEveryTurn,
+		When: corereaction.Matcher{
+			Assertion: "trigger.received",
+			Target:    trigger.Name,
+			Subject: coreevidence.Subject{
+				Kind: coreevidence.SubjectTrigger,
+				Name: trigger.Name,
+			},
+		},
+		Actions: append([]corereaction.Action(nil), trigger.Actions...),
+	}
+}
+
 func (s Session) shouldRunSessionOpenPhase(ctx context.Context) bool {
 	if s.ThreadStore == nil || s.Thread.ID == "" {
 		return true
@@ -1242,7 +1378,7 @@ func (s Session) shouldRunSessionOpenPhase(ctx context.Context) bool {
 	inboundEvents := 0
 	for _, record := range snapshot.Events {
 		switch record.Event.Name {
-		case coresession.EventInputReceived, coresession.EventCommandReceived:
+		case coresession.EventInputReceived, coresession.EventCommandReceived, coresession.EventTriggerReceived:
 			inboundEvents++
 		}
 	}
@@ -5659,6 +5795,14 @@ func operationFailed(code, message string, details map[string]any) OperationResu
 	return OperationResult{
 		Status: OperationStatusFailed,
 		Error:  &CommandError{Code: code, Message: message, Details: details},
+	}
+}
+
+func triggerFailed(trigger coretrigger.Event, code, message string, details map[string]any) TriggerResult {
+	return TriggerResult{
+		Status:  TriggerStatusFailed,
+		Trigger: trigger,
+		Error:   &CommandError{Code: code, Message: message, Details: details},
 	}
 }
 

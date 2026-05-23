@@ -18,6 +18,7 @@ import (
 	"github.com/fluxplane/engine/core/policy"
 	"github.com/fluxplane/engine/core/resource"
 	coresession "github.com/fluxplane/engine/core/session"
+	coretrigger "github.com/fluxplane/engine/core/trigger"
 	"github.com/fluxplane/engine/orchestration/distribution"
 )
 
@@ -337,6 +338,7 @@ func launchConfig(file appconfig.File) distribution.LaunchConfig {
 	return distribution.LaunchConfig{
 		Listeners: listeners(file.Daemon.Listeners),
 		Channels:  channels(file.Daemon.Channels),
+		Triggers:  append([]coretrigger.Spec(nil), file.Daemon.Triggers...),
 		Workspace: workspace(file.Runtime.Workspace),
 		Data:      dataConfig(file.Runtime.Data),
 		Events:    eventsConfig(file.Runtime.Events),

@@ -79,6 +79,48 @@ func TestServiceSubmitCommandThroughTopLevelAPI(t *testing.T) {
 	assertRunEvent(t, run, fluxplane.EventCommandCompleted)
 }
 
+func TestServiceOnEventReceivesDefaultSessionEvents(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	events := make(chan fluxplane.Event, 8)
+	cancel, err := svc.OnEvent(ctx, func(event fluxplane.Event) {
+		events <- event
+	})
+	if err != nil {
+		t.Fatalf("OnEvent: %v", err)
+	}
+	defer cancel()
+
+	sessionHandle, err := svc.Open(ctx, fluxplane.OpenRequest{
+		Conversation: channel.ConversationRef{ID: "conv-service-events"},
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	run, err := sessionHandle.Submit(ctx, fluxplane.NewSubmission().WithCommand(command.Invocation{
+		Path:  command.Path{"echo"},
+		Input: "hello",
+	}))
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if _, err := run.Wait(ctx); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Kind == fluxplane.EventCommandCompleted {
+				return
+			}
+		case <-deadline:
+			t.Fatal("expected command completion event")
+		}
+	}
+}
+
 func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	ctx := context.Background()
 	agentRuntime := &toolCaptureAgent{}
