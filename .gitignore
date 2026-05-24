@@ -22,3 +22,4 @@ dist/
 TODO.md
 .agents/designs/
 .agents/index/
+*.iml
