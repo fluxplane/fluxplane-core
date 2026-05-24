@@ -12,6 +12,7 @@ import (
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
 	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/engine/runtime/data"
 	"github.com/fluxplane/engine/runtime/datasource/semantic"
 )
@@ -52,6 +53,20 @@ func TestSearchAllowsFilterOnlyRequestWithExplicitEntities(t *testing.T) {
 	})
 	if result.Status != operation.StatusOK {
 		t.Fatalf("search status = %s error=%#v, want ok", result.Status, result.Error)
+	}
+}
+
+func TestConfigSchemaContributionsExposeCatalogDatasource(t *testing.T) {
+	bundle, err := New(nil).ConfigSchemaContributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("ConfigSchemaContributions: %v", err)
+	}
+	if len(bundle.Datasources) != 1 {
+		t.Fatalf("datasources = %#v, want catalog datasource", bundle.Datasources)
+	}
+	spec := bundle.Datasources[0]
+	if spec.Name != coredatasource.Name(Name) || spec.Kind != "synthetic" {
+		t.Fatalf("datasource spec = %#v, want synthetic datasource catalog", spec)
 	}
 }
 

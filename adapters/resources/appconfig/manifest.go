@@ -155,150 +155,30 @@ func DecodeFile(path string, data []byte) (File, error) {
 	if len(docs) == 0 {
 		return File{}, fmt.Errorf("appconfig: manifest is empty")
 	}
+	state := manifestDecodeState{
+		Bundle:       &bundle,
+		Distribution: &distribution,
+		Runtime:      &runtime,
+		Daemon:       &daemon,
+	}
+	registry := manifestDocumentRegistry()
 	for i, doc := range docs {
-		kind := strings.TrimSpace(documentKind(doc))
-		if i == 0 && (kind == "" || kind == "app") {
-			if err := validateYAMLNode[Manifest](doc); err != nil {
-				return File{}, fmt.Errorf("appconfig: validate app document schema: %w", err)
-			}
-			var manifest Manifest
-			if err := doc.Decode(&manifest); err != nil {
-				return File{}, fmt.Errorf("appconfig: decode app document: %w", err)
-			}
-			spec := manifest.Spec()
-			if err := spec.Validate(); err != nil {
-				return File{}, fmt.Errorf("appconfig: validate manifest: %w", err)
-			}
-			bundle.Apps = append(bundle.Apps, spec)
-			for _, plugin := range spec.Plugins {
-				bundle.Plugins = append(bundle.Plugins, resource.PluginRef{
-					Name:     plugin.Kind,
-					Instance: plugin.Instance,
-					Config:   cloneMap(plugin.Config),
-				})
-			}
-			for _, ds := range manifest.Datasource.Datasources {
-				bundle.Datasources = append(bundle.Datasources, ds.Spec())
-			}
-			for i, raw := range manifest.Commands {
-				spec, err := raw.Spec()
-				if err != nil {
-					return File{}, fmt.Errorf("appconfig: validate commands[%d]: %w", i, err)
-				}
-				bundle.Commands = append(bundle.Commands, spec)
-			}
-			for i, raw := range manifest.Workflows {
-				spec, err := raw.Spec()
-				if err != nil {
-					return File{}, fmt.Errorf("appconfig: validate workflows[%d]: %w", i, err)
-				}
-				bundle.Workflows = append(bundle.Workflows, spec)
-			}
-			for i, raw := range manifest.Operations {
-				spec, err := raw.Spec()
-				if err != nil {
-					return File{}, fmt.Errorf("appconfig: validate operations[%d]: %w", i, err)
-				}
-				bundle.Operations = append(bundle.Operations, spec)
-			}
-			bundle.Observers = append(bundle.Observers, manifest.Observations.Observers...)
-			bundle.AssertionDerivers = append(bundle.AssertionDerivers, manifest.Observations.AssertionDerivers...)
-			for i, rule := range manifest.Reactions {
-				if err := rule.Validate(); err != nil {
-					return File{}, fmt.Errorf("appconfig: validate reactions[%d]: %w", i, err)
-				}
-				bundle.Reactions = append(bundle.Reactions, rule)
-			}
-			models, err := manifest.Models.Contributions()
-			if err != nil {
-				return File{}, err
-			}
-			if err := validateModelReference(strings.TrimSpace(manifest.Models.Default), models, "models.default"); err != nil {
-				return File{}, err
-			}
-			if err := validateModelReference(strings.TrimSpace(manifest.Distribution.Deploy.Model), models, "distribution.deploy.model"); err != nil {
-				return File{}, err
-			}
-			modelProviders := mergeLLMProviders(manifest.LLMProviders, models.Providers)
-			for i, provider := range modelProviders {
-				if err := provider.Validate(); err != nil {
-					return File{}, fmt.Errorf("appconfig: validate llm_providers[%d]: %w", i, err)
-				}
-			}
-			bundle.LLMProviders = append(bundle.LLMProviders, modelProviders...)
-			bundle.LLMModelAliases = append(bundle.LLMModelAliases, models.Aliases...)
-			distribution = manifest.Distribution.Spec()
-			runtime = manifest.Runtime
-			daemon = manifest.Daemon
-			continue
+		kind := strings.TrimSpace(doc.Kind)
+		if i == 0 && kind == "" {
+			kind = "app"
 		}
-		switch kind {
-		case "agent":
-			spec, triggerResources, err := decodeAgentDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Agents = append(bundle.Agents, spec)
-			daemon.Triggers = append(daemon.Triggers, triggerResources.Triggers...)
-			bundle.Workflows = append(bundle.Workflows, triggerResources.Workflows...)
-		case "session":
-			spec, err := decodeSessionDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Sessions = append(bundle.Sessions, spec)
-		case "command":
-			spec, err := decodeCommandDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Commands = append(bundle.Commands, spec)
-		case "workflow":
-			spec, err := decodeWorkflowDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Workflows = append(bundle.Workflows, spec)
-		case "operation":
-			spec, err := decodeOperationDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Operations = append(bundle.Operations, spec)
-		case "datasource":
-			spec, err := decodeDatasourceDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Datasources = append(bundle.Datasources, spec)
-		case "observer":
-			spec, err := decodeObserverDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Observers = append(bundle.Observers, spec)
-		case "assertion_deriver":
-			spec, err := decodeAssertionDeriverDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.AssertionDerivers = append(bundle.AssertionDerivers, spec)
-		case "reaction":
-			spec, err := decodeReactionDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.Reactions = append(bundle.Reactions, spec)
-		case "llm_provider":
-			spec, err := decodeLLMProviderDoc(doc)
-			if err != nil {
-				return File{}, err
-			}
-			bundle.LLMProviders = append(bundle.LLMProviders, spec)
-		case "":
-			return File{}, fmt.Errorf("appconfig: document %d kind is empty", i+1)
-		default:
+		if kind == "" {
+			return File{}, fmt.Errorf("appconfig: document %d kind is empty", doc.Index)
+		}
+		if kind == "app" && i != 0 {
+			return File{}, fmt.Errorf("appconfig: app document must be first")
+		}
+		decoder, ok := registry[kind]
+		if !ok {
 			return File{}, fmt.Errorf("appconfig: unsupported document kind %q", kind)
+		}
+		if err := decoder(doc.Value, &state); err != nil {
+			return File{}, err
 		}
 	}
 	if len(bundle.Apps) == 0 && len(bundle.Sessions) == 0 {
@@ -307,6 +187,196 @@ func DecodeFile(path string, data []byte) (File, error) {
 		}
 	}
 	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon}, nil
+}
+
+type manifestDecodeState struct {
+	Bundle       *resource.ContributionBundle
+	Distribution *coredistribution.Spec
+	Runtime      *RuntimeConfig
+	Daemon       *DaemonConfig
+}
+
+type manifestDocumentDecoder func(any, *manifestDecodeState) error
+
+func manifestDocumentRegistry() map[string]manifestDocumentDecoder {
+	return map[string]manifestDocumentDecoder{
+		"app":               decodeAppDocument,
+		"agent":             decodeAgentDocument,
+		"session":           decodeSessionDocument,
+		"command":           decodeCommandDocument,
+		"workflow":          decodeWorkflowDocument,
+		"operation":         decodeOperationDocument,
+		"datasource":        decodeDatasourceDocument,
+		"observer":          decodeObserverDocument,
+		"assertion_deriver": decodeAssertionDeriverDocument,
+		"reaction":          decodeReactionDocument,
+		"llm_provider":      decodeLLMProviderDocument,
+	}
+}
+
+func decodeAppDocument(value any, state *manifestDecodeState) error {
+	var manifest Manifest
+	if err := decodeDocumentValue(value, &manifest); err != nil {
+		return fmt.Errorf("appconfig: decode app document: %w", err)
+	}
+	spec := manifest.Spec()
+	if err := spec.Validate(); err != nil {
+		return fmt.Errorf("appconfig: validate manifest: %w", err)
+	}
+	state.Bundle.Apps = append(state.Bundle.Apps, spec)
+	for _, plugin := range spec.Plugins {
+		state.Bundle.Plugins = append(state.Bundle.Plugins, resource.PluginRef{
+			Name:     plugin.Kind,
+			Instance: plugin.Instance,
+			Config:   cloneMap(plugin.Config),
+		})
+	}
+	for _, ds := range manifest.Datasource.Datasources {
+		state.Bundle.Datasources = append(state.Bundle.Datasources, ds.Spec())
+	}
+	for i, raw := range manifest.Commands {
+		spec, err := raw.Spec()
+		if err != nil {
+			return fmt.Errorf("appconfig: validate commands[%d]: %w", i, err)
+		}
+		state.Bundle.Commands = append(state.Bundle.Commands, spec)
+	}
+	for i, raw := range manifest.Workflows {
+		spec, err := raw.Spec()
+		if err != nil {
+			return fmt.Errorf("appconfig: validate workflows[%d]: %w", i, err)
+		}
+		state.Bundle.Workflows = append(state.Bundle.Workflows, spec)
+	}
+	for i, raw := range manifest.Operations {
+		spec, err := raw.Spec()
+		if err != nil {
+			return fmt.Errorf("appconfig: validate operations[%d]: %w", i, err)
+		}
+		state.Bundle.Operations = append(state.Bundle.Operations, spec)
+	}
+	state.Bundle.Observers = append(state.Bundle.Observers, manifest.Observations.Observers...)
+	state.Bundle.AssertionDerivers = append(state.Bundle.AssertionDerivers, manifest.Observations.AssertionDerivers...)
+	for i, rule := range manifest.Reactions {
+		if err := rule.Validate(); err != nil {
+			return fmt.Errorf("appconfig: validate reactions[%d]: %w", i, err)
+		}
+		state.Bundle.Reactions = append(state.Bundle.Reactions, rule)
+	}
+	models, err := manifest.Models.Contributions()
+	if err != nil {
+		return err
+	}
+	if err := validateModelReference(strings.TrimSpace(string(manifest.Models.Default)), models, "models.default"); err != nil {
+		return err
+	}
+	if err := validateModelReference(strings.TrimSpace(string(manifest.Distribution.Deploy.Model)), models, "distribution.deploy.model"); err != nil {
+		return err
+	}
+	modelProviders := mergeLLMProviders(manifest.LLMProviders, models.Providers)
+	for i, provider := range modelProviders {
+		if err := provider.Validate(); err != nil {
+			return fmt.Errorf("appconfig: validate llm_providers[%d]: %w", i, err)
+		}
+	}
+	state.Bundle.LLMProviders = append(state.Bundle.LLMProviders, modelProviders...)
+	state.Bundle.LLMModelAliases = append(state.Bundle.LLMModelAliases, models.Aliases...)
+	*state.Distribution = manifest.Distribution.Spec()
+	*state.Runtime = manifest.Runtime
+	*state.Daemon = manifest.Daemon
+	return nil
+}
+
+func decodeAgentDocument(value any, state *manifestDecodeState) error {
+	spec, triggerResources, err := decodeAgentDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Agents = append(state.Bundle.Agents, spec)
+	state.Daemon.Triggers = append(state.Daemon.Triggers, triggerResources.Triggers...)
+	state.Bundle.Workflows = append(state.Bundle.Workflows, triggerResources.Workflows...)
+	return nil
+}
+
+func decodeSessionDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeSessionDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Sessions = append(state.Bundle.Sessions, spec)
+	return nil
+}
+
+func decodeCommandDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeCommandDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Commands = append(state.Bundle.Commands, spec)
+	return nil
+}
+
+func decodeWorkflowDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeWorkflowDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Workflows = append(state.Bundle.Workflows, spec)
+	return nil
+}
+
+func decodeOperationDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeOperationDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Operations = append(state.Bundle.Operations, spec)
+	return nil
+}
+
+func decodeDatasourceDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeDatasourceDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Datasources = append(state.Bundle.Datasources, spec)
+	return nil
+}
+
+func decodeObserverDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeObserverDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Observers = append(state.Bundle.Observers, spec)
+	return nil
+}
+
+func decodeAssertionDeriverDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeAssertionDeriverDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.AssertionDerivers = append(state.Bundle.AssertionDerivers, spec)
+	return nil
+}
+
+func decodeReactionDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeReactionDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.Reactions = append(state.Bundle.Reactions, spec)
+	return nil
+}
+
+func decodeLLMProviderDocument(value any, state *manifestDecodeState) error {
+	spec, err := decodeLLMProviderDoc(value)
+	if err != nil {
+		return err
+	}
+	state.Bundle.LLMProviders = append(state.Bundle.LLMProviders, spec)
+	return nil
 }
 
 func manifestSource(path string) resource.SourceRef {
@@ -321,32 +391,89 @@ func manifestSource(path string) resource.SourceRef {
 	}
 }
 
-func decodeDocuments(data []byte) ([]yaml.Node, error) {
+type manifestDocument struct {
+	Index int
+	Kind  string
+	Value any
+}
+
+func decodeDocuments(data []byte) ([]manifestDocument, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	var docs []yaml.Node
+	var docs []manifestDocument
+	index := 0
 	for {
-		var doc yaml.Node
-		err := decoder.Decode(&doc)
+		var value any
+		err := decoder.Decode(&value)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
-		if len(doc.Content) == 0 {
+		if value == nil {
 			continue
 		}
-		docs = append(docs, *doc.Content[0])
+		index++
+		normalized, err := normalizeJSONValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("document %d: %w", index, err)
+		}
+		docs = append(docs, manifestDocument{
+			Index: index,
+			Kind:  documentKind(normalized),
+			Value: normalized,
+		})
 	}
 	return docs, nil
 }
 
-func validateYAMLNode[T any](node yaml.Node) error {
-	value, err := jsonValueFromYAMLNode(node)
+// ValidateManifestWithSchema validates every non-empty YAML document in a
+// manifest against a generated manifest JSON Schema.
+func ValidateManifestWithSchema(schemaData, manifestData []byte) error {
+	compiled, err := compileSchemaData(schemaData)
 	if err != nil {
 		return err
 	}
-	return validateJSONValue[T](value)
+	docs, err := decodeDocuments(manifestData)
+	if err != nil {
+		return fmt.Errorf("decode manifest: %w", err)
+	}
+	for _, doc := range docs {
+		if err := compiled.Validate(doc.Value); err != nil {
+			return fmt.Errorf("document %d schema validation failed: %w", doc.Index, err)
+		}
+	}
+	return nil
+}
+
+func decodeDocumentValue[T any](value any, out *T) error {
+	payload := documentPayloadValue(value)
+	if err := validateJSONValue[T](payload); err != nil {
+		return fmt.Errorf("validate schema: %w", err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal JSON value: %w", err)
+	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func documentPayloadValue(value any) any {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	out := make(map[string]any, len(raw))
+	for key, value := range raw {
+		if key == "kind" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func validateJSONValue[T any](value any) error {
@@ -358,22 +485,30 @@ func validateJSONValue[T any](value any) error {
 	if err != nil {
 		return err
 	}
-	var schemaValue any
-	if err := json.Unmarshal(schemaData, &schemaValue); err != nil {
-		return fmt.Errorf("decode schema resource: %w", err)
-	}
-	compiler := santhoshjsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
-		return fmt.Errorf("add schema resource: %w", err)
-	}
-	compiled, err := compiler.Compile("schema.json")
+	compiled, err := compileSchemaData(schemaData)
 	if err != nil {
-		return fmt.Errorf("compile schema: %w", err)
+		return err
 	}
 	if err := compiled.Validate(value); err != nil {
 		return fmt.Errorf("schema validation failed: %w", err)
 	}
 	return nil
+}
+
+func compileSchemaData(schemaData []byte) (*santhoshjsonschema.Schema, error) {
+	var schemaValue any
+	if err := json.Unmarshal(schemaData, &schemaValue); err != nil {
+		return nil, fmt.Errorf("decode schema resource: %w", err)
+	}
+	compiler := santhoshjsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
+		return nil, fmt.Errorf("add schema resource: %w", err)
+	}
+	compiled, err := compiler.Compile("schema.json")
+	if err != nil {
+		return nil, fmt.Errorf("compile schema: %w", err)
+	}
+	return compiled, nil
 }
 
 func normalizeJSONValue(value any) (any, error) {
@@ -411,28 +546,6 @@ func schemaDataFor[T any]() ([]byte, error) {
 		return nil, fmt.Errorf("marshal schema: %w", err)
 	}
 	return data, nil
-}
-
-func jsonValueFromYAMLNode(node yaml.Node) (any, error) {
-	if node.Kind == yaml.DocumentNode {
-		if len(node.Content) == 0 {
-			return nil, nil
-		}
-		node = *node.Content[0]
-	}
-	var decoded any
-	if err := node.Decode(&decoded); err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(decoded)
-	if err != nil {
-		return nil, fmt.Errorf("marshal JSON value: %w", err)
-	}
-	var out any
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("unmarshal JSON value: %w", err)
-	}
-	return out, nil
 }
 
 func (f File) Validate() error {
@@ -491,13 +604,8 @@ func (f File) Validate() error {
 	return nil
 }
 
-type kindDoc struct {
-	Kind string `json:"kind,omitempty" yaml:"kind,omitempty"`
-}
-
 // Manifest is the app manifest file shape accepted by this adapter.
 type Manifest struct {
-	Kind           string                     `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name           coreapp.Name               `json:"name,omitempty" yaml:"name,omitempty"`
 	Description    string                     `json:"description,omitempty" yaml:"description,omitempty"`
 	DefaultAgent   agentRef                   `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
@@ -786,8 +894,14 @@ type WorkspaceRootDoc struct {
 	EnvFiles []string        `json:"env_files,omitempty" yaml:"env_files,omitempty"`
 }
 
+type ModelSelector string
+
+func (ModelSelector) JSONSchema() *invjsonschema.Schema {
+	return &invjsonschema.Schema{Type: "string"}
+}
+
 type modelConfigDoc struct {
-	Default   string              `json:"default,omitempty" yaml:"default,omitempty"`
+	Default   ModelSelector       `json:"default,omitempty" yaml:"default,omitempty"`
 	Available []modelAvailableDoc `json:"available,omitempty" yaml:"available,omitempty"`
 }
 
@@ -1048,7 +1162,7 @@ func (d distributionDoc) Spec() coredistribution.Spec {
 		DefaultConversation: channel.ConversationRef{ID: strings.TrimSpace(d.DefaultConversation)},
 		DefaultModel: coredistribution.ModelDefault{
 			Provider: strings.TrimSpace(d.DefaultModel.Provider),
-			Model:    strings.TrimSpace(d.DefaultModel.Model),
+			Model:    strings.TrimSpace(string(d.DefaultModel.Model)),
 			UseCase:  strings.TrimSpace(d.DefaultModel.UseCase),
 		},
 		Surfaces: coredistribution.Surfaces{
@@ -1065,7 +1179,7 @@ func (d distributionDoc) Spec() coredistribution.Spec {
 			Assets: cleaned(d.Build.Assets),
 		},
 		Deploy: coredistribution.DeploySpec{
-			Model: strings.TrimSpace(d.Deploy.Model),
+			Model: strings.TrimSpace(string(d.Deploy.Model)),
 		},
 		Metadata: cloneStringMap(d.Metadata),
 	}
@@ -1087,9 +1201,9 @@ func (d distributionDoc) Spec() coredistribution.Spec {
 }
 
 type modelDefaultDoc struct {
-	Provider string `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model    string `json:"model,omitempty" yaml:"model,omitempty"`
-	UseCase  string `json:"use_case,omitempty" yaml:"use_case,omitempty"`
+	Provider string        `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model    ModelSelector `json:"model,omitempty" yaml:"model,omitempty"`
+	UseCase  string        `json:"use_case,omitempty" yaml:"use_case,omitempty"`
 }
 
 type surfacesDoc struct {
@@ -1109,7 +1223,7 @@ type buildDoc struct {
 }
 
 type deployDoc struct {
-	Model string `json:"model,omitempty" yaml:"model,omitempty"`
+	Model ModelSelector `json:"model,omitempty" yaml:"model,omitempty"`
 }
 
 type dockerBuildDoc struct {
@@ -1370,10 +1484,9 @@ func (SharingMode) JSONSchema() *invjsonschema.Schema {
 }
 
 type agentDoc struct {
-	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
-	Model       string            `json:"model,omitempty" yaml:"model,omitempty"`
+	Model       ModelSelector     `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxTokens   int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	Turns       turnsDoc          `json:"turns,omitempty" yaml:"turns,omitempty"`
 	Thinking    ThinkingMode      `json:"thinking,omitempty" yaml:"thinking,omitempty"`
@@ -1455,12 +1568,9 @@ func (d stopConditionDoc) Spec() agent.StopConditionSpec {
 	return out
 }
 
-func decodeAgentDoc(node yaml.Node) (agent.Spec, agentTriggerResources, error) {
-	if err := validateYAMLNode[agentDoc](node); err != nil {
-		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: validate agent document schema: %w", err)
-	}
+func decodeAgentDoc(value any) (agent.Spec, agentTriggerResources, error) {
 	var raw agentDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return agent.Spec{}, agentTriggerResources{}, fmt.Errorf("appconfig: decode agent document: %w", err)
 	}
 	spec := agent.Spec{
@@ -1468,7 +1578,7 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, agentTriggerResources, error) {
 		Description: strings.TrimSpace(raw.Description),
 		System:      strings.TrimSpace(raw.System),
 		Inference: agent.InferenceSpec{
-			Model:           strings.TrimSpace(raw.Model),
+			Model:           strings.TrimSpace(string(raw.Model)),
 			MaxOutputTokens: raw.MaxTokens,
 			Thinking:        strings.TrimSpace(string(raw.Thinking)),
 			ReasoningEffort: strings.TrimSpace(string(raw.Effort)),
@@ -1718,7 +1828,6 @@ func agentNameForTrigger(trigger coretrigger.Spec, agents []agent.Spec) agent.Na
 }
 
 type commandDoc struct {
-	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string            `json:"name" yaml:"name"`
 	Path        []string          `json:"path,omitempty" yaml:"path,omitempty"`
 	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
@@ -1738,12 +1847,9 @@ type commandTargetDoc struct {
 	Input     any    `json:"input,omitempty" yaml:"input,omitempty"`
 }
 
-func decodeCommandDoc(node yaml.Node) (command.Spec, error) {
-	if err := validateYAMLNode[commandDoc](node); err != nil {
-		return command.Spec{}, fmt.Errorf("appconfig: validate command document schema: %w", err)
-	}
+func decodeCommandDoc(value any) (command.Spec, error) {
 	var raw commandDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return command.Spec{}, fmt.Errorf("appconfig: decode command document: %w", err)
 	}
 	spec, err := raw.Spec()
@@ -1903,7 +2009,6 @@ func validateCommandSpec(spec command.Spec) error {
 }
 
 type workflowDoc struct {
-	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Version     string            `json:"version,omitempty" yaml:"version,omitempty"`
@@ -1928,12 +2033,9 @@ type workflowStepDoc struct {
 	IdempotencyKey string                   `json:"idempotency_key,omitempty" yaml:"idempotency_key,omitempty"`
 }
 
-func decodeWorkflowDoc(node yaml.Node) (workflow.Spec, error) {
-	if err := validateYAMLNode[workflowDoc](node); err != nil {
-		return workflow.Spec{}, fmt.Errorf("appconfig: validate workflow document schema: %w", err)
-	}
+func decodeWorkflowDoc(value any) (workflow.Spec, error) {
 	var raw workflowDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return workflow.Spec{}, fmt.Errorf("appconfig: decode workflow document: %w", err)
 	}
 	spec, err := raw.Spec()
@@ -2000,7 +2102,6 @@ func (d workflowStepDoc) Step() (workflow.Step, error) {
 }
 
 type operationDoc struct {
-	Kind        string              `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string              `json:"name,omitempty" yaml:"name,omitempty"`
 	Ref         operation.Ref       `json:"ref,omitempty" yaml:"ref,omitempty"`
 	Description string              `json:"description,omitempty" yaml:"description,omitempty"`
@@ -2011,12 +2112,9 @@ type operationDoc struct {
 	Annotations map[string]string   `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
-func decodeOperationDoc(node yaml.Node) (operation.Spec, error) {
-	if err := validateYAMLNode[operationDoc](node); err != nil {
-		return operation.Spec{}, fmt.Errorf("appconfig: validate operation document schema: %w", err)
-	}
+func decodeOperationDoc(value any) (operation.Spec, error) {
 	var raw operationDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return operation.Spec{}, fmt.Errorf("appconfig: decode operation document: %w", err)
 	}
 	spec, err := raw.Spec()
@@ -2046,12 +2144,9 @@ func (d operationDoc) Spec() (operation.Spec, error) {
 	return spec, nil
 }
 
-func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
-	if err := validateYAMLNode[DatasourceDoc](node); err != nil {
-		return coredatasource.Spec{}, fmt.Errorf("appconfig: validate datasource document schema: %w", err)
-	}
+func decodeDatasourceDoc(value any) (coredatasource.Spec, error) {
 	var raw DatasourceDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return coredatasource.Spec{}, fmt.Errorf("appconfig: decode datasource document: %w", err)
 	}
 	spec := raw.Spec()
@@ -2061,12 +2156,9 @@ func decodeDatasourceDoc(node yaml.Node) (coredatasource.Spec, error) {
 	return spec, nil
 }
 
-func decodeObserverDoc(node yaml.Node) (coreevidence.ObserverSpec, error) {
-	if err := validateYAMLNode[observerDoc](node); err != nil {
-		return coreevidence.ObserverSpec{}, fmt.Errorf("appconfig: validate observer document schema: %w", err)
-	}
+func decodeObserverDoc(value any) (coreevidence.ObserverSpec, error) {
 	var raw observerDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return coreevidence.ObserverSpec{}, fmt.Errorf("appconfig: decode observer document: %w", err)
 	}
 	spec := raw.Spec()
@@ -2076,12 +2168,9 @@ func decodeObserverDoc(node yaml.Node) (coreevidence.ObserverSpec, error) {
 	return spec, nil
 }
 
-func decodeAssertionDeriverDoc(node yaml.Node) (coreevidence.AssertionDeriverSpec, error) {
-	if err := validateYAMLNode[assertionDeriverDoc](node); err != nil {
-		return coreevidence.AssertionDeriverSpec{}, fmt.Errorf("appconfig: validate assertion_deriver document schema: %w", err)
-	}
+func decodeAssertionDeriverDoc(value any) (coreevidence.AssertionDeriverSpec, error) {
 	var raw assertionDeriverDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return coreevidence.AssertionDeriverSpec{}, fmt.Errorf("appconfig: decode assertion_deriver document: %w", err)
 	}
 	spec := raw.Spec()
@@ -2091,12 +2180,9 @@ func decodeAssertionDeriverDoc(node yaml.Node) (coreevidence.AssertionDeriverSpe
 	return spec, nil
 }
 
-func decodeReactionDoc(node yaml.Node) (corereaction.Rule, error) {
-	if err := validateYAMLNode[reactionDoc](node); err != nil {
-		return corereaction.Rule{}, fmt.Errorf("appconfig: validate reaction document schema: %w", err)
-	}
+func decodeReactionDoc(value any) (corereaction.Rule, error) {
 	var raw reactionDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return corereaction.Rule{}, fmt.Errorf("appconfig: decode reaction document: %w", err)
 	}
 	spec := raw.Spec()
@@ -2107,7 +2193,6 @@ func decodeReactionDoc(node yaml.Node) (corereaction.Rule, error) {
 }
 
 type observerDoc struct {
-	Kind            string                        `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name            string                        `json:"name" yaml:"name"`
 	Description     string                        `json:"description,omitempty" yaml:"description,omitempty"`
 	Environment     coreevidence.Ref              `json:"environment,omitempty" yaml:"environment,omitempty"`
@@ -2132,7 +2217,6 @@ func (d observerDoc) Spec() coreevidence.ObserverSpec {
 }
 
 type assertionDeriverDoc struct {
-	Kind             string                           `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name             string                           `json:"name" yaml:"name"`
 	Description      string                           `json:"description,omitempty" yaml:"description,omitempty"`
 	ObservationKinds []string                         `json:"observation_kinds,omitempty" yaml:"observation_kinds,omitempty"`
@@ -2151,7 +2235,6 @@ func (d assertionDeriverDoc) Spec() coreevidence.AssertionDeriverSpec {
 }
 
 type reactionDoc struct {
-	Kind        string                `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string                `json:"name" yaml:"name"`
 	Mode        corereaction.Mode     `json:"mode,omitempty" yaml:"mode,omitempty"`
 	When        corereaction.Matcher  `json:"when" yaml:"when"`
@@ -2172,7 +2255,6 @@ func (d reactionDoc) Spec() corereaction.Rule {
 }
 
 type llmProviderDoc struct {
-	Kind        string               `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        corellm.ProviderName `json:"name" yaml:"name"`
 	DisplayName string               `json:"display_name,omitempty" yaml:"display_name,omitempty"`
 	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
@@ -2190,12 +2272,9 @@ func (d llmProviderDoc) Spec() corellm.ProviderSpec {
 	}
 }
 
-func decodeLLMProviderDoc(node yaml.Node) (corellm.ProviderSpec, error) {
-	if err := validateYAMLNode[llmProviderDoc](node); err != nil {
-		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: validate llm provider document schema: %w", err)
-	}
+func decodeLLMProviderDoc(value any) (corellm.ProviderSpec, error) {
 	var raw llmProviderDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return corellm.ProviderSpec{}, fmt.Errorf("appconfig: decode llm provider document: %w", err)
 	}
 	spec := raw.Spec()
@@ -2206,7 +2285,6 @@ func decodeLLMProviderDoc(node yaml.Node) (corellm.ProviderSpec, error) {
 }
 
 type sessionDoc struct {
-	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty"`
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Agent       string            `json:"agent,omitempty" yaml:"agent,omitempty"`
@@ -2214,12 +2292,9 @@ type sessionDoc struct {
 	Metadata    map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 }
 
-func decodeSessionDoc(node yaml.Node) (coresession.Spec, error) {
-	if err := validateYAMLNode[sessionDoc](node); err != nil {
-		return coresession.Spec{}, fmt.Errorf("appconfig: validate session document schema: %w", err)
-	}
+func decodeSessionDoc(value any) (coresession.Spec, error) {
 	var raw sessionDoc
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeDocumentValue(value, &raw); err != nil {
 		return coresession.Spec{}, fmt.Errorf("appconfig: decode session document: %w", err)
 	}
 	spec := coresession.Spec{
@@ -2237,16 +2312,19 @@ func decodeSessionDoc(node yaml.Node) (coresession.Spec, error) {
 	return spec, nil
 }
 
-func documentKind(node yaml.Node) string {
-	var raw kindDoc
-	_ = node.Decode(&raw)
-	return raw.Kind
+func documentKind(value any) string {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	kind, _ := raw["kind"].(string)
+	return kind
 }
 
 // Spec converts the manifest file shape to the pure app model.
 func (m Manifest) Spec() coreapp.Spec {
 	model := m.ModelPolicy.Spec()
-	if defaultModel := strings.TrimSpace(m.Models.Default); defaultModel != "" {
+	if defaultModel := strings.TrimSpace(string(m.Models.Default)); defaultModel != "" {
 		model.Model = defaultModel
 		model.Provider = ""
 	}
@@ -2335,7 +2413,7 @@ func (d discovery) Spec() coreapp.DiscoveryPolicy {
 }
 
 type modelPolicy struct {
-	Model         string            `json:"model,omitempty" yaml:"model,omitempty"`
+	Model         ModelSelector     `json:"model,omitempty" yaml:"model,omitempty"`
 	Provider      string            `json:"provider,omitempty" yaml:"provider,omitempty"`
 	UseCase       string            `json:"use_case,omitempty" yaml:"use_case,omitempty"`
 	SourceAPI     string            `json:"source_api,omitempty" yaml:"source_api,omitempty"`
@@ -2348,7 +2426,7 @@ type modelPolicy struct {
 
 func (m modelPolicy) Spec() coreapp.ModelPolicy {
 	return coreapp.ModelPolicy{
-		Model:         m.Model,
+		Model:         string(m.Model),
 		Provider:      m.Provider,
 		UseCase:       m.UseCase,
 		SourceAPI:     m.SourceAPI,
@@ -2534,15 +2612,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func firstStringSlice(values ...[]string) []string {
-	for _, value := range values {
-		if len(value) > 0 {
-			return value
-		}
-	}
-	return nil
 }
 
 func stepIDs(values []string) []workflow.StepID {

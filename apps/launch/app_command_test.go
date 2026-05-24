@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fluxplane/engine/core/agent"
+	corecontext "github.com/fluxplane/engine/core/context"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coredistribution "github.com/fluxplane/engine/core/distribution"
@@ -17,6 +18,8 @@ import (
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/resource"
 	coresession "github.com/fluxplane/engine/core/session"
+	coreskill "github.com/fluxplane/engine/core/skill"
+	coretool "github.com/fluxplane/engine/core/tool"
 	"github.com/fluxplane/engine/core/workflow"
 	"github.com/fluxplane/engine/orchestration/distribution"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
@@ -106,6 +109,9 @@ func TestAppConfigSchemaCommandAddsManifestResourceEnums(t *testing.T) {
 						Entities:     []coredata.EntitySpec{{Type: "jira.issue"}},
 						ConfigSchema: operationruntime.SchemaFor[testDatasourceConfig](),
 					}},
+					Skills:           []coreskill.Spec{{Name: "review"}},
+					ContextProviders: []corecontext.ProviderSpec{{Name: "identity"}},
+					ToolSets:         []coretool.Set{{Action: &coretool.ActionProjection{Tool: "image"}}},
 					LLMProviders: []corellm.ProviderSpec{{
 						Name: "openrouter",
 						Models: []corellm.ModelSpec{{
@@ -137,7 +143,9 @@ func TestAppConfigSchemaCommandAddsManifestResourceEnums(t *testing.T) {
 	}
 	if !schemaContainsEnum(schema, "helper") || !schemaContainsEnum(schema, "nightly") ||
 		!schemaContainsEnum(schema, "send_report") || !schemaContainsEnum(schema, "jira") ||
-		!schemaContainsEnum(schema, "smart_model") {
+		!schemaContainsEnum(schema, "smart_model") || !schemaContainsEnum(schema, "review") ||
+		!schemaContainsEnum(schema, "identity") || !schemaContainsEnum(schema, "image") ||
+		!schemaContainsEnum(schema, "datasource") {
 		t.Fatalf("schema does not contain expected context resource enums")
 	}
 	if !schemaContainsProperty(schema, "instance") {
@@ -149,23 +157,72 @@ func TestAppConfigSchemaCommandAddsManifestResourceEnums(t *testing.T) {
 }
 
 func TestAppConfigValidateCommandLoadsManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "fluxplane.yaml")
+	if err := os.WriteFile(manifest, []byte("kind: app\nname: sample\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 	loader := func(ctx context.Context, path string) (distribution.Loaded, error) {
-		if path != "appdir" {
-			t.Fatalf("path = %q, want appdir", path)
+		if path != dir {
+			t.Fatalf("path = %q, want %s", path, dir)
 		}
-		return distribution.Loaded{Root: path, Manifest: filepath.Join(path, "fluxplane.yaml")}, nil
+		return distribution.Loaded{Root: path, Manifest: manifest}, nil
 	}
 	cmd := NewAppConfigCommand(loader, nil)
 	out := bytes.Buffer{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"validate", "appdir"})
+	cmd.SetArgs([]string{"validate", dir})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if !strings.Contains(out.String(), "valid appdir/fluxplane.yaml") {
+	if !strings.Contains(out.String(), "valid "+manifest) {
 		t.Fatalf("output = %q, want valid manifest path", out.String())
+	}
+}
+
+func TestAppConfigValidateCommandChecksAllManifestDocuments(t *testing.T) {
+	dir := t.TempDir()
+	manifest := filepath.Join(dir, "fluxplane.yaml")
+	if err := os.WriteFile(manifest, []byte(`
+kind: app
+name: sample
+---
+kind: agent
+name: helper
+datasources:
+  - missing
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	loader := func(ctx context.Context, path string) (distribution.Loaded, error) {
+		return distribution.Loaded{
+			Root:     path,
+			Manifest: manifest,
+			Distribution: distribution.Distribution{
+				Bundles: []resource.ContributionBundle{{
+					Datasources: []coredatasource.Spec{{
+						Name:     "known",
+						Kind:     "memory",
+						Entities: []coredatasource.EntityType{"memory.item"},
+					}},
+				}},
+			},
+		}, nil
+	}
+	cmd := NewAppConfigCommand(loader, nil)
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"validate", dir})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute succeeded, want schema validation error")
+	}
+	if !strings.Contains(err.Error(), "document 2 schema validation failed") {
+		t.Fatalf("error = %v, want second document schema validation failure", err)
 	}
 }
 

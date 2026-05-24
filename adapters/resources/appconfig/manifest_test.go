@@ -36,6 +36,17 @@ operations: [web_search]
 	}
 }
 
+func TestDecodeManifestRejectsDuplicateKeysBeforeBinding(t *testing.T) {
+	_, err := DecodeManifest("fluxplane.yaml", []byte(`
+kind: app
+name: first
+name: second
+`))
+	if err == nil || !strings.Contains(err.Error(), `mapping key "name" already defined`) {
+		t.Fatalf("DecodeManifest error = %v, want duplicate key validation", err)
+	}
+}
+
 func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	data := []byte(`{
   "name": "engineer",

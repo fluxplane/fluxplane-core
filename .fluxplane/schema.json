@@ -84,6 +84,9 @@
       },
       "type": "object"
     },
+    "agent_ModelSelector": {
+      "type": "string"
+    },
     "agent_OperationAction": {
       "additionalProperties": false,
       "properties": {
@@ -564,96 +567,131 @@
       "type": "object"
     },
     "app_DatasourceDoc": {
-      "additionalProperties": false,
-      "allOf": [
+      "description": "Configured datasource instance. Select a datasource provider kind to get provider-specific config and entity completions.",
+      "oneOf": [
         {
-          "if": {
-            "properties": {
-              "kind": {
-                "const": "filesystem"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "config": {
-                "additionalProperties": false,
-                "description": "Configuration for the filesystem datasource provider.",
-                "properties": {
-                  "include": {
-                    "description": "Comma-separated glob patterns included from the filesystem datasource.",
-                    "type": "string"
-                  },
-                  "path": {
-                    "description": "Workspace-relative directory or file path to index.",
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
-              "entities": {
-                "description": "Entities supported by the filesystem datasource provider.",
-                "items": {
-                  "description": "One datasource entity type.",
-                  "enum": [
-                    "file.document"
-                  ],
+          "additionalProperties": false,
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the filesystem datasource provider.",
+              "properties": {
+                "include": {
+                  "description": "Comma-separated glob patterns included from the filesystem datasource.",
                   "type": "string"
                 },
-                "type": "array"
-              }
+                "path": {
+                  "description": "Workspace-relative directory or file path to index.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "description": {
+              "type": "string"
+            },
+            "entities": {
+              "description": "Entities supported by the filesystem datasource provider.",
+              "items": {
+                "description": "One datasource entity type.",
+                "enum": [
+                  "file.document"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "include": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "index": {
+              "$ref": "#/$defs/app_datasourceIndexDoc"
+            },
+            "kind": {
+              "const": "filesystem",
+              "description": "Datasource provider kind.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "semantic": {
+              "$ref": "#/$defs/app_semanticDoc"
+            },
+            "type": {
+              "type": "string"
             }
-          }
-        }
-      ],
-      "properties": {
-        "config": {
-          "additionalProperties": {
-            "type": "string"
           },
+          "required": [
+            "kind"
+          ],
           "type": "object"
         },
-        "description": {
-          "type": "string"
-        },
-        "entities": {
-          "items": {
-            "type": "string"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "config": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "description": {
+              "type": "string"
+            },
+            "entities": {
+              "description": "Entities supported by the synthetic datasource provider.",
+              "items": {
+                "description": "One datasource entity type.",
+                "enum": [
+                  "datasource.entity",
+                  "datasource.relation",
+                  "datasource.source",
+                  "datasource.view"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "include": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "index": {
+              "$ref": "#/$defs/app_datasourceIndexDoc"
+            },
+            "kind": {
+              "const": "synthetic",
+              "description": "Datasource provider kind.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "semantic": {
+              "$ref": "#/$defs/app_semanticDoc"
+            },
+            "type": {
+              "type": "string"
+            }
           },
-          "type": "array"
-        },
-        "include": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "index": {
-          "$ref": "#/$defs/app_datasourceIndexDoc"
-        },
-        "kind": {
-          "enum": [
-            "filesystem"
+          "required": [
+            "kind"
           ],
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "semantic": {
-          "$ref": "#/$defs/app_semanticDoc"
-        },
-        "type": {
-          "type": "string"
+          "type": "object"
         }
-      },
-      "type": "object"
+      ]
     },
     "app_DurationString": {
       "examples": [
@@ -852,6 +890,9 @@
         }
       },
       "type": "object"
+    },
+    "app_ModelSelector": {
+      "type": "string"
     },
     "app_ModelSpec": {
       "additionalProperties": false,
@@ -1534,9 +1575,6 @@
           "type": "string"
         },
         "input_schema": true,
-        "kind": {
-          "type": "string"
-        },
         "name": {
           "type": "string"
         },
@@ -1696,7 +1734,7 @@
       "additionalProperties": false,
       "properties": {
         "model": {
-          "type": "string"
+          "$ref": "#/$defs/app_ModelSelector"
         }
       },
       "type": "object"
@@ -2082,7 +2120,7 @@
           "type": "array"
         },
         "default": {
-          "type": "string"
+          "$ref": "#/$defs/app_ModelSelector"
         }
       },
       "type": "object"
@@ -2091,7 +2129,7 @@
       "additionalProperties": false,
       "properties": {
         "model": {
-          "type": "string"
+          "$ref": "#/$defs/app_ModelSelector"
         },
         "provider": {
           "type": "string"
@@ -2136,7 +2174,7 @@
           "type": "string"
         },
         "model": {
-          "type": "string"
+          "$ref": "#/$defs/app_ModelSelector"
         },
         "provider": {
           "type": "string"
@@ -2188,9 +2226,6 @@
         },
         "input": {
           "$ref": "#/$defs/app_Type"
-        },
-        "kind": {
-          "type": "string"
         },
         "name": {
           "type": "string"
@@ -3336,9 +3371,6 @@
         },
         "inputs": {
           "$ref": "#/$defs/app_Type"
-        },
-        "kind": {
-          "type": "string"
         },
         "name": {
           "type": "string"
@@ -4526,12 +4558,22 @@
       "properties": {
         "context": {
           "items": {
+            "enum": [
+              "datasource.catalog",
+              "datasource.detected",
+              "datasource.prewarm",
+              "datasource.semantic_context"
+            ],
             "type": "string"
           },
           "type": "array"
         },
         "datasources": {
           "items": {
+            "enum": [
+              "datasource",
+              "local-docs"
+            ],
             "type": "string"
           },
           "type": "array"
@@ -4550,13 +4592,20 @@
           "type": "integer"
         },
         "model": {
-          "type": "string"
+          "$ref": "#/$defs/agent_ModelSelector"
         },
         "name": {
           "type": "string"
         },
         "operations": {
           "items": {
+            "enum": [
+              "datasource_batch_get",
+              "datasource_get",
+              "datasource_list",
+              "datasource_relation",
+              "datasource_search"
+            ],
             "type": "string"
           },
           "type": "array"
@@ -4575,6 +4624,13 @@
         },
         "tools": {
           "items": {
+            "enum": [
+              "datasource_batch_get",
+              "datasource_get",
+              "datasource_list",
+              "datasource_relation",
+              "datasource_search"
+            ],
             "type": "string"
           },
           "type": "array"

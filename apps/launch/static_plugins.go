@@ -16,9 +16,10 @@ import (
 // StaticPluginOptions configures plugin contribution materialization for
 // inspection-only surfaces such as describe and discover.
 type StaticPluginOptions struct {
-	Bundles []resource.ContributionBundle
-	Launch  distribution.LaunchConfig
-	Plugins func(system.System) []pluginhost.Plugin
+	Bundles                          []resource.ContributionBundle
+	Launch                           distribution.LaunchConfig
+	Plugins                          func(system.System) []pluginhost.Plugin
+	IncludeConfigSchemaContributions bool
 }
 
 // StaticPluginResult is the inspection-only contribution set resolved from
@@ -103,6 +104,17 @@ func staticPluginContributions(ctx context.Context, bundles []resource.Contribut
 		if err != nil {
 			err := fmt.Errorf("plugin %q contributions: %w", ref.Key(), err)
 			return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+		}
+		if opts.IncludeConfigSchemaContributions {
+			contributor, ok := resolvedPlugin.(pluginhost.ConfigSchemaContributor)
+			if ok {
+				schemaBundle, err := contributor.ConfigSchemaContributions(ctx, pluginCtx)
+				if err != nil {
+					err := fmt.Errorf("plugin %q config schema contributions: %w", ref.Key(), err)
+					return out, []resource.Diagnostic{staticPluginDiagnostic(err)}
+				}
+				bundle.Append(schemaBundle)
+			}
 		}
 		if bundle.Source.ID == "" {
 			bundle.Source = staticPluginSource(ref)

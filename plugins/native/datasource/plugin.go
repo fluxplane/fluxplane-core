@@ -50,6 +50,7 @@ type Plugin struct {
 var _ pluginhost.Plugin = Plugin{}
 var _ pluginhost.OperationContributor = Plugin{}
 var _ pluginhost.ContextProviderContributor = Plugin{}
+var _ pluginhost.ConfigSchemaContributor = Plugin{}
 
 func New(registry *coredatasource.Registry) Plugin {
 	return Plugin{registry: registry}
@@ -76,6 +77,12 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), prewarmContextSpec(), semanticContextSpec()},
 		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
 		DataSources:      []coredata.SourceSpec{FilesystemDataSourceSpec()},
+	}, nil
+}
+
+func (Plugin) ConfigSchemaContributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	return resource.ContributionBundle{
+		Datasources: []coredatasource.Spec{CatalogDatasourceSpec()},
 	}, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/fluxplane/engine/core/resource"
 	coresecret "github.com/fluxplane/engine/core/secret"
 	invjsonschema "github.com/invopop/jsonschema"
 )
@@ -21,6 +22,13 @@ type ConfigDecoder interface {
 // the JSON Schema for their app manifest config block.
 type ConfigSchemaProvider interface {
 	ConfigSchema() ([]byte, error)
+}
+
+// ConfigSchemaContributor is implemented by plugins that expose inert
+// resources which are valid in app manifests for schema and inspection
+// purposes, but are not ordinary runtime configuration inputs.
+type ConfigSchemaContributor interface {
+	ConfigSchemaContributions(context.Context, Context) (resource.ContributionBundle, error)
 }
 
 // Configurable decodes resource.PluginRef config into T when embedded by a

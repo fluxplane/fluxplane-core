@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved manifest schema enums, defaults, and duration validation for appconfig
   primitives onto typed Go fields so generated schemas stay aligned with
   manifest decoding.
+- Added context-aware manifest schema completions for agent operation, tool,
+  datasource, skill, and context provider selectors.
+- Made `fluxplane config validate` validate every raw manifest document against
+  the same generated context-aware schema used by IDEs.
 - Removed dashed workflow manifest field aliases such as `depends-on`,
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 

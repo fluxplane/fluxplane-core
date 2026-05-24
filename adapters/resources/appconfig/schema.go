@@ -46,17 +46,20 @@ type DatasourceSchema struct {
 
 // ResourceSchema describes resources available in the current manifest context.
 type ResourceSchema struct {
-	Agents          []string
-	Sessions        []string
-	Workflows       []string
-	Operations      []string
-	Datasources     []string
-	DatasourceKinds []string
-	Entities        []string
-	EntitiesByKind  map[string][]string
-	Channels        []string
-	Listeners       []string
-	Models          []string
+	Agents           []string
+	Sessions         []string
+	Workflows        []string
+	Operations       []string
+	Tools            []string
+	Datasources      []string
+	DatasourceKinds  []string
+	Entities         []string
+	EntitiesByKind   map[string][]string
+	Skills           []string
+	ContextProviders []string
+	Channels         []string
+	Listeners        []string
+	Models           []string
 }
 
 // ManifestSchema returns the base JSON Schema for Fluxplane app manifests.
@@ -336,6 +339,14 @@ func applyResourceSchemas(root map[string]any, resources ResourceSchema) {
 		"model":      resources.Models,
 	}
 	applyPropertyEnums(root, enums)
+	itemEnums := map[string][]string{
+		"operations":  resources.Operations,
+		"tools":       resources.Tools,
+		"datasources": resources.Datasources,
+		"skills":      resources.Skills,
+		"context":     resources.ContextProviders,
+	}
+	applyPropertyItemEnums(root, itemEnums)
 	if defs, ok := root["$defs"].(map[string]any); ok {
 		for name, raw := range defs {
 			def, ok := raw.(map[string]any)
@@ -343,6 +354,8 @@ func applyResourceSchemas(root map[string]any, resources ResourceSchema) {
 				continue
 			}
 			switch {
+			case strings.HasSuffix(name, "_ModelSelector"):
+				applySchemaEnum(def, resources.Models)
 			case strings.HasSuffix(name, "_agentRef"):
 				applyRefNameEnum(def, resources.Agents)
 			case strings.Contains(strings.ToLower(name), "modelref"):
@@ -356,6 +369,9 @@ func applyResourceSchemas(root map[string]any, resources ResourceSchema) {
 
 func applyDatasourceSchemas(defs map[string]any, datasources []DatasourceSchema, resources ResourceSchema) {
 	datasources = normalizedDatasourceSchemas(datasources, resources)
+	if len(datasources) == 0 {
+		return
+	}
 	for name, raw := range defs {
 		if !strings.HasSuffix(name, "_DatasourceDoc") {
 			continue
@@ -364,7 +380,7 @@ func applyDatasourceSchemas(defs map[string]any, datasources []DatasourceSchema,
 		if !ok {
 			continue
 		}
-		addDatasourceConditionals(def, datasources)
+		defs[name] = datasourceOneOfSchema(def, datasources)
 	}
 }
 
@@ -410,10 +426,21 @@ func normalizedDatasourceSchemas(datasources []DatasourceSchema, resources Resou
 	return out
 }
 
-func addDatasourceConditionals(def map[string]any, datasources []DatasourceSchema) {
-	allOf, _ := def["allOf"].([]any)
+func datasourceOneOfSchema(base map[string]any, datasources []DatasourceSchema) map[string]any {
+	oneOf := make([]any, 0, len(datasources))
 	for _, datasource := range datasources {
-		thenProperties := map[string]any{}
+		branch := cloneSchemaMap(base)
+		delete(branch, "allOf")
+		properties, ok := branch["properties"].(map[string]any)
+		if !ok {
+			properties = map[string]any{}
+			branch["properties"] = properties
+		}
+		properties["kind"] = map[string]any{
+			"type":        "string",
+			"const":       datasource.Kind,
+			"description": "Datasource provider kind.",
+		}
 		if datasource.ConfigSchema != nil {
 			config := cloneSchemaMap(datasource.ConfigSchema)
 			delete(config, "$schema")
@@ -423,28 +450,20 @@ func addDatasourceConditionals(def map[string]any, datasources []DatasourceSchem
 				description = "Configuration for the " + datasource.Kind + " datasource provider."
 			}
 			addDescription(config, description)
-			thenProperties["config"] = config
+			properties["config"] = config
 		}
 		if len(datasource.Entities) > 0 {
-			thenProperties["entities"] = stringArraySchema(datasource.Entities, "Entities supported by the "+datasource.Kind+" datasource provider.")
+			properties["entities"] = stringArraySchema(datasource.Entities, "Entities supported by the "+datasource.Kind+" datasource provider.")
 		}
-		if len(thenProperties) == 0 {
-			continue
+		branch["required"] = appendRequired(branch["required"], "kind")
+		if description := strings.TrimSpace(datasource.Description); description != "" {
+			branch["description"] = description
 		}
-		allOf = append(allOf, map[string]any{
-			"if": map[string]any{
-				"properties": map[string]any{
-					"kind": map[string]any{"const": datasource.Kind},
-				},
-				"required": []any{"kind"},
-			},
-			"then": map[string]any{
-				"properties": thenProperties,
-			},
-		})
+		oneOf = append(oneOf, branch)
 	}
-	if len(allOf) > 0 {
-		def["allOf"] = allOf
+	return map[string]any{
+		"oneOf":       oneOf,
+		"description": "Configured datasource instance. Select a datasource provider kind to get provider-specific config and entity completions.",
 	}
 }
 
@@ -554,6 +573,13 @@ func applyObjectPropertyEnum(schema map[string]any, property string, values []st
 	prop["enum"] = stringsEnum(values)
 }
 
+func applySchemaEnum(schema map[string]any, values []string) {
+	if len(values) == 0 || schema["type"] != "string" {
+		return
+	}
+	schema["enum"] = stringsEnum(values)
+}
+
 func applyPropertyEnums(value any, enums map[string][]string) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -576,6 +602,36 @@ func applyPropertyEnums(value any, enums map[string][]string) {
 	case []any:
 		for _, nested := range typed {
 			applyPropertyEnums(nested, enums)
+		}
+	}
+}
+
+func applyPropertyItemEnums(value any, enums map[string][]string) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if properties, ok := typed["properties"].(map[string]any); ok {
+			for name, raw := range properties {
+				prop, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				values := enums[name]
+				if len(values) == 0 {
+					continue
+				}
+				items, ok := prop["items"].(map[string]any)
+				if !ok || items["type"] != "string" {
+					continue
+				}
+				items["enum"] = stringsEnum(values)
+			}
+		}
+		for _, nested := range typed {
+			applyPropertyItemEnums(nested, enums)
+		}
+	case []any:
+		for _, nested := range typed {
+			applyPropertyItemEnums(nested, enums)
 		}
 	}
 }

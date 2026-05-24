@@ -29,6 +29,11 @@ var _ coredatasource.Lister = catalogAccessor{}
 var _ coredatasource.Getter = catalogAccessor{}
 var _ coredatasource.BatchGetter = catalogAccessor{}
 
+// CatalogDatasourceSpec is the manifest-visible synthetic datasource catalog.
+func CatalogDatasourceSpec() coredatasource.Spec {
+	return catalogAccessor{}.Spec()
+}
+
 func (a catalogAccessor) Spec() coredatasource.Spec {
 	return coredatasource.Spec{
 		Name:        coredatasource.Name(Name),

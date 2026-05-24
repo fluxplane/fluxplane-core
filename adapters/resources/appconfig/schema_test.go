@@ -171,6 +171,117 @@ func TestManifestSchemaWithOptionsTypesPluginRefs(t *testing.T) {
 	}
 }
 
+func TestManifestSchemaWithOptionsTypesAgentResourceSelectors(t *testing.T) {
+	data, err := ManifestSchemaWithOptions(ManifestSchemaOptions{
+		Resources: ResourceSchema{
+			Operations:       []string{"send_report"},
+			Tools:            []string{"image"},
+			Datasources:      []string{"jira"},
+			Skills:           []string{"review"},
+			ContextProviders: []string{"identity"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ManifestSchemaWithOptions: %v", err)
+	}
+	var schemaValue any
+	if err := json.Unmarshal(data, &schemaValue); err != nil {
+		t.Fatalf("schema is not JSON: %v", err)
+	}
+	for property, value := range map[string]string{
+		"operations":  "send_report",
+		"tools":       "image",
+		"datasources": "jira",
+		"skills":      "review",
+		"context":     "identity",
+	} {
+		if !schemaArrayPropertyEnumContains(schemaValue, property, value) {
+			t.Fatalf("agentDoc.%s item enum missing %q", property, value)
+		}
+	}
+
+	compiler := santhoshjsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
+		t.Fatalf("AddResource: %v", err)
+	}
+	compiled, err := compiler.Compile("schema.json")
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	valid := map[string]any{
+		"kind":        "agent",
+		"name":        "helper",
+		"operations":  []any{"send_report"},
+		"tools":       []any{"image"},
+		"datasources": []any{"jira"},
+		"skills":      []any{"review"},
+		"context":     []any{"identity"},
+	}
+	if err := compiled.Validate(valid); err != nil {
+		t.Fatalf("Validate agent resource selectors: %v", err)
+	}
+	invalid := map[string]any{
+		"kind":   "agent",
+		"name":   "helper",
+		"skills": []any{"unknown"},
+	}
+	if err := compiled.Validate(invalid); err == nil {
+		t.Fatal("Validate unknown agent skill succeeded, want error")
+	}
+}
+
+func TestManifestSchemaWithOptionsReusesModelSelectors(t *testing.T) {
+	data, err := ManifestSchemaWithOptions(ManifestSchemaOptions{
+		Resources: ResourceSchema{
+			Models: []string{"smart_model", "openrouter/openai/gpt-5.5"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ManifestSchemaWithOptions: %v", err)
+	}
+	var schemaValue any
+	if err := json.Unmarshal(data, &schemaValue); err != nil {
+		t.Fatalf("schema is not JSON: %v", err)
+	}
+	if !schemaContainsEnum(schemaValue, "smart_model") {
+		t.Fatalf("schema does not contain model selector enum")
+	}
+
+	compiler := santhoshjsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", schemaValue); err != nil {
+		t.Fatalf("AddResource: %v", err)
+	}
+	compiled, err := compiler.Compile("schema.json")
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	valid := map[string]any{
+		"kind": "app",
+		"name": "sample",
+		"models": map[string]any{
+			"default": "smart_model",
+		},
+		"distribution": map[string]any{
+			"deploy": map[string]any{
+				"model": "smart_model",
+			},
+		},
+	}
+	if err := compiled.Validate(valid); err != nil {
+		t.Fatalf("Validate reused model selectors: %v", err)
+	}
+	invalid := map[string]any{
+		"kind": "app",
+		"name": "sample",
+		"models": map[string]any{
+			"default": "unknown_model",
+		},
+	}
+	if err := compiled.Validate(invalid); err == nil {
+		t.Fatal("Validate unknown models.default succeeded, want error")
+	}
+}
+
 func TestManifestSchemaWithOptionsScopesDatasourceEntitiesByKind(t *testing.T) {
 	data, err := ManifestSchemaWithOptions(ManifestSchemaOptions{
 		Datasources: []DatasourceSchema{
@@ -206,14 +317,14 @@ func TestManifestSchemaWithOptionsScopesDatasourceEntitiesByKind(t *testing.T) {
 	}
 	schemaMap := schemaValue.(map[string]any)
 	datasourceDoc := schemaMap["$defs"].(map[string]any)["app_DatasourceDoc"].(map[string]any)
-	if schemaDirectEntitiesEnum(datasourceDoc) != nil {
-		t.Fatalf("DatasourceDoc.entities has a flat enum, want kind-scoped conditionals")
-	}
-	if !schemaConditionalEntityEnum(datasourceDoc, "chat", "chat.message") || schemaConditionalEntityEnum(datasourceDoc, "chat", "tickets.issue") {
+	if !schemaDatasourceBranchEntityEnum(datasourceDoc, "chat", "chat.message") || schemaDatasourceBranchEntityEnum(datasourceDoc, "chat", "tickets.issue") {
 		t.Fatalf("DatasourceDoc chat branch should contain only chat entities")
 	}
-	if !schemaConditionalEntityEnum(datasourceDoc, "tickets", "tickets.issue") || schemaConditionalEntityEnum(datasourceDoc, "tickets", "chat.message") {
+	if !schemaDatasourceBranchEntityEnum(datasourceDoc, "tickets", "tickets.issue") || schemaDatasourceBranchEntityEnum(datasourceDoc, "tickets", "chat.message") {
 		t.Fatalf("DatasourceDoc tickets branch should contain only ticket entities")
+	}
+	if !schemaDatasourceBranchConfigProperty(datasourceDoc, "chat", "instance") || schemaDatasourceBranchConfigProperty(datasourceDoc, "chat", "url") {
+		t.Fatalf("DatasourceDoc chat branch should contain only chat config")
 	}
 
 	compiler := santhoshjsonschema.NewCompiler()
@@ -354,6 +465,31 @@ func schemaContainsProperty(value any, want string) bool {
 	return false
 }
 
+func schemaContainsEnum(value any, want string) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		if rawEnum, ok := typed["enum"].([]any); ok {
+			for _, value := range rawEnum {
+				if value == want {
+					return true
+				}
+			}
+		}
+		for _, nested := range typed {
+			if schemaContainsEnum(nested, want) {
+				return true
+			}
+		}
+	case []any:
+		for _, nested := range typed {
+			if schemaContainsEnum(nested, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func schemaContainsOneOf(value any) bool {
 	typed, ok := value.(map[string]any)
 	if !ok {
@@ -384,25 +520,57 @@ func schemaDirectEntitiesEnum(value any) []any {
 	return enum
 }
 
-func schemaConditionalEntityEnum(value any, kind, entity string) bool {
+func schemaArrayPropertyEnumContains(value any, property, want string) bool {
+	def, ok := value.(map[string]any)
+	if !ok {
+		if values, ok := value.([]any); ok {
+			for _, nested := range values {
+				if schemaArrayPropertyEnumContains(nested, property, want) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if properties, ok := def["properties"].(map[string]any); ok {
+		prop, ok := properties[property].(map[string]any)
+		if ok {
+			items, ok := prop["items"].(map[string]any)
+			if ok {
+				enum, ok := items["enum"].([]any)
+				if ok {
+					for _, value := range enum {
+						if value == want {
+							return true
+						}
+					}
+				}
+			}
+		}
+	}
+	for _, nested := range def {
+		if schemaArrayPropertyEnumContains(nested, property, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaDatasourceBranchEntityEnum(value any, kind, entity string) bool {
 	def, ok := value.(map[string]any)
 	if !ok {
 		return false
 	}
-	allOf, ok := def["allOf"].([]any)
+	oneOf, ok := def["oneOf"].([]any)
 	if !ok {
 		return false
 	}
-	for _, rawBranch := range allOf {
+	for _, rawBranch := range oneOf {
 		branch, ok := rawBranch.(map[string]any)
-		if !ok || !schemaBranchKind(branch, kind) {
+		if !ok || !schemaDatasourceBranchKind(branch, kind) {
 			continue
 		}
-		then, ok := branch["then"].(map[string]any)
-		if !ok {
-			return false
-		}
-		for _, value := range schemaDirectEntitiesEnum(then) {
+		for _, value := range schemaDirectEntitiesEnum(branch) {
 			if value == entity {
 				return true
 			}
@@ -411,12 +579,40 @@ func schemaConditionalEntityEnum(value any, kind, entity string) bool {
 	return false
 }
 
-func schemaBranchKind(branch map[string]any, kind string) bool {
-	ifSchema, ok := branch["if"].(map[string]any)
+func schemaDatasourceBranchConfigProperty(value any, kind, property string) bool {
+	def, ok := value.(map[string]any)
 	if !ok {
 		return false
 	}
-	properties, ok := ifSchema["properties"].(map[string]any)
+	oneOf, ok := def["oneOf"].([]any)
+	if !ok {
+		return false
+	}
+	for _, rawBranch := range oneOf {
+		branch, ok := rawBranch.(map[string]any)
+		if !ok || !schemaDatasourceBranchKind(branch, kind) {
+			continue
+		}
+		properties, ok := branch["properties"].(map[string]any)
+		if !ok {
+			return false
+		}
+		config, ok := properties["config"].(map[string]any)
+		if !ok {
+			return false
+		}
+		configProperties, ok := config["properties"].(map[string]any)
+		if !ok {
+			return false
+		}
+		_, ok = configProperties[property]
+		return ok
+	}
+	return false
+}
+
+func schemaDatasourceBranchKind(branch map[string]any, kind string) bool {
+	properties, ok := branch["properties"].(map[string]any)
 	if !ok {
 		return false
 	}

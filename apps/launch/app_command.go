@@ -19,6 +19,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/distribution"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/plugins/native/datasource"
+	"github.com/fluxplane/engine/runtime/system"
 	"github.com/spf13/cobra"
 )
 
@@ -376,6 +377,17 @@ func newAppConfigValidateCommand(loader Loader) *cobra.Command {
 				}
 				return fmt.Errorf("app config validate: %d error diagnostic(s)", len(errorDiagnostics))
 			}
+			schemaData, err := configSchemaData(cmd.Context(), loader, optionalPath(args))
+			if err != nil {
+				return err
+			}
+			manifestData, err := os.ReadFile(loaded.Manifest)
+			if err != nil {
+				return fmt.Errorf("app config validate: read %s: %w", loaded.Manifest, err)
+			}
+			if err := appconfig.ValidateManifestWithSchema(schemaData, manifestData); err != nil {
+				return fmt.Errorf("app config validate: %s: %w", loaded.Manifest, err)
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "valid %s\n", loaded.Manifest)
 			return nil
 		},
@@ -390,19 +402,7 @@ func newAppConfigSchemaCommand(loader Loader) *cobra.Command {
 		Short: "Write the base local app manifest JSON Schema",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			available := configSchemaAvailablePlugins()
-			plugins, err := configSchemaPlugins(available)
-			if err != nil {
-				return err
-			}
-			opts := appconfig.ManifestSchemaOptions{Plugins: plugins}
-			if resources, datasources, ok, err := configSchemaResources(cmd.Context(), loader, optionalPath(args)); err != nil {
-				return err
-			} else if ok {
-				opts.Resources = resources
-				opts.Datasources = datasources
-			}
-			data, err := appconfig.ManifestSchemaWithOptions(opts)
+			data, err := configSchemaData(cmd.Context(), loader, optionalPath(args))
 			if err != nil {
 				return err
 			}
@@ -433,9 +433,37 @@ func newAppConfigSchemaCommand(loader Loader) *cobra.Command {
 	return cmd
 }
 
-func configSchemaAvailablePlugins() []pluginhost.Plugin {
-	available := availablePlugins(nil, nil, nil, "", false)
+func configSchemaData(ctx context.Context, loader Loader, appDir string) ([]byte, error) {
+	available := configSchemaAvailablePlugins(appDir)
+	plugins, err := configSchemaPlugins(available)
+	if err != nil {
+		return nil, err
+	}
+	opts := appconfig.ManifestSchemaOptions{Plugins: plugins}
+	if resources, datasources, ok, err := configSchemaResources(ctx, loader, appDir, available); err != nil {
+		return nil, err
+	} else if ok {
+		opts.Resources = resources
+		opts.Datasources = datasources
+	}
+	return appconfig.ManifestSchemaWithOptions(opts)
+}
+
+func configSchemaAvailablePlugins(appDir string) []pluginhost.Plugin {
+	hostSystem := configSchemaSystem(appDir)
+	available := availablePlugins(hostSystem, nil, nil, "", false)
 	return appendPluginIfMissing(available, datasource.New(nil))
+}
+
+func configSchemaSystem(appDir string) system.System {
+	if strings.TrimSpace(appDir) == "" {
+		appDir = "."
+	}
+	hostSystem, err := system.NewHost(system.Config{Root: appDir, AllowPrivateNetwork: true})
+	if err != nil {
+		return nil
+	}
+	return hostSystem
 }
 
 func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchema, error) {
@@ -467,7 +495,7 @@ func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchem
 	return out, nil
 }
 
-func configSchemaResources(ctx context.Context, loader Loader, appDir string) (appconfig.ResourceSchema, []appconfig.DatasourceSchema, bool, error) {
+func configSchemaResources(ctx context.Context, loader Loader, appDir string, available []pluginhost.Plugin) (appconfig.ResourceSchema, []appconfig.DatasourceSchema, bool, error) {
 	if loader == nil {
 		loader = distlocal.Load
 	}
@@ -486,8 +514,12 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string) (a
 		return appconfig.ResourceSchema{}, nil, false, err
 	}
 	static := StaticPluginView(ctx, StaticPluginOptions{
-		Bundles: loaded.Distribution.Bundles,
-		Launch:  loaded.Launch,
+		Bundles:                          loaded.Distribution.Bundles,
+		Launch:                           loaded.Launch,
+		IncludeConfigSchemaContributions: true,
+		Plugins: func(system.System) []pluginhost.Plugin {
+			return available
+		},
 	})
 	resources := appconfig.ResourceSchema{
 		EntitiesByKind: map[string][]string{},
@@ -505,6 +537,7 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string) (a
 		}
 		for _, spec := range bundle.Operations {
 			resources.Operations = append(resources.Operations, string(spec.Ref.Name))
+			resources.Tools = append(resources.Tools, string(spec.Ref.Name))
 		}
 		for _, spec := range bundle.Datasources {
 			resources.Datasources = append(resources.Datasources, string(spec.Name))
@@ -526,6 +559,20 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string) (a
 			}
 			if datasourceSchema.Kind != "" {
 				datasourceSchemas = append(datasourceSchemas, datasourceSchema)
+			}
+		}
+		for _, spec := range bundle.Skills {
+			resources.Skills = append(resources.Skills, string(spec.Name))
+		}
+		for _, spec := range bundle.ContextProviders {
+			resources.ContextProviders = append(resources.ContextProviders, string(spec.Name))
+		}
+		for _, spec := range bundle.ToolSets {
+			for _, name := range spec.Tools {
+				resources.Tools = append(resources.Tools, string(name))
+			}
+			if spec.Action != nil && spec.Action.Tool != "" {
+				resources.Tools = append(resources.Tools, string(spec.Action.Tool))
 			}
 		}
 		for _, provider := range bundle.LLMProviders {
