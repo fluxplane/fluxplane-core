@@ -395,6 +395,7 @@ func schemaDataFor[T any]() ([]byte, error) {
 		ExpandedStruct:             true,
 		AllowAdditionalProperties:  false,
 		RequiredFromJSONSchemaTags: true,
+		Mapper:                     schemaEnumMapper,
 	}
 	ptr := reflect.New(typ)
 	if typ.Kind() == reflect.Ptr {
@@ -450,7 +451,7 @@ func (f File) Validate() error {
 		if strings.TrimSpace(root.Path) == "" {
 			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].path is empty", i)
 		}
-		switch strings.TrimSpace(root.Access) {
+		switch strings.TrimSpace(string(root.Access)) {
 		case "", "read_only", "read_write":
 		default:
 			return fmt.Errorf("appconfig: runtime.workspace.roots[%d].access must be read_only or read_write", i)
@@ -659,15 +660,41 @@ type RuntimeConfig struct {
 	Events    RuntimeEventsDoc `json:"events,omitempty" yaml:"events,omitempty"`
 }
 
+type RuntimeDataStoreKind string
+
+const (
+	RuntimeDataStoreMemory RuntimeDataStoreKind = "memory"
+	RuntimeDataStoreMem    RuntimeDataStoreKind = "mem"
+	RuntimeDataStoreMySQL  RuntimeDataStoreKind = "mysql"
+)
+
+func (RuntimeDataStoreKind) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("memory", string(RuntimeDataStoreMem), string(RuntimeDataStoreMemory), string(RuntimeDataStoreMySQL))
+}
+
 // RuntimeDataDoc contains runtime-owned durable data store settings.
 type RuntimeDataDoc struct {
 	Store RuntimeDataStoreDoc `json:"store,omitempty" yaml:"store,omitempty"`
 }
 
 type RuntimeDataStoreDoc struct {
-	Kind   string `json:"kind,omitempty" yaml:"kind,omitempty"`
-	DSN    string `json:"dsn,omitempty" yaml:"dsn,omitempty"`
-	DSNEnv string `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
+	Kind   RuntimeDataStoreKind `json:"kind,omitempty" yaml:"kind,omitempty"`
+	DSN    string               `json:"dsn,omitempty" yaml:"dsn,omitempty"`
+	DSNEnv string               `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
+}
+
+type RuntimeEventStoreKind string
+
+const (
+	RuntimeEventStoreSQLite        RuntimeEventStoreKind = "sqlite"
+	RuntimeEventStoreLocal         RuntimeEventStoreKind = "local"
+	RuntimeEventStoreNATS          RuntimeEventStoreKind = "nats"
+	RuntimeEventStoreJetstream     RuntimeEventStoreKind = "jetstream"
+	RuntimeEventStoreNATSJetstream RuntimeEventStoreKind = "nats-jetstream"
+)
+
+func (RuntimeEventStoreKind) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("sqlite", string(RuntimeEventStoreJetstream), string(RuntimeEventStoreLocal), string(RuntimeEventStoreNATS), string(RuntimeEventStoreNATSJetstream), string(RuntimeEventStoreSQLite))
 }
 
 // RuntimeEventsDoc contains runtime-owned durable event store settings.
@@ -676,12 +703,72 @@ type RuntimeEventsDoc struct {
 }
 
 type RuntimeEventStoreDoc struct {
-	Kind         string `json:"kind,omitempty" yaml:"kind,omitempty"`
-	DSN          string `json:"dsn,omitempty" yaml:"dsn,omitempty"`
-	DSNEnv       string `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
-	Stream       string `json:"stream,omitempty" yaml:"stream,omitempty"`
-	Subject      string `json:"subject,omitempty" yaml:"subject,omitempty"`
-	CreateStream bool   `json:"create_stream,omitempty" yaml:"create_stream,omitempty"`
+	Kind         RuntimeEventStoreKind `json:"kind,omitempty" yaml:"kind,omitempty"`
+	DSN          string                `json:"dsn,omitempty" yaml:"dsn,omitempty"`
+	DSNEnv       string                `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
+	Stream       string                `json:"stream,omitempty" yaml:"stream,omitempty" jsonschema:"default=AGENTRUNTIME_EVENTS"`
+	Subject      string                `json:"subject,omitempty" yaml:"subject,omitempty" jsonschema:"default=agentruntime.events.log"`
+	CreateStream bool                  `json:"create_stream,omitempty" yaml:"create_stream,omitempty" jsonschema:"default=false"`
+}
+
+type WorkspaceAccess string
+
+const (
+	WorkspaceAccessReadOnly  WorkspaceAccess = "read_only"
+	WorkspaceAccessReadWrite WorkspaceAccess = "read_write"
+)
+
+func (WorkspaceAccess) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("read_only", string(WorkspaceAccessReadOnly), string(WorkspaceAccessReadWrite))
+}
+
+type DurationString string
+
+func (DurationString) JSONSchema() *invjsonschema.Schema {
+	return &invjsonschema.Schema{
+		Type:     "string",
+		Pattern:  `^[-+]?(([0-9]+(\.[0-9]*)?|\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$`,
+		Examples: []any{"15m", "1.5h", "24h"},
+	}
+}
+
+func (d *DurationString) UnmarshalYAML(node *yaml.Node) error {
+	var value string
+	if err := node.Decode(&value); err != nil {
+		return err
+	}
+	return d.set(value)
+}
+
+func (d *DurationString) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	return d.set(value)
+}
+
+func (d *DurationString) set(value string) error {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		if _, err := time.ParseDuration(value); err != nil {
+			return fmt.Errorf("invalid duration %q: %w", value, err)
+		}
+	}
+	*d = DurationString(value)
+	return nil
+}
+
+func stringEnumSchema(defaultValue string, values ...string) *invjsonschema.Schema {
+	enum := make([]any, 0, len(values))
+	for _, value := range values {
+		enum = append(enum, value)
+	}
+	schema := &invjsonschema.Schema{Type: "string", Enum: enum}
+	if defaultValue != "" {
+		schema.Default = defaultValue
+	}
+	return schema
 }
 
 // WorkspaceConfig contains additional local filesystem workspace roots.
@@ -692,11 +779,11 @@ type WorkspaceConfig struct {
 }
 
 type WorkspaceRootDoc struct {
-	Name     string   `json:"name" yaml:"name"`
-	Path     string   `json:"path" yaml:"path"`
-	Access   string   `json:"access,omitempty" yaml:"access,omitempty"`
-	Create   bool     `json:"create,omitempty" yaml:"create,omitempty"`
-	EnvFiles []string `json:"env_files,omitempty" yaml:"env_files,omitempty"`
+	Name     string          `json:"name" yaml:"name"`
+	Path     string          `json:"path" yaml:"path"`
+	Access   WorkspaceAccess `json:"access,omitempty" yaml:"access,omitempty"`
+	Create   bool            `json:"create,omitempty" yaml:"create,omitempty"`
+	EnvFiles []string        `json:"env_files,omitempty" yaml:"env_files,omitempty"`
 }
 
 type modelConfigDoc struct {
@@ -711,9 +798,34 @@ type modelAvailableDoc struct {
 	Params   modelParamsDoc `json:"params,omitempty" yaml:"params,omitempty"`
 }
 
+type ThinkingMode string
+
+const (
+	ThinkingDisabled ThinkingMode = "disabled"
+	ThinkingAuto     ThinkingMode = "auto"
+	ThinkingEnabled  ThinkingMode = "enabled"
+)
+
+func (ThinkingMode) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("", string(ThinkingDisabled), string(ThinkingAuto), string(ThinkingEnabled))
+}
+
+type ReasoningEffort string
+
+const (
+	ReasoningEffortLow    ReasoningEffort = "low"
+	ReasoningEffortMedium ReasoningEffort = "medium"
+	ReasoningEffortHigh   ReasoningEffort = "high"
+	ReasoningEffortMax    ReasoningEffort = "max"
+)
+
+func (ReasoningEffort) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("medium", string(ReasoningEffortLow), string(ReasoningEffortMedium), string(ReasoningEffortHigh), string(ReasoningEffortMax))
+}
+
 type modelParamsDoc struct {
-	Thinking string `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	Effort   string `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Thinking ThinkingMode    `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort   ReasoningEffort `json:"effort,omitempty" yaml:"effort,omitempty"`
 }
 
 type modelContributions struct {
@@ -742,8 +854,8 @@ func (d modelConfigDoc) Contributions() (modelContributions, error) {
 			},
 			Aliases: cleanedModelNames(raw.Aliases),
 			Params: corellm.ModelParams{
-				Thinking:        strings.TrimSpace(raw.Params.Thinking),
-				ReasoningEffort: strings.TrimSpace(raw.Params.Effort),
+				Thinking:        strings.TrimSpace(string(raw.Params.Thinking)),
+				ReasoningEffort: strings.TrimSpace(string(raw.Params.Effort)),
 			},
 		}
 		provider.Models = append(provider.Models, model)
@@ -1037,7 +1149,7 @@ func (d datasourceConfigDoc) Spec() coreapp.DatasourceSpec {
 	out := coreapp.DatasourceSpec{
 		Index: coreapp.DatasourceIndexSpec{
 			Concurrency: d.Index.Concurrency,
-			Freshness:   strings.TrimSpace(d.Index.Freshness),
+			Freshness:   strings.TrimSpace(string(d.Index.Freshness)),
 		},
 	}
 	for _, ds := range d.Datasources {
@@ -1047,8 +1159,8 @@ func (d datasourceConfigDoc) Spec() coreapp.DatasourceSpec {
 }
 
 type datasourceIndexDefaultsDoc struct {
-	Concurrency int    `json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
-	Freshness   string `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+	Concurrency int            `json:"concurrency,omitempty" yaml:"concurrency,omitempty" jsonschema:"default=1"`
+	Freshness   DurationString `json:"freshness,omitempty" yaml:"freshness,omitempty" jsonschema:"default=15m"`
 }
 
 // DatasourceDoc declares one configured datasource instance.
@@ -1066,8 +1178,8 @@ type DatasourceDoc struct {
 }
 
 type datasourceIndexDoc struct {
-	Enabled   bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Freshness string `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+	Enabled   bool           `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+	Freshness DurationString `json:"freshness,omitempty" yaml:"freshness,omitempty" jsonschema:"default=15m"`
 }
 
 func (d DatasourceDoc) Spec() coredatasource.Spec {
@@ -1106,7 +1218,7 @@ func (d DatasourceDoc) Spec() coredatasource.Spec {
 		Config:      cfg,
 		Index: coredatasource.IndexSpec{
 			Enabled:   d.Index.Enabled,
-			Freshness: strings.TrimSpace(d.Index.Freshness),
+			Freshness: strings.TrimSpace(string(d.Index.Freshness)),
 		},
 		Semantic: d.Semantic.Spec(),
 	}
@@ -1234,17 +1346,27 @@ type ChannelDoc struct {
 }
 
 type AccessDoc struct {
-	Mode             string   `json:"mode,omitempty" yaml:"mode,omitempty"`
-	AllowUsers       []string `json:"allow_users,omitempty" yaml:"allow_users,omitempty"`
-	DenyUsers        []string `json:"deny_users,omitempty" yaml:"deny_users,omitempty"`
-	AllowChannels    []string `json:"allow_channels,omitempty" yaml:"allow_channels,omitempty"`
-	DenyChannels     []string `json:"deny_channels,omitempty" yaml:"deny_channels,omitempty"`
-	AllowKinds       []string `json:"allow_kinds,omitempty" yaml:"allow_kinds,omitempty"`
-	DefaultTrust     string   `json:"default_trust,omitempty" yaml:"default_trust,omitempty"`
-	Operators        []string `json:"operators,omitempty" yaml:"operators,omitempty"`
-	InternalUsers    []string `json:"internal_users,omitempty" yaml:"internal_users,omitempty"`
-	InternalChannels []string `json:"internal_channels,omitempty" yaml:"internal_channels,omitempty"`
-	Sharing          string   `json:"sharing,omitempty" yaml:"sharing,omitempty"`
+	Mode             string      `json:"mode,omitempty" yaml:"mode,omitempty"`
+	AllowUsers       []string    `json:"allow_users,omitempty" yaml:"allow_users,omitempty"`
+	DenyUsers        []string    `json:"deny_users,omitempty" yaml:"deny_users,omitempty"`
+	AllowChannels    []string    `json:"allow_channels,omitempty" yaml:"allow_channels,omitempty"`
+	DenyChannels     []string    `json:"deny_channels,omitempty" yaml:"deny_channels,omitempty"`
+	AllowKinds       []string    `json:"allow_kinds,omitempty" yaml:"allow_kinds,omitempty"`
+	DefaultTrust     string      `json:"default_trust,omitempty" yaml:"default_trust,omitempty"`
+	Operators        []string    `json:"operators,omitempty" yaml:"operators,omitempty"`
+	InternalUsers    []string    `json:"internal_users,omitempty" yaml:"internal_users,omitempty"`
+	InternalChannels []string    `json:"internal_channels,omitempty" yaml:"internal_channels,omitempty"`
+	Sharing          SharingMode `json:"sharing,omitempty" yaml:"sharing,omitempty"`
+}
+
+type SharingMode string
+
+const (
+	SharingStrict SharingMode = "strict"
+)
+
+func (SharingMode) JSONSchema() *invjsonschema.Schema {
+	return stringEnumSchema("strict", string(SharingStrict))
 }
 
 type agentDoc struct {
@@ -1254,8 +1376,8 @@ type agentDoc struct {
 	Model       string            `json:"model,omitempty" yaml:"model,omitempty"`
 	MaxTokens   int               `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	Turns       turnsDoc          `json:"turns,omitempty" yaml:"turns,omitempty"`
-	Thinking    string            `json:"thinking,omitempty" yaml:"thinking,omitempty"`
-	Effort      string            `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Thinking    ThinkingMode      `json:"thinking,omitempty" yaml:"thinking,omitempty"`
+	Effort      ReasoningEffort   `json:"effort,omitempty" yaml:"effort,omitempty"`
 	Operations  []string          `json:"operations,omitempty" yaml:"operations,omitempty"`
 	Tools       []string          `json:"tools,omitempty" yaml:"tools,omitempty"`
 	Context     []string          `json:"context,omitempty" yaml:"context,omitempty"`
@@ -1268,7 +1390,7 @@ type agentDoc struct {
 type agentTriggerDoc struct {
 	Name        string                  `json:"name,omitempty" yaml:"name,omitempty"`
 	Description string                  `json:"description,omitempty" yaml:"description,omitempty"`
-	Every       string                  `json:"every,omitempty" yaml:"every,omitempty"`
+	Every       DurationString          `json:"every,omitempty" yaml:"every,omitempty"`
 	Startup     *agentStartupTriggerDoc `json:"startup,omitempty" yaml:"startup,omitempty"`
 	Session     string                  `json:"session,omitempty" yaml:"session,omitempty"`
 	Prompt      string                  `json:"prompt,omitempty" yaml:"prompt,omitempty"`
@@ -1348,8 +1470,8 @@ func decodeAgentDoc(node yaml.Node) (agent.Spec, agentTriggerResources, error) {
 		Inference: agent.InferenceSpec{
 			Model:           strings.TrimSpace(raw.Model),
 			MaxOutputTokens: raw.MaxTokens,
-			Thinking:        strings.TrimSpace(raw.Thinking),
-			ReasoningEffort: strings.TrimSpace(raw.Effort),
+			Thinking:        strings.TrimSpace(string(raw.Thinking)),
+			ReasoningEffort: strings.TrimSpace(string(raw.Effort)),
 		},
 		Turns: agent.TurnPolicy{
 			MaxSteps: raw.Turns.MaxSteps,
@@ -1422,7 +1544,7 @@ func agentTriggerSpecs(raw agentDoc) (agentTriggerResources, error) {
 
 func agentTriggerSpec(agentName string, index int, raw agentTriggerDoc, seen map[string]int) (coretrigger.Spec, workflow.Spec, error) {
 	kind := coretrigger.KindSchedule
-	every := strings.TrimSpace(raw.Every)
+	every := strings.TrimSpace(string(raw.Every))
 	prompt := strings.TrimSpace(raw.Prompt)
 	workflowName := firstNonEmpty(strings.TrimSpace(raw.Workflow), strings.TrimSpace(raw.Do.Workflow))
 	actions := append([]corereaction.Action(nil), raw.Actions...)
@@ -1792,21 +1914,18 @@ type workflowDoc struct {
 }
 
 type workflowStepDoc struct {
-	ID              string               `json:"id" yaml:"id"`
-	Kind            string               `json:"kind,omitempty" yaml:"kind,omitempty"`
-	Operation       string               `json:"operation,omitempty" yaml:"operation,omitempty"`
-	Agent           string               `json:"agent,omitempty" yaml:"agent,omitempty"`
-	Input           operation.Value      `json:"input,omitempty" yaml:"input,omitempty"`
-	InputMap        map[string]string    `json:"input_map,omitempty" yaml:"input_map,omitempty"`
-	DependsOn       []string             `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
-	DependsOnDash   []string             `json:"depends-on,omitempty" yaml:"depends-on,omitempty"`
-	When            workflow.Condition   `json:"when,omitempty" yaml:"when,omitempty"`
-	Retry           workflow.RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
-	Timeout         string               `json:"timeout,omitempty" yaml:"timeout,omitempty"`
-	ErrorPolicy     string               `json:"error_policy,omitempty" yaml:"error_policy,omitempty"`
-	ErrorPolicyDash string               `json:"error-policy,omitempty" yaml:"error-policy,omitempty"`
-	IdempotencyKey  string               `json:"idempotency_key,omitempty" yaml:"idempotency_key,omitempty"`
-	IdempotencyDash string               `json:"idempotency-key,omitempty" yaml:"idempotency-key,omitempty"`
+	ID             string                   `json:"id" yaml:"id"`
+	Kind           workflow.StepKind        `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Operation      string                   `json:"operation,omitempty" yaml:"operation,omitempty"`
+	Agent          string                   `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Input          operation.Value          `json:"input,omitempty" yaml:"input,omitempty"`
+	InputMap       map[string]string        `json:"input_map,omitempty" yaml:"input_map,omitempty"`
+	DependsOn      []string                 `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	When           workflow.Condition       `json:"when,omitempty" yaml:"when,omitempty"`
+	Retry          workflow.RetryPolicy     `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Timeout        DurationString           `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	ErrorPolicy    workflow.StepErrorPolicy `json:"error_policy,omitempty" yaml:"error_policy,omitempty"`
+	IdempotencyKey string                   `json:"idempotency_key,omitempty" yaml:"idempotency_key,omitempty"`
 }
 
 func decodeWorkflowDoc(node yaml.Node) (workflow.Spec, error) {
@@ -1849,14 +1968,14 @@ func (d workflowDoc) Spec() (workflow.Spec, error) {
 func (d workflowStepDoc) Step() (workflow.Step, error) {
 	step := workflow.Step{
 		ID:             workflow.StepID(strings.TrimSpace(d.ID)),
-		Kind:           workflow.StepKind(strings.TrimSpace(d.Kind)),
+		Kind:           workflow.StepKind(strings.TrimSpace(string(d.Kind))),
 		Input:          d.Input,
 		InputMap:       cloneStringMap(d.InputMap),
-		DependsOn:      stepIDs(firstStringSlice(d.DependsOn, d.DependsOnDash)),
+		DependsOn:      stepIDs(d.DependsOn),
 		When:           d.When,
 		Retry:          d.Retry,
-		ErrorPolicy:    workflow.StepErrorPolicy(firstNonEmpty(strings.TrimSpace(d.ErrorPolicy), strings.TrimSpace(d.ErrorPolicyDash))),
-		IdempotencyKey: firstNonEmpty(strings.TrimSpace(d.IdempotencyKey), strings.TrimSpace(d.IdempotencyDash)),
+		ErrorPolicy:    workflow.StepErrorPolicy(strings.TrimSpace(string(d.ErrorPolicy))),
+		IdempotencyKey: strings.TrimSpace(d.IdempotencyKey),
 	}
 	if operationName := strings.TrimSpace(d.Operation); operationName != "" {
 		step.Operation = operation.Ref{Name: operation.Name(operationName)}
@@ -1870,7 +1989,7 @@ func (d workflowStepDoc) Step() (workflow.Step, error) {
 			step.Kind = workflow.StepAgent
 		}
 	}
-	if timeout := strings.TrimSpace(d.Timeout); timeout != "" {
+	if timeout := strings.TrimSpace(string(d.Timeout)); timeout != "" {
 		parsed, err := parseDuration(timeout)
 		if err != nil {
 			return workflow.Step{}, err
@@ -2290,7 +2409,7 @@ type sourceSpec coreapp.SourceSpec
 func (sourceSpec) JSONSchema() *invjsonschema.Schema {
 	properties := invjsonschema.NewProperties()
 	properties.Set("location", &invjsonschema.Schema{Type: "string"})
-	properties.Set("scope", &invjsonschema.Schema{Type: "string"})
+	properties.Set("scope", stringEnumSchema("", "app", "project", "user", "embedded", "remote", "explicit"))
 	properties.Set("ecosystem", &invjsonschema.Schema{Type: "string"})
 	properties.Set("annotations", &invjsonschema.Schema{
 		Type:                 "object",
@@ -2455,6 +2574,7 @@ func cleaned(values []string) []string {
 }
 
 var (
+	_ json.Unmarshaler = (*DurationString)(nil)
 	_ json.Unmarshaler = (*agentRef)(nil)
 	_ json.Unmarshaler = (*sourceSpec)(nil)
 	_ json.Unmarshaler = (*pluginRef)(nil)

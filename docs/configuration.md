@@ -742,7 +742,7 @@ steps:
     agent: reviewer
   - id: implement
     agent: coder
-    depends-on: [plan]
+    depends_on: [plan]
 ```
 
 Operation steps use the same DAG shape and execute through the composed
@@ -757,11 +757,11 @@ steps:
       url: https://example.com
   - id: summarize
     operation: summarize
-    depends-on: [fetch]
+    depends_on: [fetch]
     input_map:
       page: fetch
       request: $input
-    error-policy: continue
+    error_policy: continue
 ```
 
 `input_map` builds the step input from earlier workflow values. Use `$input` for

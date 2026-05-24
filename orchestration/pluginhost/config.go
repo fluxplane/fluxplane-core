@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+
+	coresecret "github.com/fluxplane/engine/core/secret"
+	invjsonschema "github.com/invopop/jsonschema"
 )
 
 // ConfigDecoder is implemented by plugin registrations that want pluginhost to
@@ -11,6 +15,12 @@ import (
 // collection.
 type ConfigDecoder interface {
 	DecodeConfig(context.Context, Context) (any, error)
+}
+
+// ConfigSchemaProvider is implemented by plugin registrations that can expose
+// the JSON Schema for their app manifest config block.
+type ConfigSchemaProvider interface {
+	ConfigSchema() ([]byte, error)
 }
 
 // Configurable decodes resource.PluginRef config into T when embedded by a
@@ -24,6 +34,11 @@ func (Configurable[T]) DecodeConfig(_ context.Context, ctx Context) (any, error)
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// ConfigSchema returns the JSON Schema for T.
+func (Configurable[T]) ConfigSchema() ([]byte, error) {
+	return ConfigSchemaFor[T]()
 }
 
 // DecodeConfig converts a raw plugin config map into a typed config object.
@@ -40,6 +55,59 @@ func DecodeConfig[T any](raw map[string]any) (T, error) {
 		return cfg, fmt.Errorf("decode plugin config: %w", err)
 	}
 	return cfg, nil
+}
+
+// ConfigSchemaFor reflects T into a JSON Schema for plugin app-manifest config.
+func ConfigSchemaFor[T any]() ([]byte, error) {
+	typ := reflect.TypeOf((*T)(nil)).Elem()
+	ptr := reflect.New(typ)
+	if typ.Kind() == reflect.Ptr {
+		ptr = reflect.New(typ.Elem())
+	}
+	reflector := invjsonschema.Reflector{
+		DoNotReference:             true,
+		ExpandedStruct:             true,
+		AllowAdditionalProperties:  false,
+		RequiredFromJSONSchemaTags: true,
+		Mapper:                     configSchemaEnumMapper,
+	}
+	schema := reflector.Reflect(ptr.Interface())
+	if schema == nil {
+		return nil, fmt.Errorf("pluginhost: config schema is nil")
+	}
+	schema.Version = invjsonschema.Version
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("pluginhost: marshal config schema: %w", err)
+	}
+	return data, nil
+}
+
+func configSchemaEnumMapper(t reflect.Type) *invjsonschema.Schema {
+	switch t {
+	case reflect.TypeOf(coresecret.AuthMethodKind("")):
+		schema := enumSchema([]string{string(coresecret.AuthMethodEnv), string(coresecret.AuthMethodOAuth2), string(coresecret.AuthMethodStored)})
+		schema.Description = "Credential source for this auth scheme: env, oauth2, or stored secret material."
+		return schema
+	case reflect.TypeOf(coresecret.Kind("")):
+		schema := enumSchema([]string{string(coresecret.KindAPIKey), string(coresecret.KindBearerToken), string(coresecret.KindOAuth2Token), string(coresecret.KindBasic), string(coresecret.KindPKI)})
+		schema.Description = "Shape of credential material expected for this auth scheme."
+		return schema
+	case reflect.TypeOf(coresecret.Scheme("")):
+		schema := enumSchema([]string{string(coresecret.SchemeEnv), string(coresecret.SchemePlugin), string(coresecret.SchemeKubernetes)})
+		schema.Description = "Secret reference scheme."
+		return schema
+	default:
+		return nil
+	}
+}
+
+func enumSchema(values []string) *invjsonschema.Schema {
+	enum := make([]any, 0, len(values))
+	for _, value := range values {
+		enum = append(enum, value)
+	}
+	return &invjsonschema.Schema{Type: "string", Enum: enum}
 }
 
 // ConfigAs returns the typed config already decoded into ctx.

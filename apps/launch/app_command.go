@@ -2,15 +2,23 @@ package launch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	distdeploy "github.com/fluxplane/engine/adapters/distribution/deploy"
 	distdescribe "github.com/fluxplane/engine/adapters/distribution/describe"
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	coredata "github.com/fluxplane/engine/core/data"
+	"github.com/fluxplane/engine/core/resource"
 	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/engine/plugins/native/datasource"
 	"github.com/spf13/cobra"
 )
 
@@ -324,7 +332,9 @@ func NewAppConfigCommand(loader Loader, editor EditorRunner) *cobra.Command {
 		Use:   "config",
 		Short: "Inspect local app configuration",
 	}
+	cmd.AddCommand(newAppConfigSchemaCommand(loader))
 	cmd.AddCommand(newAppConfigShowCommand(loader))
+	cmd.AddCommand(newAppConfigValidateCommand(loader))
 	cmd.AddCommand(newAppConfigEditCommand(loader, editor))
 	return cmd
 }
@@ -336,6 +346,251 @@ func NewAppDescribeCommand(loader Loader) *cobra.Command {
 
 func newAppConfigShowCommand(loader Loader) *cobra.Command {
 	return newAppConfigShowCommandWithUse(loader, "show [path]", "Show the resolved local app configuration")
+}
+
+func newAppConfigValidateCommand(loader Loader) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "validate [path]",
+		Short: "Validate the local app manifest",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if loader == nil {
+				loader = distlocal.Load
+			}
+			loaded, err := loader(cmd.Context(), optionalPath(args))
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(loaded.Manifest) == "" {
+				return fmt.Errorf("app config validate: no app manifest found in %s", loaded.Root)
+			}
+			var errorDiagnostics []resource.Diagnostic
+			for _, diagnostic := range loaded.Diagnostics {
+				if diagnostic.Severity == resource.SeverityError {
+					errorDiagnostics = append(errorDiagnostics, diagnostic)
+				}
+			}
+			if len(errorDiagnostics) > 0 {
+				for _, diagnostic := range errorDiagnostics {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", diagnostic.Severity, diagnostic.Message)
+				}
+				return fmt.Errorf("app config validate: %d error diagnostic(s)", len(errorDiagnostics))
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "valid %s\n", loaded.Manifest)
+			return nil
+		},
+	}
+	return cmd
+}
+
+func newAppConfigSchemaCommand(loader Loader) *cobra.Command {
+	var output string
+	cmd := &cobra.Command{
+		Use:   "schema [path]",
+		Short: "Write the base local app manifest JSON Schema",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			available := configSchemaAvailablePlugins()
+			plugins, err := configSchemaPlugins(available)
+			if err != nil {
+				return err
+			}
+			opts := appconfig.ManifestSchemaOptions{Plugins: plugins}
+			if resources, datasources, ok, err := configSchemaResources(cmd.Context(), loader, optionalPath(args)); err != nil {
+				return err
+			} else if ok {
+				opts.Resources = resources
+				opts.Datasources = datasources
+			}
+			data, err := appconfig.ManifestSchemaWithOptions(opts)
+			if err != nil {
+				return err
+			}
+			data = append(data, '\n')
+			if output == "-" {
+				_, err := cmd.OutOrStdout().Write(data)
+				return err
+			}
+			path := output
+			if strings.TrimSpace(path) == "" {
+				path = filepath.Join(".fluxplane", "schema.json")
+			}
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(optionalPath(args), path)
+			}
+			path = filepath.Clean(path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return fmt.Errorf("app config schema: create %s: %w", filepath.Dir(path), err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				return fmt.Errorf("app config schema: write %s: %w", path, err)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "", "schema output path relative to app path, or - for stdout (default .fluxplane/schema.json)")
+	return cmd
+}
+
+func configSchemaAvailablePlugins() []pluginhost.Plugin {
+	available := availablePlugins(nil, nil, nil, "", false)
+	return appendPluginIfMissing(available, datasource.New(nil))
+}
+
+func configSchemaPlugins(available []pluginhost.Plugin) ([]appconfig.PluginSchema, error) {
+	out := make([]appconfig.PluginSchema, 0, len(available))
+	for _, plugin := range available {
+		if plugin == nil {
+			continue
+		}
+		manifest := plugin.Manifest()
+		schema := appconfig.PluginSchema{
+			Kind:        strings.TrimSpace(manifest.Name),
+			Description: strings.TrimSpace(manifest.Description),
+		}
+		if provider, ok := plugin.(pluginhost.ConfigSchemaProvider); ok {
+			data, err := provider.ConfigSchema()
+			if err != nil {
+				return nil, fmt.Errorf("app config schema: plugin %q config schema: %w", schema.Kind, err)
+			}
+			if len(data) > 0 {
+				var configSchema map[string]any
+				if err := json.Unmarshal(data, &configSchema); err != nil {
+					return nil, fmt.Errorf("app config schema: plugin %q config schema JSON: %w", schema.Kind, err)
+				}
+				schema.ConfigSchema = configSchema
+			}
+		}
+		out = append(out, schema)
+	}
+	return out, nil
+}
+
+func configSchemaResources(ctx context.Context, loader Loader, appDir string) (appconfig.ResourceSchema, []appconfig.DatasourceSchema, bool, error) {
+	if loader == nil {
+		loader = distlocal.Load
+	}
+	if strings.TrimSpace(appDir) == "" {
+		appDir = "."
+	}
+	manifestPath := filepath.Join(appDir, appconfig.DefaultManifestName)
+	if _, err := os.Stat(manifestPath); err != nil {
+		if os.IsNotExist(err) {
+			return appconfig.ResourceSchema{}, nil, false, nil
+		}
+		return appconfig.ResourceSchema{}, nil, false, fmt.Errorf("app config schema: stat manifest %s: %w", manifestPath, err)
+	}
+	loaded, err := loader(ctx, appDir)
+	if err != nil {
+		return appconfig.ResourceSchema{}, nil, false, err
+	}
+	static := StaticPluginView(ctx, StaticPluginOptions{
+		Bundles: loaded.Distribution.Bundles,
+		Launch:  loaded.Launch,
+	})
+	resources := appconfig.ResourceSchema{
+		EntitiesByKind: map[string][]string{},
+	}
+	var datasourceSchemas []appconfig.DatasourceSchema
+	for _, bundle := range static.Bundles {
+		for _, spec := range bundle.Agents {
+			resources.Agents = append(resources.Agents, string(spec.Name))
+		}
+		for _, spec := range bundle.Sessions {
+			resources.Sessions = append(resources.Sessions, string(spec.Name))
+		}
+		for _, spec := range bundle.Workflows {
+			resources.Workflows = append(resources.Workflows, string(spec.Name))
+		}
+		for _, spec := range bundle.Operations {
+			resources.Operations = append(resources.Operations, string(spec.Ref.Name))
+		}
+		for _, spec := range bundle.Datasources {
+			resources.Datasources = append(resources.Datasources, string(spec.Name))
+			resources.DatasourceKinds = append(resources.DatasourceKinds, spec.Kind)
+			for _, entity := range spec.Entities {
+				resources.Entities = append(resources.Entities, string(entity))
+				resources.EntitiesByKind[spec.Kind] = append(resources.EntitiesByKind[spec.Kind], string(entity))
+			}
+		}
+		for _, spec := range bundle.DataSources {
+			resources.DatasourceKinds = append(resources.DatasourceKinds, spec.Kind)
+			for _, entity := range spec.Entities {
+				resources.Entities = append(resources.Entities, string(entity.Type))
+				resources.EntitiesByKind[spec.Kind] = append(resources.EntitiesByKind[spec.Kind], string(entity.Type))
+			}
+			datasourceSchema, err := configSchemaDatasource(spec)
+			if err != nil {
+				return appconfig.ResourceSchema{}, nil, false, err
+			}
+			if datasourceSchema.Kind != "" {
+				datasourceSchemas = append(datasourceSchemas, datasourceSchema)
+			}
+		}
+		for _, provider := range bundle.LLMProviders {
+			for _, model := range provider.Models {
+				ref := model.Ref
+				if ref.Provider == "" {
+					ref.Provider = provider.Name
+				}
+				resources.Models = append(resources.Models, ref.String())
+				if ref.Name != "" {
+					resources.Models = append(resources.Models, string(ref.Name))
+				}
+				for _, alias := range model.Aliases {
+					resources.Models = append(resources.Models, string(alias))
+				}
+			}
+		}
+		for _, alias := range bundle.LLMModelAliases {
+			resources.Models = append(resources.Models, alias.Name)
+		}
+	}
+	for _, listener := range loaded.Launch.Listeners {
+		resources.Listeners = append(resources.Listeners, listener.Name)
+	}
+	for _, channel := range loaded.Launch.Channels {
+		resources.Channels = append(resources.Channels, channel.Name)
+		if channel.Session != "" {
+			resources.Sessions = append(resources.Sessions, channel.Session)
+		}
+		if channel.Listener != "" {
+			resources.Listeners = append(resources.Listeners, channel.Listener)
+		}
+	}
+	if loaded.Distribution.Spec.DefaultSession.Name != "" {
+		resources.Sessions = append(resources.Sessions, string(loaded.Distribution.Spec.DefaultSession.Name))
+	}
+	if loaded.Distribution.Spec.DefaultModel.Model != "" {
+		resources.Models = append(resources.Models, loaded.Distribution.Spec.DefaultModel.Model)
+	}
+	return resources, datasourceSchemas, true, nil
+}
+
+func configSchemaDatasource(spec coredata.SourceSpec) (appconfig.DatasourceSchema, error) {
+	out := appconfig.DatasourceSchema{
+		Kind:        strings.TrimSpace(spec.Kind),
+		Description: strings.TrimSpace(spec.Description),
+	}
+	if out.Kind == "" {
+		return out, nil
+	}
+	for _, entity := range spec.Entities {
+		out.Entities = append(out.Entities, string(entity.Type))
+	}
+	if len(spec.ConfigSchema.Data) == 0 {
+		return out, nil
+	}
+	if spec.ConfigSchema.Format != "" && spec.ConfigSchema.Format != "json-schema" {
+		return out, fmt.Errorf("app config schema: datasource %q config schema has unsupported format %q", out.Kind, spec.ConfigSchema.Format)
+	}
+	configSchema := map[string]any{}
+	if err := json.Unmarshal(spec.ConfigSchema.Data, &configSchema); err != nil {
+		return out, fmt.Errorf("app config schema: datasource %q config schema JSON: %w", out.Kind, err)
+	}
+	out.ConfigSchema = configSchema
+	return out, nil
 }
 
 func newAppConfigShowCommandWithUse(loader Loader, use, short string) *cobra.Command {

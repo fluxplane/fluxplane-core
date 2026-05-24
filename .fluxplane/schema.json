@@ -1,0 +1,4979 @@
+{
+  "$defs": {
+    "agent_Action": {
+      "additionalProperties": false,
+      "properties": {
+        "activation_set": {
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/agent_Invocation"
+        },
+        "context_provider": {
+          "$ref": "#/$defs/agent_ProviderRef"
+        },
+        "datasource": {
+          "$ref": "#/$defs/agent_Ref"
+        },
+        "idempotency_fragment": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "activate_skill",
+            "activate_reference",
+            "enable_activation_set",
+            "enable_operation_set",
+            "enable_datasource",
+            "enable_context_provider",
+            "run_workflow",
+            "run_operation",
+            "run_command"
+          ],
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "operation": {
+          "$ref": "#/$defs/agent_OperationAction"
+        },
+        "operation_set": {
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/agent_ReferenceAction"
+        },
+        "require_approval": {
+          "type": "boolean"
+        },
+        "skill": {
+          "$ref": "#/$defs/agent_Ref"
+        },
+        "workflow": {
+          "$ref": "#/$defs/agent_WorkflowAction"
+        }
+      },
+      "type": "object"
+    },
+    "agent_DurationString": {
+      "examples": [
+        "15m",
+        "1.5h",
+        "24h"
+      ],
+      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
+      "type": "string"
+    },
+    "agent_Invocation": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input": true,
+        "path": {
+          "$ref": "#/$defs/agent_Path"
+        }
+      },
+      "type": "object"
+    },
+    "agent_OperationAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "operation": {
+          "$ref": "#/$defs/agent_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "agent_Path": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "agent_ProviderRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_ReasoningEffort": {
+      "default": "medium",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "type": "string"
+    },
+    "agent_Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_ReferenceAction": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "skill": {
+          "$ref": "#/$defs/agent_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "agent_ThinkingMode": {
+      "enum": [
+        "disabled",
+        "auto",
+        "enabled"
+      ],
+      "type": "string"
+    },
+    "agent_WorkflowAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_agentStartupTriggerDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/agent_Action"
+          },
+          "type": "array"
+        },
+        "do": {
+          "$ref": "#/$defs/agent_agentTriggerDoDoc"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_agentTriggerDoDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/agent_Action"
+          },
+          "type": "array"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_agentTriggerDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/agent_Action"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "do": {
+          "$ref": "#/$defs/agent_agentTriggerDoDoc"
+        },
+        "every": {
+          "$ref": "#/$defs/agent_DurationString"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "session": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "startup": {
+          "$ref": "#/$defs/agent_agentStartupTriggerDoc"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_continuationDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "context_policy": {
+          "type": "string"
+        },
+        "max_continuations": {
+          "type": "integer"
+        },
+        "stop_condition": {
+          "$ref": "#/$defs/agent_stopConditionDoc"
+        }
+      },
+      "type": "object"
+    },
+    "agent_stopConditionDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "conditions": {
+          "items": {
+            "$ref": "#/$defs/agent_stopConditionDoc"
+          },
+          "type": "array"
+        },
+        "max": {
+          "type": "integer"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "session": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "agent_turnsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "continuation": {
+          "$ref": "#/$defs/agent_continuationDoc"
+        },
+        "max_steps": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "app_AccessDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allow_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allow_users": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_trust": {
+          "type": "string"
+        },
+        "deny_channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deny_users": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "internal_channels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "internal_users": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "operators": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sharing": {
+          "$ref": "#/$defs/app_SharingMode"
+        }
+      },
+      "type": "object"
+    },
+    "app_Action": {
+      "additionalProperties": false,
+      "properties": {
+        "activation_set": {
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/app_Invocation"
+        },
+        "context_provider": {
+          "$ref": "#/$defs/app_ProviderRef"
+        },
+        "datasource": {
+          "$ref": "#/$defs/app_Ref"
+        },
+        "idempotency_fragment": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "activate_skill",
+            "activate_reference",
+            "enable_activation_set",
+            "enable_operation_set",
+            "enable_datasource",
+            "enable_context_provider",
+            "run_workflow",
+            "run_operation",
+            "run_command"
+          ],
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "operation": {
+          "$ref": "#/$defs/app_OperationAction"
+        },
+        "operation_set": {
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/app_ReferenceAction"
+        },
+        "require_approval": {
+          "type": "boolean"
+        },
+        "skill": {
+          "$ref": "#/$defs/app_Ref"
+        },
+        "workflow": {
+          "$ref": "#/$defs/app_WorkflowAction"
+        }
+      },
+      "type": "object"
+    },
+    "app_AssertionDeriverSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/app_AssertionTemplate"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observation_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_AssertionTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/app_Subject"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_AuthorizationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "grants": {
+          "items": {
+            "$ref": "#/$defs/app_Grant"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_CapabilitySet": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "app_ChannelDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/app_AccessDoc"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "listener": {
+          "enum": [
+            "local"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "session": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "equals": true,
+        "exists": {
+          "type": "boolean"
+        },
+        "not": {
+          "type": "boolean"
+        },
+        "step_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_DaemonConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/app_ChannelDoc"
+          },
+          "type": "array"
+        },
+        "listeners": {
+          "items": {
+            "$ref": "#/$defs/app_ListenerDoc"
+          },
+          "type": "array"
+        },
+        "triggers": {
+          "items": {
+            "$ref": "#/$defs/app_Spec"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_DatasourceDoc": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "filesystem"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "additionalProperties": false,
+                "description": "Configuration for the filesystem datasource provider.",
+                "properties": {
+                  "include": {
+                    "description": "Comma-separated glob patterns included from the filesystem datasource.",
+                    "type": "string"
+                  },
+                  "path": {
+                    "description": "Workspace-relative directory or file path to index.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "entities": {
+                "description": "Entities supported by the filesystem datasource provider.",
+                "items": {
+                  "description": "One datasource entity type.",
+                  "enum": [
+                    "file.document"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "config": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "index": {
+          "$ref": "#/$defs/app_datasourceIndexDoc"
+        },
+        "kind": {
+          "enum": [
+            "filesystem"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/app_semanticDoc"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_DurationString": {
+      "examples": [
+        "15m",
+        "1.5h",
+        "24h"
+      ],
+      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
+      "type": "string"
+    },
+    "app_EffectSet": {
+      "items": {
+        "enum": [
+          "none",
+          "read_external",
+          "write_external",
+          "filesystem",
+          "network",
+          "process",
+          "create",
+          "update",
+          "delete",
+          "destructive",
+          "irreversible",
+          "sensitive_data"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "app_Example": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": true,
+        "name": {
+          "type": "string"
+        },
+        "output": true
+      },
+      "type": "object"
+    },
+    "app_Grant": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "enum": [
+              "datasource.read",
+              "datasource.search",
+              "datasource.index",
+              "datasource.admin",
+              "workspace.read",
+              "workspace.write",
+              "workspace.admin",
+              "process.exec",
+              "process.admin",
+              "network.fetch",
+              "network.connect",
+              "channel.send",
+              "channel.admin",
+              "task.read",
+              "task.write",
+              "task.run",
+              "task.admin",
+              "session.read",
+              "session.write",
+              "session.admin",
+              "model.invoke",
+              "operation.invoke",
+              "approval.grant",
+              "secret.read",
+              "secret.use",
+              "secret.admin"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required_trust": {
+          "enum": [
+            "untrusted",
+            "verified",
+            "privileged",
+            "system"
+          ],
+          "type": "string"
+        },
+        "requires_approval": {
+          "type": "boolean"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/app_ResourceRef"
+          },
+          "type": "array"
+        },
+        "subjects": {
+          "items": {
+            "$ref": "#/$defs/app_SubjectRef"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_Invocation": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input": true,
+        "path": {
+          "$ref": "#/$defs/app_Path"
+        }
+      },
+      "type": "object"
+    },
+    "app_ListenerDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "addr": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_Matcher": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion": {
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/app_Subject"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ModelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "reasoning_effort": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ModelRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ModelSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/app_CapabilitySet"
+        },
+        "context_tokens": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "input_modalities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_output_tokens": {
+          "type": "integer"
+        },
+        "output_modalities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "params": {
+          "$ref": "#/$defs/app_ModelParams"
+        },
+        "pricing": {
+          "items": {
+            "$ref": "#/$defs/app_PricingSpec"
+          },
+          "type": "array"
+        },
+        "ref": {
+          "$ref": "#/$defs/app_ModelRef"
+        }
+      },
+      "type": "object"
+    },
+    "app_ObserverSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "environment": {
+          "$ref": "#/$defs/app_Ref"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observable_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "phase": {
+          "enum": [
+            "startup",
+            "session_open",
+            "turn",
+            "tool_followup",
+            "lazy"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_OperationAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "operation": {
+          "$ref": "#/$defs/app_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "app_Path": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "app_PricingSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "effective_utc": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "per": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ProviderRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ProviderSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/app_ModelSpec"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ReasoningEffort": {
+      "default": "medium",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ],
+      "type": "string"
+    },
+    "app_Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ReferenceAction": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "skill": {
+          "$ref": "#/$defs/app_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "app_ResourceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "datasource",
+            "workspace",
+            "path",
+            "process",
+            "network",
+            "channel",
+            "task",
+            "session",
+            "admin",
+            "model",
+            "operation",
+            "secret"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_RetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "backoff": {
+          "type": "integer"
+        },
+        "max_attempts": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "app_Rule": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/app_Action"
+          },
+          "type": "array"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "on_change",
+            "every_turn"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/app_Matcher"
+        }
+      },
+      "type": "object"
+    },
+    "app_RuntimeConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/app_RuntimeDataDoc"
+        },
+        "events": {
+          "$ref": "#/$defs/app_RuntimeEventsDoc"
+        },
+        "workspace": {
+          "$ref": "#/$defs/app_WorkspaceConfig"
+        }
+      },
+      "type": "object"
+    },
+    "app_RuntimeDataDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/app_RuntimeDataStoreDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_RuntimeDataStoreDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "dsn": {
+          "type": "string"
+        },
+        "dsn_env": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/app_RuntimeDataStoreKind"
+        }
+      },
+      "type": "object"
+    },
+    "app_RuntimeDataStoreKind": {
+      "default": "memory",
+      "enum": [
+        "mem",
+        "memory",
+        "mysql"
+      ],
+      "type": "string"
+    },
+    "app_RuntimeEventStoreDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "create_stream": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dsn": {
+          "type": "string"
+        },
+        "dsn_env": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/app_RuntimeEventStoreKind"
+        },
+        "stream": {
+          "default": "AGENTRUNTIME_EVENTS",
+          "type": "string"
+        },
+        "subject": {
+          "default": "agentruntime.events.log",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_RuntimeEventStoreKind": {
+      "default": "sqlite",
+      "enum": [
+        "jetstream",
+        "local",
+        "nats",
+        "nats-jetstream",
+        "sqlite"
+      ],
+      "type": "string"
+    },
+    "app_RuntimeEventsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/app_RuntimeEventStoreDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_Schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "every": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "data": true,
+        "format": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_Semantics": {
+      "additionalProperties": false,
+      "properties": {
+        "determinism": {
+          "enum": [
+            "deterministic",
+            "non_deterministic"
+          ],
+          "type": "string"
+        },
+        "effects": {
+          "$ref": "#/$defs/app_EffectSet"
+        },
+        "idempotency": {
+          "enum": [
+            "idempotent",
+            "non_idempotent"
+          ],
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_SharingMode": {
+      "default": "strict",
+      "enum": [
+        "strict"
+      ],
+      "type": "string"
+    },
+    "app_Spec": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/app_Action"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "startup",
+            "schedule"
+          ],
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "schedule": {
+          "$ref": "#/$defs/app_Schedule"
+        },
+        "session": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_Subject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "language",
+            "toolchain",
+            "integration",
+            "endpoint",
+            "capability",
+            "provider",
+            "trigger"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_SubjectRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "user",
+            "group",
+            "service",
+            "system",
+            "agent"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_ThinkingMode": {
+      "enum": [
+        "disabled",
+        "auto",
+        "enabled"
+      ],
+      "type": "string"
+    },
+    "app_Type": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/app_Schema"
+        }
+      },
+      "type": "object"
+    },
+    "app_WorkflowAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_WorkspaceAccess": {
+      "default": "read_only",
+      "enum": [
+        "read_only",
+        "read_write"
+      ],
+      "type": "string"
+    },
+    "app_WorkspaceConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "env_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "roots": {
+          "items": {
+            "$ref": "#/$defs/app_WorkspaceRootDoc"
+          },
+          "type": "array"
+        },
+        "scratch_root": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_WorkspaceRootDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/app_WorkspaceAccess"
+        },
+        "create": {
+          "type": "boolean"
+        },
+        "env_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_agentRef": {
+      "oneOf": [
+        {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "enum": [
+                "default"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "app_buildDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "assets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "docker": {
+          "$ref": "#/$defs/app_dockerBuildDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_chunkingDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "overlap_tokens": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "target_tokens": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "app_commandDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "policy": {
+          "$ref": "#/$defs/app_commandPolicyDoc"
+        },
+        "target": {
+          "$ref": "#/$defs/app_commandTargetDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_commandPolicyDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_callable": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "app_commandTargetDoc": {
+      "additionalProperties": false,
+      "description": "Command target. Specify exactly one of operation or workflow.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Command target that invokes an operation.",
+          "properties": {
+            "input": true,
+            "operation": {
+              "enum": [
+                "datasource_batch_get",
+                "datasource_get",
+                "datasource_list",
+                "datasource_relation",
+                "datasource_search"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Command target that starts a workflow.",
+          "properties": {
+            "input": true,
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workflow"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "input": true,
+        "operation": {
+          "enum": [
+            "datasource_batch_get",
+            "datasource_get",
+            "datasource_list",
+            "datasource_relation",
+            "datasource_search"
+          ],
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_corpusDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "body_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "exclude_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "metadata_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_datasourceConfigDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "datasources": {
+          "items": {
+            "$ref": "#/$defs/app_DatasourceDoc"
+          },
+          "type": "array"
+        },
+        "index": {
+          "$ref": "#/$defs/app_datasourceIndexDefaultsDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_datasourceIndexDefaultsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "concurrency": {
+          "default": 1,
+          "type": "integer"
+        },
+        "freshness": {
+          "$ref": "#/$defs/app_DurationString"
+        }
+      },
+      "type": "object"
+    },
+    "app_datasourceIndexDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "freshness": {
+          "$ref": "#/$defs/app_DurationString"
+        }
+      },
+      "type": "object"
+    },
+    "app_deployDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_discovery": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_remote": {
+          "type": "boolean"
+        },
+        "include_external_ecosystems": {
+          "type": "boolean"
+        },
+        "include_global_user_resources": {
+          "type": "boolean"
+        },
+        "trust_store_dir": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_distributionCommandDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_distributionDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "build": {
+          "$ref": "#/$defs/app_buildDoc"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/app_distributionCommandDoc"
+          },
+          "type": "array"
+        },
+        "default_conversation": {
+          "type": "string"
+        },
+        "default_model": {
+          "$ref": "#/$defs/app_modelDefaultDoc"
+        },
+        "default_session": {
+          "type": "string"
+        },
+        "deploy": {
+          "$ref": "#/$defs/app_deployDoc"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "surfaces": {
+          "$ref": "#/$defs/app_surfacesDoc"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_dockerBuildDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "build_args": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "context": {
+          "type": "string"
+        },
+        "dockerfile": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "platforms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_embeddingDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_entitySemanticDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "chunking": {
+          "$ref": "#/$defs/app_chunkingDoc"
+        },
+        "corpus": {
+          "$ref": "#/$defs/app_corpusDoc"
+        },
+        "incremental": {
+          "$ref": "#/$defs/app_incrementalDoc"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/app_retrievalDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/app_identityGroupDoc"
+          },
+          "type": "array"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/app_identityRuleDoc"
+          },
+          "type": "array"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/app_identityUserDoc"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityEmailDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityGroupDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trust": {
+          "enum": [
+            "public",
+            "internal",
+            "operator"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityIdentityDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "provider_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityMatchDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "provider_id": {
+          "type": "string"
+        },
+        "resolution": {
+          "enum": [
+            "unresolved",
+            "resolved"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityRuleDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "match": {
+          "$ref": "#/$defs/app_identityMatchDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_identityUserDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "emails": {
+          "items": {
+            "$ref": "#/$defs/app_identityEmailDoc"
+          },
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "identities": {
+          "items": {
+            "$ref": "#/$defs/app_identityIdentityDoc"
+          },
+          "type": "array"
+        },
+        "trust": {
+          "enum": [
+            "public",
+            "internal",
+            "operator"
+          ],
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_incrementalDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "updated_at_field": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_modelAvailableDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "model": {
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/$defs/app_modelParamsDoc"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_modelConfigDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "items": {
+            "$ref": "#/$defs/app_modelAvailableDoc"
+          },
+          "type": "array"
+        },
+        "default": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_modelDefaultDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "use_case": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_modelParamsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "effort": {
+          "$ref": "#/$defs/app_ReasoningEffort"
+        },
+        "thinking": {
+          "$ref": "#/$defs/app_ThinkingMode"
+        }
+      },
+      "type": "object"
+    },
+    "app_modelPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_degraded": {
+          "type": "boolean"
+        },
+        "allow_untested": {
+          "type": "boolean"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "approved_only": {
+          "type": "boolean"
+        },
+        "evidence_path": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "source_api": {
+          "type": "string"
+        },
+        "use_case": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_observationsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_derivers": {
+          "items": {
+            "$ref": "#/$defs/app_AssertionDeriverSpec"
+          },
+          "type": "array"
+        },
+        "observers": {
+          "items": {
+            "$ref": "#/$defs/app_ObserverSpec"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "app_operationDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/app_Example"
+          },
+          "type": "array"
+        },
+        "input": {
+          "$ref": "#/$defs/app_Type"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/app_Type"
+        },
+        "ref": {
+          "$ref": "#/$defs/app_Ref"
+        },
+        "semantics": {
+          "$ref": "#/$defs/app_Semantics"
+        }
+      },
+      "type": "object"
+    },
+    "app_pluginRef": {
+      "description": "Plugin reference. Selects one plugin linked into this Fluxplane binary.",
+      "oneOf": [
+        {
+          "description": "Plugin kind shortcut. Use the object form when an instance name or config is needed.",
+          "enum": [
+            "coding",
+            "confluence",
+            "datasource",
+            "discovery",
+            "gitlab",
+            "goal",
+            "identity",
+            "image",
+            "jira",
+            "kubernetes",
+            "loki",
+            "memory",
+            "mysql",
+            "openai",
+            "openapi",
+            "skills",
+            "slack",
+            "task",
+            "text",
+            "usage",
+            "web",
+            "workspace"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Standard coding operation sets.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "coding",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "coding plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Confluence datasource access.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the confluence plugin.",
+              "properties": {
+                "auth": {
+                  "additionalProperties": false,
+                  "description": "Atlassian authentication source.",
+                  "properties": {
+                    "email": {
+                      "description": "Atlassian account email used with api_token authentication.",
+                      "type": "string"
+                    },
+                    "email_env": {
+                      "description": "Environment variable containing the Atlassian account email used with api_token authentication.",
+                      "type": "string"
+                    },
+                    "method": {
+                      "description": "Atlassian auth method. token reads a bearer token from the environment; api_token uses email plus API token; oauth2 uses stored OAuth2 token material.",
+                      "enum": [
+                        "token",
+                        "api_token",
+                        "oauth2"
+                      ],
+                      "type": "string"
+                    },
+                    "token_env": {
+                      "description": "Environment variable containing the bearer token or API token.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "base_url": {
+                  "description": "Explicit Atlassian REST API base URL. Usually omitted for cloud apps.",
+                  "type": "string"
+                },
+                "cloud_id": {
+                  "description": "Atlassian cloud id used for OAuth2 or API-token site selection.",
+                  "type": "string"
+                },
+                "site_url": {
+                  "description": "Atlassian site URL",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "confluence",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "confluence plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Generic datasource search and retrieval tools.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "datasource",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "datasource plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Endpoint discovery introspection.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "discovery",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "discovery plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "GitLab datasource and merge request operations.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the gitlab plugin.",
+              "properties": {
+                "auth": {
+                  "additionalProperties": false,
+                  "description": "GitLab authentication source.",
+                  "properties": {
+                    "method": {
+                      "description": "GitLab auth method. personal_access_token uses stored or environment token material; oauth2 uses stored OAuth2 token material.",
+                      "enum": [
+                        "personal_access_token",
+                        "oauth2"
+                      ],
+                      "type": "string"
+                    },
+                    "token_env": {
+                      "description": "Environment variable containing a GitLab personal access token. Defaults to GITLAB_ACCESS_TOKEN or compatible GitLab token env vars.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "base_url": {
+                  "description": "GitLab base URL. Defaults to https://gitlab.com.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "gitlab",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "gitlab plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Durable session goal lifecycle and context.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "goal",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "goal plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Current user and channel identity context.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "identity",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "identity plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Image generation and understanding operations.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "image",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "image plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Jira datasource and issue operations.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the jira plugin.",
+              "properties": {
+                "auth": {
+                  "additionalProperties": false,
+                  "description": "Atlassian authentication source.",
+                  "properties": {
+                    "email": {
+                      "description": "Atlassian account email used with api_token authentication.",
+                      "type": "string"
+                    },
+                    "email_env": {
+                      "description": "Environment variable containing the Atlassian account email used with api_token authentication.",
+                      "type": "string"
+                    },
+                    "method": {
+                      "description": "Atlassian auth method. token reads a bearer token from the environment; api_token uses email plus API token; oauth2 uses stored OAuth2 token material.",
+                      "enum": [
+                        "token",
+                        "api_token",
+                        "oauth2"
+                      ],
+                      "type": "string"
+                    },
+                    "token_env": {
+                      "description": "Environment variable containing the bearer token or API token.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "base_url": {
+                  "description": "Explicit Atlassian REST API base URL. Usually omitted for cloud apps.",
+                  "type": "string"
+                },
+                "cloud_id": {
+                  "description": "Atlassian cloud id used for OAuth2 or API-token site selection.",
+                  "type": "string"
+                },
+                "site_url": {
+                  "description": "Atlassian site URL",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "jira",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "jira plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Kubernetes datasource integration.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the kubernetes plugin.",
+              "properties": {
+                "all_namespaces": {
+                  "description": "Allow access to all namespaces instead of the configured namespace list.",
+                  "type": "boolean"
+                },
+                "burst": {
+                  "description": "Kubernetes client burst limit.",
+                  "type": "integer"
+                },
+                "context": {
+                  "description": "Kubernetes context name from kubeconfig.",
+                  "type": "string"
+                },
+                "in_cluster": {
+                  "description": "Use in-cluster Kubernetes service account configuration.",
+                  "type": "boolean"
+                },
+                "kubeconfig": {
+                  "description": "Path to a kubeconfig file.",
+                  "type": "string"
+                },
+                "kubeconfig_env": {
+                  "description": "Environment variable containing kubeconfig content or a kubeconfig path.",
+                  "type": "string"
+                },
+                "namespaces": {
+                  "description": "Kubernetes namespaces this plugin may inspect.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "qps": {
+                  "description": "Kubernetes client QPS limit.",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "kubernetes",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "kubernetes plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Loki log query integration.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the loki plugin.",
+              "properties": {
+                "auto_discover": {
+                  "additionalProperties": false,
+                  "description": "Options for discovering Loki endpoints from Kubernetes.",
+                  "properties": {
+                    "allow_pod_ip": {
+                      "description": "Allow direct pod IP endpoints during discovery.",
+                      "type": "boolean"
+                    },
+                    "enabled": {
+                      "description": "Enable automatic Loki endpoint discovery.",
+                      "type": "boolean"
+                    },
+                    "kubernetes": {
+                      "description": "Discover Loki endpoints from Kubernetes services and pods.",
+                      "type": "boolean"
+                    },
+                    "namespaces": {
+                      "description": "Kubernetes namespaces searched during Loki discovery.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "port_forward": {
+                      "description": "Use Kubernetes port-forwarding for discovered Loki endpoints.",
+                      "type": "boolean"
+                    },
+                    "prefer_service": {
+                      "description": "Prefer Kubernetes service endpoints over pod IPs when both are available.",
+                      "type": "boolean"
+                    },
+                    "probe_timeout": {
+                      "description": "Timeout for probing discovered Loki endpoints using Go duration syntax such as 5s.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "default_limit": {
+                  "description": "Default maximum log entries returned.",
+                  "type": "integer"
+                },
+                "default_namespace": {
+                  "description": "Default Kubernetes namespace filter for Loki queries.",
+                  "type": "string"
+                },
+                "default_since": {
+                  "description": "Default lookback duration for recent log queries",
+                  "type": "string"
+                },
+                "endpoint_ref": {
+                  "description": "Runtime endpoint reference for a discovered Loki service.",
+                  "type": "string"
+                },
+                "labels": {
+                  "description": "Loki labels exposed for filtering and datasource records.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "max_limit": {
+                  "description": "Hard maximum log entries accepted from manifest or operation input.",
+                  "type": "integer"
+                },
+                "tenant_id": {
+                  "description": "Loki tenant id for multi-tenant deployments.",
+                  "type": "string"
+                },
+                "tenant_id_env": {
+                  "description": "Environment variable containing the Loki tenant id.",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "Loki base URL.",
+                  "type": "string"
+                },
+                "url_env": {
+                  "description": "Environment variable containing the Loki base URL.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "loki",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "loki plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scoped structured memory operations.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "memory",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "memory plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "MySQL query integration for discovered endpoints.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the mysql plugin.",
+              "properties": {
+                "database": {
+                  "description": "Default MySQL database/schema to query.",
+                  "type": "string"
+                },
+                "endpoint_ref": {
+                  "description": "Runtime endpoint reference for the MySQL server.",
+                  "type": "string"
+                },
+                "max_rows": {
+                  "description": "Maximum rows returned by one query.",
+                  "type": "integer"
+                },
+                "timeout": {
+                  "description": "Query timeout using Go duration syntax such as 30s.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "mysql",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "mysql plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "OpenAI integration plugin.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "openai",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "openai plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "OpenAPI-generated operations and documentation datasources.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the openapi plugin.",
+              "properties": {
+                "specs": {
+                  "description": "OpenAPI documents to load and expose as generated operations or datasource docs.",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "auth": {
+                        "additionalProperties": false,
+                        "description": "Security scheme credential mappings for generated operations.",
+                        "properties": {
+                          "schemes": {
+                            "additionalProperties": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "description": {
+                                  "type": "string"
+                                },
+                                "display_name": {
+                                  "type": "string"
+                                },
+                                "env": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "aliases": {
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "header": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "scheme": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "api_key",
+                                    "bearer_token",
+                                    "oauth2_token",
+                                    "basic",
+                                    "pki"
+                                  ],
+                                  "type": "string"
+                                },
+                                "method": {
+                                  "enum": [
+                                    "env",
+                                    "oauth2",
+                                    "stored"
+                                  ],
+                                  "type": "string"
+                                },
+                                "secret": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "instance": {
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "plugin": {
+                                      "type": "string"
+                                    },
+                                    "scheme": {
+                                      "enum": [
+                                        "env",
+                                        "plugin",
+                                        "kubernetes"
+                                      ],
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "description": "Credential mappings keyed by OpenAPI security scheme name.",
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "datasource": {
+                        "additionalProperties": false,
+                        "description": "Generated datasource documentation options.",
+                        "properties": {
+                          "index": {
+                            "additionalProperties": false,
+                            "description": "Indexing options for the generated OpenAPI documentation datasource.",
+                            "properties": {
+                              "enabled": {
+                                "description": "Whether generated OpenAPI documentation should be indexed.",
+                                "type": "boolean"
+                              },
+                              "freshness": {
+                                "description": "How often generated OpenAPI documentation may be refreshed. Use Go duration syntax such as 24h.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "name": {
+                            "description": "Name for the generated OpenAPI documentation datasource.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "file": {
+                        "description": "Local file path to the OpenAPI document.",
+                        "type": "string"
+                      },
+                      "operations": {
+                        "additionalProperties": false,
+                        "description": "Generated operation selection and naming options.",
+                        "properties": {
+                          "exclude": {
+                            "description": "Operation IDs or patterns to exclude.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "include": {
+                            "description": "Operation IDs or patterns to include.",
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "overrides": {
+                            "additionalProperties": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "description": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "description": "Per-operation naming and description overrides keyed by OpenAPI operation id.",
+                            "type": "object"
+                          },
+                          "prefix": {
+                            "description": "Prefix added to generated operation names.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "url": {
+                        "description": "HTTP URL of the OpenAPI document.",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "openapi",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "openapi plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Skill activation, context, and datasource access.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "skills",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "skills plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Slack channel and datasource integration.",
+          "properties": {
+            "config": {
+              "additionalProperties": false,
+              "description": "Configuration for the slack plugin.",
+              "properties": {
+                "auth": {
+                  "additionalProperties": false,
+                  "description": "Slack authentication source and token selection.",
+                  "properties": {
+                    "app_token_env": {
+                      "description": "Environment variable containing the Slack xapp app token when method is env. Defaults to SLACK_APP_TOKEN.",
+                      "type": "string"
+                    },
+                    "bot_token_env": {
+                      "description": "Environment variable containing the Slack xoxb bot token when method is env. Defaults to SLACK_BOT_TOKEN.",
+                      "type": "string"
+                    },
+                    "channel_token": {
+                      "description": "Token preference for Slack channel posting. auto prefers a bot token and falls back to a user token.",
+                      "enum": [
+                        "auto",
+                        "bot_token",
+                        "user_token"
+                      ],
+                      "type": "string"
+                    },
+                    "method": {
+                      "description": "Slack auth method. token uses Fluxplane stored secrets; env reads process environment variables; oauth2 uses stored OAuth2 token material.",
+                      "enum": [
+                        "token",
+                        "env",
+                        "oauth2"
+                      ],
+                      "type": "string"
+                    },
+                    "user_token_env": {
+                      "description": "Environment variable containing the Slack xoxp user token when method is env. Defaults to SLACK_USER_TOKEN.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "slack",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "slack plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Task creation commands, agents, and operations.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "task",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "task plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Pure text transformation operations.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "text",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "text plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Usage datasource over persisted runtime events.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "usage",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "usage plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "HTTP request operations.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "web",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "web plugin",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Runtime workspace context.",
+          "properties": {
+            "instance": {
+              "description": "Optional plugin instance name. Defaults to the plugin kind.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "workspace",
+              "description": "Plugin kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "title": "workspace plugin",
+          "type": "object"
+        }
+      ]
+    },
+    "app_retrievalDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "min_score": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_semanticDefaultsDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "chunking": {
+          "$ref": "#/$defs/app_chunkingDoc"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/app_retrievalDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_semanticDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "entities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/app_entitySemanticDoc"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "app_semanticSearchDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "defaults": {
+          "$ref": "#/$defs/app_semanticDefaultsDoc"
+        },
+        "embeddings": {
+          "$ref": "#/$defs/app_embeddingDoc"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "store": {
+          "$ref": "#/$defs/app_semanticStoreDoc"
+        }
+      },
+      "type": "object"
+    },
+    "app_semanticStoreDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_sourceSpec": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "annotations": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "ecosystem": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "app",
+                "project",
+                "user",
+                "embedded",
+                "remote",
+                "explicit"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "app_surfacesDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "boolean"
+        },
+        "deploy": {
+          "type": "boolean"
+        },
+        "discover": {
+          "type": "boolean"
+        },
+        "one_shot": {
+          "type": "boolean"
+        },
+        "repl": {
+          "type": "boolean"
+        },
+        "serve": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "boolean"
+        },
+        "validate": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "app_workflowDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/app_Type"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputs": {
+          "$ref": "#/$defs/app_Type"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/app_workflowStepDoc"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "app_workflowStepDoc": {
+      "additionalProperties": false,
+      "description": "Workflow step. Specify either operation or agent.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Workflow step that invokes an operation.",
+          "properties": {
+            "depends_on": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "error_policy": {
+              "enum": [
+                "continue"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "input": true,
+            "input_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "operation",
+              "type": "string"
+            },
+            "operation": {
+              "enum": [
+                "datasource_batch_get",
+                "datasource_get",
+                "datasource_list",
+                "datasource_relation",
+                "datasource_search"
+              ],
+              "type": "string"
+            },
+            "retry": {
+              "$ref": "#/$defs/app_RetryPolicy"
+            },
+            "timeout": {
+              "$ref": "#/$defs/app_DurationString"
+            },
+            "when": {
+              "$ref": "#/$defs/app_Condition"
+            }
+          },
+          "required": [
+            "id",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Workflow step that submits work to an agent.",
+          "properties": {
+            "agent": {
+              "enum": [
+                "default"
+              ],
+              "type": "string"
+            },
+            "depends_on": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "error_policy": {
+              "enum": [
+                "continue"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "input": true,
+            "input_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "agent",
+              "type": "string"
+            },
+            "retry": {
+              "$ref": "#/$defs/app_RetryPolicy"
+            },
+            "timeout": {
+              "$ref": "#/$defs/app_DurationString"
+            },
+            "when": {
+              "$ref": "#/$defs/app_Condition"
+            }
+          },
+          "required": [
+            "id",
+            "agent"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "agent": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "error_policy": {
+          "enum": [
+            "continue"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "input": true,
+        "input_map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "operation",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "datasource_batch_get",
+            "datasource_get",
+            "datasource_list",
+            "datasource_relation",
+            "datasource_search"
+          ],
+          "type": "string"
+        },
+        "retry": {
+          "$ref": "#/$defs/app_RetryPolicy"
+        },
+        "timeout": {
+          "$ref": "#/$defs/app_DurationString"
+        },
+        "when": {
+          "$ref": "#/$defs/app_Condition"
+        }
+      },
+      "type": "object"
+    },
+    "assertion_deriver_AssertionTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/assertion_deriver_Subject"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "assertion_deriver_Subject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "language",
+            "toolchain",
+            "integration",
+            "endpoint",
+            "capability",
+            "provider",
+            "trigger"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "command_commandPolicyDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_callable": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "command_commandTargetDoc": {
+      "additionalProperties": false,
+      "description": "Command target. Specify exactly one of operation or workflow.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Command target that invokes an operation.",
+          "properties": {
+            "input": true,
+            "operation": {
+              "enum": [
+                "datasource_batch_get",
+                "datasource_get",
+                "datasource_list",
+                "datasource_relation",
+                "datasource_search"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Command target that starts a workflow.",
+          "properties": {
+            "input": true,
+            "workflow": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workflow"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "input": true,
+        "operation": {
+          "enum": [
+            "datasource_batch_get",
+            "datasource_get",
+            "datasource_list",
+            "datasource_relation",
+            "datasource_search"
+          ],
+          "type": "string"
+        },
+        "workflow": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_DurationString": {
+      "examples": [
+        "15m",
+        "1.5h",
+        "24h"
+      ],
+      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
+      "type": "string"
+    },
+    "datasource_chunkingDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "overlap_tokens": {
+          "type": "integer"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "target_tokens": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_corpusDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "body_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "exclude_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "metadata_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title_fields": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_datasourceIndexDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "freshness": {
+          "$ref": "#/$defs/datasource_DurationString"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_entitySemanticDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "chunking": {
+          "$ref": "#/$defs/datasource_chunkingDoc"
+        },
+        "corpus": {
+          "$ref": "#/$defs/datasource_corpusDoc"
+        },
+        "incremental": {
+          "$ref": "#/$defs/datasource_incrementalDoc"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/datasource_retrievalDoc"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_incrementalDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "updated_at_field": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_retrievalDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "type": "integer"
+        },
+        "min_score": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "datasource_semanticDoc": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "entities": {
+          "additionalProperties": {
+            "$ref": "#/$defs/datasource_entitySemanticDoc"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "llm_provider_CapabilitySet": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "llm_provider_ModelParams": {
+      "additionalProperties": false,
+      "properties": {
+        "reasoning_effort": {
+          "type": "string"
+        },
+        "thinking": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "llm_provider_ModelRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "llm_provider_ModelSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/llm_provider_CapabilitySet"
+        },
+        "context_tokens": {
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "input_modalities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_output_tokens": {
+          "type": "integer"
+        },
+        "output_modalities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "params": {
+          "$ref": "#/$defs/llm_provider_ModelParams"
+        },
+        "pricing": {
+          "items": {
+            "$ref": "#/$defs/llm_provider_PricingSpec"
+          },
+          "type": "array"
+        },
+        "ref": {
+          "$ref": "#/$defs/llm_provider_ModelRef"
+        }
+      },
+      "type": "object"
+    },
+    "llm_provider_PricingSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string"
+        },
+        "effective_utc": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "string"
+        },
+        "per": {
+          "type": "number"
+        },
+        "price": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "observer_Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "operation_EffectSet": {
+      "items": {
+        "enum": [
+          "none",
+          "read_external",
+          "write_external",
+          "filesystem",
+          "network",
+          "process",
+          "create",
+          "update",
+          "delete",
+          "destructive",
+          "irreversible",
+          "sensitive_data"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "operation_Example": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "input": true,
+        "name": {
+          "type": "string"
+        },
+        "output": true
+      },
+      "type": "object"
+    },
+    "operation_Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "operation_Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "data": true,
+        "format": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "operation_Semantics": {
+      "additionalProperties": false,
+      "properties": {
+        "determinism": {
+          "enum": [
+            "deterministic",
+            "non_deterministic"
+          ],
+          "type": "string"
+        },
+        "effects": {
+          "$ref": "#/$defs/operation_EffectSet"
+        },
+        "idempotency": {
+          "enum": [
+            "idempotent",
+            "non_idempotent"
+          ],
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "operation_Type": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/operation_Schema"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Action": {
+      "additionalProperties": false,
+      "properties": {
+        "activation_set": {
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/reaction_Invocation"
+        },
+        "context_provider": {
+          "$ref": "#/$defs/reaction_ProviderRef"
+        },
+        "datasource": {
+          "$ref": "#/$defs/reaction_Ref"
+        },
+        "idempotency_fragment": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "activate_skill",
+            "activate_reference",
+            "enable_activation_set",
+            "enable_operation_set",
+            "enable_datasource",
+            "enable_context_provider",
+            "run_workflow",
+            "run_operation",
+            "run_command"
+          ],
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "operation": {
+          "$ref": "#/$defs/reaction_OperationAction"
+        },
+        "operation_set": {
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/$defs/reaction_ReferenceAction"
+        },
+        "require_approval": {
+          "type": "boolean"
+        },
+        "skill": {
+          "$ref": "#/$defs/reaction_Ref"
+        },
+        "workflow": {
+          "$ref": "#/$defs/reaction_WorkflowAction"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Invocation": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input": true,
+        "path": {
+          "$ref": "#/$defs/reaction_Path"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Matcher": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion": {
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/reaction_Subject"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_OperationAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "operation": {
+          "$ref": "#/$defs/reaction_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Path": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reaction_ProviderRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Ref": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_ReferenceAction": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "skill": {
+          "$ref": "#/$defs/reaction_Ref"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_Subject": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "language",
+            "toolchain",
+            "integration",
+            "endpoint",
+            "capability",
+            "provider",
+            "trigger"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "reaction_WorkflowAction": {
+      "additionalProperties": false,
+      "properties": {
+        "input": true,
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "workflow_Condition": {
+      "additionalProperties": false,
+      "properties": {
+        "equals": true,
+        "exists": {
+          "type": "boolean"
+        },
+        "not": {
+          "type": "boolean"
+        },
+        "step_id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "workflow_DurationString": {
+      "examples": [
+        "15m",
+        "1.5h",
+        "24h"
+      ],
+      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
+      "type": "string"
+    },
+    "workflow_RetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "backoff": {
+          "type": "integer"
+        },
+        "max_attempts": {
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "workflow_Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "data": true,
+        "format": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "workflow_Type": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/$defs/workflow_Schema"
+        }
+      },
+      "type": "object"
+    },
+    "workflow_workflowStepDoc": {
+      "additionalProperties": false,
+      "description": "Workflow step. Specify either operation or agent.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Workflow step that invokes an operation.",
+          "properties": {
+            "depends_on": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "error_policy": {
+              "enum": [
+                "continue"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "input": true,
+            "input_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "operation",
+              "type": "string"
+            },
+            "operation": {
+              "enum": [
+                "datasource_batch_get",
+                "datasource_get",
+                "datasource_list",
+                "datasource_relation",
+                "datasource_search"
+              ],
+              "type": "string"
+            },
+            "retry": {
+              "$ref": "#/$defs/workflow_RetryPolicy"
+            },
+            "timeout": {
+              "$ref": "#/$defs/workflow_DurationString"
+            },
+            "when": {
+              "$ref": "#/$defs/workflow_Condition"
+            }
+          },
+          "required": [
+            "id",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Workflow step that submits work to an agent.",
+          "properties": {
+            "agent": {
+              "enum": [
+                "default"
+              ],
+              "type": "string"
+            },
+            "depends_on": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "error_policy": {
+              "enum": [
+                "continue"
+              ],
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "input": true,
+            "input_map": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "agent",
+              "type": "string"
+            },
+            "retry": {
+              "$ref": "#/$defs/workflow_RetryPolicy"
+            },
+            "timeout": {
+              "$ref": "#/$defs/workflow_DurationString"
+            },
+            "when": {
+              "$ref": "#/$defs/workflow_Condition"
+            }
+          },
+          "required": [
+            "id",
+            "agent"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "agent": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "error_policy": {
+          "enum": [
+            "continue"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "input": true,
+        "input_map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "operation",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "datasource_batch_get",
+            "datasource_get",
+            "datasource_list",
+            "datasource_relation",
+            "datasource_search"
+          ],
+          "type": "string"
+        },
+        "retry": {
+          "$ref": "#/$defs/workflow_RetryPolicy"
+        },
+        "timeout": {
+          "$ref": "#/$defs/workflow_DurationString"
+        },
+        "when": {
+          "$ref": "#/$defs/workflow_Condition"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/app_commandDoc"
+          },
+          "type": "array"
+        },
+        "daemon": {
+          "$ref": "#/$defs/app_DaemonConfig"
+        },
+        "datasource": {
+          "$ref": "#/$defs/app_datasourceConfigDoc"
+        },
+        "default_agent": {
+          "$ref": "#/$defs/app_agentRef"
+        },
+        "description": {
+          "type": "string"
+        },
+        "discovery": {
+          "$ref": "#/$defs/app_discovery"
+        },
+        "distribution": {
+          "$ref": "#/$defs/app_distributionDoc"
+        },
+        "identity": {
+          "$ref": "#/$defs/app_identityDoc"
+        },
+        "kind": {
+          "const": "app",
+          "type": "string"
+        },
+        "llm_providers": {
+          "items": {
+            "$ref": "#/$defs/app_ProviderSpec"
+          },
+          "type": "array"
+        },
+        "model_policy": {
+          "$ref": "#/$defs/app_modelPolicy"
+        },
+        "models": {
+          "$ref": "#/$defs/app_modelConfigDoc"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observations": {
+          "$ref": "#/$defs/app_observationsDoc"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/app_operationDoc"
+          },
+          "type": "array"
+        },
+        "plugins": {
+          "items": {
+            "$ref": "#/$defs/app_pluginRef"
+          },
+          "type": "array"
+        },
+        "reactions": {
+          "items": {
+            "$ref": "#/$defs/app_Rule"
+          },
+          "type": "array"
+        },
+        "runtime": {
+          "$ref": "#/$defs/app_RuntimeConfig"
+        },
+        "security": {
+          "$ref": "#/$defs/app_AuthorizationPolicy"
+        },
+        "semantic_search": {
+          "$ref": "#/$defs/app_semanticSearchDoc"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/app_sourceSpec"
+          },
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/app_workflowDoc"
+          },
+          "type": "array"
+        }
+      },
+      "title": "Fluxplane app manifest",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "datasources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "effort": {
+          "$ref": "#/$defs/agent_ReasoningEffort"
+        },
+        "kind": {
+          "const": "agent",
+          "type": "string"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "system": {
+          "type": "string"
+        },
+        "thinking": {
+          "$ref": "#/$defs/agent_ThinkingMode"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "triggers": {
+          "items": {
+            "$ref": "#/$defs/agent_agentTriggerDoc"
+          },
+          "type": "array"
+        },
+        "turns": {
+          "$ref": "#/$defs/agent_turnsDoc"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane agent resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "enum": [
+            "default"
+          ],
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "local"
+          ],
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "session",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane session resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "kind": {
+          "const": "command",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "policy": {
+          "$ref": "#/$defs/command_commandPolicyDoc"
+        },
+        "target": {
+          "$ref": "#/$defs/command_commandTargetDoc"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane command resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/workflow_Type"
+        },
+        "kind": {
+          "const": "workflow",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputs": {
+          "$ref": "#/$defs/workflow_Type"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/workflow_workflowStepDoc"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane workflow resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/operation_Example"
+          },
+          "type": "array"
+        },
+        "input": {
+          "$ref": "#/$defs/operation_Type"
+        },
+        "kind": {
+          "const": "operation",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/operation_Type"
+        },
+        "ref": {
+          "$ref": "#/$defs/operation_Ref"
+        },
+        "semantics": {
+          "$ref": "#/$defs/operation_Semantics"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane operation resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "entities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "index": {
+          "$ref": "#/$defs/datasource_datasourceIndexDoc"
+        },
+        "kind": {
+          "const": "datasource",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "semantic": {
+          "$ref": "#/$defs/datasource_semanticDoc"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane datasource resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "dynamic": {
+          "type": "boolean"
+        },
+        "environment": {
+          "$ref": "#/$defs/observer_Ref"
+        },
+        "kind": {
+          "const": "observer",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observable_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "phase": {
+          "enum": [
+            "startup",
+            "session_open",
+            "turn",
+            "tool_followup",
+            "lazy"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane observer resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "assertions": {
+          "items": {
+            "$ref": "#/$defs/assertion_deriver_AssertionTemplate"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "assertion_deriver",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "observation_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane assertion deriver resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/reaction_Action"
+          },
+          "type": "array"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "reaction",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "on_change",
+            "every_turn"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/reaction_Matcher"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane reaction resource",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "llm_provider",
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/llm_provider_ModelSpec"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Fluxplane LLM provider resource",
+      "type": "object"
+    }
+  ],
+  "description": "Base schema for fluxplane.yaml app and resource documents.",
+  "title": "Fluxplane manifest"
+}

@@ -8,9 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `fluxplane config schema` to write the base `fluxplane.yaml` JSON
+  Schema to `.fluxplane/schema.json` for editor integration, including
+  descriptions for manifest fields, typed plugin config schemas, and
+  context-aware completions for resources declared by the current manifest.
+- Added datasource config schemas to data source specs so manifest JSON Schema
+  generation can type datasource config and entity choices from the resolved
+  bundle without hard-coded datasource knowledge in the appconfig adapter.
 - Added agent-level manifest trigger shorthand so `kind: agent` documents can
   declare scheduled or startup prompts that expand to daemon triggers and
   generated workflows.
+
+### Changed
+- Moved manifest schema enums, defaults, and duration validation for appconfig
+  primitives onto typed Go fields so generated schemas stay aligned with
+  manifest decoding.
+- Removed dashed workflow manifest field aliases such as `depends-on`,
+  `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Documentation
 - Reworked the root README around Fluxplane core as the reusable runtime and

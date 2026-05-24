@@ -628,6 +628,22 @@ system: |
 	}
 }
 
+func TestDecodeFileRejectsInvalidDurationString(t *testing.T) {
+	_, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: agent
+name: health
+triggers:
+  - every: soon
+    prompt: Check health.
+`))
+	if err == nil {
+		t.Fatal("DecodeFile succeeded, want invalid duration error")
+	}
+	if !strings.Contains(err.Error(), "every") && !strings.Contains(err.Error(), "duration") {
+		t.Fatalf("DecodeFile error = %v, want duration validation", err)
+	}
+}
+
 func TestDecodeFileAddsDefaultSessionForResourceOnlyAgentTriggers(t *testing.T) {
 	file, err := DecodeFile("agent.yaml", []byte(`
 kind: agent
@@ -678,8 +694,8 @@ workflows:
         operation: echo
         input:
           text: hello
-        depends-on: [plan]
-        error-policy: continue
+        depends_on: [plan]
+        error_policy: continue
 operations:
   - name: echo
     description: Echo input.

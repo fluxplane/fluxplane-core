@@ -348,7 +348,7 @@ func launchConfig(file appconfig.File) distribution.LaunchConfig {
 func dataConfig(doc appconfig.RuntimeDataDoc) distribution.DataConfig {
 	return distribution.DataConfig{
 		Store: distribution.DataStoreConfig{
-			Kind:   strings.TrimSpace(doc.Store.Kind),
+			Kind:   strings.TrimSpace(string(doc.Store.Kind)),
 			DSN:    strings.TrimSpace(doc.Store.DSN),
 			DSNEnv: strings.TrimSpace(doc.Store.DSNEnv),
 		},
@@ -358,7 +358,7 @@ func dataConfig(doc appconfig.RuntimeDataDoc) distribution.DataConfig {
 func eventsConfig(doc appconfig.RuntimeEventsDoc) distribution.EventsConfig {
 	return distribution.EventsConfig{
 		Store: distribution.EventStoreConfig{
-			Kind:         strings.TrimSpace(doc.Store.Kind),
+			Kind:         strings.TrimSpace(string(doc.Store.Kind)),
 			DSN:          strings.TrimSpace(doc.Store.DSN),
 			DSNEnv:       strings.TrimSpace(doc.Store.DSNEnv),
 			Stream:       strings.TrimSpace(doc.Store.Stream),
@@ -377,7 +377,7 @@ func workspace(doc appconfig.WorkspaceConfig) distribution.WorkspaceConfig {
 		out.Roots = append(out.Roots, distribution.WorkspaceRoot{
 			Name:     strings.TrimSpace(root.Name),
 			Path:     strings.TrimSpace(root.Path),
-			Access:   strings.TrimSpace(root.Access),
+			Access:   strings.TrimSpace(string(root.Access)),
 			Create:   root.Create,
 			EnvFiles: trimStringSlice(root.EnvFiles),
 		})
@@ -418,7 +418,7 @@ func channels(docs []appconfig.ChannelDoc) []distribution.Channel {
 				Operators:        append([]string(nil), doc.Access.Operators...),
 				InternalUsers:    append([]string(nil), doc.Access.InternalUsers...),
 				InternalChannels: append([]string(nil), doc.Access.InternalChannels...),
-				Sharing:          doc.Access.Sharing,
+				Sharing:          string(doc.Access.Sharing),
 			},
 		})
 	}
