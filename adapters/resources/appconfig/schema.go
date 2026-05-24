@@ -85,6 +85,7 @@ func ManifestSchemaWithOptions(opts ManifestSchemaOptions) ([]byte, error) {
 		{title: "Fluxplane assertion deriver resource", key: "assertion_deriver", kind: "assertion_deriver", requireKind: true, schema: schemaMapFor[assertionDeriverDoc]},
 		{title: "Fluxplane reaction resource", key: "reaction", kind: "reaction", requireKind: true, schema: schemaMapFor[reactionDoc]},
 		{title: "Fluxplane LLM provider resource", key: "llm_provider", kind: "llm_provider", requireKind: true, schema: schemaMapFor[llmProviderDoc]},
+		{title: "Fluxplane runtime config", key: "runtime", kind: "runtime", requireKind: true, schema: schemaMapFor[RuntimeConfig]},
 	}
 
 	root := map[string]any{
@@ -849,6 +850,15 @@ func constrainKind(schema map[string]any, kind string, required bool) {
 	properties["kind"] = map[string]any{
 		"type":  "string",
 		"const": kind,
+	}
+	properties["profile"] = map[string]any{
+		"oneOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+		},
 	}
 	if required {
 		schema["required"] = appendRequired(schema["required"], "kind")

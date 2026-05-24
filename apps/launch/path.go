@@ -15,6 +15,8 @@ import (
 )
 
 type RunPathOptions struct {
+	Profile            string
+	Profiles           []string
 	Session            string
 	Conversation       string
 	Provider           string
@@ -44,14 +46,17 @@ type RunPathOptions struct {
 type Loader func(context.Context, string) (distribution.Loaded, error)
 
 func RunPath(ctx context.Context, path string, opts RunPathOptions) error {
-	return RunPathWithLoader(ctx, distlocal.Load, path, opts)
+	return RunPathWithLoader(ctx, nil, path, opts)
 }
 
 func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts RunPathOptions) error {
+	var loaded distribution.Loaded
+	var err error
 	if loader == nil {
-		loader = distlocal.Load
+		loaded, err = distlocal.LoadWithOptions(ctx, path, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
+	} else {
+		loaded, err = loader(ctx, path)
 	}
-	loaded, err := loader(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -101,6 +106,7 @@ func RunPathWithLoader(ctx context.Context, loader Loader, path string, opts Run
 }
 
 type runCommandOptions struct {
+	profiles       []string
 	session        string
 	conversation   string
 	provider       string
@@ -121,7 +127,7 @@ type runCommandOptions struct {
 }
 
 func NewRunCommand() *cobra.Command {
-	return NewRunCommandWithLoader(distlocal.Load)
+	return NewRunCommandWithLoader(nil)
 }
 
 func NewRunCommandWithLoader(loader Loader) *cobra.Command {
@@ -142,6 +148,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 				path = args[0]
 			}
 			return RunPathWithLoader(cmd.Context(), loader, path, RunPathOptions{
+				Profiles:           opts.profiles,
 				Session:            opts.session,
 				Conversation:       opts.conversation,
 				Provider:           opts.provider,
@@ -168,6 +175,7 @@ func NewRunCommandWithLoader(loader Loader) *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
 	cmd.Flags().StringVar(&opts.session, "session", "", "configured session name to open")
 	cmd.Flags().StringVar(&opts.conversation, "conversation", "", "conversation id")
 	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider")

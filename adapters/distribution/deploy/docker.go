@@ -166,6 +166,8 @@ func dockerStackLabels(stack string) map[string]string {
 // DockerBuildOptions configures a generated Docker image build.
 type DockerBuildOptions struct {
 	AppDir             string
+	Profile            string
+	Profiles           []string
 	TempDir            string
 	Tags               []string
 	Platforms          []string
@@ -246,7 +248,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
 
-	loaded, err := distlocal.Load(ctx, appDir)
+	loaded, err := distlocal.LoadWithOptions(ctx, appDir, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return DockerBuildResult{}, err
 	}

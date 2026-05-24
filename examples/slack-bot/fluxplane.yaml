@@ -1,8 +1,16 @@
 kind: app
 name: slack-bot
 description: Minimal Slack daemon app for the rewrite runtime.
+defaults:
+  profile: dev
+  agent: slack_bot
+  model: smart_model
+profiles:
+  dev:
+    description: Local development with sqlite events and in-memory data.
+  prod:
+    description: Production deployment with durable runtime backends.
 models:
-  default: smart_model
   available:
     - provider: openrouter
       model: openai/gpt-5.5
@@ -150,6 +158,21 @@ daemon:
         allow_kinds: [dm, mention, thread_reply]
         default_trust: public
         sharing: strict
+
+---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+events:
+  store:
+    kind: nats
+    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    stream: AGENTRUNTIME_EVENTS
+    subject: agentruntime.events.log
+    create_stream: true
 
 ---
 kind: session

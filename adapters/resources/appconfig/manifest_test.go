@@ -1187,6 +1187,120 @@ runtime:
 	}
 }
 
+func TestDecodeFileSelectsProfileScopedRuntimeDocs(t *testing.T) {
+	data := []byte(`
+kind: app
+name: profiled
+defaults:
+  profile: dev
+  agent: assistant
+  model: smart_model
+profiles:
+  dev:
+    description: Local development.
+  prod:
+    description: Production deployment.
+models:
+  available:
+    - provider: openrouter
+      model: openai/gpt-5.5
+      aliases: [smart_model]
+---
+kind: runtime
+workspace:
+  env_files: [.env]
+---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+events:
+  store:
+    kind: nats
+    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    stream: AGENTRUNTIME_EVENTS
+    subject: agentruntime.events.log
+    create_stream: true
+---
+kind: agent
+name: assistant
+`)
+	devFile, err := DecodeFile("fluxplane.yaml", data)
+	if err != nil {
+		t.Fatalf("DecodeFile dev: %v", err)
+	}
+	if devFile.Profile != "dev" || len(devFile.ActiveProfiles) != 1 || devFile.ActiveProfiles[0] != "dev" {
+		t.Fatalf("dev profiles = %q %#v", devFile.Profile, devFile.ActiveProfiles)
+	}
+	if devFile.Runtime.Data.Store.Kind != "" || devFile.Runtime.Events.Store.Kind != "" {
+		t.Fatalf("dev runtime = %#v, want no prod stores", devFile.Runtime)
+	}
+	if got := devFile.Runtime.Workspace.EnvFiles; len(got) != 1 || got[0] != ".env" {
+		t.Fatalf("dev workspace env files = %#v", got)
+	}
+	if app := devFile.Bundle.Apps[0]; app.DefaultAgent.Name != "assistant" || app.Model.Model != "smart_model" {
+		t.Fatalf("app defaults = %#v", app)
+	}
+
+	prodFile, err := DecodeFileWithOptions("fluxplane.yaml", data, DecodeOptions{Profiles: []string{"prod"}})
+	if err != nil {
+		t.Fatalf("DecodeFile prod: %v", err)
+	}
+	if prodFile.Profile != "prod" || len(prodFile.ActiveProfiles) != 1 || prodFile.ActiveProfiles[0] != "prod" {
+		t.Fatalf("prod profiles = %q %#v", prodFile.Profile, prodFile.ActiveProfiles)
+	}
+	if prodFile.Runtime.Data.Store.Kind != "mysql" || prodFile.Runtime.Data.Store.DSNEnv != "AGENTRUNTIME_DATASTORE_MYSQL_DSN" {
+		t.Fatalf("prod data store = %#v", prodFile.Runtime.Data.Store)
+	}
+	if prodFile.Runtime.Events.Store.Kind != "nats" || prodFile.Runtime.Events.Store.DSNEnv != "AGENTRUNTIME_EVENTSTORE_NATS_DSN" || !prodFile.Runtime.Events.Store.CreateStream {
+		t.Fatalf("prod event store = %#v", prodFile.Runtime.Events.Store)
+	}
+}
+
+func TestDecodeFileAllowsMultipleActiveProfiles(t *testing.T) {
+	file, err := DecodeFileWithOptions("fluxplane.yaml", []byte(`
+kind: app
+name: profiled
+profiles:
+  prod:
+    description: Production deployment.
+  debug:
+    description: Debugging.
+---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+---
+kind: runtime
+profile: debug
+workspace:
+  env_files: [.env.debug]
+---
+kind: agent
+name: assistant
+profile: [prod, debug]
+`), DecodeOptions{Profiles: []string{"prod,debug"}})
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if file.Profile != "prod,debug" || len(file.ActiveProfiles) != 2 || file.ActiveProfiles[0] != "prod" || file.ActiveProfiles[1] != "debug" {
+		t.Fatalf("profiles = %q %#v", file.Profile, file.ActiveProfiles)
+	}
+	if file.Runtime.Data.Store.Kind != "mysql" {
+		t.Fatalf("data store = %#v, want mysql", file.Runtime.Data.Store)
+	}
+	if got := file.Runtime.Workspace.EnvFiles; len(got) != 1 || got[0] != ".env.debug" {
+		t.Fatalf("env files = %#v", got)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "assistant" {
+		t.Fatalf("agents = %#v, want assistant", file.Bundle.Agents)
+	}
+}
+
 func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
 	_, err := DecodeManifest("fluxplane.json", []byte(`{"sources":[{"location":""}]}`))
 	if err == nil {

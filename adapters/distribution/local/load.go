@@ -24,6 +24,17 @@ import (
 
 // Load loads a local path into an ephemeral runnable distribution.
 func Load(ctx context.Context, path string) (distribution.Loaded, error) {
+	return LoadWithOptions(ctx, path, LoadOptions{})
+}
+
+// LoadOptions controls profile-sensitive local distribution loading.
+type LoadOptions struct {
+	Profile  string
+	Profiles []string
+}
+
+// LoadWithOptions loads a local path into an ephemeral runnable distribution.
+func LoadWithOptions(ctx context.Context, path string, opts LoadOptions) (distribution.Loaded, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -37,7 +48,7 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 	root = filepath.Clean(root)
 	loaded := distribution.Loaded{Root: root}
 	var distributionConfig coredistribution.Spec
-	cfgFile, hasConfig, err := loadAppConfig(ctx, root)
+	cfgFile, hasConfig, err := loadAppConfig(ctx, root, opts)
 	if err != nil {
 		return distribution.Loaded{}, err
 	}
@@ -46,6 +57,8 @@ func Load(ctx context.Context, path string) (distribution.Loaded, error) {
 			return distribution.Loaded{}, err
 		}
 		loaded.Manifest = cfgFile.Path
+		loaded.Profile = cfgFile.Profile
+		loaded.Profiles = append([]string(nil), cfgFile.ActiveProfiles...)
 		distributionConfig = cfgFile.Distribution
 		loaded.Distribution.Bundles = append(loaded.Distribution.Bundles, cfgFile.Bundle)
 		loaded.Launch = launchConfig(cfgFile)
@@ -182,10 +195,10 @@ func hasSurfaceOverride(s coredistribution.Surfaces) bool {
 	return s.CLI || s.REPL || s.OneShot || s.Serve || s.Deploy || s.Validate || s.Status || s.Discover
 }
 
-func loadAppConfig(ctx context.Context, root string) (appconfig.File, bool, error) {
+func loadAppConfig(ctx context.Context, root string, opts LoadOptions) (appconfig.File, bool, error) {
 	for _, name := range appconfig.DefaultManifestNames {
 		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
-			file, err := appconfig.LoadDirFile(ctx, root)
+			file, err := appconfig.LoadDirFileWithOptions(ctx, root, appconfig.DecodeOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 			return file, true, err
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return appconfig.File{}, false, err
@@ -293,9 +306,6 @@ func specFor(root string, bundles []resource.ContributionBundle) coredistributio
 		}
 		spec.Description = appSpec.Description
 		spec.DefaultSession = appSpec.DefaultSession
-		if spec.DefaultSession.Name == "" && appSpec.DefaultAgent.Name != "" {
-			spec.DefaultSession = coresession.Ref{Name: "default"}
-		}
 		spec.DefaultModel = coredistribution.ModelDefault{
 			Provider: appSpec.Model.Provider,
 			Model:    appSpec.Model.Model,
@@ -305,6 +315,11 @@ func specFor(root string, bundles []resource.ContributionBundle) coredistributio
 	if spec.DefaultSession.Name == "" {
 		if session, ok := firstSession(bundles); ok {
 			spec.DefaultSession = coresession.Ref{Name: session.Name}
+		}
+	}
+	if spec.DefaultSession.Name == "" {
+		if appSpec, ok := firstApp(bundles); ok && appSpec.DefaultAgent.Name != "" {
+			spec.DefaultSession = coresession.Ref{Name: "default"}
 		}
 	}
 	if spec.DefaultConversation.ID == "" && spec.Name != "" {

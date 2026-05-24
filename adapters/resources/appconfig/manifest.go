@@ -51,6 +51,12 @@ var DeprecatedManifestNames = []string{
 	"agentsdk.app.yml",
 }
 
+// DecodeOptions controls profile-sensitive manifest decoding.
+type DecodeOptions struct {
+	Profile  string
+	Profiles []string
+}
+
 // LoadDir loads the default app manifest from dir.
 func LoadDir(ctx context.Context, dir string) (resource.ContributionBundle, error) {
 	file, err := LoadDirFile(ctx, dir)
@@ -72,6 +78,12 @@ func LoadFS(ctx context.Context, fsys fs.FS, path string) (resource.Contribution
 // LoadFSFile loads one app/resource manifest from fsys at path and returns both
 // pure resource contributions and serve/daemon configuration.
 func LoadFSFile(ctx context.Context, fsys fs.FS, path string) (File, error) {
+	return LoadFSFileWithOptions(ctx, fsys, path, DecodeOptions{})
+}
+
+// LoadFSFileWithOptions loads one app/resource manifest from fsys at path and
+// applies the selected profile before decoding resources.
+func LoadFSFileWithOptions(ctx context.Context, fsys fs.FS, path string, opts DecodeOptions) (File, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -86,12 +98,18 @@ func LoadFSFile(ctx context.Context, fsys fs.FS, path string) (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("appconfig: read manifest %s: %w", clean, err)
 	}
-	return DecodeFile(clean, data)
+	return DecodeFileWithOptions(clean, data, opts)
 }
 
 // LoadDirFile loads the default app manifest from dir and returns both pure
 // resource contributions and serve/daemon configuration.
 func LoadDirFile(ctx context.Context, dir string) (File, error) {
+	return LoadDirFileWithOptions(ctx, dir, DecodeOptions{})
+}
+
+// LoadDirFileWithOptions loads the default app manifest from dir and applies
+// the selected profile before decoding resources.
+func LoadDirFileWithOptions(ctx context.Context, dir string, opts DecodeOptions) (File, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -103,7 +121,7 @@ func LoadDirFile(ctx context.Context, dir string) (File, error) {
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err == nil {
-			return DecodeFile(path, data)
+			return DecodeFileWithOptions(path, data, opts)
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return File{}, fmt.Errorf("appconfig: read manifest %s: %w", path, err)
@@ -132,16 +150,25 @@ func DecodeManifest(path string, data []byte) (resource.ContributionBundle, erro
 
 // File is the complete app configuration file shape after decoding.
 type File struct {
-	Path         string
-	Bundle       resource.ContributionBundle
-	Distribution coredistribution.Spec
-	Runtime      RuntimeConfig
-	Daemon       DaemonConfig
+	Path           string
+	Bundle         resource.ContributionBundle
+	Distribution   coredistribution.Spec
+	Runtime        RuntimeConfig
+	Daemon         DaemonConfig
+	Profile        string
+	ActiveProfiles []string
+	Profiles       ProfileSet
 }
 
 // DecodeFile decodes one local app file. It supports both the legacy single
 // app document and the rewrite-native multi-document kind-based shape.
 func DecodeFile(path string, data []byte) (File, error) {
+	return DecodeFileWithOptions(path, data, DecodeOptions{})
+}
+
+// DecodeFileWithOptions decodes one local app file after selecting the requested
+// profile. Unprofiled documents apply to every profile.
+func DecodeFileWithOptions(path string, data []byte, opts DecodeOptions) (File, error) {
 	source := manifestSource(path)
 	bundle := resource.ContributionBundle{Source: source}
 	distribution := coredistribution.Spec{}
@@ -155,11 +182,29 @@ func DecodeFile(path string, data []byte) (File, error) {
 	if len(docs) == 0 {
 		return File{}, fmt.Errorf("appconfig: manifest is empty")
 	}
+	defaultProfile, profiles, err := manifestProfileDefaults(docs)
+	if err != nil {
+		return File{}, err
+	}
+	selectedProfiles := selectedProfileList(opts)
+	explicitProfile := len(selectedProfiles) > 0
+	if len(selectedProfiles) == 0 && strings.TrimSpace(defaultProfile) != "" {
+		selectedProfiles = []string{strings.TrimSpace(defaultProfile)}
+	}
+	if len(selectedProfiles) == 0 {
+		selectedProfiles = []string{"dev"}
+	}
+	if err := validateSelectedProfiles(selectedProfiles, profiles, explicitProfile); err != nil {
+		return File{}, err
+	}
+	selectedProfile := strings.Join(selectedProfiles, ",")
 	state := manifestDecodeState{
 		Bundle:       &bundle,
 		Distribution: &distribution,
 		Runtime:      &runtime,
 		Daemon:       &daemon,
+		Profile:      selectedProfile,
+		Profiles:     &profiles,
 	}
 	registry := manifestDocumentRegistry()
 	for i, doc := range docs {
@@ -172,6 +217,9 @@ func DecodeFile(path string, data []byte) (File, error) {
 		}
 		if kind == "app" && i != 0 {
 			return File{}, fmt.Errorf("appconfig: app document must be first")
+		}
+		if !doc.AppliesTo(selectedProfiles) {
+			continue
 		}
 		decoder, ok := registry[kind]
 		if !ok {
@@ -187,7 +235,7 @@ func DecodeFile(path string, data []byte) (File, error) {
 			bundle.Sessions = append(bundle.Sessions, spec)
 		}
 	}
-	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon}, nil
+	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon, Profile: selectedProfile, ActiveProfiles: selectedProfiles, Profiles: profiles}, nil
 }
 
 func inferSingleAgentDefault(bundle *resource.ContributionBundle) {
@@ -205,6 +253,8 @@ type manifestDecodeState struct {
 	Distribution *coredistribution.Spec
 	Runtime      *RuntimeConfig
 	Daemon       *DaemonConfig
+	Profile      string
+	Profiles     *ProfileSet
 }
 
 type manifestDocumentDecoder func(any, *manifestDecodeState) error
@@ -222,6 +272,7 @@ func manifestDocumentRegistry() map[string]manifestDocumentDecoder {
 		"assertion_deriver": decodeAssertionDeriverDocument,
 		"reaction":          decodeReactionDocument,
 		"llm_provider":      decodeLLMProviderDocument,
+		"runtime":           decodeRuntimeDocument,
 	}
 }
 
@@ -281,6 +332,9 @@ func decodeAppDocument(value any, state *manifestDecodeState) error {
 	if err := validateModelReference(strings.TrimSpace(string(manifest.Models.Default)), models, "models.default"); err != nil {
 		return err
 	}
+	if err := validateModelReference(strings.TrimSpace(string(manifest.Defaults.Model)), models, "defaults.model"); err != nil {
+		return err
+	}
 	if err := validateModelReference(strings.TrimSpace(string(manifest.Distribution.Deploy.Model)), models, "distribution.deploy.model"); err != nil {
 		return err
 	}
@@ -293,7 +347,7 @@ func decodeAppDocument(value any, state *manifestDecodeState) error {
 	state.Bundle.LLMProviders = append(state.Bundle.LLMProviders, modelProviders...)
 	state.Bundle.LLMModelAliases = append(state.Bundle.LLMModelAliases, models.Aliases...)
 	*state.Distribution = manifest.Distribution.Spec()
-	*state.Runtime = manifest.Runtime
+	mergeRuntimeConfig(state.Runtime, manifest.Runtime)
 	*state.Daemon = manifest.Daemon
 	return nil
 }
@@ -390,6 +444,15 @@ func decodeLLMProviderDocument(value any, state *manifestDecodeState) error {
 	return nil
 }
 
+func decodeRuntimeDocument(value any, state *manifestDecodeState) error {
+	var runtime RuntimeConfig
+	if err := decodeDocumentValue(value, &runtime); err != nil {
+		return fmt.Errorf("appconfig: decode runtime document: %w", err)
+	}
+	mergeRuntimeConfig(state.Runtime, runtime)
+	return nil
+}
+
 func manifestSource(path string) resource.SourceRef {
 	return resource.SourceRef{
 		ID:       "appconfig:" + filepath.Clean(path),
@@ -403,9 +466,28 @@ func manifestSource(path string) resource.SourceRef {
 }
 
 type manifestDocument struct {
-	Index int
-	Kind  string
-	Value any
+	Index    int
+	Kind     string
+	Profiles []string
+	Value    any
+}
+
+func (d manifestDocument) AppliesTo(activeProfiles []string) bool {
+	if len(d.Profiles) == 0 {
+		return true
+	}
+	active := map[string]bool{}
+	for _, profile := range activeProfiles {
+		if profile = strings.TrimSpace(profile); profile != "" {
+			active[profile] = true
+		}
+	}
+	for _, candidate := range d.Profiles {
+		if active[strings.TrimSpace(candidate)] {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeDocuments(data []byte) ([]manifestDocument, error) {
@@ -430,12 +512,100 @@ func decodeDocuments(data []byte) ([]manifestDocument, error) {
 			return nil, fmt.Errorf("document %d: %w", index, err)
 		}
 		docs = append(docs, manifestDocument{
-			Index: index,
-			Kind:  documentKind(normalized),
-			Value: normalized,
+			Index:    index,
+			Kind:     documentKind(normalized),
+			Profiles: documentProfiles(normalized),
+			Value:    normalized,
 		})
 	}
 	return docs, nil
+}
+
+func manifestProfileDefaults(docs []manifestDocument) (string, ProfileSet, error) {
+	if len(docs) == 0 {
+		return "", nil, nil
+	}
+	first := docs[0]
+	kind := strings.TrimSpace(first.Kind)
+	if kind == "" {
+		kind = "app"
+	}
+	if kind != "app" {
+		return "", nil, nil
+	}
+	var manifest Manifest
+	if err := decodeDocumentValue(first.Value, &manifest); err != nil {
+		return "", nil, fmt.Errorf("appconfig: decode app document: %w", err)
+	}
+	return strings.TrimSpace(manifest.Defaults.Profile), manifest.Profiles.normalized(), nil
+}
+
+func selectedProfileList(opts DecodeOptions) []string {
+	out := profileNamesFromValues(opts.Profiles)
+	if strings.TrimSpace(opts.Profile) != "" {
+		out = append(out, profileNamesFromValues([]string{opts.Profile})...)
+	}
+	return cleaned(out)
+}
+
+func validateSelectedProfiles(selected []string, profiles ProfileSet, explicit bool) error {
+	if len(selected) == 0 || len(profiles) == 0 {
+		return nil
+	}
+	for _, profile := range selected {
+		profile = strings.TrimSpace(profile)
+		if profile == "" {
+			continue
+		}
+		if _, ok := profiles[profile]; ok {
+			continue
+		}
+		if explicit {
+			return fmt.Errorf("appconfig: profile %q is not declared", profile)
+		}
+		return fmt.Errorf("appconfig: default profile %q is not declared", profile)
+	}
+	return nil
+}
+
+func documentProfiles(value any) []string {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return profileList(raw["profile"])
+}
+
+func profileList(value any) []string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case string:
+		return cleaned([]string{typed})
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok {
+				out = append(out, text)
+			}
+		}
+		return cleaned(out)
+	default:
+		return nil
+	}
+}
+
+func profileNamesFromValues(values []string) []string {
+	var out []string
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
 }
 
 // ValidateManifestWithSchema validates every non-empty YAML document in a
@@ -479,7 +649,7 @@ func documentPayloadValue(value any) any {
 	}
 	out := make(map[string]any, len(raw))
 	for key, value := range raw {
-		if key == "kind" {
+		if key == "kind" || key == "profile" {
 			continue
 		}
 		out[key] = value
@@ -619,6 +789,8 @@ func (f File) Validate() error {
 type Manifest struct {
 	Name           coreapp.Name               `json:"name,omitempty" yaml:"name,omitempty"`
 	Description    string                     `json:"description,omitempty" yaml:"description,omitempty"`
+	Defaults       defaultsDoc                `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Profiles       ProfileSet                 `json:"profiles,omitempty" yaml:"profiles,omitempty"`
 	DefaultAgent   agentRef                   `json:"default_agent,omitempty" yaml:"default_agent,omitempty"`
 	Sources        []sourceSpec               `json:"sources,omitempty" yaml:"sources,omitempty"`
 	Discovery      discovery                  `json:"discovery,omitempty" yaml:"discovery,omitempty"`
@@ -638,6 +810,48 @@ type Manifest struct {
 	LLMProviders   []corellm.ProviderSpec     `json:"llm_providers,omitempty" yaml:"llm_providers,omitempty"`
 	Runtime        RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty"`
 	Daemon         DaemonConfig               `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+}
+
+type defaultsDoc struct {
+	Profile string        `json:"profile,omitempty" yaml:"profile,omitempty"`
+	Agent   agentRef      `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Model   ModelSelector `json:"model,omitempty" yaml:"model,omitempty"`
+}
+
+// ProfileSet describes named app profiles. Profiles are metadata plus optional
+// JSON Patch operations for exceptional profile-specific mutations.
+type ProfileSet map[string]ProfileDoc
+
+func (p ProfileSet) normalized() ProfileSet {
+	if len(p) == 0 {
+		return nil
+	}
+	out := make(ProfileSet, len(p))
+	for name, profile := range p {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = profile
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ProfileDoc is descriptive metadata for one app profile.
+type ProfileDoc struct {
+	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Patches     []JSONPatchOperation `json:"patches,omitempty" yaml:"patches,omitempty"`
+}
+
+// JSONPatchOperation is one RFC 6902-style JSON Patch operation.
+type JSONPatchOperation struct {
+	Op    string          `json:"op" yaml:"op" jsonschema:"enum=add,enum=remove,enum=replace,enum=move,enum=copy,enum=test"`
+	Path  string          `json:"path,omitempty" yaml:"path,omitempty"`
+	From  string          `json:"from,omitempty" yaml:"from,omitempty"`
+	Value json.RawMessage `json:"value,omitempty" yaml:"value,omitempty"`
 }
 
 type observationsDoc struct {
@@ -777,6 +991,60 @@ type RuntimeConfig struct {
 	Workspace WorkspaceConfig  `json:"workspace,omitempty" yaml:"workspace,omitempty"`
 	Data      RuntimeDataDoc   `json:"data,omitempty" yaml:"data,omitempty"`
 	Events    RuntimeEventsDoc `json:"events,omitempty" yaml:"events,omitempty"`
+}
+
+func mergeRuntimeConfig(dst *RuntimeConfig, src RuntimeConfig) {
+	if dst == nil {
+		return
+	}
+	mergeWorkspaceConfig(&dst.Workspace, src.Workspace)
+	mergeRuntimeDataDoc(&dst.Data, src.Data)
+	mergeRuntimeEventsDoc(&dst.Events, src.Events)
+}
+
+func mergeWorkspaceConfig(dst *WorkspaceConfig, src WorkspaceConfig) {
+	if strings.TrimSpace(src.ScratchRoot) != "" {
+		dst.ScratchRoot = src.ScratchRoot
+	}
+	if len(src.Roots) > 0 {
+		dst.Roots = append(dst.Roots, src.Roots...)
+	}
+	if len(src.EnvFiles) > 0 {
+		dst.EnvFiles = append(dst.EnvFiles, src.EnvFiles...)
+	}
+}
+
+func mergeRuntimeDataDoc(dst *RuntimeDataDoc, src RuntimeDataDoc) {
+	if strings.TrimSpace(string(src.Store.Kind)) != "" {
+		dst.Store.Kind = src.Store.Kind
+	}
+	if strings.TrimSpace(src.Store.DSN) != "" {
+		dst.Store.DSN = src.Store.DSN
+	}
+	if strings.TrimSpace(src.Store.DSNEnv) != "" {
+		dst.Store.DSNEnv = src.Store.DSNEnv
+	}
+}
+
+func mergeRuntimeEventsDoc(dst *RuntimeEventsDoc, src RuntimeEventsDoc) {
+	if strings.TrimSpace(string(src.Store.Kind)) != "" {
+		dst.Store.Kind = src.Store.Kind
+	}
+	if strings.TrimSpace(src.Store.DSN) != "" {
+		dst.Store.DSN = src.Store.DSN
+	}
+	if strings.TrimSpace(src.Store.DSNEnv) != "" {
+		dst.Store.DSNEnv = src.Store.DSNEnv
+	}
+	if strings.TrimSpace(src.Store.Stream) != "" {
+		dst.Store.Stream = src.Store.Stream
+	}
+	if strings.TrimSpace(src.Store.Subject) != "" {
+		dst.Store.Subject = src.Store.Subject
+	}
+	if src.Store.CreateStream {
+		dst.Store.CreateStream = true
+	}
 }
 
 type RuntimeDataStoreKind string
@@ -2346,10 +2614,18 @@ func (m Manifest) Spec() coreapp.Spec {
 		model.Model = defaultModel
 		model.Provider = ""
 	}
+	if defaultModel := strings.TrimSpace(string(m.Defaults.Model)); defaultModel != "" {
+		model.Model = defaultModel
+		model.Provider = ""
+	}
+	defaultAgent := agent.Ref(m.DefaultAgent)
+	if strings.TrimSpace(string(m.Defaults.Agent.Name)) != "" {
+		defaultAgent = agent.Ref(m.Defaults.Agent)
+	}
 	spec := coreapp.Spec{
 		Name:           m.Name,
 		Description:    m.Description,
-		DefaultAgent:   agent.Ref(m.DefaultAgent),
+		DefaultAgent:   defaultAgent,
 		Discovery:      m.Discovery.Spec(),
 		Model:          model,
 		Datasource:     m.Datasource.Spec(),

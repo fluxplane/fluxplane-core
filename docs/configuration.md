@@ -62,9 +62,11 @@ The `kind: app` document declares the app identity and the outer product wiring.
 Common fields are:
 
 - `name` and `description` for app identity.
-- `default_agent` for the agent used when a session does not choose one.
-  If the manifest defines exactly one local agent, this can be omitted and that
-  agent is selected automatically.
+- `defaults` for the default profile, agent, and model. If the manifest defines
+  exactly one local agent, `defaults.agent` can be omitted and that agent is
+  selected automatically.
+- `profiles` for named app profiles. Multiple profiles may be active at once;
+  unprofiled documents apply to every profile.
 - `plugins` for first-party plugin contribution bundles.
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
@@ -168,11 +170,35 @@ name: echo
 description: Declaration-only operation metadata.
 ```
 
-### Runtime
+### Profiles And Runtime
 
-The top-level `runtime` section configures local runtime boundaries. These
-settings are launch-time wiring, not agent resources, and are consumed by
-`fluxplane run`, `fluxplane serve`, and generated deployments.
+The top-level `runtime` section or a `kind: runtime` document configures local
+runtime boundaries. These settings are launch-time wiring, not agent resources,
+and are consumed by `fluxplane run`, `fluxplane serve`, and generated
+deployments. Use `profile` on a runtime document when a backing service should
+only be required for selected profiles.
+
+```yaml
+defaults:
+  profile: dev
+  agent: support
+  model: smart_model
+profiles:
+  dev:
+    description: Local development.
+  prod:
+    description: Production deployment.
+
+---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+events:
+  store:
+    kind: nats
+```
 
 Filesystem operations are secure by default: without extra configuration, they
 can only access the app workspace root. Additional workspace roots are opt-in
@@ -550,20 +576,16 @@ Distribution metadata describes a runnable package and optional Docker build
 inputs.
 
 ```yaml
-runtime:
-  data:
-    store:
-      kind: mysql
-      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
-  events:
-    store:
-      kind: nats
-      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
-      stream: AGENTRUNTIME_EVENTS
-      subject: agentruntime.events.log
-      create_stream: true
+defaults:
+  profile: dev
+  agent: support
+  model: smart_model
+profiles:
+  dev:
+    description: Local development.
+  prod:
+    description: Production deployment.
 models:
-  default: smart_model
   available:
     - provider: openrouter
       model: openai/gpt-5.5
@@ -582,6 +604,20 @@ distribution:
     docker:
       image: support-bot
       tags: [latest]
+---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+events:
+  store:
+    kind: nats
+    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    stream: AGENTRUNTIME_EVENTS
+    subject: agentruntime.events.log
+    create_stream: true
 ```
 
 Build with:
@@ -589,8 +625,8 @@ Build with:
 ```bash
 fluxplane build . --target docker-base --base-image fluxplane/fluxplane-base:local
 fluxplane build . --image support-bot:local
-fluxplane deploy . --target docker-compose --image support-bot:local
-fluxplane deploy . --target kubernetes --namespace ai-bots --image support-bot:local
+fluxplane deploy . --profile prod --target docker-compose --image support-bot:local
+fluxplane deploy . --profile prod --target kubernetes --namespace ai-bots --image support-bot:local
 fluxplane undeploy . --target kubernetes --namespace ai-bots
 ```
 

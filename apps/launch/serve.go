@@ -35,6 +35,8 @@ import (
 
 type Options struct {
 	AppDir             string
+	Profile            string
+	Profiles           []string
 	Debug              bool
 	Verbose            bool
 	Yolo               bool
@@ -82,7 +84,7 @@ var serveShutdownGrace = 5 * time.Second
 
 func Serve(ctx context.Context, opts Options) error {
 	configureServeLogging(opts.Debug)
-	loaded, err := distlocal.Load(ctx, opts.AppDir)
+	loaded, err := distlocal.LoadWithOptions(ctx, opts.AppDir, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return err
 	}

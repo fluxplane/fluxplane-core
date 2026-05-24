@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context-aware completions for resources declared by the current manifest.
 - Added agent `uses` manifest syntax that expands through contributed
   activation sets, keeping plugin-owned capability wiring out of app manifests.
+- Added app `defaults` and descriptive `profiles`, plus profile-scoped
+  `kind: runtime` documents and `--profile` selection for run, serve, build,
+  and deploy.
 - Added datasource config schemas to data source specs so manifest JSON Schema
   generation can type datasource config and entity choices from the resolved
   bundle without hard-coded datasource knowledge in the appconfig adapter.

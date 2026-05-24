@@ -314,18 +314,11 @@ func TestGenerateDockerComposeIncludesRuntimeBackends(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
 name: support-bot
-runtime:
-  data:
-    store:
-      kind: mysql
-      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
-  events:
-    store:
-      kind: nats
-      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
-      stream: AGENTRUNTIME_EVENTS
-      subject: agentruntime.events.log
-      create_stream: true
+profiles:
+  dev:
+    description: Local development.
+  prod:
+    description: Production deployment.
 distribution:
   name: support-bot
   build:
@@ -334,13 +327,28 @@ distribution:
       image: support-bot
       tags: [local]
 ---
+kind: runtime
+profile: prod
+data:
+  store:
+    kind: mysql
+    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+events:
+  store:
+    kind: nats
+    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    stream: AGENTRUNTIME_EVENTS
+    subject: agentruntime.events.log
+    create_stream: true
+---
 kind: agent
 name: assistant
 `)
 	result, err := GenerateDockerCompose(context.Background(), ComposeOptions{
-		AppDir: app,
-		Image:  "support-bot:test",
-		DryRun: true,
+		AppDir:   app,
+		Profiles: []string{"prod"},
+		Image:    "support-bot:test",
+		DryRun:   true,
 	})
 	if err != nil {
 		t.Fatalf("GenerateDockerCompose: %v", err)

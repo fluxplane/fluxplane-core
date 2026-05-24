@@ -27,6 +27,8 @@ type Distribution struct {
 type Loaded struct {
 	Root         string
 	Manifest     string
+	Profile      string
+	Profiles     []string
 	Distribution Distribution
 	Launch       LaunchConfig
 	Diagnostics  []resource.Diagnostic

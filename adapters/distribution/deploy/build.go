@@ -15,6 +15,8 @@ import (
 // AppBuildOptions configures app-local build artifact generation.
 type AppBuildOptions struct {
 	AppDir             string
+	Profile            string
+	Profiles           []string
 	OutDir             string
 	Targets            []string
 	Tags               []string
@@ -62,7 +64,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	if err != nil {
 		return AppBuildResult{}, err
 	}
-	loaded, err := distlocal.Load(ctx, appDir)
+	loaded, err := distlocal.LoadWithOptions(ctx, appDir, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return AppBuildResult{}, err
 	}

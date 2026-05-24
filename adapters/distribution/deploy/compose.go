@@ -25,6 +25,8 @@ type dockerComposeStack struct {
 // ComposeOptions configures Docker Compose artifact generation.
 type ComposeOptions struct {
 	AppDir   string
+	Profile  string
+	Profiles []string
 	Image    string
 	Provider string
 	Model    string
@@ -44,6 +46,8 @@ type ComposeResult struct {
 // ComposeDeployOptions configures local Docker Compose deployment.
 type ComposeDeployOptions struct {
 	AppDir             string
+	Profile            string
+	Profiles           []string
 	TempDir            string
 	Image              string
 	BaseImage          string
@@ -122,6 +126,8 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	}
 	app, err := BuildApp(ctx, AppBuildOptions{
 		AppDir:             opts.AppDir,
+		Profile:            opts.Profile,
+		Profiles:           opts.Profiles,
 		Targets:            []string{"dockerfile", "docker-compose", "docker-image"},
 		Image:              opts.Image,
 		DryRun:             opts.DryRun,
@@ -160,7 +166,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		}
 		return result, nil
 	}
-	stack, err := dockerComposeStackFor(ctx, app.AppDir, firstTag(app.Tags), opts.AuthPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
+	stack, err := dockerComposeStackFor(ctx, app.AppDir, opts.Profile, opts.Profiles, firstTag(app.Tags), opts.AuthPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
 	if err != nil {
 		return ComposeDeployResult{}, err
 	}
@@ -215,7 +221,7 @@ func UndeployDockerCompose(ctx context.Context, opts ComposeUndeployOptions) (Co
 		}
 		return result, nil
 	}
-	stack, err := dockerComposeStackFor(ctx, loaded.Root, "", "", "", "", "", false)
+	stack, err := dockerComposeStackFor(ctx, loaded.Root, "", nil, "", "", "", "", "", false)
 	if err != nil {
 		return ComposeUndeployResult{}, err
 	}
@@ -231,7 +237,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	if appDir == "" {
 		appDir = "."
 	}
-	loaded, err := distlocal.Load(ctx, appDir)
+	loaded, err := distlocal.LoadWithOptions(ctx, appDir, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return ComposeResult{}, err
 	}
@@ -265,8 +271,8 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 	return ComposeResult{}, errors.New("distribution deploy: docker-compose generation currently requires --dry-run")
 }
 
-func dockerComposeStackFor(ctx context.Context, appDir, image, authPath, provider, model, effort string, allowPluginAuthEnv bool) (dockerComposeStack, error) {
-	loaded, err := distlocal.Load(ctx, appDir)
+func dockerComposeStackFor(ctx context.Context, appDir, profile string, profiles []string, image, authPath, provider, model, effort string, allowPluginAuthEnv bool) (dockerComposeStack, error) {
+	loaded, err := distlocal.LoadWithOptions(ctx, appDir, distlocal.LoadOptions{Profile: profile, Profiles: profiles})
 	if err != nil {
 		return dockerComposeStack{}, err
 	}

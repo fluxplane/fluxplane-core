@@ -105,6 +105,8 @@ func kubernetesObjectResource(obj *unstructured.Unstructured) (schema.GroupVersi
 // KubernetesOptions configures kubectl-manifest deployment.
 type KubernetesOptions struct {
 	AppDir             string
+	Profile            string
+	Profiles           []string
 	TempDir            string
 	Image              string
 	ImagePullPolicy    string
@@ -166,6 +168,8 @@ type KubernetesUndeployResult struct {
 // KubernetesManifestOptions configures plain Kubernetes manifest generation.
 type KubernetesManifestOptions struct {
 	AppDir          string
+	Profile         string
+	Profiles        []string
 	Image           string
 	ImagePullPolicy string
 	AuthPath        string
@@ -212,7 +216,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
 	kubernetesClient := kubernetesClientFor(opts.Runner, opts.kubernetesClient)
-	loaded, err := distlocal.Load(ctx, firstNonEmpty(strings.TrimSpace(opts.AppDir), "."))
+	loaded, err := distlocal.LoadWithOptions(ctx, firstNonEmpty(strings.TrimSpace(opts.AppDir), "."), distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return KubernetesResult{}, err
 	}
@@ -272,6 +276,8 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	}
 	app, err := BuildApp(ctx, AppBuildOptions{
 		AppDir:             loaded.Root,
+		Profile:            opts.Profile,
+		Profiles:           opts.Profiles,
 		Targets:            []string{"dockerfile", "docker-image"},
 		Image:              sourceImage,
 		DryRun:             opts.DryRun,
@@ -510,7 +516,7 @@ func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOpt
 	if appDir == "" {
 		appDir = "."
 	}
-	loaded, err := distlocal.Load(ctx, appDir)
+	loaded, err := distlocal.LoadWithOptions(ctx, appDir, distlocal.LoadOptions{Profile: opts.Profile, Profiles: opts.Profiles})
 	if err != nil {
 		return KubernetesManifestResult{}, err
 	}

@@ -41,9 +41,6 @@ func NewAppCommand() *cobra.Command {
 // NewAppCommandWithOptions returns the grouped app lifecycle command with
 // injectable runners/loaders for product assembly and tests.
 func NewAppCommandWithOptions(opts AppCommandOptions) *cobra.Command {
-	if opts.RunLoader == nil {
-		opts.RunLoader = distlocal.Load
-	}
 	if opts.ConfigLoader == nil {
 		opts.ConfigLoader = distlocal.Load
 	}
@@ -67,6 +64,7 @@ func NewAppCommandWithOptions(opts AppCommandOptions) *cobra.Command {
 }
 
 type appBuildOptions struct {
+	profiles     []string
 	targets      []string
 	docker       bool
 	image        string
@@ -104,6 +102,7 @@ func NewAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 		},
 	}
 	cmd.Flags().BoolVar(&opts.docker, "docker", false, "build a Docker image")
+	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
 	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose|kubernetes|docker-base; may be repeated or comma-separated")
 	cmd.Flags().StringVar(&opts.image, "image", "", "Docker image tag to use for app artifacts")
 	cmd.Flags().StringVar(&opts.outDir, "out", "", "output directory for generated app artifacts")
@@ -131,6 +130,7 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 	}
 	_, err := distdeploy.BuildApp(ctx, distdeploy.AppBuildOptions{
 		AppDir:             appDir,
+		Profiles:           opts.profiles,
 		OutDir:             opts.outDir,
 		Targets:            targets,
 		Image:              opts.image,
@@ -153,6 +153,7 @@ func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, 
 }
 
 type appDeployOptions struct {
+	profiles        []string
 	target          string
 	image           string
 	imagePullPolicy string
@@ -192,6 +193,7 @@ func NewAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 		},
 	}
 	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose|kubernetes")
+	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
 	cmd.Flags().StringVar(&opts.image, "image", "", "App image to build and reference in generated deployment resources")
 	cmd.Flags().StringVar(&opts.imagePullPolicy, "image-pull-policy", "", "Kubernetes app image pull policy: Always|IfNotPresent|Never")
 	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
@@ -224,6 +226,7 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	if target == "kubernetes" {
 		_, err := distdeploy.DeployKubernetes(ctx, distdeploy.KubernetesOptions{
 			AppDir:             appDir,
+			Profiles:           opts.profiles,
 			Image:              opts.image,
 			ImagePullPolicy:    opts.imagePullPolicy,
 			BaseImage:          opts.baseImage,
@@ -246,6 +249,7 @@ func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out
 	}
 	_, err := distdeploy.DeployDockerCompose(ctx, distdeploy.ComposeDeployOptions{
 		AppDir:             appDir,
+		Profiles:           opts.profiles,
 		Image:              opts.image,
 		BaseImage:          opts.baseImage,
 		AuthPath:           opts.authPath,

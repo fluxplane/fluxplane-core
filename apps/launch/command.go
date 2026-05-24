@@ -7,6 +7,7 @@ import (
 )
 
 type serveCommandOptions struct {
+	profiles    []string
 	model       ModelFlags
 	runtime     LocalRuntimeFlags
 	environment LaunchEnvironmentFlags
@@ -43,6 +44,7 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 			}
 			return runner(cmd.Context(), Options{
 				AppDir:             path,
+				Profiles:           opts.profiles,
 				Debug:              opts.runtime.Debug,
 				Verbose:            opts.verbose,
 				Yolo:               opts.runtime.Yolo,
@@ -62,6 +64,7 @@ func NewServeCommandWithRunner(runner ServeRunner) *cobra.Command {
 		},
 	}
 	BindModelFlags(cmd.Flags(), &opts.model, ModelFlags{})
+	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
 	BindLocalRuntimeFlags(cmd.Flags(), &opts.runtime, LocalRuntimeFlagHelp{
 		Debug: "print daemon startup details",
 		Yolo:  "auto-approve local operation risk gates for served sessions",
