@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 func TestContextForInboundCarriesSubjectsWithoutConfiguredPolicy(t *testing.T) {

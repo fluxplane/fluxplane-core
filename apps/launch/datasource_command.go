@@ -6,12 +6,12 @@ import (
 	"io"
 	"strings"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/orchestration/datasourceindex"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	"github.com/spf13/cobra"
 )
 

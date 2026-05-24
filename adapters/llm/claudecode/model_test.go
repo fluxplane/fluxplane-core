@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/adapters/llm/anthropicmessages"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
-	"github.com/fluxplane/engine/runtime/httptransport"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/anthropicmessages"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 )
 
 func TestNewMissingCredentials(t *testing.T) {

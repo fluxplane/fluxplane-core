@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	apinetwork "github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 )
@@ -228,8 +228,8 @@ func TestBuildCoderBaseDockerFromRepoCopiesLocalReplaceModules(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "projects", "agentsdk", "rewrite")
 	app := filepath.Join(repo, "examples", "sample")
-	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/engine\n\nreplace github.com/codewandler/axon => ../../axon\n")
-	writeTestFile(t, repo, "apps/coder/go.mod", "module github.com/fluxplane/coder\n\ngo 1.26.1\n\nrequire github.com/fluxplane/engine v0.0.0\n\nreplace github.com/fluxplane/engine => ../..\n")
+	writeTestFile(t, repo, "go.mod", "module github.com/fluxplane/fluxplane-core\n\nreplace github.com/codewandler/axon => ../../axon\n")
+	writeTestFile(t, repo, "apps/coder/go.mod", "module github.com/fluxplane/coder\n\ngo 1.26.1\n\nrequire github.com/fluxplane/fluxplane-core v0.0.0\n\nreplace github.com/fluxplane/fluxplane-core => ../..\n")
 	writeTestFile(t, repo, "apps/coder/cmd/coder/main.go", "package main\nfunc main() {}\n")
 	writeTestFile(t, filepath.Join(parent, "projects"), "axon/go.mod", "module github.com/codewandler/axon\n")
 	writeTestFile(t, app, "fluxplane.yaml", `

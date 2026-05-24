@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	corethread "github.com/fluxplane/engine/core/thread"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/daemon"
-	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/daemon"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
 )
 
 func TestServerStatusAndSessions(t *testing.T) {

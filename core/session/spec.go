@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/command"
-	corecontext "github.com/fluxplane/engine/core/context"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 // Name identifies a configured session profile.

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	coreskill "github.com/fluxplane/engine/core/skill"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 )
 
 // Repository is an immutable catalog of composed skill resources.

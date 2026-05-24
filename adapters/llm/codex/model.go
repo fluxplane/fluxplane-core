@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	adapterllm "github.com/fluxplane/engine/adapters/llm"
-	"github.com/fluxplane/engine/adapters/llm/openai"
-	corellm "github.com/fluxplane/engine/core/llm"
+	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/openai"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"github.com/openai/openai-go/v3/option"
 )
 

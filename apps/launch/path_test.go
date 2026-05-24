@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/channel"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
-	coresession "github.com/fluxplane/engine/core/session"
-	corethread "github.com/fluxplane/engine/core/thread"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/distribution"
-	sessionruntime "github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	sessionruntime "github.com/fluxplane/fluxplane-core/orchestration/session"
 )
 
 func TestRunPathUsesLoadedDistributionAndSubmitsInput(t *testing.T) {

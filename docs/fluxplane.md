@@ -8,7 +8,7 @@ and is not installed by this CLI.
 ## Install
 
 ```bash
-go install github.com/fluxplane/engine/cmd/fluxplane@latest
+go install github.com/fluxplane/fluxplane-core/cmd/fluxplane@latest
 ```
 
 `fluxplane` reads `fluxplane.yaml` as the app manifest. The legacy

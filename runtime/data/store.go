@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	coredata "github.com/fluxplane/engine/core/data"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
 )
 
 // MemoryStore is an in-memory data store useful for local runtime composition

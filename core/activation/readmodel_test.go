@@ -3,11 +3,11 @@ package activation
 import (
 	"testing"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	"github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/skill"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	"github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/skill"
 )
 
 func TestReadModelAppliesFocusAndSurfaceEvents(t *testing.T) {

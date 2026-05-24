@@ -20,8 +20,8 @@ import (
 
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	"github.com/fluxplane/engine/core/pathpattern"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	"github.com/fluxplane/fluxplane-core/core/pathpattern"
 	"github.com/moby/go-archive"
 	dockercontainer "github.com/moby/moby/api/types/container"
 	dockermount "github.com/moby/moby/api/types/mount"
@@ -837,12 +837,12 @@ func findRepoRoot(start string) (string, error) {
 	for {
 		goMod := filepath.Join(dir, "go.mod")
 		data, err := os.ReadFile(goMod)
-		if err == nil && strings.Contains(string(data), "module github.com/fluxplane/engine") {
+		if err == nil && strings.Contains(string(data), "module github.com/fluxplane/fluxplane-core") {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("distribution build: could not find github.com/fluxplane/engine source root from %s", start)
+			return "", fmt.Errorf("distribution build: could not find github.com/fluxplane/fluxplane-core source root from %s", start)
 		}
 		dir = parent
 	}

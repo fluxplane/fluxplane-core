@@ -3,10 +3,10 @@ package evaluator
 import (
 	"time"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/operation"
-	coreusage "github.com/fluxplane/engine/core/usage"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 )
 
 type Scenario struct {

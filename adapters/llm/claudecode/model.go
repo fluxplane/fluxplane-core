@@ -13,10 +13,10 @@ import (
 	"runtime"
 	"strings"
 
-	adapterllm "github.com/fluxplane/engine/adapters/llm"
-	"github.com/fluxplane/engine/adapters/llm/anthropicmessages"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/runtime/httptransport"
+	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/anthropicmessages"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 )
 
 const (

@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreevent "github.com/fluxplane/engine/core/event"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	coreproject "github.com/fluxplane/engine/core/project"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
-	"github.com/fluxplane/engine/runtime/system"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coreproject "github.com/fluxplane/fluxplane-core/core/project"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestProjectOperationsWithMemoryAndHostWorkspaces(t *testing.T) {

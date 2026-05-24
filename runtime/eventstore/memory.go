@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/eventcodec"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/eventcodec"
 )
 
 // MemoryStore is an in-memory append-only event store.

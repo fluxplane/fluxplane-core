@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestPollinationsGenerateUsesImageEndpoint(t *testing.T) {

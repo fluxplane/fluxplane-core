@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/policy"
-	coretrigger "github.com/fluxplane/engine/core/trigger"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/harness"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/harness"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)

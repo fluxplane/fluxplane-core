@@ -1,9 +1,9 @@
 package jira
 
 import (
-	coredata "github.com/fluxplane/engine/core/data"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 const (

@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/event"
-	coresession "github.com/fluxplane/engine/core/session"
-	corethread "github.com/fluxplane/engine/core/thread"
-	coreusage "github.com/fluxplane/engine/core/usage"
-	"github.com/fluxplane/engine/runtime/eventstore"
-	runtimethread "github.com/fluxplane/engine/runtime/thread"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
+	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
 )
 
 func TestUsageDatasourceSearchesTokenUsageEvents(t *testing.T) {

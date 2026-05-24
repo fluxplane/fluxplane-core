@@ -2,11 +2,11 @@
 package sessionagent
 
 import (
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	coresession "github.com/fluxplane/engine/core/session"
-	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 )
 
 const (

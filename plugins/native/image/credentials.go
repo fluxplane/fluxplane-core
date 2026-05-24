@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func env(ctx context.Context, sys system.System, key string) string {

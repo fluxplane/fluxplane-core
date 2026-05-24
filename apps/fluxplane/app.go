@@ -4,10 +4,10 @@ package fluxplaneapp
 import (
 	"context"
 
-	"github.com/fluxplane/engine/adapters/distribution/authconnect"
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	resourcediscovery "github.com/fluxplane/engine/adapters/resources/discovery"
-	"github.com/fluxplane/engine/apps/launch"
+	"github.com/fluxplane/fluxplane-core/adapters/distribution/authconnect"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	resourcediscovery "github.com/fluxplane/fluxplane-core/adapters/resources/discovery"
+	"github.com/fluxplane/fluxplane-core/apps/launch"
 	"github.com/spf13/cobra"
 )
 

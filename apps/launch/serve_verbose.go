@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	fluxplane "github.com/fluxplane/engine"
-	coretrigger "github.com/fluxplane/engine/core/trigger"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/plugins/native/human"
+	fluxplane "github.com/fluxplane/fluxplane-core"
+	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/plugins/native/human"
 )
 
 type serveEventWatcher interface {

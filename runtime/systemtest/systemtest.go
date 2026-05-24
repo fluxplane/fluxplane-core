@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxplane/engine/core/pathpattern"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/core/pathpattern"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 // MemorySystem is a mutable in-memory system for Workspace-focused tests.

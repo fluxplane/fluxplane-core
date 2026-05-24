@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/resource"
-	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
-	"github.com/fluxplane/engine/runtime/datasource/semantic"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
-	"github.com/fluxplane/engine/runtime/system"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

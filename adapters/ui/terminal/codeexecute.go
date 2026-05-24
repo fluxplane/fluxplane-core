@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 )
 
 type codeExecuteResult struct {

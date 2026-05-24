@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/core/resource"
-	coresecret "github.com/fluxplane/engine/core/secret"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 )
 
 // AuthTarget is one app-declared plugin instance that exposes auth methods.

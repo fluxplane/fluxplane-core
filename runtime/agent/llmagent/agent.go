@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fluxplane/engine/core/agent"
-	corellmagent "github.com/fluxplane/engine/core/agent/llmagent"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreconversation "github.com/fluxplane/engine/core/conversation"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	corellmagent "github.com/fluxplane/fluxplane-core/core/agent/llmagent"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/tool"
 )
 
 const (

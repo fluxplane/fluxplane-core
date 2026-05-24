@@ -5,14 +5,14 @@ import (
 	"sort"
 	"strings"
 
-	coreactivation "github.com/fluxplane/engine/core/activation"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	corereaction "github.com/fluxplane/engine/core/reaction"
-	coreskill "github.com/fluxplane/engine/core/skill"
-	"github.com/fluxplane/engine/runtime/skill"
+	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-core/runtime/skill"
 )
 
 // ReactionAction is one planned reaction action ready for session-local

@@ -1,12 +1,12 @@
 package launch
 
 import (
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/plugins/native/datasource"
-	"github.com/fluxplane/engine/plugins/native/sessionhistory"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
+	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
 )
 
 func enableDevSessionHistory(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, error) {

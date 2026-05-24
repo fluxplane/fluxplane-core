@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/user"
-	"github.com/fluxplane/engine/orchestration/identity"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/slack-go/slack"
 )
 

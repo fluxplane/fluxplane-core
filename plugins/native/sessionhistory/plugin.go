@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	corethread "github.com/fluxplane/engine/core/thread"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 
 const (

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/activation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
 func TestCollectExposesActivationSets(t *testing.T) {

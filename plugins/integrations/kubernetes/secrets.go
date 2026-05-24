@@ -6,7 +6,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	coresecret "github.com/fluxplane/engine/core/secret"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 )
 
 type kubernetesSecretResolver struct {

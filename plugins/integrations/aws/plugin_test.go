@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
-	"github.com/fluxplane/engine/runtime/system"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestAWSPluginContributesObserverAndDeriver(t *testing.T) {

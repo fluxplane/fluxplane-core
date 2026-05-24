@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/adapters/llm/modelcatalog"
-	"github.com/fluxplane/engine/core/agent"
-	corellm "github.com/fluxplane/engine/core/llm"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/modelcatalog"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 )
 
 func TestResolveModelSelectionParsesProviderPrefix(t *testing.T) {

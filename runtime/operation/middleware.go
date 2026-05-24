@@ -1,6 +1,6 @@
 package operationruntime
 
-import "github.com/fluxplane/engine/core/operation"
+import "github.com/fluxplane/fluxplane-core/core/operation"
 
 // Handler is the runtime call shape used by middleware.
 type Handler func(operation.Context, operation.Value) operation.Result

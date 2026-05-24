@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"

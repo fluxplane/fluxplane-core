@@ -3,12 +3,12 @@ package resource
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/activation"
-	"github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/reaction"
-	"github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	"github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/reaction"
+	"github.com/fluxplane/fluxplane-core/core/session"
 )
 
 func TestContributionBundleAppendObservationReactionFields(t *testing.T) {

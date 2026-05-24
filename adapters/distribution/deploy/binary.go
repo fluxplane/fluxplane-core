@@ -55,7 +55,7 @@ func buildEmbeddedBinary(ctx context.Context, loadedRoot, output string, assets 
 }
 
 func binaryGoMod(repoRoot string) string {
-	return fmt.Sprintf("module fluxplane-app-binary\n\ngo 1.24\n\nrequire github.com/fluxplane/engine v0.0.0\n\nreplace github.com/fluxplane/engine => %s\n", filepath.ToSlash(repoRoot))
+	return fmt.Sprintf("module fluxplane-app-binary\n\ngo 1.24\n\nrequire github.com/fluxplane/fluxplane-core v0.0.0\n\nreplace github.com/fluxplane/fluxplane-core => %s\n", filepath.ToSlash(repoRoot))
 }
 
 func binaryMainGo() string {
@@ -68,7 +68,7 @@ import (
 	"os"
 	"path/filepath"
 
-	fluxplaneapp "github.com/fluxplane/engine/apps/fluxplane"
+	fluxplaneapp "github.com/fluxplane/fluxplane-core/apps/fluxplane"
 )
 
 //go:embed all:app

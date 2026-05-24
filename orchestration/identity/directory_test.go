@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	coreapp "github.com/fluxplane/engine/core/app"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/user"
+	coreapp "github.com/fluxplane/fluxplane-core/core/app"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/user"
 )
 
 func TestDirectoryResolverMapsSlackUserToCanonicalUserAndGroups(t *testing.T) {

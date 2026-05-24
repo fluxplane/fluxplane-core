@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/orchestration/datasourceindex"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/orchestration/datasourceindex"
 )
 
 func TestDatasourceIndexPageTextIncludesProgressAndGitLabMembershipCursor(t *testing.T) {

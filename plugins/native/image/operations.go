@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 )
 
 func (p Plugin) generate(ctx operation.Context, req GenerateRequest) operation.Result {

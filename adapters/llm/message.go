@@ -1,7 +1,7 @@
 package llm
 
 import (
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 // Role describes a provider-facing chat/message role.

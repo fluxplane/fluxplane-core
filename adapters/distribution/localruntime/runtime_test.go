@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/channel"
-	coresession "github.com/fluxplane/engine/core/session"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 func TestRuntimeAppliesDefaultsBeforeOpening(t *testing.T) {

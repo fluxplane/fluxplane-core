@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 
 func TestPluginContributesConfiguredOperations(t *testing.T) {

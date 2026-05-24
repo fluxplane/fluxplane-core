@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	"github.com/fluxplane/engine/runtime/system"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const SearchResultEntity coredatasource.EntityType = "web.search_result"

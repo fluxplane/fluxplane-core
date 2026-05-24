@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/plugins/integrations/web"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/plugins/integrations/web"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestCodingPluginForwardsWebDatasourceProviders(t *testing.T) {

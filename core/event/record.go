@@ -3,7 +3,7 @@ package event
 import (
 	"time"
 
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 // Source describes the component that produced a record.

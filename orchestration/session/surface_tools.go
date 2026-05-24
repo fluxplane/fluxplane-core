@@ -7,15 +7,15 @@ import (
 	"sort"
 	"strings"
 
-	coreactivation "github.com/fluxplane/engine/core/activation"
-	corecontext "github.com/fluxplane/engine/core/context"
-	"github.com/fluxplane/engine/core/environment"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/orchestration/sessionenv"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	"github.com/fluxplane/fluxplane-core/core/environment"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 const surfaceSchemaProviderName = corecontext.ProviderName("surface.schema")

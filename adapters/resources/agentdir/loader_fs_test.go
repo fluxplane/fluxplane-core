@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/fluxplane/engine/core/resource"
+	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
 func TestLoadFSLoadsEmbeddedSkillsAndReferences(t *testing.T) {

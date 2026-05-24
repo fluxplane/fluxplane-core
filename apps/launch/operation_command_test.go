@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	coresecret "github.com/fluxplane/engine/core/secret"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/plugins/examples/echo"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/plugins/examples/echo"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 func TestOperationRunCommandRunsConfiguredOperation(t *testing.T) {

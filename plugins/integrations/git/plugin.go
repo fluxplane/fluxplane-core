@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const (

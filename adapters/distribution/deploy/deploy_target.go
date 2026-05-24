@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
 )
 
 const (

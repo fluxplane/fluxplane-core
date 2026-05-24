@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"strings"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

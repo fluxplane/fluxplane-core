@@ -295,7 +295,7 @@ inward once their shape is stable.
 
 The coder product lives in its own `github.com/fluxplane/coder` repository. It
 imports public core APIs, is checked separately from the root module, and must
-not import `github.com/fluxplane/engine/internal/...`, command packages, or old
+not import `github.com/fluxplane/fluxplane-core/internal/...`, command packages, or old
 in-tree coder package paths.
 
 ### `cmd`

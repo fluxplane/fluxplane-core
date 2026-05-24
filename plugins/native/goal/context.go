@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	coregoal "github.com/fluxplane/engine/core/goal"
-	corethread "github.com/fluxplane/engine/core/thread"
-	runtimegoal "github.com/fluxplane/engine/runtime/goal"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	runtimegoal "github.com/fluxplane/fluxplane-core/runtime/goal"
 )
 
 type ContextProvider struct {

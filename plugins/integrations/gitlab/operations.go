@@ -1,9 +1,9 @@
 package gitlab
 
 import (
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

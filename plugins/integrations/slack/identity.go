@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fluxplane/engine/core/user"
-	"github.com/fluxplane/engine/orchestration/identity"
+	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/orchestration/identity"
 	"github.com/slack-go/slack"
 )
 

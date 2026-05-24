@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 func TestDeployDockerComposeBuildsAndStartsCompose(t *testing.T) {

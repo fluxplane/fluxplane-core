@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/fluxplane-core/core/event"
 )
 
 // Name identifies a skill.

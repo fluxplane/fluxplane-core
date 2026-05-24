@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/language/golang"
-	"github.com/fluxplane/engine/core/operation"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/language/golang"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"golang.org/x/mod/modfile"
 )
 

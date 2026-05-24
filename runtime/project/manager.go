@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
-	coreproject "github.com/fluxplane/engine/core/project"
-	coreworkspace "github.com/fluxplane/engine/core/workspace"
-	"github.com/fluxplane/engine/runtime/system"
+	coreproject "github.com/fluxplane/fluxplane-core/core/project"
+	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/yuin/goldmark"
 	goldast "github.com/yuin/goldmark/ast"
 	goldtext "github.com/yuin/goldmark/text"

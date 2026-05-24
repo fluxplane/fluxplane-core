@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/engine/core/event"
-	coreprojection "github.com/fluxplane/engine/core/projection"
-	runtimeprojection "github.com/fluxplane/engine/runtime/projection"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coreprojection "github.com/fluxplane/fluxplane-core/core/projection"
+	runtimeprojection "github.com/fluxplane/fluxplane-core/runtime/projection"
 )
 
 // Manager owns projection freshness policy for use cases.

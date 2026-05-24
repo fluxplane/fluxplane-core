@@ -11,11 +11,11 @@ import (
 
 	mysql "github.com/go-sql-driver/mysql"
 
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
-	"github.com/fluxplane/engine/core/operation"
-	coresecret "github.com/fluxplane/engine/core/secret"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
-	"github.com/fluxplane/engine/runtime/sqlclient"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-core/runtime/sqlclient"
 )
 
 type QueryInput struct {

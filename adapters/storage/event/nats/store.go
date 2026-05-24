@@ -12,9 +12,9 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/eventcodec"
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/eventcodec"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 const (

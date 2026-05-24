@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	coreconversation "github.com/fluxplane/engine/core/conversation"
-	"github.com/fluxplane/engine/core/usage"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	"github.com/fluxplane/fluxplane-core/core/usage"
 	"github.com/openai/openai-go/v3/option"
 )
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/review"
-	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/fluxplane-core/core/review"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 )
 
 type ID string

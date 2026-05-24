@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/fluxplane/engine/adapters/resources/appconfig"
+	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
 	"github.com/spf13/cobra"
 )
 

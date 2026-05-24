@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"gopkg.in/yaml.v3"
 )
 

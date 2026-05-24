@@ -3,9 +3,9 @@ package skill
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/agent"
-	coreskill "github.com/fluxplane/engine/core/skill"
-	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-core/core/tool"
 )
 
 func TestStatefulAgentForwardsStepWithTools(t *testing.T) {

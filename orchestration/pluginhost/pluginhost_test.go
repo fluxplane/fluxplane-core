@@ -4,16 +4,16 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/command"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	corereaction "github.com/fluxplane/engine/core/reaction"
-	"github.com/fluxplane/engine/core/resource"
-	coresecret "github.com/fluxplane/engine/core/secret"
-	"github.com/fluxplane/engine/core/skill"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	"github.com/fluxplane/fluxplane-core/core/skill"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 )
 
 func TestHostResolvesPluginContributions(t *testing.T) {

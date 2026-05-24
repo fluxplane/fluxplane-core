@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevent "github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	coreskill "github.com/fluxplane/engine/core/skill"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeskill "github.com/fluxplane/engine/runtime/skill"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 )
 
 func TestContributionsExposeDefaultActivationSet(t *testing.T) {

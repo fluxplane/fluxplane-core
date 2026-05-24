@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/agent"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreconversation "github.com/fluxplane/engine/core/conversation"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/event"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/core/usage"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/usage"
 )
 
 func TestAgentStepSendsStructuredRequestAndReturnsMessageDecision(t *testing.T) {

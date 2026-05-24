@@ -6,14 +6,14 @@ import (
 	"strings"
 	"time"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
 )
 
 const (

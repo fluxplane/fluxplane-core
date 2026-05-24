@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/orchestration/agentfactory"
-	"github.com/fluxplane/engine/orchestration/session"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
 func TestResolverStopEvaluatorUsesParentAgentInference(t *testing.T) {

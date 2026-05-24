@@ -11,12 +11,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	coresecret "github.com/fluxplane/engine/core/secret"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 	"github.com/getkin/kin-openapi/openapi3"
 )
 

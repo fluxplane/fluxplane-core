@@ -3,12 +3,12 @@ package echo
 import (
 	"context"
 
-	"github.com/fluxplane/engine/core/command"
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 
 const Name = "echo"

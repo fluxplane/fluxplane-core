@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 )
 
 func TestOpenDataStoreDefaultsToMemory(t *testing.T) {

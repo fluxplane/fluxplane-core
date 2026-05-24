@@ -5,15 +5,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	fluxplane "github.com/fluxplane/engine"
-	"github.com/fluxplane/engine/adapters/channels/httpsse"
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/channel"
-	coreevent "github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	coreusage "github.com/fluxplane/engine/core/usage"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	fluxplane "github.com/fluxplane/fluxplane-core"
+	"github.com/fluxplane/fluxplane-core/adapters/channels/httpsse"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
 func TestDistributionDeclaresInteractiveSurfaces(t *testing.T) {

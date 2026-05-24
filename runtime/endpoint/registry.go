@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
 )
 
 // Record is one runtime endpoint registry entry.

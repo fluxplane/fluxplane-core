@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
-	"github.com/fluxplane/engine/runtime/system"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 // PluginAuthOptions configures native plugin credential resolution for local

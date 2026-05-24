@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fluxplane/engine/apps/evaluator"
+	"github.com/fluxplane/fluxplane-core/apps/evaluator"
 )
 
 func main() {

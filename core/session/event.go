@@ -1,13 +1,13 @@
 package session
 
 import (
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/command"
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/trigger"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/trigger"
 )
 
 const (

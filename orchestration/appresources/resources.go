@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/activation"
-	"github.com/fluxplane/engine/core/command"
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/orchestration/resourcecatalog"
-	"github.com/fluxplane/engine/orchestration/session"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/orchestration/resourcecatalog"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 // OperationContribution binds a plugin-contributed operation to its source.

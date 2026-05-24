@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/resource"
-	coresecret "github.com/fluxplane/engine/core/secret"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/plugins/internal/atlassian"
-	runtimesecret "github.com/fluxplane/engine/runtime/secret"
-	"github.com/fluxplane/engine/runtime/system"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/plugins/internal/atlassian"
+	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestPluginContributesConfluenceDatasourceEntities(t *testing.T) {

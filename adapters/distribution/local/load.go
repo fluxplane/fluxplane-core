@@ -9,17 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/engine/adapters/distribution/localruntime"
-	"github.com/fluxplane/engine/adapters/resources/agentdir"
-	"github.com/fluxplane/engine/adapters/resources/appconfig"
-	coreapp "github.com/fluxplane/engine/core/app"
-	"github.com/fluxplane/engine/core/channel"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	coretrigger "github.com/fluxplane/engine/core/trigger"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/adapters/distribution/localruntime"
+	"github.com/fluxplane/fluxplane-core/adapters/resources/agentdir"
+	"github.com/fluxplane/fluxplane-core/adapters/resources/appconfig"
+	coreapp "github.com/fluxplane/fluxplane-core/core/app"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 // Load loads a local path into an ephemeral runnable distribution.

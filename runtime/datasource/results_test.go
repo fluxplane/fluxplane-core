@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 )
 
 func TestSelectEntitiesPreservesOrder(t *testing.T) {

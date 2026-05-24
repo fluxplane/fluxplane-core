@@ -17,14 +17,14 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
-	"github.com/fluxplane/engine/runtime/system"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestPortForwardUsesManagedKubectlProcess(t *testing.T) {

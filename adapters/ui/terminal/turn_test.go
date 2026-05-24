@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/event"
-	coretask "github.com/fluxplane/engine/core/task"
-	"github.com/fluxplane/engine/core/usage"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coretask "github.com/fluxplane/fluxplane-core/core/task"
+	"github.com/fluxplane/fluxplane-core/core/usage"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
 )
 
 func TestUsageFromEventParsesTypedPayload(t *testing.T) {

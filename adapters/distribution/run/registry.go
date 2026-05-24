@@ -6,16 +6,16 @@ import (
 	"strings"
 
 	"github.com/codewandler/modeldb"
-	"github.com/fluxplane/engine/adapters/llm/anthropic"
-	"github.com/fluxplane/engine/adapters/llm/claudecode"
-	"github.com/fluxplane/engine/adapters/llm/codex"
-	"github.com/fluxplane/engine/adapters/llm/minimax"
-	"github.com/fluxplane/engine/adapters/llm/modelcatalog"
-	"github.com/fluxplane/engine/adapters/llm/openai"
-	"github.com/fluxplane/engine/adapters/llm/openrouter"
-	"github.com/fluxplane/engine/core/agent"
-	corellm "github.com/fluxplane/engine/core/llm"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/anthropic"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/claudecode"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/codex"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/minimax"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/modelcatalog"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/openai"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/openrouter"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
 var (

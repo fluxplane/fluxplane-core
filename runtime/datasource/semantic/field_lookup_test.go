@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 )
 
 func TestSearchFieldIndexRequiresConfiguredIndex(t *testing.T) {

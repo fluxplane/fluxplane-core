@@ -10,11 +10,11 @@ import (
 	"sort"
 	"strings"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 	"gopkg.in/yaml.v3"
 )
 

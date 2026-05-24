@@ -2,12 +2,12 @@
 
 > **Status: historical design notes.** This document tracks the original
 > rewrite plan from the `agentsdk` source repository into
-> `github.com/fluxplane/engine`. It is not a user guide. Decisions here may
+> `github.com/fluxplane/fluxplane-core`. It is not a user guide. Decisions here may
 > have been superseded by code; the source of truth for current architecture
 > is [architecture.md](architecture.md).
 
 This document tracks how concepts and packages from the current `agentsdk`
-repository should move into `github.com/fluxplane/engine`.
+repository should move into `github.com/fluxplane/fluxplane-core`.
 
 The rewrite is not a compatibility-preserving refactor. Prefer deleting stale
 paths and splitting mixed packages over carrying adapters for old package names.
@@ -60,7 +60,7 @@ task quality:go:review
 The selected module path is:
 
 ```text
-github.com/fluxplane/engine
+github.com/fluxplane/fluxplane-core
 ```
 
 Fluxplane is the umbrella brand. Agent Runtime is the first product/repository.

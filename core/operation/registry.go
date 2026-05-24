@@ -3,7 +3,7 @@ package operation
 import (
 	"fmt"
 
-	"github.com/fluxplane/engine/core/registry"
+	"github.com/fluxplane/fluxplane-core/core/registry"
 )
 
 // Registry stores executable operations by name.

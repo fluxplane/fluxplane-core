@@ -5,17 +5,17 @@ import (
 	"strings"
 	"testing"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	corememory "github.com/fluxplane/engine/core/memory"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	corethread "github.com/fluxplane/engine/core/thread"
-	"github.com/fluxplane/engine/core/user"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/orchestration/sessionenv"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	"github.com/fluxplane/engine/runtime/eventstore"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	corememory "github.com/fluxplane/fluxplane-core/core/memory"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 )
 
 func TestPluginOperationsUseHybridMemoryStore(t *testing.T) {

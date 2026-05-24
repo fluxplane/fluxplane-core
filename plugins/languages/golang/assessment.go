@@ -9,11 +9,11 @@ import (
 
 	"github.com/fluxplane/codegate"
 	codegategolang "github.com/fluxplane/codegate/language/golang"
-	corelanguage "github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/language/golang"
-	"github.com/fluxplane/engine/core/operation"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	"github.com/fluxplane/engine/runtime/system"
+	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/language/golang"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 const defaultAssessmentRulesPath = "engine-architecture.rules.json"

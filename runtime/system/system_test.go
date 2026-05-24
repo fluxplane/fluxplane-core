@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 func TestHostWorkspaceRejectsSymlinkEscape(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxplane/engine/core/testrun"
+	"github.com/fluxplane/fluxplane-core/core/testrun"
 )
 
 // RenderTestRunEvent returns a concise terminal-oriented status message for a generic test-run event.

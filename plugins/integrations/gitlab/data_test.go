@@ -3,7 +3,7 @@ package gitlab
 import (
 	"testing"
 
-	coredata "github.com/fluxplane/engine/core/data"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
 )
 
 func TestDataSourceSpecDeclaresViews(t *testing.T) {

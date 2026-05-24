@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/usage"
+	"github.com/fluxplane/fluxplane-core/core/usage"
 )
 
 // PricingSpec describes how one usage metric is priced. It is catalog data,

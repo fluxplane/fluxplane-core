@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
-	"github.com/fluxplane/engine/adapters/distribution/run"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	distcli "github.com/fluxplane/fluxplane-core/adapters/distribution/cli"
+	"github.com/fluxplane/fluxplane-core/adapters/distribution/run"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 

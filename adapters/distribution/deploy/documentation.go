@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 func distributionDocumentation(loaded distribution.Loaded) string {

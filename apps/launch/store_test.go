@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
-	"github.com/fluxplane/engine/orchestration/eventregistry"
-	"github.com/fluxplane/engine/plugins/support/eventcatalog"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
+	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 )
 
 func TestOpenLocalThreadStoreRejectsMissingNATSDSN(t *testing.T) {

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/adapters/storage/event/sqlite"
-	coretask "github.com/fluxplane/engine/core/task"
-	"github.com/fluxplane/engine/orchestration/eventregistry"
-	"github.com/fluxplane/engine/orchestration/taskexecutor"
-	runtimetask "github.com/fluxplane/engine/runtime/task"
+	"github.com/fluxplane/fluxplane-core/adapters/storage/event/sqlite"
+	coretask "github.com/fluxplane/fluxplane-core/core/task"
+	"github.com/fluxplane/fluxplane-core/orchestration/eventregistry"
+	"github.com/fluxplane/fluxplane-core/orchestration/taskexecutor"
+	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 )
 
 func TestSQLiteBackedSchedulersClaimTaskOnce(t *testing.T) {

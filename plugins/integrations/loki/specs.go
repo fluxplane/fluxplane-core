@@ -1,7 +1,7 @@
 package loki
 
 import (
-	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 )
 
 func testSpec() operation.Spec {

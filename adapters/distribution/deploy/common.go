@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	distrun "github.com/fluxplane/engine/adapters/distribution/run"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 const (

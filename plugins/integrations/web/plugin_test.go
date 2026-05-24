@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/runtime/system"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func TestWebRequestConvertsHTMLToMarkdown(t *testing.T) {

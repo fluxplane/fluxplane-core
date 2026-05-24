@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 func writeHelmChart(loaded distribution.Loaded, output, image, release, namespace, imagePullPolicy, envSecretName, runtimeSecretName, authPath string, appRuntime appRuntimeOptions, nodeSelectors []string, values map[string]string, dryRun, force bool, out io.Writer) ([]string, error) {

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/core/command"
-	runtimeoperation "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	runtimeoperation "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 // AvailableCommandSpecs returns the command specs the session command dispatcher

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/adapters/llm/openai"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/adapters/llm/openai"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
 func TestNewRequiresAPIKey(t *testing.T) {

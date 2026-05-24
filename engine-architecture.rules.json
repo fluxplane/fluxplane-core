@@ -1,5 +1,5 @@
 {
-  "module_path": "github.com/fluxplane/engine",
+  "module_path": "github.com/fluxplane/fluxplane-core",
   "layers": [
     {"name": "facade", "prefixes": ["."]},
     {"name": "core", "prefixes": ["core"]},

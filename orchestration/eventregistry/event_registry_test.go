@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/fluxplane/engine/core/policy"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 func TestRegistryIncludesApprovalEvents(t *testing.T) {

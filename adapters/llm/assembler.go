@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/tool"
 )
 
 // ToolCallAssembler accumulates provider-normalized streamed tool calls and

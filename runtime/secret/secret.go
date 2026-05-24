@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	coreevent "github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/policy"
-	coresecret "github.com/fluxplane/engine/core/secret"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	coresecret "github.com/fluxplane/fluxplane-core/core/secret"
 )
 
 // Environment is the system environment boundary shape used by EnvResolver.

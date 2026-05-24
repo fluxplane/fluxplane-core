@@ -1,6 +1,6 @@
 package launch
 
-import "github.com/fluxplane/engine/orchestration/agentfactory"
+import "github.com/fluxplane/fluxplane-core/orchestration/agentfactory"
 
 func firstModelResolver(value agentfactory.ModelResolver, fallback agentfactory.ModelResolver) agentfactory.ModelResolver {
 	if value != nil {

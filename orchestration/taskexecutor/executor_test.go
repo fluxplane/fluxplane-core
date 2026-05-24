@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/event"
-	coretask "github.com/fluxplane/engine/core/task"
-	corethread "github.com/fluxplane/engine/core/thread"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/runtime/eventstore"
-	runtimetask "github.com/fluxplane/engine/runtime/task"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coretask "github.com/fluxplane/fluxplane-core/core/task"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
+	runtimetask "github.com/fluxplane/fluxplane-core/runtime/task"
 )
 
 func TestSchedulerRunsReadyTaskDAG(t *testing.T) {

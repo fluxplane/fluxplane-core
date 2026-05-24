@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	corediscovery "github.com/fluxplane/engine/core/discovery"
+	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
 )
 
 // ProviderSpec describes one registered discovery provider.

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fluxplane/engine/core/event"
-	corethread "github.com/fluxplane/engine/core/thread"
-	runtimethread "github.com/fluxplane/engine/runtime/thread"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
 )
 
 type messageAdded struct {

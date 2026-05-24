@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
 	gitlab "gitlab.com/gitlab-org/api/client-go/v2"
 )
 

@@ -3,7 +3,7 @@ package operationruntime
 import (
 	"fmt"
 
-	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 )
 
 // Validator validates operation input/output values against declared types.

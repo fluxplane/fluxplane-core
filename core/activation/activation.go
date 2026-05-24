@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/command"
-	corecontext "github.com/fluxplane/engine/core/context"
-	"github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resourceaddr"
-	"github.com/fluxplane/engine/core/skill"
-	"github.com/fluxplane/engine/core/workflow"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	"github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
+	"github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-core/core/workflow"
 )
 
 // Set is an authored bundle of resources that can be prepared together for a

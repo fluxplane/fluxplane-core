@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/tool"
 )
 
 func TestToolCallAssemblerBuildsOperationRequestFromStreamedArguments(t *testing.T) {

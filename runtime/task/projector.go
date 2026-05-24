@@ -4,9 +4,9 @@ package task
 import (
 	"time"
 
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	coretask "github.com/fluxplane/engine/core/task"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coretask "github.com/fluxplane/fluxplane-core/core/task"
 )
 
 // State is the projected user-facing task plus its execution attempts.

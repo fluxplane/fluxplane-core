@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pkg.go.dev/github.com/fluxplane/engine"><img src="https://pkg.go.dev/badge/github.com/fluxplane/engine.svg" alt="Go Reference"></a>
+  <a href="https://pkg.go.dev/github.com/fluxplane/fluxplane-core"><img src="https://pkg.go.dev/badge/github.com/fluxplane/fluxplane-core.svg" alt="Go Reference"></a>
   <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go" alt="Go 1.26+">
   <img src="https://img.shields.io/badge/status-pre--1.0-orange" alt="Status: pre-1.0">
 </p>
@@ -46,7 +46,7 @@ usable every day:
 Requires Go 1.26+ and a model credential supported by your app configuration.
 
 ```bash
-go install github.com/fluxplane/engine/cmd/fluxplane@latest
+go install github.com/fluxplane/fluxplane-core/cmd/fluxplane@latest
 fluxplane init ./my-app
 fluxplane run ./my-app --input "Hello from Fluxplane"
 ```
@@ -70,12 +70,12 @@ coder --input "Summarize this repository"
 
 For local development, keep Fluxplane core and Coder as sibling checkouts when
 you need both codebases, for example this repository plus `../coder`. Coder
-depends on tagged `github.com/fluxplane/engine` releases and must not import
+depends on tagged `github.com/fluxplane/fluxplane-core` releases and must not import
 engine-internal packages or old in-tree coder paths.
 
 ### Product boundaries
 
-This repository publishes the `github.com/fluxplane/engine` module, reusable
+This repository publishes the `github.com/fluxplane/fluxplane-core` module, reusable
 core/runtime packages, plugins, adapters, and the generic `fluxplane` app CLI. It
 does not publish the `coder` CLI. Coder lives in
 [`github.com/fluxplane/coder`](https://github.com/fluxplane/coder), should be

@@ -1,8 +1,8 @@
 package llmagent
 
 import (
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/event"
 )
 
 const (

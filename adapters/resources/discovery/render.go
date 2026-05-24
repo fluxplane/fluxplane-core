@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/fluxplane/engine/adapters/resources/resourceview"
+	"github.com/fluxplane/fluxplane-core/adapters/resources/resourceview"
 )
 
 // RenderTree renders discovered resources as a compact source/kind tree.

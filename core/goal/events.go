@@ -3,9 +3,9 @@ package goal
 import (
 	"fmt"
 
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/review"
-	corethread "github.com/fluxplane/engine/core/thread"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/review"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 )
 
 const (

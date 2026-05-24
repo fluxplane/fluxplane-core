@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/registry"
+	"github.com/fluxplane/fluxplane-core/core/registry"
 )
 
 // Registry stores command specs by path.

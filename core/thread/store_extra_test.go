@@ -3,7 +3,7 @@ package thread
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/fluxplane-core/core/event"
 )
 
 // makeRecord builds a minimal thread Record for testing EventsForBranch.

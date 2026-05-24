@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/event"
+	"github.com/fluxplane/fluxplane-core/core/event"
 )
 
 func TestRegisterEvents(t *testing.T) {

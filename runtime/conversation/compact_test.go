@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 )
 
 func TestCompactTranscriptCompactsLargeToolResultsAndClearsNative(t *testing.T) {

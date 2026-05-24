@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxplane/engine/core/event"
-	coreprojection "github.com/fluxplane/engine/core/projection"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coreprojection "github.com/fluxplane/fluxplane-core/core/projection"
 )
 
 // Runner loads event batches, projects them, and advances checkpoints.

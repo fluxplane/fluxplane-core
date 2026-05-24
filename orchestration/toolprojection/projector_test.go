@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/command"
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/core/resourceaddr"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/orchestration/session"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/core/resourceaddr"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
 )
 
 func TestProjectIncludesReadOnlyOperationCommand(t *testing.T) {

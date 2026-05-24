@@ -50,7 +50,7 @@ that repository. Fluxplane core does not publish `cmd/coder` or an in-tree
 Use the generic CLI to create a minimal app manifest:
 
 ```bash
-go install github.com/fluxplane/engine/cmd/fluxplane@latest
+go install github.com/fluxplane/fluxplane-core/cmd/fluxplane@latest
 fluxplane init ./my-app
 fluxplane run ./my-app --input "Hello"
 ```

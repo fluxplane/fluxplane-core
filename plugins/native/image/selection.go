@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func selectGenerationProvider(ctx context.Context, sys system.System, providers []GenerationProvider, requested string) (GenerationProvider, error) {

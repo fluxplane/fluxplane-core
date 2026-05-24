@@ -8,22 +8,22 @@ import (
 	"net/http"
 	"strings"
 
-	adapterllm "github.com/fluxplane/engine/adapters/llm"
-	"github.com/fluxplane/engine/core/agent"
-	coreconversation "github.com/fluxplane/engine/core/conversation"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/core/usage"
+	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/usage"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
-	"github.com/fluxplane/engine/runtime/httptransport"
-	runtimeusage "github.com/fluxplane/engine/runtime/usage"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
+	runtimeusage "github.com/fluxplane/fluxplane-core/runtime/usage"
 )
 
 var (

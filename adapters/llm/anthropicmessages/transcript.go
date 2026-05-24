@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 )
 
 func messagesFromTranscript(provider coreconversation.ProviderIdentity, items []coreconversation.Item) ([]message, []contentBlock, []coreconversation.Item, error) {

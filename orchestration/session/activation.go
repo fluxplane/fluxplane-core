@@ -6,16 +6,16 @@ import (
 	"sort"
 	"strings"
 
-	coreactivation "github.com/fluxplane/engine/core/activation"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/command"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	coreskill "github.com/fluxplane/engine/core/skill"
-	"github.com/fluxplane/engine/orchestration/sessioncontrol"
-	"github.com/fluxplane/engine/orchestration/sessionenv"
-	runtimeskill "github.com/fluxplane/engine/runtime/skill"
+	coreactivation "github.com/fluxplane/fluxplane-core/core/activation"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/command"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessioncontrol"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
+	runtimeskill "github.com/fluxplane/fluxplane-core/runtime/skill"
 )
 
 type activateCommandInput struct {

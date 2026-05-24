@@ -6,17 +6,17 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	corelanguage "github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/language/golang"
-	"github.com/fluxplane/engine/core/operation"
-	coresession "github.com/fluxplane/engine/core/session"
-	"github.com/fluxplane/engine/core/testrun"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
-	"github.com/fluxplane/engine/runtime/system"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	corelanguage "github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/language/golang"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-core/core/testrun"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestGoOperationsWithMemoryAndHostWorkspaces(t *testing.T) {

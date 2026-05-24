@@ -1,7 +1,7 @@
 # Fluxplane Core Documentation
 
 This directory holds the reference documentation for the Fluxplane engine — the
-core runtime module published as `github.com/fluxplane/engine`. The repository
+core runtime module published as `github.com/fluxplane/fluxplane-core`. The repository
 root [`README.md`](../README.md) is the entry point. This index
 groups the rest of the docs by audience.
 

@@ -1,4 +1,4 @@
-module github.com/fluxplane/engine
+module github.com/fluxplane/fluxplane-core
 
 go 1.26.1
 

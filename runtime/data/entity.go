@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strings"
 
-	coredata "github.com/fluxplane/engine/core/data"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
 )
 
 // SourceEntityOf derives a data source entity spec from exported fields of T.

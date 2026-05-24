@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/workspace"
+	"github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/workspace"
 )
 
 // ID identifies one detected project within a workspace inventory.

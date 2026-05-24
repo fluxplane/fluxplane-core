@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	"github.com/fluxplane/engine/core/thread"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	"github.com/fluxplane/fluxplane-core/core/thread"
 )
 
 func TestMemoryStoreQueriesEmbeddedRelationSummaries(t *testing.T) {

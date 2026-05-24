@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	corellm "github.com/fluxplane/engine/core/llm"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
 	"gopkg.in/yaml.v3"
 )
 

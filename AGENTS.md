@@ -1,7 +1,7 @@
 # Fluxplane Engine Agent Notes
 
 This file is for AI agents and developers working in
-`github.com/fluxplane/engine`. It carries the operative rules only.
+`github.com/fluxplane/fluxplane-core`. It carries the operative rules only.
 Background and explanatory material live in [docs/](docs/README.md); see
 [Architecture References](#architecture-references) below for the full list.
 

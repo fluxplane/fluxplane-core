@@ -11,17 +11,17 @@ import (
 	"testing"
 	"time"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	corediscovery "github.com/fluxplane/engine/core/discovery"
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	"github.com/fluxplane/engine/runtime/system"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestLokiQueryAddsNamespaceAndBoundsLimit(t *testing.T) {

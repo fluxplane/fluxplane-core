@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreevent "github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
 )
 
 func TestRenderTreeShowsDiagnosticsWithoutResources(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fluxplane/engine/orchestration/distribution"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 )
 
 func writeRuntimeStackHelmChart(loaded distribution.Loaded, output, release, namespace, runtimeSecretName string, values map[string]string, dryRun, force bool, out io.Writer) ([]string, error) {

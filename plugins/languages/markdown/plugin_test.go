@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/runtime/system"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	"github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestMarkdownOperationsWithMemoryAndHostWorkspaces(t *testing.T) {

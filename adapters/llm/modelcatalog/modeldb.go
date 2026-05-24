@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/codewandler/modeldb"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/core/usage"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/core/usage"
 )
 
 // ProviderProjection selects the provider-visible slice of a modeldb catalog.

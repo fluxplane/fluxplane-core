@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	coredistribution "github.com/fluxplane/engine/core/distribution"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 )
 
 const (

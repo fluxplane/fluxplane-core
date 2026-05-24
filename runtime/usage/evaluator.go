@@ -1,8 +1,8 @@
 package usage
 
 import (
-	"github.com/fluxplane/engine/core/llm"
-	coreusage "github.com/fluxplane/engine/core/usage"
+	"github.com/fluxplane/fluxplane-core/core/llm"
+	coreusage "github.com/fluxplane/fluxplane-core/core/usage"
 )
 
 // Cost is a cost evaluation result for one or more usage records.

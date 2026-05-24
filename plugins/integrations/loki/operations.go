@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	corediscovery "github.com/fluxplane/engine/core/discovery"
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
-	operationruntime "github.com/fluxplane/engine/runtime/operation"
-	"github.com/fluxplane/engine/runtime/system"
+	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
+	operationruntime "github.com/fluxplane/fluxplane-core/runtime/operation"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 type TestInput struct {

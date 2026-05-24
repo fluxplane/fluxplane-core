@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/activation"
-	"github.com/fluxplane/engine/core/agent"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	coreskill "github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coreskill "github.com/fluxplane/fluxplane-core/core/skill"
 )
 
 func TestNormalizeBundleExpandsAgentUsesThroughActivationSets(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	coredatasource "github.com/fluxplane/engine/core/datasource"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 )
 
 const (

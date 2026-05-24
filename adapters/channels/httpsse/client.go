@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	coreevent "github.com/fluxplane/engine/core/event"
-	corethread "github.com/fluxplane/engine/core/thread"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/runtime/httptransport"
+	coreevent "github.com/fluxplane/fluxplane-core/core/event"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/runtime/httptransport"
 )
 
 var _ clientapi.ChannelClient = (*Client)(nil)

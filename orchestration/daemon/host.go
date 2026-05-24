@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	coresession "github.com/fluxplane/engine/core/session"
-	"github.com/fluxplane/engine/orchestration/channelruntime"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/session"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-core/orchestration/channelruntime"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/session"
 )
 
 // Host is the process/control-plane view of a running runtime.

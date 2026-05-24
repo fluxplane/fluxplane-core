@@ -8,13 +8,13 @@ import (
 	"sort"
 	"strings"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	coreagent "github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/operation"
-	coresession "github.com/fluxplane/engine/core/session"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/orchestration/sessionenv"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	coreagent "github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/orchestration/sessionenv"
 	"github.com/spf13/cobra"
 )
 

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/pathpattern"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/pathpattern"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 type filesystemTestEnv struct {

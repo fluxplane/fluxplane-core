@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 )
 
 func TestBuildQueuesSemanticCorpusWithoutEmbedding(t *testing.T) {

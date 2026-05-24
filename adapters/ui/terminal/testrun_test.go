@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/testrun"
+	"github.com/fluxplane/fluxplane-core/core/testrun"
 )
 
 func TestRenderTestRunEvent(t *testing.T) {

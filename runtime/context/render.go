@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	corecontext "github.com/fluxplane/engine/core/context"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
 )
 
 // RenderDiff renders the provider-visible context diff for one placement.

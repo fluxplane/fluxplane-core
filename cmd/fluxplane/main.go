@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	fluxplaneapp "github.com/fluxplane/engine/apps/fluxplane"
+	fluxplaneapp "github.com/fluxplane/fluxplane-core/apps/fluxplane"
 )
 
 func main() {

@@ -3,10 +3,10 @@ package sdk
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/policy"
-	coresession "github.com/fluxplane/engine/core/session"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
 )
 
 func TestBuildAppContribution(t *testing.T) {

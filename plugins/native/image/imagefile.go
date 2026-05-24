@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxplane/engine/runtime/system"
+	"github.com/fluxplane/fluxplane-core/runtime/system"
 )
 
 func writeGeneratedImage(ctx context.Context, sys system.System, provider, model, prompt, contentType string, data []byte) (GenerateResult, error) {

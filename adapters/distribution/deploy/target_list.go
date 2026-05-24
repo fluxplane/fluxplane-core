@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
+	distlocal "github.com/fluxplane/fluxplane-core/adapters/distribution/local"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
 )
 
 // TargetListOptions configures build/deploy target discovery.

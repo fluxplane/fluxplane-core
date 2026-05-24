@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxplane/engine/core/channel"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
-	"github.com/fluxplane/engine/orchestration/distribution"
-	sessionruntime "github.com/fluxplane/engine/orchestration/session"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	sessionruntime "github.com/fluxplane/fluxplane-core/orchestration/session"
 )
 
 func TestDescribeCommandRendersWithoutRuntime(t *testing.T) {

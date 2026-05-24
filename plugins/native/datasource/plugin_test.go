@@ -7,15 +7,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxplane/engine/core/activation"
-	corecontext "github.com/fluxplane/engine/core/context"
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	"github.com/fluxplane/engine/runtime/datasource/semantic"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 )
 
 func TestStringFilterMapAcceptsScalarJSONValues(t *testing.T) {

@@ -4,8 +4,8 @@ package goal
 import (
 	"fmt"
 
-	coregoal "github.com/fluxplane/engine/core/goal"
-	corethread "github.com/fluxplane/engine/core/thread"
+	coregoal "github.com/fluxplane/fluxplane-core/core/goal"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
 )
 
 type State = coregoal.State

@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	adapterllm "github.com/fluxplane/engine/adapters/llm"
-	"github.com/fluxplane/engine/core/agent"
-	coreconversation "github.com/fluxplane/engine/core/conversation"
-	corellm "github.com/fluxplane/engine/core/llm"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/tool"
-	"github.com/fluxplane/engine/core/usage"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
-	runtimeusage "github.com/fluxplane/engine/runtime/usage"
+	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
+	corellm "github.com/fluxplane/fluxplane-core/core/llm"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/tool"
+	"github.com/fluxplane/fluxplane-core/core/usage"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
+	runtimeusage "github.com/fluxplane/fluxplane-core/runtime/usage"
 )
 
 type streamState struct {

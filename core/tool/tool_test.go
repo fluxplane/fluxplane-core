@@ -3,8 +3,8 @@ package tool
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/invocation"
-	"github.com/fluxplane/engine/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/invocation"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 )
 
 func TestSpecValidateRejectsEmptyName(t *testing.T) {

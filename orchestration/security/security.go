@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/fluxplane/engine/core/agent"
-	"github.com/fluxplane/engine/core/channel"
-	"github.com/fluxplane/engine/core/policy"
-	"github.com/fluxplane/engine/core/user"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	"github.com/fluxplane/fluxplane-core/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/user"
 )
 
 // ContextForInbound builds the effective authorization context for one inbound

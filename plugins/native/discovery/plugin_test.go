@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
-	corediscovery "github.com/fluxplane/engine/core/discovery"
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
-	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
-	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
-	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
+	runtimediscovery "github.com/fluxplane/fluxplane-core/runtime/discovery"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
+	runtimeevidence "github.com/fluxplane/fluxplane-core/runtime/evidence"
 )
 
 func TestDiscoveryPluginListsProvidersAndEndpoints(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	corediscovery "github.com/fluxplane/engine/core/discovery"
-	coreendpoint "github.com/fluxplane/engine/core/endpoint"
-	runtimeendpoint "github.com/fluxplane/engine/runtime/endpoint"
+	corediscovery "github.com/fluxplane/fluxplane-core/core/discovery"
+	coreendpoint "github.com/fluxplane/fluxplane-core/core/endpoint"
+	runtimeendpoint "github.com/fluxplane/fluxplane-core/runtime/endpoint"
 )
 
 const defaultRefreshInterval = 5 * time.Minute

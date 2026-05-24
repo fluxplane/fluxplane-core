@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	coredata "github.com/fluxplane/engine/core/data"
-	"github.com/fluxplane/engine/core/event"
-	corememory "github.com/fluxplane/engine/core/memory"
-	"github.com/fluxplane/engine/core/thread"
-	"github.com/fluxplane/engine/core/user"
-	"github.com/fluxplane/engine/core/workspace"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
-	"github.com/fluxplane/engine/runtime/eventstore"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	corememory "github.com/fluxplane/fluxplane-core/core/memory"
+	"github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/core/workspace"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
+	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 )
 
 func TestMemorySubjectDoesNotGrantAccess(t *testing.T) {

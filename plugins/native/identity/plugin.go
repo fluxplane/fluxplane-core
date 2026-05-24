@@ -5,11 +5,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/fluxplane/engine/core/activation"
-	corecontext "github.com/fluxplane/engine/core/context"
-	"github.com/fluxplane/engine/core/resource"
-	"github.com/fluxplane/engine/core/user"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/core/activation"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	"github.com/fluxplane/fluxplane-core/core/user"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 
 const (

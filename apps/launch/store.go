@@ -8,12 +8,12 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/fluxplane/engine/adapters/storage/event/nats"
-	"github.com/fluxplane/engine/adapters/storage/event/sqlite"
-	"github.com/fluxplane/engine/core/event"
-	corethread "github.com/fluxplane/engine/core/thread"
-	"github.com/fluxplane/engine/orchestration/distribution"
-	runtimethread "github.com/fluxplane/engine/runtime/thread"
+	"github.com/fluxplane/fluxplane-core/adapters/storage/event/nats"
+	"github.com/fluxplane/fluxplane-core/adapters/storage/event/sqlite"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	corethread "github.com/fluxplane/fluxplane-core/core/thread"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
+	runtimethread "github.com/fluxplane/fluxplane-core/runtime/thread"
 )
 
 const defaultEventStoreDSNEnv = "FLUXPLANE_EVENTSTORE_NATS_DSN"

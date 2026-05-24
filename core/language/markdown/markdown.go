@@ -1,7 +1,7 @@
 // Package markdown defines Markdown language operation contracts.
 package markdown
 
-import "github.com/fluxplane/engine/core/language"
+import "github.com/fluxplane/fluxplane-core/core/language"
 
 const (
 	Language      = language.LanguageMarkdown

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	coreconversation "github.com/fluxplane/engine/core/conversation"
+	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 )
 
 const (

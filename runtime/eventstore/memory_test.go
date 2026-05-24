@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fluxplane/engine/core/event"
-	"github.com/fluxplane/engine/core/policy"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	"github.com/fluxplane/fluxplane-core/core/policy"
 )
 
 type testEvent struct{}

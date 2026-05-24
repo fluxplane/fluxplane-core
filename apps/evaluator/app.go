@@ -4,17 +4,17 @@ package evaluator
 import (
 	"os"
 
-	fluxplane "github.com/fluxplane/engine"
-	distcli "github.com/fluxplane/engine/adapters/distribution/cli"
-	"github.com/fluxplane/engine/apps/launch"
-	"github.com/fluxplane/engine/core/agent"
-	coreapp "github.com/fluxplane/engine/core/app"
-	"github.com/fluxplane/engine/core/channel"
-	coredistribution "github.com/fluxplane/engine/core/distribution"
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	coresession "github.com/fluxplane/engine/core/session"
-	"github.com/fluxplane/engine/orchestration/distribution"
+	fluxplane "github.com/fluxplane/fluxplane-core"
+	distcli "github.com/fluxplane/fluxplane-core/adapters/distribution/cli"
+	"github.com/fluxplane/fluxplane-core/apps/launch"
+	"github.com/fluxplane/fluxplane-core/core/agent"
+	coreapp "github.com/fluxplane/fluxplane-core/core/app"
+	"github.com/fluxplane/fluxplane-core/core/channel"
+	coredistribution "github.com/fluxplane/fluxplane-core/core/distribution"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	"github.com/fluxplane/fluxplane-core/orchestration/distribution"
 	"github.com/spf13/cobra"
 )
 

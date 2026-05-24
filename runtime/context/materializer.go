@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	corecontext "github.com/fluxplane/engine/core/context"
-	coreevidence "github.com/fluxplane/engine/core/evidence"
+	corecontext "github.com/fluxplane/fluxplane-core/core/context"
+	coreevidence "github.com/fluxplane/fluxplane-core/core/evidence"
 )
 
 // Materializer renders providers into change-only context diffs.

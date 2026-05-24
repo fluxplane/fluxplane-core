@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	fluxplane "github.com/fluxplane/engine"
-	distrun "github.com/fluxplane/engine/adapters/distribution/run"
-	"github.com/fluxplane/engine/core/operation"
+	fluxplane "github.com/fluxplane/fluxplane-core"
+	distrun "github.com/fluxplane/fluxplane-core/adapters/distribution/run"
+	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/spf13/pflag"
 )
 

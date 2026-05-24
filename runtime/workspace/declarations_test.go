@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	coreworkspace "github.com/fluxplane/engine/core/workspace"
-	"github.com/fluxplane/engine/runtime/systemtest"
+	coreworkspace "github.com/fluxplane/fluxplane-core/core/workspace"
+	"github.com/fluxplane/fluxplane-core/runtime/systemtest"
 )
 
 func TestParseDeclarationsObject(t *testing.T) {

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	corellmagent "github.com/fluxplane/engine/core/agent/llmagent"
-	llmagent "github.com/fluxplane/engine/runtime/agent/llmagent"
+	corellmagent "github.com/fluxplane/fluxplane-core/core/agent/llmagent"
+	llmagent "github.com/fluxplane/fluxplane-core/runtime/agent/llmagent"
 )
 
 const liveGPT55Model = "openai/gpt-5.5"

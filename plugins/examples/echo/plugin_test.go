@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/operation"
-	"github.com/fluxplane/engine/core/resource"
-	appcomposition "github.com/fluxplane/engine/orchestration/app"
-	"github.com/fluxplane/engine/orchestration/pluginhost"
+	"github.com/fluxplane/fluxplane-core/core/operation"
+	"github.com/fluxplane/fluxplane-core/core/resource"
+	appcomposition "github.com/fluxplane/fluxplane-core/orchestration/app"
+	"github.com/fluxplane/fluxplane-core/orchestration/pluginhost"
 )
 
 func TestPluginComposesExecutableEchoCommand(t *testing.T) {

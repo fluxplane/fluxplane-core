@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxplane/engine/core/event"
-	coreprojection "github.com/fluxplane/engine/core/projection"
-	"github.com/fluxplane/engine/runtime/eventstore"
+	"github.com/fluxplane/fluxplane-core/core/event"
+	coreprojection "github.com/fluxplane/fluxplane-core/core/projection"
+	"github.com/fluxplane/fluxplane-core/runtime/eventstore"
 )
 
 type testEvent struct{}

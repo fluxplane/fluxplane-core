@@ -1,9 +1,9 @@
 package datasource
 
 import (
-	coredata "github.com/fluxplane/engine/core/data"
-	coredatasource "github.com/fluxplane/engine/core/datasource"
-	runtimedata "github.com/fluxplane/engine/runtime/data"
+	coredata "github.com/fluxplane/fluxplane-core/core/data"
+	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
+	runtimedata "github.com/fluxplane/fluxplane-core/runtime/data"
 )
 
 // EntityOf derives a datasource entity spec from exported fields of T.

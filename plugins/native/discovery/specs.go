@@ -1,6 +1,6 @@
 package discovery
 
-import "github.com/fluxplane/engine/core/operation"
+import "github.com/fluxplane/fluxplane-core/core/operation"
 
 func statusSpec() operation.Spec {
 	return introspectionSpec(StatusOp, "Summarize discovery provider status and known endpoints.")

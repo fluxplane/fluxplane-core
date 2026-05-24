@@ -1,6 +1,6 @@
 package discovery
 
-import "github.com/fluxplane/engine/core/endpoint"
+import "github.com/fluxplane/fluxplane-core/core/endpoint"
 
 // Request describes one endpoint discovery request.
 type Request struct {

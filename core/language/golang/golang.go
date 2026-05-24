@@ -2,8 +2,8 @@
 package golang
 
 import (
-	"github.com/fluxplane/engine/core/language"
-	"github.com/fluxplane/engine/core/testrun"
+	"github.com/fluxplane/fluxplane-core/core/language"
+	"github.com/fluxplane/fluxplane-core/core/testrun"
 )
 
 const (

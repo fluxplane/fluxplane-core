@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	corechannel "github.com/fluxplane/engine/core/channel"
-	corepolicy "github.com/fluxplane/engine/core/policy"
-	corereaction "github.com/fluxplane/engine/core/reaction"
-	coresession "github.com/fluxplane/engine/core/session"
-	coretrigger "github.com/fluxplane/engine/core/trigger"
-	clientapi "github.com/fluxplane/engine/orchestration/client"
+	corechannel "github.com/fluxplane/fluxplane-core/core/channel"
+	corepolicy "github.com/fluxplane/fluxplane-core/core/policy"
+	corereaction "github.com/fluxplane/fluxplane-core/core/reaction"
+	coresession "github.com/fluxplane/fluxplane-core/core/session"
+	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
+	clientapi "github.com/fluxplane/fluxplane-core/orchestration/client"
 )
 
 // Config wires the daemon trigger host.

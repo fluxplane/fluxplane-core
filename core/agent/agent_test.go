@@ -3,8 +3,8 @@ package agent
 import (
 	"testing"
 
-	"github.com/fluxplane/engine/core/datasource"
-	"github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/fluxplane-core/core/datasource"
+	"github.com/fluxplane/fluxplane-core/core/skill"
 )
 
 func TestSpecValidateAllowsEngineerAgentShape(t *testing.T) {
