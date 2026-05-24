@@ -87,7 +87,7 @@ name: assistant
 	}
 }
 
-func TestGenerateKubernetesManifestsIncludesRuntimeBackends(t *testing.T) {
+func TestGenerateKubernetesManifestsReferencesRuntimeSecret(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
 name: support-bot
@@ -119,16 +119,16 @@ name: assistant
 		t.Fatalf("GenerateKubernetesManifests: %v", err)
 	}
 	for _, want := range []string{
-		"kind: StatefulSet",
-		"  name: mysql",
-		"        image: mysql:8.4",
-		"          value: fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true",
-		"  name: nats",
-		"        image: nats:2.11-alpine",
-		"          value: nats://nats:4222",
+		"        envFrom:",
+		"            name: fluxplane-stack",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("kubernetes manifest missing %q:\n%s", want, result.Content)
+		}
+	}
+	for _, leaked := range []string{"kind: StatefulSet", "name: mysql", "name: nats", "fluxplane:fluxplane", "nats://nats:4222"} {
+		if strings.Contains(result.Content, leaked) {
+			t.Fatalf("kubernetes manifest leaked runtime backend %q:\n%s", leaked, result.Content)
 		}
 	}
 }
@@ -655,7 +655,7 @@ name: assistant
 	}
 }
 
-func TestUndeployKubernetesDryRunDeletesPVCsWithVolumes(t *testing.T) {
+func TestUndeployKubernetesDryRunDoesNotDeleteSharedRuntimePVCsWithVolumes(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
 name: support-bot
@@ -685,15 +685,14 @@ name: assistant
 	if err != nil {
 		t.Fatalf("UndeployKubernetes dry-run: %v", err)
 	}
-	want := "command=kubectl delete pvc data-mysql-0 data-nats-0 -n ai-bots --ignore-not-found"
-	if !strings.Contains(out.String(), want) {
-		t.Fatalf("dry-run output = %q, want %q", out.String(), want)
+	if strings.Contains(out.String(), "delete pvc") || strings.Contains(out.String(), "data-mysql-0") || strings.Contains(out.String(), "data-nats-0") {
+		t.Fatalf("dry-run should not delete shared runtime PVCs:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "coder-registry") {
 		t.Fatalf("dry-run should not delete shared namespace registry:\n%s", out.String())
 	}
-	if !result.Volumes || len(result.Commands) != 2 {
-		t.Fatalf("result = %#v, want volume teardown command", result)
+	if !result.Volumes || len(result.Commands) != 1 {
+		t.Fatalf("result = %#v, want only app teardown command", result)
 	}
 }
 
@@ -730,8 +729,6 @@ name: assistant
 			}
 			text := string(data)
 			for _, want := range []string{
-				"kind: StatefulSet",
-				"  name: mysql",
 				"kind: Deployment",
 				"  name: support-bot",
 			} {
@@ -741,6 +738,11 @@ name: assistant
 			}
 			if strings.Contains(text, "kind: Secret") || strings.Contains(text, "support-bot-env") {
 				t.Fatalf("teardown manifest should not delete external secret:\n%s", text)
+			}
+			for _, runtime := range []string{"kind: StatefulSet", "  name: mysql", "  name: nats", "data-mysql-0", "data-nats-0"} {
+				if strings.Contains(text, runtime) {
+					t.Fatalf("teardown manifest should not delete shared runtime resource %q:\n%s", runtime, text)
+				}
 			}
 			if strings.Contains(text, "coder-registry") {
 				t.Fatalf("teardown manifest should not include shared namespace registry:\n%s", text)
@@ -758,14 +760,8 @@ name: assistant
 	if err != nil {
 		t.Fatalf("UndeployKubernetes: %v", err)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("calls = %#v, want manifest delete and pvc delete", calls)
-	}
-	if !strings.Contains(calls[1], "kubectl delete pvc data-mysql-0 -n ai-bots --ignore-not-found") {
-		t.Fatalf("pvc command = %q", calls[1])
-	}
-	if strings.Contains(calls[1], "coder-registry") {
-		t.Fatalf("pvc command should not delete shared namespace registry: %q", calls[1])
+	if len(calls) != 1 {
+		t.Fatalf("calls = %#v, want only manifest delete", calls)
 	}
 	if manifestPath == "" {
 		t.Fatalf("manifest path was not captured")
@@ -773,7 +769,7 @@ name: assistant
 	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
 		t.Fatalf("teardown manifest was not removed: %v", err)
 	}
-	if len(result.Commands) != 2 {
-		t.Fatalf("commands = %#v, want two commands", result.Commands)
+	if len(result.Commands) != 1 {
+		t.Fatalf("commands = %#v, want one app teardown command", result.Commands)
 	}
 }

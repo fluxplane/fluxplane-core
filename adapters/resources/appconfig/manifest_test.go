@@ -348,8 +348,8 @@ runtime:
     store:
       kind: nats
       dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-      stream: AGENTRUNTIME_EVENTS
-      subject: agentruntime.events.log
+      stream: FLUXPLANE_EVENTS
+      subject: fluxplane.events.log
       create_stream: true
 semantic_search:
   enabled: true
@@ -400,7 +400,7 @@ datasource:
 	if file.Runtime.Data.Store.Kind != "mysql" || file.Runtime.Data.Store.DSNEnv != "FLUXPLANE_DATASTORE_MYSQL_DSN" {
 		t.Fatalf("runtime data store = %#v, want mysql dsn env", file.Runtime.Data.Store)
 	}
-	if file.Runtime.Events.Store.Kind != "nats" || file.Runtime.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || file.Runtime.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || file.Runtime.Events.Store.Subject != "agentruntime.events.log" || !file.Runtime.Events.Store.CreateStream {
+	if file.Runtime.Events.Store.Kind != "nats" || file.Runtime.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || file.Runtime.Events.Store.Stream != "FLUXPLANE_EVENTS" || file.Runtime.Events.Store.Subject != "fluxplane.events.log" || !file.Runtime.Events.Store.CreateStream {
 		t.Fatalf("runtime event store = %#v, want nats dsn env", file.Runtime.Events.Store)
 	}
 	if !app.SemanticSearch.Enabled || app.SemanticSearch.Embeddings.Model != "text-embedding-3-large" {
@@ -1251,8 +1251,8 @@ events:
   store:
     kind: nats
     dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-    stream: AGENTRUNTIME_EVENTS
-    subject: agentruntime.events.log
+    stream: FLUXPLANE_EVENTS
+    subject: fluxplane.events.log
     create_stream: true
 ---
 kind: agent

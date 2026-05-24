@@ -26,6 +26,7 @@ const (
 	defaultAppImage       = "agentruntime-app:latest"
 	defaultMySQLDSNEnv    = "FLUXPLANE_DATASTORE_MYSQL_DSN"
 	defaultNATSDSNEnv     = "FLUXPLANE_EVENTSTORE_NATS_DSN"
+	defaultRuntimeStack   = "fluxplane-stack"
 	defaultHealthAddr     = "127.0.0.1:18080"
 	defaultKubeHealthAddr = "0.0.0.0:18080"
 	defaultHealthURL      = "http://127.0.0.1:18080/control/status"
@@ -35,7 +36,10 @@ const (
 
 const deployStackLabel = "agentruntime.fluxplane.io/deploy-stack"
 
-const dockerComposeWaitTimeoutSeconds = "30"
+const (
+	dockerComposeWaitTimeoutSeconds = "30"
+	dockerComposeRuntimeEnvFile     = ".deploy/docker-compose.runtime.env"
+)
 
 const (
 	// DefaultAppProvider is the model provider used by generated app containers.

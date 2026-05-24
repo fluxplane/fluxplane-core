@@ -94,7 +94,11 @@ func DeployTarget(ctx context.Context, opts TargetDeployOptions) error {
 	case deployKindDockerCompose:
 		composeFile := firstNonEmpty(target.Spec.ComposeFile, artifactPath(index, target.Spec.Build, buildKindDockerCompose), "docker-compose.yaml")
 		composeFile = absArtifactPath(loaded.Root, composeFile)
-		command := dockerComposeUpCommand(composeFile, opts.Detach || target.Spec.Detach)
+		envFile, err := ensureComposeRuntimeEnvFile(loaded.Root, loaded.Launch, opts.DryRun, out)
+		if err != nil {
+			return err
+		}
+		command := dockerComposeUpCommand(composeFile, opts.Detach || target.Spec.Detach, envFile)
 		return runDeployCommand(ctx, runner, loaded.Root, command, opts.DryRun, out, errOut)
 	case deployKindKubectl:
 		manifest := firstNonEmpty(target.Spec.Manifest, artifactPath(index, target.Spec.Build, buildKindKubernetesManifest), filepath.Join(".deploy", "kubernetes.yaml"))
@@ -121,12 +125,28 @@ func DeployTarget(ctx context.Context, opts TargetDeployOptions) error {
 	}
 }
 
-func dockerComposeUpCommand(composeFile string, detach bool) []string {
-	command := []string{"docker", "compose", "-f", composeFile, "up"}
+func dockerComposeUpCommand(composeFile string, detach bool, envFile string) []string {
+	command := []string{"docker", "compose"}
+	if strings.TrimSpace(envFile) != "" {
+		command = append(command, "--env-file", envFile)
+	}
+	command = append(command, "-f", composeFile, "up")
 	if detach {
 		command = append(command, "-d")
 	}
 	return append(command, "--wait", "--wait-timeout", dockerComposeWaitTimeoutSeconds)
+}
+
+func dockerComposeDownCommand(composeFile, envFile string, volumes bool) []string {
+	command := []string{"docker", "compose"}
+	if strings.TrimSpace(envFile) != "" {
+		command = append(command, "--env-file", envFile)
+	}
+	command = append(command, "-f", composeFile, "down")
+	if volumes {
+		command = append(command, "-v")
+	}
+	return command
 }
 
 func UndeployTarget(ctx context.Context, opts TargetUndeployOptions) error {
@@ -147,10 +167,11 @@ func UndeployTarget(ctx context.Context, opts TargetUndeployOptions) error {
 	switch target.Spec.Kind {
 	case deployKindDockerCompose:
 		composeFile := firstNonEmpty(target.Spec.ComposeFile, artifactPath(index, target.Spec.Build, buildKindDockerCompose), "docker-compose.yaml")
-		command := []string{"docker", "compose", "-f", absArtifactPath(loaded.Root, composeFile), "down"}
-		if opts.Volumes {
-			command = append(command, "-v")
+		envFile, err := composeRuntimeEnvFileForTeardown(loaded.Root, loaded.Launch, opts.DryRun, out)
+		if err != nil {
+			return err
 		}
+		command := dockerComposeDownCommand(absArtifactPath(loaded.Root, composeFile), envFile, opts.Volumes)
 		return runDeployCommand(ctx, runner, loaded.Root, command, opts.DryRun, out, errOut)
 	case deployKindKubectl:
 		manifest := firstNonEmpty(target.Spec.Manifest, artifactPath(index, target.Spec.Build, buildKindKubernetesManifest), filepath.Join(".deploy", "kubernetes.yaml"))
@@ -220,9 +241,15 @@ func artifactPath(index ArtifactIndex, targets []string, kind string) string {
 		if ok && artifact.Kind == kind && artifact.Path != "" {
 			return artifact.Path
 		}
+		if ok && kind == buildKindHelmChart && artifact.Kind == buildKindRuntimeStack && artifact.Path != "" {
+			return artifact.Path
+		}
 	}
 	for _, artifact := range index.Targets {
 		if artifact.Kind == kind && artifact.Path != "" {
+			return artifact.Path
+		}
+		if kind == buildKindHelmChart && artifact.Kind == buildKindRuntimeStack && artifact.Path != "" {
 			return artifact.Path
 		}
 	}

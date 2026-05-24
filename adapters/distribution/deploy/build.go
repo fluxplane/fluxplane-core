@@ -54,6 +54,7 @@ type AppBuildResult struct {
 	Binary          string
 	Documentation   string
 	HelmChart       string
+	RuntimeStack    string
 	ArtifactIndex   string
 	TargetArtifacts []BuildArtifact
 }
@@ -88,6 +89,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	kubernetesPath := kubernetesManifestPath(loaded.Root, outDir, opts.OutDir)
 	documentationPath := filepath.Join(outDir, composeServiceName(name)+".md")
 	helmChartPath := filepath.Join(outDir, "charts", composeServiceName(name))
+	runtimeStackPath := filepath.Join(outDir, "charts", defaultRuntimeStack)
 	result := AppBuildResult{
 		AppDir:        loaded.Root,
 		OutDir:        outDir,
@@ -100,6 +102,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		Binary:        binaryPath,
 		Documentation: documentationPath,
 		HelmChart:     helmChartPath,
+		RuntimeStack:  runtimeStackPath,
 		ArtifactIndex: artifactIndexPath(loaded.Root),
 	}
 	out := opts.Out
@@ -165,15 +168,16 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			result.Kubernetes = path
 			result.Artifacts = append(result.Artifacts, path)
 			content, err := kubernetesContent(loaded, kubernetesRenderOptions{
-				Name:            name,
-				Namespace:       kubernetesName(firstNonEmpty(targetSpec.Namespace, name)),
-				Image:           image,
-				ImagePullPolicy: targetSpec.ImagePullPolicy,
-				EnvSecretName:   targetSpec.EnvSecretName,
-				AuthPath:        authPath,
-				AppRuntime:      appRuntime,
-				NodeSelectors:   targetSpec.NodeSelectors,
-				IncludeRegistry: false,
+				Name:              name,
+				Namespace:         kubernetesName(firstNonEmpty(targetSpec.Namespace, name)),
+				Image:             image,
+				ImagePullPolicy:   targetSpec.ImagePullPolicy,
+				EnvSecretName:     targetSpec.EnvSecretName,
+				RuntimeSecretName: targetSpec.RuntimeSecretName,
+				AuthPath:          authPath,
+				AppRuntime:        appRuntime,
+				NodeSelectors:     targetSpec.NodeSelectors,
+				IncludeRegistry:   false,
 			})
 			if err != nil {
 				return AppBuildResult{}, err
@@ -228,12 +232,24 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		case buildKindHelmChart:
 			path := targetOutput(outDir, targetSpec.Output, helmChartPath)
 			result.HelmChart = path
-			paths, err := writeHelmChart(loaded, path, image, targetSpec.Release, targetSpec.Namespace, targetSpec.ImagePullPolicy, targetSpec.EnvSecretName, authPath, appRuntime, targetSpec.NodeSelectors, targetSpec.Values, opts.DryRun, opts.Force, out)
+			paths, err := writeHelmChart(loaded, path, image, targetSpec.Release, targetSpec.Namespace, targetSpec.ImagePullPolicy, targetSpec.EnvSecretName, targetSpec.RuntimeSecretName, authPath, appRuntime, targetSpec.NodeSelectors, targetSpec.Values, opts.DryRun, opts.Force, out)
 			if err != nil {
 				return AppBuildResult{}, err
 			}
 			result.Artifacts = append(result.Artifacts, paths...)
 			result.TargetArtifacts = append(result.TargetArtifacts, BuildArtifact{Target: target.Name, Kind: kind, Path: path, Paths: paths, Image: image})
+		case buildKindRuntimeStack:
+			if backend := strings.ToLower(strings.TrimSpace(targetSpec.Backend)); backend != "" && backend != "kubernetes" {
+				return AppBuildResult{}, fmt.Errorf("distribution build: runtime-stack target %q has unsupported backend %q", target.Name, targetSpec.Backend)
+			}
+			path := targetOutput(outDir, targetSpec.Output, runtimeStackPath)
+			result.RuntimeStack = path
+			paths, err := writeRuntimeStackHelmChart(loaded, path, targetSpec.Release, targetSpec.Namespace, targetSpec.RuntimeSecretName, targetSpec.Values, opts.DryRun, opts.Force, out)
+			if err != nil {
+				return AppBuildResult{}, err
+			}
+			result.Artifacts = append(result.Artifacts, paths...)
+			result.TargetArtifacts = append(result.TargetArtifacts, BuildArtifact{Target: target.Name, Kind: kind, Path: path, Paths: paths})
 		case buildKindDocumentation:
 			path := targetOutput(outDir, targetSpec.Output, documentationPath)
 			result.Documentation = path

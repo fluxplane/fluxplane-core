@@ -166,33 +166,35 @@ type KubernetesUndeployResult struct {
 
 // KubernetesManifestOptions configures plain Kubernetes manifest generation.
 type KubernetesManifestOptions struct {
-	AppDir          string
-	Profile         string
-	Profiles        []string
-	Image           string
-	ImagePullPolicy string
-	EnvSecretName   string
-	AuthPath        string
-	Provider        string
-	Model           string
-	Effort          string
-	Namespace       string
-	NodeSelectors   []string
-	RegistryMode    string
-	Registry        string
-	DryRun          bool
-	Out             io.Writer
+	AppDir            string
+	Profile           string
+	Profiles          []string
+	Image             string
+	ImagePullPolicy   string
+	EnvSecretName     string
+	RuntimeSecretName string
+	AuthPath          string
+	Provider          string
+	Model             string
+	Effort            string
+	Namespace         string
+	NodeSelectors     []string
+	RegistryMode      string
+	Registry          string
+	DryRun            bool
+	Out               io.Writer
 }
 
 // KubernetesManifestResult describes generated Kubernetes manifest content.
 type KubernetesManifestResult struct {
-	AppDir     string
-	Name       string
-	Namespace  string
-	Image      string
-	SecretName string
-	Content    string
-	DryRun     bool
+	AppDir            string
+	Name              string
+	Namespace         string
+	Image             string
+	SecretName        string
+	RuntimeSecretName string
+	Content           string
+	DryRun            bool
 }
 
 // DeployKubernetes builds local app artifacts, pushes the app image according to
@@ -524,27 +526,29 @@ func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOpt
 		Effort:   opts.Effort,
 	})
 	rendered, err := kubernetesContent(loaded, kubernetesRenderOptions{
-		Name:            name,
-		Namespace:       namespace,
-		Image:           image,
-		ImagePullPolicy: opts.ImagePullPolicy,
-		EnvSecretName:   opts.EnvSecretName,
-		AuthPath:        opts.AuthPath,
-		AppRuntime:      appRuntime,
-		NodeSelectors:   opts.NodeSelectors,
-		IncludeRegistry: false,
+		Name:              name,
+		Namespace:         namespace,
+		Image:             image,
+		ImagePullPolicy:   opts.ImagePullPolicy,
+		EnvSecretName:     opts.EnvSecretName,
+		RuntimeSecretName: opts.RuntimeSecretName,
+		AuthPath:          opts.AuthPath,
+		AppRuntime:        appRuntime,
+		NodeSelectors:     opts.NodeSelectors,
+		IncludeRegistry:   false,
 	})
 	if err != nil {
 		return KubernetesManifestResult{}, err
 	}
 	result := KubernetesManifestResult{
-		AppDir:     loaded.Root,
-		Name:       name,
-		Namespace:  namespace,
-		Image:      image,
-		SecretName: rendered.SecretName,
-		Content:    rendered.Content,
-		DryRun:     opts.DryRun,
+		AppDir:            loaded.Root,
+		Name:              name,
+		Namespace:         namespace,
+		Image:             image,
+		SecretName:        rendered.SecretName,
+		RuntimeSecretName: rendered.RuntimeSecretName,
+		Content:           rendered.Content,
+		DryRun:            opts.DryRun,
 	}
 	out := opts.Out
 	if out == nil {
@@ -564,23 +568,26 @@ func kubernetesManifestPath(appRoot, outDir, explicitOutDir string) string {
 }
 
 type kubernetesRenderOptions struct {
-	Name            string
-	Namespace       string
-	Image           string
-	ImagePullPolicy string
-	EnvSecretName   string
-	AuthPath        string
-	AppRuntime      appRuntimeOptions
-	NodeSelectors   []string
-	IncludeRegistry bool
-	OmitNamespace   bool
+	Name              string
+	Namespace         string
+	Image             string
+	ImagePullPolicy   string
+	EnvSecretName     string
+	RuntimeSecretName string
+	AuthPath          string
+	AppRuntime        appRuntimeOptions
+	NodeSelectors     []string
+	IncludeRegistry   bool
+	IncludeRuntime    bool
+	OmitNamespace     bool
 }
 
 type kubernetesRenderResult struct {
-	Content         string
-	RegistryContent string
-	SecretName      string
-	SecretKeys      []string
+	Content           string
+	RegistryContent   string
+	SecretName        string
+	RuntimeSecretName string
+	SecretKeys        []string
 }
 
 type kubernetesEnvSecret struct {
@@ -615,6 +622,7 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 	if err != nil {
 		return kubernetesRenderResult{}, err
 	}
+	runtimeSecret := kubernetesRuntimeSecretForLoaded(loaded, name, opts.RuntimeSecretName)
 	nodeSelectors, err := parseKubernetesNodeSelectors(opts.NodeSelectors)
 	if err != nil {
 		return kubernetesRenderResult{}, err
@@ -627,10 +635,10 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 	} else if !opts.OmitNamespace {
 		docs = append(docs, kubernetesNamespace(namespace))
 	}
-	if composeUsesMySQL(loaded.Launch) {
-		docs = append(docs, splitYAMLDocuments(kubernetesMySQL(namespace))...)
+	if opts.IncludeRuntime && composeUsesMySQL(loaded.Launch) {
+		docs = append(docs, splitYAMLDocuments(kubernetesMySQL(namespace, runtimeSecret.Name))...)
 	}
-	if composeUsesNATS(loaded.Launch) {
+	if opts.IncludeRuntime && composeUsesNATS(loaded.Launch) {
 		docs = append(docs, splitYAMLDocuments(kubernetesNATS(namespace))...)
 	}
 	rbac := kubernetesRBACSpecForLoaded(loaded, namespace)
@@ -639,12 +647,13 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 		docs = append(docs, kubernetesRBAC(namespace, name, rbac)...)
 	}
 	docs = append(docs, kubernetesAppService(namespace, name))
-	docs = append(docs, kubernetesAppDeployment(namespace, name, image, opts.ImagePullPolicy, opts.AuthPath, opts.AppRuntime, loaded.Launch, secret.Name, nodeSelectors, rbac.Enabled))
+	docs = append(docs, kubernetesAppDeployment(namespace, name, image, opts.ImagePullPolicy, opts.AuthPath, opts.AppRuntime, secret.Name, runtimeSecret.Name, nodeSelectors, rbac.Enabled))
 	content := joinYAMLDocuments(docs)
 	return kubernetesRenderResult{
-		Content:         content,
-		RegistryContent: registryContent,
-		SecretName:      secret.Name,
+		Content:           content,
+		RegistryContent:   registryContent,
+		SecretName:        secret.Name,
+		RuntimeSecretName: runtimeSecret.Name,
 	}, nil
 }
 
@@ -710,27 +719,10 @@ func quantity(value string) resource.Quantity {
 	return resource.MustParse(value)
 }
 
-func stringMapEnv(values map[string]string) []corev1.EnvVar {
-	keys := sortedKeys(values)
-	out := make([]corev1.EnvVar, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, corev1.EnvVar{Name: key, Value: values[key]})
-	}
-	return out
-}
-
 func kubernetesTeardownContent(loaded distribution.Loaded, opts kubernetesTeardownOptions) string {
 	name := kubernetesName(firstNonEmpty(opts.Name, loaded.Distribution.Spec.Name, "app"))
 	namespace := kubernetesName(firstNonEmpty(opts.Namespace, name))
 	var docs []string
-	if composeUsesMySQL(loaded.Launch) {
-		docs = append(docs, kubernetesServiceIdentity(namespace, "mysql"))
-		docs = append(docs, kubernetesStatefulSetIdentity(namespace, "mysql"))
-	}
-	if composeUsesNATS(loaded.Launch) {
-		docs = append(docs, kubernetesServiceIdentity(namespace, "nats"))
-		docs = append(docs, kubernetesStatefulSetIdentity(namespace, "nats"))
-	}
 	rbac := kubernetesRBACSpecForLoaded(loaded, namespace)
 	if rbac.Enabled {
 		docs = append(docs, kubernetesServiceAccountIdentity(namespace, name))
@@ -742,14 +734,7 @@ func kubernetesTeardownContent(loaded distribution.Loaded, opts kubernetesTeardo
 }
 
 func kubernetesTeardownPVCs(loaded distribution.Loaded) []string {
-	var pvcs []string
-	if composeUsesMySQL(loaded.Launch) {
-		pvcs = append(pvcs, "data-mysql-0")
-	}
-	if composeUsesNATS(loaded.Launch) {
-		pvcs = append(pvcs, "data-nats-0")
-	}
-	return pvcs
+	return nil
 }
 
 func kubernetesPVCIdentities(namespace string, names []string) string {
@@ -864,6 +849,17 @@ func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name, override str
 	return kubernetesEnvSecret{
 		Name: kubernetesName(secretName),
 	}, nil
+}
+
+func kubernetesRuntimeSecretForLoaded(loaded distribution.Loaded, name, override string) kubernetesEnvSecret {
+	if !composeUsesMySQL(loaded.Launch) && !composeUsesNATS(loaded.Launch) {
+		return kubernetesEnvSecret{}
+	}
+	secretName := firstNonEmpty(override, defaultRuntimeStack)
+	if strings.Contains(secretName, "{{") {
+		return kubernetesEnvSecret{Name: strings.TrimSpace(secretName)}
+	}
+	return kubernetesEnvSecret{Name: kubernetesName(secretName)}
 }
 
 func kubernetesNamespace(namespace string) string {
@@ -1048,15 +1044,7 @@ func kubernetesDeploymentIdentity(namespace, name string) string {
 	})
 }
 
-func kubernetesStatefulSetIdentity(namespace, name string) string {
-	return kubernetesYAML(&appsv1.StatefulSet{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
-		ObjectMeta: objectMeta(namespace, name),
-	})
-}
-
-func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath string, appRuntime appRuntimeOptions, launch distribution.LaunchConfig, secretName string, nodeSelectors map[string]string, serviceAccount bool) string {
-	env := kubernetesRuntimeEnv(launch)
+func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath string, appRuntime appRuntimeOptions, secretName, runtimeSecretName string, nodeSelectors map[string]string, serviceAccount bool) string {
 	imagePullPolicy = firstNonEmpty(strings.TrimSpace(imagePullPolicy), "IfNotPresent")
 	labels := map[string]string{"app.kubernetes.io/name": name}
 	container := corev1.Container{
@@ -1065,7 +1053,6 @@ func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath s
 		ImagePullPolicy: corev1.PullPolicy(imagePullPolicy),
 		Args:            appServeCommandWithHealthAddr(authPath, appRuntime, defaultKubeHealthAddr),
 		Ports:           []corev1.ContainerPort{{Name: "control", ContainerPort: 18080}},
-		Env:             stringMapEnv(env),
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler:     corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: appHealthcheckCommand()}},
 			PeriodSeconds:    10,
@@ -1077,8 +1064,8 @@ func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath s
 			FailureThreshold: 6,
 		},
 	}
-	if secretName != "" {
-		container.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}}}}
+	for _, name := range cleanStrings([]string{secretName, runtimeSecretName}) {
+		container.EnvFrom = append(container.EnvFrom, corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}})
 	}
 	podSpec := corev1.PodSpec{
 		NodeSelector: nodeSelectors,
@@ -1099,25 +1086,6 @@ func kubernetesAppDeployment(namespace, name, image, imagePullPolicy, authPath s
 			},
 		},
 	})
-}
-
-func kubernetesRuntimeEnv(launch distribution.LaunchConfig) map[string]string {
-	env := map[string]string{}
-	if composeUsesMySQL(launch) {
-		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
-		if name == "" {
-			name = defaultMySQLDSNEnv
-		}
-		env[name] = "fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true"
-	}
-	if composeUsesNATS(launch) {
-		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
-		if name == "" {
-			name = defaultNATSDSNEnv
-		}
-		env[name] = "nats://nats:4222"
-	}
-	return env
 }
 
 func kubernetesRegistryContent(namespace string) string {
@@ -1170,8 +1138,14 @@ func kubernetesRegistryContent(namespace string) string {
 	)
 }
 
-func kubernetesMySQL(namespace string) string {
+func kubernetesMySQL(namespace, runtimeSecretName string) string {
 	labels := map[string]string{"app.kubernetes.io/name": "mysql"}
+	env := []corev1.EnvVar{
+		secretEnvVar("MYSQL_DATABASE", runtimeSecretName),
+		secretEnvVar("MYSQL_USER", runtimeSecretName),
+		secretEnvVar("MYSQL_PASSWORD", runtimeSecretName),
+		secretEnvVar("MYSQL_ROOT_PASSWORD", runtimeSecretName),
+	}
 	return kubernetesYAML(
 		&corev1.Service{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
@@ -1195,15 +1169,10 @@ func kubernetesMySQL(namespace string) string {
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{Labels: labels},
 					Spec: corev1.PodSpec{Containers: []corev1.Container{{
-						Name:  "mysql",
-						Image: "mysql:8.4",
-						Ports: []corev1.ContainerPort{{Name: "mysql", ContainerPort: 3306}},
-						Env: []corev1.EnvVar{
-							{Name: "MYSQL_DATABASE", Value: "fluxplane"},
-							{Name: "MYSQL_USER", Value: "fluxplane"},
-							{Name: "MYSQL_PASSWORD", Value: "fluxplane"},
-							{Name: "MYSQL_ROOT_PASSWORD", Value: "fluxplane-root"},
-						},
+						Name:         "mysql",
+						Image:        "mysql:8.4",
+						Ports:        []corev1.ContainerPort{{Name: "mysql", ContainerPort: 3306}},
+						Env:          env,
 						VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/var/lib/mysql"}},
 					}}},
 				},
@@ -1217,6 +1186,16 @@ func kubernetesMySQL(namespace string) string {
 			},
 		},
 	)
+}
+
+func secretEnvVar(name, secretName string) corev1.EnvVar {
+	return corev1.EnvVar{
+		Name: name,
+		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+			Key:                  name,
+		}},
+	}
 }
 
 func kubernetesNATS(namespace string) string {

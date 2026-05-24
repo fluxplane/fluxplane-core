@@ -1098,8 +1098,8 @@ type RuntimeEventStoreDoc struct {
 	Kind         RuntimeEventStoreKind `json:"kind,omitempty" yaml:"kind,omitempty"`
 	DSN          string                `json:"dsn,omitempty" yaml:"dsn,omitempty"`
 	DSNEnv       string                `json:"dsn_env,omitempty" yaml:"dsn_env,omitempty"`
-	Stream       string                `json:"stream,omitempty" yaml:"stream,omitempty" jsonschema:"default=AGENTRUNTIME_EVENTS"`
-	Subject      string                `json:"subject,omitempty" yaml:"subject,omitempty" jsonschema:"default=agentruntime.events.log"`
+	Stream       string                `json:"stream,omitempty" yaml:"stream,omitempty" jsonschema:"default=FLUXPLANE_EVENTS"`
+	Subject      string                `json:"subject,omitempty" yaml:"subject,omitempty" jsonschema:"default=fluxplane.events.log"`
 	CreateStream bool                  `json:"create_stream,omitempty" yaml:"create_stream,omitempty" jsonschema:"default=false"`
 }
 
@@ -1515,7 +1515,7 @@ type deployDoc struct {
 }
 
 type buildTargetDoc struct {
-	Kind               string            `json:"kind,omitempty" yaml:"kind,omitempty" jsonschema:"enum=binary,enum=dockerfile,enum=docker-image,enum=docker-compose,enum=kubernetes-manifest,enum=helm-chart,enum=documentation"`
+	Kind               string            `json:"kind,omitempty" yaml:"kind,omitempty" jsonschema:"enum=binary,enum=dockerfile,enum=docker-image,enum=docker-compose,enum=kubernetes-manifest,enum=helm-chart,enum=documentation,enum=runtime-stack"`
 	Description        string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Output             string            `json:"output,omitempty" yaml:"output,omitempty"`
 	Dockerfile         string            `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
@@ -1532,6 +1532,8 @@ type buildTargetDoc struct {
 	Namespace          string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	ImagePullPolicy    string            `json:"image_pull_policy,omitempty" yaml:"image_pull_policy,omitempty" jsonschema:"enum=Always,enum=IfNotPresent,enum=Never"`
 	EnvSecretName      string            `json:"env_secret_name,omitempty" yaml:"env_secret_name,omitempty"`
+	RuntimeSecretName  string            `json:"runtime_secret_name,omitempty" yaml:"runtime_secret_name,omitempty"`
+	Backend            string            `json:"backend,omitempty" yaml:"backend,omitempty" jsonschema:"enum=kubernetes"`
 	NodeSelectors      []string          `json:"node_selectors,omitempty" yaml:"node_selectors,omitempty"`
 	Release            string            `json:"release,omitempty" yaml:"release,omitempty"`
 	Values             map[string]string `json:"values,omitempty" yaml:"values,omitempty"`
@@ -1600,6 +1602,8 @@ func buildTargetSpecs(input map[string]buildTargetDoc) map[string]coredistributi
 			Namespace:          strings.TrimSpace(target.Namespace),
 			ImagePullPolicy:    strings.TrimSpace(target.ImagePullPolicy),
 			EnvSecretName:      strings.TrimSpace(target.EnvSecretName),
+			RuntimeSecretName:  strings.TrimSpace(target.RuntimeSecretName),
+			Backend:            strings.TrimSpace(target.Backend),
 			NodeSelectors:      cleaned(target.NodeSelectors),
 			Release:            strings.TrimSpace(target.Release),
 			Values:             cloneStringMap(target.Values),

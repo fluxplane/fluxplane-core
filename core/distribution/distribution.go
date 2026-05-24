@@ -77,6 +77,8 @@ type BuildTargetSpec struct {
 	Namespace          string            `json:"namespace,omitempty"`
 	ImagePullPolicy    string            `json:"image_pull_policy,omitempty"`
 	EnvSecretName      string            `json:"env_secret_name,omitempty"`
+	RuntimeSecretName  string            `json:"runtime_secret_name,omitempty"`
+	Backend            string            `json:"backend,omitempty"`
 	NodeSelectors      []string          `json:"node_selectors,omitempty"`
 	Release            string            `json:"release,omitempty"`
 	Values             map[string]string `json:"values,omitempty"`

@@ -16,6 +16,7 @@ const (
 	buildKindKubernetesManifest = "kubernetes-manifest"
 	buildKindHelmChart          = "helm-chart"
 	buildKindDocumentation      = "documentation"
+	buildKindRuntimeStack       = "runtime-stack"
 
 	deployKindDockerCompose = "docker-compose"
 	deployKindKubectl       = "kubectl"
@@ -98,7 +99,7 @@ func resolveDeployTarget(spec coredistribution.Spec, value string) (namedDeployT
 
 func isBuildKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
-	case buildKindBinary, buildKindDockerfile, buildKindDockerImage, buildKindDockerCompose, buildKindKubernetesManifest, "kubernetes", buildKindHelmChart, buildKindDocumentation, "docker-base":
+	case buildKindBinary, buildKindDockerfile, buildKindDockerImage, buildKindDockerCompose, buildKindKubernetesManifest, "kubernetes", buildKindHelmChart, buildKindDocumentation, buildKindRuntimeStack, "docker-base":
 		return true
 	default:
 		return false

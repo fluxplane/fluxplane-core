@@ -616,12 +616,19 @@ distribution:
         kind: docker-compose
         image: support-bot:local
         output: docker-compose.yaml
+      runtime:
+        kind: runtime-stack
+        namespace: ai-bots
+        output: charts/fluxplane-stack
+        release: fluxplane-stack
+        runtime_secret_name: fluxplane-stack
       chart:
         kind: helm-chart
         image: registry.example.com/support-bot
         tags: [v1]
         namespace: ai-bots
         output: charts/support-bot
+        runtime_secret_name: fluxplane-stack
   deploy:
     model: smart_model
     targets:
@@ -636,6 +643,12 @@ distribution:
         chart: charts/support-bot
         release: support-bot
         namespace: ai-bots
+      prod-runtime:
+        kind: helm
+        build: [runtime]
+        chart: charts/fluxplane-stack
+        release: fluxplane-stack
+        namespace: ai-bots
 ---
 kind: runtime
 profile: prod
@@ -647,8 +660,8 @@ events:
   store:
     kind: nats
     dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-    stream: AGENTRUNTIME_EVENTS
-    subject: agentruntime.events.log
+    stream: FLUXPLANE_EVENTS
+    subject: fluxplane.events.log
     create_stream: true
 ```
 
@@ -660,6 +673,8 @@ fluxplane build .
 fluxplane build . --target capabilities
 fluxplane build . --target image,compose
 fluxplane deploy . --target local
+fluxplane build . --profile prod --target runtime
+fluxplane deploy . --profile prod --target prod-runtime
 fluxplane build . --profile prod --target chart
 fluxplane deploy . --profile prod --target prod --build-policy never
 fluxplane undeploy . --target prod
@@ -685,13 +700,14 @@ When a Docker image target uses the managed `fluxplane/fluxplane-base:local`
 base image, Fluxplane refreshes that base image before building the app image.
 
 Build target kinds are `binary`, `dockerfile`, `docker-image`,
-`docker-compose`, `kubernetes-manifest`, `helm-chart`, and `documentation`.
-Deploy target kinds are `docker-compose`, `kubectl`, and `helm`. Target fields
-such as `image`, `tags`, `platforms`, `push`, `base_image`, `auth_path`,
-`provider`, `model`, `effort`, `namespace`, `image_pull_policy`,
-`node_selectors`, `release`, and Helm `values` live in the manifest instead of
-build or deploy flags, so generated production artifacts can be committed or
-handed to systems such as Argo CD.
+`docker-compose`, `kubernetes-manifest`, `helm-chart`, `runtime-stack`, and
+`documentation`. Deploy target kinds are `docker-compose`, `kubectl`, and
+`helm`. Target fields such as `image`, `tags`, `platforms`, `push`,
+`base_image`, `auth_path`, `provider`, `model`, `effort`, `namespace`,
+`image_pull_policy`, `node_selectors`, `release`, runtime secret names, and
+Helm `values` live in the manifest instead of build or deploy flags, so
+generated production artifacts can be committed or handed to systems such as
+Argo CD.
 
 Use `fluxplane targets .` to list both build and deploy targets, including
 artifact status when `.deploy/fluxplane-build.json` exists. Use
@@ -705,10 +721,19 @@ to reference an external Kubernetes Secret named `<app>-env` by default. Set
 `env_secret_name` on `kubernetes-manifest` or `helm-chart` build targets to use
 a platform-managed Secret name. Fluxplane does not render literal env-file
 values into production artifacts, so charts and manifests are safe to commit
-when the rest of their inputs are non-secret. Runtime backend DSN variables
-generated for MySQL or NATS are set directly on the app Deployment. Named root
-`env_files` are not supported by Kubernetes artifact generation until workspace
-roots are mounted there.
+when the rest of their inputs are non-secret. Runtime backend DSN variables for
+MySQL or NATS are referenced through an external runtime Secret named
+`fluxplane-stack` by default; set `runtime_secret_name` on Kubernetes, Helm, or
+`runtime-stack` build targets to use a platform-managed Secret name. The
+`runtime-stack` target can generate temporary MySQL/NATS resources for local
+clusters or interim remote deployments, but it does not render credential
+values into the chart. Named root `env_files` are not supported by Kubernetes
+artifact generation until workspace roots are mounted there.
+
+Docker Compose artifacts use environment placeholders for local runtime
+backend credentials. `fluxplane deploy` creates
+`.deploy/docker-compose.runtime.env` with random local MySQL credentials on
+first use and passes it to Docker Compose; `.deploy/` should remain ignored.
 
 Generated Helm charts do not include a `Namespace` resource. Create or manage
 the namespace through platform bootstrap, Argo CD, or the Helm install command

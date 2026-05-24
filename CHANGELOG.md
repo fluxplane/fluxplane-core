@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added build target kinds for embedded binaries, Helm charts, and generated
   capability documentation, alongside Dockerfile, Docker image, Docker Compose,
   and Kubernetes manifest artifacts.
+- Added a `runtime-stack` build target kind for temporary MySQL/NATS runtime
+  dependencies that are deployed separately from app artifacts.
 - Added a `.deploy/fluxplane-build.json` artifact index and `fluxplane deploy
   --build-policy auto|always|never` for target deployments.
 - Added `fluxplane targets` plus `fluxplane build --list-targets` and
@@ -41,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Renamed generated runtime backend DSN environment variable defaults from
   `AGENTRUNTIME_*` to `FLUXPLANE_*`.
+- Renamed the default NATS event stream and subject from
+  `AGENTRUNTIME_EVENTS` / `agentruntime.events.log` to
+  `FLUXPLANE_EVENTS` / `fluxplane.events.log`.
 - Renamed generated MySQL runtime backend credentials and database names from
   `agentruntime` to `fluxplane`.
 - Replaced list-style app manifest plugin declarations with map-style plugin
@@ -71,6 +76,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed Kubernetes manifest and Helm chart artifacts to reference external
   Kubernetes Secrets for `env_files` instead of rendering literal env-file
   values into generated production artifacts.
+- Changed Kubernetes manifest and Helm chart app artifacts to reference
+  runtime backend DSNs through an external runtime Secret instead of rendering
+  MySQL/NATS resources or backend credentials directly.
+- Changed generated runtime backend defaults to the namespace-shared
+  `fluxplane-stack` name so multiple apps can reuse one runtime stack.
+- Changed generated Helm templates to use `.Values.namespace` instead of
+  hard-coding the namespace rendered at build time.
+- Changed Docker Compose artifacts to reference local runtime backend
+  credentials through environment placeholders; `fluxplane deploy` creates an
+  ignored `.deploy/docker-compose.runtime.env` with random local credentials on
+  first use.
+- Fixed app-level Kubernetes teardown so it no longer deletes shared
+  `runtime-stack` MySQL/NATS resources or PVCs.
+- Fixed Docker Compose undeploy to pass the generated runtime env file and to
+  merge newly required keys into existing `.deploy/docker-compose.runtime.env`
+  files.
 - Changed generated Helm charts to omit `Namespace` resources so namespaces can
   remain owned by platform bootstrap, Argo CD, or the operator running Helm.
 - Changed generated Docker Compose YAML to use two-space indentation.

@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	DefaultStream           = "AGENTRUNTIME_EVENTS"
-	DefaultSubject          = "agentruntime.events.log"
+	DefaultStream           = "FLUXPLANE_EVENTS"
+	DefaultSubject          = "fluxplane.events.log"
 	defaultMaxAppendRetries = 8
 	defaultReplayBatchSize  = 500
 )

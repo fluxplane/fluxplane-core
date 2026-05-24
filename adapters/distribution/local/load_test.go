@@ -37,8 +37,8 @@ runtime:
     store:
       kind: nats
       dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-      stream: AGENTRUNTIME_EVENTS
-      subject: agentruntime.events.log
+      stream: FLUXPLANE_EVENTS
+      subject: fluxplane.events.log
       create_stream: true
   workspace:
     env_files:
@@ -94,7 +94,7 @@ name: assistant
 	if loaded.Launch.Data.Store.Kind != "mysql" || loaded.Launch.Data.Store.DSNEnv != "FLUXPLANE_DATASTORE_MYSQL_DSN" {
 		t.Fatalf("data store = %#v, want mysql dsn env", loaded.Launch.Data.Store)
 	}
-	if loaded.Launch.Events.Store.Kind != "nats" || loaded.Launch.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || loaded.Launch.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || loaded.Launch.Events.Store.Subject != "agentruntime.events.log" || !loaded.Launch.Events.Store.CreateStream {
+	if loaded.Launch.Events.Store.Kind != "nats" || loaded.Launch.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || loaded.Launch.Events.Store.Stream != "FLUXPLANE_EVENTS" || loaded.Launch.Events.Store.Subject != "fluxplane.events.log" || !loaded.Launch.Events.Store.CreateStream {
 		t.Fatalf("event store = %#v, want nats dsn env", loaded.Launch.Events.Store)
 	}
 	if len(loaded.Launch.Workspace.EnvFiles) != 1 || loaded.Launch.Workspace.EnvFiles[0] != ".env" {

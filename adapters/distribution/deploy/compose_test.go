@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fluxplane/engine/orchestration/distribution"
 )
 
 func TestDeployDockerComposeBuildsAndStartsCompose(t *testing.T) {
@@ -182,6 +186,92 @@ name: assistant
 	}
 }
 
+func TestUndeployDockerComposeDryRunPassesRuntimeEnvFile(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  data:
+    store:
+      kind: mysql
+  events:
+    store:
+      kind: nats
+distribution:
+  build:
+    assets: [fluxplane.yaml]
+    docker: {}
+---
+kind: agent
+name: assistant
+`)
+	var out bytes.Buffer
+	result, err := UndeployDockerCompose(context.Background(), ComposeUndeployOptions{
+		AppDir:  app,
+		DryRun:  true,
+		Volumes: true,
+		Out:     &out,
+	})
+	if err != nil {
+		t.Fatalf("UndeployDockerCompose dry-run: %v", err)
+	}
+	envFile := filepath.Join(app, dockerComposeRuntimeEnvFile)
+	for _, want := range []string{
+		"write=" + envFile,
+		"command=docker compose --env-file " + envFile + " -f " + filepath.Join(app, "docker-compose.yaml") + " down -v",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
+		}
+	}
+	if !slices.Equal(result.Command, dockerComposeDownCommand(filepath.Join(app, "docker-compose.yaml"), envFile, true)) {
+		t.Fatalf("command = %#v", result.Command)
+	}
+}
+
+func TestEnsureComposeRuntimeEnvFileMergesMissingKeys(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".deploy"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	envFile := filepath.Join(root, dockerComposeRuntimeEnvFile)
+	if err := os.WriteFile(envFile, []byte(strings.Join([]string{
+		"MYSQL_DATABASE=customdb",
+		"MYSQL_USER=customuser",
+		"MYSQL_PASSWORD=existing-password",
+		"MYSQL_ROOT_PASSWORD=existing-root",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	launch := distribution.LaunchConfig{
+		Data: distribution.DataConfig{Store: distribution.DataStoreConfig{
+			Kind:   "mysql",
+			DSNEnv: "CUSTOM_MYSQL_DSN",
+		}},
+		Events: distribution.EventsConfig{Store: distribution.EventStoreConfig{Kind: "nats"}},
+	}
+	if _, err := ensureComposeRuntimeEnvFile(root, launch, false, io.Discard); err != nil {
+		t.Fatalf("ensureComposeRuntimeEnvFile: %v", err)
+	}
+	merged, err := readEnvFile(envFile)
+	if err != nil {
+		t.Fatalf("readEnvFile: %v", err)
+	}
+	for key, want := range map[string]string{
+		"MYSQL_DATABASE":                "customdb",
+		"MYSQL_USER":                    "customuser",
+		"MYSQL_PASSWORD":                "existing-password",
+		"MYSQL_ROOT_PASSWORD":           "existing-root",
+		"CUSTOM_MYSQL_DSN":              "customuser:existing-password@tcp(mysql:3306)/customdb?parseTime=true&multiStatements=true",
+		"FLUXPLANE_EVENTSTORE_NATS_DSN": "nats://nats:4222",
+	} {
+		if merged[key] != want {
+			t.Fatalf("merged[%s] = %q, want %q; all=%#v", key, merged[key], want, merged)
+		}
+	}
+}
+
 func TestGenerateDockerComposeDryRun(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
@@ -337,8 +427,8 @@ events:
   store:
     kind: nats
     dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-    stream: AGENTRUNTIME_EVENTS
-    subject: agentruntime.events.log
+    stream: FLUXPLANE_EVENTS
+    subject: fluxplane.events.log
     create_stream: true
 ---
 kind: agent
@@ -355,14 +445,15 @@ name: assistant
 	}
 	for _, want := range []string{
 		"    image: support-bot:test",
-		"      FLUXPLANE_DATASTORE_MYSQL_DSN: fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true",
-		"      FLUXPLANE_EVENTSTORE_NATS_DSN: nats://nats:4222",
+		"      FLUXPLANE_DATASTORE_MYSQL_DSN: ${FLUXPLANE_DATASTORE_MYSQL_DSN:?FLUXPLANE_DATASTORE_MYSQL_DSN is required}",
+		"      FLUXPLANE_EVENTSTORE_NATS_DSN: ${FLUXPLANE_EVENTSTORE_NATS_DSN:?FLUXPLANE_EVENTSTORE_NATS_DSN is required}",
 		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 		"      mysql:",
 		"        condition: service_healthy",
 		"      nats:",
 		"  mysql:",
 		"    image: mysql:8.4",
+		"      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
 		"  nats:",
 		"    image: nats:2.11-alpine",
 		"    command: [-js, -sd, /data, -m, \"8222\"]",

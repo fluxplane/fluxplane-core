@@ -268,6 +268,127 @@ name: assistant
 	}
 }
 
+func TestBuildAppNamedHelmChartUsesExternalRuntimeSecret(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  data:
+    store:
+      kind: mysql
+      dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
+  events:
+    store:
+      kind: nats
+      dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
+distribution:
+  name: sample
+  build:
+    targets:
+      chart:
+        kind: helm-chart
+        image: example.com/sample
+        namespace: ai-bots
+        runtime_secret_name: platform-runtime
+        output: chart
+---
+kind: agent
+name: assistant
+`)
+	result, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:  app,
+		Targets: []string{"chart"},
+	})
+	if err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	values, err := os.ReadFile(filepath.Join(result.HelmChart, "values.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile values: %v", err)
+	}
+	appTemplate, err := os.ReadFile(filepath.Join(result.HelmChart, "templates", "app.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile app template: %v", err)
+	}
+	for _, want := range []string{"runtimeSecret:", "enabled: true", "name: platform-runtime"} {
+		if !strings.Contains(string(values), want) {
+			t.Fatalf("values.yaml missing %q:\n%s", want, values)
+		}
+	}
+	for _, want := range []string{`{{ if .Values.runtimeSecret.enabled }}`, `name: {{ .Values.runtimeSecret.name | quote }}`, `namespace: {{ .Values.namespace | quote }}`} {
+		if !strings.Contains(string(appTemplate), want) {
+			t.Fatalf("app.yaml missing %q:\n%s", want, appTemplate)
+		}
+	}
+	if strings.Contains(string(appTemplate), "namespace: ai-bots") {
+		t.Fatalf("app.yaml hard-coded namespace:\n%s", appTemplate)
+	}
+	for _, leaked := range []string{"fluxplane:fluxplane", "MYSQL_PASSWORD", "kind: StatefulSet", "name: mysql", "nats://nats:4222"} {
+		if strings.Contains(string(appTemplate), leaked) || strings.Contains(string(values), leaked) {
+			t.Fatalf("helm chart leaked %q:\nvalues:\n%s\ntemplate:\n%s", leaked, values, appTemplate)
+		}
+	}
+}
+
+func TestBuildAppNamedRuntimeStackReferencesExternalRuntimeSecret(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  data:
+    store:
+      kind: mysql
+  events:
+    store:
+      kind: nats
+distribution:
+  name: sample
+  build:
+    targets:
+      runtime:
+        kind: runtime-stack
+        namespace: ai-bots
+        output: runtime-chart
+        runtime_secret_name: sample-runtime
+---
+kind: agent
+name: assistant
+`)
+	result, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:  app,
+		Targets: []string{"runtime"},
+	})
+	if err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	values, err := os.ReadFile(filepath.Join(result.RuntimeStack, "values.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile values: %v", err)
+	}
+	template, err := os.ReadFile(filepath.Join(result.RuntimeStack, "templates", "runtime.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile runtime template: %v", err)
+	}
+	for _, want := range []string{"runtimeSecret:", "name: sample-runtime"} {
+		if !strings.Contains(string(values), want) {
+			t.Fatalf("values.yaml missing %q:\n%s", want, values)
+		}
+	}
+	for _, want := range []string{"kind: StatefulSet", "name: mysql", "name: nats", "secretKeyRef:", `name: {{ .Values.runtimeSecret.name | quote }}`, `namespace: {{ .Values.namespace | quote }}`} {
+		if !strings.Contains(string(template), want) {
+			t.Fatalf("runtime template missing %q:\n%s", want, template)
+		}
+	}
+	if strings.Contains(string(template), "namespace: ai-bots") {
+		t.Fatalf("runtime template hard-coded namespace:\n%s", template)
+	}
+	for _, leaked := range []string{"fluxplane:fluxplane", "fluxplane-root", "nats://nats:4222", "stringData:"} {
+		if strings.Contains(string(template), leaked) || strings.Contains(string(values), leaked) {
+			t.Fatalf("runtime chart leaked %q:\nvalues:\n%s\ntemplate:\n%s", leaked, values, template)
+		}
+	}
+}
+
 func TestBuildAppMergesArtifactIndexAcrossIncrementalBuilds(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app

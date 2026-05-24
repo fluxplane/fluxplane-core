@@ -65,13 +65,21 @@ type dockerContainerSpec struct {
 
 func dockerStackContainers(stack dockerComposeStack) ([]dockerContainerSpec, error) {
 	service := composeServiceName(stack.Name)
+	runtimeEnv, err := composeRuntimeEnvForStack(stack)
+	if err != nil {
+		return nil, err
+	}
 	var out []dockerContainerSpec
 	if composeUsesMySQL(stack.Launch) {
+		env, err := dockerEnv(mysqlDockerEnvironment(runtimeEnv))
+		if err != nil {
+			return nil, err
+		}
 		volume := dockerStackVolumeName(service, "mysql-data")
 		out = append(out, dockerContainerSpec{
 			name:    dockerStackContainerName(service, "mysql"),
 			image:   "mysql:8.4",
-			env:     []string{"MYSQL_DATABASE=fluxplane", "MYSQL_USER=fluxplane", "MYSQL_PASSWORD=fluxplane", "MYSQL_ROOT_PASSWORD=fluxplane-root"},
+			env:     env,
 			aliases: []string{"mysql"},
 			mounts:  []dockermount.Mount{{Type: dockermount.TypeVolume, Source: volume, Target: "/var/lib/mysql"}},
 			volumes: []string{volume},
@@ -90,7 +98,13 @@ func dockerStackContainers(stack dockerComposeStack) ([]dockerContainerSpec, err
 			pull:    true,
 		})
 	}
-	env, err := dockerEnv(composeEnv(stack.AppRuntime, stack.Launch))
+	envValues := composeEnv(stack.AppRuntime, stack.Launch)
+	for key, value := range runtimeEnv {
+		if _, ok := envValues[key]; ok {
+			envValues[key] = value
+		}
+	}
+	env, err := dockerEnv(envValues)
 	if err != nil {
 		return nil, err
 	}
@@ -896,16 +910,21 @@ func (c commandDockerClient) PushImage(ctx context.Context, image string, stdout
 }
 
 func (c commandDockerClient) DeployComposeStack(ctx context.Context, stack dockerComposeStack, stdout, stderr io.Writer) error {
-	command := dockerComposeUpCommand(filepath.Join(stack.AppDir, "docker-compose.yaml"), false)
+	envFile, err := ensureComposeRuntimeEnvFile(stack.AppDir, stack.Launch, false, stdout)
+	if err != nil {
+		return err
+	}
+	command := dockerComposeUpCommand(filepath.Join(stack.AppDir, "docker-compose.yaml"), false, envFile)
 	return c.runner.Run(ctx, stack.AppDir, command[0], command[1:], stdout, stderr)
 }
 
 func (c commandDockerClient) UndeployComposeStack(ctx context.Context, stack dockerComposeStack, volumes bool, stdout, stderr io.Writer) error {
-	args := []string{"compose", "-f", filepath.Join(stack.AppDir, "docker-compose.yaml"), "down"}
-	if volumes {
-		args = append(args, "-v")
+	envFile, err := composeRuntimeEnvFileForTeardown(stack.AppDir, stack.Launch, false, stdout)
+	if err != nil {
+		return err
 	}
-	return c.runner.Run(ctx, stack.AppDir, "docker", args, stdout, stderr)
+	command := dockerComposeDownCommand(filepath.Join(stack.AppDir, "docker-compose.yaml"), envFile, volumes)
+	return c.runner.Run(ctx, stack.AppDir, command[0], command[1:], stdout, stderr)
 }
 
 func (engineDockerClient) BuildImage(ctx context.Context, contextDir, dockerfile string, tags, platformValues []string, push bool, stdout, _ io.Writer) error {
@@ -1278,6 +1297,9 @@ func (engineDockerClient) DeployComposeStack(ctx context.Context, stack dockerCo
 		return fmt.Errorf("distribution deploy: create docker client: %w", err)
 	}
 	defer func() { _ = cli.Close() }()
+	if _, err := ensureComposeRuntimeEnvFile(stack.AppDir, stack.Launch, false, stdout); err != nil {
+		return err
+	}
 	service := composeServiceName(stack.Name)
 	networkName := dockerStackNetworkName(service)
 	if err := ensureDockerNetwork(ctx, cli, networkName, dockerStackLabels(service)); err != nil {

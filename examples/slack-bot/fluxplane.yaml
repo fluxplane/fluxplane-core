@@ -170,8 +170,8 @@ events:
   store:
     kind: nats
     dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
-    stream: AGENTRUNTIME_EVENTS
-    subject: agentruntime.events.log
+    stream: FLUXPLANE_EVENTS
+    subject: fluxplane.events.log
     create_stream: true
 
 ---

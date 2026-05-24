@@ -162,6 +162,8 @@ func buildTargetOutput(root string, spec coredistribution.Spec, target coredistr
 		return targetOutput(root, target.Output, filepath.Join(".deploy", "kubernetes.yaml"))
 	case buildKindHelmChart:
 		return targetOutput(root, target.Output, filepath.Join("charts", composeServiceName(name)))
+	case buildKindRuntimeStack:
+		return targetOutput(root, target.Output, filepath.Join("charts", defaultRuntimeStack))
 	case buildKindDocumentation:
 		return targetOutput(root, target.Output, composeServiceName(name)+".md")
 	default:

@@ -73,11 +73,18 @@ the build index remains under the app's `.deploy/` directory. Build targets are
 named under `distribution.build.targets`; deploy targets are
 named under `distribution.deploy.targets` and reference build targets with
 `build: [...]`. Build kinds include `binary`, `dockerfile`, `docker-image`,
-`docker-compose`, `kubernetes-manifest`, `helm-chart`, and `documentation`.
+`docker-compose`, `kubernetes-manifest`, `helm-chart`, `runtime-stack`, and
+`documentation`.
 Deploy kinds include `docker-compose`, `kubectl`, and `helm`. Image names,
 platforms, push behavior, container runtime settings, and Helm/Kubernetes
 settings live on the named targets in `fluxplane.yaml`. Kubernetes and Helm
 artifacts reference external Secrets instead of embedding env-file contents.
+App Kubernetes and Helm artifacts reference runtime backend DSNs through an
+external runtime Secret; temporary MySQL/NATS resources are generated only by
+explicit `runtime-stack` targets.
+Docker Compose artifacts use environment placeholders for local runtime
+backend credentials, and `fluxplane deploy` creates `.deploy/docker-compose.runtime.env`
+with random local credentials on first use.
 Generated Helm charts omit `Namespace` resources so namespace ownership can
 stay with platform bootstrap, Argo CD, or the Helm install command.
 Use `fluxplane targets`

@@ -3,9 +3,12 @@ package deploy
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -135,7 +138,15 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	if err != nil {
 		return ComposeDeployResult{}, err
 	}
-	command := dockerComposeUpCommand(app.Compose, opts.Detach)
+	stack, err := dockerComposeStackFor(ctx, app.AppDir, opts.Profile, opts.Profiles, firstTag(app.Tags), opts.AuthPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
+	if err != nil {
+		return ComposeDeployResult{}, err
+	}
+	envFile, err := ensureComposeRuntimeEnvFile(app.AppDir, stack.Launch, opts.DryRun, out)
+	if err != nil {
+		return ComposeDeployResult{}, err
+	}
+	command := dockerComposeUpCommand(app.Compose, opts.Detach, envFile)
 	result := ComposeDeployResult{
 		BaseImage: BaseImageResult{Tags: []string{baseImage}},
 		AppBuild:  app,
@@ -151,10 +162,6 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 			return ComposeDeployResult{}, err
 		}
 		return result, nil
-	}
-	stack, err := dockerComposeStackFor(ctx, app.AppDir, opts.Profile, opts.Profiles, firstTag(app.Tags), opts.AuthPath, opts.Provider, opts.Model, opts.Effort, opts.AllowPluginAuthEnv)
-	if err != nil {
-		return ComposeDeployResult{}, err
 	}
 	if err := dockerClient.DeployComposeStack(ctx, stack, out, errOut); err != nil {
 		return ComposeDeployResult{}, err
@@ -186,10 +193,11 @@ func UndeployDockerCompose(ctx context.Context, opts ComposeUndeployOptions) (Co
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
 	composePath := filepath.Join(loaded.Root, "docker-compose.yaml")
-	command := []string{"docker", "compose", "-f", composePath, "down"}
-	if opts.Volumes {
-		command = append(command, "-v")
+	envFile, err := composeRuntimeEnvFileForTeardown(loaded.Root, loaded.Launch, opts.DryRun, out)
+	if err != nil {
+		return ComposeUndeployResult{}, err
 	}
+	command := dockerComposeDownCommand(composePath, envFile, opts.Volumes)
 	result := ComposeUndeployResult{
 		AppDir:  loaded.Root,
 		Compose: composePath,
@@ -372,14 +380,14 @@ func composeEnv(appRuntime appRuntimeOptions, launch distribution.LaunchConfig) 
 		if name == "" {
 			name = defaultMySQLDSNEnv
 		}
-		env[name] = "fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true"
+		env[name] = "${" + name + ":?" + name + " is required}"
 	}
 	if composeUsesNATS(launch) {
 		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
 		if name == "" {
 			name = defaultNATSDSNEnv
 		}
-		env[name] = "nats://nats:4222"
+		env[name] = "${" + name + ":?" + name + " is required}"
 	}
 	return env
 }
@@ -400,14 +408,9 @@ func composeDependencyMap(launch distribution.LaunchConfig) map[string]composeDe
 
 func mysqlComposeService() composeService {
 	return composeService{
-		Image: "mysql:8.4",
-		Environment: map[string]string{
-			"MYSQL_DATABASE":      "fluxplane",
-			"MYSQL_PASSWORD":      "fluxplane",
-			"MYSQL_ROOT_PASSWORD": "fluxplane-root",
-			"MYSQL_USER":          "fluxplane",
-		},
-		Volumes: []string{"mysql-data:/var/lib/mysql"},
+		Image:       "mysql:8.4",
+		Environment: mysqlComposeEnvironment(),
+		Volumes:     []string{"mysql-data:/var/lib/mysql"},
 		Healthcheck: &composeHealthcheck{
 			Test:     composeInlineStrings{"CMD", "mysqladmin", "ping", "-h", "localhost"},
 			Interval: "5s",
@@ -415,6 +418,170 @@ func mysqlComposeService() composeService {
 			Retries:  20,
 		},
 	}
+}
+
+func mysqlComposeEnvironment() map[string]string {
+	return map[string]string{
+		"MYSQL_DATABASE":      "${MYSQL_DATABASE:?MYSQL_DATABASE is required}",
+		"MYSQL_PASSWORD":      "${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}",
+		"MYSQL_ROOT_PASSWORD": "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}",
+		"MYSQL_USER":          "${MYSQL_USER:?MYSQL_USER is required}",
+	}
+}
+
+func mysqlDockerEnvironment(runtimeEnv map[string]string) map[string]string {
+	return map[string]string{
+		"MYSQL_DATABASE":      runtimeEnv["MYSQL_DATABASE"],
+		"MYSQL_PASSWORD":      runtimeEnv["MYSQL_PASSWORD"],
+		"MYSQL_ROOT_PASSWORD": runtimeEnv["MYSQL_ROOT_PASSWORD"],
+		"MYSQL_USER":          runtimeEnv["MYSQL_USER"],
+	}
+}
+
+func ensureComposeRuntimeEnvFile(appRoot string, launch distribution.LaunchConfig, dryRun bool, out io.Writer) (string, error) {
+	if !composeUsesMySQL(launch) && !composeUsesNATS(launch) {
+		return "", nil
+	}
+	filename := filepath.Join(appRoot, dockerComposeRuntimeEnvFile)
+	if dryRun {
+		_, _ = fmt.Fprintf(out, "write=%s\n", filename)
+		return filename, nil
+	}
+	existing := map[string]string{}
+	if env, err := readEnvFile(filename); err == nil {
+		existing = env
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	env, changed, err := composeRuntimeEnvWithDefaults(launch, existing)
+	if err != nil {
+		return "", err
+	}
+	if changed {
+		if err := maybeWriteFile(filename, envFileContent(env), 0o600, false, true, out); err != nil {
+			return "", err
+		}
+	}
+	if err := ensureGitignoreEntry(appRoot, ".deploy/"); err != nil {
+		return "", err
+	}
+	return filename, nil
+}
+
+func composeRuntimeEnvFileForTeardown(appRoot string, launch distribution.LaunchConfig, dryRun bool, out io.Writer) (string, error) {
+	filename := filepath.Join(appRoot, dockerComposeRuntimeEnvFile)
+	if composeUsesMySQL(launch) || composeUsesNATS(launch) {
+		return ensureComposeRuntimeEnvFile(appRoot, launch, dryRun, out)
+	}
+	if _, err := os.Stat(filename); err == nil {
+		return filename, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	return "", nil
+}
+
+func composeRuntimeEnvForStack(stack dockerComposeStack) (map[string]string, error) {
+	if !composeUsesMySQL(stack.Launch) && !composeUsesNATS(stack.Launch) {
+		return nil, nil
+	}
+	existing := map[string]string{}
+	if strings.TrimSpace(stack.AppDir) != "" {
+		filename := filepath.Join(stack.AppDir, dockerComposeRuntimeEnvFile)
+		env, err := readEnvFile(filename)
+		if err == nil {
+			existing = env
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	env, _, err := composeRuntimeEnvWithDefaults(stack.Launch, existing)
+	return env, err
+}
+
+func composeRuntimeEnvWithDefaults(launch distribution.LaunchConfig, existing map[string]string) (map[string]string, bool, error) {
+	env := map[string]string{}
+	for key, value := range existing {
+		env[key] = value
+	}
+	changed := false
+	ensure := func(key, value string) {
+		if strings.TrimSpace(env[key]) != "" {
+			return
+		}
+		env[key] = value
+		changed = true
+	}
+	if composeUsesMySQL(launch) {
+		ensure("MYSQL_DATABASE", "fluxplane")
+		ensure("MYSQL_USER", "fluxplane")
+		if strings.TrimSpace(env["MYSQL_PASSWORD"]) == "" {
+			password, err := randomComposeSecret()
+			if err != nil {
+				return nil, false, err
+			}
+			ensure("MYSQL_PASSWORD", password)
+		}
+		if strings.TrimSpace(env["MYSQL_ROOT_PASSWORD"]) == "" {
+			rootPassword, err := randomComposeSecret()
+			if err != nil {
+				return nil, false, err
+			}
+			ensure("MYSQL_ROOT_PASSWORD", rootPassword)
+		}
+		name := strings.TrimSpace(launch.Data.Store.DSNEnv)
+		if name == "" {
+			name = defaultMySQLDSNEnv
+		}
+		ensure(name, fmt.Sprintf("%s:%s@tcp(mysql:3306)/%s?parseTime=true&multiStatements=true", env["MYSQL_USER"], env["MYSQL_PASSWORD"], env["MYSQL_DATABASE"]))
+	}
+	if composeUsesNATS(launch) {
+		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
+		if name == "" {
+			name = defaultNATSDSNEnv
+		}
+		ensure(name, "nats://nats:4222")
+	}
+	return env, changed, nil
+}
+
+func readEnvFile(filename string) (map[string]string, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key != "" {
+			env[key] = value
+		}
+	}
+	return env, nil
+}
+
+func randomComposeSecret() (string, error) {
+	var data [18]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return "", fmt.Errorf("distribution deploy: generate compose runtime secret: %w", err)
+	}
+	return hex.EncodeToString(data[:]), nil
+}
+
+func envFileContent(env map[string]string) string {
+	var b strings.Builder
+	for _, key := range sortedKeys(env) {
+		_, _ = fmt.Fprintf(&b, "%s=%s\n", key, env[key])
+	}
+	return b.String()
 }
 
 func natsComposeService() composeService {
