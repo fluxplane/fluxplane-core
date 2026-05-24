@@ -18,6 +18,11 @@ const (
 	KindSchedule Kind = "schedule"
 )
 
+// Kinds returns the stable daemon trigger source vocabulary.
+func Kinds() []Kind {
+	return []Kind{KindStartup, KindSchedule}
+}
+
 // Spec declares one daemon trigger. Concrete source IO belongs outside core.
 type Spec struct {
 	Name        string            `json:"name" yaml:"name"`

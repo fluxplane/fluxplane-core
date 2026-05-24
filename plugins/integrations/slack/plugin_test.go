@@ -119,6 +119,46 @@ func TestSlackInputContentOmitsAudienceTrustForDirectMessages(t *testing.T) {
 	}
 }
 
+func TestConfigSchemaDescribesAuthEnums(t *testing.T) {
+	data, err := New(nil).ConfigSchema()
+	if err != nil {
+		t.Fatalf("ConfigSchema: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("schema is not JSON: %v", err)
+	}
+	auth := schema["properties"].(map[string]any)["auth"].(map[string]any)
+	authProperties := auth["properties"].(map[string]any)
+	method := authProperties["method"].(map[string]any)
+	assertSchemaEnum(t, method, TokenMethod, EnvMethod, OAuth2Method)
+	channelToken := authProperties["channel_token"].(map[string]any)
+	assertSchemaEnum(t, channelToken, ChannelTokenAuto, BotTokenPurpose, UserTokenPurpose)
+	if description, _ := method["description"].(string); !strings.Contains(description, "stored secrets") {
+		t.Fatalf("method description = %q, want rich auth-method help", description)
+	}
+}
+
+func assertSchemaEnum(t *testing.T, schema map[string]any, want ...string) {
+	t.Helper()
+	rawEnum, ok := schema["enum"].([]any)
+	if !ok {
+		t.Fatalf("schema enum missing in %#v", schema)
+	}
+	got := make([]string, 0, len(rawEnum))
+	for _, value := range rawEnum {
+		got = append(got, value.(string))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("enum = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("enum = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestChannelSendUsesCurrentSlackTarget(t *testing.T) {
 	dispatcher := NewDispatcher()
 	poster := &fakePoster{}

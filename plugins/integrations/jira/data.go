@@ -3,6 +3,7 @@ package jira
 import (
 	coredata "github.com/fluxplane/engine/core/data"
 	runtimedata "github.com/fluxplane/engine/runtime/data"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const (
@@ -12,7 +13,13 @@ const (
 
 // DataSourceSpec describes the Jira source schema and default materialized views.
 func DataSourceSpec() coredata.SourceSpec {
-	return runtimedata.SourceFromDatasource("jira", Name, entitySpecs(), DataViews()...)
+	spec := runtimedata.SourceFromDatasource("jira", Name, entitySpecs(), DataViews()...)
+	spec.ConfigSchema = operationruntime.SchemaFor[datasourceConfig]()
+	return spec
+}
+
+type datasourceConfig struct {
+	Instance string `json:"instance,omitempty" jsonschema:"description=Jira plugin instance that provides credentials for this datasource."`
 }
 
 // DataViews returns the Jira materializations the query API should prefer.

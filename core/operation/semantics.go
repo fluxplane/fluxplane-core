@@ -15,6 +15,11 @@ const (
 	DeterminismNonDeterministic Determinism = "non_deterministic"
 )
 
+// Determinisms returns the stable operation determinism vocabulary.
+func Determinisms() []Determinism {
+	return []Determinism{DeterminismUnknown, DeterminismDeterministic, DeterminismNonDeterministic}
+}
+
 // Idempotency describes whether repeating an operation with the same input is
 // expected to have the same external effect as running it once.
 type Idempotency string
@@ -24,6 +29,11 @@ const (
 	IdempotencyIdempotent    Idempotency = "idempotent"
 	IdempotencyNonIdempotent Idempotency = "non_idempotent"
 )
+
+// Idempotencies returns the stable operation idempotency vocabulary.
+func Idempotencies() []Idempotency {
+	return []Idempotency{IdempotencyUnknown, IdempotencyIdempotent, IdempotencyNonIdempotent}
+}
 
 // RiskLevel is a coarse declaration used by runtime policy and approval gates.
 type RiskLevel string
@@ -35,6 +45,11 @@ const (
 	RiskHigh     RiskLevel = "high"
 	RiskCritical RiskLevel = "critical"
 )
+
+// RiskLevels returns the stable operation risk vocabulary.
+func RiskLevels() []RiskLevel {
+	return []RiskLevel{RiskUnknown, RiskLow, RiskMedium, RiskHigh, RiskCritical}
+}
 
 // ParseRiskLevel parses a textual operation risk level.
 func ParseRiskLevel(value string) (RiskLevel, error) {
@@ -93,6 +108,15 @@ const (
 	EffectIrreversible  Effect = "irreversible"
 	EffectSensitiveData Effect = "sensitive_data"
 )
+
+// Effects returns the stable operation effect vocabulary.
+func Effects() []Effect {
+	return []Effect{
+		EffectNone, EffectReadExternal, EffectWriteExternal, EffectFilesystem,
+		EffectNetwork, EffectProcess, EffectCreate, EffectUpdate, EffectDelete,
+		EffectDestructive, EffectIrreversible, EffectSensitiveData,
+	}
+}
 
 // EffectSet is a serializable set-like list of effect declarations.
 type EffectSet []Effect

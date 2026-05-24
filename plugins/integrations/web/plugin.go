@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fluxplane/engine/adapters/content/htmlconvert"
+	coredata "github.com/fluxplane/engine/core/data"
 	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/policy"
 	"github.com/fluxplane/engine/core/resource"
@@ -47,6 +48,7 @@ func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.Contr
 	return resource.ContributionBundle{
 		OperationSets: []operation.Set{{Name: Name, Description: "Outbound web operations.", Operations: []operation.Ref{request.Ref, search.Ref}}},
 		Operations:    []operation.Spec{request, search},
+		DataSources:   []coredata.SourceSpec{DataSourceSpec()},
 	}, nil
 }
 

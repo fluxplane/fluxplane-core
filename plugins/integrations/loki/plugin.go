@@ -35,28 +35,28 @@ const (
 
 // Config is the per-instance Loki plugin configuration.
 type Config struct {
-	URL              string             `json:"url,omitempty" yaml:"url,omitempty"`
-	URLEnv           string             `json:"url_env,omitempty" yaml:"url_env,omitempty"`
-	EndpointRef      string             `json:"endpoint_ref,omitempty" yaml:"endpoint_ref,omitempty"`
-	TenantID         string             `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty"`
-	TenantIDEnv      string             `json:"tenant_id_env,omitempty" yaml:"tenant_id_env,omitempty"`
-	DefaultNamespace string             `json:"default_namespace,omitempty" yaml:"default_namespace,omitempty"`
-	DefaultSince     string             `json:"default_since,omitempty" yaml:"default_since,omitempty"`
-	DefaultLimit     int                `json:"default_limit,omitempty" yaml:"default_limit,omitempty"`
-	MaxLimit         int                `json:"max_limit,omitempty" yaml:"max_limit,omitempty"`
-	Labels           []string           `json:"labels,omitempty" yaml:"labels,omitempty"`
-	AutoDiscover     AutoDiscoverConfig `json:"auto_discover,omitempty" yaml:"auto_discover,omitempty"`
+	URL              string             `json:"url,omitempty" yaml:"url,omitempty" jsonschema:"description=Loki base URL."`
+	URLEnv           string             `json:"url_env,omitempty" yaml:"url_env,omitempty" jsonschema:"description=Environment variable containing the Loki base URL."`
+	EndpointRef      string             `json:"endpoint_ref,omitempty" yaml:"endpoint_ref,omitempty" jsonschema:"description=Runtime endpoint reference for a discovered Loki service."`
+	TenantID         string             `json:"tenant_id,omitempty" yaml:"tenant_id,omitempty" jsonschema:"description=Loki tenant id for multi-tenant deployments."`
+	TenantIDEnv      string             `json:"tenant_id_env,omitempty" yaml:"tenant_id_env,omitempty" jsonschema:"description=Environment variable containing the Loki tenant id."`
+	DefaultNamespace string             `json:"default_namespace,omitempty" yaml:"default_namespace,omitempty" jsonschema:"description=Default Kubernetes namespace filter for Loki queries."`
+	DefaultSince     string             `json:"default_since,omitempty" yaml:"default_since,omitempty" jsonschema:"description=Default lookback duration for recent log queries, such as 15m."`
+	DefaultLimit     int                `json:"default_limit,omitempty" yaml:"default_limit,omitempty" jsonschema:"description=Default maximum log entries returned."`
+	MaxLimit         int                `json:"max_limit,omitempty" yaml:"max_limit,omitempty" jsonschema:"description=Hard maximum log entries accepted from manifest or operation input."`
+	Labels           []string           `json:"labels,omitempty" yaml:"labels,omitempty" jsonschema:"description=Loki labels exposed for filtering and datasource records."`
+	AutoDiscover     AutoDiscoverConfig `json:"auto_discover,omitempty" yaml:"auto_discover,omitempty" jsonschema:"description=Options for discovering Loki endpoints from Kubernetes."`
 }
 
 // AutoDiscoverConfig configures Loki endpoint discovery.
 type AutoDiscoverConfig struct {
-	Enabled       bool     `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Kubernetes    bool     `json:"kubernetes,omitempty" yaml:"kubernetes,omitempty"`
-	Namespaces    []string `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
-	PreferService bool     `json:"prefer_service,omitempty" yaml:"prefer_service,omitempty"`
-	AllowPodIP    bool     `json:"allow_pod_ip,omitempty" yaml:"allow_pod_ip,omitempty"`
-	PortForward   bool     `json:"port_forward,omitempty" yaml:"port_forward,omitempty"`
-	ProbeTimeout  string   `json:"probe_timeout,omitempty" yaml:"probe_timeout,omitempty"`
+	Enabled       bool     `json:"enabled,omitempty" yaml:"enabled,omitempty" jsonschema:"description=Enable automatic Loki endpoint discovery."`
+	Kubernetes    bool     `json:"kubernetes,omitempty" yaml:"kubernetes,omitempty" jsonschema:"description=Discover Loki endpoints from Kubernetes services and pods."`
+	Namespaces    []string `json:"namespaces,omitempty" yaml:"namespaces,omitempty" jsonschema:"description=Kubernetes namespaces searched during Loki discovery."`
+	PreferService bool     `json:"prefer_service,omitempty" yaml:"prefer_service,omitempty" jsonschema:"description=Prefer Kubernetes service endpoints over pod IPs when both are available."`
+	AllowPodIP    bool     `json:"allow_pod_ip,omitempty" yaml:"allow_pod_ip,omitempty" jsonschema:"description=Allow direct pod IP endpoints during discovery."`
+	PortForward   bool     `json:"port_forward,omitempty" yaml:"port_forward,omitempty" jsonschema:"description=Use Kubernetes port-forwarding for discovered Loki endpoints."`
+	ProbeTimeout  string   `json:"probe_timeout,omitempty" yaml:"probe_timeout,omitempty" jsonschema:"description=Timeout for probing discovered Loki endpoints using Go duration syntax such as 5s."`
 }
 
 // Plugin contributes Loki resources.

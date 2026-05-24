@@ -49,13 +49,13 @@ type Plugin struct {
 // Config is the per-instance GitLab plugin configuration accepted from an app
 // manifest.
 type Config struct {
-	BaseURL string     `json:"base_url,omitempty"`
-	Auth    AuthConfig `json:"auth,omitempty"`
+	BaseURL string     `json:"base_url,omitempty" jsonschema:"description=GitLab base URL. Defaults to https://gitlab.com."`
+	Auth    AuthConfig `json:"auth,omitempty" jsonschema:"description=GitLab authentication source."`
 }
 
 type AuthConfig struct {
-	Method   string `json:"method,omitempty"`
-	TokenEnv string `json:"token_env,omitempty"`
+	Method   string `json:"method,omitempty" jsonschema:"description=GitLab auth method. personal_access_token uses stored or environment token material; oauth2 uses stored OAuth2 token material.,enum=personal_access_token,enum=oauth2"`
+	TokenEnv string `json:"token_env,omitempty" jsonschema:"description=Environment variable containing a GitLab personal access token. Defaults to GITLAB_ACCESS_TOKEN or compatible GitLab token env vars."`
 }
 
 type gitlabClient interface {

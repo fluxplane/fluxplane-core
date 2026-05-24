@@ -26,6 +26,7 @@ import (
 	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
 	runtimediscovery "github.com/fluxplane/engine/runtime/discovery"
 	runtimeevidence "github.com/fluxplane/engine/runtime/evidence"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	runtimesecret "github.com/fluxplane/engine/runtime/secret"
 	"github.com/fluxplane/engine/runtime/system"
 )
@@ -46,14 +47,14 @@ const (
 const defaultPageSize = 50
 
 type Config struct {
-	Context       string   `json:"context,omitempty" yaml:"context,omitempty"`
-	Kubeconfig    string   `json:"kubeconfig,omitempty" yaml:"kubeconfig,omitempty"`
-	KubeconfigEnv string   `json:"kubeconfig_env,omitempty" yaml:"kubeconfig_env,omitempty"`
-	Namespaces    []string `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
-	AllNamespaces bool     `json:"all_namespaces,omitempty" yaml:"all_namespaces,omitempty"`
-	InCluster     bool     `json:"in_cluster,omitempty" yaml:"in_cluster,omitempty"`
-	QPS           float32  `json:"qps,omitempty" yaml:"qps,omitempty"`
-	Burst         int      `json:"burst,omitempty" yaml:"burst,omitempty"`
+	Context       string   `json:"context,omitempty" yaml:"context,omitempty" jsonschema:"description=Kubernetes context name from kubeconfig."`
+	Kubeconfig    string   `json:"kubeconfig,omitempty" yaml:"kubeconfig,omitempty" jsonschema:"description=Path to a kubeconfig file."`
+	KubeconfigEnv string   `json:"kubeconfig_env,omitempty" yaml:"kubeconfig_env,omitempty" jsonschema:"description=Environment variable containing kubeconfig content or a kubeconfig path."`
+	Namespaces    []string `json:"namespaces,omitempty" yaml:"namespaces,omitempty" jsonschema:"description=Kubernetes namespaces this plugin may inspect."`
+	AllNamespaces bool     `json:"all_namespaces,omitempty" yaml:"all_namespaces,omitempty" jsonschema:"description=Allow access to all namespaces instead of the configured namespace list."`
+	InCluster     bool     `json:"in_cluster,omitempty" yaml:"in_cluster,omitempty" jsonschema:"description=Use in-cluster Kubernetes service account configuration."`
+	QPS           float32  `json:"qps,omitempty" yaml:"qps,omitempty" jsonschema:"description=Kubernetes client QPS limit."`
+	Burst         int      `json:"burst,omitempty" yaml:"burst,omitempty" jsonschema:"description=Kubernetes client burst limit."`
 }
 
 type namespacePolicy struct {
@@ -208,9 +209,10 @@ func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {
 		name = Name + "." + instance
 	}
 	return coredata.SourceSpec{
-		Name:        coredata.SourceName(name),
-		Kind:        Name,
-		Description: "Live Kubernetes cluster inventory.",
+		Name:         coredata.SourceName(name),
+		Kind:         Name,
+		Description:  "Live Kubernetes cluster inventory.",
+		ConfigSchema: operationruntime.SchemaFor[datasourceConfig](),
 		Entities: []coredata.EntitySpec{
 			{Type: coredata.EntityType(ClusterEntity), Description: "Configured Kubernetes cluster/context target."},
 			{Type: coredata.EntityType(NamespaceEntity), Description: "Kubernetes namespace."},
@@ -220,6 +222,13 @@ func DataSourceSpec(ref resource.PluginRef) coredata.SourceSpec {
 			{Type: coredata.EntityType(ContainerEntity), Description: "Kubernetes container."},
 		},
 	}
+}
+
+type datasourceConfig struct {
+	AllNamespaces string `json:"all_namespaces,omitempty" jsonschema:"description=Whether the Kubernetes datasource may read across all namespaces.,enum=true,enum=false"`
+	Instance      string `json:"instance,omitempty" jsonschema:"description=Kubernetes plugin instance that provides cluster access for this datasource."`
+	Namespace     string `json:"namespace,omitempty" jsonschema:"description=Single Kubernetes namespace to include."`
+	Namespaces    string `json:"namespaces,omitempty" jsonschema:"description=Comma-separated Kubernetes namespaces to include."`
 }
 
 type kubernetesDatasourceProvider struct {

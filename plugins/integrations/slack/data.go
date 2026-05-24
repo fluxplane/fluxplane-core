@@ -3,6 +3,7 @@ package slack
 import (
 	coredata "github.com/fluxplane/engine/core/data"
 	runtimedata "github.com/fluxplane/engine/runtime/data"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const (
@@ -14,7 +15,13 @@ const (
 
 // DataSourceSpec describes the Slack source schema and default materialized views.
 func DataSourceSpec() coredata.SourceSpec {
-	return runtimedata.SourceFromDatasource("slack", Name, entitySpecs(), DataViews()...)
+	spec := runtimedata.SourceFromDatasource("slack", Name, entitySpecs(), DataViews()...)
+	spec.ConfigSchema = operationruntime.SchemaFor[datasourceConfig]()
+	return spec
+}
+
+type datasourceConfig struct {
+	Instance string `json:"instance,omitempty" jsonschema:"description=Slack plugin instance that provides credentials for this datasource."`
 }
 
 // DataViews returns the Slack materializations the query API should prefer.

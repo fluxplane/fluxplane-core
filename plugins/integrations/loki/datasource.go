@@ -12,6 +12,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	runtimedata "github.com/fluxplane/engine/runtime/data"
 	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 type DetectedEndpoint struct {
@@ -41,7 +42,17 @@ type Label struct {
 
 // DataSourceSpec describes Loki live data.
 func DataSourceSpec() coredata.SourceSpec {
-	return runtimedata.SourceFromDatasource(Name, Name, entitySpecs())
+	spec := runtimedata.SourceFromDatasource(Name, Name, entitySpecs())
+	spec.ConfigSchema = operationruntime.SchemaFor[datasourceConfig]()
+	return spec
+}
+
+type datasourceConfig struct {
+	DefaultNamespace string `json:"default_namespace,omitempty" jsonschema:"description=Default namespace filter used when querying Loki records."`
+	DefaultSince     string `json:"default_since,omitempty" jsonschema:"description=Default lookback duration for Loki queries using Go duration syntax such as 15m."`
+	EndpointRef      string `json:"endpoint_ref,omitempty" jsonschema:"description=Discovery endpoint reference used to resolve the Loki URL."`
+	URL              string `json:"url,omitempty" jsonschema:"description=Loki base URL."`
+	URLEnv           string `json:"url_env,omitempty" jsonschema:"description=Environment variable containing the Loki base URL."`
 }
 
 func (p Plugin) DatasourceProviders(context.Context, pluginhost.Context) ([]coredatasource.Provider, error) {

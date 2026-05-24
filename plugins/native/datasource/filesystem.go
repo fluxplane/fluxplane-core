@@ -10,8 +10,11 @@ import (
 	"sort"
 	"strings"
 
+	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
 	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,6 +25,19 @@ type FileDocument struct {
 	Title   string            `json:"title,omitempty" datasource:"searchable" jsonschema:"description=Document title from frontmatter or first markdown heading."`
 	Content string            `json:"content,omitempty" datasource:"searchable" jsonschema:"description=Document body text."`
 	Meta    map[string]string `json:"meta,omitempty" datasource:"filterable" jsonschema:"description=String metadata parsed from frontmatter."`
+}
+
+// FilesystemDataSourceSpec describes workspace file datasource configuration
+// and entities.
+func FilesystemDataSourceSpec() coredata.SourceSpec {
+	spec := runtimedata.SourceFromDatasource("filesystem", "filesystem", filesystemProvider{}.Entities())
+	spec.ConfigSchema = operationruntime.SchemaFor[filesystemDatasourceConfig]()
+	return spec
+}
+
+type filesystemDatasourceConfig struct {
+	Path    string `json:"path,omitempty" jsonschema:"description=Workspace-relative directory or file path to index."`
+	Include string `json:"include,omitempty" jsonschema:"description=Comma-separated glob patterns included from the filesystem datasource."`
 }
 
 // NewFilesystemProvider returns a datasource provider backed by an fs.FS.

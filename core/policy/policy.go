@@ -9,6 +9,11 @@ const (
 	CallerSystem CallerKind = "system"
 )
 
+// CallerKinds returns the stable invocation caller vocabulary.
+func CallerKinds() []CallerKind {
+	return []CallerKind{CallerUser, CallerAgent, CallerSystem}
+}
+
 // Principal identifies the concrete actor behind a caller.
 type Principal struct {
 	Kind string `json:"kind,omitempty"`
@@ -37,6 +42,11 @@ const (
 	TrustSystem     TrustLevel = "system"
 )
 
+// TrustLevels returns the stable policy trust vocabulary.
+func TrustLevels() []TrustLevel {
+	return []TrustLevel{TrustUntrusted, TrustVerified, TrustPrivileged, TrustSystem}
+}
+
 // TrustKind describes what trust is about.
 type TrustKind string
 
@@ -45,6 +55,11 @@ const (
 	TrustSource     TrustKind = "source"
 	TrustTarget     TrustKind = "target"
 )
+
+// TrustKinds returns the stable trust target vocabulary.
+func TrustKinds() []TrustKind {
+	return []TrustKind{TrustInvocation, TrustSource, TrustTarget}
+}
 
 // Trust describes authority/confidence assigned to an invocation, source, or
 // target boundary.
@@ -67,6 +82,11 @@ const (
 	SensitivityConfidential Sensitivity = "confidential"
 	SensitivitySecret       Sensitivity = "secret"
 )
+
+// Sensitivities returns the stable sensitivity vocabulary.
+func Sensitivities() []Sensitivity {
+	return []Sensitivity{SensitivityPublic, SensitivityInternal, SensitivityRestricted, SensitivityConfidential, SensitivitySecret}
+}
 
 // NormalizeSensitivity returns a safe default for missing sensitivity.
 func NormalizeSensitivity(sensitivity Sensitivity) Sensitivity {
@@ -93,6 +113,11 @@ const (
 	DecisionDeny             Decision = "deny"
 	DecisionApprovalRequired Decision = "approval_required"
 )
+
+// Decisions returns the stable policy decision vocabulary.
+func Decisions() []Decision {
+	return []Decision{DecisionAllow, DecisionDeny, DecisionApprovalRequired}
+}
 
 // Evaluation reports the result of evaluating one invocation policy.
 type Evaluation struct {

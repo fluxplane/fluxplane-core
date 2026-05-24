@@ -50,15 +50,15 @@ var defaultOAuthScopes = []string{
 }
 
 type Config struct {
-	Auth AuthConfig `json:"auth,omitempty"`
+	Auth AuthConfig `json:"auth,omitempty" jsonschema:"description=Slack authentication source and token selection."`
 }
 
 type AuthConfig struct {
-	Method       string `json:"method,omitempty"`
-	BotTokenEnv  string `json:"bot_token_env,omitempty"`
-	AppTokenEnv  string `json:"app_token_env,omitempty"`
-	UserTokenEnv string `json:"user_token_env,omitempty"`
-	ChannelToken string `json:"channel_token,omitempty"`
+	Method       string `json:"method,omitempty" jsonschema:"description=Slack auth method. token uses Fluxplane stored secrets; env reads process environment variables; oauth2 uses stored OAuth2 token material.,enum=token,enum=env,enum=oauth2"`
+	BotTokenEnv  string `json:"bot_token_env,omitempty" jsonschema:"description=Environment variable containing the Slack xoxb bot token when method is env. Defaults to SLACK_BOT_TOKEN."`
+	AppTokenEnv  string `json:"app_token_env,omitempty" jsonschema:"description=Environment variable containing the Slack xapp app token when method is env. Defaults to SLACK_APP_TOKEN."`
+	UserTokenEnv string `json:"user_token_env,omitempty" jsonschema:"description=Environment variable containing the Slack xoxp user token when method is env. Defaults to SLACK_USER_TOKEN."`
+	ChannelToken string `json:"channel_token,omitempty" jsonschema:"description=Token preference for Slack channel posting. auto prefers a bot token and falls back to a user token.,enum=auto,enum=bot_token,enum=user_token"`
 }
 
 type Session struct {

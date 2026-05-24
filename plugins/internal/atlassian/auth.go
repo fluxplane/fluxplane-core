@@ -47,17 +47,17 @@ type Product struct {
 }
 
 type Config struct {
-	CloudID string     `json:"cloud_id,omitempty"`
-	SiteURL string     `json:"site_url,omitempty"`
-	BaseURL string     `json:"base_url,omitempty"`
-	Auth    AuthConfig `json:"auth,omitempty"`
+	CloudID string     `json:"cloud_id,omitempty" jsonschema:"description=Atlassian cloud id used for OAuth2 or API-token site selection."`
+	SiteURL string     `json:"site_url,omitempty" jsonschema:"description=Atlassian site URL, for example https://example.atlassian.net."`
+	BaseURL string     `json:"base_url,omitempty" jsonschema:"description=Explicit Atlassian REST API base URL. Usually omitted for cloud apps."`
+	Auth    AuthConfig `json:"auth,omitempty" jsonschema:"description=Atlassian authentication source."`
 }
 
 type AuthConfig struct {
-	Method   string `json:"method,omitempty"`
-	TokenEnv string `json:"token_env,omitempty"`
-	Email    string `json:"email,omitempty"`
-	EmailEnv string `json:"email_env,omitempty"`
+	Method   string `json:"method,omitempty" jsonschema:"description=Atlassian auth method. token reads a bearer token from the environment; api_token uses email plus API token; oauth2 uses stored OAuth2 token material.,enum=token,enum=api_token,enum=oauth2"`
+	TokenEnv string `json:"token_env,omitempty" jsonschema:"description=Environment variable containing the bearer token or API token."`
+	Email    string `json:"email,omitempty" jsonschema:"description=Atlassian account email used with api_token authentication."`
+	EmailEnv string `json:"email_env,omitempty" jsonschema:"description=Environment variable containing the Atlassian account email used with api_token authentication."`
 }
 
 type Session struct {

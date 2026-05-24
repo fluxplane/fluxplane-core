@@ -46,6 +46,21 @@ const (
 	ActionSecretAdmin Action = "secret.admin"
 )
 
+// Actions returns the stable authorization action vocabulary.
+func Actions() []Action {
+	return []Action{
+		ActionDatasourceRead, ActionDatasourceSearch, ActionDatasourceIndex, ActionDatasourceAdmin,
+		ActionWorkspaceRead, ActionWorkspaceWrite, ActionWorkspaceAdmin,
+		ActionProcessExec, ActionProcessAdmin,
+		ActionNetworkFetch, ActionNetworkConnect,
+		ActionChannelSend, ActionChannelAdmin,
+		ActionTaskRead, ActionTaskWrite, ActionTaskRun, ActionTaskAdmin,
+		ActionSessionRead, ActionSessionWrite, ActionSessionAdmin,
+		ActionModelInvoke, ActionOperationInvoke, ActionApprovalGrant,
+		ActionSecretRead, ActionSecretUse, ActionSecretAdmin,
+	}
+}
+
 // SubjectKind classifies a policy subject.
 type SubjectKind string
 
@@ -56,6 +71,11 @@ const (
 	SubjectSystem  SubjectKind = "system"
 	SubjectAgent   SubjectKind = "agent"
 )
+
+// SubjectKinds returns the stable authorization subject vocabulary.
+func SubjectKinds() []SubjectKind {
+	return []SubjectKind{SubjectUser, SubjectGroup, SubjectService, SubjectSystem, SubjectAgent}
+}
 
 // SubjectRef identifies one policy subject.
 type SubjectRef struct {
@@ -80,6 +100,15 @@ const (
 	ResourceOperation  ResourceKind = "operation"
 	ResourceSecret     ResourceKind = "secret"
 )
+
+// ResourceKinds returns the stable authorization resource vocabulary.
+func ResourceKinds() []ResourceKind {
+	return []ResourceKind{
+		ResourceDatasource, ResourceWorkspace, ResourcePath, ResourceProcess,
+		ResourceNetwork, ResourceChannel, ResourceTask, ResourceSession,
+		ResourceAdmin, ResourceModel, ResourceOperation, ResourceSecret,
+	}
+}
 
 // ResourceRef identifies one protected resource target.
 type ResourceRef struct {

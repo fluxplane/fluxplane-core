@@ -23,6 +23,11 @@ const (
 	ModeEveryTurn Mode = "every_turn"
 )
 
+// Modes returns the stable reaction mode vocabulary.
+func Modes() []Mode {
+	return []Mode{ModeOnChange, ModeEveryTurn}
+}
+
 // Rule maps a normalized evidence assertion to one or more inert actions.
 type Rule struct {
 	Name        string            `json:"name"`
@@ -135,6 +140,15 @@ const (
 	ActionRunOperation        ActionKind = "run_operation"
 	ActionRunCommand          ActionKind = "run_command"
 )
+
+// ActionKinds returns the stable reaction action vocabulary.
+func ActionKinds() []ActionKind {
+	return []ActionKind{
+		ActionActivateSkill, ActionActivateReference, ActionEnableActivationSet,
+		ActionEnableOperationSet, ActionEnableDatasource, ActionEnableContext,
+		ActionRunWorkflow, ActionRunOperation, ActionRunCommand,
+	}
+}
 
 // Action is an inert reaction result. Runtime/orchestration decides whether and
 // how an action is applied.

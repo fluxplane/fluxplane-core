@@ -75,6 +75,7 @@ func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.Con
 	return resource.ContributionBundle{
 		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), prewarmContextSpec(), semanticContextSpec()},
 		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
+		DataSources:      []coredata.SourceSpec{FilesystemDataSourceSpec()},
 	}, nil
 }
 

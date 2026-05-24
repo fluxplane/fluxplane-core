@@ -11,24 +11,24 @@ const Name = "openapi"
 
 // Config is the per-instance OpenAPI plugin configuration.
 type Config struct {
-	Specs []SpecConfig `json:"specs,omitempty" yaml:"specs,omitempty"`
+	Specs []SpecConfig `json:"specs,omitempty" yaml:"specs,omitempty" jsonschema:"description=OpenAPI documents to load and expose as generated operations or datasource docs."`
 }
 
 // SpecConfig configures one OpenAPI document.
 type SpecConfig struct {
-	URL        string           `json:"url,omitempty" yaml:"url,omitempty"`
-	File       string           `json:"file,omitempty" yaml:"file,omitempty"`
-	Operations OperationsConfig `json:"operations,omitempty" yaml:"operations,omitempty"`
-	Datasource DatasourceConfig `json:"datasource,omitempty" yaml:"datasource,omitempty"`
-	Auth       AuthConfig       `json:"auth,omitempty" yaml:"auth,omitempty"`
+	URL        string           `json:"url,omitempty" yaml:"url,omitempty" jsonschema:"description=HTTP URL of the OpenAPI document."`
+	File       string           `json:"file,omitempty" yaml:"file,omitempty" jsonschema:"description=Local file path to the OpenAPI document."`
+	Operations OperationsConfig `json:"operations,omitempty" yaml:"operations,omitempty" jsonschema:"description=Generated operation selection and naming options."`
+	Datasource DatasourceConfig `json:"datasource,omitempty" yaml:"datasource,omitempty" jsonschema:"description=Generated datasource documentation options."`
+	Auth       AuthConfig       `json:"auth,omitempty" yaml:"auth,omitempty" jsonschema:"description=Security scheme credential mappings for generated operations."`
 }
 
 // OperationsConfig selects and customizes generated operations.
 type OperationsConfig struct {
-	Prefix    string                     `json:"prefix,omitempty" yaml:"prefix,omitempty"`
-	Include   []string                   `json:"include,omitempty" yaml:"include,omitempty"`
-	Exclude   []string                   `json:"exclude,omitempty" yaml:"exclude,omitempty"`
-	Overrides map[string]OperationConfig `json:"overrides,omitempty" yaml:"overrides,omitempty"`
+	Prefix    string                     `json:"prefix,omitempty" yaml:"prefix,omitempty" jsonschema:"description=Prefix added to generated operation names."`
+	Include   []string                   `json:"include,omitempty" yaml:"include,omitempty" jsonschema:"description=Operation IDs or patterns to include."`
+	Exclude   []string                   `json:"exclude,omitempty" yaml:"exclude,omitempty" jsonschema:"description=Operation IDs or patterns to exclude."`
+	Overrides map[string]OperationConfig `json:"overrides,omitempty" yaml:"overrides,omitempty" jsonschema:"description=Per-operation naming and description overrides keyed by OpenAPI operation id."`
 }
 
 // OperationConfig overrides one generated operation.
@@ -39,19 +39,19 @@ type OperationConfig struct {
 
 // DatasourceConfig configures generated documentation datasource resources.
 type DatasourceConfig struct {
-	Name  string                `json:"name,omitempty" yaml:"name,omitempty"`
-	Index DatasourceIndexConfig `json:"index,omitempty" yaml:"index,omitempty"`
+	Name  string                `json:"name,omitempty" yaml:"name,omitempty" jsonschema:"description=Name for the generated OpenAPI documentation datasource."`
+	Index DatasourceIndexConfig `json:"index,omitempty" yaml:"index,omitempty" jsonschema:"description=Indexing options for the generated OpenAPI documentation datasource."`
 }
 
 // DatasourceIndexConfig configures local indexing for generated docs.
 type DatasourceIndexConfig struct {
-	Enabled   bool   `json:"enabled,omitempty" yaml:"enabled,omitempty"`
-	Freshness string `json:"freshness,omitempty" yaml:"freshness,omitempty"`
+	Enabled   bool   `json:"enabled,omitempty" yaml:"enabled,omitempty" jsonschema:"description=Whether generated OpenAPI documentation should be indexed."`
+	Freshness string `json:"freshness,omitempty" yaml:"freshness,omitempty" jsonschema:"description=How often generated OpenAPI documentation may be refreshed. Use Go duration syntax such as 24h."`
 }
 
 // AuthConfig maps OpenAPI security scheme names to runtime auth methods.
 type AuthConfig struct {
-	Schemes map[string]AuthSchemeConfig `json:"schemes,omitempty" yaml:"schemes,omitempty"`
+	Schemes map[string]AuthSchemeConfig `json:"schemes,omitempty" yaml:"schemes,omitempty" jsonschema:"description=Credential mappings keyed by OpenAPI security scheme name."`
 }
 
 // AuthSchemeConfig configures one OpenAPI security scheme credential source.

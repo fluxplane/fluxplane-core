@@ -29,6 +29,11 @@ const (
 	PhaseLazy         ObservationPhase = "lazy"
 )
 
+// ObservationPhases returns the stable observation phase vocabulary.
+func ObservationPhases() []ObservationPhase {
+	return []ObservationPhase{PhaseStartup, PhaseSessionOpen, PhaseTurn, PhaseToolFollowup, PhaseLazy}
+}
+
 // ObserverSpec describes an inert observation source.
 type ObserverSpec struct {
 	Name            string            `json:"name" yaml:"name"`
@@ -72,6 +77,14 @@ const (
 	SubjectProvider    SubjectKind = "provider"
 	SubjectTrigger     SubjectKind = "trigger"
 )
+
+// SubjectKinds returns the stable evidence subject vocabulary.
+func SubjectKinds() []SubjectKind {
+	return []SubjectKind{
+		SubjectLanguage, SubjectToolchain, SubjectIntegration, SubjectEndpoint,
+		SubjectCapability, SubjectProvider, SubjectTrigger,
+	}
+}
 
 // Subject gives assertions a structured target vocabulary. Target is retained
 // during migration for existing matchers and serialized configs.

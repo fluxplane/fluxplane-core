@@ -22,10 +22,10 @@ const (
 )
 
 type Config struct {
-	EndpointRef string `json:"endpoint_ref,omitempty" yaml:"endpoint_ref,omitempty"`
-	Database    string `json:"database,omitempty" yaml:"database,omitempty"`
-	Timeout     string `json:"timeout,omitempty" yaml:"timeout,omitempty"`
-	MaxRows     int    `json:"max_rows,omitempty" yaml:"max_rows,omitempty"`
+	EndpointRef string `json:"endpoint_ref,omitempty" yaml:"endpoint_ref,omitempty" jsonschema:"description=Runtime endpoint reference for the MySQL server."`
+	Database    string `json:"database,omitempty" yaml:"database,omitempty" jsonschema:"description=Default MySQL database/schema to query."`
+	Timeout     string `json:"timeout,omitempty" yaml:"timeout,omitempty" jsonschema:"description=Query timeout using Go duration syntax such as 30s."`
+	MaxRows     int    `json:"max_rows,omitempty" yaml:"max_rows,omitempty" jsonschema:"description=Maximum rows returned by one query."`
 }
 
 type Plugin struct {

@@ -31,6 +31,11 @@ const (
 	StepAgent     StepKind = "agent"
 )
 
+// StepKinds returns the stable workflow step dispatch vocabulary.
+func StepKinds() []StepKind {
+	return []StepKind{StepOperation, StepAgent}
+}
+
 // Step describes one node in a workflow graph.
 type Step struct {
 	ID             StepID            `json:"id"`
@@ -69,6 +74,11 @@ const (
 	StepErrorFail     StepErrorPolicy = ""
 	StepErrorContinue StepErrorPolicy = "continue"
 )
+
+// StepErrorPolicies returns the stable workflow step error policy vocabulary.
+func StepErrorPolicies() []StepErrorPolicy {
+	return []StepErrorPolicy{StepErrorFail, StepErrorContinue}
+}
 
 // Spec is an inert workflow graph.
 type Spec struct {

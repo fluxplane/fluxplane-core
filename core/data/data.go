@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/engine/core/operation"
 	"github.com/fluxplane/engine/core/thread"
 	"github.com/fluxplane/engine/core/user"
 	"github.com/fluxplane/engine/core/workspace"
@@ -134,13 +135,14 @@ type RelationSpec struct {
 
 // SourceSpec describes one live or configured data source.
 type SourceSpec struct {
-	Name        SourceName        `json:"name"`
-	Kind        string            `json:"kind,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Entities    []EntitySpec      `json:"entities,omitempty"`
-	Views       []ViewSpec        `json:"views,omitempty"`
-	Config      map[string]string `json:"config,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
+	Name         SourceName        `json:"name"`
+	Kind         string            `json:"kind,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Entities     []EntitySpec      `json:"entities,omitempty"`
+	Views        []ViewSpec        `json:"views,omitempty"`
+	Config       map[string]string `json:"config,omitempty"`
+	ConfigSchema operation.Schema  `json:"config_schema,omitempty"`
+	Annotations  map[string]string `json:"annotations,omitempty"`
 }
 
 // Validate checks the source spec is structurally usable.

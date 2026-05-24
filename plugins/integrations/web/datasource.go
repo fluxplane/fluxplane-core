@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/orchestration/pluginhost"
+	runtimedata "github.com/fluxplane/engine/runtime/data"
 	runtimedatasource "github.com/fluxplane/engine/runtime/datasource"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 	"github.com/fluxplane/engine/runtime/system"
 )
 
@@ -20,6 +23,17 @@ type SearchResult struct {
 	Title   string `json:"title,omitempty" datasource:"searchable" jsonschema:"description=Search result title."`
 	Snippet string `json:"snippet,omitempty" datasource:"searchable" jsonschema:"description=Search result snippet."`
 	Source  string `json:"source,omitempty" datasource:"filterable" jsonschema:"description=Search provider source."`
+}
+
+// DataSourceSpec describes web search results.
+func DataSourceSpec() coredata.SourceSpec {
+	spec := runtimedata.SourceFromDatasource(coredata.SourceName(SearchOp), SearchOp, webSearchProvider{}.Entities())
+	spec.ConfigSchema = operationruntime.SchemaFor[datasourceConfig]()
+	return spec
+}
+
+type datasourceConfig struct {
+	Providers string `json:"providers,omitempty" jsonschema:"description=Comma-separated web search providers to use for this datasource."`
 }
 
 // DatasourceProviders returns web-backed datasource providers.

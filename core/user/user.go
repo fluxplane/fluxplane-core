@@ -12,6 +12,11 @@ const (
 	TrustOperator TrustLevel = "operator"
 )
 
+// TrustLevels returns the stable user trust vocabulary.
+func TrustLevels() []TrustLevel {
+	return []TrustLevel{TrustPublic, TrustInternal, TrustOperator}
+}
+
 // ResolutionState records whether an inbound channel identity has been mapped
 // to a canonical system user.
 type ResolutionState string
@@ -20,6 +25,11 @@ const (
 	ResolutionUnresolved ResolutionState = "unresolved"
 	ResolutionResolved   ResolutionState = "resolved"
 )
+
+// ResolutionStates returns the stable identity resolution vocabulary.
+func ResolutionStates() []ResolutionState {
+	return []ResolutionState{ResolutionUnresolved, ResolutionResolved}
+}
 
 // User is a stable person record.
 type User struct {

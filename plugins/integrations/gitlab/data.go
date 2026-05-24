@@ -3,6 +3,7 @@ package gitlab
 import (
 	coredata "github.com/fluxplane/engine/core/data"
 	runtimedata "github.com/fluxplane/engine/runtime/data"
+	operationruntime "github.com/fluxplane/engine/runtime/operation"
 )
 
 const (
@@ -16,7 +17,13 @@ const (
 
 // DataSourceSpec describes the GitLab source schema and default materialized views.
 func DataSourceSpec() coredata.SourceSpec {
-	return runtimedata.SourceFromDatasource("gitlab", Name, entitySpecs(), DataViews()...)
+	spec := runtimedata.SourceFromDatasource("gitlab", Name, entitySpecs(), DataViews()...)
+	spec.ConfigSchema = operationruntime.SchemaFor[datasourceConfig]()
+	return spec
+}
+
+type datasourceConfig struct {
+	Instance string `json:"instance,omitempty" jsonschema:"description=GitLab plugin instance that provides credentials for this datasource."`
 }
 
 // DataViews returns the GitLab materializations the query API should prefer.
