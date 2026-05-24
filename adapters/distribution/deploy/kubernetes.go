@@ -15,7 +15,6 @@ import (
 
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	"github.com/fluxplane/engine/orchestration/distribution"
-	"github.com/fluxplane/engine/runtime/system"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -172,6 +171,7 @@ type KubernetesManifestOptions struct {
 	Profiles        []string
 	Image           string
 	ImagePullPolicy string
+	EnvSecretName   string
 	AuthPath        string
 	Provider        string
 	Model           string
@@ -262,18 +262,6 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
 	})
 
-	base, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
-		Tags:         []string{baseImage},
-		TempDir:      opts.TempDir,
-		DryRun:       opts.DryRun,
-		Out:          out,
-		Err:          errOut,
-		Runner:       opts.Runner,
-		dockerClient: opts.dockerClient,
-	})
-	if err != nil {
-		return KubernetesResult{}, err
-	}
 	app, err := BuildApp(ctx, AppBuildOptions{
 		AppDir:             loaded.Root,
 		Profile:            opts.Profile,
@@ -302,6 +290,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		Namespace:       namespace,
 		Image:           refs.Cluster,
 		ImagePullPolicy: opts.ImagePullPolicy,
+		EnvSecretName:   "",
 		AuthPath:        opts.AuthPath,
 		AppRuntime:      appRuntime,
 		NodeSelectors:   opts.NodeSelectors,
@@ -315,7 +304,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 	}
 
 	result := KubernetesResult{
-		BaseImage:  base,
+		BaseImage:  BaseImageResult{Tags: []string{baseImage}},
 		AppBuild:   app,
 		Manifest:   manifest,
 		Namespace:  namespace,
@@ -539,6 +528,7 @@ func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOpt
 		Namespace:       namespace,
 		Image:           image,
 		ImagePullPolicy: opts.ImagePullPolicy,
+		EnvSecretName:   opts.EnvSecretName,
 		AuthPath:        opts.AuthPath,
 		AppRuntime:      appRuntime,
 		NodeSelectors:   opts.NodeSelectors,
@@ -578,6 +568,7 @@ type kubernetesRenderOptions struct {
 	Namespace       string
 	Image           string
 	ImagePullPolicy string
+	EnvSecretName   string
 	AuthPath        string
 	AppRuntime      appRuntimeOptions
 	NodeSelectors   []string
@@ -592,9 +583,7 @@ type kubernetesRenderResult struct {
 }
 
 type kubernetesEnvSecret struct {
-	Name   string
-	Files  []string
-	Values map[string]string
+	Name string
 }
 
 type kubernetesImageRefSet struct {
@@ -621,7 +610,7 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 	if image == "" {
 		image = defaultAppImage
 	}
-	secret, err := kubernetesEnvSecretForLoaded(loaded, name)
+	secret, err := kubernetesEnvSecretForLoaded(loaded, name, opts.EnvSecretName)
 	if err != nil {
 		return kubernetesRenderResult{}, err
 	}
@@ -636,9 +625,6 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 		docs = append(docs, splitYAMLDocuments(registryContent)...)
 	} else {
 		docs = append(docs, kubernetesNamespace(namespace))
-	}
-	if secret.Name != "" {
-		docs = append(docs, kubernetesSecret(namespace, secret))
 	}
 	if composeUsesMySQL(loaded.Launch) {
 		docs = append(docs, splitYAMLDocuments(kubernetesMySQL(namespace))...)
@@ -658,7 +644,6 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 		Content:         content,
 		RegistryContent: registryContent,
 		SecretName:      secret.Name,
-		SecretKeys:      sortedKeys(secret.Values),
 	}, nil
 }
 
@@ -737,9 +722,6 @@ func kubernetesTeardownContent(loaded distribution.Loaded, opts kubernetesTeardo
 	name := kubernetesName(firstNonEmpty(opts.Name, loaded.Distribution.Spec.Name, "app"))
 	namespace := kubernetesName(firstNonEmpty(opts.Namespace, name))
 	var docs []string
-	if len(cleanStrings(loaded.Launch.Workspace.EnvFiles)) > 0 {
-		docs = append(docs, kubernetesSecretIdentity(namespace, kubernetesName(name+"-env")))
-	}
 	if composeUsesMySQL(loaded.Launch) {
 		docs = append(docs, kubernetesServiceIdentity(namespace, "mysql"))
 		docs = append(docs, kubernetesStatefulSetIdentity(namespace, "mysql"))
@@ -864,7 +846,7 @@ func normalizeKubernetesNamespaces(values []string) []string {
 	return out
 }
 
-func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name string) (kubernetesEnvSecret, error) {
+func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name, override string) (kubernetesEnvSecret, error) {
 	for _, root := range loaded.Launch.Workspace.Roots {
 		if len(cleanStrings(root.EnvFiles)) > 0 {
 			return kubernetesEnvSecret{}, fmt.Errorf("distribution deploy: kubernetes target does not support env_files on workspace root %q", root.Name)
@@ -874,17 +856,12 @@ func kubernetesEnvSecretForLoaded(loaded distribution.Loaded, name string) (kube
 	if len(patterns) == 0 {
 		return kubernetesEnvSecret{}, nil
 	}
-	envFiles, err := system.LoadEnvFiles(loaded.Root, patterns)
-	if err != nil {
-		return kubernetesEnvSecret{}, err
-	}
-	if len(envFiles.Values) == 0 {
-		return kubernetesEnvSecret{}, nil
+	secretName := firstNonEmpty(override, name+"-env")
+	if strings.Contains(secretName, "{{") {
+		return kubernetesEnvSecret{Name: strings.TrimSpace(secretName)}, nil
 	}
 	return kubernetesEnvSecret{
-		Name:   kubernetesName(name + "-env"),
-		Files:  envFiles.Files,
-		Values: envFiles.Values,
+		Name: kubernetesName(secretName),
 	}, nil
 }
 
@@ -892,22 +869,6 @@ func kubernetesNamespace(namespace string) string {
 	return kubernetesYAML(&corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
 		ObjectMeta: objectMeta("", namespace),
-	})
-}
-
-func kubernetesSecret(namespace string, secret kubernetesEnvSecret) string {
-	return kubernetesYAML(&corev1.Secret{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: objectMeta(namespace, secret.Name),
-		Type:       corev1.SecretTypeOpaque,
-		StringData: secret.Values,
-	})
-}
-
-func kubernetesSecretIdentity(namespace, name string) string {
-	return kubernetesYAML(&corev1.Secret{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: objectMeta(namespace, name),
 	})
 }
 

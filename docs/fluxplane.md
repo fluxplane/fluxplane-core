@@ -21,9 +21,10 @@ go install github.com/fluxplane/engine/cmd/fluxplane@latest
 | `fluxplane init <dir>` | Create a minimal app manifest in `<dir>`. |
 | `fluxplane run <dir>` | Run the app once, locally, and exit. |
 | `fluxplane serve <dir>` | Start the daemon with configured listeners and channels. |
-| `fluxplane build <dir>` | Build distribution artifacts (Dockerfile, image, compose). |
-| `fluxplane deploy <dir>` | Deploy a built distribution to a target. |
+| `fluxplane build <dir>` | Build named distribution artifacts such as binaries, docs, images, Compose files, manifests, or Helm charts. |
+| `fluxplane deploy <dir>` | Deploy a named target, rebuilding referenced artifacts according to policy. |
 | `fluxplane undeploy <dir>` | Remove a deployed distribution. |
+| `fluxplane targets <dir>` | List available build and deploy targets. |
 | `fluxplane config show <dir>` | Print the resolved app configuration. |
 | `fluxplane config edit <dir>` | Open the app manifest in `$EDITOR`. |
 | `fluxplane describe <dir>` | Describe distribution surfaces and resources. |
@@ -59,16 +60,30 @@ plugin-backed clients.
 ### Build and deploy
 
 ```bash
-fluxplane build ./my-app --target dockerfile,docker-compose,docker-image \
-  --image my-app:local
-fluxplane deploy ./my-app --target docker-compose --image my-app:local
-fluxplane undeploy ./my-app --target docker-compose
+fluxplane targets ./my-app
+fluxplane build ./my-app --target capabilities
+fluxplane build ./my-app --target image,compose
+fluxplane deploy ./my-app --target local
+fluxplane undeploy ./my-app --target local
 ```
 
-Build targets include `dockerfile`, `docker-image`, `docker-compose`, and
-`kubernetes`. Generated manifests are written under `.deploy/` and added to
-`.gitignore`. See [Configuration → Distribution And Builds](configuration.md#distribution-and-builds)
-for Kubernetes registry modes and env-file handling.
+`fluxplane build` without `--target` builds all configured build targets.
+`--out DIR` changes the root directory for generated artifact outputs, while
+the build index remains under the app's `.deploy/` directory. Build targets are
+named under `distribution.build.targets`; deploy targets are
+named under `distribution.deploy.targets` and reference build targets with
+`build: [...]`. Build kinds include `binary`, `dockerfile`, `docker-image`,
+`docker-compose`, `kubernetes-manifest`, `helm-chart`, and `documentation`.
+Deploy kinds include `docker-compose`, `kubectl`, and `helm`. Image names,
+platforms, push behavior, container runtime settings, and Helm/Kubernetes
+settings live on the named targets in `fluxplane.yaml`. Kubernetes and Helm
+artifacts reference external Secrets instead of embedding env-file contents.
+Use `fluxplane targets`
+to inspect available build and deploy targets. `fluxplane deploy` without
+`--target` uses the declared deploy target named `local` and fails if that
+target does not exist. See
+[Configuration → Distribution And Builds](configuration.md#distribution-and-builds)
+for target examples and env-file handling.
 
 ### Inspect configuration
 

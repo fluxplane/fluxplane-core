@@ -176,11 +176,14 @@ func mergeDistributionSpec(base, override coredistribution.Spec) coredistributio
 	if hasSurfaceOverride(override.Surfaces) {
 		base.Surfaces = override.Surfaces
 	}
-	if len(override.Build.Assets) > 0 || override.Build.Docker != nil {
+	if len(override.Build.Assets) > 0 || override.Build.Docker != nil || len(override.Build.Targets) > 0 {
 		base.Build = override.Build
 	}
 	if override.Deploy.Model != "" {
 		base.Deploy.Model = override.Deploy.Model
+	}
+	if len(override.Deploy.Targets) > 0 {
+		base.Deploy.Targets = override.Deploy.Targets
 	}
 	if len(override.Commands) > 0 {
 		base.Commands = append([]coredistribution.Command(nil), override.Commands...)

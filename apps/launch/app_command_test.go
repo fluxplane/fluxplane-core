@@ -23,6 +23,7 @@ import (
 	"github.com/fluxplane/engine/core/workflow"
 	"github.com/fluxplane/engine/orchestration/distribution"
 	operationruntime "github.com/fluxplane/engine/runtime/operation"
+	"github.com/spf13/cobra"
 )
 
 type testDatasourceConfig struct {
@@ -57,6 +58,111 @@ func TestAppConfigSchemaCommandWritesDefaultSchemaFile(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), filepath.Join(".fluxplane", "schema.json")) {
 		t.Fatalf("output = %q, want schema path", out.String())
+	}
+}
+
+func TestAppTargetsCommandListsBuildAndDeployTargets(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fluxplane.yaml"), []byte(`
+kind: app
+name: sample
+distribution:
+  build:
+    targets:
+      docs:
+        kind: documentation
+        output: docs/capabilities.md
+  deploy:
+    targets:
+      local:
+        kind: docker-compose
+        build: [docs]
+        compose_file: docker-compose.yaml
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cmd := NewAppTargetsCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{dir})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for _, want := range []string{"Build targets", "docs", "documentation", "Deploy targets", "local", "docker-compose"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("targets output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestAppTargetsCommandCanOutputBuildTargetsAsJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "fluxplane.yaml"), []byte(`
+kind: app
+name: sample
+distribution:
+  build:
+    targets:
+      docs:
+        kind: documentation
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	cmd := NewAppTargetsCommand()
+	out := bytes.Buffer{}
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{dir, "--kind", "build", "--output", "json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var result struct {
+		Build  []map[string]any `json:"build"`
+		Deploy []map[string]any `json:"deploy"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("targets JSON: %v\n%s", err, out.String())
+	}
+	if len(result.Build) != 1 || result.Build[0]["name"] != "docs" {
+		t.Fatalf("build targets = %#v", result.Build)
+	}
+	if result.Deploy != nil {
+		t.Fatalf("deploy targets = %#v, want omitted from build listing", result.Deploy)
+	}
+}
+
+func TestAppBuildAndDeployHelpStayTargetFocused(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cmd  *cobra.Command
+	}{
+		{name: "build", cmd: NewAppBuildCommand()},
+		{name: "deploy", cmd: NewAppDeployCommand()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := bytes.Buffer{}
+			tc.cmd.SetOut(&out)
+			tc.cmd.SetErr(&out)
+			tc.cmd.SetArgs([]string{"--help"})
+
+			if err := tc.cmd.Execute(); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			help := out.String()
+			for _, want := range []string{"--target", "--profile", "--dry-run", "--force", "--list-targets"} {
+				if !strings.Contains(help, want) {
+					t.Fatalf("%s help missing %q:\n%s", tc.name, want, help)
+				}
+			}
+			for _, old := range []string{"--image", "--tag", "--platform", "--push", "--base-image", "--auth-path", "--allow-plugin-auth-env", "--provider", "--model", "--effort", "--output"} {
+				if strings.Contains(help, old) {
+					t.Fatalf("%s help still contains %q:\n%s", tc.name, old, help)
+				}
+			}
+		})
 	}
 }
 

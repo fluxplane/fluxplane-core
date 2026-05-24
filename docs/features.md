@@ -65,8 +65,9 @@ Run the same app as a daemon or generate deployment artifacts:
 
 ```bash
 fluxplane serve ./my-app --verbose
-fluxplane build ./my-app --target dockerfile,docker-compose --image my-app:local
-fluxplane deploy ./my-app --target docker-compose --image my-app:local
+fluxplane build ./my-app --target capabilities
+fluxplane build ./my-app --target image,compose
+fluxplane deploy ./my-app --target local
 ```
 
 `serve` mode supports channel clients and background automation, including

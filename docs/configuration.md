@@ -572,8 +572,10 @@ daemon:
 
 ### Distribution And Builds
 
-Distribution metadata describes a runnable package and optional Docker build
-inputs.
+Distribution metadata describes a runnable package and named build and deploy
+targets. Build targets produce reusable artifacts. Deploy targets reference
+those artifacts and can build them automatically before invoking the local
+deployment tool.
 
 ```yaml
 defaults:
@@ -595,15 +597,45 @@ models:
 distribution:
   name: support-bot
   title: Support Bot
-  deploy:
-    model: smart_model
   build:
     assets:
       - fluxplane.yaml
       - docs/**/*
-    docker:
-      image: support-bot
-      tags: [latest]
+    targets:
+      linux-binary:
+        kind: binary
+        output: bin/support-bot
+      capabilities:
+        kind: documentation
+        output: docs/capabilities.md
+      image:
+        kind: docker-image
+        image: support-bot
+        tags: [local]
+      compose:
+        kind: docker-compose
+        image: support-bot:local
+        output: docker-compose.yaml
+      chart:
+        kind: helm-chart
+        image: registry.example.com/support-bot
+        tags: [v1]
+        namespace: ai-bots
+        output: charts/support-bot
+  deploy:
+    model: smart_model
+    targets:
+      local:
+        kind: docker-compose
+        build: [image, compose]
+        compose_file: docker-compose.yaml
+        detach: true
+      prod:
+        kind: helm
+        build: [chart]
+        chart: charts/support-bot
+        release: support-bot
+        namespace: ai-bots
 ---
 kind: runtime
 profile: prod
@@ -623,31 +655,64 @@ events:
 Build with:
 
 ```bash
-fluxplane build . --target docker-base --base-image fluxplane/fluxplane-base:local
-fluxplane build . --image support-bot:local
-fluxplane deploy . --profile prod --target docker-compose --image support-bot:local
-fluxplane deploy . --profile prod --target kubernetes --namespace ai-bots --image support-bot:local
-fluxplane undeploy . --target kubernetes --namespace ai-bots
+fluxplane targets .
+fluxplane build .
+fluxplane build . --target capabilities
+fluxplane build . --target image,compose
+fluxplane deploy . --target local
+fluxplane build . --profile prod --target chart
+fluxplane deploy . --profile prod --target prod --build-policy never
+fluxplane undeploy . --target prod
 ```
 
-For Kubernetes deploys, the default registry mode is `auto`: k3d contexts use
-`k3d image import`, while other Kubernetes contexts deploy a temporary registry
-service into the target namespace, push the app image through a local
-port-forward, and reference that registry from the app Deployment. Use
-`--registry-mode k3d` or `--registry-mode namespace` to select either path
-explicitly, or `--registry-mode external --registry <registry-prefix>` for ECR
-or another registry that cluster nodes can pull from. Root workspace `env_files` are
-converted into a Kubernetes Secret and injected into the app container
-environment. Runtime backend DSN variables generated for MySQL or NATS are set
-directly on the app Deployment and override matching env-file keys. Named root
-`env_files` are not supported by Kubernetes deploy until workspace roots are
-mounted there. Generated Kubernetes manifests are written to
-`.deploy/kubernetes.yaml`, and `.deploy/` is added to the app's `.gitignore`
-when the manifest is written.
+`fluxplane build` without `--target` builds all configured build targets.
+`--target` narrows the build to one or more named targets, and `--out DIR`
+uses `DIR` as the root for generated artifact outputs. Relative target
+`output` paths are resolved under `--out`; absolute output paths are preserved.
+The artifact index still lives at `.deploy/fluxplane-build.json` in the app
+root so deploy targets can find previously built artifacts.
 
-`fluxplane undeploy` deletes generated app resources and preserves persistent
-Docker volumes or Kubernetes PVCs by default. Add `--volumes` only when runtime
-backend state should be removed too.
+`fluxplane build` writes an artifact index to `.deploy/fluxplane-build.json`.
+`fluxplane deploy` uses that index to find the artifacts named in the deploy
+target. Its `--build-policy` is `auto` by default, rebuilding missing artifacts;
+use `always` to force a rebuild or `never` when a production pipeline should
+only deploy artifacts that were already generated. `fluxplane deploy` without
+`--target` resolves the manifest target named `local`; if that target is not
+declared, deploy fails instead of inventing a Docker Compose fallback.
+Docker image artifacts are rebuilt under `auto` because the artifact index
+cannot prove a local Docker image still contains the current runtime binary.
+When a Docker image target uses the managed `fluxplane/fluxplane-base:local`
+base image, Fluxplane refreshes that base image before building the app image.
+
+Build target kinds are `binary`, `dockerfile`, `docker-image`,
+`docker-compose`, `kubernetes-manifest`, `helm-chart`, and `documentation`.
+Deploy target kinds are `docker-compose`, `kubectl`, and `helm`. Target fields
+such as `image`, `tags`, `platforms`, `push`, `base_image`, `auth_path`,
+`provider`, `model`, `effort`, `namespace`, `image_pull_policy`,
+`node_selectors`, `release`, and Helm `values` live in the manifest instead of
+build or deploy flags, so generated production artifacts can be committed or
+handed to systems such as Argo CD.
+
+Use `fluxplane targets .` to list both build and deploy targets, including
+artifact status when `.deploy/fluxplane-build.json` exists. Use
+`fluxplane targets . --kind build`, `fluxplane targets . --kind deploy`, or
+`--output json` for filtered or machine-readable output. `fluxplane build
+--list-targets` and `fluxplane deploy --list-targets` provide command-specific
+shortcuts.
+
+Root workspace `env_files` cause generated Kubernetes manifests and Helm charts
+to reference an external Kubernetes Secret named `<app>-env` by default. Set
+`env_secret_name` on `kubernetes-manifest` or `helm-chart` build targets to use
+a platform-managed Secret name. Fluxplane does not render literal env-file
+values into production artifacts, so charts and manifests are safe to commit
+when the rest of their inputs are non-secret. Runtime backend DSN variables
+generated for MySQL or NATS are set directly on the app Deployment. Named root
+`env_files` are not supported by Kubernetes artifact generation until workspace
+roots are mounted there.
+
+`fluxplane undeploy` deletes generated app resources. Docker Compose volumes
+are preserved by default; add `--volumes` only when local runtime backend state
+should be removed too.
 
 ### Model Providers
 

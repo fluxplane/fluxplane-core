@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-func TestGenerateKubernetesManifestsCreatesEnvSecret(t *testing.T) {
+func TestGenerateKubernetesManifestsReferencesExternalEnvSecret(t *testing.T) {
 	_, app := testRepo(t, `
 kind: app
 name: sample
@@ -43,10 +43,7 @@ name: assistant
 		t.Fatalf("GenerateKubernetesManifests: %v", err)
 	}
 	for _, want := range []string{
-		"kind: Secret",
 		"  name: sample-env",
-		"  OPENROUTER_API_KEY: secret-one",
-		"  SHARED: last",
 		"        envFrom:",
 		"            name: sample-env",
 		"        image: sample:test",
@@ -56,6 +53,37 @@ name: assistant
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("kubernetes manifest missing %q:\n%s", want, result.Content)
 		}
+	}
+	for _, leaked := range []string{"kind: Secret", "secret-one", "SHARED: last"} {
+		if strings.Contains(result.Content, leaked) {
+			t.Fatalf("kubernetes manifest leaked %q:\n%s", leaked, result.Content)
+		}
+	}
+}
+
+func TestGenerateKubernetesManifestsHonorsEnvSecretNameOverride(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+runtime:
+  workspace:
+    env_files:
+      - .env
+---
+kind: agent
+name: assistant
+`)
+	result, err := GenerateKubernetesManifests(context.Background(), KubernetesManifestOptions{
+		AppDir:        app,
+		Image:         "sample:test",
+		EnvSecretName: "platform-managed-secret",
+		DryRun:        true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateKubernetesManifests: %v", err)
+	}
+	if result.SecretName != "platform-managed-secret" || !strings.Contains(result.Content, "name: platform-managed-secret") {
+		t.Fatalf("secret name/content = %q\n%s", result.SecretName, result.Content)
 	}
 }
 
@@ -352,7 +380,7 @@ name: assistant
 	manifest := filepath.Join(app, ".deploy", "kubernetes.yaml")
 	for _, want := range []string{
 		"write=" + manifest,
-		"secret=sample-env keys=OPENROUTER_API_KEY",
+		"secret=sample-env external=true",
 		"command=kubectl apply -f <registry-manifest>",
 		"command=kubectl rollout status deployment/coder-registry -n sample --timeout=120s",
 		"command=kubectl port-forward -n sample --address 127.0.0.1 service/coder-registry 5000:5000",
@@ -702,8 +730,6 @@ name: assistant
 			}
 			text := string(data)
 			for _, want := range []string{
-				"kind: Secret",
-				"  name: support-bot-env",
 				"kind: StatefulSet",
 				"  name: mysql",
 				"kind: Deployment",
@@ -712,6 +738,9 @@ name: assistant
 				if !strings.Contains(text, want) {
 					t.Fatalf("teardown manifest missing %q:\n%s", want, text)
 				}
+			}
+			if strings.Contains(text, "kind: Secret") || strings.Contains(text, "support-bot-env") {
+				t.Fatalf("teardown manifest should not delete external secret:\n%s", text)
 			}
 			if strings.Contains(text, "coder-registry") {
 				t.Fatalf("teardown manifest should not include shared namespace registry:\n%s", text)

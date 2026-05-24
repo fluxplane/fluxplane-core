@@ -35,6 +35,8 @@ const (
 
 const deployStackLabel = "agentruntime.fluxplane.io/deploy-stack"
 
+const dockerComposeWaitTimeoutSeconds = "30"
+
 const (
 	// DefaultAppProvider is the model provider used by generated app containers.
 	DefaultAppProvider = "openrouter"
@@ -200,34 +202,6 @@ func distributionName(spec coredistribution.Spec) string {
 	return "app"
 }
 
-func appBuildTargets(values []string) ([]string, error) {
-	raw := cleanStrings(values)
-	if len(raw) == 0 {
-		raw = []string{"all"}
-	}
-	expanded := make([]string, 0, len(raw))
-	for _, target := range raw {
-		switch target {
-		case "all":
-			expanded = append(expanded, "binary", "dockerfile", "docker-compose", "docker-image")
-		case "binary", "dockerfile", "docker-image", "docker-compose", "kubernetes", "docker-base":
-			expanded = append(expanded, target)
-		default:
-			return nil, fmt.Errorf("distribution build: unsupported app target %q", target)
-		}
-	}
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(expanded))
-	for _, target := range expanded {
-		if _, ok := seen[target]; ok {
-			continue
-		}
-		seen[target] = struct{}{}
-		out = append(out, target)
-	}
-	return out, nil
-}
-
 func appServeCommand(authPath string, appRuntime appRuntimeOptions) []string {
 	return appServeCommandWithHealthAddr(authPath, appRuntime, defaultHealthAddr)
 }
@@ -257,10 +231,6 @@ func appServeCommandWithHealthAddr(authPath string, appRuntime appRuntimeOptions
 
 func appHealthcheckCommand() []string {
 	return []string{"/usr/local/bin/fluxplane", "healthcheck", "--url", defaultHealthURL}
-}
-
-func appLauncherScript(appRoot string) string {
-	return fmt.Sprintf("#!/usr/bin/env sh\nset -eu\nexec fluxplane run %s \"$@\"\n", shellQuote(appRoot))
 }
 
 func cleanStrings(input []string) []string {
@@ -358,10 +328,6 @@ func printAppBuildCommand(out io.Writer, command []string, dryRun bool) {
 	}
 }
 
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
 func firstTag(tags []string) string {
 	if len(tags) == 0 {
 		return ""
@@ -429,6 +395,10 @@ func splitYAMLDocuments(content string) []string {
 
 func printKubernetesSecretSummary(out io.Writer, name string, keys []string, dryRun bool) {
 	if !dryRun {
+		return
+	}
+	if len(keys) == 0 {
+		_, _ = fmt.Fprintf(out, "secret=%s external=true\n", name)
 		return
 	}
 	_, _ = fmt.Fprintf(out, "secret=%s keys=%s\n", name, strings.Join(keys, ","))

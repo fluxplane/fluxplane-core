@@ -17,7 +17,7 @@ func TestCommandExposesTopLevelAppCommands(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	help := out.String()
-	for _, want := range []string{"init", "run", "serve", "build", "deploy", "undeploy", "config", "describe", "healthcheck", "auth", "op", "datasource", "discover"} {
+	for _, want := range []string{"init", "run", "serve", "build", "deploy", "undeploy", "targets", "config", "describe", "healthcheck", "auth", "op", "datasource", "discover"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help = %q, want %s", help, want)
 		}

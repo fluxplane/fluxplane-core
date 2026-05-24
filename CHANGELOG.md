@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added named `distribution.build.targets` and `distribution.deploy.targets`
+  so apps can separately build reusable artifacts and deploy targets that
+  reference those artifacts.
+- Added build target kinds for embedded binaries, Helm charts, and generated
+  capability documentation, alongside Dockerfile, Docker image, Docker Compose,
+  and Kubernetes manifest artifacts.
+- Added a `.deploy/fluxplane-build.json` artifact index and `fluxplane deploy
+  --build-policy auto|always|never` for target deployments.
+- Added `fluxplane targets` plus `fluxplane build --list-targets` and
+  `fluxplane deploy --list-targets` to inspect available build and deploy
+  targets.
+- Added `env_secret_name` for Kubernetes manifest and Helm chart build targets
+  so generated production artifacts can reference platform-managed Kubernetes
+  Secrets.
 - Added `fluxplane config schema` to write the base `fluxplane.yaml` JSON
   Schema to `.fluxplane/schema.json` for editor integration, including
   descriptions for manifest fields, typed plugin config schemas, and
@@ -31,6 +45,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made `fluxplane deploy --target docker-compose` run Docker Compose by default
   and reuse an existing Fluxplane-managed Docker network when the internal
   Docker Engine deploy backend is used.
+- Reworked `fluxplane deploy` to resolve named deploy targets and invoke Docker
+  Compose, `kubectl`, or Helm against build artifacts instead of mixing
+  artifact generation and backend-specific deploy flags in the CLI.
+- Simplified `fluxplane build` and `fluxplane deploy` flags so target-specific
+  image, container runtime, model, platform, and Helm/Kubernetes settings live
+  on named manifest targets instead of command-line overrides.
+- Made `fluxplane deploy` require declared manifest deploy targets; the default
+  target name remains `local`, but missing targets now fail instead of falling
+  back to implicit Docker Compose or Kubernetes behavior.
+- Made Docker image build targets refresh the managed
+  `fluxplane/fluxplane-base:local` image automatically, and made deploy
+  `auto` rebuild Docker image targets instead of trusting image-only artifact
+  index entries.
+- Added `docker compose up --wait --wait-timeout 30` to Docker Compose deploys
+  so deploy waits briefly for services to become healthy.
+- Changed Kubernetes manifest and Helm chart artifacts to reference external
+  Kubernetes Secrets for `env_files` instead of rendering literal env-file
+  values into generated production artifacts.
+- Changed generated Docker Compose YAML to use two-space indentation.
 - Inferred `default_agent` for app manifests that declare exactly one local
   agent and do not set a default explicitly.
 - Moved manifest schema enums, defaults, and duration validation for appconfig

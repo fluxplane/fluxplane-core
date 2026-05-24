@@ -47,7 +47,7 @@ name: assistant
 	for _, want := range []string{
 		"docker build -t fluxplane/fluxplane-base:local ",
 		"docker build -t sample:test -f " + filepath.Join(app, "Dockerfile") + " " + app,
-		"docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up -d",
+		"docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up -d --wait --wait-timeout 30",
 	} {
 		found := false
 		for _, call := range calls {
@@ -100,7 +100,7 @@ name: assistant
 		"command=docker build -t fluxplane/fluxplane-base:local",
 		"write=" + filepath.Join(app, "Dockerfile"),
 		"write=" + filepath.Join(app, "docker-compose.yaml"),
-		"command=docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up",
+		"command=docker compose -f " + filepath.Join(app, "docker-compose.yaml") + " up --wait --wait-timeout 30",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("dry-run output missing %q:\n%s", want, out.String())
@@ -208,11 +208,11 @@ name: assistant
 	}
 	for _, want := range []string{
 		"services:",
-		"    sample-app:",
-		"        image: sample:latest",
-		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
-		"        environment:",
-		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
+		"  sample-app:",
+		"    image: sample:latest",
+		"    command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, medium]",
+		"    environment:",
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -260,7 +260,7 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
+		"    command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, codex, --model, gpt-5.5, --effort, high]",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -301,8 +301,8 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
-		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
+		"    command: [serve, /app, --auth-path, /auth, --health-addr, '127.0.0.1:18080', --provider, openrouter, --model, openai/gpt-5.5, --effort, high]",
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)
@@ -354,22 +354,22 @@ name: assistant
 		t.Fatalf("GenerateDockerCompose: %v", err)
 	}
 	for _, want := range []string{
-		"        image: support-bot:test",
-		"            AGENTRUNTIME_DATASTORE_MYSQL_DSN: agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true",
-		"            AGENTRUNTIME_EVENTSTORE_NATS_DSN: nats://nats:4222",
-		"            OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
-		"            mysql:",
-		"                condition: service_healthy",
-		"            nats:",
-		"    mysql:",
-		"        image: mysql:8.4",
-		"    nats:",
-		"        image: nats:2.11-alpine",
-		"        command: [-js, -sd, /data, -m, \"8222\"]",
-		"            test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1:8222/healthz | grep -q ok']",
+		"    image: support-bot:test",
+		"      AGENTRUNTIME_DATASTORE_MYSQL_DSN: agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true",
+		"      AGENTRUNTIME_EVENTSTORE_NATS_DSN: nats://nats:4222",
+		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
+		"      mysql:",
+		"        condition: service_healthy",
+		"      nats:",
+		"  mysql:",
+		"    image: mysql:8.4",
+		"  nats:",
+		"    image: nats:2.11-alpine",
+		"    command: [-js, -sd, /data, -m, \"8222\"]",
+		"      test: [CMD-SHELL, 'wget -q -O - http://127.0.0.1:8222/healthz | grep -q ok']",
 		"volumes:",
-		"    mysql-data: {}",
-		"    nats-data: {}",
+		"  mysql-data: {}",
+		"  nats-data: {}",
 	} {
 		if !strings.Contains(result.Content, want) {
 			t.Fatalf("compose missing %q:\n%s", want, result.Content)

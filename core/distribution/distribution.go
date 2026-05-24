@@ -47,13 +47,53 @@ type Surfaces struct {
 
 // BuildSpec describes packaging inputs and outputs for a distribution.
 type BuildSpec struct {
-	Assets []string         `json:"assets,omitempty"`
-	Docker *DockerBuildSpec `json:"docker,omitempty"`
+	Assets  []string                   `json:"assets,omitempty"`
+	Docker  *DockerBuildSpec           `json:"docker,omitempty"`
+	Targets map[string]BuildTargetSpec `json:"targets,omitempty"`
 }
 
 // DeploySpec describes deployment-specific runtime overrides.
 type DeploySpec struct {
-	Model string `json:"model,omitempty"`
+	Model   string                      `json:"model,omitempty"`
+	Targets map[string]DeployTargetSpec `json:"targets,omitempty"`
+}
+
+// BuildTargetSpec describes one named distribution artifact target.
+type BuildTargetSpec struct {
+	Kind               string            `json:"kind,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	Output             string            `json:"output,omitempty"`
+	Dockerfile         string            `json:"dockerfile,omitempty"`
+	Image              string            `json:"image,omitempty"`
+	Tags               []string          `json:"tags,omitempty"`
+	Platforms          []string          `json:"platforms,omitempty"`
+	Push               bool              `json:"push,omitempty"`
+	BaseImage          string            `json:"base_image,omitempty"`
+	AuthPath           string            `json:"auth_path,omitempty"`
+	AllowPluginAuthEnv bool              `json:"allow_plugin_auth_env,omitempty"`
+	Provider           string            `json:"provider,omitempty"`
+	Model              string            `json:"model,omitempty"`
+	Effort             string            `json:"effort,omitempty"`
+	Namespace          string            `json:"namespace,omitempty"`
+	ImagePullPolicy    string            `json:"image_pull_policy,omitempty"`
+	EnvSecretName      string            `json:"env_secret_name,omitempty"`
+	NodeSelectors      []string          `json:"node_selectors,omitempty"`
+	Release            string            `json:"release,omitempty"`
+	Values             map[string]string `json:"values,omitempty"`
+}
+
+// DeployTargetSpec describes one named deployment target.
+type DeployTargetSpec struct {
+	Kind        string            `json:"kind,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Build       []string          `json:"build,omitempty"`
+	ComposeFile string            `json:"compose_file,omitempty"`
+	Manifest    string            `json:"manifest,omitempty"`
+	Chart       string            `json:"chart,omitempty"`
+	Release     string            `json:"release,omitempty"`
+	Namespace   string            `json:"namespace,omitempty"`
+	Detach      bool              `json:"detach,omitempty"`
+	Values      map[string]string `json:"values,omitempty"`
 }
 
 // DockerBuildSpec describes a future Docker image build target.

@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -112,18 +113,6 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		runner = execRunner{}
 	}
 	dockerClient := dockerClientFor(opts.Runner, opts.dockerClient)
-	base, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
-		Tags:         []string{baseImage},
-		TempDir:      opts.TempDir,
-		DryRun:       opts.DryRun,
-		Out:          out,
-		Err:          errOut,
-		Runner:       opts.Runner,
-		dockerClient: opts.dockerClient,
-	})
-	if err != nil {
-		return ComposeDeployResult{}, err
-	}
 	app, err := BuildApp(ctx, AppBuildOptions{
 		AppDir:             opts.AppDir,
 		Profile:            opts.Profile,
@@ -146,12 +135,9 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 	if err != nil {
 		return ComposeDeployResult{}, err
 	}
-	command := []string{"docker", "compose", "-f", app.Compose, "up"}
-	if opts.Detach {
-		command = append(command, "-d")
-	}
+	command := dockerComposeUpCommand(app.Compose, opts.Detach)
 	result := ComposeDeployResult{
-		BaseImage: base,
+		BaseImage: BaseImageResult{Tags: []string{baseImage}},
 		AppBuild:  app,
 		Command:   command,
 		DryRun:    opts.DryRun,
@@ -326,11 +312,17 @@ func dockerComposeContent(name, image, authPath string, appRuntime appRuntimeOpt
 	if len(volumes) > 0 {
 		spec.Volumes = volumes
 	}
-	content, err := yaml.Marshal(spec)
+	var buffer bytes.Buffer
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(2)
+	err := encoder.Encode(spec)
 	if err != nil {
 		return ""
 	}
-	return string(content)
+	if err := encoder.Close(); err != nil {
+		return ""
+	}
+	return buffer.String()
 }
 
 type composeFile struct {

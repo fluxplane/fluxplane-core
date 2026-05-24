@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	distdeploy "github.com/fluxplane/engine/adapters/distribution/deploy"
 	distdescribe "github.com/fluxplane/engine/adapters/distribution/describe"
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
-	distrun "github.com/fluxplane/engine/adapters/distribution/run"
 	"github.com/fluxplane/engine/adapters/resources/appconfig"
 	coredata "github.com/fluxplane/engine/core/data"
 	"github.com/fluxplane/engine/core/resource"
@@ -58,29 +58,20 @@ func NewAppCommandWithOptions(opts AppCommandOptions) *cobra.Command {
 	cmd.AddCommand(NewAppBuildCommandWithRunner(opts.BuildRunner))
 	cmd.AddCommand(NewAppDeployCommand())
 	cmd.AddCommand(NewAppUndeployCommand())
+	cmd.AddCommand(NewAppTargetsCommand())
 	cmd.AddCommand(NewAppConfigCommand(opts.ConfigLoader, opts.EditorRunner))
 	cmd.AddCommand(NewAppHealthcheckCommand())
 	return cmd
 }
 
 type appBuildOptions struct {
-	profiles     []string
-	targets      []string
-	docker       bool
-	image        string
-	outDir       string
-	tags         []string
-	platforms    []string
-	push         bool
-	dryRun       bool
-	force        bool
-	baseImage    string
-	authPath     string
-	allowAuthEnv bool
-	provider     string
-	model        string
-	effort       string
-	runner       distdeploy.CommandRunner
+	profiles    []string
+	targets     []string
+	outDir      string
+	dryRun      bool
+	force       bool
+	listTargets bool
+	runner      distdeploy.CommandRunner
 }
 
 // NewAppBuildCommand returns the app build command.
@@ -101,76 +92,41 @@ func NewAppBuildCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comman
 			return runAppBuild(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().BoolVar(&opts.docker, "docker", false, "build a Docker image")
 	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
-	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Build target: all|binary|dockerfile|docker-image|docker-compose|kubernetes|docker-base; may be repeated or comma-separated")
-	cmd.Flags().StringVar(&opts.image, "image", "", "Docker image tag to use for app artifacts")
+	cmd.Flags().StringArrayVar(&opts.targets, "target", nil, "Named build target; may be repeated or comma-separated; omitted builds all configured targets")
 	cmd.Flags().StringVar(&opts.outDir, "out", "", "output directory for generated app artifacts")
-	cmd.Flags().StringArrayVarP(&opts.tags, "tag", "t", nil, "Docker image tag; may be repeated")
-	cmd.Flags().StringArrayVar(&opts.platforms, "platform", nil, "Docker target platform; may be repeated or comma-separated")
-	cmd.Flags().BoolVar(&opts.push, "push", false, "push Docker build output")
-	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker build inputs without running Docker")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved build actions without writing artifacts or running commands")
 	cmd.Flags().BoolVar(&opts.force, "force", false, "overwrite existing generated artifacts")
-	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
-	cmd.Flags().StringVar(&opts.authPath, "auth-path", "/auth", "container plugin auth store path")
-	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
-	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
-	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
+	cmd.Flags().BoolVar(&opts.listTargets, "list-targets", false, "list available build targets")
 	return cmd
 }
 
 func runAppBuild(ctx context.Context, opts appBuildOptions, appDir string, out, errOut io.Writer) error {
-	targets := append([]string(nil), opts.targets...)
-	if opts.docker && len(targets) == 0 {
-		targets = []string{"docker-image"}
-	}
-	if err := distrun.ValidateReasoningFlags("", false, opts.effort, strings.TrimSpace(opts.effort) != ""); err != nil {
-		return err
+	if opts.listTargets {
+		return runAppTargets(ctx, appTargetsOptions{profiles: opts.profiles, kind: "build", output: "table"}, appDir, out)
 	}
 	_, err := distdeploy.BuildApp(ctx, distdeploy.AppBuildOptions{
-		AppDir:             appDir,
-		Profiles:           opts.profiles,
-		OutDir:             opts.outDir,
-		Targets:            targets,
-		Image:              opts.image,
-		Tags:               opts.tags,
-		Platforms:          opts.platforms,
-		Push:               opts.push,
-		DryRun:             opts.dryRun,
-		Force:              opts.force,
-		BaseImage:          opts.baseImage,
-		AuthPath:           opts.authPath,
-		AllowPluginAuthEnv: opts.allowAuthEnv,
-		Provider:           opts.provider,
-		Model:              opts.model,
-		Effort:             opts.effort,
-		Out:                out,
-		Err:                errOut,
-		Runner:             opts.runner,
+		AppDir:   appDir,
+		Profiles: opts.profiles,
+		OutDir:   opts.outDir,
+		Targets:  opts.targets,
+		DryRun:   opts.dryRun,
+		Force:    opts.force,
+		Out:      out,
+		Err:      errOut,
+		Runner:   opts.runner,
 	})
 	return err
 }
 
 type appDeployOptions struct {
-	profiles        []string
-	target          string
-	image           string
-	imagePullPolicy string
-	baseImage       string
-	authPath        string
-	allowAuthEnv    bool
-	dryRun          bool
-	force           bool
-	detach          bool
-	provider        string
-	model           string
-	effort          string
-	namespace       string
-	nodeSelectors   []string
-	registryMode    string
-	registry        string
-	runner          distdeploy.CommandRunner
+	profiles    []string
+	target      string
+	dryRun      bool
+	force       bool
+	buildPolicy string
+	listTargets bool
+	runner      distdeploy.CommandRunner
 }
 
 // NewAppDeployCommand returns the app deploy command.
@@ -192,87 +148,124 @@ func NewAppDeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Comma
 			return runAppDeploy(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&opts.target, "target", "", "Deploy target: docker-compose|kubernetes")
+	cmd.Flags().StringVar(&opts.target, "target", "", "Named deploy target")
+	cmd.Flags().StringVar(&opts.buildPolicy, "build-policy", "auto", "Build policy for deploy target artifacts: auto|always|never")
 	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
-	cmd.Flags().StringVar(&opts.image, "image", "", "App image to build and reference in generated deployment resources")
-	cmd.Flags().StringVar(&opts.imagePullPolicy, "image-pull-policy", "", "Kubernetes app image pull policy: Always|IfNotPresent|Never")
-	cmd.Flags().StringVar(&opts.baseImage, "base-image", "", "Docker base image for app containers")
-	cmd.Flags().StringVar(&opts.authPath, "auth-path", "/auth", "container plugin auth store path")
-	cmd.Flags().BoolVar(&opts.allowAuthEnv, "allow-plugin-auth-env", false, "allow generated app containers to resolve plugin credentials from their process environment")
-	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved Docker commands without running them")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved deploy actions without writing artifacts or running commands")
 	cmd.Flags().BoolVar(&opts.force, "force", opts.force, "overwrite generated app artifacts before deploying")
-	cmd.Flags().BoolVarP(&opts.detach, "detach", "d", false, "run docker compose up in detached mode")
-	cmd.Flags().StringVar(&opts.provider, "provider", "", "model provider override for generated app containers")
-	cmd.Flags().StringVar(&opts.model, "model", "", "model override for generated app containers")
-	cmd.Flags().StringVar(&opts.effort, "effort", "", "reasoning effort override for generated app containers: low|medium|high|max")
-	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Kubernetes namespace for kubernetes deploy target")
-	cmd.Flags().StringArrayVar(&opts.nodeSelectors, "node-selector", nil, "Kubernetes node selector key=value; may be repeated")
-	cmd.Flags().StringVar(&opts.registryMode, "registry-mode", "", "Kubernetes registry mode: auto|k3d|namespace|external")
-	cmd.Flags().StringVar(&opts.registry, "registry", "", "External registry prefix for kubernetes deploy target")
+	cmd.Flags().BoolVar(&opts.listTargets, "list-targets", false, "list available deploy targets")
 	return cmd
 }
 
 func runAppDeploy(ctx context.Context, opts appDeployOptions, appDir string, out, errOut io.Writer) error {
-	target := strings.TrimSpace(opts.target)
-	if target == "" {
-		target = "docker-compose"
+	if opts.listTargets {
+		return runAppTargets(ctx, appTargetsOptions{profiles: opts.profiles, kind: "deploy", output: "table"}, appDir, out)
 	}
-	if target != "docker-compose" && target != "kubernetes" {
-		return fmt.Errorf("app deploy: unsupported target %q", target)
-	}
-	if err := distrun.ValidateReasoningFlags("", false, opts.effort, strings.TrimSpace(opts.effort) != ""); err != nil {
-		return err
-	}
-	if target == "kubernetes" {
-		_, err := distdeploy.DeployKubernetes(ctx, distdeploy.KubernetesOptions{
-			AppDir:             appDir,
-			Profiles:           opts.profiles,
-			Image:              opts.image,
-			ImagePullPolicy:    opts.imagePullPolicy,
-			BaseImage:          opts.baseImage,
-			AuthPath:           opts.authPath,
-			AllowPluginAuthEnv: opts.allowAuthEnv,
-			Provider:           opts.provider,
-			Model:              opts.model,
-			Effort:             opts.effort,
-			Namespace:          opts.namespace,
-			NodeSelectors:      opts.nodeSelectors,
-			RegistryMode:       opts.registryMode,
-			Registry:           opts.registry,
-			DryRun:             opts.dryRun,
-			Force:              opts.force,
-			Out:                out,
-			Err:                errOut,
-			Runner:             opts.runner,
-		})
-		return err
-	}
-	_, err := distdeploy.DeployDockerCompose(ctx, distdeploy.ComposeDeployOptions{
-		AppDir:             appDir,
-		Profiles:           opts.profiles,
-		Image:              opts.image,
-		BaseImage:          opts.baseImage,
-		AuthPath:           opts.authPath,
-		AllowPluginAuthEnv: opts.allowAuthEnv,
-		Provider:           opts.provider,
-		Model:              opts.model,
-		Effort:             opts.effort,
-		DryRun:             opts.dryRun,
-		Force:              opts.force,
-		Detach:             opts.detach,
-		Out:                out,
-		Err:                errOut,
-		Runner:             opts.runner,
+	return distdeploy.DeployTarget(ctx, distdeploy.TargetDeployOptions{
+		AppDir:      appDir,
+		Target:      opts.target,
+		Profiles:    opts.profiles,
+		BuildPolicy: opts.buildPolicy,
+		DryRun:      opts.dryRun,
+		Force:       opts.force,
+		Out:         out,
+		Err:         errOut,
+		Runner:      opts.runner,
 	})
-	return err
+}
+
+type appTargetsOptions struct {
+	profiles []string
+	kind     string
+	output   string
+}
+
+// NewAppTargetsCommand returns the target inspection command.
+func NewAppTargetsCommand() *cobra.Command {
+	var opts appTargetsOptions
+	opts.kind = "all"
+	opts.output = "table"
+	cmd := &cobra.Command{
+		Use:   "targets [path]",
+		Short: "List distribution build and deploy targets",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAppTargets(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringArrayVar(&opts.profiles, "profile", nil, "app profile; may be repeated or comma-separated")
+	cmd.Flags().StringVar(&opts.kind, "kind", opts.kind, "target kind to list: all|build|deploy")
+	cmd.Flags().StringVarP(&opts.output, "output", "o", opts.output, "output format: table|json")
+	return cmd
+}
+
+func runAppTargets(ctx context.Context, opts appTargetsOptions, appDir string, out io.Writer) error {
+	result, err := distdeploy.ListTargets(ctx, distdeploy.TargetListOptions{
+		AppDir:   appDir,
+		Profiles: opts.profiles,
+	})
+	if err != nil {
+		return err
+	}
+	kind := strings.ToLower(strings.TrimSpace(opts.kind))
+	if kind == "" {
+		kind = "all"
+	}
+	if kind != "all" && kind != "build" && kind != "deploy" {
+		return fmt.Errorf("app targets: unsupported kind %q", opts.kind)
+	}
+	switch strings.ToLower(strings.TrimSpace(opts.output)) {
+	case "", "table", "pretty":
+		renderTargetTable(out, result, kind)
+		return nil
+	case "json":
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(filteredTargetList(result, kind))
+	default:
+		return fmt.Errorf("app targets: unsupported output %q", opts.output)
+	}
+}
+
+func filteredTargetList(result distdeploy.TargetListResult, kind string) distdeploy.TargetListResult {
+	switch kind {
+	case "build":
+		result.Deploy = nil
+	case "deploy":
+		result.Build = nil
+	}
+	return result
+}
+
+func renderTargetTable(out io.Writer, result distdeploy.TargetListResult, kind string) {
+	if kind == "all" || kind == "build" {
+		_, _ = fmt.Fprintln(out, "Build targets")
+		table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(table, "NAME\tKIND\tOUTPUT\tIMAGE\tSTATUS\tDESCRIPTION")
+		for _, target := range result.Build {
+			_, _ = fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n", target.Name, target.Kind, target.Output, target.Image, target.Status, target.Description)
+		}
+		_ = table.Flush()
+		if kind == "all" {
+			_, _ = fmt.Fprintln(out)
+		}
+	}
+	if kind == "all" || kind == "deploy" {
+		_, _ = fmt.Fprintln(out, "Deploy targets")
+		table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(table, "NAME\tKIND\tBUILDS\tARTIFACT\tSTATUS\tDESCRIPTION")
+		for _, target := range result.Deploy {
+			_, _ = fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n", target.Name, target.Kind, strings.Join(target.Build, ","), target.Artifact, target.Status, target.Description)
+		}
+		_ = table.Flush()
+	}
 }
 
 type appUndeployOptions struct {
-	target    string
-	namespace string
-	dryRun    bool
-	volumes   bool
-	runner    distdeploy.CommandRunner
+	target  string
+	dryRun  bool
+	volumes bool
+	runner  distdeploy.CommandRunner
 }
 
 // NewAppUndeployCommand returns the app undeploy command.
@@ -293,42 +286,22 @@ func NewAppUndeployCommandWithRunner(runner distdeploy.CommandRunner) *cobra.Com
 			return runAppUndeploy(cmd.Context(), opts, optionalPath(args), cmd.OutOrStdout(), cmd.ErrOrStderr())
 		},
 	}
-	cmd.Flags().StringVar(&opts.target, "target", "", "Undeploy target: docker-compose|kubernetes")
-	cmd.Flags().StringVar(&opts.namespace, "namespace", "", "Kubernetes namespace for kubernetes undeploy target")
+	cmd.Flags().StringVar(&opts.target, "target", "", "Named undeploy target")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "print resolved teardown commands without running them")
 	cmd.Flags().BoolVar(&opts.volumes, "volumes", false, "delete persistent Docker volumes or Kubernetes PVCs")
 	return cmd
 }
 
 func runAppUndeploy(ctx context.Context, opts appUndeployOptions, appDir string, out, errOut io.Writer) error {
-	target := strings.TrimSpace(opts.target)
-	if target == "" {
-		target = "docker-compose"
-	}
-	if target != "docker-compose" && target != "kubernetes" {
-		return fmt.Errorf("app undeploy: unsupported target %q", target)
-	}
-	if target == "kubernetes" {
-		_, err := distdeploy.UndeployKubernetes(ctx, distdeploy.KubernetesUndeployOptions{
-			AppDir:    appDir,
-			Namespace: opts.namespace,
-			DryRun:    opts.dryRun,
-			Volumes:   opts.volumes,
-			Out:       out,
-			Err:       errOut,
-			Runner:    opts.runner,
-		})
-		return err
-	}
-	_, err := distdeploy.UndeployDockerCompose(ctx, distdeploy.ComposeUndeployOptions{
+	return distdeploy.UndeployTarget(ctx, distdeploy.TargetUndeployOptions{
 		AppDir:  appDir,
+		Target:  opts.target,
 		DryRun:  opts.dryRun,
 		Volumes: opts.volumes,
 		Out:     out,
 		Err:     errOut,
 		Runner:  opts.runner,
 	})
-	return err
 }
 
 // NewAppConfigCommand returns the app config inspection command.

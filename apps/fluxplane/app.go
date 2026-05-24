@@ -23,6 +23,7 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(launch.NewAppBuildCommand())
 	cmd.AddCommand(launch.NewAppDeployCommand())
 	cmd.AddCommand(launch.NewAppUndeployCommand())
+	cmd.AddCommand(launch.NewAppTargetsCommand())
 	cmd.AddCommand(launch.NewAppConfigCommand(distlocal.Load, nil))
 	cmd.AddCommand(launch.NewAppDescribeCommand(distlocal.Load))
 	cmd.AddCommand(launch.NewAppHealthcheckCommand())

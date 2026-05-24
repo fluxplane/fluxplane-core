@@ -896,7 +896,8 @@ func (c commandDockerClient) PushImage(ctx context.Context, image string, stdout
 }
 
 func (c commandDockerClient) DeployComposeStack(ctx context.Context, stack dockerComposeStack, stdout, stderr io.Writer) error {
-	return c.runner.Run(ctx, stack.AppDir, "docker", []string{"compose", "-f", filepath.Join(stack.AppDir, "docker-compose.yaml"), "up"}, stdout, stderr)
+	command := dockerComposeUpCommand(filepath.Join(stack.AppDir, "docker-compose.yaml"), false)
+	return c.runner.Run(ctx, stack.AppDir, command[0], command[1:], stdout, stderr)
 }
 
 func (c commandDockerClient) UndeployComposeStack(ctx context.Context, stack dockerComposeStack, volumes bool, stdout, stderr io.Writer) error {

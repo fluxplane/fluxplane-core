@@ -454,8 +454,30 @@ distribution:
       - .agents/**
       - docs/**/*.md
     docker: {}
+    targets:
+      capabilities:
+        kind: documentation
+        description: Capability documentation.
+        output: docs/capabilities.md
+      chart:
+        kind: helm-chart
+        dockerfile: build/Dockerfile
+        image: support-bot
+        tags: [prod]
+        image_pull_policy: Always
+        env_secret_name: support-bot-runtime
+        node_selectors: [pool=agents]
+        values:
+          replicaCount: "2"
   deploy:
     model: smart_model
+    targets:
+      local:
+        kind: docker-compose
+        description: Local compose deployment.
+        build: [capabilities]
+        compose_file: docker-compose.yaml
+        detach: true
   metadata:
     tier: local
   commands:
@@ -486,8 +508,17 @@ distribution:
 	if spec.Build.Docker == nil {
 		t.Fatalf("docker build config is nil, want configured empty docker target")
 	}
+	if spec.Build.Targets["capabilities"].Kind != "documentation" || spec.Build.Targets["capabilities"].Description != "Capability documentation." || spec.Build.Targets["chart"].Kind != "helm-chart" {
+		t.Fatalf("build targets = %#v", spec.Build.Targets)
+	}
+	if chart := spec.Build.Targets["chart"]; chart.Dockerfile != "build/Dockerfile" || chart.ImagePullPolicy != "Always" || chart.EnvSecretName != "support-bot-runtime" || len(chart.NodeSelectors) != 1 || chart.Values["replicaCount"] != "2" {
+		t.Fatalf("chart target = %#v", chart)
+	}
 	if spec.Deploy.Model != "smart_model" {
 		t.Fatalf("deploy = %#v, want smart_model", spec.Deploy)
+	}
+	if spec.Deploy.Targets["local"].Kind != "docker-compose" || spec.Deploy.Targets["local"].Description != "Local compose deployment." || !spec.Deploy.Targets["local"].Detach {
+		t.Fatalf("deploy targets = %#v", spec.Deploy.Targets)
 	}
 	if spec.Metadata["tier"] != "local" {
 		t.Fatalf("metadata = %#v", spec.Metadata)

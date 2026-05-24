@@ -338,6 +338,11 @@ func decodeAppDocument(value any, state *manifestDecodeState) error {
 	if err := validateModelReference(strings.TrimSpace(string(manifest.Distribution.Deploy.Model)), models, "distribution.deploy.model"); err != nil {
 		return err
 	}
+	for name, target := range manifest.Distribution.Build.Targets {
+		if err := validateModelReference(strings.TrimSpace(string(target.Model)), models, "distribution.build.targets."+name+".model"); err != nil {
+			return err
+		}
+	}
 	modelProviders := mergeLLMProviders(manifest.LLMProviders, models.Providers)
 	for i, provider := range modelProviders {
 		if err := provider.Validate(); err != nil {
@@ -1455,10 +1460,12 @@ func (d distributionDoc) Spec() coredistribution.Spec {
 			Discover: d.Surfaces.Discover,
 		},
 		Build: coredistribution.BuildSpec{
-			Assets: cleaned(d.Build.Assets),
+			Assets:  cleaned(d.Build.Assets),
+			Targets: buildTargetSpecs(d.Build.Targets),
 		},
 		Deploy: coredistribution.DeploySpec{
-			Model: strings.TrimSpace(string(d.Deploy.Model)),
+			Model:   strings.TrimSpace(string(d.Deploy.Model)),
+			Targets: deployTargetSpecs(d.Deploy.Targets),
 		},
 		Metadata: cloneStringMap(d.Metadata),
 	}
@@ -1497,12 +1504,50 @@ type surfacesDoc struct {
 }
 
 type buildDoc struct {
-	Assets []string        `json:"assets,omitempty" yaml:"assets,omitempty"`
-	Docker *dockerBuildDoc `json:"docker,omitempty" yaml:"docker,omitempty"`
+	Assets  []string                  `json:"assets,omitempty" yaml:"assets,omitempty"`
+	Docker  *dockerBuildDoc           `json:"docker,omitempty" yaml:"docker,omitempty"`
+	Targets map[string]buildTargetDoc `json:"targets,omitempty" yaml:"targets,omitempty"`
 }
 
 type deployDoc struct {
-	Model ModelSelector `json:"model,omitempty" yaml:"model,omitempty"`
+	Model   ModelSelector              `json:"model,omitempty" yaml:"model,omitempty"`
+	Targets map[string]deployTargetDoc `json:"targets,omitempty" yaml:"targets,omitempty"`
+}
+
+type buildTargetDoc struct {
+	Kind               string            `json:"kind,omitempty" yaml:"kind,omitempty" jsonschema:"enum=binary,enum=dockerfile,enum=docker-image,enum=docker-compose,enum=kubernetes-manifest,enum=helm-chart,enum=documentation"`
+	Description        string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Output             string            `json:"output,omitempty" yaml:"output,omitempty"`
+	Dockerfile         string            `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"`
+	Image              string            `json:"image,omitempty" yaml:"image,omitempty"`
+	Tags               []string          `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Platforms          []string          `json:"platforms,omitempty" yaml:"platforms,omitempty"`
+	Push               bool              `json:"push,omitempty" yaml:"push,omitempty"`
+	BaseImage          string            `json:"base_image,omitempty" yaml:"base_image,omitempty"`
+	AuthPath           string            `json:"auth_path,omitempty" yaml:"auth_path,omitempty"`
+	AllowPluginAuthEnv bool              `json:"allow_plugin_auth_env,omitempty" yaml:"allow_plugin_auth_env,omitempty"`
+	Provider           string            `json:"provider,omitempty" yaml:"provider,omitempty"`
+	Model              ModelSelector     `json:"model,omitempty" yaml:"model,omitempty"`
+	Effort             string            `json:"effort,omitempty" yaml:"effort,omitempty"`
+	Namespace          string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	ImagePullPolicy    string            `json:"image_pull_policy,omitempty" yaml:"image_pull_policy,omitempty" jsonschema:"enum=Always,enum=IfNotPresent,enum=Never"`
+	EnvSecretName      string            `json:"env_secret_name,omitempty" yaml:"env_secret_name,omitempty"`
+	NodeSelectors      []string          `json:"node_selectors,omitempty" yaml:"node_selectors,omitempty"`
+	Release            string            `json:"release,omitempty" yaml:"release,omitempty"`
+	Values             map[string]string `json:"values,omitempty" yaml:"values,omitempty"`
+}
+
+type deployTargetDoc struct {
+	Kind        string            `json:"kind,omitempty" yaml:"kind,omitempty" jsonschema:"enum=docker-compose,enum=kubectl,enum=helm"`
+	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
+	Build       []string          `json:"build,omitempty" yaml:"build,omitempty"`
+	ComposeFile string            `json:"compose_file,omitempty" yaml:"compose_file,omitempty"`
+	Manifest    string            `json:"manifest,omitempty" yaml:"manifest,omitempty"`
+	Chart       string            `json:"chart,omitempty" yaml:"chart,omitempty"`
+	Release     string            `json:"release,omitempty" yaml:"release,omitempty"`
+	Namespace   string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	Detach      bool              `json:"detach,omitempty" yaml:"detach,omitempty"`
+	Values      map[string]string `json:"values,omitempty" yaml:"values,omitempty"`
 }
 
 type dockerBuildDoc struct {
@@ -1525,6 +1570,68 @@ func (d dockerBuildDoc) Spec() *coredistribution.DockerBuildSpec {
 		BuildArgs:   cloneStringMap(d.BuildArgs),
 		Annotations: cloneStringMap(d.Annotations),
 	}
+}
+
+func buildTargetSpecs(input map[string]buildTargetDoc) map[string]coredistribution.BuildTargetSpec {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]coredistribution.BuildTargetSpec, len(input))
+	for name, target := range input {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = coredistribution.BuildTargetSpec{
+			Kind:               strings.TrimSpace(target.Kind),
+			Description:        strings.TrimSpace(target.Description),
+			Output:             strings.TrimSpace(target.Output),
+			Dockerfile:         strings.TrimSpace(target.Dockerfile),
+			Image:              strings.TrimSpace(target.Image),
+			Tags:               cleaned(target.Tags),
+			Platforms:          cleaned(target.Platforms),
+			Push:               target.Push,
+			BaseImage:          strings.TrimSpace(target.BaseImage),
+			AuthPath:           strings.TrimSpace(target.AuthPath),
+			AllowPluginAuthEnv: target.AllowPluginAuthEnv,
+			Provider:           strings.TrimSpace(target.Provider),
+			Model:              strings.TrimSpace(string(target.Model)),
+			Effort:             strings.TrimSpace(target.Effort),
+			Namespace:          strings.TrimSpace(target.Namespace),
+			ImagePullPolicy:    strings.TrimSpace(target.ImagePullPolicy),
+			EnvSecretName:      strings.TrimSpace(target.EnvSecretName),
+			NodeSelectors:      cleaned(target.NodeSelectors),
+			Release:            strings.TrimSpace(target.Release),
+			Values:             cloneStringMap(target.Values),
+		}
+	}
+	return out
+}
+
+func deployTargetSpecs(input map[string]deployTargetDoc) map[string]coredistribution.DeployTargetSpec {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]coredistribution.DeployTargetSpec, len(input))
+	for name, target := range input {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = coredistribution.DeployTargetSpec{
+			Kind:        strings.TrimSpace(target.Kind),
+			Description: strings.TrimSpace(target.Description),
+			Build:       cleaned(target.Build),
+			ComposeFile: strings.TrimSpace(target.ComposeFile),
+			Manifest:    strings.TrimSpace(target.Manifest),
+			Chart:       strings.TrimSpace(target.Chart),
+			Release:     strings.TrimSpace(target.Release),
+			Namespace:   strings.TrimSpace(target.Namespace),
+			Detach:      target.Detach,
+			Values:      cloneStringMap(target.Values),
+		}
+	}
+	return out
 }
 
 type distributionCommandDoc struct {
