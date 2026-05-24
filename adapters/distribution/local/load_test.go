@@ -45,7 +45,7 @@ runtime:
       - .env
     roots:
       - name: tmp
-        path: /tmp/agentruntime-sample
+        path: /tmp/fluxplane-sample
         access: read_write
         create: true
         env_files:

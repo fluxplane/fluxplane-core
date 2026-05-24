@@ -162,7 +162,7 @@ The host-backed filesystem boundary currently:
 - resolves existing paths and create parents before accepting them;
 - rejects symlink escapes for reads and writes;
 - keeps `/tmp` denied by default unless a distribution opts into a specific
-  subdirectory such as `/tmp/agentruntime-demo`;
+  subdirectory such as `/tmp/fluxplane-demo`;
 - keeps glob expansion limited to search operations;
 - emits file usage events for read/write boundaries.
 

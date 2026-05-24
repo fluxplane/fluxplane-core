@@ -23,7 +23,7 @@ const (
 	defaultAuthPath       = "/auth"
 	defaultBaseImage      = "fluxplane/fluxplane-base:local"
 	defaultCoderBaseImage = "fluxplane/coder-base:local"
-	defaultAppImage       = "agentruntime-app:latest"
+	defaultAppImage       = "fluxplane-app:latest"
 	defaultMySQLDSNEnv    = "FLUXPLANE_DATASTORE_MYSQL_DSN"
 	defaultNATSDSNEnv     = "FLUXPLANE_EVENTSTORE_NATS_DSN"
 	defaultRuntimeStack   = "fluxplane-stack"
@@ -34,7 +34,7 @@ const (
 	defaultRegistryPort   = "5000"
 )
 
-const deployStackLabel = "agentruntime.fluxplane.io/deploy-stack"
+const deployStackLabel = "fluxplane.fluxplane.io/deploy-stack"
 
 const (
 	dockerComposeWaitTimeoutSeconds = "30"
@@ -185,7 +185,7 @@ func resolveTags(spec coredistribution.Spec, override []string) []string {
 	}
 	name := strings.TrimSpace(spec.Name)
 	if name == "" {
-		name = "agentruntime-app"
+		name = "fluxplane-app"
 	}
 	return []string{name + ":latest"}
 }

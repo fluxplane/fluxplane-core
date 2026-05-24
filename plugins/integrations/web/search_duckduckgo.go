@@ -41,7 +41,7 @@ func (p duckDuckGoSearchProvider) Search(ctx context.Context, req SearchProvider
 		Method:    "GET",
 		Timeout:   30 * time.Second,
 		MaxBytes:  512 * 1024,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return SearchProviderResult{}, err

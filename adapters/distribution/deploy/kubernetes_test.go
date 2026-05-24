@@ -253,7 +253,7 @@ runtime:
   workspace:
     roots:
       - name: tmp
-        path: /tmp/agentruntime-test
+        path: /tmp/fluxplane-test
         env_files: [.env.tmp]
 distribution:
   build:

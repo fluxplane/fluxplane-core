@@ -526,7 +526,7 @@ func systemWorkspaceConfig(cfg distribution.WorkspaceConfig) system.WorkspaceCon
 }
 
 func browserHeadless() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("AGENTRUNTIME_BROWSER_HEADLESS"))) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("FLUXPLANE_BROWSER_HEADLESS"))) {
 	case "0", "false", "no", "off":
 		return false
 	default:

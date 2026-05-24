@@ -72,7 +72,7 @@ func imageSource(ctx context.Context, sys system.System, raw string) (resolvedIm
 			Method:    "GET",
 			Timeout:   30 * time.Second,
 			MaxBytes:  defaultMaxFileSize,
-			UserAgent: "agentruntime/0.1",
+			UserAgent: "fluxplane/0.1",
 		})
 		if err != nil {
 			return resolvedImage{}, err

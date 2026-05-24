@@ -110,7 +110,7 @@ func TestResponseParamsDefaultsToMaxCaching(t *testing.T) {
 		t.Fatalf("marshal params: %v", err)
 	}
 	json := string(raw)
-	for _, want := range []string{`"store":true`, `"prompt_cache_key":"agentruntime:openai:gpt-5.5:coder"`, `"prompt_cache_retention":"24h"`, `"reasoning.encrypted_content"`, `"summary":"auto"`} {
+	for _, want := range []string{`"store":true`, `"prompt_cache_key":"fluxplane:openai:gpt-5.5:coder"`, `"prompt_cache_retention":"24h"`, `"reasoning.encrypted_content"`, `"summary":"auto"`} {
 		if !strings.Contains(json, want) {
 			t.Fatalf("params json = %s, want %s", json, want)
 		}

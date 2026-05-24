@@ -375,7 +375,7 @@ func addAppManifest(ctx context.Context, ws system.Workspace, builders map[strin
 	builderFor(builders, dir).addFacet(coreproject.Facet{
 		Kind:     coreproject.FacetAppManifest,
 		Name:     summary["name"],
-		Manifest: manifest(rel, "agentruntime_app_manifest", status, summary, msg),
+		Manifest: manifest(rel, "fluxplane_app_manifest", status, summary, msg),
 		Summary:  summary,
 	})
 }

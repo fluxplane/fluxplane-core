@@ -23,7 +23,7 @@ func TestOpenDataStoreDefaultsToMemory(t *testing.T) {
 
 func TestOpenDataStoreRejectsMissingMySQLDSN(t *testing.T) {
 	_, _, err := openDataStore(context.Background(), distribution.DataConfig{
-		Store: distribution.DataStoreConfig{Kind: "mysql", DSNEnv: "AGENTRUNTIME_TEST_EMPTY_DSN"},
+		Store: distribution.DataStoreConfig{Kind: "mysql", DSNEnv: "FLUXPLANE_TEST_EMPTY_DSN"},
 	})
 	if err == nil {
 		t.Fatal("openDataStore succeeded, want missing DSN error")

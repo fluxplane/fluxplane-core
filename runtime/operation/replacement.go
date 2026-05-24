@@ -163,7 +163,7 @@ func writeReplacementFile(root string, data []byte) (string, error) {
 	if strings.TrimSpace(root) == "" {
 		root = os.TempDir()
 	}
-	dir, err := os.MkdirTemp(root, "agentruntime-tool-result-*")
+	dir, err := os.MkdirTemp(root, "fluxplane-tool-result-*")
 	if err != nil {
 		return "", fmt.Errorf("create replacement dir: %w", err)
 	}
@@ -192,8 +192,8 @@ func ReadReplacementFile(ctx context.Context, path string, maxBytes int64) ([]by
 	if err != nil {
 		return nil, false, err
 	}
-	if filepath.Base(abs) != "result.json" || !strings.HasPrefix(filepath.Base(filepath.Dir(abs)), "agentruntime-tool-result-") {
-		return nil, false, fmt.Errorf("path is not an agentruntime replacement result")
+	if filepath.Base(abs) != "result.json" || !strings.HasPrefix(filepath.Base(filepath.Dir(abs)), "fluxplane-tool-result-") {
+		return nil, false, fmt.Errorf("path is not an fluxplane replacement result")
 	}
 	file, err := os.Open(abs)
 	if err != nil {

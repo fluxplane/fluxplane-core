@@ -1077,7 +1077,7 @@ Parity should be reached in small slices:
    workflow runtime events and persisted command output.
 
 13. **Phase 11: Engineer App Assembly**
-   Add the rewrite-native `apps/engineer` and user-facing `agentruntime dev`
+   Add the rewrite-native `apps/engineer` and user-facing `fluxplane dev`
    CLI over the same channel client/session/run handles.
 
 Phase 1A definition of done:

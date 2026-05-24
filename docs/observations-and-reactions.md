@@ -6,7 +6,7 @@
 > still being filled in. See the "Implementation Progress" section near the
 > end for the current state.
 
-This document defines the observation and reaction model for AgentRuntime. It
+This document defines the observation and reaction model for Fluxplane. It
 generalizes project signals, toolchain availability, skill triggers, and
 integration checks such as Kubernetes or AWS availability.
 

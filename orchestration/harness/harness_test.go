@@ -182,7 +182,7 @@ func TestNewRunsStartupEnvironmentOnceAndPassesObservationsToSessions(t *testing
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	agentRuntime := &harnessPromptAgent{response: "ok"}
+	agentInstance := &harnessPromptAgent{response: "ok"}
 	observerCalls := 0
 	startupDeriverCalls := 0
 	observer := harnessEnvironmentObserver{
@@ -205,7 +205,7 @@ func TestNewRunsStartupEnvironmentOnceAndPassesObservationsToSessions(t *testing
 		},
 	}
 	service := New(Config{
-		Agent:                agentRuntime,
+		Agent:                agentInstance,
 		ThreadStore:          threadStore,
 		EnvironmentObservers: []runtimeevidence.Observer{observer},
 		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
@@ -234,10 +234,10 @@ func TestNewRunsStartupEnvironmentOnceAndPassesObservationsToSessions(t *testing
 	if observerCalls != 1 || startupDeriverCalls != 1 {
 		t.Fatalf("startup calls after turns observer=%d deriver=%d, want still once", observerCalls, startupDeriverCalls)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent inputs = %d, want 2", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want 2", len(agentInstance.inputs))
 	}
-	for i, input := range agentRuntime.inputs {
+	for i, input := range agentInstance.inputs {
 		if len(input.Observations) < 2 || input.Observations[1].Kind != "startup.fact" {
 			t.Fatalf("input %d observations = %#v, want startup fact after channel observation", i, input.Observations)
 		}
@@ -1150,11 +1150,11 @@ func TestHandleInboundPromptCommandUsesAgentProvider(t *testing.T) {
 		t.Fatalf("register command: %v", err)
 	}
 	var providerCalls int
-	agentRuntime := &harnessPromptAgent{response: "reviewed"}
+	agentInstance := &harnessPromptAgent{response: "reviewed"}
 	service := New(Config{
 		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
 			providerCalls++
-			return agentRuntime, nil
+			return agentInstance, nil
 		}),
 		Commands:    commands,
 		ThreadStore: threadStore,
@@ -1191,8 +1191,8 @@ func TestHandleInboundPromptCommandUsesAgentProvider(t *testing.T) {
 	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "reviewed" {
 		t.Fatalf("outbound = %#v, want reviewed", result.Outbound)
 	}
-	if len(agentRuntime.inputs) != 1 || agentRuntime.inputs[0].Observations[0].Content != "Review diff." {
-		t.Fatalf("agent inputs = %#v, want rendered prompt", agentRuntime.inputs)
+	if len(agentInstance.inputs) != 1 || agentInstance.inputs[0].Observations[0].Content != "Review diff." {
+		t.Fatalf("agent inputs = %#v, want rendered prompt", agentInstance.inputs)
 	}
 }
 
@@ -1220,10 +1220,10 @@ func TestHandleInboundPromptCommandProjectsTools(t *testing.T) {
 			Risk:    operation.RiskMedium,
 		},
 	}, func(operation.Context, operation.Value) operation.Result { return operation.OK(nil) })
-	agentRuntime := &harnessPromptAgent{response: "reviewed"}
+	agentInstance := &harnessPromptAgent{response: "reviewed"}
 	service := New(Config{
 		AgentProvider: harnessAgentProviderFunc(func(context.Context, coresession.Spec) (coreagent.Agent, error) {
-			return agentRuntime, nil
+			return agentInstance, nil
 		}),
 		Commands: commands,
 		OperationCatalog: session.OperationCatalog{
@@ -1266,11 +1266,11 @@ func TestHandleInboundPromptCommandProjectsTools(t *testing.T) {
 	if result.Command.Status != session.CommandStatusOK {
 		t.Fatalf("status = %s, error = %#v", result.Command.Status, result.Command.Error)
 	}
-	if len(agentRuntime.tools) != 1 {
-		t.Fatalf("StepWithTools calls = %d, want 1", len(agentRuntime.tools))
+	if len(agentInstance.tools) != 1 {
+		t.Fatalf("StepWithTools calls = %d, want 1", len(agentInstance.tools))
 	}
-	if !toolSpecsContain(agentRuntime.tools[0], "file_create") {
-		t.Fatalf("projected tools = %#v, want file_create", agentRuntime.tools[0])
+	if !toolSpecsContain(agentInstance.tools[0], "file_create") {
+		t.Fatalf("projected tools = %#v, want file_create", agentInstance.tools[0])
 	}
 }
 

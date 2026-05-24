@@ -170,7 +170,7 @@ func (p Plugin) execute() operationruntime.TypedResultHandler[executeInput, Exec
 		if len(req.Files) == 0 {
 			return operation.Failed("invalid_code_execute_input", "files are required", nil)
 		}
-		scratch, err := p.system.Workspace().CreateScratch(ctx, "agentruntime-code-*")
+		scratch, err := p.system.Workspace().CreateScratch(ctx, "fluxplane-code-*")
 		if err != nil {
 			return operation.Failed("code_execute_setup_failed", err.Error(), nil)
 		}

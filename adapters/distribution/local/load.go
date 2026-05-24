@@ -326,7 +326,7 @@ func specFor(root string, bundles []resource.ContributionBundle) coredistributio
 		}
 	}
 	if spec.DefaultConversation.ID == "" && spec.Name != "" {
-		spec.DefaultConversation = channel.ConversationRef{ID: "agentruntime-" + spec.Name}
+		spec.DefaultConversation = channel.ConversationRef{ID: "fluxplane-" + spec.Name}
 	}
 	if spec.DefaultModel.Provider == "" {
 		spec.DefaultModel.Provider = "openai"

@@ -41,13 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated workflows.
 
 ### Changed
-- Renamed generated runtime backend DSN environment variable defaults from
-  `AGENTRUNTIME_*` to `FLUXPLANE_*`.
-- Renamed the default NATS event stream and subject from
-  `AGENTRUNTIME_EVENTS` / `agentruntime.events.log` to
+- Standardized generated runtime backend DSN environment variable defaults on
+  the `FLUXPLANE_*` prefix.
+- Standardized the default NATS event stream and subject on
   `FLUXPLANE_EVENTS` / `fluxplane.events.log`.
-- Renamed generated MySQL runtime backend credentials and database names from
-  `agentruntime` to `fluxplane`.
+- Standardized generated MySQL runtime backend credentials and database names
+  on `fluxplane`.
 - Replaced list-style app manifest plugin declarations with map-style plugin
   instances; `plugins.<name>` is now the instance name, `kind` defaults to that
   name, and `enabled: false` omits the plugin from runtime refs.
@@ -237,7 +236,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asset.
 - Added a focused gitleaks allowlist for Kubernetes redaction test fixtures so
   release pushes keep scanning active without flagging intentional dummy values.
-- Renamed the reusable Go module from `github.com/fluxplane/agentruntime` to
+- Renamed the reusable Go module from `github.com/fluxplane/fluxplane` to
   `github.com/fluxplane/engine` and renamed the root facade package to
   `fluxplane`.
 - Added the `fluxplane` app-manifest CLI and moved generic app lifecycle
@@ -795,7 +794,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `apps/coder/app` with initial `.coder.yaml` discovery, explicit
   `--config` support, `coder config show`, and workspace/env-file defaults for
   coder sessions.
-- Added project inventory facets for agentruntime app manifests, `.coder.yaml`
+- Added project inventory facets for fluxplane app manifests, `.coder.yaml`
   configs, and generalized AI config files such as `AGENTS.md`, `CLAUDE.md`,
   `MEMORY.md`, and `.claude/agents/*.md`.
 - Added `coder app init` using the shared local app initialization path.
@@ -1207,7 +1206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Legacy `agentruntime.json` resource filesystem loader path.
+- Legacy `fluxplane.json` resource filesystem loader path.
 
 ## [0.8.0] - 2026-05-14
 

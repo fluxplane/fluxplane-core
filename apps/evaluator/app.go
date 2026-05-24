@@ -40,7 +40,7 @@ func Distribution() distribution.Distribution {
 	spec := coredistribution.Spec{
 		Name:                AppName,
 		Title:               "Evaluator",
-		Description:         "Evaluate AgentRuntime apps over the public channel protocol.",
+		Description:         "Evaluate Fluxplane apps over the public channel protocol.",
 		DefaultSession:      fluxplane.SessionRef{Name: SessionName},
 		DefaultConversation: channel.ConversationRef{ID: defaultConversation},
 		DefaultModel: coredistribution.ModelDefault{
@@ -79,8 +79,8 @@ func Distribution() distribution.Distribution {
 func Bundle() resource.ContributionBundle {
 	agentSpec := agent.Spec{
 		Name:        AgentName,
-		Description: "Autonomous app evaluator for AgentRuntime channel applications.",
-		System: "You are the AgentRuntime evaluator. Evaluate target AgentRuntime apps by interacting through the public channel protocol. " +
+		Description: "Autonomous app evaluator for Fluxplane channel applications.",
+		System: "You are the Fluxplane evaluator. Evaluate target Fluxplane apps by interacting through the public channel protocol. " +
 			"When the user gives a socket or URL plus an app description, you MUST use the target_submit tool to probe the target. " +
 			"Unix sockets are supported: pass base_url=http://unix and unix_socket exactly as provided. Do not claim that the socket is inaccessible before attempting target_submit. " +
 			"If the user does not provide a specific probe prompt, choose a small concrete prompt appropriate for the target app, call target_submit, then report the returned thread_id, run_id, event count, outbound_text, and error field. " +
@@ -106,7 +106,7 @@ func Bundle() resource.ContributionBundle {
 	bundle := resource.ContributionBundle{
 		Apps: []coreapp.Spec{{
 			Name:        AppName,
-			Description: "Evaluate AgentRuntime apps and produce evidence-backed reports.",
+			Description: "Evaluate Fluxplane apps and produce evidence-backed reports.",
 			Sources: []coreapp.SourceSpec{{
 				Location:  DefaultNamespace,
 				Scope:     string(resource.ScopeEmbedded),

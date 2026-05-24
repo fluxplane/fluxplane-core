@@ -159,6 +159,6 @@ func (c lokiClient) get(ctx context.Context, path string, values url.Values, max
 		Headers:   headers,
 		Timeout:   timeout,
 		MaxBytes:  maxBytes,
-		UserAgent: "agentruntime-loki/0.1",
+		UserAgent: "fluxplane-loki/0.1",
 	})
 }

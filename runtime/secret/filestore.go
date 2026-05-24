@@ -12,7 +12,7 @@ import (
 	coresecret "github.com/fluxplane/engine/core/secret"
 )
 
-const DefaultFileStorePath = "~/.agentruntime/auth"
+const DefaultFileStorePath = "~/.fluxplane/auth"
 
 // StoredSecret is one persisted plugin secret plus non-sensitive metadata.
 type StoredSecret struct {

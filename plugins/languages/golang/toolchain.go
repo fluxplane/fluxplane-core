@@ -368,7 +368,7 @@ func (p Plugin) goBuild() operationruntime.TypedResultHandler[golang.GoBuildQuer
 			listRun, listErr := p.runGoTool(ctx, req.Path, []string{"list", "-json", patterns[0]}, req.MaxOutputBytes, defaultToolchainTimeout)
 			records, _, _ := parseGoListJSON(listRun.Stdout, 1)
 			if listErr == nil && len(records) == 1 && goListRecordString(records[0], "Name") == "main" {
-				scratch, err := p.system.Workspace().CreateScratch(ctx, "agentruntime-go-build-*")
+				scratch, err := p.system.Workspace().CreateScratch(ctx, "fluxplane-go-build-*")
 				if err != nil {
 					return operation.Failed("go_build_failed", err.Error(), nil)
 				}

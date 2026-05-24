@@ -486,7 +486,7 @@ func uniqueName(t *testing.T, name string) string {
 
 func uniqueSubject(t *testing.T, name string) string {
 	t.Helper()
-	return "agentruntime.tests." + strings.ReplaceAll(strings.ToLower(name+"."+strings.ReplaceAll(t.Name(), "/", ".")), "_", ".")
+	return "fluxplane.tests." + strings.ReplaceAll(strings.ToLower(name+"."+strings.ReplaceAll(t.Name(), "/", ".")), "_", ".")
 }
 
 func sequences(records []event.StoredRecord) string {

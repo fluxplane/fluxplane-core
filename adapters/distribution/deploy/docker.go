@@ -167,15 +167,15 @@ func removeDockerContainer(ctx context.Context, cli *dockerclient.Client, name s
 }
 
 func dockerStackContainerName(stack, service string) string {
-	return "agentruntime-" + stack + "-" + service
+	return "fluxplane-" + stack + "-" + service
 }
 
 func dockerStackNetworkName(stack string) string {
-	return "agentruntime-" + stack
+	return "fluxplane-" + stack
 }
 
 func dockerStackVolumeName(stack, volume string) string {
-	return "agentruntime-" + stack + "-" + volume
+	return "fluxplane-" + stack + "-" + volume
 }
 
 func dockerStackLabels(stack string) map[string]string {
@@ -367,7 +367,7 @@ var (
 		name:         "coder",
 		defaultTag:   defaultCoderBaseImage,
 		binaryName:   "coder",
-		buildWorkDir: "/src/agentruntime/apps/coder",
+		buildWorkDir: "/src/fluxplane/apps/coder",
 		sourcePkg:    "./cmd/coder",
 		tempPattern:  "coder-base-docker-build-*",
 	}
@@ -375,7 +375,7 @@ var (
 		name:         "fluxplane",
 		defaultTag:   defaultBaseImage,
 		binaryName:   "fluxplane",
-		buildWorkDir: "/src/agentruntime",
+		buildWorkDir: "/src/fluxplane",
 		sourcePkg:    "./cmd/fluxplane",
 		tempPattern:  "fluxplane-base-docker-build-*",
 	}
@@ -465,7 +465,7 @@ func prepareBaseImageContext(ctx context.Context, contextDir string, opts BaseIm
 	if err != nil {
 		return err
 	}
-	if err := copyDir(ctx, repoRoot, filepath.Join(contextDir, "src", "agentruntime"), sourceSkip); err != nil {
+	if err := copyDir(ctx, repoRoot, filepath.Join(contextDir, "src", "fluxplane"), sourceSkip); err != nil {
 		return fmt.Errorf("distribution build: copy source: %w", err)
 	}
 	replaceCopies, err := copyLocalReplaces(ctx, repoRoot, contextDir)
@@ -663,7 +663,7 @@ func copyLocalReplaces(ctx context.Context, repoRoot, contextDir string) ([]repl
 		}
 		name := filepath.Base(abs)
 		contextRel := filepath.ToSlash(filepath.Join("localmods", name))
-		containerAbs := path.Clean(path.Join("/src/agentruntime", filepath.ToSlash(rel)))
+		containerAbs := path.Clean(path.Join("/src/fluxplane", filepath.ToSlash(rel)))
 		if err := copyDir(ctx, abs, filepath.Join(contextDir, filepath.FromSlash(contextRel)), sourceSkip); err != nil {
 			return nil, fmt.Errorf("distribution build: copy local replace %s: %w", rel, err)
 		}
@@ -731,13 +731,13 @@ func workspaceDockerfile(baseImage, authPath string, appRuntime appRuntimeOption
 func writeSourceBaseDockerfile(filename string, replaces []replaceCopy, runtime baseImageRuntime) error {
 	lines := []string{
 		"FROM golang:1.26-bookworm AS builder",
-		"WORKDIR /src/agentruntime",
+		"WORKDIR /src/fluxplane",
 	}
 	for _, repl := range replaces {
 		lines = append(lines, "COPY "+repl.ContextRel+" "+repl.ContainerAbs)
 	}
 	lines = append(lines,
-		"COPY src/agentruntime /src/agentruntime",
+		"COPY src/fluxplane /src/fluxplane",
 		"WORKDIR "+runtime.buildWorkDir,
 		fmt.Sprintf(`RUN go build -trimpath -ldflags="-s -w" -o /out/%s %s`, runtime.binaryName, runtime.sourcePkg),
 		"",

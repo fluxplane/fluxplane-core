@@ -1409,7 +1409,7 @@ func (c nativeKubernetesClient) ApplyManifest(ctx context.Context, content strin
 		} else {
 			resource = dyn.Resource(gvr)
 		}
-		if _, err := resource.Apply(ctx, name, obj, metav1.ApplyOptions{FieldManager: "agentruntime-deploy", Force: true}); err != nil {
+		if _, err := resource.Apply(ctx, name, obj, metav1.ApplyOptions{FieldManager: "fluxplane-deploy", Force: true}); err != nil {
 			return fmt.Errorf("distribution deploy: apply kubernetes %s/%s %s: %w", obj.GetAPIVersion(), obj.GetKind(), name, err)
 		}
 	}

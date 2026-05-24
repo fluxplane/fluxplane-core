@@ -1187,7 +1187,7 @@ runtime:
       - .env.local
     roots:
       - name: tmp
-        path: /tmp/agentruntime-sample
+        path: /tmp/fluxplane-sample
         access: read_write
         create: true
         env_files:
@@ -1210,7 +1210,7 @@ runtime:
 		t.Fatalf("roots = %#v, want one root", file.Runtime.Workspace.Roots)
 	}
 	root := file.Runtime.Workspace.Roots[0]
-	if root.Name != "tmp" || root.Path != "/tmp/agentruntime-sample" || root.Access != "read_write" || !root.Create {
+	if root.Name != "tmp" || root.Path != "/tmp/fluxplane-sample" || root.Access != "read_write" || !root.Create {
 		t.Fatalf("root = %#v, want tmp read_write create", root)
 	}
 	if len(root.EnvFiles) != 1 || root.EnvFiles[0] != ".env.tmp" {

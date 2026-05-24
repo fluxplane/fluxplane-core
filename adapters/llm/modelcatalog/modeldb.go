@@ -1,4 +1,4 @@
-// Package modelcatalog bridges codewandler/modeldb into AgentRuntime's inert LLM
+// Package modelcatalog bridges codewandler/modeldb into Fluxplane's inert LLM
 // provider catalog types.
 package modelcatalog
 
@@ -19,7 +19,7 @@ type ProviderProjection struct {
 }
 
 // BuiltIn loads the embedded modeldb catalog and converts one entry per
-// service/API exposure into AgentRuntime provider specs.
+// service/API exposure into Fluxplane provider specs.
 func BuiltIn() ([]corellm.ProviderSpec, error) {
 	catalog, err := modeldb.LoadBuiltIn()
 	if err != nil {
@@ -71,7 +71,7 @@ func ProjectProvider(catalog modeldb.Catalog, projection ProviderProjection) (co
 	return spec, true
 }
 
-// FromModelDB converts modeldb service offerings into AgentRuntime provider specs.
+// FromModelDB converts modeldb service offerings into Fluxplane provider specs.
 func FromModelDB(catalog modeldb.Catalog) []corellm.ProviderSpec {
 	providers := map[string]*corellm.ProviderSpec{}
 	for _, service := range catalog.Services {

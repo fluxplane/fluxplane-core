@@ -217,7 +217,7 @@ runtime:
       - .env.local
     roots:
       - name: tmp
-        path: /tmp/agentruntime-demo
+        path: /tmp/fluxplane-demo
         access: read_write
         create: true
         env_files:
@@ -241,7 +241,7 @@ Fields:
   directories, such as generated image outputs.
 
 With the example above, `file_create` may write `@tmp/report.txt` or
-`/tmp/agentruntime-demo/report.txt`. It still cannot write arbitrary files
+`/tmp/fluxplane-demo/report.txt`. It still cannot write arbitrary files
 elsewhere under `/tmp`, and symlinks that escape the configured root are
 rejected.
 

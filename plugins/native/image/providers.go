@@ -40,7 +40,7 @@ func (pollinationsProvider) Generate(ctx context.Context, sys system.System, req
 		Method:    "GET",
 		Timeout:   60 * time.Second,
 		MaxBytes:  25 * 1024 * 1024,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return GenerateResult{}, err
@@ -124,7 +124,7 @@ func (openAIImageProvider) Generate(ctx context.Context, sys system.System, req 
 		Method:    "GET",
 		Timeout:   60 * time.Second,
 		MaxBytes:  25 * 1024 * 1024,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return GenerateResult{}, err
@@ -222,7 +222,7 @@ func (anthropicUnderstandingProvider) Understand(ctx context.Context, sys system
 		Body:      string(data),
 		Timeout:   60 * time.Second,
 		MaxBytes:  4 * 1024 * 1024,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return UnderstandResult{}, err

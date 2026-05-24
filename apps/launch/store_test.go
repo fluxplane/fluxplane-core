@@ -14,9 +14,9 @@ func TestOpenLocalThreadStoreRejectsMissingNATSDSN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEventRegistry: %v", err)
 	}
-	t.Setenv("AGENTRUNTIME_TEST_EMPTY_NATS_DSN", "")
+	t.Setenv("FLUXPLANE_TEST_EMPTY_NATS_DSN", "")
 	_, _, _, err = openLocalThreadStore(registry, distribution.EventsConfig{
-		Store: distribution.EventStoreConfig{Kind: "nats", DSNEnv: "AGENTRUNTIME_TEST_EMPTY_NATS_DSN"},
+		Store: distribution.EventStoreConfig{Kind: "nats", DSNEnv: "FLUXPLANE_TEST_EMPTY_NATS_DSN"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "event store nats dsn is empty") {
 		t.Fatalf("openLocalThreadStore error = %v, want missing dsn", err)

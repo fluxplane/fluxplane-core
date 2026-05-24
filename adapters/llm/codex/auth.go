@@ -1,4 +1,4 @@
-// Package codex adapts the Codex Responses backend to the AgentRuntime LLM model
+// Package codex adapts the Codex Responses backend to the Fluxplane LLM model
 // port. It deliberately uses the local Codex OAuth file.
 package codex
 

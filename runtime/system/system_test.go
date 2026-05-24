@@ -278,7 +278,7 @@ func TestHostWorkspaceMoveFileLeavesSourceWhenDestinationWriteFails(t *testing.T
 
 func TestHostWorkspaceNamedRootAllowsLogicalAndAbsolutePaths(t *testing.T) {
 	root := t.TempDir()
-	tmp := filepath.Join(t.TempDir(), "agentruntime-coder")
+	tmp := filepath.Join(t.TempDir(), "fluxplane-coder")
 	sys, err := NewHost(Config{
 		Root: root,
 		Workspace: WorkspaceConfig{Roots: []WorkspaceRootConfig{{
@@ -645,7 +645,7 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHost: %v", err)
 	}
-	scratch, err := sys.Workspace().CreateScratch(context.Background(), "agentruntime-test-*")
+	scratch, err := sys.Workspace().CreateScratch(context.Background(), "fluxplane-test-*")
 	if err != nil {
 		t.Fatalf("CreateScratch: %v", err)
 	}
@@ -657,8 +657,8 @@ func TestHostWorkspaceCreateScratchUsesConfiguredRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scratch WriteFile: %v", err)
 	}
-	if !strings.HasPrefix(resolved.Rel, "@tmp/agentruntime-test-") || !strings.HasSuffix(resolved.Rel, "/out.txt") {
-		t.Fatalf("scratch rel = %q, want @tmp/agentruntime-test-*/out.txt", resolved.Rel)
+	if !strings.HasPrefix(resolved.Rel, "@tmp/fluxplane-test-") || !strings.HasSuffix(resolved.Rel, "/out.txt") {
+		t.Fatalf("scratch rel = %q, want @tmp/fluxplane-test-*/out.txt", resolved.Rel)
 	}
 }
 
@@ -947,7 +947,7 @@ func TestAuthorizedSystemAuthorizesCanonicalWorkspacePath(t *testing.T) {
 
 func TestAuthorizedSystemEnforcesEnvironmentSecretRead(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("AGENTRUNTIME_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("FLUXPLANE_SYSTEM_TEST_SECRET=secret\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	host, err := NewHost(Config{Root: root, Workspace: WorkspaceConfig{EnvFiles: []string{".env"}}})
@@ -960,16 +960,16 @@ func TestAuthorizedSystemEnforcesEnvironmentSecretRead(t *testing.T) {
 		Resources: []policy.ResourceRef{{Kind: policy.ResourcePath, Path: "**"}},
 		Actions:   []policy.Action{policy.ActionWorkspaceRead},
 	}})
-	if _, _, err := sys.Environment().Lookup(denied, "AGENTRUNTIME_SYSTEM_TEST_SECRET"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
+	if _, _, err := sys.Environment().Lookup(denied, "FLUXPLANE_SYSTEM_TEST_SECRET"); err == nil || !strings.Contains(err.Error(), "authorization_deny") {
 		t.Fatalf("Lookup denied error = %v, want authorization deny", err)
 	}
 
 	allowed := authorizedTestContext([]policy.Grant{{
 		Subjects:  []policy.SubjectRef{{Kind: policy.SubjectUser, ID: "timo@localhost"}},
-		Resources: []policy.ResourceRef{{Kind: policy.ResourceSecret, Name: "env/AGENTRUNTIME_SYSTEM_TEST_SECRET"}},
+		Resources: []policy.ResourceRef{{Kind: policy.ResourceSecret, Name: "env/FLUXPLANE_SYSTEM_TEST_SECRET"}},
 		Actions:   []policy.Action{policy.ActionSecretRead},
 	}})
-	value, ok, err := sys.Environment().Lookup(allowed, "AGENTRUNTIME_SYSTEM_TEST_SECRET")
+	value, ok, err := sys.Environment().Lookup(allowed, "FLUXPLANE_SYSTEM_TEST_SECRET")
 	if err != nil || !ok || value != "secret" {
 		t.Fatalf("Lookup = %q, %v, %v; want secret, true, nil", value, ok, err)
 	}

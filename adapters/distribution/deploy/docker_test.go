@@ -260,7 +260,7 @@ name: assistant
 	if !strings.Contains(string(dockerfile), "COPY localmods/axon /axon") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
-	if !strings.Contains(string(dockerfile), "WORKDIR /src/agentruntime/apps/coder") {
+	if !strings.Contains(string(dockerfile), "WORKDIR /src/fluxplane/apps/coder") {
 		t.Fatalf("Dockerfile = %s", dockerfile)
 	}
 	if !strings.Contains(string(dockerfile), "go build -trimpath -ldflags=\"-s -w\" -o /out/coder ./cmd/coder") {
@@ -498,10 +498,10 @@ func TestEnsureDockerNetworkCreatesMissingNetwork(t *testing.T) {
 	client := &recordingNetworkClient{inspectErr: cerrdefs.ErrNotFound}
 	labels := dockerStackLabels("sample")
 
-	if err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", labels); err != nil {
+	if err := ensureDockerNetwork(context.Background(), client, "fluxplane-sample", labels); err != nil {
 		t.Fatalf("ensureDockerNetwork: %v", err)
 	}
-	if client.createdName != "agentruntime-sample" || client.createdOptions.Driver != "bridge" || client.createdOptions.Labels[deployStackLabel] != "sample" {
+	if client.createdName != "fluxplane-sample" || client.createdOptions.Driver != "bridge" || client.createdOptions.Labels[deployStackLabel] != "sample" {
 		t.Fatalf("created network name=%q options=%#v", client.createdName, client.createdOptions)
 	}
 }
@@ -513,7 +513,7 @@ func TestEnsureDockerNetworkReusesManagedNetwork(t *testing.T) {
 		},
 	}
 
-	if err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", dockerStackLabels("sample")); err != nil {
+	if err := ensureDockerNetwork(context.Background(), client, "fluxplane-sample", dockerStackLabels("sample")); err != nil {
 		t.Fatalf("ensureDockerNetwork: %v", err)
 	}
 	if client.createdName != "" {
@@ -528,7 +528,7 @@ func TestEnsureDockerNetworkRejectsForeignNetwork(t *testing.T) {
 		},
 	}
 
-	err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", dockerStackLabels("sample"))
+	err := ensureDockerNetwork(context.Background(), client, "fluxplane-sample", dockerStackLabels("sample"))
 	if err == nil || !strings.Contains(err.Error(), "is not managed by this deploy stack") {
 		t.Fatalf("ensureDockerNetwork error = %v, want foreign network error", err)
 	}

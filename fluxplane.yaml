@@ -1,10 +1,10 @@
 kind: app
-name: "agentruntime"
-description: Local agentruntime app with searchable repository documentation.
+name: "fluxplane"
+description: Local fluxplane app with searchable repository documentation.
 default_agent:
   name: default
 distribution:
-  name: agentruntime
+  name: fluxplane
   title: Agent Runtime
   build:
     assets:
@@ -79,7 +79,7 @@ context:
 datasources:
   - local-docs
 system: |
-  You are a helpful assistant for this local agentruntime app. Use
+  You are a helpful assistant for this local fluxplane app. Use
   datasource_search when answering questions about repository documentation or
   markdown files in this checkout, especially under `docs/`. Answer by
   summarizing relevant details and cite file paths. Do not reproduce full

@@ -474,15 +474,15 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 		Session:    toClientSessionInfo(info),
 		Submission: submissionForInbound(normalizedSubmissionInput, runID, inbound),
 	})
-	agentRuntime, err := s.agentForSession(ctx, info)
+	agentInstance, err := s.agentForSession(ctx, info)
 	if err != nil {
 		return InboundResult{Session: info}, err
 	}
-	turnTools := s.projectToolsForInbound(agentRuntime, inbound)
+	turnTools := s.projectToolsForInbound(agentInstance, inbound)
 	profile, _, _ := s.profileForInfo(info)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
-		Agent:                agentRuntime,
+		Agent:                agentInstance,
 		Profile:              profile,
 		Commands:             s.commands,
 		Operations:           s.operations,
@@ -540,8 +540,8 @@ func (s *Service) handleInput(ctx context.Context, info SessionInfo, inbound cha
 	return InboundResult{Session: info, Input: result, Outbound: result.Outbound}, nil
 }
 
-func (s *Service) projectToolsForInbound(agentRuntime agent.Agent, inbound channel.Inbound) []tool.Spec {
-	if agentRuntime == nil {
+func (s *Service) projectToolsForInbound(agentInstance agent.Agent, inbound channel.Inbound) []tool.Spec {
+	if agentInstance == nil {
 		return nil
 	}
 	cfg := s.toolProjection
@@ -551,11 +551,11 @@ func (s *Service) projectToolsForInbound(agentRuntime agent.Agent, inbound chann
 	cfg.Caller = inbound.Caller
 	cfg.Trust = inbound.Trust
 	cfg.Authorization.Policy = s.security
-	cfg.Authorization.Subjects = security.SubjectsForInbound(inbound, agentRuntime.Spec())
+	cfg.Authorization.Subjects = security.SubjectsForInbound(inbound, agentInstance.Spec())
 	cfg.Authorization.Trust = inbound.Trust
 	cfg.Authorization.TraceAllows = s.securityTrace
 	projected := toolprojection.Project(cfg)
-	filtered := agentconfig.FilterTools(agentRuntime.Spec(), projected.Tools)
+	filtered := agentconfig.FilterTools(agentInstance.Spec(), projected.Tools)
 	if filtered == nil && (len(s.commandCatalog) > 0 || len(s.operationCatalog) > 0 || len(s.toolSetCatalog) > 0) {
 		return []tool.Spec{}
 	}
@@ -571,7 +571,7 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 		Submission: submissionForInbound(normalizedSubmissionCommand, runID, inbound),
 	})
 	profile, _, _ := s.profileForInfo(info)
-	agentRuntime := s.agent
+	agentInstance := s.agent
 	var commandPath command.Path
 	if inbound.Command != nil {
 		commandPath = inbound.Command.Path
@@ -590,15 +590,15 @@ func (s *Service) handleCommand(ctx context.Context, info SessionInfo, inbound c
 	}
 	if targetsSession {
 		var err error
-		agentRuntime, err = s.agentForSession(ctx, info)
+		agentInstance, err = s.agentForSession(ctx, info)
 		if err != nil {
 			return InboundResult{Session: info}, err
 		}
 	}
-	turnTools := s.projectToolsForInbound(agentRuntime, inbound)
+	turnTools := s.projectToolsForInbound(agentInstance, inbound)
 	runtimeFailures := &runtimeEventPersistenceFailures{}
 	exec := session.Session{
-		Agent:                agentRuntime,
+		Agent:                agentInstance,
 		Profile:              profile,
 		Commands:             s.commands,
 		Operations:           s.operations,

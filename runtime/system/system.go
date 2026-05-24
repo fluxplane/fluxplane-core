@@ -823,7 +823,7 @@ func (w *HostWorkspace) Glob(ctx context.Context, pattern string, opts GlobOptio
 // CreateScratch creates an isolated temporary directory for runtime-owned work.
 func (w *HostWorkspace) CreateScratch(_ context.Context, prefix string) (ScratchDir, error) {
 	if strings.TrimSpace(prefix) == "" {
-		prefix = "agentruntime-*"
+		prefix = "fluxplane-*"
 	}
 	base := ""
 	var root workspaceRoot
@@ -1095,7 +1095,7 @@ func (n *HostNetwork) DoHTTP(ctx context.Context, req HTTPRequest) (HTTPResponse
 	}
 	userAgent := req.UserAgent
 	if userAgent == "" {
-		userAgent = "agentruntime/0.1"
+		userAgent = "fluxplane/0.1"
 	}
 	httpReq.Header.Set("User-Agent", userAgent)
 	for key, value := range req.Headers {

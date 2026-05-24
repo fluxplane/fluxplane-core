@@ -58,7 +58,7 @@ func (p tavilySearchProvider) Search(ctx context.Context, req SearchProviderRequ
 		Body:      string(body),
 		Timeout:   30 * time.Second,
 		MaxBytes:  1024 * 1024,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return SearchProviderResult{}, err

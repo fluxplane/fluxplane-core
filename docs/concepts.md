@@ -1,6 +1,6 @@
 # Core Concepts: Workspace, Project, Request, Task, Command, Workflow, Operation, and Execution
 
-This document defines the vocabulary AgentRuntime uses for common work and
+This document defines the vocabulary Fluxplane uses for common work and
 execution concepts. The terms are intentionally separated because each answers a
 different semantic question. Keeping the boundaries crisp prevents transport
 inputs, user-facing commands, model-facing tools, process definitions, and runtime
@@ -145,7 +145,7 @@ Examples:
 A task is not a tool call. It is the work objective. It may require many tool
 calls and many executions.
 
-In AgentRuntime, durable task state lives in `core/task` and is projected by
+In Fluxplane, durable task state lives in `core/task` and is projected by
 `runtime/task` from task event streams. The first bundled surface is
 `plugins/taskplugin`, which contributes `/task`, `/plan`, narrow
 task-creator/planner agents, and typed operations such as `task_create`,
@@ -380,12 +380,12 @@ Operation: `project_inventory`.
 Execution: Runtime invocation of `project_inventory` with specific input.
 ```
 
-## Mapping to AgentRuntime packages
+## Mapping to Fluxplane packages
 
-AgentRuntime uses these concepts across layers. The package names and ownership
+Fluxplane uses these concepts across layers. The package names and ownership
 rules should reflect the semantic boundaries.
 
-### Requests in AgentRuntime
+### Requests in Fluxplane
 
 There is intentionally no universal `core/request` package. Requests appear at
 many boundaries:
@@ -402,7 +402,7 @@ internal concepts such as command invocations, messages, operation inputs, or
 workflow/session submissions. Adapters should avoid owning domain semantics that
 belong to core, runtime, or orchestration layers.
 
-### Tasks in AgentRuntime
+### Tasks in Fluxplane
 
 `core/task` is the durable work-objective domain for first-class, trackable work
 with lifecycle, assignment, acceptance criteria, artifact contracts, and
@@ -445,7 +445,7 @@ Current task-system reliability work is tracked in
 [Task System Reliability Roadmap](../.agents/plans/2026-05-17-task-system-roadmap.md);
 historical design rationale lives under `.agents/designs`.
 
-### Commands in AgentRuntime
+### Commands in Fluxplane
 
 `core/command` owns command syntax and invocation contracts. Commands are parsed
 once at the command boundary and transported as structured invocations.
@@ -462,7 +462,7 @@ Commands should be:
 A command handler may invoke operations or start workflows, but the command
 itself represents the parsed imperative control instruction.
 
-### Workflows in AgentRuntime
+### Workflows in Fluxplane
 
 `core/workflow` should contain inert workflow specifications and stable workflow
 contracts. Runtime or orchestration packages should own workflow runs,
@@ -475,7 +475,7 @@ other workflow steps. The spec remains distinct from the run.
 workflow.Spec != workflow run/execution
 ```
 
-### Operations in AgentRuntime
+### Operations in Fluxplane
 
 `core/operation` owns operation specs and model-facing operation contracts.
 Operation implementations live in runtime, adapters, or plugins depending on the
@@ -494,7 +494,7 @@ Side-effecting operations must enter through `runtime/operation.SafetyEnvelope`
 and use `runtime/system.System` for filesystem, network, process, browser, and
 human-clarification access. Reusable plugins should not bypass those boundaries.
 
-### Executions in AgentRuntime
+### Executions in Fluxplane
 
 Execution is primarily a runtime/orchestration concern. Different subsystems may
 track different execution kinds:

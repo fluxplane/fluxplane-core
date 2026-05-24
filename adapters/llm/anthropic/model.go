@@ -1,4 +1,4 @@
-// Package anthropic adapts Anthropic's Messages API to AgentRuntime.
+// Package anthropic adapts Anthropic's Messages API to Fluxplane.
 package anthropic
 
 import (

@@ -133,7 +133,7 @@ func (p Plugin) request() operationruntime.TypedResultHandler[requestInput, map[
 		}
 		resp, err := p.system.Network().DoHTTP(ctx, system.HTTPRequest{
 			URL: req.URL, Method: method, Headers: req.Headers, Body: req.Body,
-			Timeout: timeout, MaxBytes: maxBytes, UserAgent: "agentruntime/0.1",
+			Timeout: timeout, MaxBytes: maxBytes, UserAgent: "fluxplane/0.1",
 		})
 		if err != nil {
 			return operation.Failed("web_request_failed", err.Error(), nil)

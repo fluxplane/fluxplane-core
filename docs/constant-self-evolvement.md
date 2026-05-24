@@ -4,7 +4,7 @@
 > for evaluating and improving agents. It is a working design, not an
 > implemented feature; open questions remain at the end of the document.
 
-AgentRuntime should not only run agents. It should give every agent a controlled
+Fluxplane should not only run agents. It should give every agent a controlled
 path to improve itself.
 
 Constant Self-Evolvement is the runtime loop for evaluating an agent against
@@ -13,7 +13,7 @@ changes in isolated variants, verifying regressions, and promoting successful
 improvements through policy-gated workflows.
 
 The same loop can improve the `coder` harness itself or any agent built with
-AgentRuntime: support bots, incident responders, documentation agents, sales
+Fluxplane: support bots, incident responders, documentation agents, sales
 assistants, evaluators, or custom product agents.
 
 ## Motivation
@@ -27,13 +27,13 @@ write prompt -> add tools -> try it manually -> tweak prompt -> repeat
 That loop is useful but informal. It does not leave durable evidence, does not
 compare variants consistently, and does not protect against regressions.
 
-AgentRuntime can make agent improvement look more like software engineering:
+Fluxplane can make agent improvement look more like software engineering:
 
 ```text
 write agent -> run scenarios -> collect traces -> evaluate -> improve -> verify -> promote
 ```
 
-Every AgentRuntime app should be able to carry:
+Every Fluxplane app should be able to carry:
 
 - scenarios that describe tasks the agent must handle,
 - fitness functions that define what "better" means,
@@ -58,7 +58,7 @@ idea is that feedback can be scalar, free-form language, external, or
 self-generated. The agent does not need model retraining to improve future
 attempts; it can use durable reflection as runtime context.
 
-AgentRuntime maps this to:
+Fluxplane maps this to:
 
 - evaluator reports,
 - review files,
@@ -74,7 +74,7 @@ Self-Refine uses an iterative loop:
 generate -> critique -> refine -> repeat
 ```
 
-AgentRuntime maps this to:
+Fluxplane maps this to:
 
 ```text
 run subject -> evaluate -> diagnose -> mutate -> verify -> rerun
@@ -85,7 +85,7 @@ The evaluator/coder workflow is already a concrete version of this pattern.
 ### DSPy-style optimization
 
 DSPy treats language-model programs as declarative pipelines that can be
-optimized against metrics. AgentRuntime can do the same for agent specs,
+optimized against metrics. Fluxplane can do the same for agent specs,
 prompts, examples, tool selections, workflows, and model options.
 
 The important product idea is not merely that an agent can reflect. It is that
@@ -100,7 +100,7 @@ if it solves tasks without breaking the repo.
 ### Lifelong skill libraries
 
 Systems such as Voyager show the value of automatic curriculum and reusable
-skill libraries. AgentRuntime can generalize this beyond games: agents should be
+skill libraries. Fluxplane can generalize this beyond games: agents should be
 able to preserve successful strategies, tools, examples, and policies as
 reusable capabilities.
 
@@ -119,7 +119,7 @@ Constant Self-Evolvement should provide:
 5. **Policy-gated promotion**: successful variants are promoted only through
    configured rules and human approval where required.
 6. **Reusable loop**: the mechanism works for coder and for any app built on
-   AgentRuntime.
+   Fluxplane.
 7. **Durable learning**: findings, reflections, and scenarios remain available
    for future runs.
 8. **Scenario synthesis**: new scenarios can be generated from failed runs,
@@ -844,7 +844,7 @@ flight recorder plus copilot for agents.
 The selling point is simple:
 
 ```text
-AgentRuntime does not wait until your agent fails. It watches the run, catches
+Fluxplane does not wait until your agent fails. It watches the run, catches
 bad patterns early, and turns those patterns into future improvements.
 ```
 
@@ -1043,7 +1043,7 @@ No code change is required, but the same loop applies.
 
 ## Proposed Package Placement
 
-The design should respect AgentRuntime layering.
+The design should respect Fluxplane layering.
 
 ### Core
 
@@ -1186,7 +1186,7 @@ A local filesystem layout can bootstrap the feature:
 ```
 
 The storage backend should later be abstract so hosted and team workflows can use
-SQL, object storage, GitHub artifacts, or AgentRuntime cloud storage.
+SQL, object storage, GitHub artifacts, or Fluxplane cloud storage.
 
 ## MVP Roadmap
 
@@ -1268,16 +1268,16 @@ Generate regression scenarios from:
 
 ## Design Thesis
 
-Constant Self-Evolvement means AgentRuntime agents can improve under measurement.
+Constant Self-Evolvement means Fluxplane agents can improve under measurement.
 
-An AgentRuntime agent is not just a prompt and tools. It is a versioned,
+An Fluxplane agent is not just a prompt and tools. It is a versioned,
 evaluable, improvable system with scenarios, traces, fitness functions,
 reflection memory, variant generation, regression gates, and promotion policy.
 
 The first compelling demo should use the runtime's own coding harness:
 
 1. The coder reflects that it lacks `file_delete` and robust editing tools.
-2. AgentRuntime synthesizes scenarios from that reflection.
+2. Fluxplane synthesizes scenarios from that reflection.
 3. The evolver proposes a concrete improvement plan.
 4. Coder implements a candidate variant.
 5. Evaluator scores baseline versus candidate.
@@ -1287,7 +1287,7 @@ The first compelling demo should use the runtime's own coding harness:
 That story is simple, credible, and powerful:
 
 ```text
-AgentRuntime used its own evaluator to improve its own coding harness.
+Fluxplane used its own evaluator to improve its own coding harness.
 ```
 
 The same loop then applies to every agent built on the platform.

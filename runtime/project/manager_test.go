@@ -101,7 +101,7 @@ func TestManagerCreatesDocsOnlyProjectWithoutOwner(t *testing.T) {
 	})
 }
 
-func TestManagerDetectsAgentRuntimeCoderAndAIConfigFacets(t *testing.T) {
+func TestManagerDetectsFluxplaneCoderAndAIConfigFacets(t *testing.T) {
 	runManagerBackends(t, func(t *testing.T, ws system.Workspace) {
 		writeWorkspaceFile(t, ws, "fluxplane.yaml", "kind: app\nname: demo\n")
 		writeWorkspaceFile(t, ws, ".coder.yaml", "version: 1\nworkspace: {}\nimports: {}\n")
@@ -116,7 +116,7 @@ func TestManagerDetectsAgentRuntimeCoderAndAIConfigFacets(t *testing.T) {
 		}
 		root := projectByRoot(t, inventory, "")
 		appFacet := facetByKindAndPath(t, root, coreproject.FacetAppManifest, "fluxplane.yaml")
-		if appFacet.Summary["name"] != "demo" || appFacet.Manifest.Kind != "agentruntime_app_manifest" {
+		if appFacet.Summary["name"] != "demo" || appFacet.Manifest.Kind != "fluxplane_app_manifest" {
 			t.Fatalf("app facet = %#v, want demo app manifest", appFacet)
 		}
 		coderFacet := facetByKindAndPath(t, root, coreproject.FacetCoderConfig, ".coder.yaml")

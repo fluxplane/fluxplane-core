@@ -74,7 +74,7 @@ outer layers. The exact allowed-import matrix is defined in
 | `plugins` | Which optional first-party capability bundle is contributed? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins` | Optional capability bundles via core/orchestration contracts. No global app assembly. |
 | `apps` | What product was assembled? | `core`, `sdk`, `runtime`, `orchestration`, `adapters`, `plugins`, `apps`, root facade | Assembled products and dogfood apps. No reusable domain or runtime concepts. |
 | `cmd` | How is an assembled product launched as a process? | `apps`, `adapters`, `cmd` (and stdlib) | Executable entrypoint glue only. Adapter import is allowed for distribution-CLI launchers; no feature logic, no plugin assembly. |
-| `facade` (root module) | In-process embedding entrypoint. | `core`, `sdk`, `runtime`, `orchestration`, `adapters` | The root `agentruntime` package. Assembles outward-facing in-process products. Inner packages must not import it. |
+| `facade` (root module) | In-process embedding entrypoint. | `core`, `sdk`, `runtime`, `orchestration`, `adapters` | The root `fluxplane` package. Assembles outward-facing in-process products. Inner packages must not import it. |
 
 See [docs/architecture.md](docs/architecture.md) for per-layer concept lists
 and common flows.

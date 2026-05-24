@@ -19,7 +19,7 @@ import (
 	"github.com/fluxplane/engine/orchestration/pluginhost"
 	"github.com/fluxplane/engine/orchestration/session"
 	"github.com/fluxplane/engine/plugins/examples/echo"
-	llmagentruntime "github.com/fluxplane/engine/runtime/agent/llmagent"
+	llmfluxplane "github.com/fluxplane/engine/runtime/agent/llmagent"
 )
 
 func TestServiceSubmitInputThroughTopLevelAPI(t *testing.T) {
@@ -123,7 +123,7 @@ func TestServiceOnEventReceivesDefaultSessionEvents(t *testing.T) {
 
 func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	ctx := context.Background()
-	agentRuntime := &toolCaptureAgent{}
+	agentInstance := &toolCaptureAgent{}
 	echo := operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
 		return operation.OK(input)
 	})
@@ -151,7 +151,7 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 		t.Fatalf("Compose: %v", err)
 	}
 	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
-		Agent:   agentRuntime,
+		Agent:   agentInstance,
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser, Principal: policy.Principal{Kind: "user", ID: "test-user"}},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
@@ -171,8 +171,8 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait verified: %v", err)
 	}
-	if len(agentRuntime.lastTools) != 1 {
-		t.Fatalf("verified tools len = %d, want 1", len(agentRuntime.lastTools))
+	if len(agentInstance.lastTools) != 1 {
+		t.Fatalf("verified tools len = %d, want 1", len(agentInstance.lastTools))
 	}
 
 	run, err = sessionHandle.Submit(ctx, fluxplane.NewSubmission().
@@ -184,8 +184,8 @@ func TestServiceProjectsToolsForResolvedInboundTrust(t *testing.T) {
 	if _, err := run.Wait(ctx); err != nil {
 		t.Fatalf("Wait downgraded: %v", err)
 	}
-	if len(agentRuntime.lastTools) != 0 {
-		t.Fatalf("downgraded tools len = %d, want 0", len(agentRuntime.lastTools))
+	if len(agentInstance.lastTools) != 0 {
+		t.Fatalf("downgraded tools len = %d, want 0", len(agentInstance.lastTools))
 	}
 }
 
@@ -456,7 +456,7 @@ func TestServiceInstantiatesConfiguredLLMAgentFromComposition(t *testing.T) {
 		Channel:  channel.Ref{Name: "local"},
 		Caller:   policy.Caller{Kind: policy.CallerUser},
 		Trust:    policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-		LLMModel: llmagentruntime.StaticModel{Response: llmagentruntime.MessageResponse("configured agent")},
+		LLMModel: llmfluxplane.StaticModel{Response: llmfluxplane.MessageResponse("configured agent")},
 	})
 	if err != nil {
 		t.Fatalf("NewFromComposition: %v", err)
@@ -518,14 +518,14 @@ func TestServiceProjectsToolsForConfiguredLLMAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	var modelRequest llmagentruntime.Request
+	var modelRequest llmfluxplane.Request
 	svc, err := fluxplane.NewFromComposition(composition, fluxplane.Config{
 		Channel: channel.Ref{Name: "local"},
 		Caller:  policy.Caller{Kind: policy.CallerUser},
 		Trust:   policy.Trust{Kind: policy.TrustInvocation, Level: policy.TrustVerified},
-		LLMModel: llmagentruntime.ModelFunc(func(_ context.Context, req llmagentruntime.Request) (llmagentruntime.Response, error) {
+		LLMModel: llmfluxplane.ModelFunc(func(_ context.Context, req llmfluxplane.Request) (llmfluxplane.Response, error) {
 			modelRequest = req
-			return llmagentruntime.OperationResponse(agent.OperationRequest{
+			return llmfluxplane.OperationResponse(agent.OperationRequest{
 				Operation: operation.Ref{Name: "echo"},
 				Input:     "from-agent",
 			}), nil

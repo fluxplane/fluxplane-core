@@ -682,7 +682,7 @@ func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:   "llm",
 			Driver: agent.DriverSpec{Kind: "llmagent"},
@@ -705,7 +705,7 @@ func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
 		},
 	}
 	s := Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
 	}
@@ -724,13 +724,13 @@ func TestExecuteInboundInputContinuesLLMAgentAfterOperation(t *testing.T) {
 	if result.Outbound == nil || result.Outbound.Message == nil || result.Outbound.Message.Content != "found thing" {
 		t.Fatalf("outbound = %#v, want final agent message", result.Outbound)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent steps = %d, want 2", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent steps = %d, want 2", len(agentInstance.inputs))
 	}
-	if len(agentRuntime.inputs[1].Observations) != 2 {
-		t.Fatalf("second observations len = %d, want user input and operation result", len(agentRuntime.inputs[1].Observations))
+	if len(agentInstance.inputs[1].Observations) != 2 {
+		t.Fatalf("second observations len = %d, want user input and operation result", len(agentInstance.inputs[1].Observations))
 	}
-	if got := agentRuntime.inputs[1].Observations[1].Kind; got != "operation.result" {
+	if got := agentInstance.inputs[1].Observations[1].Kind; got != "operation.result" {
 		t.Fatalf("second observation kind = %q, want operation.result", got)
 	}
 }
@@ -752,7 +752,7 @@ func TestExecuteInboundInputRunsPostEditCheckBeforeNextAgentStep(t *testing.T) {
 	); err != nil {
 		t.Fatalf("register operations: %v", err)
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:   "llm",
 			Driver: agent.DriverSpec{Kind: "llmagent"},
@@ -775,7 +775,7 @@ func TestExecuteInboundInputRunsPostEditCheckBeforeNextAgentStep(t *testing.T) {
 		},
 	}
 	s := Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
 		TurnTools: []tool.Spec{{
@@ -820,10 +820,10 @@ func TestExecuteInboundInputRunsPostEditCheckBeforeNextAgentStep(t *testing.T) {
 	if !ok || len(patterns) != 1 || patterns[0] != "pkg/example/main.go" || formatInput["dry_run"] != false {
 		t.Fatalf("format input = %#v, want expanded path and dry_run=false", formatInput)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent steps = %d, want 2", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent steps = %d, want 2", len(agentInstance.inputs))
 	}
-	observations := agentRuntime.inputs[1].Observations
+	observations := agentInstance.inputs[1].Observations
 	if len(observations) != 3 {
 		t.Fatalf("second observations len = %d, want user input, edit result, check result", len(observations))
 	}
@@ -858,7 +858,7 @@ func TestExecuteInboundInputProjectsThreadHistory(t *testing.T) {
 	if _, err := threadStore.Create(ctx, corethread.CreateParams{ID: "thread-history"}); err != nil {
 		t.Fatalf("create thread: %v", err)
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "memory"},
 		results: []agent.StepResult{
 			{
@@ -878,7 +878,7 @@ func TestExecuteInboundInputProjectsThreadHistory(t *testing.T) {
 		},
 	}
 	s := Session{
-		Agent:       agentRuntime,
+		Agent:       agentInstance,
 		ThreadStore: threadStore,
 		Thread:      corethread.Ref{ID: "thread-history"},
 	}
@@ -899,16 +899,16 @@ func TestExecuteInboundInputProjectsThreadHistory(t *testing.T) {
 	if second.Status != InputStatusOK {
 		t.Fatalf("second status = %q, want ok: %#v", second.Status, second)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent inputs len = %d, want 2", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent inputs len = %d, want 2", len(agentInstance.inputs))
 	}
-	if len(agentRuntime.inputs[0].Context) != 0 {
-		t.Fatalf("first context = %#v, want none", agentRuntime.inputs[0].Context)
+	if len(agentInstance.inputs[0].Context) != 0 {
+		t.Fatalf("first context = %#v, want none", agentInstance.inputs[0].Context)
 	}
-	if len(agentRuntime.inputs[1].Context) != 1 {
-		t.Fatalf("second context = %#v, want history block", agentRuntime.inputs[1].Context)
+	if len(agentInstance.inputs[1].Context) != 1 {
+		t.Fatalf("second context = %#v, want history block", agentInstance.inputs[1].Context)
 	}
-	history := agentRuntime.inputs[1].Context[0].Content
+	history := agentInstance.inputs[1].Context[0].Content
 	if !strings.Contains(history, "User: my name is Timo") || !strings.Contains(history, "Agent: noted") {
 		t.Fatalf("history = %q, want prior user and agent messages", history)
 	}
@@ -1821,7 +1821,7 @@ func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T
 			return []coreevidence.Assertion{{Kind: "test.assertion", Target: "ok"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -1829,7 +1829,7 @@ func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T
 		}},
 	}
 	result := (Session{
-		Agent:                agentRuntime,
+		Agent:                agentInstance,
 		EnvironmentObservers: []runtimeevidence.Observer{observer},
 		AssertionDerivers:    []runtimeevidence.AssertionDeriver{deriver},
 	}).ExecuteInboundInput(ctx, channel.Inbound{
@@ -1840,10 +1840,10 @@ func TestExecuteInboundInputRunsTurnEnvironmentObserversAndDerivers(t *testing.T
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if len(agentRuntime.inputs) != 1 {
-		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentInstance.inputs))
 	}
-	agentObservations := agentRuntime.inputs[0].Observations
+	agentObservations := agentInstance.inputs[0].Observations
 	if len(agentObservations) != 2 {
 		t.Fatalf("agent observations = %#v, want channel and observer observations", agentObservations)
 	}
@@ -1873,7 +1873,7 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 			return []coreevidence.Observation{{Kind: "session.opened"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -1884,7 +1884,7 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 		}},
 	}
 	session := Session{
-		Agent:                agentRuntime,
+		Agent:                agentInstance,
 		ThreadStore:          threadStore,
 		Thread:               thread,
 		EnvironmentObservers: []runtimeevidence.Observer{observer},
@@ -1900,14 +1900,14 @@ func TestExecuteInboundInputRunsSessionOpenEnvironmentOncePerThread(t *testing.T
 	if len(phases) != 1 || phases[0] != coreevidence.PhaseSessionOpen {
 		t.Fatalf("phases = %#v, want one session_open run", phases)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent inputs = %d, want 2", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want 2", len(agentInstance.inputs))
 	}
-	if len(agentRuntime.inputs[0].Observations) != 2 || agentRuntime.inputs[0].Observations[1].Kind != "session.opened" {
-		t.Fatalf("first observations = %#v, want session open observation", agentRuntime.inputs[0].Observations)
+	if len(agentInstance.inputs[0].Observations) != 2 || agentInstance.inputs[0].Observations[1].Kind != "session.opened" {
+		t.Fatalf("first observations = %#v, want session open observation", agentInstance.inputs[0].Observations)
 	}
-	if len(agentRuntime.inputs[1].Observations) != 1 {
-		t.Fatalf("second observations = %#v, want no session open observation", agentRuntime.inputs[1].Observations)
+	if len(agentInstance.inputs[1].Observations) != 1 {
+		t.Fatalf("second observations = %#v, want no session open observation", agentInstance.inputs[1].Observations)
 	}
 }
 
@@ -2113,7 +2113,7 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "integration.available", Target: "lookup"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -2122,7 +2122,7 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 	}
 	var emitted []event.Event
 	result := (Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
 		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
@@ -2152,17 +2152,17 @@ func TestExecuteInboundInputRunsOperationReactionBeforeAgentStep(t *testing.T) {
 	if len(result.Effects) != 1 || result.Effects[0].Result.Status != operation.StatusOK {
 		t.Fatalf("effects = %#v, want successful reaction operation effect", result.Effects)
 	}
-	if len(agentRuntime.inputs) != 1 {
-		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentInstance.inputs))
 	}
 	seenOperationObservation := false
-	for _, observation := range agentRuntime.inputs[0].Observations {
+	for _, observation := range agentInstance.inputs[0].Observations {
 		if observation.Kind == "operation.result" && observation.Metadata["reaction_rule"] == "lookup-available" {
 			seenOperationObservation = true
 		}
 	}
 	if !seenOperationObservation {
-		t.Fatalf("agent observations = %#v, want reaction operation result observation", agentRuntime.inputs[0].Observations)
+		t.Fatalf("agent observations = %#v, want reaction operation result observation", agentInstance.inputs[0].Observations)
 	}
 	if len(requestedCallIDs(emitted)) != 1 || len(completedCallIDs(emitted)) != 1 {
 		t.Fatalf("emitted events = %#v, want operation requested/completed", emitted)
@@ -2186,7 +2186,7 @@ func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T)
 			return []coreevidence.Assertion{{Kind: "integration.available", Target: "lookup"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -2195,7 +2195,7 @@ func TestExecuteInboundInputSkipsApprovalRequiredOperationReaction(t *testing.T)
 	}
 	var emitted []event.Event
 	result := (Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
 		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
@@ -2265,7 +2265,7 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "command.ready", Target: "echo"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -2273,7 +2273,7 @@ func TestExecuteInboundInputRunsCommandReactionThroughDispatcher(t *testing.T) {
 		}},
 	}
 	result := (Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Commands:          commands,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
@@ -2325,7 +2325,7 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "workflow.ready", Target: "feature"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -2334,7 +2334,7 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 	}
 	var emitted []event.Event
 	result := (Session{
-		Agent:    agentRuntime,
+		Agent:    agentInstance,
 		Resolver: resource.NewResolver(resource.ResolverConfig{Index: index}),
 		WorkflowCatalog: resourcecatalog.WorkflowCatalog{
 			workflowID.Address(): {
@@ -2377,13 +2377,13 @@ func TestExecuteInboundInputRunsWorkflowReactionBeforeAgentStep(t *testing.T) {
 		t.Fatalf("emitted events = %#v, want workflow completion", eventNames(emitted))
 	}
 	seenWorkflowObservation := false
-	for _, observation := range agentRuntime.inputs[0].Observations {
+	for _, observation := range agentInstance.inputs[0].Observations {
 		if observation.Kind == "workflow.result" && observation.Metadata["reaction_rule"] == "feature-workflow" {
 			seenWorkflowObservation = true
 		}
 	}
 	if !seenWorkflowObservation {
-		t.Fatalf("agent observations = %#v, want workflow result observation", agentRuntime.inputs[0].Observations)
+		t.Fatalf("agent observations = %#v, want workflow result observation", agentInstance.inputs[0].Observations)
 	}
 }
 
@@ -2475,7 +2475,7 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "integration.available", Target: "kubernetes"}}, nil
 		},
 	}
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{Name: "coder"},
 		results: []agent.StepResult{{
 			Status:   agent.StatusOK,
@@ -2484,7 +2484,7 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 	}
 	var emitted []event.Name
 	result := (Session{
-		Agent:             runtimeskill.WrapAgent(agentRuntime, state),
+		Agent:             runtimeskill.WrapAgent(agentInstance, state),
 		AssertionDerivers: []runtimeevidence.AssertionDeriver{deriver},
 		ReactionRules: []corereaction.Rule{{
 			Name: "kubernetes-reference",
@@ -2516,8 +2516,8 @@ func TestExecuteInboundInputAppliesSkillReactionBeforeAgentStep(t *testing.T) {
 	if refs := state.ActiveReferences("kubernetes"); len(refs) != 1 || refs[0].Path != "references/kubectl.md" {
 		t.Fatalf("active references = %#v, want kubectl reference", refs)
 	}
-	if len(agentRuntime.inputs) != 1 {
-		t.Fatalf("agent inputs = %d, want 1", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 1 {
+		t.Fatalf("agent inputs = %d, want 1", len(agentInstance.inputs))
 	}
 	if len(emitted) != 4 ||
 		emitted[0] != corereaction.EventActionPlanned ||
@@ -3060,12 +3060,12 @@ func TestExecuteInboundInputUsesAndExpiresRunSurface(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("register operation: %v", err)
 	}
-	agentRuntime := &toolCaptureAgent{
+	agentInstance := &toolCaptureAgent{
 		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
 	}
 	var emitted []event.Event
 	result := (Session{
-		Agent:       agentRuntime,
+		Agent:       agentInstance,
 		Operations:  ops,
 		ThreadStore: threadStore,
 		Thread:      thread,
@@ -3093,8 +3093,8 @@ func TestExecuteInboundInputUsesAndExpiresRunSurface(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
-		t.Fatalf("tools = %#v, want active echo tool", agentRuntime.tools)
+	if !toolSpecsContainOperation(agentInstance.tools, "echo") {
+		t.Fatalf("tools = %#v, want active echo tool", agentInstance.tools)
 	}
 	if !hasEvent(emitted, coreactivation.EventSurfaceExpired) {
 		t.Fatalf("emitted events = %#v, want surface expiry", eventNames(emitted))
@@ -3119,11 +3119,11 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "integration.available", Target: "test", Source: "test.deriver"}}, nil
 		},
 	}
-	agentRuntime := &toolCaptureAgent{
+	agentInstance := &toolCaptureAgent{
 		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
 	}
 	result := (Session{
-		Agent:      agentRuntime,
+		Agent:      agentInstance,
 		Operations: ops,
 		OperationSets: []operation.Set{{
 			Name:       "echo-tools",
@@ -3146,8 +3146,8 @@ func TestExecuteInboundInputProjectsActiveOperationSetTools(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
-		t.Fatalf("tools = %#v, want echo operation tool", agentRuntime.tools)
+	if !toolSpecsContainOperation(agentInstance.tools, "echo") {
+		t.Fatalf("tools = %#v, want echo operation tool", agentInstance.tools)
 	}
 }
 
@@ -3168,12 +3168,12 @@ func TestExecuteInboundInputReactionEnablesActivationSet(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "focus.detected", Target: "incident", Source: "test.deriver"}}, nil
 		},
 	}
-	agentRuntime := &toolCaptureAgent{
+	agentInstance := &toolCaptureAgent{
 		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
 	}
 	var emitted []event.Event
 	result := (Session{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
 		ActivationSets: []coreactivation.Set{{
@@ -3205,8 +3205,8 @@ func TestExecuteInboundInputReactionEnablesActivationSet(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
-	if !toolSpecsContainOperation(agentRuntime.tools, "echo") {
-		t.Fatalf("tools = %#v, want echo operation from activation set", agentRuntime.tools)
+	if !toolSpecsContainOperation(agentInstance.tools, "echo") {
+		t.Fatalf("tools = %#v, want echo operation from activation set", agentInstance.tools)
 	}
 	if !hasEvent(emitted, coreactivation.EventSurfacePrepared) {
 		t.Fatalf("emitted events = %#v, want surface prepared", eventNames(emitted))
@@ -3233,11 +3233,11 @@ func TestExecuteInboundInputExpandsWildcardOperationSetTools(t *testing.T) {
 			return []coreevidence.Assertion{{Kind: "integration.authenticated", Target: "gitlab", Source: "auth"}}, nil
 		},
 	}
-	agentRuntime := &toolCaptureAgent{
+	agentInstance := &toolCaptureAgent{
 		result: agent.StepResult{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionWait}},
 	}
 	result := (Session{
-		Agent:      agentRuntime,
+		Agent:      agentInstance,
 		Operations: ops,
 		OperationSets: []operation.Set{{
 			Name:       "gitlab-tools",
@@ -3261,11 +3261,11 @@ func TestExecuteInboundInputExpandsWildcardOperationSetTools(t *testing.T) {
 		t.Fatalf("status = %q: %#v", result.Status, result)
 	}
 	got := map[tool.Name]bool{}
-	for _, projected := range agentRuntime.tools {
+	for _, projected := range agentInstance.tools {
 		got[projected.Name] = true
 	}
 	if !got["gitlab_mr"] || !got["gitlab_commit"] || got["jira_issue_search"] {
-		t.Fatalf("tools = %#v, want only gitlab wildcard matches", agentRuntime.tools)
+		t.Fatalf("tools = %#v, want only gitlab wildcard matches", agentInstance.tools)
 	}
 }
 
@@ -4474,7 +4474,7 @@ func TestExecuteInboundInputMaxContinuationsDoesNotLimitInnerToolLoop(t *testing
 }
 
 func TestExecuteInboundInputNoStopConditionDoesNotOuterContinue(t *testing.T) {
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:   "main",
 			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
@@ -4485,19 +4485,19 @@ func TestExecuteInboundInputNoStopConditionDoesNotOuterContinue(t *testing.T) {
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "continued"}}},
 		},
 	}
-	s := Session{Agent: agentRuntime}
+	s := Session{Agent: agentInstance}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
 	}
-	if len(agentRuntime.inputs) != 1 {
-		t.Fatalf("steps = %d, want 1", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 1 {
+		t.Fatalf("steps = %d, want 1", len(agentInstance.inputs))
 	}
 }
 
 func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testing.T) {
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:   "main",
 			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
@@ -4512,17 +4512,17 @@ func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testi
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "third"}}},
 		},
 	}
-	s := Session{Agent: agentRuntime}
+	s := Session{Agent: agentInstance}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "work"}})
 	if result.Status != InputStatusFailed {
 		t.Fatalf("status = %q, want failed after continuation limit: %#v", result.Status, result)
 	}
-	if len(agentRuntime.inputs) != 3 {
-		t.Fatalf("steps = %d, want first turn plus two continuations", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 3 {
+		t.Fatalf("steps = %d, want first turn plus two continuations", len(agentInstance.inputs))
 	}
-	if agentRuntime.inputs[1].Observations[0].Kind != "session.continuation" {
-		t.Fatalf("second observations = %#v, want continuation", agentRuntime.inputs[1].Observations)
+	if agentInstance.inputs[1].Observations[0].Kind != "session.continuation" {
+		t.Fatalf("second observations = %#v, want continuation", agentInstance.inputs[1].Observations)
 	}
 	if result.Error == nil || result.Error.Code != "continuation_limit_exceeded" {
 		t.Fatalf("error = %#v, want continuation_limit_exceeded", result.Error)
@@ -4530,7 +4530,7 @@ func TestExecuteInboundInputStopConditionMaxContinuationsOuterContinues(t *testi
 }
 
 func TestExecuteInboundInputPromptStopConditionUsesEvaluatorInstruction(t *testing.T) {
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:   "main",
 			Driver: agent.DriverSpec{Kind: llmagent.DriverKind},
@@ -4548,16 +4548,16 @@ func TestExecuteInboundInputPromptStopConditionUsesEvaluatorInstruction(t *testi
 		{Action: "continue", Reason: "more work remains", ContinueInstruction: "Add tests for parser errors."},
 		{Action: "stop", Reason: "task complete"},
 	}}
-	s := Session{Agent: agentRuntime, StopEvaluator: evaluator}
+	s := Session{Agent: agentInstance, StopEvaluator: evaluator}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "improve coverage"}})
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q, want ok: %#v", result.Status, result)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("steps = %d, want first turn plus one continuation", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("steps = %d, want first turn plus one continuation", len(agentInstance.inputs))
 	}
-	if got := agentRuntime.inputs[1].Observations[0].Content; got != "Add tests for parser errors." {
+	if got := agentInstance.inputs[1].Observations[0].Content; got != "Add tests for parser errors." {
 		t.Fatalf("continuation content = %#v, want evaluator instruction", got)
 	}
 	if len(evaluator.inputs) != 2 || evaluator.inputs[0].Condition.Prompt != "Stop when the task is complete." {
@@ -4614,7 +4614,7 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 		t.Fatalf("append goal: %v", err)
 	}
 
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:  "coder",
 			Turns: agent.TurnPolicy{MaxSteps: 1},
@@ -4628,7 +4628,7 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 		{decision: "rejected", summary: "not done", suggestion: "finish the task"},
 		{decision: "reached", summary: "done", evidence: "final message says done"},
 	}}
-	s.Agent = agentRuntime
+	s.Agent = agentInstance
 	s.SessionAgents = sessionagent.New(sessionagent.Config{
 		Client: reviewer,
 		ResolveProfile: sessionagent.ProfileResolverFunc(func(context.Context, coresession.Ref) (coresession.Spec, error) {
@@ -4648,8 +4648,8 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 	if result.Status != InputStatusOK {
 		t.Fatalf("status = %q error = %#v, want ok", result.Status, result.Error)
 	}
-	if len(agentRuntime.inputs) != 2 {
-		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentRuntime.inputs))
+	if len(agentInstance.inputs) != 2 {
+		t.Fatalf("agent inputs = %d, want initial plus continuation", len(agentInstance.inputs))
 	}
 	if len(reviewer.tasks) != 2 {
 		t.Fatalf("reviewer tasks = %d, want two verification runs", len(reviewer.tasks))
@@ -4657,7 +4657,7 @@ func TestExecuteInboundInputUsesDurableGoalContinuation(t *testing.T) {
 	if !strings.Contains(reviewer.tasks[0], "Complete the coverage task") {
 		t.Fatalf("reviewer task = %q, want durable goal", reviewer.tasks[0])
 	}
-	if got := agentRuntime.inputs[1].Observations[0].Content; got != "finish the task" {
+	if got := agentInstance.inputs[1].Observations[0].Content; got != "finish the task" {
 		t.Fatalf("continuation instruction = %#v, want reviewer suggestion", got)
 	}
 	state, err := s.currentGoalState(ctx)
@@ -4833,7 +4833,7 @@ func TestStopEvaluatorContextPolicyControlsEffectDetails(t *testing.T) {
 }
 
 func TestExecuteInboundInputAgentStopConditionIsDeferred(t *testing.T) {
-	agentRuntime := &sequenceAgent{
+	agentInstance := &sequenceAgent{
 		spec: agent.Spec{
 			Name:  "main",
 			Turns: agent.TurnPolicy{Continuation: agent.ContinuationPolicy{MaxContinuations: 1, StopCondition: agent.StopConditionSpec{Type: "agent", Session: "reviewer", Prompt: "Stop when reviewed."}}},
@@ -4842,7 +4842,7 @@ func TestExecuteInboundInputAgentStopConditionIsDeferred(t *testing.T) {
 			{Status: agent.StatusOK, Decision: agent.Decision{Kind: agent.DecisionMessage, Message: &agent.Message{Content: "candidate answer"}}},
 		},
 	}
-	s := Session{Agent: agentRuntime}
+	s := Session{Agent: agentInstance}
 
 	result := s.ExecuteInboundInput(context.Background(), channel.Inbound{ID: "run-1", Kind: channel.InboundMessage, Message: &channel.Message{Content: "answer the user"}})
 	if result.Status != InputStatusFailed || result.Error == nil || !strings.Contains(result.Error.Message, "typed session-agent decision tools") {

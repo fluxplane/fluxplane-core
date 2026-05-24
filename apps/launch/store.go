@@ -84,27 +84,27 @@ func defaultEventStorePath() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		if base := strings.TrimSpace(os.Getenv("LocalAppData")); base != "" {
-			return filepath.Join(base, "agentruntime", "events.sqlite"), nil
+			return filepath.Join(base, "fluxplane", "events.sqlite"), nil
 		}
 		base, err := os.UserConfigDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve config dir: %w", err)
 		}
-		return filepath.Join(base, "agentruntime", "events.sqlite"), nil
+		return filepath.Join(base, "fluxplane", "events.sqlite"), nil
 	case "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve home dir: %w", err)
 		}
-		return filepath.Join(home, "Library", "Application Support", "agentruntime", "events.sqlite"), nil
+		return filepath.Join(home, "Library", "Application Support", "fluxplane", "events.sqlite"), nil
 	default:
 		if base := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); base != "" {
-			return filepath.Join(base, "agentruntime", "events.sqlite"), nil
+			return filepath.Join(base, "fluxplane", "events.sqlite"), nil
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("launch: resolve home dir: %w", err)
 		}
-		return filepath.Join(home, ".local", "state", "agentruntime", "events.sqlite"), nil
+		return filepath.Join(home, ".local", "state", "fluxplane", "events.sqlite"), nil
 	}
 }

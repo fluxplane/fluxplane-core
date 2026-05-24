@@ -1213,7 +1213,7 @@ func usageFromOpenAI(resp responses.Response, provider coreconversation.Provider
 }
 
 func promptCacheKey(provider, model string, req llmagent.Request) string {
-	parts := []string{"agentruntime", normalizeProvider(provider), strings.TrimSpace(model)}
+	parts := []string{"fluxplane", normalizeProvider(provider), strings.TrimSpace(model)}
 	if req.Agent.Name != "" {
 		parts = append(parts, string(req.Agent.Name))
 	}

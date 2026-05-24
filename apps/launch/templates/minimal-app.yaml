@@ -1,6 +1,6 @@
 kind: app
 name: {{quote .Name}}
-description: Minimal local agentruntime app.
+description: Minimal local fluxplane app.
 default_agent:
   name: default
 daemon:
@@ -25,4 +25,4 @@ agent: default
 kind: agent
 name: default
 system: |
-  You are a helpful assistant for this local agentruntime app.
+  You are a helpful assistant for this local fluxplane app.

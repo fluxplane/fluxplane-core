@@ -25,7 +25,7 @@ func doJSON(ctx context.Context, sys system.System, targetURL, authorization str
 		Body:      string(data),
 		Timeout:   60 * time.Second,
 		MaxBytes:  maxBytes,
-		UserAgent: "agentruntime/0.1",
+		UserAgent: "fluxplane/0.1",
 	})
 	if err != nil {
 		return system.HTTPResponse{}, err

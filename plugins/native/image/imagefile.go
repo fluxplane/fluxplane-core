@@ -13,7 +13,7 @@ func writeGeneratedImage(ctx context.Context, sys system.System, provider, model
 	if sys == nil || sys.Workspace() == nil {
 		return GenerateResult{}, fmt.Errorf("system workspace is not configured")
 	}
-	scratch, err := sys.Workspace().CreateScratch(ctx, "agentruntime-image-*")
+	scratch, err := sys.Workspace().CreateScratch(ctx, "fluxplane-image-*")
 	if err != nil {
 		return GenerateResult{}, err
 	}

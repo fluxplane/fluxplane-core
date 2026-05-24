@@ -414,7 +414,7 @@ func testClient(t *testing.T) *Client {
 	}})
 }
 
-func testClientWithAgent(t *testing.T, agentRuntime agent.Agent) *Client {
+func testClientWithAgent(t *testing.T, agentInstance agent.Agent) *Client {
 	t.Helper()
 	ops := operation.NewRegistry()
 	if err := ops.Register(operation.New(operation.Spec{Ref: operation.Ref{Name: "echo"}}, func(_ operation.Context, input operation.Value) operation.Result {
@@ -443,7 +443,7 @@ func testClientWithAgent(t *testing.T, agentRuntime agent.Agent) *Client {
 		t.Fatalf("NewStore: %v", err)
 	}
 	service := harness.New(harness.Config{
-		Agent:             agentRuntime,
+		Agent:             agentInstance,
 		Commands:          commands,
 		Operations:        ops,
 		OperationExecutor: operationruntime.NewExecutor(),
