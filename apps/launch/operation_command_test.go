@@ -149,7 +149,7 @@ name: op-smoke
 default_agent:
   name: default
 plugins:
-  - kind: echo
+  echo: ~
 ---
 kind: session
 name: default

@@ -49,25 +49,21 @@ identity:
       groups: [anonymous]
 
 plugins:
-  - kind: identity
-  - kind: slack
-    instance: slack-bot
-    config:
-      auth:
-        method: token
-  - kind: gitlab
-    instance: main
-    config:
-      base_url: https://gitlab.example.com
-  - kind: jira
-    config:
-      auth:
-        method: oauth2
-  - kind: confluence
-    config:
-      auth:
-        method: oauth2
-  - kind: web
+  identity: ~
+  slack-bot:
+    kind: slack
+    auth:
+      method: token
+  main:
+    kind: gitlab
+    base_url: https://gitlab.example.com
+  jira:
+    auth:
+      method: oauth2
+  confluence:
+    auth:
+      method: oauth2
+  web: ~
 
 datasource:
   index:

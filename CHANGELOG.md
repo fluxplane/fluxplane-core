@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated workflows.
 
 ### Changed
+- Replaced list-style app manifest plugin declarations with map-style plugin
+  instances; `plugins.<name>` is now the instance name, `kind` defaults to that
+  name, and `enabled: false` omits the plugin from runtime refs.
 - Moved manifest schema enums, defaults, and duration validation for appconfig
   primitives onto typed Go fields so generated schemas stay aligned with
   manifest decoding.

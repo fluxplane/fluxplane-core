@@ -13,7 +13,7 @@ models:
         effort: low
 
 plugins:
-  - coding
+  coding: ~
 
 runtime:
   workspace:

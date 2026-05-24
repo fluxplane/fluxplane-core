@@ -454,10 +454,9 @@ The Kubernetes implementation is the first concrete example of this shape:
 
 ```text
 plugins:
-  - kind: kubernetes
-    instance: local
-    config:
-      namespaces: [ai-bots]
+  local:
+    kind: kubernetes
+    namespaces: [ai-bots]
 
 selected kubernetes plugin contributes:
   ObserverSpec: kubernetes.context
@@ -470,8 +469,8 @@ The AWS plugin follows the same pattern for local AWS configuration:
 
 ```text
 plugins:
-  - kind: aws
-    instance: dev
+  dev:
+    kind: aws
 
 selected aws plugin contributes:
   ObserverSpec: aws.environment
@@ -779,26 +778,26 @@ boundary explicitly:
 
 ```yaml
 plugins:
-  - kind: identity
-  - kind: slack
-    instance: slack-bot
-  - kind: gitlab
-    instance: main
-  - kind: jira
-    instance: main
-  - kind: confluence
-    instance: main
+  identity: ~
+  slack-bot:
+    kind: slack
+  main:
+    kind: gitlab
+  jira-main:
+    kind: jira
+  confluence-main:
+    kind: confluence
 ```
 
 Those declarations should continue to mean "these plugin capabilities are part
 of the app." The observation/reaction model only changes how selected plugin
 capabilities become active inside a session.
 
-For an existing Slack bot, no manifest change is required unless the bot should
-gain a new integration boundary or app-specific reaction. If it already declares
-Slack, GitLab, Jira, Confluence, identity, and its skills, those plugins
-continue to be selected exactly as before. Their future observers and default
-reactions come along with those selected plugins.
+For an existing Slack bot, no observation/reaction change is required unless the
+bot should gain a new integration boundary or app-specific reaction. If it
+already declares Slack, GitLab, Jira, Confluence, identity, and its skills,
+those plugins continue to be selected exactly as before. Their future observers
+and default reactions come along with those selected plugins.
 
 An app manifest would need changes only when the app owner wants one of these:
 
@@ -813,25 +812,24 @@ An app manifest would need changes only when the app owner wants one of these:
 Examples:
 
 ```yaml
-# No change needed just to use default observations/reactions from selected
-# Slack/GitLab/Jira/Confluence plugins.
+# No observation/reaction change needed just to use defaults from selected
+# Slack/GitLab plugins.
 plugins:
-  - kind: slack
-    instance: slack-bot
-  - kind: gitlab
-    instance: main
+  slack-bot:
+    kind: slack
+  main:
+    kind: gitlab
 ```
 
 ```yaml
 # Change needed if the bot should observe Kubernetes, because Kubernetes is a
 # new plugin boundary.
 plugins:
-  - kind: slack
-    instance: slack-bot
-  - kind: kubernetes
-    instance: ai-bots
-    config:
-      namespaces: [ai-bots]
+  slack-bot:
+    kind: slack
+  ai-bots:
+    kind: kubernetes
+    namespaces: [ai-bots]
 ```
 
 ```yaml
@@ -862,14 +860,14 @@ reactions:
       - activate_skill: merge-request-review
 ```
 
-But this should be additive. The migration should not require existing apps to
-rewrite their `plugins:` section.
+But this should be additive. The migration should not require apps to change
+their selected plugin boundaries beyond the map-style `plugins:` syntax.
 
 The practical migration rule for existing apps is:
 
 ```text
-same plugin boundary wanted as today -> no manifest change
-new integration boundary wanted -> add that plugin ref
+same plugin boundary wanted as today -> keep the same plugin instance in the map
+new integration boundary wanted -> add that plugin instance
 app-specific activation behavior wanted -> add reactions
 plugin default should not apply -> add an override/disable rule once supported
 ```

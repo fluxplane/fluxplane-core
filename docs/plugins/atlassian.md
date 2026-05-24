@@ -9,14 +9,13 @@ Use `auth.method: token` for Atlassian scoped access tokens that call the
 Atlassian cloud gateway:
 
 ```yaml
-- kind: jira
-  config:
+plugins:
+  jira:
     cloud_id: cloud-example-1
     auth:
       method: token
       token_env: JIRA_API_TOKEN
-- kind: confluence
-  config:
+  confluence:
     cloud_id: cloud-example-1
     auth:
       method: token

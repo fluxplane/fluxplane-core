@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/fluxplane/engine/core/agent"
+	coreapp "github.com/fluxplane/engine/core/app"
 	"github.com/fluxplane/engine/core/invocation"
 	corellm "github.com/fluxplane/engine/core/llm"
 	"github.com/fluxplane/engine/core/operation"
@@ -63,10 +64,10 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
     "use_case": "agentic_coding",
     "source_api": "auto"
   },
-  "plugins": [
-    {"kind": "git"},
-    {"kind": "browser", "instance": "browser-ci", "config": {"headless": true}}
-  ]
+  "plugins": {
+    "git": null,
+    "browser-ci": {"kind": "browser", "headless": true}
+  }
 }`)
 
 	bundle, err := DecodeManifest("/repo/fluxplane.json", data)
@@ -106,17 +107,25 @@ func TestDecodeManifestLoadsEngineerStyleManifest(t *testing.T) {
 	if len(app.Plugins) != 2 {
 		t.Fatalf("app plugins len = %d, want 2", len(app.Plugins))
 	}
-	if app.Plugins[0].Kind != "git" {
-		t.Fatalf("plugin[0] = %#v, want git", app.Plugins[0])
+	pluginsByInstance := map[string]coreapp.PluginRef{}
+	for _, plugin := range app.Plugins {
+		pluginsByInstance[plugin.Instance] = plugin
 	}
-	if app.Plugins[1].Kind != "browser" || app.Plugins[1].Instance != "browser-ci" || app.Plugins[1].Config["headless"] != true {
-		t.Fatalf("plugin[1] = %#v, want browser with config", app.Plugins[1])
+	if pluginsByInstance["git"].Kind != "git" {
+		t.Fatalf("plugins = %#v, want git", app.Plugins)
+	}
+	if plugin := pluginsByInstance["browser-ci"]; plugin.Kind != "browser" || plugin.Instance != "browser-ci" || plugin.Config["headless"] != true {
+		t.Fatalf("browser plugin = %#v, want browser-ci with config", plugin)
 	}
 	if len(bundle.Plugins) != 2 {
 		t.Fatalf("bundle plugins len = %d, want 2", len(bundle.Plugins))
 	}
-	if bundle.Plugins[1].Name != "browser" || bundle.Plugins[1].Instance != "browser-ci" || bundle.Plugins[1].Config["headless"] != true {
-		t.Fatalf("bundle plugin[1] = %#v, want browser with config", bundle.Plugins[1])
+	bundlePluginsByInstance := map[string]resource.PluginRef{}
+	for _, plugin := range bundle.Plugins {
+		bundlePluginsByInstance[plugin.InstanceName()] = plugin
+	}
+	if plugin := bundlePluginsByInstance["browser-ci"]; plugin.Name != "browser" || plugin.Instance != "browser-ci" || plugin.Config["headless"] != true {
+		t.Fatalf("bundle browser plugin = %#v, want browser-ci with config", plugin)
 	}
 }
 
@@ -152,9 +161,8 @@ model_policy:
   provider: openai
   approved_only: true
 plugins:
-  - kind: memory
-    config:
-      scope: project
+  memory:
+    scope: project
 `)
 
 	bundle, err := DecodeManifest("fluxplane.yaml", data)
@@ -191,7 +199,6 @@ func TestDecodeManifestPreservesScalarShorthands(t *testing.T) {
 name: engineer
 default_agent: main
 sources: [.agents]
-plugins: [git]
 `))
 	if err != nil {
 		t.Fatalf("DecodeManifest: %v", err)
@@ -203,8 +210,35 @@ plugins: [git]
 	if len(app.Sources) != 1 || app.Sources[0].Location != ".agents" {
 		t.Fatalf("sources = %#v, want .agents", app.Sources)
 	}
-	if len(app.Plugins) != 1 || app.Plugins[0].Kind != "git" {
-		t.Fatalf("plugins = %#v, want git", app.Plugins)
+}
+
+func TestDecodeManifestLoadsMapStylePlugins(t *testing.T) {
+	bundle, err := DecodeManifest("fluxplane.yaml", []byte(`
+name: engineer
+plugins:
+  slack: ~
+  slack-work:
+    kind: slack
+    auth: bot_token
+  disabled:
+    kind: web
+    enabled: false
+`))
+	if err != nil {
+		t.Fatalf("DecodeManifest: %v", err)
+	}
+	app := bundle.Apps[0]
+	if len(app.Plugins) != 2 {
+		t.Fatalf("plugins = %#v, want two enabled plugins", app.Plugins)
+	}
+	if app.Plugins[0].Kind != "slack" || app.Plugins[0].Instance != "slack" {
+		t.Fatalf("plugin[0] = %#v, want default slack instance", app.Plugins[0])
+	}
+	if app.Plugins[1].Kind != "slack" || app.Plugins[1].Instance != "slack-work" || app.Plugins[1].Config["auth"] != "bot_token" {
+		t.Fatalf("plugin[1] = %#v, want slack-work with auth config", app.Plugins[1])
+	}
+	if len(bundle.Plugins) != 2 {
+		t.Fatalf("bundle plugins = %#v, want two enabled plugin refs", bundle.Plugins)
 	}
 }
 
@@ -470,11 +504,10 @@ name: slack-bot
 default_agent:
   name: slack_bot
 plugins:
-  - kind: slack
-    instance: slack-bot
-    config:
-      auth:
-        method: token
+  slack-bot:
+    kind: slack
+    auth:
+      method: token
 datasource:
   datasources:
     - name: slack-bot
@@ -1093,17 +1126,24 @@ func TestDecodeManifestRejectsEmptySourceViaValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeManifestRejectsEmptyPluginViaValidation(t *testing.T) {
-	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":[{"kind":""}]}`))
-	if err == nil {
-		t.Fatal("DecodeManifest error is nil, want empty plugin validation error")
+func TestDecodeManifestRejectsPluginListSyntax(t *testing.T) {
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":[{"kind":"web"}]}`))
+	if err == nil || !strings.Contains(err.Error(), "got array, want object") {
+		t.Fatalf("DecodeManifest error = %v, want plugin array schema error", err)
 	}
 }
 
-func TestDecodeManifestRejectsPluginNameField(t *testing.T) {
-	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":[{"name":"web"}]}`))
-	if err == nil {
-		t.Fatal("DecodeManifest error is nil, want plugin name field validation error")
+func TestDecodeManifestRejectsEmptyPluginInstance(t *testing.T) {
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":{"":null}}`))
+	if err == nil || !strings.Contains(err.Error(), "empty instance name") {
+		t.Fatalf("DecodeManifest error = %v, want empty plugin instance validation error", err)
+	}
+}
+
+func TestDecodeManifestRejectsConflictingPluginInstanceField(t *testing.T) {
+	_, err := DecodeManifest("fluxplane.json", []byte(`{"plugins":{"web":{"instance":"other"}}}`))
+	if err == nil || !strings.Contains(err.Error(), "must match map key") {
+		t.Fatalf("DecodeManifest error = %v, want plugin instance conflict error", err)
 	}
 }
 

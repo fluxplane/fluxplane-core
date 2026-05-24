@@ -618,7 +618,7 @@ type Manifest struct {
 	Identity       identityDoc                `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Models         modelConfigDoc             `json:"models,omitempty" yaml:"models,omitempty"`
 	Distribution   distributionDoc            `json:"distribution,omitempty" yaml:"distribution,omitempty"`
-	Plugins        []pluginRef                `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+	Plugins        pluginRefs                 `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 	Commands       []commandDoc               `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Workflows      []workflowDoc              `json:"workflows,omitempty" yaml:"workflows,omitempty"`
 	Operations     []operationDoc             `json:"operations,omitempty" yaml:"operations,omitempty"`
@@ -2532,47 +2532,66 @@ func (s *sourceSpec) UnmarshalJSON(data []byte) error {
 	return s.UnmarshalYAML(node.Content[0])
 }
 
-type pluginRef coreapp.PluginRef
+type pluginRefs []pluginRef
 
-func (pluginRef) JSONSchema() *invjsonschema.Schema {
+func (pluginRefs) JSONSchema() *invjsonschema.Schema {
 	properties := invjsonschema.NewProperties()
 	properties.Set("kind", &invjsonschema.Schema{Type: "string"})
 	properties.Set("instance", &invjsonschema.Schema{Type: "string"})
-	properties.Set("config", &invjsonschema.Schema{
+	properties.Set("enabled", &invjsonschema.Schema{Type: "boolean"})
+	entry := &invjsonschema.Schema{
 		Type:                 "object",
+		Properties:           properties,
 		AdditionalProperties: invjsonschema.TrueSchema,
-	})
-	return &invjsonschema.Schema{OneOf: []*invjsonschema.Schema{
-		{Type: "string"},
-		{
-			Type:                 "object",
-			Properties:           properties,
-			AdditionalProperties: invjsonschema.FalseSchema,
-		},
-	}}
+	}
+	return &invjsonschema.Schema{
+		Type: "object",
+		AdditionalProperties: &invjsonschema.Schema{OneOf: []*invjsonschema.Schema{
+			{Type: "null"},
+			entry,
+		}},
+	}
 }
 
-func (p *pluginRef) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind == yaml.ScalarNode {
-		var kind string
-		if err := node.Decode(&kind); err != nil {
+func (p *pluginRefs) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("plugins must be a map of plugin instances")
+	}
+	byInstance := map[string]pluginRef{}
+	for i := 0; i < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valueNode := node.Content[i+1]
+		var instance string
+		if err := keyNode.Decode(&instance); err != nil {
 			return err
 		}
-		*p = pluginRef{Kind: strings.TrimSpace(kind)}
-		return nil
+		instance = strings.TrimSpace(instance)
+		if instance == "" {
+			return fmt.Errorf("plugins contains an empty instance name")
+		}
+		ref, enabled, err := decodePluginMapEntry(instance, valueNode)
+		if err != nil {
+			return err
+		}
+		if !enabled {
+			continue
+		}
+		byInstance[instance] = ref
 	}
-	var ref coreapp.PluginRef
-	if err := node.Decode(&ref); err != nil {
-		return err
+	instances := make([]string, 0, len(byInstance))
+	for instance := range byInstance {
+		instances = append(instances, instance)
 	}
-	ref.Kind = strings.TrimSpace(ref.Kind)
-	ref.Instance = strings.TrimSpace(ref.Instance)
-	ref.Config = cloneMap(ref.Config)
-	*p = pluginRef(ref)
+	sort.Strings(instances)
+	out := make([]pluginRef, 0, len(instances))
+	for _, instance := range instances {
+		out = append(out, byInstance[instance])
+	}
+	*p = out
 	return nil
 }
 
-func (p *pluginRef) UnmarshalJSON(data []byte) error {
+func (p *pluginRefs) UnmarshalJSON(data []byte) error {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
 		return err
@@ -2581,6 +2600,71 @@ func (p *pluginRef) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	return p.UnmarshalYAML(node.Content[0])
+}
+
+type pluginRef coreapp.PluginRef
+
+func decodePluginMapEntry(instance string, node *yaml.Node) (pluginRef, bool, error) {
+	ref := coreapp.PluginRef{
+		Kind:     instance,
+		Instance: instance,
+	}
+	enabled := true
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!null" {
+		return pluginRef(ref), enabled, nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return pluginRef{}, false, fmt.Errorf("plugins.%s must be null or an object", instance)
+	}
+	config := map[string]any{}
+	for i := 0; i < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valueNode := node.Content[i+1]
+		var key string
+		if err := keyNode.Decode(&key); err != nil {
+			return pluginRef{}, false, err
+		}
+		key = strings.TrimSpace(key)
+		switch key {
+		case "":
+			return pluginRef{}, false, fmt.Errorf("plugins.%s contains an empty config key", instance)
+		case "kind":
+			var kind string
+			if err := valueNode.Decode(&kind); err != nil {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.kind: %w", instance, err)
+			}
+			if kind = strings.TrimSpace(kind); kind != "" {
+				ref.Kind = kind
+			}
+		case "instance":
+			var configured string
+			if err := valueNode.Decode(&configured); err != nil {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.instance: %w", instance, err)
+			}
+			configured = strings.TrimSpace(configured)
+			if configured != instance {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.instance must match map key %q", instance, instance)
+			}
+		case "enabled":
+			if err := valueNode.Decode(&enabled); err != nil {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.enabled: %w", instance, err)
+			}
+		default:
+			var value any
+			if err := valueNode.Decode(&value); err != nil {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.%s: %w", instance, key, err)
+			}
+			normalized, err := normalizeJSONValue(value)
+			if err != nil {
+				return pluginRef{}, false, fmt.Errorf("plugins.%s.%s: %w", instance, key, err)
+			}
+			config[key] = normalized
+		}
+	}
+	ref.Kind = strings.TrimSpace(ref.Kind)
+	ref.Instance = instance
+	ref.Config = cloneMap(config)
+	return pluginRef(ref), enabled, nil
 }
 
 func cloneMap(in map[string]any) map[string]any {
@@ -2646,5 +2730,5 @@ var (
 	_ json.Unmarshaler = (*DurationString)(nil)
 	_ json.Unmarshaler = (*agentRef)(nil)
 	_ json.Unmarshaler = (*sourceSpec)(nil)
-	_ json.Unmarshaler = (*pluginRef)(nil)
+	_ json.Unmarshaler = (*pluginRefs)(nil)
 )

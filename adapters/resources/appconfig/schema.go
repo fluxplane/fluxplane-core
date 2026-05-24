@@ -209,8 +209,8 @@ func applyPluginSchemas(defs map[string]any, plugins []PluginSchema) {
 		return
 	}
 	for name := range defs {
-		if name == "app_pluginRef" || strings.HasSuffix(name, "_pluginRef") {
-			defs[name] = pluginRefSchema(plugins)
+		if name == "app_pluginRefs" || strings.HasSuffix(name, "_pluginRefs") {
+			defs[name] = pluginRefsSchema(plugins)
 		}
 	}
 }
@@ -239,58 +239,166 @@ func normalizedPluginSchemas(plugins []PluginSchema) []PluginSchema {
 	return out
 }
 
-func pluginRefSchema(plugins []PluginSchema) map[string]any {
-	kinds := make([]any, 0, len(plugins))
+func pluginRefsSchema(plugins []PluginSchema) map[string]any {
+	properties := map[string]any{}
+	var arbitraryBranches []any
 	for _, plugin := range plugins {
-		kinds = append(kinds, plugin.Kind)
+		knownBranches := []any{
+			map[string]any{
+				"type":        "null",
+				"description": "Enable the " + plugin.Kind + " plugin with default config.",
+			},
+			disabledPluginObjectSchema(plugin, false, plugin.Kind),
+			pluginObjectSchema(plugin, false, plugin.Kind),
+		}
+		for _, explicit := range plugins {
+			if explicit.Kind == plugin.Kind {
+				continue
+			}
+			knownBranches = append(knownBranches, disabledPluginObjectSchema(explicit, true, plugin.Kind))
+			knownBranches = append(knownBranches, pluginObjectSchema(explicit, true, plugin.Kind))
+		}
+		properties[plugin.Kind] = map[string]any{
+			"anyOf":       knownBranches,
+			"description": "Configured " + plugin.Kind + " plugin instance.",
+		}
+		arbitraryBranches = append(arbitraryBranches, disabledPluginObjectSchema(plugin, true, ""))
+		arbitraryBranches = append(arbitraryBranches, pluginObjectSchema(plugin, true, ""))
 	}
-	oneOf := []any{
-		map[string]any{
-			"type":        "string",
-			"enum":        kinds,
-			"description": "Plugin kind shortcut. Use the object form when an instance name or config is needed.",
-		},
+	schema := map[string]any{
+		"type":                 "object",
+		"description":          "Plugin instances selected by this app. Map keys are plugin instance names.",
+		"properties":           properties,
+		"additionalProperties": false,
 	}
-	for _, plugin := range plugins {
-		oneOf = append(oneOf, pluginObjectSchema(plugin))
+	if len(arbitraryBranches) > 0 {
+		schema["additionalProperties"] = map[string]any{
+			"anyOf":       arbitraryBranches,
+			"description": "Additional named plugin instance. Include kind to select the plugin implementation.",
+		}
 	}
-	return map[string]any{
-		"oneOf":       oneOf,
-		"description": "Plugin reference. Selects one plugin linked into this Fluxplane binary.",
-	}
+	return schema
 }
 
-func pluginObjectSchema(plugin PluginSchema) map[string]any {
+func pluginObjectSchema(plugin PluginSchema, requireKind bool, instanceConst string) map[string]any {
 	properties := map[string]any{
 		"kind": map[string]any{
 			"type":        "string",
 			"const":       plugin.Kind,
 			"description": "Plugin kind.",
 		},
-		"instance": map[string]any{
-			"type":        "string",
-			"description": "Optional plugin instance name. Defaults to the plugin kind.",
+		"enabled": map[string]any{
+			"type":        "boolean",
+			"description": "Whether this plugin instance is enabled. Defaults to true.",
 		},
+	}
+	instance := map[string]any{
+		"type":        "string",
+		"description": "Optional plugin instance name. If present, it must match the map key.",
+	}
+	if strings.TrimSpace(instanceConst) != "" {
+		instance["const"] = instanceConst
+	}
+	properties["instance"] = instance
+	additionalProperties := any(false)
+	var required []any
+	if requireKind {
+		required = append(required, "kind")
 	}
 	if plugin.ConfigSchema != nil {
 		config := cloneSchemaMap(plugin.ConfigSchema)
 		delete(config, "$schema")
 		delete(config, "$id")
-		addDescription(config, "Configuration for the "+plugin.Kind+" plugin.")
-		properties["config"] = config
+		if configProperties, ok := config["properties"].(map[string]any); ok {
+			for name, prop := range configProperties {
+				switch name {
+				case "kind", "enabled", "instance":
+					continue
+				default:
+					properties[name] = prop
+				}
+			}
+		}
+		if configRequired, ok := config["required"].([]any); ok {
+			required = append(required, configRequired...)
+		}
+		if configAdditional, ok := config["additionalProperties"]; ok {
+			additionalProperties = configAdditional
+		}
 	}
 	description := strings.TrimSpace(plugin.Description)
 	if description == "" {
 		description = "Configures the " + plugin.Kind + " plugin."
 	}
-	return map[string]any{
+	out := map[string]any{
 		"type":                 "object",
 		"title":                plugin.Kind + " plugin",
 		"description":          description,
 		"properties":           properties,
-		"required":             []any{"kind"},
+		"additionalProperties": additionalProperties,
+	}
+	if len(required) > 0 {
+		out["required"] = sortedUniqueAny(required)
+	}
+	return out
+}
+
+func disabledPluginObjectSchema(plugin PluginSchema, requireKind bool, instanceConst string) map[string]any {
+	properties := map[string]any{
+		"kind": map[string]any{
+			"type":        "string",
+			"const":       plugin.Kind,
+			"description": "Plugin kind.",
+		},
+		"enabled": map[string]any{
+			"type":        "boolean",
+			"const":       false,
+			"description": "Disabled plugin instances are omitted from runtime refs.",
+		},
+	}
+	instance := map[string]any{
+		"type":        "string",
+		"description": "Optional plugin instance name. If present, it must match the map key.",
+	}
+	if strings.TrimSpace(instanceConst) != "" {
+		instance["const"] = instanceConst
+	}
+	properties["instance"] = instance
+	required := []any{"enabled"}
+	if requireKind {
+		required = append(required, "kind")
+	}
+	return map[string]any{
+		"type":                 "object",
+		"title":                plugin.Kind + " disabled plugin",
+		"description":          "Disables this plugin instance for local manifest toggles.",
+		"properties":           properties,
+		"required":             sortedUniqueAny(required),
 		"additionalProperties": false,
 	}
+}
+
+func sortedUniqueAny(values []any) []any {
+	seen := map[string]bool{}
+	var stringsOut []string
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		stringsOut = append(stringsOut, text)
+	}
+	sort.Strings(stringsOut)
+	out := make([]any, 0, len(stringsOut))
+	for _, value := range stringsOut {
+		out = append(out, value)
+	}
+	return out
 }
 
 func cloneSchemaMap(schema map[string]any) map[string]any {

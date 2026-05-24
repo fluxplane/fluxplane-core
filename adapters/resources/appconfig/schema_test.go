@@ -128,12 +128,12 @@ func TestManifestSchemaWithOptionsTypesPluginRefs(t *testing.T) {
 		t.Fatalf("schema is not JSON: %v", err)
 	}
 	schemaMap := schemaValue.(map[string]any)
-	pluginRef := schemaMap["$defs"].(map[string]any)["app_pluginRef"].(map[string]any)
-	if !schemaContainsConst(pluginRef, "chat") || !schemaContainsConst(pluginRef, "search") {
-		t.Fatalf("plugin ref schema = %#v, want chat and search plugin branches", pluginRef)
+	pluginRefs := schemaMap["$defs"].(map[string]any)["app_pluginRefs"].(map[string]any)
+	if !schemaContainsConst(pluginRefs, "chat") || !schemaContainsConst(pluginRefs, "search") {
+		t.Fatalf("plugin refs schema = %#v, want chat and search plugin branches", pluginRefs)
 	}
-	if !schemaContainsProperty(pluginRef, "auth") {
-		t.Fatalf("plugin ref schema = %#v, want chat config auth schema", pluginRef)
+	if !schemaContainsProperty(pluginRefs, "auth") {
+		t.Fatalf("plugin refs schema = %#v, want chat config auth schema", pluginRefs)
 	}
 
 	compiler := santhoshjsonschema.NewCompiler()
@@ -147,27 +147,60 @@ func TestManifestSchemaWithOptionsTypesPluginRefs(t *testing.T) {
 	valid := map[string]any{
 		"kind": "app",
 		"name": "sample",
-		"plugins": []any{
-			"search",
-			map[string]any{
-				"kind":     "chat",
-				"instance": "new-chat-instance",
-				"config": map[string]any{
-					"auth": map[string]any{"method": "env"},
-				},
+		"plugins": map[string]any{
+			"search": nil,
+			"chat": map[string]any{
+				"auth": map[string]any{"method": "env"},
+			},
+			"new-chat-instance": map[string]any{
+				"kind": "chat",
+				"auth": map[string]any{"method": "env"},
+			},
+			"disabled-chat": map[string]any{
+				"kind":    "chat",
+				"enabled": false,
 			},
 		},
 	}
 	if err := compiled.Validate(valid); err != nil {
 		t.Fatalf("Validate typed plugin config: %v", err)
 	}
+	collidingInstance := map[string]any{
+		"kind": "app",
+		"name": "sample",
+		"plugins": map[string]any{
+			"search": map[string]any{
+				"kind": "chat",
+				"auth": map[string]any{"method": "env"},
+			},
+		},
+	}
+	if err := compiled.Validate(collidingInstance); err != nil {
+		t.Fatalf("Validate explicit plugin kind on colliding instance name: %v", err)
+	}
 	invalid := map[string]any{
 		"kind":    "app",
 		"name":    "sample",
-		"plugins": []any{map[string]any{"kind": "missing"}},
+		"plugins": map[string]any{"missing": map[string]any{"kind": "missing"}},
 	}
 	if err := compiled.Validate(invalid); err == nil {
 		t.Fatal("Validate unknown plugin succeeded, want error")
+	}
+	listStyle := map[string]any{
+		"kind":    "app",
+		"name":    "sample",
+		"plugins": []any{"search"},
+	}
+	if err := compiled.Validate(listStyle); err == nil {
+		t.Fatal("Validate list-style plugins succeeded, want error")
+	}
+	stringOnly := map[string]any{
+		"kind":    "app",
+		"name":    "sample",
+		"plugins": "search",
+	}
+	if err := compiled.Validate(stringOnly); err == nil {
+		t.Fatal("Validate string-only plugins succeeded, want error")
 	}
 }
 

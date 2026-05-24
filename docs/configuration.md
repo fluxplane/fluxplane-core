@@ -323,37 +323,34 @@ agent: support
 ### Plugins And Auth
 
 Plugins contribute optional commands, operations, context providers,
-datasources, and channel integrations. Native plugins can be declared more than
-once with `instance` and per-instance `config`; credentials are stored outside
-the app manifest and resolved by the runtime auth/secret providers for the
-selected app or product scope.
+datasources, and channel integrations. The `plugins` map key is the plugin
+instance name. `kind` defaults to that key and is only needed when the instance
+name differs from the plugin implementation. Credentials are stored outside the
+app manifest and resolved by the runtime auth/secret providers for the selected
+app or product scope.
 
 ```yaml
 plugins:
-  - kind: slack
-    instance: slack-main
-    config:
-      auth:
-        method: token
-  - kind: jira
-    config:
-      cloud_id: your-atlassian-cloud-id
-      site_url: https://example.atlassian.invalid
-      auth:
-        method: oauth2
-  - kind: confluence
-    config:
-      cloud_id: your-atlassian-cloud-id
-      site_url: https://example.atlassian.invalid
-      auth:
-        method: oauth2
-  - kind: web
-  - kind: gitlab
-    instance: company-a
-    config:
-      base_url: https://gitlab.company-a.example
-      auth:
-        token_env: GITLAB_COMPANY_A_TOKEN
+  slack-main:
+    kind: slack
+    auth:
+      method: token
+  jira:
+    cloud_id: your-atlassian-cloud-id
+    site_url: https://example.atlassian.invalid
+    auth:
+      method: oauth2
+  confluence:
+    cloud_id: your-atlassian-cloud-id
+    site_url: https://example.atlassian.invalid
+    auth:
+      method: oauth2
+  web: ~
+  company-a:
+    kind: gitlab
+    base_url: https://gitlab.company-a.example
+    auth:
+      token_env: GITLAB_COMPANY_A_TOKEN
 
 ```
 

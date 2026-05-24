@@ -172,11 +172,10 @@ func TestGenerateKubernetesManifestsIncludesKubernetesPluginRBAC(t *testing.T) {
 kind: app
 name: sample
 plugins:
-  - kind: kubernetes
-    config:
-      namespaces:
-        - latest
-        - monitoring
+  kubernetes:
+    namespaces:
+      - latest
+      - monitoring
 distribution:
   build:
     assets: [fluxplane.yaml]
