@@ -49,6 +49,30 @@ func TestAccessPolicyChecksKindAndTrust(t *testing.T) {
 	}
 }
 
+func TestContributionsExposeDefaultActivationSet(t *testing.T) {
+	bundle, err := New(nil).Contributions(context.Background(), pluginhost.Context{
+		Ref: resource.PluginRef{Name: Name},
+	})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != Name {
+		t.Fatalf("activation sets = %#v, want slack set", bundle.ActivationSets)
+	}
+	if !containsString(bundle.ActivationSets[0].Aliases, "channel") {
+		t.Fatalf("activation set aliases = %#v, want channel alias", bundle.ActivationSets[0].Aliases)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAccessPolicyAudienceTrustDoesNotInheritSharedChannelSenderTrust(t *testing.T) {
 	policy := AccessPolicy{
 		Mode:         "open",

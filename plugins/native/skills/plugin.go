@@ -4,6 +4,7 @@ package skills
 import (
 	"context"
 
+	"github.com/fluxplane/engine/core/activation"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/operation"
@@ -44,8 +45,27 @@ func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Skill activation, context, and datasource access."}
 }
 
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
+	name := ctx.Ref.InstanceName()
+	if name == "" {
+		name = Name
+	}
 	return resource.ContributionBundle{
+		ActivationSets: []activation.Set{{
+			Name:        name,
+			Aliases:     []string{name + ".default"},
+			Description: "Skill activation, context, and datasource access.",
+			Targets: []activation.Target{{
+				Kind:      activation.TargetOperation,
+				Operation: operation.Ref{Name: SkillOperation},
+			}, {
+				Kind:            activation.TargetContextProvider,
+				ContextProvider: corecontext.ProviderRef{Name: runtimeskill.ContextProviderName},
+			}, {
+				Kind:       activation.TargetDatasource,
+				Datasource: coredatasource.Ref{Name: DatasourceName},
+			}},
+		}},
 		ContextProviders: []corecontext.ProviderSpec{contextSpec()},
 		Operations:       []operation.Spec{operationSpec()},
 		Datasources:      []coredatasource.Spec{DatasourceSpec()},

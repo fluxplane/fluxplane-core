@@ -185,6 +185,9 @@ func TestPluginContributesDataSourceAndEventTypes(t *testing.T) {
 	if len(bundle.Datasources) != 1 || bundle.Datasources[0].Name != coredatasource.Name(Name) {
 		t.Fatalf("datasources = %#v, want memory datasource", bundle.Datasources)
 	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != Name {
+		t.Fatalf("activation sets = %#v, want memory set", bundle.ActivationSets)
+	}
 	if !bundle.Datasources[0].Semantic.Enabled || !bundle.Datasources[0].Index.Enabled {
 		t.Fatalf("datasource = %#v, want semantic index enabled", bundle.Datasources[0])
 	}

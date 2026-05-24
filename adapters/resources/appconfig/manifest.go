@@ -181,12 +181,23 @@ func DecodeFile(path string, data []byte) (File, error) {
 			return File{}, err
 		}
 	}
+	inferSingleAgentDefault(&bundle)
 	if len(bundle.Apps) == 0 && len(bundle.Sessions) == 0 {
 		if spec, ok := implicitDefaultSessionForAgentTriggers(bundle.Agents, daemon.Triggers); ok {
 			bundle.Sessions = append(bundle.Sessions, spec)
 		}
 	}
 	return File{Path: filepath.Clean(path), Bundle: bundle, Distribution: distribution, Runtime: runtime, Daemon: daemon}, nil
+}
+
+func inferSingleAgentDefault(bundle *resource.ContributionBundle) {
+	if bundle == nil || len(bundle.Apps) != 1 || len(bundle.Agents) != 1 {
+		return
+	}
+	if strings.TrimSpace(string(bundle.Apps[0].DefaultAgent.Name)) != "" {
+		return
+	}
+	bundle.Apps[0].DefaultAgent = agent.Ref{Name: bundle.Agents[0].Name}
 }
 
 type manifestDecodeState struct {
@@ -1496,6 +1507,7 @@ type agentDoc struct {
 	Context     []string          `json:"context,omitempty" yaml:"context,omitempty"`
 	Datasources []string          `json:"datasources,omitempty" yaml:"datasources,omitempty"`
 	Skills      []string          `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Uses        []string          `json:"uses,omitempty" yaml:"uses,omitempty"`
 	Triggers    []agentTriggerDoc `json:"triggers,omitempty" yaml:"triggers,omitempty"`
 	System      string            `json:"system,omitempty" yaml:"system,omitempty"`
 }
@@ -1591,6 +1603,12 @@ func decodeAgentDoc(value any) (agent.Spec, agentTriggerResources, error) {
 				StopCondition:    raw.Turns.Continuation.StopCondition.Spec(),
 			},
 		},
+	}
+	for _, name := range raw.Uses {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			spec.ActivationSets = append(spec.ActivationSets, name)
+		}
 	}
 	for _, name := range raw.Operations {
 		name = strings.TrimSpace(name)

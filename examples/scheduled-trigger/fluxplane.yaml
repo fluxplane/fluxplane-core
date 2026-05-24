@@ -1,7 +1,6 @@
 kind: app
 name: scheduled-trigger
 description: Daemon app that samples system health and summarizes it on a schedule.
-default_agent: health_summarizer
 
 models:
   default: smart_model

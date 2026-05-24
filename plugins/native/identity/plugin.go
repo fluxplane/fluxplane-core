@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/fluxplane/engine/core/activation"
 	corecontext "github.com/fluxplane/engine/core/context"
 	"github.com/fluxplane/engine/core/resource"
 	"github.com/fluxplane/engine/core/user"
@@ -33,8 +34,23 @@ func (Plugin) Manifest() pluginhost.Manifest {
 }
 
 // Contributions returns identity context provider specs.
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
-	return resource.ContributionBundle{ContextProviders: []corecontext.ProviderSpec{currentContextSpec()}}, nil
+func (Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
+	name := ctx.Ref.InstanceName()
+	if name == "" {
+		name = Name
+	}
+	return resource.ContributionBundle{
+		ActivationSets: []activation.Set{{
+			Name:        name,
+			Aliases:     []string{name + ".default"},
+			Description: "Current user and channel identity context.",
+			Targets: []activation.Target{{
+				Kind:            activation.TargetContextProvider,
+				ContextProvider: corecontext.ProviderRef{Name: CurrentProvider},
+			}},
+		}},
+		ContextProviders: []corecontext.ProviderSpec{currentContextSpec()},
+	}, nil
 }
 
 // ContextProviders returns identity context providers.

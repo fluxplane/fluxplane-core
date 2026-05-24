@@ -212,6 +212,7 @@ func TestManifestSchemaWithOptionsTypesAgentResourceSelectors(t *testing.T) {
 			Datasources:      []string{"jira"},
 			Skills:           []string{"review"},
 			ContextProviders: []string{"identity"},
+			ActivationSets:   []string{"channel", "datasource", "identity", "skills", "memory"},
 		},
 	})
 	if err != nil {
@@ -227,10 +228,19 @@ func TestManifestSchemaWithOptionsTypesAgentResourceSelectors(t *testing.T) {
 		"datasources": "jira",
 		"skills":      "review",
 		"context":     "identity",
+		"uses":        "datasource",
 	} {
 		if !schemaArrayPropertyEnumContains(schemaValue, property, value) {
 			t.Fatalf("agentDoc.%s item enum missing %q", property, value)
 		}
+	}
+	for _, value := range []string{"channel", "identity", "skills", "memory"} {
+		if !schemaArrayPropertyEnumContains(schemaValue, "uses", value) {
+			t.Fatalf("agentDoc.uses item enum missing %q", value)
+		}
+	}
+	if schemaArrayPropertyEnumContains(schemaValue, "uses", "slack") {
+		t.Fatal("agentDoc.uses item enum contains plugin instance slack, want capability-derived values only")
 	}
 
 	compiler := santhoshjsonschema.NewCompiler()
@@ -244,6 +254,7 @@ func TestManifestSchemaWithOptionsTypesAgentResourceSelectors(t *testing.T) {
 	valid := map[string]any{
 		"kind":        "agent",
 		"name":        "helper",
+		"uses":        []any{"channel", "datasource", "identity", "skills", "memory"},
 		"operations":  []any{"send_report"},
 		"tools":       []any{"image"},
 		"datasources": []any{"jira"},

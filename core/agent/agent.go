@@ -118,22 +118,23 @@ type StopConditionSpec struct {
 
 // Spec is an inert agent definition. It is intentionally not LLM-specific.
 type Spec struct {
-	Name        Name                      `json:"name"`
-	Description string                    `json:"description,omitempty"`
-	System      string                    `json:"system,omitempty"`
-	Objective   Objective                 `json:"objective,omitempty"`
-	Driver      DriverSpec                `json:"driver,omitempty"`
-	Inference   InferenceSpec             `json:"inference,omitempty"`
-	Turns       TurnPolicy                `json:"turns,omitempty"`
-	Agency      AgencyProfile             `json:"agency,omitempty"`
-	Policy      Policy                    `json:"policy,omitempty"`
-	Operations  []operation.Ref           `json:"operations,omitempty"`
-	Tools       []ToolRef                 `json:"tools,omitempty"`
-	Commands    []CommandRef              `json:"commands,omitempty"`
-	Datasources []coredatasource.Ref      `json:"datasources,omitempty"`
-	Skills      []skill.Ref               `json:"skills,omitempty"`
-	Context     []corecontext.ProviderRef `json:"context,omitempty"`
-	Annotations map[string]string         `json:"annotations,omitempty"`
+	Name           Name                      `json:"name"`
+	Description    string                    `json:"description,omitempty"`
+	System         string                    `json:"system,omitempty"`
+	Objective      Objective                 `json:"objective,omitempty"`
+	Driver         DriverSpec                `json:"driver,omitempty"`
+	Inference      InferenceSpec             `json:"inference,omitempty"`
+	Turns          TurnPolicy                `json:"turns,omitempty"`
+	Agency         AgencyProfile             `json:"agency,omitempty"`
+	Policy         Policy                    `json:"policy,omitempty"`
+	Operations     []operation.Ref           `json:"operations,omitempty"`
+	ActivationSets []string                  `json:"activation_sets,omitempty"`
+	Tools          []ToolRef                 `json:"tools,omitempty"`
+	Commands       []CommandRef              `json:"commands,omitempty"`
+	Datasources    []coredatasource.Ref      `json:"datasources,omitempty"`
+	Skills         []skill.Ref               `json:"skills,omitempty"`
+	Context        []corecontext.ProviderRef `json:"context,omitempty"`
+	Annotations    map[string]string         `json:"annotations,omitempty"`
 }
 
 // Validate checks the agent spec is structurally useful without resolving refs.
@@ -173,6 +174,11 @@ func (s Spec) Validate() error {
 	for i, ref := range s.Context {
 		if strings.TrimSpace(string(ref.Name)) == "" {
 			return fmt.Errorf("agent: context[%d] name is empty", i)
+		}
+	}
+	for i, ref := range s.ActivationSets {
+		if strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("agent: activation_sets[%d] name is empty", i)
 		}
 	}
 	return nil

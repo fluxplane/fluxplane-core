@@ -49,6 +49,7 @@ type ResourceSchema struct {
 	Agents           []string
 	Sessions         []string
 	Workflows        []string
+	ActivationSets   []string
 	Operations       []string
 	Tools            []string
 	Datasources      []string
@@ -437,14 +438,15 @@ func addDescription(schema map[string]any, description string) {
 
 func applyResourceSchemas(root map[string]any, resources ResourceSchema) {
 	enums := map[string][]string{
-		"agent":      resources.Agents,
-		"session":    resources.Sessions,
-		"workflow":   resources.Workflows,
-		"operation":  resources.Operations,
-		"datasource": resources.Datasources,
-		"channel":    resources.Channels,
-		"listener":   resources.Listeners,
-		"model":      resources.Models,
+		"agent":          resources.Agents,
+		"session":        resources.Sessions,
+		"workflow":       resources.Workflows,
+		"activation_set": resources.ActivationSets,
+		"operation":      resources.Operations,
+		"datasource":     resources.Datasources,
+		"channel":        resources.Channels,
+		"listener":       resources.Listeners,
+		"model":          resources.Models,
 	}
 	applyPropertyEnums(root, enums)
 	itemEnums := map[string][]string{
@@ -453,6 +455,7 @@ func applyResourceSchemas(root map[string]any, resources ResourceSchema) {
 		"datasources": resources.Datasources,
 		"skills":      resources.Skills,
 		"context":     resources.ContextProviders,
+		"uses":        resources.ActivationSets,
 	}
 	applyPropertyItemEnums(root, itemEnums)
 	if defs, ok := root["$defs"].(map[string]any); ok {

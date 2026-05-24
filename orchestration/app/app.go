@@ -53,7 +53,7 @@ type Config struct {
 
 // BundleTransform mutates or augments resource bundles after plugin
 // contributions have been resolved and before catalogs are collected.
-type BundleTransform func([]resource.ContributionBundle) []resource.ContributionBundle
+type BundleTransform func([]resource.ContributionBundle) ([]resource.ContributionBundle, error)
 
 // Composition is executable runtime configuration assembled from resources and
 // provided implementations.
@@ -101,7 +101,11 @@ func Compose(cfg Config) (Composition, error) {
 		if transform == nil {
 			continue
 		}
-		bundles = transform(bundles)
+		bundles, err = transform(bundles)
+		if err != nil {
+			diagnostics = append(diagnostics, diagnostic(resource.SourceRef{}, err))
+			return Composition{Diagnostics: diagnostics}, err
+		}
 	}
 	for _, bundle := range bundles {
 		diagnostics = append(diagnostics, bundle.Diagnostics...)

@@ -14,6 +14,7 @@ import (
 	distlocal "github.com/fluxplane/engine/adapters/distribution/local"
 	"github.com/fluxplane/engine/adapters/distribution/localruntime"
 	distrun "github.com/fluxplane/engine/adapters/distribution/run"
+	"github.com/fluxplane/engine/adapters/resources/appconfig"
 	"github.com/fluxplane/engine/adapters/system/browsercdp"
 	"github.com/fluxplane/engine/adapters/ui/terminal"
 	coreapp "github.com/fluxplane/engine/core/app"
@@ -411,7 +412,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	if opts.Yolo {
 		approval = operationruntime.AutoApprover{}
 	}
-	var bundleTransforms []app.BundleTransform
+	bundleTransforms := []app.BundleTransform{appconfig.NormalizeBundles}
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
 	}
@@ -1130,6 +1131,7 @@ func cloneBundles(bundles []resource.ContributionBundle) []resource.Contribution
 		out[i] = bundle
 		out[i].Apps = append(out[i].Apps[:0:0], bundle.Apps...)
 		out[i].Agents = append(out[i].Agents[:0:0], bundle.Agents...)
+		out[i].ActivationSets = append(out[i].ActivationSets[:0:0], bundle.ActivationSets...)
 		out[i].OperationSets = append(out[i].OperationSets[:0:0], bundle.OperationSets...)
 		out[i].ToolSets = append(out[i].ToolSets[:0:0], bundle.ToolSets...)
 		out[i].Operations = append(out[i].Operations[:0:0], bundle.Operations...)

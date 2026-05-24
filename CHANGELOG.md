@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Schema to `.fluxplane/schema.json` for editor integration, including
   descriptions for manifest fields, typed plugin config schemas, and
   context-aware completions for resources declared by the current manifest.
+- Added agent `uses` manifest syntax that expands through contributed
+  activation sets, keeping plugin-owned capability wiring out of app manifests.
 - Added datasource config schemas to data source specs so manifest JSON Schema
   generation can type datasource config and entity choices from the resolved
   bundle without hard-coded datasource knowledge in the appconfig adapter.
@@ -23,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced list-style app manifest plugin declarations with map-style plugin
   instances; `plugins.<name>` is now the instance name, `kind` defaults to that
   name, and `enabled: false` omits the plugin from runtime refs.
+- Inferred `default_agent` for app manifests that declare exactly one local
+  agent and do not set a default explicitly.
 - Moved manifest schema enums, defaults, and duration validation for appconfig
   primitives onto typed Go fields so generated schemas stay aligned with
   manifest decoding.

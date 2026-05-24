@@ -25,8 +25,6 @@ providers.
 kind: app
 name: demo
 description: Local demo app.
-default_agent:
-  name: default
 daemon:
   listeners:
     - name: local
@@ -65,6 +63,8 @@ Common fields are:
 
 - `name` and `description` for app identity.
 - `default_agent` for the agent used when a session does not choose one.
+  If the manifest defines exactly one local agent, this can be omitted and that
+  agent is selected automatically.
 - `plugins` for first-party plugin contribution bundles.
 - `datasources` for configured data sources available to agents.
 - `commands`, `workflows`, and `operations` for resource declarations embedded
@@ -236,18 +236,18 @@ name: support
 model: openai/gpt-5.5
 turns:
   max_steps: 50
-tools:
-  - datasource_search
-  - datasource_get
-context:
-  - datasource.catalog
-datasources:
-  - local-docs
+uses:
+  - datasource
 skills:
   - triage
 system: |
   Help the user answer questions from the configured documentation.
 ```
+
+`uses` references activation sets contributed by the app or selected plugins.
+During normalization, each referenced set expands to its declared operation,
+context, datasource, and skill targets. Schema autocomplete is populated from
+the activation sets available in the current app context.
 
 Common fields are `name`, `description`, `model`, `max_tokens`, `turns`,
 `thinking`, `effort`, `tools`, `context`, `datasources`, `skills`, and

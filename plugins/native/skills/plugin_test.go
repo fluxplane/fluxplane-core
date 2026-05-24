@@ -8,8 +8,19 @@ import (
 	coreevent "github.com/fluxplane/engine/core/event"
 	"github.com/fluxplane/engine/core/operation"
 	coreskill "github.com/fluxplane/engine/core/skill"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 	runtimeskill "github.com/fluxplane/engine/runtime/skill"
 )
+
+func TestContributionsExposeDefaultActivationSet(t *testing.T) {
+	bundle, err := New().Contributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != Name {
+		t.Fatalf("activation sets = %#v, want skills set", bundle.ActivationSets)
+	}
+}
 
 func TestSkillOperationActivatesSkillAndReference(t *testing.T) {
 	state := testSkillState(t)

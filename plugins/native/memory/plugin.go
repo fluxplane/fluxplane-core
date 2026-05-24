@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fluxplane/engine/core/activation"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	coreevidence "github.com/fluxplane/engine/core/evidence"
@@ -52,9 +53,25 @@ func (Plugin) Manifest() pluginhost.Manifest {
 	return pluginhost.Manifest{Name: Name, Description: "Scoped structured memory operations."}
 }
 
-func (Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+func (Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	specs := []operation.Spec{memorizeSpec(), retrieveSpec(), forgetSpec(), organizeSpec()}
+	name := ctx.Ref.InstanceName()
+	if name == "" {
+		name = Name
+	}
 	return resource.ContributionBundle{
+		ActivationSets: []activation.Set{{
+			Name:        name,
+			Aliases:     []string{name + ".default"},
+			Description: "Scoped structured memory tools and datasource.",
+			Targets: []activation.Target{{
+				Kind:         activation.TargetOperationSet,
+				OperationSet: Name,
+			}, {
+				Kind:       activation.TargetDatasource,
+				Datasource: coredatasource.Ref{Name: coredatasource.Name(Name)},
+			}},
+		}},
 		OperationSets: []operation.Set{{
 			Name:        Name,
 			Description: "Scoped structured memory tools.",

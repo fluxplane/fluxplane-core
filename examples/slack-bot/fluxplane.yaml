@@ -1,8 +1,6 @@
 kind: app
 name: slack-bot
 description: Minimal Slack daemon app for the rewrite runtime.
-default_agent:
-  name: slack_bot
 models:
   default: smart_model
   available:
@@ -164,24 +162,10 @@ name: slack_bot
 model: openai/gpt-5.5
 turns:
   max_steps: 50
-tools:
-  - channel_send
-  - datasource_search
-  - datasource_list
-  - datasource_get
-  - datasource_relation
-  - datasource_batch_get
-context:
-  - identity.current
-  - datasource.catalog
-  - datasource.detected
-datasources:
-  - slack-bot
-  - gitlab
-  - jira
-  - confluence
-  - local-docs
-  - web_search
+uses:
+  - channel
+  - datasource
+  - identity
 system: |
   You are a helpful Slack assistant. Keep replies concise and format them with
   standard Markdown. Use channel_send only for useful intermediate updates in

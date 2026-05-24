@@ -9,7 +9,7 @@ import (
 	"github.com/fluxplane/engine/plugins/native/sessionhistory"
 )
 
-func enableDevSessionHistory(bundles []resource.ContributionBundle) []resource.ContributionBundle {
+func enableDevSessionHistory(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, error) {
 	if len(bundles) == 0 {
 		bundles = append(bundles, resource.ContributionBundle{})
 	}
@@ -26,7 +26,7 @@ func enableDevSessionHistory(bundles []resource.ContributionBundle) []resource.C
 			appendContextRef(&agent.Context, datasource.ContextProvider)
 		}
 	}
-	return bundles
+	return bundles, nil
 }
 
 func ensureDevSessionHistoryPlugin(bundles []resource.ContributionBundle) []resource.ContributionBundle {

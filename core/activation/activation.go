@@ -29,6 +29,10 @@ type Ref struct {
 	Name string `json:"name"`
 }
 
+// AnnotationIncludeConfiguredDatasources marks an activation set that should
+// also grant access to configured datasource specs in the normalized app.
+const AnnotationIncludeConfiguredDatasources = "fluxplane.include_configured_datasources"
+
 // TargetKind identifies the kind of resource a target prepares.
 type TargetKind string
 

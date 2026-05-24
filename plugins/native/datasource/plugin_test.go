@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fluxplane/engine/core/activation"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
@@ -67,6 +68,22 @@ func TestConfigSchemaContributionsExposeCatalogDatasource(t *testing.T) {
 	spec := bundle.Datasources[0]
 	if spec.Name != coredatasource.Name(Name) || spec.Kind != "synthetic" {
 		t.Fatalf("datasource spec = %#v, want synthetic datasource catalog", spec)
+	}
+}
+
+func TestContributionsExposeDefaultActivationSet(t *testing.T) {
+	bundle, err := New(nil).Contributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != Name {
+		t.Fatalf("activation sets = %#v, want datasource set", bundle.ActivationSets)
+	}
+	if bundle.ActivationSets[0].Annotations[activation.AnnotationIncludeConfiguredDatasources] != "true" {
+		t.Fatalf("activation set annotations = %#v, want configured datasource annotation", bundle.ActivationSets[0].Annotations)
+	}
+	if len(bundle.OperationSets) != 1 || bundle.OperationSets[0].Name != Name {
+		t.Fatalf("operation sets = %#v, want datasource operation set", bundle.OperationSets)
 	}
 }
 

@@ -535,6 +535,10 @@ func configSchemaResources(ctx context.Context, loader Loader, appDir string, av
 		for _, spec := range bundle.Workflows {
 			resources.Workflows = append(resources.Workflows, string(spec.Name))
 		}
+		for _, spec := range bundle.ActivationSets {
+			resources.ActivationSets = append(resources.ActivationSets, spec.Name)
+			resources.ActivationSets = append(resources.ActivationSets, spec.Aliases...)
+		}
 		for _, spec := range bundle.Operations {
 			resources.Operations = append(resources.Operations, string(spec.Ref.Name))
 			resources.Tools = append(resources.Tools, string(spec.Ref.Name))

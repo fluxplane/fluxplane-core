@@ -70,6 +70,7 @@ func TestSpecValidateRejectsEmptyRefs(t *testing.T) {
 		{name: "command", spec: Spec{Name: "main", Commands: []CommandRef{{}}}},
 		{name: "datasource", spec: Spec{Name: "main", Datasources: []datasource.Ref{{}}}},
 		{name: "skill", spec: Spec{Name: "main", Skills: []skill.Ref{{}}}},
+		{name: "activation set", spec: Spec{Name: "main", ActivationSets: []string{""}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

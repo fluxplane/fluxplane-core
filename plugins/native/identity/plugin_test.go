@@ -6,7 +6,18 @@ import (
 	"testing"
 
 	corecontext "github.com/fluxplane/engine/core/context"
+	"github.com/fluxplane/engine/orchestration/pluginhost"
 )
+
+func TestContributionsExposeDefaultActivationSet(t *testing.T) {
+	bundle, err := New().Contributions(context.Background(), pluginhost.Context{})
+	if err != nil {
+		t.Fatalf("Contributions: %v", err)
+	}
+	if len(bundle.ActivationSets) != 1 || bundle.ActivationSets[0].Name != Name {
+		t.Fatalf("activation sets = %#v, want identity set", bundle.ActivationSets)
+	}
+}
 
 func TestCurrentProviderRendersResolvedUser(t *testing.T) {
 	provider := currentProvider{}

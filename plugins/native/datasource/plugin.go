@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fluxplane/engine/core/activation"
 	corecontext "github.com/fluxplane/engine/core/context"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
@@ -73,9 +74,37 @@ func (Plugin) Manifest() pluginhost.Manifest {
 }
 
 func (p Plugin) Contributions(context.Context, pluginhost.Context) (resource.ContributionBundle, error) {
+	specs := []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()}
 	return resource.ContributionBundle{
+		ActivationSets: []activation.Set{{
+			Name:        Name,
+			Aliases:     []string{Name + ".default"},
+			Description: "Datasource search, retrieval, context, and configured datasource access.",
+			Targets: []activation.Target{{
+				Kind:         activation.TargetOperationSet,
+				OperationSet: Name,
+			}, {
+				Kind: activation.TargetContextProvider,
+				ContextProvider: corecontext.ProviderRef{
+					Name: ContextProvider,
+				},
+			}, {
+				Kind: activation.TargetContextProvider,
+				ContextProvider: corecontext.ProviderRef{
+					Name: DetectedProvider,
+				},
+			}},
+			Annotations: map[string]string{
+				activation.AnnotationIncludeConfiguredDatasources: "true",
+			},
+		}},
+		OperationSets: []operation.Set{{
+			Name:        Name,
+			Description: "Datasource search and retrieval operations.",
+			Operations:  operationRefs(specs),
+		}},
 		ContextProviders: []corecontext.ProviderSpec{contextSpec(), detectedContextSpec(), prewarmContextSpec(), semanticContextSpec()},
-		Operations:       []operation.Spec{searchSpec(), listSpec(), getSpec(), relationSpec(), batchGetSpec()},
+		Operations:       specs,
 		DataSources:      []coredata.SourceSpec{FilesystemDataSourceSpec()},
 	}, nil
 }
@@ -84,6 +113,14 @@ func (Plugin) ConfigSchemaContributions(context.Context, pluginhost.Context) (re
 	return resource.ContributionBundle{
 		Datasources: []coredatasource.Spec{CatalogDatasourceSpec()},
 	}, nil
+}
+
+func operationRefs(specs []operation.Spec) []operation.Ref {
+	refs := make([]operation.Ref, 0, len(specs))
+	for _, spec := range specs {
+		refs = append(refs, spec.Ref)
+	}
+	return refs
 }
 
 func (p Plugin) Operations(context.Context, pluginhost.Context) ([]operation.Operation, error) {

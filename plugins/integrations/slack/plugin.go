@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fluxplane/engine/core/activation"
 	coredata "github.com/fluxplane/engine/core/data"
 	coredatasource "github.com/fluxplane/engine/core/datasource"
 	"github.com/fluxplane/engine/core/invocation"
@@ -87,16 +88,34 @@ func (p Plugin) Instantiate(_ context.Context, ctx pluginhost.Context) (pluginho
 
 func (p Plugin) Contributions(_ context.Context, ctx pluginhost.Context) (resource.ContributionBundle, error) {
 	p = p.withRef(ctx.Ref)
+	setName := p.ref.InstanceName()
+	if setName == "" {
+		setName = Name
+	}
+	operationSetName := setName + ".channel"
+	if setName == Name {
+		operationSetName = OperationSet
+	}
+	aliases := []string{setName + ".default", "channel"}
 	return resource.ContributionBundle{
 		Operations: []operation.Spec{p.channelSendSpec(), p.reportProgressSpec(), p.threadReplySpec()},
 		OperationSets: []operation.Set{{
-			Name:        OperationSet,
+			Name:        operationSetName,
 			Description: "Slack active-channel reply, explicit thread reply, and progress operations.",
 			Operations: []operation.Ref{
 				{Name: ChannelSendOp},
 				{Name: ThreadReplyOp},
 				{Name: "slack_*"},
 			},
+		}},
+		ActivationSets: []activation.Set{{
+			Name:        setName,
+			Aliases:     aliases,
+			Description: "Slack channel operations.",
+			Targets: []activation.Target{{
+				Kind:         activation.TargetOperationSet,
+				OperationSet: operationSetName,
+			}},
 		}},
 		DataSources: []coredata.SourceSpec{DataSourceSpec()},
 	}, nil

@@ -672,6 +672,74 @@ system: |
 	}
 }
 
+func TestDecodeFileInfersDefaultAgentForSingleAgentApp(t *testing.T) {
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: app
+name: health
+---
+kind: agent
+name: health
+system: Monitor health.
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Apps) != 1 {
+		t.Fatalf("apps = %#v, want one app", file.Bundle.Apps)
+	}
+	if file.Bundle.Apps[0].DefaultAgent.Name != "health" {
+		t.Fatalf("default agent = %#v, want health", file.Bundle.Apps[0].DefaultAgent)
+	}
+}
+
+func TestDecodeFileDoesNotInferDefaultAgentForMultiAgentApp(t *testing.T) {
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: app
+name: health
+---
+kind: agent
+name: triage
+---
+kind: agent
+name: reporter
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Apps) != 1 {
+		t.Fatalf("apps = %#v, want one app", file.Bundle.Apps)
+	}
+	if file.Bundle.Apps[0].DefaultAgent.Name != "" {
+		t.Fatalf("default agent = %#v, want empty", file.Bundle.Apps[0].DefaultAgent)
+	}
+}
+
+func TestDecodeAgentDocAcceptsUsesWithoutExpansion(t *testing.T) {
+	file, err := DecodeFile("fluxplane.yaml", []byte(`
+kind: agent
+name: reviewer
+uses:
+  - slack
+  - gitlab.review
+`))
+	if err != nil {
+		t.Fatalf("DecodeFile: %v", err)
+	}
+	if len(file.Bundle.Agents) != 1 || file.Bundle.Agents[0].Name != "reviewer" {
+		t.Fatalf("agents = %#v, want reviewer", file.Bundle.Agents)
+	}
+	if got, want := agentActivationSetNames(file.Bundle.Agents[0]), []string{"slack", "gitlab.review"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("agent activation sets = %#v, want %#v", got, want)
+	}
+	if len(file.Bundle.Agents[0].Tools) != 0 || len(file.Bundle.Agents[0].Datasources) != 0 || len(file.Bundle.Agents[0].Context) != 0 {
+		t.Fatalf("uses expanded unexpectedly into agent spec: %#v", file.Bundle.Agents[0])
+	}
+}
+
+func agentActivationSetNames(spec agent.Spec) []string {
+	return append([]string(nil), spec.ActivationSets...)
+}
+
 func TestDecodeFileRejectsInvalidDurationString(t *testing.T) {
 	_, err := DecodeFile("fluxplane.yaml", []byte(`
 kind: agent
