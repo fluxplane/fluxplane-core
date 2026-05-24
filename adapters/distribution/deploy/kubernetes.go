@@ -573,6 +573,7 @@ type kubernetesRenderOptions struct {
 	AppRuntime      appRuntimeOptions
 	NodeSelectors   []string
 	IncludeRegistry bool
+	OmitNamespace   bool
 }
 
 type kubernetesRenderResult struct {
@@ -623,7 +624,7 @@ func kubernetesContent(loaded distribution.Loaded, opts kubernetesRenderOptions)
 	if opts.IncludeRegistry {
 		registryContent = kubernetesRegistryContent(namespace)
 		docs = append(docs, splitYAMLDocuments(registryContent)...)
-	} else {
+	} else if !opts.OmitNamespace {
 		docs = append(docs, kubernetesNamespace(namespace))
 	}
 	if composeUsesMySQL(loaded.Launch) {

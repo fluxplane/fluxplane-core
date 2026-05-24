@@ -58,11 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fluxplane/fluxplane-base:local` image automatically, and made deploy
   `auto` rebuild Docker image targets instead of trusting image-only artifact
   index entries.
+- Kept managed `fluxplane/fluxplane-base:local` refreshes local even when the
+  app Docker image target is configured with `push: true`.
+- Fixed native Docker pushes to use credentials stored by `docker login` when
+  the Docker config stores credentials in the standard `auth` field.
 - Added `docker compose up --wait --wait-timeout 30` to Docker Compose deploys
   so deploy waits briefly for services to become healthy.
 - Changed Kubernetes manifest and Helm chart artifacts to reference external
   Kubernetes Secrets for `env_files` instead of rendering literal env-file
   values into generated production artifacts.
+- Changed generated Helm charts to omit `Namespace` resources so namespaces can
+  remain owned by platform bootstrap, Argo CD, or the operator running Helm.
 - Changed generated Docker Compose YAML to use two-space indentation.
 - Inferred `default_agent` for app manifests that declare exactly one local
   agent and do not set a default explicitly.

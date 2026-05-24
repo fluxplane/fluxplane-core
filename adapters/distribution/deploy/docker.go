@@ -1169,17 +1169,30 @@ func dockerRegistryAuth(ctx context.Context, image string, required bool) (strin
 		if !ok {
 			continue
 		}
-		auth := dockerregistry.AuthConfig{
-			Username:      entry.Username,
-			Password:      entry.Password,
-			Auth:          entry.Auth,
-			IdentityToken: entry.IdentityToken,
-			RegistryToken: entry.RegistryToken,
-			ServerAddress: firstNonEmpty(entry.ServerAddress, registry),
-		}
+		auth := dockerAuthConfigFromEntry(entry, registry)
 		return encodeDockerAuth(auth)
 	}
 	return "", nil
+}
+
+func dockerAuthConfigFromEntry(entry dockerAuthEntry, registry string) dockerregistry.AuthConfig {
+	auth := dockerregistry.AuthConfig{
+		Username:      entry.Username,
+		Password:      entry.Password,
+		IdentityToken: entry.IdentityToken,
+		RegistryToken: entry.RegistryToken,
+		ServerAddress: firstNonEmpty(entry.ServerAddress, registry),
+	}
+	if auth.Username == "" && auth.Password == "" && entry.Auth != "" {
+		if decoded, err := base64.StdEncoding.DecodeString(entry.Auth); err == nil {
+			username, password, ok := strings.Cut(string(decoded), ":")
+			if ok {
+				auth.Username = username
+				auth.Password = password
+			}
+		}
+	}
+	return auth
 }
 
 func loadDockerConfig() (dockerConfig, error) {

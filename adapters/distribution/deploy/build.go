@@ -201,7 +201,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 		case buildKindDockerImage:
 			platforms := firstNonEmptySlice(targetSpec.Platforms, opts.Platforms)
 			push := targetSpec.Push || opts.Push
-			if err := ensureManagedFluxplaneBaseImage(ctx, baseImage, platforms, push, opts, out, errOut, runner, dockerClient, builtBaseImages); err != nil {
+			if err := ensureManagedFluxplaneBaseImage(ctx, baseImage, platforms, opts, out, errOut, runner, dockerClient, builtBaseImages); err != nil {
 				return AppBuildResult{}, err
 			}
 			command, err := dockerCommand(tags, cleanStrings(platforms), push)
@@ -262,21 +262,17 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 	return result, nil
 }
 
-func ensureManagedFluxplaneBaseImage(ctx context.Context, baseImage string, platforms []string, push bool, opts AppBuildOptions, out, errOut io.Writer, runner CommandRunner, dockerClient DockerClient, built map[string]struct{}) error {
+func ensureManagedFluxplaneBaseImage(ctx context.Context, baseImage string, platforms []string, opts AppBuildOptions, out, errOut io.Writer, runner CommandRunner, dockerClient DockerClient, built map[string]struct{}) error {
 	if strings.TrimSpace(baseImage) != defaultBaseImage {
 		return nil
 	}
 	key := strings.Join(append([]string{baseImage}, cleanStrings(platforms)...), "\x00")
-	if push {
-		key += "\x00push"
-	}
 	if _, ok := built[key]; ok {
 		return nil
 	}
 	_, err := BuildFluxplaneBaseDocker(ctx, BaseImageOptions{
 		Tags:         []string{baseImage},
 		Platforms:    cleanStrings(platforms),
-		Push:         push,
 		DryRun:       opts.DryRun,
 		Out:          out,
 		Err:          errOut,

@@ -206,6 +206,13 @@ name: assistant
 	if !strings.Contains(string(values), "repository: example.com/sample") || !strings.Contains(string(values), "tag: v1") || !strings.Contains(string(values), "replicaCount: 2") {
 		t.Fatalf("values.yaml =\n%s", values)
 	}
+	appTemplate, err := os.ReadFile(filepath.Join(result.HelmChart, "templates", "app.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile app template: %v", err)
+	}
+	if strings.Contains(string(appTemplate), "kind: Namespace") {
+		t.Fatalf("helm app template should not manage namespaces:\n%s", appTemplate)
+	}
 }
 
 func TestBuildAppNamedHelmChartUsesExternalEnvSecret(t *testing.T) {
@@ -395,6 +402,47 @@ name: assistant
 	}
 	if len(commands) != 1 || !strings.Contains(commands[0], "-t sample:local") {
 		t.Fatalf("commands = %#v, want only app image build", commands)
+	}
+}
+
+func TestBuildAppDockerImagePushDoesNotPushManagedBase(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    targets:
+      image:
+        kind: docker-image
+        image: example.com/sample
+        tags: [latest]
+        platforms: [linux/amd64]
+        push: true
+---
+kind: agent
+name: assistant
+`)
+	var commands []string
+	runner := CommandRunnerFunc(func(_ context.Context, _ string, name string, args []string, _, _ io.Writer) error {
+		commands = append(commands, name+" "+strings.Join(args, " "))
+		return nil
+	})
+
+	if _, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:  app,
+		Targets: []string{"image"},
+		Runner:  runner,
+	}); err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("commands = %#v, want base and app image builds", commands)
+	}
+	if strings.Contains(commands[0], "--push") {
+		t.Fatalf("managed base command pushed base image: %q", commands[0])
+	}
+	if !strings.Contains(commands[1], "--push") {
+		t.Fatalf("app image command did not push: %q", commands[1])
 	}
 }
 

@@ -78,6 +78,8 @@ Deploy kinds include `docker-compose`, `kubectl`, and `helm`. Image names,
 platforms, push behavior, container runtime settings, and Helm/Kubernetes
 settings live on the named targets in `fluxplane.yaml`. Kubernetes and Helm
 artifacts reference external Secrets instead of embedding env-file contents.
+Generated Helm charts omit `Namespace` resources so namespace ownership can
+stay with platform bootstrap, Argo CD, or the Helm install command.
 Use `fluxplane targets`
 to inspect available build and deploy targets. `fluxplane deploy` without
 `--target` uses the declared deploy target named `local` and fails if that

@@ -24,6 +24,7 @@ func writeHelmChart(loaded distribution.Loaded, output, image, release, namespac
 		AppRuntime:      appRuntime,
 		NodeSelectors:   nodeSelectors,
 		IncludeRegistry: false,
+		OmitNamespace:   true,
 	})
 	if err != nil {
 		return nil, err

@@ -710,6 +710,10 @@ generated for MySQL or NATS are set directly on the app Deployment. Named root
 `env_files` are not supported by Kubernetes artifact generation until workspace
 roots are mounted there.
 
+Generated Helm charts do not include a `Namespace` resource. Create or manage
+the namespace through platform bootstrap, Argo CD, or the Helm install command
+itself.
+
 `fluxplane undeploy` deletes generated app resources. Docker Compose volumes
 are preserved by default; add `--volumes` only when local runtime backend state
 should be removed too.

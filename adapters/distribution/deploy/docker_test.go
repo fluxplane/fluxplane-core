@@ -402,7 +402,7 @@ func TestDockerRegistryAuthUsesDockerConfigAuth(t *testing.T) {
 	if err := json.Unmarshal(decoded, &got); err != nil {
 		t.Fatalf("Unmarshal auth: %v", err)
 	}
-	if got["auth"] != auth || got["serveraddress"] != "example.com" {
+	if got["username"] != "user" || got["password"] != "pass" || got["auth"] != "" || got["serveraddress"] != "example.com" {
 		t.Fatalf("auth = %#v", got)
 	}
 }
