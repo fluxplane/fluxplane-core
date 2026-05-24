@@ -71,7 +71,7 @@ func dockerStackContainers(stack dockerComposeStack) ([]dockerContainerSpec, err
 		out = append(out, dockerContainerSpec{
 			name:    dockerStackContainerName(service, "mysql"),
 			image:   "mysql:8.4",
-			env:     []string{"MYSQL_DATABASE=agentruntime", "MYSQL_USER=agentruntime", "MYSQL_PASSWORD=agentruntime", "MYSQL_ROOT_PASSWORD=agentruntime-root"},
+			env:     []string{"MYSQL_DATABASE=fluxplane", "MYSQL_USER=fluxplane", "MYSQL_PASSWORD=fluxplane", "MYSQL_ROOT_PASSWORD=fluxplane-root"},
 			aliases: []string{"mysql"},
 			mounts:  []dockermount.Mount{{Type: dockermount.TypeVolume, Source: volume, Target: "/var/lib/mysql"}},
 			volumes: []string{volume},

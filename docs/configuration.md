@@ -642,11 +642,11 @@ profile: prod
 data:
   store:
     kind: mysql
-    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+    dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
 events:
   store:
     kind: nats
-    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
     stream: AGENTRUNTIME_EVENTS
     subject: agentruntime.events.log
     create_stream: true

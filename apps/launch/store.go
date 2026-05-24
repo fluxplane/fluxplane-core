@@ -16,7 +16,7 @@ import (
 	runtimethread "github.com/fluxplane/engine/runtime/thread"
 )
 
-const defaultEventStoreDSNEnv = "AGENTRUNTIME_EVENTSTORE_NATS_DSN"
+const defaultEventStoreDSNEnv = "FLUXPLANE_EVENTSTORE_NATS_DSN"
 
 func openLocalThreadStore(registry *event.Registry, cfgs ...distribution.EventsConfig) (corethread.Store, event.Store, func(), error) {
 	cfg := distribution.EventsConfig{}

@@ -343,11 +343,11 @@ runtime:
   data:
     store:
       kind: mysql
-      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+      dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
   events:
     store:
       kind: nats
-      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+      dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
       stream: AGENTRUNTIME_EVENTS
       subject: agentruntime.events.log
       create_stream: true
@@ -397,10 +397,10 @@ datasource:
 	}
 	bundle := file.Bundle
 	app := bundle.Apps[0]
-	if file.Runtime.Data.Store.Kind != "mysql" || file.Runtime.Data.Store.DSNEnv != "AGENTRUNTIME_DATASTORE_MYSQL_DSN" {
+	if file.Runtime.Data.Store.Kind != "mysql" || file.Runtime.Data.Store.DSNEnv != "FLUXPLANE_DATASTORE_MYSQL_DSN" {
 		t.Fatalf("runtime data store = %#v, want mysql dsn env", file.Runtime.Data.Store)
 	}
-	if file.Runtime.Events.Store.Kind != "nats" || file.Runtime.Events.Store.DSNEnv != "AGENTRUNTIME_EVENTSTORE_NATS_DSN" || file.Runtime.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || file.Runtime.Events.Store.Subject != "agentruntime.events.log" || !file.Runtime.Events.Store.CreateStream {
+	if file.Runtime.Events.Store.Kind != "nats" || file.Runtime.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || file.Runtime.Events.Store.Stream != "AGENTRUNTIME_EVENTS" || file.Runtime.Events.Store.Subject != "agentruntime.events.log" || !file.Runtime.Events.Store.CreateStream {
 		t.Fatalf("runtime event store = %#v, want nats dsn env", file.Runtime.Events.Store)
 	}
 	if !app.SemanticSearch.Enabled || app.SemanticSearch.Embeddings.Model != "text-embedding-3-large" {
@@ -1246,11 +1246,11 @@ profile: prod
 data:
   store:
     kind: mysql
-    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+    dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
 events:
   store:
     kind: nats
-    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
     stream: AGENTRUNTIME_EVENTS
     subject: agentruntime.events.log
     create_stream: true
@@ -1282,10 +1282,10 @@ name: assistant
 	if prodFile.Profile != "prod" || len(prodFile.ActiveProfiles) != 1 || prodFile.ActiveProfiles[0] != "prod" {
 		t.Fatalf("prod profiles = %q %#v", prodFile.Profile, prodFile.ActiveProfiles)
 	}
-	if prodFile.Runtime.Data.Store.Kind != "mysql" || prodFile.Runtime.Data.Store.DSNEnv != "AGENTRUNTIME_DATASTORE_MYSQL_DSN" {
+	if prodFile.Runtime.Data.Store.Kind != "mysql" || prodFile.Runtime.Data.Store.DSNEnv != "FLUXPLANE_DATASTORE_MYSQL_DSN" {
 		t.Fatalf("prod data store = %#v", prodFile.Runtime.Data.Store)
 	}
-	if prodFile.Runtime.Events.Store.Kind != "nats" || prodFile.Runtime.Events.Store.DSNEnv != "AGENTRUNTIME_EVENTSTORE_NATS_DSN" || !prodFile.Runtime.Events.Store.CreateStream {
+	if prodFile.Runtime.Events.Store.Kind != "nats" || prodFile.Runtime.Events.Store.DSNEnv != "FLUXPLANE_EVENTSTORE_NATS_DSN" || !prodFile.Runtime.Events.Store.CreateStream {
 		t.Fatalf("prod event store = %#v", prodFile.Runtime.Events.Store)
 	}
 }

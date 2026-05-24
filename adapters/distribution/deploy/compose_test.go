@@ -332,11 +332,11 @@ profile: prod
 data:
   store:
     kind: mysql
-    dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+    dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
 events:
   store:
     kind: nats
-    dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+    dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
     stream: AGENTRUNTIME_EVENTS
     subject: agentruntime.events.log
     create_stream: true
@@ -355,8 +355,8 @@ name: assistant
 	}
 	for _, want := range []string{
 		"    image: support-bot:test",
-		"      AGENTRUNTIME_DATASTORE_MYSQL_DSN: agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true",
-		"      AGENTRUNTIME_EVENTSTORE_NATS_DSN: nats://nats:4222",
+		"      FLUXPLANE_DATASTORE_MYSQL_DSN: fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true",
+		"      FLUXPLANE_EVENTSTORE_NATS_DSN: nats://nats:4222",
 		"      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY is required}",
 		"      mysql:",
 		"        condition: service_healthy",

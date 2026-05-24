@@ -1108,7 +1108,7 @@ func kubernetesRuntimeEnv(launch distribution.LaunchConfig) map[string]string {
 		if name == "" {
 			name = defaultMySQLDSNEnv
 		}
-		env[name] = "agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true"
+		env[name] = "fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true"
 	}
 	if composeUsesNATS(launch) {
 		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
@@ -1199,10 +1199,10 @@ func kubernetesMySQL(namespace string) string {
 						Image: "mysql:8.4",
 						Ports: []corev1.ContainerPort{{Name: "mysql", ContainerPort: 3306}},
 						Env: []corev1.EnvVar{
-							{Name: "MYSQL_DATABASE", Value: "agentruntime"},
-							{Name: "MYSQL_USER", Value: "agentruntime"},
-							{Name: "MYSQL_PASSWORD", Value: "agentruntime"},
-							{Name: "MYSQL_ROOT_PASSWORD", Value: "agentruntime-root"},
+							{Name: "MYSQL_DATABASE", Value: "fluxplane"},
+							{Name: "MYSQL_USER", Value: "fluxplane"},
+							{Name: "MYSQL_PASSWORD", Value: "fluxplane"},
+							{Name: "MYSQL_ROOT_PASSWORD", Value: "fluxplane-root"},
 						},
 						VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/var/lib/mysql"}},
 					}}},

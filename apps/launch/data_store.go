@@ -15,7 +15,7 @@ import (
 	runtimedata "github.com/fluxplane/engine/runtime/data"
 )
 
-const defaultDataStoreDSNEnv = "AGENTRUNTIME_DATASTORE_MYSQL_DSN"
+const defaultDataStoreDSNEnv = "FLUXPLANE_DATASTORE_MYSQL_DSN"
 
 func openDataStore(ctx context.Context, cfg distribution.DataConfig) (coredata.Store, func() error, error) {
 	kind := strings.ToLower(strings.TrimSpace(cfg.Store.Kind))

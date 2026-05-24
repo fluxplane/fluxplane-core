@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated workflows.
 
 ### Changed
+- Renamed generated runtime backend DSN environment variable defaults from
+  `AGENTRUNTIME_*` to `FLUXPLANE_*`.
+- Renamed generated MySQL runtime backend credentials and database names from
+  `agentruntime` to `fluxplane`.
 - Replaced list-style app manifest plugin declarations with map-style plugin
   instances; `plugins.<name>` is now the instance name, `kind` defaults to that
   name, and `enabled: false` omits the plugin from runtime refs.

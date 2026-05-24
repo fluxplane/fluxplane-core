@@ -41,7 +41,7 @@ func TestMySQLStoreImplementsMirrorStore(t *testing.T) {
 	}
 	ctx := context.Background()
 	container, err := tc_mysql.Run(ctx, "mysql:8.0.36",
-		tc_mysql.WithDatabase("agentruntime"),
+		tc_mysql.WithDatabase("fluxplane"),
 		tc_mysql.WithUsername("test"),
 		tc_mysql.WithPassword("test"),
 	)

@@ -372,7 +372,7 @@ func composeEnv(appRuntime appRuntimeOptions, launch distribution.LaunchConfig) 
 		if name == "" {
 			name = defaultMySQLDSNEnv
 		}
-		env[name] = "agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true"
+		env[name] = "fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true"
 	}
 	if composeUsesNATS(launch) {
 		name := strings.TrimSpace(launch.Events.Store.DSNEnv)
@@ -402,10 +402,10 @@ func mysqlComposeService() composeService {
 	return composeService{
 		Image: "mysql:8.4",
 		Environment: map[string]string{
-			"MYSQL_DATABASE":      "agentruntime",
-			"MYSQL_PASSWORD":      "agentruntime",
-			"MYSQL_ROOT_PASSWORD": "agentruntime-root",
-			"MYSQL_USER":          "agentruntime",
+			"MYSQL_DATABASE":      "fluxplane",
+			"MYSQL_PASSWORD":      "fluxplane",
+			"MYSQL_ROOT_PASSWORD": "fluxplane-root",
+			"MYSQL_USER":          "fluxplane",
 		},
 		Volumes: []string{"mysql-data:/var/lib/mysql"},
 		Healthcheck: &composeHealthcheck{

@@ -95,11 +95,11 @@ runtime:
   data:
     store:
       kind: mysql
-      dsn_env: AGENTRUNTIME_DATASTORE_MYSQL_DSN
+      dsn_env: FLUXPLANE_DATASTORE_MYSQL_DSN
   events:
     store:
       kind: nats
-      dsn_env: AGENTRUNTIME_EVENTSTORE_NATS_DSN
+      dsn_env: FLUXPLANE_EVENTSTORE_NATS_DSN
 distribution:
   build:
     assets: [fluxplane.yaml]
@@ -122,7 +122,7 @@ name: assistant
 		"kind: StatefulSet",
 		"  name: mysql",
 		"        image: mysql:8.4",
-		"          value: agentruntime:agentruntime@tcp(mysql:3306)/agentruntime?parseTime=true&multiStatements=true",
+		"          value: fluxplane:fluxplane@tcp(mysql:3306)/fluxplane?parseTime=true&multiStatements=true",
 		"  name: nats",
 		"        image: nats:2.11-alpine",
 		"          value: nats://nats:4222",
