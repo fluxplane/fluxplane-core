@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced list-style app manifest plugin declarations with map-style plugin
   instances; `plugins.<name>` is now the instance name, `kind` defaults to that
   name, and `enabled: false` omits the plugin from runtime refs.
+- Made `fluxplane deploy --target docker-compose` run Docker Compose by default
+  and reuse an existing Fluxplane-managed Docker network when the internal
+  Docker Engine deploy backend is used.
 - Inferred `default_agent` for app manifests that declare exactly one local
   agent and do not set a default explicitly.
 - Moved manifest schema enums, defaults, and duration validation for appconfig

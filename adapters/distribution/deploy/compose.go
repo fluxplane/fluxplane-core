@@ -160,7 +160,7 @@ func DeployDockerCompose(ctx context.Context, opts ComposeDeployOptions) (Compos
 		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
 		return result, nil
 	}
-	if opts.Runner != nil && opts.dockerClient == nil {
+	if opts.dockerClient == nil {
 		if err := runner.Run(ctx, app.AppDir, command[0], command[1:], out, errOut); err != nil {
 			return ComposeDeployResult{}, err
 		}
@@ -215,7 +215,7 @@ func UndeployDockerCompose(ctx context.Context, opts ComposeUndeployOptions) (Co
 		_, _ = fmt.Fprintf(out, "command=%s\n", strings.Join(command, " "))
 		return result, nil
 	}
-	if opts.Runner != nil && opts.dockerClient == nil {
+	if opts.dockerClient == nil {
 		if err := runner.Run(ctx, loaded.Root, command[0], command[1:], out, errOut); err != nil {
 			return ComposeUndeployResult{}, err
 		}

@@ -14,7 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/fluxplane/engine/orchestration/distribution"
+	apinetwork "github.com/moby/moby/api/types/network"
+	dockerclient "github.com/moby/moby/client"
 )
 
 func TestBuildDockerGeneratesContextAndRunsDockerBuild(t *testing.T) {
@@ -489,6 +492,63 @@ func TestDockerStackContainersRequiresHostEnv(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), openRouterAPIKeyEnv+" is required") {
 		t.Fatalf("dockerStackContainers error = %v, want required env error", err)
 	}
+}
+
+func TestEnsureDockerNetworkCreatesMissingNetwork(t *testing.T) {
+	client := &recordingNetworkClient{inspectErr: cerrdefs.ErrNotFound}
+	labels := dockerStackLabels("sample")
+
+	if err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", labels); err != nil {
+		t.Fatalf("ensureDockerNetwork: %v", err)
+	}
+	if client.createdName != "agentruntime-sample" || client.createdOptions.Driver != "bridge" || client.createdOptions.Labels[deployStackLabel] != "sample" {
+		t.Fatalf("created network name=%q options=%#v", client.createdName, client.createdOptions)
+	}
+}
+
+func TestEnsureDockerNetworkReusesManagedNetwork(t *testing.T) {
+	client := &recordingNetworkClient{
+		inspectResult: dockerclient.NetworkInspectResult{
+			Network: apinetwork.Inspect{Network: apinetwork.Network{Labels: dockerStackLabels("sample")}},
+		},
+	}
+
+	if err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", dockerStackLabels("sample")); err != nil {
+		t.Fatalf("ensureDockerNetwork: %v", err)
+	}
+	if client.createdName != "" {
+		t.Fatalf("created network %q, want reuse", client.createdName)
+	}
+}
+
+func TestEnsureDockerNetworkRejectsForeignNetwork(t *testing.T) {
+	client := &recordingNetworkClient{
+		inspectResult: dockerclient.NetworkInspectResult{
+			Network: apinetwork.Inspect{Network: apinetwork.Network{Labels: map[string]string{deployStackLabel: "other"}}},
+		},
+	}
+
+	err := ensureDockerNetwork(context.Background(), client, "agentruntime-sample", dockerStackLabels("sample"))
+	if err == nil || !strings.Contains(err.Error(), "is not managed by this deploy stack") {
+		t.Fatalf("ensureDockerNetwork error = %v, want foreign network error", err)
+	}
+}
+
+type recordingNetworkClient struct {
+	inspectResult  dockerclient.NetworkInspectResult
+	inspectErr     error
+	createdName    string
+	createdOptions dockerclient.NetworkCreateOptions
+}
+
+func (r *recordingNetworkClient) NetworkInspect(context.Context, string, dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error) {
+	return r.inspectResult, r.inspectErr
+}
+
+func (r *recordingNetworkClient) NetworkCreate(_ context.Context, name string, options dockerclient.NetworkCreateOptions) (dockerclient.NetworkCreateResult, error) {
+	r.createdName = name
+	r.createdOptions = options
+	return dockerclient.NetworkCreateResult{ID: "network-id"}, nil
 }
 
 func tarEntries(stream io.Reader) (map[string]string, error) {

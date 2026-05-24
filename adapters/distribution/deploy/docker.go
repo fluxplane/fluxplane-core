@@ -46,6 +46,11 @@ type commandDockerClient struct {
 
 type engineDockerClient struct{}
 
+type dockerNetworkClient interface {
+	NetworkInspect(context.Context, string, dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error)
+	NetworkCreate(context.Context, string, dockerclient.NetworkCreateOptions) (dockerclient.NetworkCreateResult, error)
+}
+
 type dockerContainerSpec struct {
 	name       string
 	image      string
@@ -161,6 +166,26 @@ func dockerStackVolumeName(stack, volume string) string {
 
 func dockerStackLabels(stack string) map[string]string {
 	return map[string]string{deployStackLabel: stack}
+}
+
+func ensureDockerNetwork(ctx context.Context, cli dockerNetworkClient, name string, labels map[string]string) error {
+	inspected, err := cli.NetworkInspect(ctx, name, dockerclient.NetworkInspectOptions{})
+	if err == nil {
+		if want := labels[deployStackLabel]; want != "" && inspected.Network.Labels[deployStackLabel] != want {
+			return fmt.Errorf("distribution deploy: docker network %s already exists and is not managed by this deploy stack", name)
+		}
+		return nil
+	}
+	if !errdefs.IsNotFound(err) {
+		return fmt.Errorf("distribution deploy: inspect docker network %s: %w", name, err)
+	}
+	if _, err := cli.NetworkCreate(ctx, name, dockerclient.NetworkCreateOptions{
+		Driver: "bridge",
+		Labels: labels,
+	}); err != nil && !errdefs.IsAlreadyExists(err) {
+		return fmt.Errorf("distribution deploy: create docker network %s: %w", name, err)
+	}
+	return nil
 }
 
 // DockerBuildOptions configures a generated Docker image build.
@@ -1241,11 +1266,8 @@ func (engineDockerClient) DeployComposeStack(ctx context.Context, stack dockerCo
 	defer func() { _ = cli.Close() }()
 	service := composeServiceName(stack.Name)
 	networkName := dockerStackNetworkName(service)
-	if _, err := cli.NetworkCreate(ctx, networkName, dockerclient.NetworkCreateOptions{
-		Driver: "bridge",
-		Labels: dockerStackLabels(service),
-	}); err != nil && !errdefs.IsAlreadyExists(err) {
-		return fmt.Errorf("distribution deploy: create docker network %s: %w", networkName, err)
+	if err := ensureDockerNetwork(ctx, cli, networkName, dockerStackLabels(service)); err != nil {
+		return err
 	}
 	containers, err := dockerStackContainers(stack)
 	if err != nil {
