@@ -262,6 +262,7 @@ func DeployKubernetes(ctx context.Context, opts KubernetesOptions) (KubernetesRe
 		Model:              opts.Model,
 		Effort:             opts.Effort,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Profiles:           selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 	})
 
 	app, err := BuildApp(ctx, AppBuildOptions{
@@ -524,6 +525,7 @@ func GenerateKubernetesManifests(ctx context.Context, opts KubernetesManifestOpt
 		Provider: opts.Provider,
 		Model:    opts.Model,
 		Effort:   opts.Effort,
+		Profiles: selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 	})
 	rendered, err := kubernetesContent(loaded, kubernetesRenderOptions{
 		Name:              name,

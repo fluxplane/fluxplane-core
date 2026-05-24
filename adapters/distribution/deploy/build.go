@@ -129,6 +129,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			Model:              firstNonEmpty(targetSpec.Model, opts.Model),
 			Effort:             firstNonEmpty(targetSpec.Effort, opts.Effort),
 			AllowPluginAuthEnv: targetSpec.AllowPluginAuthEnv || opts.AllowPluginAuthEnv,
+			Profiles:           selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 		})
 		tags := resolveTargetTags(loaded.Distribution.Spec, targetSpec, opts)
 		image := firstTag(tags)
@@ -213,11 +214,12 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 				return AppBuildResult{}, err
 			}
 			dockerfile := targetOutput(outDir, targetSpec.Dockerfile, dockerfilePath)
+			managedDockerfile := strings.TrimSpace(targetSpec.Dockerfile) == ""
 			command = append(command, "-f", dockerfile, loaded.Root)
 			result.Command = command
 			printAppBuildCommand(out, command, opts.DryRun)
 			if !opts.DryRun {
-				if err := ensureDockerfileForImage(dockerfile, baseImage, authPath, appRuntime, opts.Force); err != nil {
+				if err := ensureDockerfileForImage(dockerfile, baseImage, authPath, appRuntime, opts.Force || managedDockerfile); err != nil {
 					return AppBuildResult{}, err
 				}
 				if opts.Runner != nil && opts.dockerClient == nil {

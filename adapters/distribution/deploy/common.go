@@ -108,6 +108,7 @@ type appRuntimeOptions struct {
 	Model              string
 	Effort             string
 	AllowPluginAuthEnv bool
+	Profiles           []string
 }
 
 func (opts appRuntimeOptions) withDefaults() appRuntimeOptions {
@@ -144,7 +145,20 @@ func resolveAppRuntime(loaded distribution.Loaded, opts appRuntimeOptions) appRu
 		Model:              model,
 		Effort:             firstNonEmpty(effort, DefaultAppEffort),
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Profiles:           cleanStrings(opts.Profiles),
 	}.withDefaults()
+}
+
+func selectedRuntimeProfiles(profile string, profiles []string) []string {
+	var out []string
+	for _, value := range append([]string{profile}, profiles...) {
+		for _, part := range strings.Split(value, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return cleanStrings(out)
 }
 
 func llmProviderSpecs(bundles []resource.ContributionBundle) []corellm.ProviderSpec {
@@ -226,6 +240,9 @@ func appServeCommandWithHealthAddr(authPath string, appRuntime appRuntimeOptions
 		"--provider", appRuntime.Provider,
 		"--model", appRuntime.Model,
 		"--effort", appRuntime.Effort,
+	}
+	for _, profile := range cleanStrings(appRuntime.Profiles) {
+		command = append(command, "--profile", profile)
 	}
 	if appRuntime.AllowPluginAuthEnv {
 		command = append(command, "--allow-plugin-auth-env")

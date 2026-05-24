@@ -2,9 +2,13 @@ package slack
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	runtimedatasource "github.com/fluxplane/fluxplane-core/runtime/datasource"
@@ -17,6 +21,10 @@ const MessageEntity coredatasource.EntityType = "slack.message"
 const ThreadMessageEntity coredatasource.EntityType = "slack.thread_message"
 
 var slackConversationTypes = []string{"public_channel", "private_channel", "im", "mpim"}
+
+const defaultSearchHistoryWindow = 90 * 24 * time.Hour
+
+var errSlackNativeSearchUnavailable = errors.New("slack native search requires a user token")
 
 type User struct {
 	ID          string `json:"id" datasource:"id,filterable" jsonschema:"description=Slack user id."`
@@ -74,6 +82,7 @@ type slackAPI interface {
 	GetConversationInfoContext(context.Context, *slack.GetConversationInfoInput) (*slack.Channel, error)
 	SearchMessagesContext(context.Context, string, slack.SearchParameters) (*slack.SearchMessages, error)
 	PostMessageContext(context.Context, string, ...slack.MsgOption) (string, string, error)
+	AuthTestContext(context.Context) (*slack.AuthTestResponse, error)
 	GetUsersInConversationContext(context.Context, *slack.GetUsersInConversationParameters) ([]string, string, error)
 	GetConversationRepliesContext(context.Context, *slack.GetConversationRepliesParameters) ([]slack.Message, bool, string, error)
 	GetConversationHistoryContext(context.Context, *slack.GetConversationHistoryParameters) (*slack.GetConversationHistoryResponse, error)
@@ -105,19 +114,28 @@ func (p slackDatasourceProvider) Open(_ context.Context, spec coredatasource.Spe
 	if instance != "" && instance != p.plugin.ref.InstanceName() {
 		return nil, fmt.Errorf("slack datasource instance %q does not match plugin instance %q", instance, p.plugin.ref.InstanceName())
 	}
-	return slackAccessor{spec: spec, plugin: p.plugin, entities: selected}, nil
+	return slackAccessor{spec: spec, plugin: p.plugin, entities: selected, search: p.plugin.cfg.Search}, nil
 }
 
 type slackAccessor struct {
 	spec     coredatasource.Spec
 	plugin   Plugin
 	entities []coredatasource.EntitySpec
+	search   SearchConfig
 }
 
 func (a slackAccessor) Spec() coredatasource.Spec { return a.spec }
 
 func (a slackAccessor) Entities() []coredatasource.EntitySpec {
 	return append([]coredatasource.EntitySpec(nil), a.entities...)
+}
+
+func (a slackAccessor) ProviderFirstSearch(entity coredatasource.EntityType) bool {
+	return entity == MessageEntity
+}
+
+func (a slackAccessor) ProviderSearchFallback(entity coredatasource.EntityType, err error) bool {
+	return entity == MessageEntity && isSlackProviderSearchUnavailable(err)
 }
 
 func (a slackAccessor) Search(ctx context.Context, req coredatasource.SearchRequest) (coredatasource.SearchResult, error) {
@@ -155,6 +173,13 @@ func (a slackAccessor) Search(ctx context.Context, req coredatasource.SearchRequ
 		}
 		return runtimedatasource.SearchResult(a.spec.Name, entity, records, len(records)), nil
 	case MessageEntity:
+		api, ok, err := a.plugin.userAPI(ctx)
+		if err != nil {
+			return coredatasource.SearchResult{}, err
+		}
+		if !ok {
+			return coredatasource.SearchResult{}, errSlackNativeSearchUnavailable
+		}
 		params := slack.NewSearchParameters()
 		params.Count = limit
 		params.Sort = "timestamp"
@@ -283,9 +308,158 @@ func (a slackAccessor) Corpus(ctx context.Context, req coredatasource.CorpusRequ
 			NextCursor: result.NextCursor,
 			Complete:   result.Complete,
 		}, nil
+	case MessageEntity:
+		return a.messageCorpus(ctx, req)
 	default:
 		return coredatasource.CorpusPage{}, fmt.Errorf("datasource %q entity %q is not materializable", a.spec.Name, req.Entity)
 	}
+}
+
+type slackMessageCorpusCursor struct {
+	Channel int    `json:"channel,omitempty"`
+	Cursor  string `json:"cursor,omitempty"`
+}
+
+func (a slackAccessor) messageCorpus(ctx context.Context, req coredatasource.CorpusRequest) (coredatasource.CorpusPage, error) {
+	configured := cleaned(a.search.Channels)
+	if len(configured) == 0 {
+		return coredatasource.CorpusPage{Complete: true}, nil
+	}
+	api, err := a.plugin.botAPI(ctx)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	channels, err := a.resolveSearchChannels(ctx, api, configured)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	if len(channels) == 0 {
+		return coredatasource.CorpusPage{Complete: true}, nil
+	}
+	cursor, err := decodeSlackMessageCorpusCursor(req.Cursor)
+	if err != nil {
+		return coredatasource.CorpusPage{}, err
+	}
+	if cursor.Channel >= len(channels) {
+		return coredatasource.CorpusPage{Complete: true}, nil
+	}
+	limit := normalizedLimit(req.Limit)
+	oldest := slackTimestamp(time.Now().Add(-searchHistoryWindow(a.search.HistoryWindow)))
+	workspaceURL := slackWorkspaceURL(ctx, api)
+	for cursor.Channel < len(channels) {
+		channel := channels[cursor.Channel]
+		response, err := api.GetConversationHistoryContext(ctx, &slack.GetConversationHistoryParameters{
+			ChannelID: channel.ID,
+			Cursor:    cursor.Cursor,
+			Limit:     limit,
+			Oldest:    oldest,
+		})
+		if isSlackInaccessibleConversation(err) {
+			cursor.Channel++
+			cursor.Cursor = ""
+			continue
+		}
+		if err != nil {
+			return coredatasource.CorpusPage{}, err
+		}
+		documents := make([]coredatasource.CorpusDocument, 0, len(response.Messages))
+		for _, msg := range response.Messages {
+			if strings.TrimSpace(msg.Timestamp) == "" || strings.TrimSpace(msg.Text) == "" {
+				continue
+			}
+			record := a.messageRecord(channel.ID, msg)
+			record = withSlackPermalink(record, workspaceURL, channel.ID, msg.Timestamp)
+			record.Title = firstNonEmpty(channel.Name, channel.ID, record.Title)
+			if record.Metadata == nil {
+				record.Metadata = map[string]string{}
+			}
+			record.Metadata["channel"] = channel.Name
+			documents = append(documents, runtimedatasource.RecordsToCorpusDocuments([]coredatasource.Record{record})...)
+			if slackSearchIncludeThreads(a.search) && msg.ReplyCount > 0 {
+				replies, err := a.threadReplyCorpusDocuments(ctx, api, channel, msg, limit, workspaceURL)
+				if err != nil {
+					return coredatasource.CorpusPage{}, err
+				}
+				documents = append(documents, replies...)
+			}
+		}
+		next := slackMessageCorpusCursor{Channel: cursor.Channel, Cursor: response.ResponseMetaData.NextCursor}
+		if next.Cursor == "" {
+			next.Channel++
+		}
+		return coredatasource.CorpusPage{
+			Documents:  documents,
+			NextCursor: encodeSlackMessageCorpusCursor(next, len(channels)),
+			Complete:   next.Channel >= len(channels) && next.Cursor == "",
+		}, nil
+	}
+	return coredatasource.CorpusPage{Complete: true}, nil
+}
+
+func (a slackAccessor) threadReplyCorpusDocuments(ctx context.Context, api slackAPI, channel slack.Channel, root slack.Message, limit int, workspaceURL string) ([]coredatasource.CorpusDocument, error) {
+	threadTS := firstNonEmpty(root.ThreadTimestamp, root.Timestamp)
+	if threadTS == "" {
+		return nil, nil
+	}
+	messages, _, _, err := api.GetConversationRepliesContext(ctx, &slack.GetConversationRepliesParameters{ChannelID: channel.ID, Timestamp: threadTS, Limit: limit, Inclusive: true})
+	if isSlackInaccessibleConversation(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	records := make([]coredatasource.Record, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Timestamp == root.Timestamp || strings.TrimSpace(msg.Text) == "" {
+			continue
+		}
+		record := a.messageRecord(channel.ID, msg)
+		record = withSlackPermalink(record, workspaceURL, channel.ID, msg.Timestamp)
+		record.Title = firstNonEmpty(channel.Name, channel.ID, record.Title)
+		if record.Metadata == nil {
+			record.Metadata = map[string]string{}
+		}
+		record.Metadata["channel"] = channel.Name
+		record.Metadata["thread_ts"] = threadTS
+		records = append(records, record)
+	}
+	return runtimedatasource.RecordsToCorpusDocuments(records), nil
+}
+
+func (a slackAccessor) resolveSearchChannels(ctx context.Context, api slackAPI, configured []string) ([]slack.Channel, error) {
+	want := map[string]bool{}
+	for _, channel := range configured {
+		channel = strings.TrimPrefix(strings.TrimSpace(channel), "#")
+		if channel != "" {
+			want[strings.ToLower(channel)] = true
+		}
+	}
+	if len(want) == 0 {
+		return nil, nil
+	}
+	var out []slack.Channel
+	cursor := ""
+	for {
+		channels, next, err := api.GetConversationsContext(ctx, &slack.GetConversationsParameters{
+			Cursor:          cursor,
+			Limit:           200,
+			Types:           []string{"public_channel"},
+			ExcludeArchived: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, channel := range channels {
+			if want[strings.ToLower(channel.ID)] || want[strings.ToLower(channel.Name)] || want[strings.ToLower(channel.NameNormalized)] {
+				out = append(out, channel)
+			}
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+	return out, nil
 }
 
 func (a slackAccessor) Relation(ctx context.Context, req coredatasource.RelationRequest) (coredatasource.RelationResult, error) {
@@ -564,12 +738,13 @@ func entitySpecs() []coredatasource.EntitySpec {
 		Exact:        true,
 	}}
 
-	messageEntity := runtimedatasource.EntityOf[Message](MessageEntity, "Slack message search result.")
+	messageEntity := runtimedatasource.EntityOf[Message](MessageEntity, "Slack message search result. Native Slack search requires a user token; bot mode searches configured indexed channels.")
 	messageEntity.Capabilities = []coredatasource.EntityCapability{
 		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 		coredatasource.EntityCapabilityRelation,
+		coredatasource.EntityCapabilityIndex,
 	}
 	messageEntity.Detectors = []coredatasource.DetectorSpec{{
 		Name:          "slack_message_permalink",
@@ -592,9 +767,8 @@ func entitySpecs() []coredatasource.EntitySpec {
 		Exact:        true,
 	}}
 
-	threadEntity := runtimedatasource.EntityOf[ThreadMessage](ThreadMessageEntity, "Slack thread message.")
+	threadEntity := runtimedatasource.EntityOf[ThreadMessage](ThreadMessageEntity, "Slack thread message for exact channel/thread lookups.")
 	threadEntity.Capabilities = []coredatasource.EntityCapability{
-		coredatasource.EntityCapabilitySearch,
 		coredatasource.EntityCapabilityList,
 		coredatasource.EntityCapabilityGet,
 	}
@@ -691,6 +865,106 @@ func isSlackMissingScope(err error) bool {
 		return true
 	}
 	return err.Error() == "missing_scope"
+}
+
+func isSlackInaccessibleConversation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isSlackMissingScope(err) {
+		return true
+	}
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) {
+		switch slackErr.Err {
+		case "not_in_channel", "channel_not_found":
+			return true
+		}
+	}
+	switch err.Error() {
+	case "not_in_channel", "channel_not_found":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSlackProviderSearchUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errSlackNativeSearchUnavailable) {
+		return true
+	}
+	var slackErr slack.SlackErrorResponse
+	if errors.As(err, &slackErr) {
+		switch slackErr.Err {
+		case "missing_scope", "not_allowed_token_type", "invalid_auth", "token_revoked":
+			return true
+		}
+	}
+	switch err.Error() {
+	case "missing_scope", "not_allowed_token_type":
+		return true
+	default:
+		return false
+	}
+}
+
+func searchHistoryWindow(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultSearchHistoryWindow
+	}
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
+		if err == nil && days > 0 {
+			return time.Duration(days) * 24 * time.Hour
+		}
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return defaultSearchHistoryWindow
+	}
+	return duration
+}
+
+func slackSearchIncludeThreads(cfg SearchConfig) bool {
+	return cfg.IncludeThreads == nil || *cfg.IncludeThreads
+}
+
+func slackTimestamp(t time.Time) string {
+	return strconv.FormatFloat(float64(t.UnixNano())/float64(time.Second), 'f', 6, 64)
+}
+
+func encodeSlackMessageCorpusCursor(cursor slackMessageCorpusCursor, channelCount int) string {
+	if cursor.Cursor == "" && cursor.Channel >= channelCount {
+		return ""
+	}
+	payload, err := json.Marshal(cursor)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeSlackMessageCorpusCursor(value string) (slackMessageCorpusCursor, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return slackMessageCorpusCursor{}, nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return slackMessageCorpusCursor{}, fmt.Errorf("slack message corpus cursor: %w", err)
+	}
+	var cursor slackMessageCorpusCursor
+	if err := json.Unmarshal(payload, &cursor); err != nil {
+		return slackMessageCorpusCursor{}, fmt.Errorf("slack message corpus cursor: %w", err)
+	}
+	if cursor.Channel < 0 {
+		cursor.Channel = 0
+	}
+	return cursor, nil
 }
 
 func getMessageByTimestamp(ctx context.Context, api slackAPI, channelID, ts string) (slack.Msg, error) {
@@ -796,6 +1070,61 @@ func normalizeSlackMessageRecord(record coredatasource.Record) coredatasource.Re
 		record.Metadata = nil
 	}
 	return record
+}
+
+func slackWorkspaceURL(ctx context.Context, api slackAPI) string {
+	auth, err := api.AuthTestContext(ctx)
+	if err != nil || auth == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(auth.URL), "/")
+}
+
+func withSlackPermalink(record coredatasource.Record, workspaceURL, channelID, ts string) coredatasource.Record {
+	permalink := slackPermalink(workspaceURL, channelID, ts)
+	if permalink == "" {
+		return normalizeSlackMessageRecord(record)
+	}
+	record.URL = permalink
+	if record.Metadata == nil {
+		record.Metadata = map[string]string{}
+	}
+	record.Metadata["permalink"] = permalink
+	if raw, ok := record.Raw.(Message); ok {
+		raw.Permalink = permalink
+		record.Raw = raw
+	}
+	if raw, ok := record.Raw.(ThreadMessage); ok {
+		raw.Permalink = permalink
+		record.Raw = raw
+	}
+	return normalizeSlackMessageRecord(record)
+}
+
+func slackPermalink(workspaceURL, channelID, ts string) string {
+	workspaceURL = strings.TrimRight(strings.TrimSpace(workspaceURL), "/")
+	channelID = strings.TrimSpace(channelID)
+	seconds, fraction, ok := strings.Cut(strings.TrimSpace(ts), ".")
+	if workspaceURL == "" || channelID == "" || !ok || seconds == "" || fraction == "" {
+		return ""
+	}
+	var micros strings.Builder
+	for _, r := range fraction {
+		if r < '0' || r > '9' {
+			break
+		}
+		micros.WriteRune(r)
+		if micros.Len() == 6 {
+			break
+		}
+	}
+	if micros.Len() == 0 {
+		return ""
+	}
+	for micros.Len() < 6 {
+		micros.WriteByte('0')
+	}
+	return workspaceURL + "/archives/" + channelID + "/p" + seconds + micros.String()
 }
 
 func slackChannelIDFromPermalink(permalink string) string {

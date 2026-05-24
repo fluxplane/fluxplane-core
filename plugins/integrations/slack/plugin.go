@@ -233,6 +233,30 @@ func (p Plugin) api(ctx context.Context) (slackAPI, error) {
 	return p.newClient(token, session.AppToken), nil
 }
 
+func (p Plugin) botAPI(ctx context.Context) (slackAPI, error) {
+	session, err := p.session(ctx)
+	if err != nil {
+		return nil, err
+	}
+	token := firstNonEmpty(session.BotToken, session.UserToken)
+	if token == "" {
+		return nil, fmt.Errorf("slackplugin: bot token or user token is not configured")
+	}
+	return p.newClient(token, session.AppToken), nil
+}
+
+func (p Plugin) userAPI(ctx context.Context) (slackAPI, bool, error) {
+	session, err := p.session(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	token := strings.TrimSpace(session.UserToken)
+	if token == "" {
+		return nil, false, nil
+	}
+	return p.newClient(token, session.AppToken), true, nil
+}
+
 func (p Plugin) newClient(token, appToken string) *slack.Client {
 	factory := p.clientFactory
 	if factory != nil {

@@ -632,3 +632,85 @@ name: assistant
 		t.Fatalf("dockerfile = %q, want generated Dockerfile", dockerClient.dockerfile)
 	}
 }
+
+func TestBuildAppImageRefreshesManagedDockerfile(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+profiles:
+  prod: {}
+distribution:
+  build:
+    assets: [fluxplane.yaml]
+    targets:
+      image:
+        kind: docker-image
+        image: sample
+        tags: [latest]
+---
+kind: agent
+name: assistant
+`)
+	writeTestFile(t, app, "Dockerfile", "FROM stale\n")
+
+	dockerClient := &recordingDockerClient{}
+	if _, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:       app,
+		Profile:      "prod",
+		Targets:      []string{"image"},
+		dockerClient: dockerClient,
+	}); err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	dockerfile, err := os.ReadFile(filepath.Join(app, "Dockerfile"))
+	if err != nil {
+		t.Fatalf("ReadFile Dockerfile: %v", err)
+	}
+	text := string(dockerfile)
+	if strings.Contains(text, "FROM stale") {
+		t.Fatalf("Dockerfile was not refreshed:\n%s", text)
+	}
+	if !strings.Contains(text, `"--profile","prod"`) {
+		t.Fatalf("Dockerfile missing prod profile:\n%s", text)
+	}
+}
+
+func TestBuildAppImageDoesNotOverwriteExplicitDockerfile(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    assets: [fluxplane.yaml]
+    targets:
+      image:
+        kind: docker-image
+        image: sample
+        tags: [latest]
+        dockerfile: CustomDockerfile
+---
+kind: agent
+name: assistant
+`)
+	custom := filepath.Join(app, "CustomDockerfile")
+	writeTestFile(t, app, "CustomDockerfile", "FROM custom\n")
+
+	dockerClient := &recordingDockerClient{}
+	if _, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:       app,
+		Targets:      []string{"image"},
+		dockerClient: dockerClient,
+	}); err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	dockerfile, err := os.ReadFile(custom)
+	if err != nil {
+		t.Fatalf("ReadFile CustomDockerfile: %v", err)
+	}
+	if string(dockerfile) != "FROM custom\n" {
+		t.Fatalf("CustomDockerfile = %q", dockerfile)
+	}
+	if dockerClient.dockerfile != custom {
+		t.Fatalf("dockerfile = %q, want %q", dockerClient.dockerfile, custom)
+	}
+}

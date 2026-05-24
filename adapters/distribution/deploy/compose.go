@@ -246,6 +246,7 @@ func GenerateDockerCompose(ctx context.Context, opts ComposeOptions) (ComposeRes
 		Provider: opts.Provider,
 		Model:    opts.Model,
 		Effort:   opts.Effort,
+		Profiles: selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 	})
 	content := dockerComposeContent(loaded.Distribution.Spec.Name, image, defaultAuthPath, appRuntime, loaded.Launch)
 	result := ComposeResult{
@@ -286,6 +287,7 @@ func dockerComposeStackFor(ctx context.Context, appDir, profile string, profiles
 			Model:              model,
 			Effort:             effort,
 			AllowPluginAuthEnv: allowPluginAuthEnv,
+			Profiles:           selectedRuntimeProfiles(profile, profiles),
 		}),
 		Launch: loaded.Launch,
 	}, nil

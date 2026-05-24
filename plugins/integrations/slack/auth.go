@@ -50,7 +50,8 @@ var defaultOAuthScopes = []string{
 }
 
 type Config struct {
-	Auth AuthConfig `json:"auth,omitempty" jsonschema:"description=Slack authentication source and token selection."`
+	Auth   AuthConfig   `json:"auth,omitempty" jsonschema:"description=Slack authentication source and token selection."`
+	Search SearchConfig `json:"search,omitempty" jsonschema:"description=Slack search and indexing policy for bot-visible message search."`
 }
 
 type AuthConfig struct {
@@ -59,6 +60,12 @@ type AuthConfig struct {
 	AppTokenEnv  string `json:"app_token_env,omitempty" jsonschema:"description=Environment variable containing the Slack xapp app token when method is env. Defaults to SLACK_APP_TOKEN."`
 	UserTokenEnv string `json:"user_token_env,omitempty" jsonschema:"description=Environment variable containing the Slack xoxp user token when method is env. Defaults to SLACK_USER_TOKEN."`
 	ChannelToken string `json:"channel_token,omitempty" jsonschema:"description=Token preference for Slack channel posting. auto prefers a bot token and falls back to a user token.,enum=auto,enum=bot_token,enum=user_token"`
+}
+
+type SearchConfig struct {
+	Channels       []string `json:"channels,omitempty" jsonschema:"description=Public Slack channel names or ids whose history should be indexed for bot-mode broad search."`
+	HistoryWindow  string   `json:"history_window,omitempty" jsonschema:"description=Maximum Slack message age to index for bot-mode broad search. Defaults to 90d."`
+	IncludeThreads *bool    `json:"include_threads,omitempty" jsonschema:"description=Whether to index thread replies for indexed messages. Defaults to true."`
 }
 
 type Session struct {
@@ -74,6 +81,8 @@ func NormalizeConfig(cfg Config) Config {
 	cfg.Auth.AppTokenEnv = strings.TrimSpace(cfg.Auth.AppTokenEnv)
 	cfg.Auth.UserTokenEnv = strings.TrimSpace(cfg.Auth.UserTokenEnv)
 	cfg.Auth.ChannelToken = strings.ToLower(strings.TrimSpace(cfg.Auth.ChannelToken))
+	cfg.Search.HistoryWindow = strings.TrimSpace(cfg.Search.HistoryWindow)
+	cfg.Search.Channels = cleaned(cfg.Search.Channels)
 	return cfg
 }
 

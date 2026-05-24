@@ -475,7 +475,11 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			spec := job.target.Accessor.Spec()
-			if p.dataStore != nil && dataStoreShortcutAllowed(spec.Name, job.target.Entity.Type) && mode != "provider" && mode != "live" {
+			providerFirst := false
+			if preferred, ok := job.target.Accessor.(providerFirstSearchAccessor); ok {
+				providerFirst = preferred.ProviderFirstSearch(job.target.Entity.Type)
+			}
+			if p.dataStore != nil && !providerFirst && dataStoreShortcutAllowed(spec.Name, job.target.Entity.Type) && mode != "provider" && mode != "live" {
 				result, ok, err := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, datasourceDefaultFilters(job.target.Entity.Type, filters))
 				if err != nil {
 					results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
@@ -493,8 +497,34 @@ func (p Plugin) runSearches(ctx operation.Context, targets []searchTarget, queri
 			}
 			result, err := searcher.Search(ctx, coredatasource.SearchRequest{Entity: job.target.Entity.Type, Query: job.query, Limit: limit, Filters: filters, Mode: mode, MinScore: minScore})
 			if err != nil {
+				fallback := mode != "provider" && mode != "live"
+				if evaluator, ok := job.target.Accessor.(providerSearchFallbackAccessor); ok {
+					fallback = fallback && evaluator.ProviderSearchFallback(job.target.Entity.Type, err)
+				}
+				if fallback && p.dataStore != nil && dataStoreShortcutAllowed(spec.Name, job.target.Entity.Type) {
+					indexed, ok, indexErr := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, datasourceDefaultFilters(job.target.Entity.Type, filters))
+					if indexErr != nil {
+						results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: indexErr.Error()}}
+						return
+					}
+					if ok {
+						results[job.index] = searchJobResult{index: job.index, result: indexed}
+						return
+					}
+				}
 				results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
 				return
+			}
+			if providerFirst && len(result.Records) == 0 && mode != "provider" && mode != "live" && p.dataStore != nil && dataStoreShortcutAllowed(spec.Name, job.target.Entity.Type) {
+				indexed, ok, err := p.searchDataStore(ctx, spec.Name, job.target.Entity.Type, job.query, limit, datasourceDefaultFilters(job.target.Entity.Type, filters))
+				if err != nil {
+					results[job.index] = searchJobResult{index: job.index, err: sourceError{Datasource: string(spec.Name), Entity: string(job.target.Entity.Type), Message: err.Error()}}
+					return
+				}
+				if ok {
+					results[job.index] = searchJobResult{index: job.index, result: indexed}
+					return
+				}
 			}
 			results[job.index] = searchJobResult{index: job.index, result: result}
 		}()
@@ -985,6 +1015,14 @@ func removeSelfLinks(record coredatasource.Record, links []coredatasource.Record
 type searchTarget struct {
 	Accessor coredatasource.Accessor
 	Entity   coredatasource.EntitySpec
+}
+
+type providerFirstSearchAccessor interface {
+	ProviderFirstSearch(coredatasource.EntityType) bool
+}
+
+type providerSearchFallbackAccessor interface {
+	ProviderSearchFallback(coredatasource.EntityType, error) bool
 }
 
 func (p Plugin) selectedSearchTargets(ctx context.Context, entityNames []string) ([]searchTarget, error) {

@@ -442,16 +442,16 @@ func TestSlackMessageDatasourceSearchPreservesChannelIdentity(t *testing.T) {
 	store := runtimesecret.NewFileStore(t.TempDir())
 	ref := resource.PluginRef{Name: Name, Instance: "slack-bot"}
 	if err := store.SaveSecret(context.Background(), runtimesecret.StoredSecret{
-		Ref:   BotTokenSecretRef(ref),
+		Ref:   UserTokenSecretRef(ref),
 		Kind:  "bearer_token",
-		Value: "slack-bot-token",
+		Value: "slack-user-token",
 	}); err != nil {
 		t.Fatalf("SaveSecret: %v", err)
 	}
 	plugin := New(nil, store)
 	plugin.clientFactory = func(token, appToken string) *slack.Client {
-		if token != "slack-bot-token" || appToken != "" {
-			t.Fatalf("client token=%q app=%q, want bot token only", token, appToken)
+		if token != "slack-user-token" || appToken != "" {
+			t.Fatalf("client token=%q app=%q, want user token only", token, appToken)
 		}
 		return slack.New(token, slack.OptionAPIURL(server.URL+"/"))
 	}

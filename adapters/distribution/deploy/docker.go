@@ -296,6 +296,7 @@ func BuildDocker(ctx context.Context, opts DockerBuildOptions) (DockerBuildResul
 		Model:              opts.Model,
 		Effort:             opts.Effort,
 		AllowPluginAuthEnv: opts.AllowPluginAuthEnv,
+		Profiles:           selectedRuntimeProfiles(opts.Profile, opts.Profiles),
 	})
 	spec := loaded.Distribution.Spec
 	if spec.Build.Docker == nil {
@@ -850,7 +851,9 @@ func findRepoRoot(start string) (string, error) {
 
 func ensureDockerfileForImage(filename, baseImage, authPath string, appRuntime appRuntimeOptions, force bool) error {
 	if _, err := os.Stat(filename); err == nil {
-		return nil
+		if !force {
+			return nil
+		}
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}

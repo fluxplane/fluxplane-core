@@ -39,6 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added agent-level manifest trigger shorthand so `kind: agent` documents can
   declare scheduled or startup prompts that expand to daemon triggers and
   generated workflows.
+- Added Slack plugin search policy for bot-mode Slack message indexing,
+  including configured channel allowlists, history windows, and optional thread
+  reply indexing.
+- Added canonical Slack permalinks to bot-token indexed Slack message records
+  so datasource search hits can be linked back to the source message.
 
 ### Changed
 - Renamed the published Go module and repository references to
@@ -366,6 +371,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filesystem entrypoint.
 
 ### Fixed
+- Made Slack message indexing skip configured channels the bot cannot read
+  instead of failing the whole message index run with `not_in_channel`.
 - Decoded YAML-authored workflow `when.step_id` conditions so scheduled
   workflows can run notification steps when classifier output matches.
 - Counted daemon trigger submissions as inbound session activity so repeated
