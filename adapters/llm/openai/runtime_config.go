@@ -1,6 +1,9 @@
 package openai
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // ResponsesTransportMode selects the transport used for OpenAI Responses-like
 // providers. The current native adapter uses SSE and records this setting for
@@ -49,17 +52,22 @@ type ResponsesRuntimeConfig struct {
 	Continuation ResponsesContinuationMode
 	Output       ResponsesOutputMode
 	ToolSearch   bool
+	// StreamIdleTimeout cancels a streaming Responses request when no provider
+	// event arrives for the configured duration. Zero uses the default;
+	// negative values disable the watchdog.
+	StreamIdleTimeout time.Duration
 }
 
 // DefaultResponsesRuntimeConfig returns conservative max-cache defaults used by
 // first-party OpenAI-compatible providers.
 func DefaultResponsesRuntimeConfig() ResponsesRuntimeConfig {
 	return ResponsesRuntimeConfig{
-		Transport:    ResponsesTransportAuto,
-		Cache:        ResponsesCacheMax,
-		Continuation: ResponsesContinuationAuto,
-		Output:       ResponsesOutputFinalResponse,
-		ToolSearch:   true,
+		Transport:         ResponsesTransportAuto,
+		Cache:             ResponsesCacheMax,
+		Continuation:      ResponsesContinuationAuto,
+		Output:            ResponsesOutputFinalResponse,
+		ToolSearch:        true,
+		StreamIdleTimeout: defaultStreamIdleTimeout,
 	}
 }
 
@@ -75,6 +83,9 @@ func (c ResponsesRuntimeConfig) withDefaults() ResponsesRuntimeConfig {
 	}
 	if c.Output == "" {
 		c.Output = ResponsesOutputFinalResponse
+	}
+	if c.StreamIdleTimeout == 0 {
+		c.StreamIdleTimeout = defaultStreamIdleTimeout
 	}
 	return c
 }

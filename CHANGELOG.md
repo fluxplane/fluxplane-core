@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reply indexing.
 - Added canonical Slack permalinks to bot-token indexed Slack message records
   so datasource search hits can be linked back to the source message.
+- Added a default idle timeout for OpenAI-compatible streaming model requests
+  so silent SSE connections fail instead of hanging indefinitely.
+- Added the native usage datasource to local `--dev` launches, alongside the
+  existing dev session-history datasource.
 
 ### Changed
 - Renamed the published Go module and repository references to

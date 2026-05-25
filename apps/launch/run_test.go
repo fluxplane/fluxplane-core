@@ -34,6 +34,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
 	"github.com/fluxplane/fluxplane-core/plugins/native/task"
 	"github.com/fluxplane/fluxplane-core/plugins/native/text"
+	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 	"github.com/fluxplane/fluxplane-core/plugins/native/workspace"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
@@ -179,6 +180,20 @@ func TestLaunchRejectsUndeclaredPluginImplementation(t *testing.T) {
 	}
 }
 
+func TestLaunchRejectsUsagePluginOutsideDev(t *testing.T) {
+	withStateDir(t)
+	_, err := Launch(context.Background(), RuntimeOptions{
+		Root: t.TempDir(),
+		Bundles: []resource.ContributionBundle{{
+			Plugins: []resource.PluginRef{{Name: usageplugin.Name}},
+		}},
+		AllowPrivateNetwork: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), `plugin "usage" is not available`) {
+		t.Fatalf("Launch error = %v, want usage plugin unavailable outside dev", err)
+	}
+}
+
 func TestSelectDeclaredPluginsAllowsMultipleInstances(t *testing.T) {
 	plugins, err := selectDeclaredPlugins([]resource.ContributionBundle{{
 		Plugins: []resource.PluginRef{
@@ -313,6 +328,9 @@ func TestLaunchDevWiresSessionHistoryDatasource(t *testing.T) {
 
 	if !hasDatasourceSpec(runtime, string(sessionhistory.DatasourceName)) {
 		t.Fatal("expected session history datasource")
+	}
+	if !hasDatasourceSpec(runtime, string(usageplugin.DatasourceName)) {
+		t.Fatal("expected usage datasource")
 	}
 	if !hasOperationSpec(runtime, datasource.SearchOperation) {
 		t.Fatal("expected datasource search operation")
@@ -538,6 +556,9 @@ func TestLaunchDevWiresSessionHistoryIntoPluginAgents(t *testing.T) {
 		}
 		if !agentHasDatasource(spec, string(sessionhistory.DatasourceName)) {
 			t.Fatalf("expected session history datasource on agent %q: %#v", name, spec.Datasources)
+		}
+		if !agentHasDatasource(spec, string(usageplugin.DatasourceName)) {
+			t.Fatalf("expected usage datasource on agent %q: %#v", name, spec.Datasources)
 		}
 		if !agentHasContext(spec, datasource.ContextProvider) {
 			t.Fatalf("expected datasource catalog context on agent %q: %#v", name, spec.Context)

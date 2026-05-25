@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -30,7 +32,12 @@ var (
 	// ErrModelMissing is returned when neither the adapter nor the agent request
 	// provides an OpenAI model name.
 	ErrModelMissing = errors.New("openai: model is empty")
+	// ErrStreamIdleTimeout is returned when a Responses stream stops producing
+	// events before the model call completes.
+	ErrStreamIdleTimeout = errors.New("openai: stream idle timeout")
 )
+
+const defaultStreamIdleTimeout = 20 * time.Second
 
 // Config configures an OpenAI Responses API backed model.
 type Config struct {
@@ -180,7 +187,15 @@ func (m *Model) Stream(ctx context.Context, req llmagent.Request, emit llmagent.
 }
 
 func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit llmagent.StreamFunc, params responses.ResponseNewParams, tools []adapterllm.ToolSpec, sentItems []coreconversation.Item, httpUsage *httpUsageCollector) (llmagent.Response, error) {
-	stream := m.client.Responses.NewStreaming(ctx, params)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	watchdog := newStreamIdleWatchdog(m.runtime.StreamIdleTimeout, cancel)
+	defer watchdog.Stop()
+
+	stream := m.client.Responses.NewStreaming(streamCtx, params)
 	defer func() { _ = stream.Close() }()
 
 	streamState := openAIStreamState{
@@ -191,10 +206,30 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	var streamedOperations []agent.OperationRequest
 	var streamedOutputItems []responses.ResponseOutputItemUnion
 	var final responses.Response
+	var streamEventErr error
 	for stream.Next() {
+		watchdog.Reset()
 		evt := stream.Current()
-		if evt.Type == "response.completed" {
+		terminal := false
+		switch evt.Type {
+		case "response.completed":
 			final = evt.AsResponseCompleted().Response
+			terminal = true
+		case "response.failed":
+			final = evt.AsResponseFailed().Response
+			terminal = true
+		case "response.incomplete":
+			final = evt.AsResponseIncomplete().Response
+			reason := strings.TrimSpace(final.IncompleteDetails.Reason)
+			if reason == "" {
+				reason = "unknown"
+			}
+			streamEventErr = fmt.Errorf("openai: response incomplete: %s", reason)
+			terminal = true
+		case "error":
+			eventErr := evt.AsError()
+			streamEventErr = fmt.Errorf("openai: %s: %s", eventErr.Code, eventErr.Message)
+			terminal = true
 		}
 		if m.runtime.Output == ResponsesOutputStreamItems && evt.Type == "response.output_item.done" {
 			streamedOutputItems = append(streamedOutputItems, evt.AsResponseOutputItemDone().Item)
@@ -226,11 +261,24 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 				emit(runtimeEvent)
 			}
 		}
+		if terminal {
+			watchdog.Stop()
+			break
+		}
 	}
-	if err := stream.Err(); err != nil {
+	if streamEventErr != nil {
+		return llmagent.Response{}, streamEventErr
+	}
+	if err := stream.Err(); err != nil && final.ID == "" {
+		if watchdog.TimedOut() {
+			return llmagent.Response{}, fmt.Errorf("%w after %s", ErrStreamIdleTimeout, watchdog.Timeout())
+		}
 		return llmagent.Response{}, err
 	}
 	if final.ID == "" {
+		if watchdog.TimedOut() {
+			return llmagent.Response{}, fmt.Errorf("%w after %s", ErrStreamIdleTimeout, watchdog.Timeout())
+		}
 		return llmagent.Response{}, errors.New("openai: stream completed without final response")
 	}
 	provider := m.providerIdentity(m.modelName(req))
@@ -249,6 +297,50 @@ func (m *Model) streamWithParams(ctx context.Context, req llmagent.Request, emit
 	out = applyStreamedContentFallback(out, provider, &streamState)
 	out.Usage = append(out.Usage, httpUsageRecord(provider, httpUsage)...)
 	return out, nil
+}
+
+type streamIdleWatchdog struct {
+	timeout  time.Duration
+	cancel   context.CancelFunc
+	timer    *time.Timer
+	timedOut atomic.Bool
+}
+
+func newStreamIdleWatchdog(timeout time.Duration, cancel context.CancelFunc) *streamIdleWatchdog {
+	if timeout <= 0 || cancel == nil {
+		return &streamIdleWatchdog{}
+	}
+	w := &streamIdleWatchdog{timeout: timeout, cancel: cancel}
+	w.timer = time.AfterFunc(timeout, func() {
+		w.timedOut.Store(true)
+		cancel()
+	})
+	return w
+}
+
+func (w *streamIdleWatchdog) Reset() {
+	if w == nil || w.timer == nil || w.timedOut.Load() {
+		return
+	}
+	w.timer.Reset(w.timeout)
+}
+
+func (w *streamIdleWatchdog) Stop() {
+	if w == nil || w.timer == nil {
+		return
+	}
+	w.timer.Stop()
+}
+
+func (w *streamIdleWatchdog) TimedOut() bool {
+	return w != nil && w.timedOut.Load()
+}
+
+func (w *streamIdleWatchdog) Timeout() time.Duration {
+	if w == nil {
+		return 0
+	}
+	return w.timeout
 }
 
 func streamToolCallTranscriptItem(provider coreconversation.ProviderIdentity, evt adapterllm.StreamEvent) (coreconversation.Item, bool) {

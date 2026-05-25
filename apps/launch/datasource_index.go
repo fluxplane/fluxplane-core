@@ -27,6 +27,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/plugins/native/skills"
 	"github.com/fluxplane/fluxplane-core/plugins/native/task"
 	"github.com/fluxplane/fluxplane-core/plugins/native/text"
+	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 	"github.com/fluxplane/fluxplane-core/plugins/support/eventcatalog"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/semantic"
 	runtimesecret "github.com/fluxplane/fluxplane-core/runtime/secret"
@@ -112,6 +113,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
+		bundles = ensureDevUsagePlugin(bundles)
 		eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendBundleEventTypes(eventcatalog.All(), bundles)})
 		if err != nil {
 			_ = closeFn()
@@ -125,6 +127,7 @@ func NewDatasourceIndexRuntime(ctx context.Context, opts DatasourceIndexOptions)
 		eventStore = openedEventStore
 		closeThreadStore = closeStore
 		plugins = appendPluginIfMissing(plugins, sessionhistory.New(threadStore))
+		plugins = appendPluginIfMissing(plugins, usageplugin.New(nil))
 	}
 	index, err = newSemanticIndex(root, bundles, opts.StorePath, opts.Provider, opts.Model)
 	if err != nil {

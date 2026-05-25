@@ -311,6 +311,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	ensureSkillDatasource(bundles)
 	if opts.Dev {
 		bundles = ensureDevSessionHistoryPlugin(bundles)
+		bundles = ensureDevUsagePlugin(bundles)
 	}
 	eventRegistry, err := eventregistry.New(eventregistry.Config{EventTypes: appendBundleEventTypes(eventcatalog.All(), bundles)})
 	if err != nil {
@@ -364,6 +365,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	}
 	if opts.Dev {
 		available = appendPluginIfMissing(available, sessionhistory.New(threadStore))
+		available = appendPluginIfMissing(available, usageplugin.New(nil))
 	}
 	available = appendPluginIfMissing(available, goalplugin.New())
 	ensurePluginRef(bundles, goalplugin.Name)
@@ -415,6 +417,7 @@ func Launch(ctx context.Context, opts RuntimeOptions) (Runtime, error) {
 	bundleTransforms := []app.BundleTransform{appconfig.NormalizeBundles}
 	if opts.Dev {
 		bundleTransforms = append(bundleTransforms, enableDevSessionHistory)
+		bundleTransforms = append(bundleTransforms, enableDevUsageDatasource)
 	}
 	identityResolver := launchIdentityResolver(ctx, runtimeSystem, auth, opts.Launch.Channels, bundles)
 	authObservers, authDerivers, err := authEnvironmentContributions(ctx, bundles, plugins, auth)
@@ -678,7 +681,6 @@ func availablePluginsWithAuth(hostSystem system.System, dispatcher *slack.Dispat
 		task.NewWithRunnerAndSystem(taskRunner, hostSystem),
 		skills.New(),
 		text.New(),
-		usageplugin.New(nil),
 		web.New(hostSystem),
 	}
 }

@@ -1,10 +1,14 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/core/agent"
@@ -577,6 +581,113 @@ func TestResponseParamsRecordsOnlyTranscriptNewItems(t *testing.T) {
 	}
 }
 
+func TestStreamReturnsIdleTimeoutForSilentStream(t *testing.T) {
+	model, err := New(Config{
+		Model:  "gpt-test",
+		APIKey: "test",
+		Runtime: ResponsesRuntimeConfig{
+			Cache:             ResponsesCacheOff,
+			Continuation:      ResponsesContinuationReplay,
+			StreamIdleTimeout: 10 * time.Millisecond,
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			_, _ = io.Copy(io.Discard, req.Body)
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				Header:        http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:          contextBlockingBody{ctx: req.Context()},
+				ContentLength: -1,
+				Request:       req,
+			}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = model.Stream(context.Background(), llmagent.Request{
+		Agent: agent.Spec{Name: "coder"},
+		Goal:  "hello",
+	}, nil)
+	if !errors.Is(err, ErrStreamIdleTimeout) {
+		t.Fatalf("Stream error = %v, want ErrStreamIdleTimeout", err)
+	}
+}
+
+func TestStreamReturnsCompletedResponseWhenConnectionStaysOpen(t *testing.T) {
+	completed := `data: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}}` + "\n\n"
+	model, err := New(Config{
+		Model:  "gpt-test",
+		APIKey: "test",
+		Runtime: ResponsesRuntimeConfig{
+			Cache:             ResponsesCacheOff,
+			Continuation:      ResponsesContinuationReplay,
+			StreamIdleTimeout: 10 * time.Millisecond,
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			_, _ = io.Copy(io.Discard, req.Body)
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				Header:        http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:          io.NopCloser(io.MultiReader(strings.NewReader(completed), contextBlockingBody{ctx: req.Context()})),
+				ContentLength: -1,
+				Request:       req,
+			}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	got, err := model.Stream(context.Background(), llmagent.Request{
+		Agent: agent.Spec{Name: "coder"},
+		Goal:  "hello",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if got.Message == nil || got.Message.Content != "done" {
+		t.Fatalf("message = %#v, want completed response text", got.Message)
+	}
+}
+
+func TestStreamReturnsTerminalErrorWhenConnectionStaysOpen(t *testing.T) {
+	failed := `data: {"type":"response.failed","response":{"id":"resp_1","object":"response","status":"failed","error":{"code":"server_error","message":"boom"},"output":[]}}` + "\n\n"
+	model, err := New(Config{
+		Model:  "gpt-test",
+		APIKey: "test",
+		Runtime: ResponsesRuntimeConfig{
+			Cache:             ResponsesCacheOff,
+			Continuation:      ResponsesContinuationReplay,
+			StreamIdleTimeout: 10 * time.Millisecond,
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			_, _ = io.Copy(io.Discard, req.Body)
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Status:        "200 OK",
+				Header:        http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:          io.NopCloser(io.MultiReader(strings.NewReader(failed), contextBlockingBody{ctx: req.Context()})),
+				ContentLength: -1,
+				Request:       req,
+			}, nil
+		})},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = model.Stream(context.Background(), llmagent.Request{
+		Agent: agent.Spec{Name: "coder"},
+		Goal:  "hello",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "server_error: boom") {
+		t.Fatalf("Stream error = %v, want terminal response failure", err)
+	}
+}
+
 func TestResponseFromOpenAIConvertsText(t *testing.T) {
 	resp := mustResponse(t, `{
 		"id": "resp_1",
@@ -1036,4 +1147,23 @@ func mustStreamEvent(t *testing.T, raw string) responses.ResponseStreamEventUnio
 		t.Fatalf("unmarshal stream event: %v", err)
 	}
 	return event
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type contextBlockingBody struct {
+	ctx context.Context
+}
+
+func (b contextBlockingBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b contextBlockingBody) Close() error {
+	return nil
 }

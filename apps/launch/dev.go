@@ -7,6 +7,7 @@ import (
 	"github.com/fluxplane/fluxplane-core/core/resource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/datasource"
 	"github.com/fluxplane/fluxplane-core/plugins/native/sessionhistory"
+	usageplugin "github.com/fluxplane/fluxplane-core/plugins/native/usage"
 )
 
 func enableDevSessionHistory(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, error) {
@@ -34,6 +35,29 @@ func ensureDevSessionHistoryPlugin(bundles []resource.ContributionBundle) []reso
 		bundles = append(bundles, resource.ContributionBundle{})
 	}
 	ensurePluginRef(bundles, sessionhistory.Name)
+	return bundles
+}
+
+func enableDevUsageDatasource(bundles []resource.ContributionBundle) ([]resource.ContributionBundle, error) {
+	if len(bundles) == 0 {
+		bundles = append(bundles, resource.ContributionBundle{})
+	}
+	if !hasDatasource(bundles, usageplugin.DatasourceName) {
+		bundles[0].Datasources = append(bundles[0].Datasources, usageplugin.DatasourceSpec())
+	}
+	for bundleIndex := range bundles {
+		for agentIndex := range bundles[bundleIndex].Agents {
+			appendDatasourceRef(&bundles[bundleIndex].Agents[agentIndex].Datasources, usageplugin.DatasourceName)
+		}
+	}
+	return bundles, nil
+}
+
+func ensureDevUsagePlugin(bundles []resource.ContributionBundle) []resource.ContributionBundle {
+	if len(bundles) == 0 {
+		bundles = append(bundles, resource.ContributionBundle{})
+	}
+	ensurePluginRef(bundles, usageplugin.Name)
 	return bundles
 }
 

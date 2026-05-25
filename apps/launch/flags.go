@@ -70,7 +70,7 @@ func BindLocalRuntimeFlags(flags *pflag.FlagSet, opts *LocalRuntimeFlags, help L
 	}
 	debugHelp := firstNonEmptyFlagHelp(help.Debug, "print run events as highlighted JSON markdown")
 	yoloHelp := firstNonEmptyFlagHelp(help.Yolo, "auto-approve local operation risk gates")
-	devHelp := firstNonEmptyFlagHelp(help.Dev, "enable local developer diagnostics and session history datasource")
+	devHelp := firstNonEmptyFlagHelp(help.Dev, "enable local developer diagnostics, session history datasource, and usage datasource")
 	flags.BoolVar(&opts.Debug, "debug", false, debugHelp)
 	flags.BoolVar(&opts.Yolo, "yolo", false, yoloHelp)
 	flags.BoolVar(&opts.Dev, "dev", false, devHelp)
