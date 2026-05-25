@@ -589,3 +589,43 @@ func createThread(t *testing.T, ctx context.Context, store corethread.Store) cor
 func raw(s string) json.RawMessage {
 	return json.RawMessage(s)
 }
+
+// TestValidateContinuityReportsEarliestOpenCall is the determinism regression
+// for ValidateContinuity. With multiple open tool calls, map iteration order
+// previously decided which call was reported in the error - so the same input
+// produced different ContinuityErrors across runs. The fix picks the earliest
+// open index with the call ID as a tie-breaker.
+func TestValidateContinuityReportsEarliestOpenCall(t *testing.T) {
+	provider := coreconversation.ProviderIdentity{Provider: "openai", API: "openai.responses", Model: "gpt-test"}
+	items := []coreconversation.Item{{
+		Provider: provider,
+		Kind:     coreconversation.ItemOutput,
+		Role:     "assistant",
+		ToolCalls: []coreconversation.ToolCallRef{
+			{CallID: "call_a", Name: "search", Type: "function_call"},
+			{CallID: "call_b", Name: "search", Type: "function_call"},
+			{CallID: "call_c", Name: "search", Type: "function_call"},
+		},
+	}, {
+		Provider: provider,
+		Kind:     coreconversation.ItemInput,
+		Role:     "user",
+		Content:  "next question",
+	}}
+	// Note: ToolCallRefs on a single output item all share that item's index,
+	// so we exercise the tie-break by call ID; ascending lexicographic order
+	// returns "call_a" deterministically every time.
+	for i := 0; i < 50; i++ {
+		err := ValidateContinuity(items, ValidateOptions{Provider: provider})
+		if err == nil {
+			t.Fatal("ValidateContinuity succeeded, want continuity error")
+		}
+		continuity, ok := err.(ContinuityError)
+		if !ok {
+			t.Fatalf("error type = %T, want ContinuityError", err)
+		}
+		if continuity.CallID != "call_a" {
+			t.Fatalf("iteration %d: CallID = %q, want call_a (deterministic earliest)", i, continuity.CallID)
+		}
+	}
+}

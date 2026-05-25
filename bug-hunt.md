@@ -149,3 +149,28 @@ session. One bug per iteration: find → reproduce → fix → commit.
   feeds the multi-byte-boundary input and checks `utf8.ValidString` plus
   the expected byte length. Verified to fail on the old code
   (`invalid UTF-8: "...\xe2\x82"`).
+- **Commit:** `4f4cf41` — "fix: keep normalizedIndexValue at a UTF-8 rune boundary".
+
+## Iteration 9 — `ValidateContinuity` reported open tool calls non-deterministically
+
+- **Where:** `runtime/conversation/projector.go` `ValidateContinuity`.
+- **Bug:** Three places returned a `ContinuityError` from inside a
+  `for callID, index := range open { ... return ... }` block, where
+  `open` is a `map[string]int`. Go map iteration is intentionally
+  randomized, so when more than one tool call was simultaneously open,
+  the call ID and `opened_at` index reported in the error were picked
+  at random — same invalid transcript, different error text every run.
+- **Impact:** Hostile to debugging and a flake source for any test that
+  matches on the reported call ID with multiple opens. The existing
+  `left open` tests happened to use a single open call so they didn't
+  trip it.
+- **Reproduction:** A single assistant output with three tool calls
+  (`call_a`, `call_b`, `call_c`) followed by a user input. Across 10
+  runs on the old code the error randomly reported any of the three.
+- **Fix:** Added an `earliestOpen` helper that picks the smallest
+  opened-at index with the call ID as a deterministic tie-breaker. All
+  three random-iteration returns now route through it.
+- **Regression test:** `TestValidateContinuityReportsEarliestOpenCall`
+  runs the validator 50 times and asserts `call_a` is reported every
+  time. Verified to fail on the old code with "call_b"/"call_c"
+  appearing across iterations; passes on the fix.

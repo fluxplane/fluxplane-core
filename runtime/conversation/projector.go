@@ -176,9 +176,8 @@ func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) err
 		case coreconversation.ItemOutput:
 			calls := item.ToolCallRefs()
 			if len(open) > 0 && len(calls) == 0 {
-				for callID, index := range open {
-					return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next assistant output opened_at=%d", index), CallID: callID, Index: i}
-				}
+				callID, openedAt := earliestOpen(open)
+				return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next assistant output opened_at=%d", openedAt), CallID: callID, Index: i}
 			}
 			for _, call := range calls {
 				callID := strings.TrimSpace(call.CallID)
@@ -201,16 +200,36 @@ func ValidateContinuity(items []coreconversation.Item, opts ValidateOptions) err
 			delete(open, callID)
 		default:
 			if len(open) > 0 {
-				for callID, index := range open {
-					return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next transcript item opened_at=%d", index), CallID: callID, Index: i}
-				}
+				callID, openedAt := earliestOpen(open)
+				return ContinuityError{Reason: fmt.Sprintf("assistant tool call left open before next transcript item opened_at=%d", openedAt), CallID: callID, Index: i}
 			}
 		}
 	}
-	for callID, index := range open {
-		return ContinuityError{Reason: "assistant tool call left open at transcript end", CallID: callID, Index: index}
+	if len(open) > 0 {
+		callID, openedAt := earliestOpen(open)
+		return ContinuityError{Reason: "assistant tool call left open at transcript end", CallID: callID, Index: openedAt}
 	}
 	return nil
+}
+
+// earliestOpen returns the call ID with the smallest opened-at index, with the
+// call ID itself as a tie-breaker. It exists so that ValidateContinuity reports
+// the same call when multiple tool calls are open simultaneously instead of
+// picking one at random via map iteration order.
+func earliestOpen(open map[string]int) (string, int) {
+	var (
+		earliestID    string
+		earliestIndex int
+		seeded        bool
+	)
+	for callID, index := range open {
+		if !seeded || index < earliestIndex || (index == earliestIndex && callID < earliestID) {
+			earliestID = callID
+			earliestIndex = index
+			seeded = true
+		}
+	}
+	return earliestID, earliestIndex
 }
 
 func ensureItemProvider(item coreconversation.Item, provider coreconversation.ProviderIdentity) coreconversation.Item {
