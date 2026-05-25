@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/operation"
 	"github.com/fluxplane/fluxplane-core/core/project"
@@ -1109,7 +1110,11 @@ func artifactValueText(value operation.Value) (string, bool) {
 	}
 	const limit = 240
 	if len(text) > limit {
-		text = text[:limit] + "...[truncated]"
+		end := limit
+		for end > 0 && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		text = text[:end] + "...[truncated]"
 	}
 	return text, true
 }

@@ -1,7 +1,9 @@
 package task
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	"github.com/fluxplane/fluxplane-core/core/operation"
@@ -151,5 +153,32 @@ func TestExecutionValidateAcceptsTerminalOutput(t *testing.T) {
 	}
 	if !Terminal(execution.Status) || !StepTerminal(execution.Steps["inspect"].Status) {
 		t.Fatalf("terminal helpers returned false")
+	}
+}
+
+// TestArtifactValueTextTruncatesOnRuneBoundary regresses a UTF-8 truncation
+// bug: artifactValueText used to cut the string at the 240th byte without
+// checking that the cut landed on a rune boundary, leaving an invalid UTF-8
+// sequence at the tail. The corrupt suffix then flowed into downstream
+// task-detail rendering, logs, and any utf8mb4 column that rejected the
+// invalid bytes.
+func TestArtifactValueTextTruncatesOnRuneBoundary(t *testing.T) {
+	// Pad with ASCII so the 4-byte rune straddles position 240.
+	padding := strings.Repeat("a", 238)
+	value := operation.Value(padding + "\xF0\x9F\x8C\x8D" + strings.Repeat("b", 100))
+
+	got, ok := artifactValueText(value)
+	if !ok {
+		t.Fatalf("artifactValueText returned ok=false for non-empty value")
+	}
+	if !strings.HasSuffix(got, "...[truncated]") {
+		t.Fatalf("expected truncation marker, got %q", got)
+	}
+	body := strings.TrimSuffix(got, "...[truncated]")
+	if !utf8.ValidString(body) {
+		t.Fatalf("truncated body is not valid UTF-8: %q (% x)", body, body)
+	}
+	if got := len(body); got > 240 {
+		t.Fatalf("truncated body length = %d, want <= 240", got)
 	}
 }

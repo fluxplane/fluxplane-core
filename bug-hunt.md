@@ -630,3 +630,30 @@ session. One bug per iteration: find → reproduce → fix → commit.
   >100 MiB response in a unit test is heavy and the fix is mechanical
   and mirrors the two prior iterations.
 - **Commit:** `2ae7358` — "fix: cap OpenRouter non-streaming fallback body at 100 MiB".
+
+## Iteration 27 — `artifactValueText` truncated mid-rune
+
+- **Where:** `core/task/task.go` `artifactValueText`.
+- **Bug:** The 240-byte truncation in `artifactValueText` did a flat
+  `text[:limit]` without checking that `limit` landed on a UTF-8 rune
+  boundary. If the value being summarised had a multi-byte rune (e.g.
+  a 4-byte emoji) straddling byte 240, the truncated string ended
+  with an invalid UTF-8 sequence followed by `...[truncated]`.
+- **Impact:** `artifactValueText` feeds `artifactDetail`, which is
+  emitted to task-detail logs, dashboards, and anywhere artifact
+  contents are summarised. Invalid UTF-8 then either silently mutates
+  to `U+FFFD` on JSON encoding, gets rejected by `utf8mb4` MySQL
+  columns, or otherwise corrupts downstream consumers. Same class as
+  iterations 8 / 10 / 13 / 14 / 16 / 17, this time in
+  `core/task`.
+- **Fix:** Added `unicode/utf8` import and a backscan that walks
+  `end` back to the nearest rune-start byte before slicing. Realistic
+  ASCII inputs are unaffected; the only behavior change is that
+  truncated tails are now always valid UTF-8.
+- **Regression test:** `TestArtifactValueTextTruncatesOnRuneBoundary`
+  pads with 238 ASCII bytes, appends a 4-byte emoji (`\xF0\x9F\x8C\x8D`,
+  🌍) so its second byte lands at index 240, then appends more bytes.
+  It asserts `utf8.ValidString(body)` is true on the truncated body —
+  the old code produced `\xF0\x9F\x8C` at the tail, which fails this
+  check.
+- **Commit:** _pending_.
