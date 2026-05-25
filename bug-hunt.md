@@ -174,3 +174,29 @@ session. One bug per iteration: find → reproduce → fix → commit.
   runs the validator 50 times and asserts `call_a` is reported every
   time. Verified to fail on the old code with "call_b"/"call_c"
   appearing across iterations; passes on the fix.
+- **Commit:** `531e90b` — "fix: report continuity errors deterministically when multiple tool calls are open".
+
+## Iteration 10 — same UTF-8 truncation bug in the datasource-mirror sqlstore
+
+- **Where:** `adapters/storage/datasourcemirror/sqlstore/store.go` `truncate`.
+- **Bug:** Same class as iteration 8: returned `value[:limit]` without
+  respecting UTF-8 rune boundaries. The function is used at insert time
+  for `data_store_record_field`-style filter rows (limit 191) and at
+  query time for the WHERE-clause filter value. A multi-byte rune that
+  straddles byte 191 would be left as a dangling continuation byte,
+  invalid UTF-8 — utf8mb4 inserts then fail under strict mode, or the
+  insert and search paths each truncate differently and disagree.
+- **Reproduction:** 189 ASCII bytes + one 3-byte rune (`"€"`) + ASCII
+  trailer. Old code returns `"a"×189 + 0xe2 0x82` (invalid UTF-8); new
+  code returns `"a"×189`.
+- **Fix:** Same approach as iteration 8 — scan backwards from the
+  byte limit to the nearest `utf8.RuneStart` before slicing.
+- **Regression test:** `TestTruncatePreservesUTF8RuneBoundaries` in the
+  mirror sqlstore package, mirrors the iteration 8 test. Verified to
+  fail on the old code (`invalid UTF-8: "...\xe2\x82"`).
+- **Notes:** Two other `truncate` helpers exist in the tree
+  (`runtime/datasource/detect.go` `truncateBytes` cap 64KB regex input,
+  `plugins/native/datasource/filesystem.go` `truncate` cap 1200 byte
+  body preview). Those touch user-visible text rather than indexed
+  values, so the impact is cosmetic and they're left for a separate
+  pass.

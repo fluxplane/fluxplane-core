@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	coredatasource "github.com/fluxplane/fluxplane-core/core/datasource"
 	"github.com/fluxplane/fluxplane-core/runtime/datasource/mirror"
@@ -14,6 +15,25 @@ import (
 	tc_mysql "github.com/testcontainers/testcontainers-go/modules/mysql"
 	_ "modernc.org/sqlite"
 )
+
+func TestTruncatePreservesUTF8RuneBoundaries(t *testing.T) {
+	// 189 ASCII bytes + one 3-byte rune ("€") + 10 ASCII so that byte 191 falls
+	// in the middle of the 3-byte rune (bytes 189..191 = 0xe2 0x82 0xac).
+	value := strings.Repeat("a", 189) + "€" + strings.Repeat("b", 10)
+	if len(value) <= 191 {
+		t.Fatalf("test setup: input %d bytes, want >191", len(value))
+	}
+	got := truncate(value, 191)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate produced invalid UTF-8: %q", got)
+	}
+	if len(got) > 191 {
+		t.Fatalf("truncate length = %d, want <= 191", len(got))
+	}
+	if got != strings.Repeat("a", 189) {
+		t.Fatalf("truncate = %q, want 189 'a's (€ dropped because byte 191 is inside it)", got)
+	}
+}
 
 func TestSQLiteStoreImplementsMirrorStore(t *testing.T) {
 	ctx := context.Background()
