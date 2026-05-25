@@ -18,10 +18,9 @@ import (
 
 type streamState struct {
 	responseState
-	blockTypes map[int]string
-	toolIDs    map[int]string
-	toolNames  map[int]string
-	toolArgs   map[int]*strings.Builder
+	toolIDs   map[int]string
+	toolNames map[int]string
+	toolArgs  map[int]*strings.Builder
 }
 
 type responseState struct {
@@ -36,7 +35,6 @@ type responseState struct {
 func newStreamState(tools []adapterllm.ToolSpec) *streamState {
 	return &streamState{
 		responseState: responseState{assembler: adapterllm.NewToolCallAssembler(tools)},
-		blockTypes:    map[int]string{},
 		toolIDs:       map[int]string{},
 		toolNames:     map[int]string{},
 		toolArgs:      map[int]*strings.Builder{},
@@ -105,7 +103,6 @@ func (s *streamState) applyFrame(frame sseFrame) ([]adapterllm.StreamEvent, erro
 
 func (s *streamState) contentBlockStart(ev contentBlockStartEvent) []adapterllm.StreamEvent {
 	block := ev.ContentBlock
-	s.blockTypes[ev.Index] = block.Type
 	ensureBlock(&s.blocks, ev.Index).Type = block.Type
 	switch block.Type {
 	case "text":
@@ -159,6 +156,16 @@ func (s *streamState) contentBlockDelta(ev contentBlockDeltaEvent) []adapterllm.
 			s.toolArgs[ev.Index] = builder
 		}
 		builder.WriteString(ev.Delta.PartialJSON)
+		block.Type = "tool_use"
+		if id := s.toolIDs[ev.Index]; id != "" {
+			block.ID = id
+		}
+		if name := s.toolNames[ev.Index]; name != "" {
+			block.Name = name
+		}
+		if builder.Len() > 0 {
+			block.Input = json.RawMessage(builder.String())
+		}
 		return []adapterllm.StreamEvent{{
 			Kind:       adapterllm.StreamToolCallDelta,
 			Tool:       tool.Name(s.toolNames[ev.Index]),
@@ -172,19 +179,24 @@ func (s *streamState) contentBlockDelta(ev contentBlockDeltaEvent) []adapterllm.
 }
 
 func (s *streamState) contentBlockStop(ev contentBlockStopEvent) ([]adapterllm.StreamEvent, error) {
-	blockType := s.blockTypes[ev.Index]
-	delete(s.blockTypes, ev.Index)
-	if blockType != "tool_use" {
+	block := ensureBlock(&s.blocks, ev.Index)
+	if block.Type != "tool_use" {
 		return nil, nil
 	}
 	args := "{}"
+	if len(block.Input) > 0 && strings.TrimSpace(string(block.Input)) != "" && strings.TrimSpace(string(block.Input)) != "null" {
+		args = string(block.Input)
+	}
 	if builder := s.toolArgs[ev.Index]; builder != nil && builder.Len() > 0 {
 		args = builder.String()
 	}
-	block := ensureBlock(&s.blocks, ev.Index)
 	block.Type = "tool_use"
-	block.ID = s.toolIDs[ev.Index]
-	block.Name = s.toolNames[ev.Index]
+	if id := s.toolIDs[ev.Index]; id != "" {
+		block.ID = id
+	}
+	if name := s.toolNames[ev.Index]; name != "" {
+		block.Name = name
+	}
 	block.Input = json.RawMessage(args)
 	delete(s.toolArgs, ev.Index)
 	event := adapterllm.StreamEvent{

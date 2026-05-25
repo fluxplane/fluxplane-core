@@ -127,6 +127,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `error-policy`, and `idempotency-key`; use snake_case fields instead.
 
 ### Fixed
+- Fixed Claude streamed tool-use finalization so durable `tool_use` transcript
+  blocks remain paired with operation requests when Anthropic stream side-state
+  is missing or stale.
 - Normalized LLM usage token buckets so Anthropic cache creation is reported as
   cache-write input tokens and OpenAI cached input is subtracted from standard
   input tokens before usage events and cost enrichment.

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	adapterllm "github.com/fluxplane/fluxplane-core/adapters/llm"
 	"github.com/fluxplane/fluxplane-core/core/agent"
 	coreconversation "github.com/fluxplane/fluxplane-core/core/conversation"
 	"github.com/fluxplane/fluxplane-core/core/invocation"
@@ -158,6 +159,31 @@ func TestStreamToolUseReturnsOperationAndTranscript(t *testing.T) {
 	}
 }
 
+func TestStreamToolUseStopUsesDurableBlockState(t *testing.T) {
+	state := newStreamState([]adapterllm.ToolSpec{lookupAdapterToolSpec()})
+	state.blocks = []contentBlock{{
+		Type:  "tool_use",
+		ID:    "toolu_1",
+		Name:  "lookup",
+		Input: json.RawMessage(`{"q":"x"}`),
+	}}
+
+	events, err := state.contentBlockStop(contentBlockStopEvent{Index: 0})
+	if err != nil {
+		t.Fatalf("contentBlockStop: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != adapterllm.StreamToolCallDone {
+		t.Fatalf("events = %#v, want tool call done", events)
+	}
+	if len(state.operations) != 1 || state.operations[0].ProviderCallID != "toolu_1" {
+		t.Fatalf("operations = %#v", state.operations)
+	}
+	input, ok := state.operations[0].Input.(map[string]any)
+	if !ok || input["q"] != "x" {
+		t.Fatalf("operation input = %#v, want q=x", state.operations[0].Input)
+	}
+}
+
 func TestMessageRequestDoesNotSynthesizeMissingToolResult(t *testing.T) {
 	model, err := New(Config{Model: "claude-test", APIKey: "test-key", BaseURL: "http://example.test"})
 	if err != nil {
@@ -217,6 +243,16 @@ func TestMessageRequestGroupsConsecutiveToolResults(t *testing.T) {
 	}
 	if results.Content[0].ToolUseID != "toolu_1" || results.Content[1].ToolUseID != "toolu_2" {
 		t.Fatalf("results message = %#v, want matching tool_use ids", results)
+	}
+}
+
+func lookupAdapterToolSpec() adapterllm.ToolSpec {
+	return adapterllm.ToolSpec{
+		Name: "lookup",
+		Target: invocation.Target{Kind: invocation.TargetOperation, Operation: operation.Ref{
+			Name: "lookup_data",
+		}},
+		InputSchema: operation.Schema{Data: json.RawMessage(`{"type":"object"}`)},
 	}
 }
 
