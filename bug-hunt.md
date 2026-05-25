@@ -530,3 +530,26 @@ session. One bug per iteration: find → reproduce → fix → commit.
   iteration 5's atomic-write helper; an explicit nil-check / RemoveAll
   before the return is mechanical enough that further tooling would
   not add coverage.
+- **Commit:** `6f948c7` — "fix: clean up scratch dir when writeReplacementFile fails".
+
+## Iteration 23 — `EnvResolver.ResolveSecret` dropped the caller's context
+
+- **Where:** `runtime/secret/secret.go` `EnvResolver.ResolveSecret`.
+- **Bug:** The method took `_ context.Context` (discarded) and then
+  called `r.Environment.Lookup(context.Background(), ref.Name)` —
+  silently dropping the caller's deadline, cancellation channel, and
+  any context-attached values (tracing IDs, scoped policies, etc.)
+  before invoking the env lookup.
+- **Impact:** Anything wired through `Environment` that's slower than
+  an in-process map lookup — a file-backed env reader, a network
+  resolver, a sandboxed exec — could not be cancelled by the caller
+  and could not see request-scoped metadata. In short timeouts and
+  shutdown paths this means the resolver runs to completion regardless
+  of what the request lifecycle wants.
+- **Fix:** Receive the context as a named parameter, default a nil
+  context to `context.Background()`, and pass it through to
+  `Environment.Lookup`.
+- **Regression test:** `TestEnvResolverPropagatesContext` installs a
+  custom `Environment` that records the context it was called with and
+  asserts the test's `context.WithValue` marker survives the call.
+  Fails on the old code with the empty zero value.

@@ -44,7 +44,7 @@ type EnvResolver struct {
 }
 
 // ResolveSecret resolves env/<KEY> refs.
-func (r EnvResolver) ResolveSecret(_ context.Context, ref coresecret.Ref) (coresecret.Material, bool, error) {
+func (r EnvResolver) ResolveSecret(ctx context.Context, ref coresecret.Ref) (coresecret.Material, bool, error) {
 	ref = ref.Normalize()
 	if ref.Scheme != coresecret.SchemeEnv {
 		return coresecret.Material{}, false, nil
@@ -55,7 +55,10 @@ func (r EnvResolver) ResolveSecret(_ context.Context, ref coresecret.Ref) (cores
 	if r.Environment == nil {
 		return coresecret.Material{}, false, fmt.Errorf("secret env resolver environment is nil")
 	}
-	value, ok, err := r.Environment.Lookup(context.Background(), ref.Name)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	value, ok, err := r.Environment.Lookup(ctx, ref.Name)
 	if err != nil {
 		return coresecret.Material{}, false, err
 	}

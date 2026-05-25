@@ -188,3 +188,38 @@ func (e mapEnvironment) Lookup(_ context.Context, key string) (string, bool, err
 	value, ok := e[key]
 	return value, ok, nil
 }
+
+// captureCtxEnv records the context that Lookup was called with so tests
+// can verify that EnvResolver propagates the caller's ctx instead of
+// substituting context.Background().
+type captureCtxEnv struct {
+	value      string
+	gotContext context.Context
+}
+
+func (e *captureCtxEnv) Lookup(ctx context.Context, _ string) (string, bool, error) {
+	e.gotContext = ctx
+	return e.value, e.value != "", nil
+}
+
+// TestEnvResolverPropagatesContext regresses a bug where
+// EnvResolver.ResolveSecret used `_ context.Context` (ignoring it) and
+// then called r.Environment.Lookup(context.Background(), ...). Any
+// caller-supplied deadline / cancellation / metadata key on the
+// resolver context was silently dropped.
+func TestEnvResolverPropagatesContext(t *testing.T) {
+	env := &captureCtxEnv{value: "pat"}
+	resolver := EnvResolver{Environment: env}
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
+
+	if _, _, err := resolver.ResolveSecret(ctx, coresecret.Env("TOKEN")); err != nil {
+		t.Fatalf("ResolveSecret: %v", err)
+	}
+	if env.gotContext == nil {
+		t.Fatal("Environment.Lookup got nil context")
+	}
+	if got, _ := env.gotContext.Value(ctxKey{}).(string); got != "marker" {
+		t.Fatalf("Environment.Lookup got ctx without caller value (was %q), want \"marker\" - resolver is substituting context.Background()", got)
+	}
+}
