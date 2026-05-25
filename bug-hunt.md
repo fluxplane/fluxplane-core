@@ -388,3 +388,24 @@ session. One bug per iteration: find → reproduce → fix → commit.
   on the old code (`"hi $world"` vs the wanted `"hi \$world"`).
   `TestUnescapeDoubleQuotedEnvRejectsTrailingEscape` confirms the
   defensive trailing-backslash error path still trips.
+
+## Iteration 11 — docker-image target treated custom Dockerfile as out-dir-relative
+
+- **Where:** `adapters/distribution/deploy/build.go` docker-image target handling.
+- **Bug:** `distribution.build.targets.<name>.dockerfile` was resolved with
+  `targetOutput(outDir, ...)`, so a relative custom Dockerfile path was
+  interpreted under `--out-dir` instead of the app root. Builds that used an
+  external artifact directory plus `dockerfile: deploy/CustomDockerfile` tried
+  to build from `<outDir>/deploy/CustomDockerfile`, even though Docker's build
+  context is the app root and existing no-out-dir behavior treated the value as
+  app-relative.
+- **Reproduction:** `TestBuildAppImageUsesConfiguredDockerfileRelativeToAppRootWithOutDir`
+  configures `dockerfile: deploy/CustomDockerfile`, sets `OutDir` elsewhere,
+  and records the Dockerfile passed to the Docker client. Old code passed the
+  out-dir-relative path; the fix passes the app-root-relative path.
+- **Fix:** Added `dockerImageDockerfilePath`: generated/managed Dockerfiles
+  still live in `outDir`, absolute paths remain absolute, but explicit relative
+  Dockerfile paths resolve under the app root. Target listing now uses the same
+  helper so displayed output matches build behavior.
+- **Regression test:** `go test ./adapters/distribution/deploy -run TestBuildAppImageUsesConfiguredDockerfileRelativeToAppRootWithOutDir`
+  fails on the old code and passes after the fix. Full package tests also pass.

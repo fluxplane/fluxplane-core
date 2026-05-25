@@ -714,3 +714,37 @@ name: assistant
 		t.Fatalf("dockerfile = %q, want %q", dockerClient.dockerfile, custom)
 	}
 }
+
+func TestBuildAppImageUsesConfiguredDockerfileRelativeToAppRootWithOutDir(t *testing.T) {
+	_, app := testRepo(t, `
+kind: app
+name: sample
+distribution:
+  build:
+    targets:
+      image:
+        kind: docker-image
+        image: sample
+        tags: [latest]
+        dockerfile: deploy/CustomDockerfile
+---
+kind: agent
+name: assistant
+`)
+	custom := filepath.Join(app, "deploy", "CustomDockerfile")
+	writeTestFile(t, app, "deploy/CustomDockerfile", "FROM custom\n")
+	outDir := filepath.Join(t.TempDir(), "artifacts")
+	dockerClient := &recordingDockerClient{}
+
+	if _, err := BuildApp(context.Background(), AppBuildOptions{
+		AppDir:       app,
+		OutDir:       outDir,
+		Targets:      []string{"image"},
+		dockerClient: dockerClient,
+	}); err != nil {
+		t.Fatalf("BuildApp: %v", err)
+	}
+	if dockerClient.dockerfile != custom {
+		t.Fatalf("dockerfile = %q, want app-relative %q", dockerClient.dockerfile, custom)
+	}
+}

@@ -155,7 +155,7 @@ func buildTargetOutput(root string, spec coredistribution.Spec, target coredistr
 	case buildKindDockerfile:
 		return targetOutput(root, target.Output, "Dockerfile")
 	case buildKindDockerImage:
-		return targetOutput(root, target.Dockerfile, "Dockerfile")
+		return dockerImageDockerfilePath(root, root, target.Dockerfile, filepath.Join(root, "Dockerfile"))
 	case buildKindDockerCompose:
 		return targetOutput(root, target.Output, "docker-compose.yaml")
 	case buildKindKubernetesManifest:

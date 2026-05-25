@@ -217,7 +217,7 @@ func BuildApp(ctx context.Context, opts AppBuildOptions) (AppBuildResult, error)
 			if err != nil {
 				return AppBuildResult{}, err
 			}
-			dockerfile := targetOutput(outDir, targetSpec.Dockerfile, dockerfilePath)
+			dockerfile := dockerImageDockerfilePath(loaded.Root, outDir, targetSpec.Dockerfile, dockerfilePath)
 			managedDockerfile := strings.TrimSpace(targetSpec.Dockerfile) == ""
 			command = append(command, "-f", dockerfile, loaded.Root)
 			result.Command = command
@@ -354,6 +354,14 @@ func targetOutput(outDir, configured, fallback string) string {
 		return filepath.Clean(configured)
 	}
 	return filepath.Join(outDir, configured)
+}
+
+func dockerImageDockerfilePath(appRoot, outDir, configured, fallback string) string {
+	configured = strings.TrimSpace(configured)
+	if configured == "" || filepath.IsAbs(configured) {
+		return targetOutput(outDir, configured, fallback)
+	}
+	return filepath.Join(appRoot, configured)
 }
 
 func resolveTargetTags(spec coredistribution.Spec, target coredistribution.BuildTargetSpec, opts AppBuildOptions) []string {
