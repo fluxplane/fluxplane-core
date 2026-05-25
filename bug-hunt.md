@@ -320,3 +320,22 @@ session. One bug per iteration: find → reproduce → fix → commit.
   All four cases fail on the old code with
   `unknown instance "<nil>"` / `"true"` / `"42"` messages, all pass on
   the fix.
+- **Commit:** `215b744` — "fix: selectInstance must error with \"instance is required\" on missing key".
+
+## Iteration 16 — same UTF-8 truncation pattern in `shortLogValue`
+
+- **Where:** `apps/launch/serve_verbose.go` `shortLogValue`.
+- **Bug:** Fifth occurrence of the truncation pattern that lost track
+  of UTF-8 rune boundaries. `text[:limit-3] + "..."` chops at byte
+  117 regardless of where multi-byte runes sit, so verbose serve-event
+  log lines could end with a dangling continuation byte followed by
+  `"..."`.
+- **Impact:** Diagnostic-only — corrupts log output for non-ASCII
+  values. Some log aggregators reject lines that aren't valid UTF-8.
+- **Reproduction:** 116 ASCII + 3-byte rune `"€"` + filler. Byte 117
+  lands inside the rune; the old function returned a string ending
+  `"...\xe2..."`.
+- **Fix:** Same rune-start scan as iterations 8, 10, 13, 14.
+- **Regression tests:** `TestShortLogValuePreservesUTF8RuneBoundaries`
+  and `TestShortLogValueLeavesShortStrings`. First fails on the old
+  code with `"...aaaaaa\xe2..."`.

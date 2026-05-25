@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	fluxplane "github.com/fluxplane/fluxplane-core"
 	coretrigger "github.com/fluxplane/fluxplane-core/core/trigger"
@@ -243,7 +244,11 @@ func shortLogValue(value any) string {
 	if len(text) <= limit {
 		return text
 	}
-	return text[:limit-3] + "..."
+	cut := limit - 3
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "..."
 }
 
 func nonEmptyStrings(values []string) []string {
