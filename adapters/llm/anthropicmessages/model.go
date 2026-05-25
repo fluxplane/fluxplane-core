@@ -25,6 +25,13 @@ import (
 const (
 	DefaultVersion         = "2023-06-01"
 	DefaultMaxOutputTokens = 4096
+
+	// maxNonStreamingResponseBytes caps the body the non-streaming completion
+	// path will buffer. Realistic Anthropic responses are well under this
+	// limit at the default 4096-token output budget; the cap exists so that a
+	// malicious or buggy upstream cannot OOM the client by returning an
+	// arbitrarily large body for json.Unmarshal to chase.
+	maxNonStreamingResponseBytes = 100 * 1024 * 1024 // 100 MiB
 )
 
 var ErrModelMissing = errors.New("anthropic messages: model is empty")
@@ -322,7 +329,7 @@ func (m *Model) doJSON(ctx context.Context, wire messageRequest, collector *http
 		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxNonStreamingResponseBytes))
 	if err != nil {
 		return nil, "", err
 	}

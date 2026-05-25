@@ -579,3 +579,28 @@ session. One bug per iteration: find → reproduce → fix → commit.
   returns the legitimate token or a structured decode error — what
   must NOT happen is buffering the full 2 MiB, which would have OOMed
   the test on small CI runners under the old code.
+- **Commit:** `67c20a2` — "fix: cap OAuth2 token endpoint response at 1 MiB".
+
+## Iteration 25 — Anthropic non-streaming response body was unbounded
+
+- **Where:** `adapters/llm/anthropicmessages/model.go` `doJSON`.
+- **Bug:** Same class as iteration 24, this time in the LLM client. The
+  non-streaming completion path did
+  `io.ReadAll(resp.Body)` with no cap. The Anthropic HTTP client is
+  built from `httptransport.CloneDefaultHTTPClient()`, which applies
+  no transport-level size limit, so a malicious / compromised /
+  misbehaving upstream could OOM the client by returning an
+  arbitrarily large response body for `json.Unmarshal` to chase.
+- **Impact:** Any of the providers that route through this package —
+  Anthropic, Claude Code, and anything else using
+  `anthropicmessages.Model` directly — can be poisoned by a hostile
+  upstream. The streaming error path already wraps in `LimitReader`
+  (64 KiB), so only the non-streaming success path was exposed.
+- **Fix:** Added `maxNonStreamingResponseBytes = 100 MiB` and wrapped
+  the read in `io.LimitReader`. 100 MiB is two orders of magnitude
+  above any realistic Anthropic response at the default 4096-token
+  output budget, so happy-path behavior is unchanged; the cap exists
+  purely to bound a hostile body.
+- **No regression test:** Materialising a >100 MiB response in a unit
+  test is heavy and would dominate CI time. The fix is mechanical and
+  mirrors iteration 24.
